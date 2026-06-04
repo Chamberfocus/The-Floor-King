@@ -1,0 +1,151 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import {
+  ArrowLeft,
+  StickyNote,
+  Phone,
+  MessageSquare,
+  Mail,
+  ArrowLeftRight,
+  Info,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { StageBadge } from "@/components/stage-badge";
+import {
+  getCustomer,
+  listActivities,
+  getProfileNames,
+} from "@/lib/data/customers";
+import { type ActivityType } from "@/lib/types";
+import { formatDate, formatDateTime } from "@/lib/format";
+import { StageSelect } from "./stage-select";
+import { AddActivityForm } from "./add-activity-form";
+import { CustomerInfoCard } from "./customer-info-card";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const customer = await getCustomer(id);
+  return { title: customer?.full_name ?? "Customer" };
+}
+
+const ACTIVITY_ICON: Record<ActivityType, LucideIcon> = {
+  note: StickyNote,
+  call: Phone,
+  text: MessageSquare,
+  email: Mail,
+  stage_change: ArrowLeftRight,
+  system: Info,
+};
+
+export default async function CustomerPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const customer = await getCustomer(id);
+  if (!customer) notFound();
+
+  const activities = await listActivities(id);
+  const names = await getProfileNames([
+    ...activities.map((a) => a.user_id ?? ""),
+    customer.assigned_to ?? "",
+    customer.created_by ?? "",
+  ]);
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <Link
+        href="/customers"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" /> Back to customers
+      </Link>
+
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {customer.full_name}
+            </h1>
+            <StageBadge stage={customer.stage} />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Added {formatDate(customer.created_at)}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Left: stage + contact */}
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Pipeline stage</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <StageSelect id={customer.id} stage={customer.stage} />
+              {customer.assigned_to && names[customer.assigned_to] ? (
+                <p className="text-xs text-muted-foreground">
+                  Owner: {names[customer.assigned_to]}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <CustomerInfoCard customer={customer} />
+        </div>
+
+        {/* Right: activity timeline */}
+        <div className="lg:col-span-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Activity</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <AddActivityForm customerId={customer.id} />
+
+              {activities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No activity yet. Log your first call or note above.
+                </p>
+              ) : (
+                <ol className="space-y-4 border-t pt-4">
+                  {activities.map((a) => {
+                    const Icon = ACTIVITY_ICON[a.type];
+                    const who = a.user_id ? names[a.user_id] : null;
+                    return (
+                      <li key={a.id} className="flex gap-3">
+                        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                          <Icon className="size-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="whitespace-pre-wrap text-sm">{a.body}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {who ? `${who} · ` : ""}
+                            {formatDateTime(a.created_at)}
+                          </p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
