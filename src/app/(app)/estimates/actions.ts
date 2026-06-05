@@ -1,0 +1,154 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { num, type SaveEstimateInput } from "@/lib/estimate-calc";
+import type { EstimateStatus } from "@/lib/types";
+
+function str(v: FormDataEntryValue | null): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function toNumOrNull(v: string | number | null): number | null {
+  if (v === null || v === "") return null;
+  const n = typeof v === "number" ? v : parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Create a blank draft estimate for a customer and open the builder. */
+export async function createEstimate(formData: FormData): Promise<void> {
+  const customerId = str(formData.get("customer_id"));
+  if (!customerId) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: estimate, error } = await supabase
+    .from("estimates")
+    .insert({
+      customer_id: customerId,
+      created_by: user?.id ?? null,
+      title: "New estimate",
+    })
+    .select("id")
+    .single();
+  if (error || !estimate) return;
+
+  await supabase
+    .from("estimate_options")
+    .insert({ estimate_id: estimate.id, name: "Option 1", position: 0 });
+
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/estimates/${estimate.id}/edit`);
+}
+
+/** Replace the estimate's options + lines with the builder's current state. */
+export async function saveEstimate(
+  estimateId: string,
+  input: SaveEstimateInput,
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+
+  const { error: updateError } = await supabase
+    .from("estimates")
+    .update({
+      title: input.title || null,
+      tax_rate: num(input.tax_rate),
+      presentation: input.presentation,
+      notes: input.notes || null,
+      job_description: input.job_description || null,
+    })
+    .eq("id", estimateId);
+  if (updateError) return { error: updateError.message };
+
+  // Rebuild options + lines (cascade clears old lines).
+  const { error: deleteError } = await supabase
+    .from("estimate_options")
+    .delete()
+    .eq("estimate_id", estimateId);
+  if (deleteError) return { error: deleteError.message };
+
+  for (let i = 0; i < input.options.length; i++) {
+    const option = input.options[i];
+    const { data: optionRow, error: optionError } = await supabase
+      .from("estimate_options")
+      .insert({
+        estimate_id: estimateId,
+        name: option.name || `Option ${i + 1}`,
+        position: i,
+        notes: option.notes || null,
+      })
+      .select("id")
+      .single();
+    if (optionError || !optionRow) {
+      return { error: optionError?.message ?? "Could not save an option." };
+    }
+
+    if (option.lines.length) {
+      const lineRows = option.lines.map((line, j) => ({
+        option_id: optionRow.id,
+        position: j,
+        room: line.room || null,
+        description: line.description || "",
+        line_type: line.line_type,
+        sqft: toNumOrNull(line.sqft),
+        material_rate: toNumOrNull(line.material_rate),
+        labor_rate: toNumOrNull(line.labor_rate),
+        installed_rate: toNumOrNull(line.installed_rate),
+        flat_amount: toNumOrNull(line.flat_amount),
+        product_id: line.product_id || null,
+      }));
+      const { error: lineError } = await supabase
+        .from("estimate_line_items")
+        .insert(lineRows);
+      if (lineError) return { error: lineError.message };
+    }
+  }
+
+  revalidatePath(`/estimates/${estimateId}`);
+  revalidatePath(`/estimates/${estimateId}/edit`);
+  revalidatePath("/estimates");
+  return { error: null };
+}
+
+/** Move an estimate through its status workflow. */
+export async function setEstimateStatus(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const status = str(formData.get("status")) as EstimateStatus;
+  if (!id || !status) return;
+
+  const patch: Record<string, unknown> = { status };
+  if (status === "approved") {
+    patch.accepted_option_id = str(formData.get("accepted_option_id")) || null;
+  }
+  if (status === "declined" || status === "changes_requested") {
+    patch.customer_response_note =
+      str(formData.get("customer_response_note")) || null;
+  }
+
+  const supabase = await createClient();
+  await supabase.from("estimates").update(patch).eq("id", id);
+
+  revalidatePath(`/estimates/${id}`);
+  revalidatePath("/estimates");
+  redirect(`/estimates/${id}`);
+}
+
+export async function deleteEstimate(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const customerId = str(formData.get("customer_id"));
+  if (!id) return;
+
+  const supabase = await createClient();
+  await supabase.from("estimates").delete().eq("id", id);
+
+  revalidatePath("/estimates");
+  if (customerId) {
+    revalidatePath(`/customers/${customerId}`);
+    redirect(`/customers/${customerId}`);
+  }
+  redirect("/estimates");
+}

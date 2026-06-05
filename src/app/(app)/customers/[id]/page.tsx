@@ -9,6 +9,8 @@ import {
   Mail,
   ArrowLeftRight,
   Info,
+  Plus,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -17,14 +19,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/components/stage-badge";
+import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import {
   getCustomer,
   listActivities,
   getProfileNames,
 } from "@/lib/data/customers";
+import { listEstimatesForCustomer } from "@/lib/data/estimates";
+import { optionTotals } from "@/lib/estimate-calc";
 import { type ActivityType } from "@/lib/types";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { createEstimate } from "@/app/(app)/estimates/actions";
 import { StageSelect } from "./stage-select";
 import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
@@ -58,6 +65,7 @@ export default async function CustomerPage({
   if (!customer) notFound();
 
   const activities = await listActivities(id);
+  const estimates = await listEstimatesForCustomer(id);
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
@@ -107,8 +115,64 @@ export default async function CustomerPage({
           <CustomerInfoCard customer={customer} />
         </div>
 
-        {/* Right: activity timeline */}
-        <div className="lg:col-span-2">
+        {/* Right: estimates + activity timeline */}
+        <div className="space-y-6 lg:col-span-2">
+          {/* Estimates */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">Estimates</CardTitle>
+              <form action={createEstimate}>
+                <input type="hidden" name="customer_id" value={customer.id} />
+                <Button type="submit" size="sm">
+                  <Plus className="size-3.5" /> New estimate
+                </Button>
+              </form>
+            </CardHeader>
+            <CardContent>
+              {estimates.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No estimates yet. Click &ldquo;New estimate&rdquo; to build a quote.
+                </p>
+              ) : (
+                <ul className="divide-y text-sm">
+                  {estimates.map((e) => {
+                    const opts = e.options ?? [];
+                    const opt =
+                      (e.accepted_option_id &&
+                        opts.find((o) => o.id === e.accepted_option_id)) ||
+                      opts[0];
+                    const total = opt
+                      ? optionTotals(opt.line_items ?? [], e.tax_rate).total
+                      : 0;
+                    return (
+                      <li
+                        key={e.id}
+                        className="flex items-center justify-between gap-3 py-2"
+                      >
+                        <Link
+                          href={`/estimates/${e.id}`}
+                          className="flex min-w-0 items-center gap-2 hover:underline"
+                        >
+                          <FileText className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate">
+                            {e.title || "Estimate"}
+                          </span>
+                        </Link>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <EstimateStatusBadge status={e.status} />
+                          <span className="font-medium">
+                            {formatMoney(total)}
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Activity */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Activity</CardTitle>

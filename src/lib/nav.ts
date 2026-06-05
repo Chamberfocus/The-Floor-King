@@ -5,6 +5,7 @@ import {
   FileText,
   CalendarDays,
   Receipt,
+  Package,
   type LucideIcon,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types";
@@ -31,6 +32,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Estimates", href: "/estimates", icon: FileText, roles: STAFF },
   { label: "Jobs", href: "/jobs", icon: CalendarDays, roles: STAFF_AND_CREW },
   { label: "Invoices", href: "/invoices", icon: Receipt, roles: STAFF },
+  { label: "Catalog", href: "/catalog", icon: Package, roles: STAFF },
 ];
 
 export function navItemsForRole(role: UserRole): NavItem[] {
