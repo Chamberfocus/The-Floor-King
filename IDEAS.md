@@ -8,6 +8,46 @@ Running list of every feature idea, tagged by phase. Legend:
 
 ---
 
+## ⭐ Master Sales Workflow (owner's spec, 2026-06-05)
+
+Stages are set up (Workflow Stages). Legend: ✅ done · 🔨 build next (no external deps) ·
+⏳ needs external setup · 📋 backlog.
+
+1. **New Lead** — customer calls → owner/office **assigns** to a salesperson. ✅ (handoff/assign + email)
+2. **Qualifying** — assigned person contacts client, runs **qualifying questions** to confirm
+   they're a fit, **with a Skip option**. 🔨 (configurable qualifying questionnaire, like the
+   wizard questions). Outcome → schedule estimate OR invite to showroom.
+3. **Estimate Scheduled** — book the in-home estimate (carpet measured in home; hard surface
+   taken back to the store to break down).
+   - **"On our way" button** on customer page → customer notified with **live ETA from our
+     store location to their address** (drive time). ⏳ needs store address + Google Maps API key.
+4. **Awaiting Price (Measuring)** — customer awaiting price.
+   - **"Estimate completed" button → auto-opens the Estimate Wizard.** 🔨
+5. **Estimate Sent → Awaiting Customer Response** — moves to this stage on send. ✅ (status)
+   - Notify when client **received/opened** it. ⏳ (Resend open-tracking webhook)
+   - **Auto thank-you email ~2 hours after sending.** ⏳ (scheduler/cron)
+   - Declined → **require a reason**. ✅ (portal + staff)
+   - Approved → notify **owner + salesperson**. 🔨 (add salesperson to existing owner notify)
+6. **Won — Collect Deposit** — contact client for deposit method.
+   - **Invoice auto-populated by picking which estimate items to bring over.** 🔨 (selective item picker)
+   - Wait for deposit (record payment). ✅
+7. **Ordering Materials** — after deposit → order materials. **Multiple vendors / multiple POs.** ✅ (POs)
+   - Notify client **"material ordered."** 🔨
+   - Record **order confirmation**; if **backorder** → notify everyone + warehouse + **ETA**. 🔨
+8. **Materials Received** — warehouse **receives + verifies** right items + complete; if anything
+   **missing → notify all project employees**. 🔨 (warehouse receiving check + alerts)
+9. **Install Scheduled** — schedule install (or post to **installer bulletin board** ✅), notify all.
+   - **Day-before reminder to everyone.** ⏳ (scheduler/cron)
+10. **Installed** — installer gets **customer signature on satisfaction form** ✅ → mark complete.
+11. **Installed — Follow-up** — follow-up call to check condition + collect **final payment**.
+12. **Closed.**
+
+**External pieces needed:** store address + Google Maps (Distance Matrix) API key for ETA;
+a scheduler (cron) for delayed/scheduled emails (2-hr thank-you, day-before reminders);
+Resend webhook for email open/receipt tracking.
+
+---
+
 ## Phase 2 — Estimates (current)
 
 - ✅ Line-by-line line-item estimate builder

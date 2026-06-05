@@ -56,6 +56,7 @@ import { CustomerInfoCard } from "./customer-info-card";
 import { InvitePortalForm } from "./invite-portal-form";
 import { CustomerChat } from "./customer-chat";
 import { HandoffControl } from "./handoff-control";
+import { OnTheWayButton } from "./on-the-way-button";
 
 export async function generateMetadata({
   params,
@@ -127,6 +128,7 @@ export default async function CustomerPage({
             Added {formatDate(customer.created_at)}
           </p>
         </div>
+        <OnTheWayButton customerId={customer.id} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
