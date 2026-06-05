@@ -48,8 +48,8 @@ export default async function NewEstimatePage({
       </div>
 
       <PageHeader
-        title="New estimate"
-        description={`Guided wizard for ${customer.full_name}. Edit these questions anytime in Wizard Setup.`}
+        title="Estimate Wizard"
+        description={`Guided estimate for ${customer.full_name}. Edit these questions anytime in Wizard Setup.`}
       />
 
       <EstimateWizard

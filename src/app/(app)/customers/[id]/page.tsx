@@ -13,6 +13,7 @@ import {
   FileText,
   Wrench,
   Receipt,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -35,6 +36,7 @@ import { listJobsForCustomer } from "@/lib/data/jobs";
 import { createJob } from "@/app/(app)/jobs/actions";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
+import { createEstimate } from "@/app/(app)/estimates/actions";
 import { createInvoice } from "@/app/(app)/invoices/actions";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { optionTotals } from "@/lib/estimate-calc";
@@ -154,14 +156,25 @@ export default async function CustomerPage({
         <div className="space-y-6 lg:col-span-2">
           {/* Estimates */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
-              <Link
-                href={`/estimates/new?customer=${customer.id}`}
-                className={buttonVariants({ size: "sm" })}
-              >
-                <Plus className="size-3.5" /> New estimate
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/estimates/new?customer=${customer.id}`}
+                  className={buttonVariants({ size: "sm" })}
+                >
+                  <Sparkles className="size-3.5" /> Wizard
+                </Link>
+                <form action={createEstimate}>
+                  <input type="hidden" name="customer_id" value={customer.id} />
+                  <button
+                    type="submit"
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    <Plus className="size-3.5" /> Blank
+                  </button>
+                </form>
+              </div>
             </CardHeader>
             <CardContent>
               {estimates.length === 0 ? (
