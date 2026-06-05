@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Trash2, Send } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -16,7 +16,12 @@ import { invoiceTotals } from "@/lib/invoice-calc";
 import { formatDate, formatMoney } from "@/lib/format";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/types";
 import { InvoiceBuilder } from "../invoice-builder";
-import { recordPayment, deletePayment, deleteInvoice } from "../actions";
+import {
+  recordPayment,
+  deletePayment,
+  deleteInvoice,
+  emailInvoice,
+} from "../actions";
 
 export const metadata: Metadata = { title: "Invoice" };
 
@@ -65,6 +70,12 @@ export default async function InvoicePage({
             {invoice.issue_date ? ` · Issued ${formatDate(invoice.issue_date)}` : ""}
           </p>
         </div>
+        <form action={emailInvoice}>
+          <input type="hidden" name="id" value={invoice.id} />
+          <Button type="submit" size="lg">
+            <Send className="size-4" /> Email to customer
+          </Button>
+        </form>
       </div>
 
       <InvoiceBuilder invoice={invoice} amountPaid={paid} />

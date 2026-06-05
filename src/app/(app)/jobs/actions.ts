@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import type { JobStatus } from "@/lib/types";
 
 export interface JobFormState {
@@ -151,6 +152,43 @@ export async function setJobStatus(formData: FormData): Promise<void> {
   revalidatePath(`/jobs/${id}`);
   revalidatePath("/jobs");
   revalidatePath("/dashboard");
+}
+
+/** Email the customer their scheduled install date. */
+export async function emailJobSchedule(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("title, scheduled_date, customer:customers(full_name, email)")
+    .eq("id", id)
+    .maybeSingle();
+  const cust = job?.customer as unknown as {
+    full_name: string | null;
+    email: string | null;
+  } | null;
+  if (cust?.email) {
+    const dateStr = job?.scheduled_date
+      ? new Date(job.scheduled_date as string).toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        })
+      : "soon";
+    await sendEmail({
+      to: cust.email,
+      subject: "Your installation is scheduled",
+      html: emailLayout(
+        "Your installation is scheduled",
+        `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
+         <p>Your flooring installation${job?.title ? ` (${job.title})` : ""} is scheduled for <strong>${dateStr}</strong>. We'll see you then!</p>`,
+        { label: "View your project", url: `${siteUrl()}/portal` },
+      ),
+    });
+  }
+  revalidatePath(`/jobs/${id}`);
 }
 
 export async function deleteJob(formData: FormData): Promise<void> {

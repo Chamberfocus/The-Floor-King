@@ -7,6 +7,7 @@ import {
   invoiceTotals,
   type SaveInvoiceInput,
 } from "@/lib/invoice-calc";
+import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import type {
   EstimateLineItem,
   InvoiceStatus,
@@ -264,6 +265,39 @@ export async function setInvoiceStatus(formData: FormData): Promise<void> {
   revalidatePath(`/invoices/${id}`);
   revalidatePath("/invoices");
   revalidatePath("/dashboard");
+}
+
+/** Mark an invoice as sent and email it to the customer. */
+export async function emailInvoice(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const supabase = await createClient();
+  await supabase.from("invoices").update({ status: "sent" }).eq("id", id);
+
+  const { data: inv } = await supabase
+    .from("invoices")
+    .select("number, customer:customers(full_name, email)")
+    .eq("id", id)
+    .maybeSingle();
+  const cust = inv?.customer as unknown as {
+    full_name: string | null;
+    email: string | null;
+  } | null;
+  if (cust?.email) {
+    await sendEmail({
+      to: cust.email,
+      subject: `Invoice ${inv?.number ?? ""} from Cleveland Floor King`.trim(),
+      html: emailLayout(
+        "You have a new invoice",
+        `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
+         <p>Your invoice${inv?.number ? ` ${inv.number}` : ""} is ready. Tap below to view it.</p>`,
+        { label: "View invoice", url: `${siteUrl()}/portal/invoices/${id}` },
+      ),
+    });
+  }
+
+  revalidatePath(`/invoices/${id}`);
+  redirect(`/invoices/${id}`);
 }
 
 export async function deleteInvoice(formData: FormData): Promise<void> {

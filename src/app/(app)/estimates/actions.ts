@@ -8,6 +8,7 @@ import {
   type SaveEstimateInput,
   type WizardSubmit,
 } from "@/lib/estimate-calc";
+import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import type { EstimateStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -135,6 +136,30 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
 
   const supabase = await createClient();
   await supabase.from("estimates").update(patch).eq("id", id);
+
+  if (status === "sent") {
+    const { data: est } = await supabase
+      .from("estimates")
+      .select("title, customer:customers(full_name, email)")
+      .eq("id", id)
+      .maybeSingle();
+    const cust = est?.customer as unknown as {
+      full_name: string | null;
+      email: string | null;
+    } | null;
+    if (cust?.email) {
+      await sendEmail({
+        to: cust.email,
+        subject: "Your estimate from Cleveland Floor King",
+        html: emailLayout(
+          "Your estimate is ready",
+          `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
+           <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or request changes.</p>`,
+          { label: "View & approve", url: `${siteUrl()}/portal/estimates/${id}` },
+        ),
+      });
+    }
+  }
 
   revalidatePath(`/estimates/${id}`);
   revalidatePath("/estimates");

@@ -2,9 +2,38 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
+}
+
+/** Email the business when a customer responds to an estimate. */
+async function notifyOwner(
+  supabase: SupabaseServerClient,
+  estimateId: string,
+  heading: string,
+  detailHtml: string,
+) {
+  const { data: est } = await supabase
+    .from("estimates")
+    .select("title, customer:customers(full_name)")
+    .eq("id", estimateId)
+    .maybeSingle();
+  const name =
+    (est?.customer as unknown as { full_name: string | null } | null)
+      ?.full_name ?? "A customer";
+  await sendEmail({
+    to: ownerEmail(),
+    subject: heading,
+    html: emailLayout(
+      heading,
+      `<p>${name} responded to estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""}.</p>${detailHtml}`,
+      { label: "Open in CRM", url: `${siteUrl()}/estimates/${estimateId}` },
+    ),
+  });
 }
 
 export async function portalApproveEstimate(formData: FormData): Promise<void> {
@@ -16,6 +45,12 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
     .from("estimates")
     .update({ status: "approved", accepted_option_id: optionId })
     .eq("id", id);
+  await notifyOwner(
+    supabase,
+    id,
+    "Estimate approved ✅",
+    "<p>They approved — time to schedule the job.</p>",
+  );
   revalidatePath(`/portal/estimates/${id}`);
   revalidatePath("/portal");
 }
@@ -24,13 +59,17 @@ export async function portalDeclineEstimate(formData: FormData): Promise<void> {
   const id = str(formData.get("estimate_id"));
   if (!id) return;
   const supabase = await createClient();
+  const note = str(formData.get("note"));
   await supabase
     .from("estimates")
-    .update({
-      status: "declined",
-      customer_response_note: str(formData.get("note")) || null,
-    })
+    .update({ status: "declined", customer_response_note: note || null })
     .eq("id", id);
+  await notifyOwner(
+    supabase,
+    id,
+    "Estimate declined",
+    note ? `<p>Reason: ${note}</p>` : "",
+  );
   revalidatePath(`/portal/estimates/${id}`);
   revalidatePath("/portal");
 }
@@ -39,13 +78,20 @@ export async function portalRequestChanges(formData: FormData): Promise<void> {
   const id = str(formData.get("estimate_id"));
   if (!id) return;
   const supabase = await createClient();
+  const note = str(formData.get("note"));
   await supabase
     .from("estimates")
     .update({
       status: "changes_requested",
-      customer_response_note: str(formData.get("note")) || null,
+      customer_response_note: note || null,
     })
     .eq("id", id);
+  await notifyOwner(
+    supabase,
+    id,
+    "Changes requested on estimate",
+    note ? `<p>What they want: ${note}</p>` : "",
+  );
   revalidatePath(`/portal/estimates/${id}`);
   revalidatePath("/portal");
 }

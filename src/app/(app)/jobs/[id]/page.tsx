@@ -1,7 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, MapPin, Calendar, User, Trash2, Play, Check } from "lucide-react";
+import {
+  ArrowLeft,
+  MapPin,
+  Calendar,
+  User,
+  Trash2,
+  Play,
+  Check,
+  Send,
+} from "lucide-react";
 import {
   Card,
   CardContent,
@@ -16,7 +25,7 @@ import { requireProfile } from "@/lib/auth";
 import { lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney } from "@/lib/format";
 import { JobForm } from "../job-form";
-import { setJobStatus, deleteJob } from "../actions";
+import { setJobStatus, deleteJob, emailJobSchedule } from "../actions";
 import { deleteJobFile } from "../file-actions";
 import { JobPhotoUpload } from "../job-photo-upload";
 import { SignaturePad } from "../signature-pad";
@@ -147,6 +156,15 @@ export default async function JobPage({
           </CardContent>
         </Card>
       </div>
+
+      {isStaff && job.scheduled_date ? (
+        <form action={emailJobSchedule} className="mb-6">
+          <input type="hidden" name="id" value={job.id} />
+          <Button type="submit" variant="outline" size="sm">
+            <Send className="size-3.5" /> Email schedule to customer
+          </Button>
+        </form>
+      ) : null}
 
       {/* Work order scope */}
       <Card className="mb-6">
