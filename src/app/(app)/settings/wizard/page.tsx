@@ -1,0 +1,114 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { Plus, ChevronUp, ChevronDown, Pencil, Trash2 } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
+import { listWizardQuestions } from "@/lib/data/wizard";
+import { WIZARD_INPUT_LABELS } from "@/lib/types";
+import { formatMoney } from "@/lib/format";
+import { moveQuestion, deleteQuestion } from "./actions";
+
+export const metadata: Metadata = { title: "Wizard Setup" };
+
+export default async function WizardSetupPage() {
+  const questions = await listWizardQuestions();
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <PageHeader
+        title="Wizard Setup"
+        description="Questions your salespeople answer in the Estimate Wizard. Detail questions build the job description; add-on questions add a line item."
+      >
+        <Link
+          href="/settings/wizard/new"
+          className={buttonVariants({ size: "lg" })}
+        >
+          <Plus className="size-4" /> Add question
+        </Link>
+      </PageHeader>
+
+      {questions.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
+          No questions yet. Add the prompts your wizard should ask.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {questions.map((q, i) => (
+            <Card key={q.id} className={q.active ? "" : "opacity-60"}>
+              <CardContent className="flex items-center gap-3 py-3">
+                <div className="flex flex-col">
+                  <form action={moveQuestion}>
+                    <input type="hidden" name="id" value={q.id} />
+                    <input type="hidden" name="dir" value="up" />
+                    <Button
+                      type="submit"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Move up"
+                      disabled={i === 0}
+                    >
+                      <ChevronUp className="size-3.5" />
+                    </Button>
+                  </form>
+                  <form action={moveQuestion}>
+                    <input type="hidden" name="id" value={q.id} />
+                    <input type="hidden" name="dir" value="down" />
+                    <Button
+                      type="submit"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Move down"
+                      disabled={i === questions.length - 1}
+                    >
+                      <ChevronDown className="size-3.5" />
+                    </Button>
+                  </form>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{q.label}</div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span
+                      className={
+                        q.kind === "addon"
+                          ? "rounded-full bg-cyan-100 px-2 py-0.5 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300"
+                          : "rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                      }
+                    >
+                      {q.kind === "addon" ? "Add-on line" : "Detail"}
+                    </span>
+                    <span>{WIZARD_INPUT_LABELS[q.input]}</span>
+                    {q.kind === "addon" && q.default_amount != null ? (
+                      <span>· default {formatMoney(q.default_amount)}</span>
+                    ) : null}
+                    {!q.active ? <span>· inactive</span> : null}
+                  </div>
+                </div>
+
+                <Link
+                  href={`/settings/wizard/${q.id}`}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Edit"
+                >
+                  <Pencil className="size-4" />
+                </Link>
+                <form action={deleteQuestion}>
+                  <input type="hidden" name="id" value={q.id} />
+                  <Button
+                    type="submit"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Delete"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

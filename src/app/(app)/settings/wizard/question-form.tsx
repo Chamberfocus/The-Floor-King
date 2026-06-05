@@ -1,0 +1,150 @@
+"use client";
+
+import { useActionState, useEffect } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  WIZARD_INPUT_LABELS,
+  WIZARD_KIND_LABELS,
+  type WizardQuestion,
+  type WizardQuestionInput,
+  type WizardQuestionKind,
+} from "@/lib/types";
+import {
+  createQuestion,
+  updateQuestion,
+  type QuestionFormState,
+} from "./actions";
+
+const selectClass =
+  "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+const initialState: QuestionFormState = { error: null };
+
+export function QuestionForm({ question }: { question?: WizardQuestion }) {
+  const isEdit = Boolean(question);
+  const [state, formAction, pending] = useActionState(
+    isEdit ? updateQuestion : createQuestion,
+    initialState,
+  );
+
+  useEffect(() => {
+    if (state.ok) toast.success("Saved");
+  }, [state]);
+
+  return (
+    <form action={formAction} className="space-y-5">
+      {isEdit ? <input type="hidden" name="id" value={question!.id} /> : null}
+
+      <div className="space-y-2">
+        <Label htmlFor="label">Question *</Label>
+        <Input
+          id="label"
+          name="label"
+          defaultValue={question?.label ?? ""}
+          placeholder="e.g. Subfloor type & condition?"
+          required
+          autoFocus
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="help">Helper text (optional)</Label>
+        <Input
+          id="help"
+          name="help"
+          defaultValue={question?.help ?? ""}
+          placeholder="A hint shown under the question"
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="kind">Type</Label>
+          <select
+            id="kind"
+            name="kind"
+            defaultValue={question?.kind ?? "detail"}
+            className={selectClass}
+          >
+            {(Object.keys(WIZARD_KIND_LABELS) as WizardQuestionKind[]).map(
+              (k) => (
+                <option key={k} value={k}>
+                  {WIZARD_KIND_LABELS[k]}
+                </option>
+              ),
+            )}
+          </select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="input">Answer format</Label>
+          <select
+            id="input"
+            name="input"
+            defaultValue={question?.input ?? "text"}
+            className={selectClass}
+          >
+            {(Object.keys(WIZARD_INPUT_LABELS) as WizardQuestionInput[]).map(
+              (i) => (
+                <option key={i} value={i}>
+                  {WIZARD_INPUT_LABELS[i]}
+                </option>
+              ),
+            )}
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="default_amount">
+            Default price (add-on questions)
+          </Label>
+          <Input
+            id="default_amount"
+            name="default_amount"
+            type="number"
+            step="0.01"
+            min="0"
+            defaultValue={question?.default_amount ?? ""}
+            placeholder="e.g. 250"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="position">Order</Label>
+          <Input
+            id="position"
+            name="position"
+            type="number"
+            defaultValue={question?.position ?? ""}
+            placeholder="Lower shows first"
+          />
+        </div>
+      </div>
+
+      {isEdit ? (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="active"
+            defaultChecked={question?.active ?? true}
+            className="size-4 rounded border-input"
+          />
+          Active (show in the wizard)
+        </label>
+      ) : null}
+
+      {state.error ? (
+        <p className="text-sm text-destructive" role="alert">
+          {state.error}
+        </p>
+      ) : null}
+
+      <div className="flex justify-end">
+        <Button type="submit" disabled={pending}>
+          {pending ? "Saving…" : isEdit ? "Save changes" : "Add question"}
+        </Button>
+      </div>
+    </form>
+  );
+}

@@ -76,3 +76,33 @@ export interface SaveEstimateInput {
   job_description: string;
   options: SaveOptionInput[];
 }
+
+// --- Wizard submission (one line per room + add-on lines) -------------------
+
+export interface WizardRoom {
+  name: string;
+  sqft: string | number | null;
+  product_id: string | null;
+  description: string;
+  line_type: "mat_labor" | "installed";
+  material_rate: string | number | null;
+  labor_rate: string | number | null;
+  installed_rate: string | number | null;
+}
+
+export interface WizardAnswer {
+  question_id: string;
+  label: string;
+  kind: "detail" | "addon";
+  included: boolean;
+  value: string;
+  amount: string | number | null;
+}
+
+export interface WizardSubmit {
+  title: string;
+  tax_rate: string | number;
+  presentation: EstimatePresentation;
+  rooms: WizardRoom[];
+  answers: WizardAnswer[];
+}

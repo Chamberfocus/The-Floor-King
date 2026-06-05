@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { num, type SaveEstimateInput } from "@/lib/estimate-calc";
+import {
+  num,
+  type SaveEstimateInput,
+  type WizardSubmit,
+} from "@/lib/estimate-calc";
 import type { EstimateStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -135,6 +139,100 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
   revalidatePath(`/estimates/${id}`);
   revalidatePath("/estimates");
   redirect(`/estimates/${id}`);
+}
+
+/** Build a complete estimate from the wizard: one line per room + add-on lines. */
+export async function createEstimateFromWizard(
+  customerId: string,
+  input: WizardSubmit,
+): Promise<{ error: string | null; id?: string }> {
+  if (!customerId) return { error: "Missing customer." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Compile the job description from detail answers + included add-ons.
+  const detailLines = input.answers
+    .filter((a) => a.kind === "detail" && a.value.trim())
+    .map((a) => `${a.label}: ${a.value.trim()}`);
+  const addons = input.answers.filter((a) => a.kind === "addon" && a.included);
+  const jobDescription = [
+    ...detailLines,
+    addons.length ? `Includes: ${addons.map((a) => a.label).join(", ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const { data: estimate, error } = await supabase
+    .from("estimates")
+    .insert({
+      customer_id: customerId,
+      created_by: user?.id ?? null,
+      title: input.title || "Estimate",
+      tax_rate: num(input.tax_rate),
+      presentation: input.presentation,
+      job_description: jobDescription || null,
+    })
+    .select("id")
+    .single();
+  if (error || !estimate) {
+    return { error: error?.message ?? "Could not create the estimate." };
+  }
+
+  const { data: option, error: optionError } = await supabase
+    .from("estimate_options")
+    .insert({ estimate_id: estimate.id, name: "Option 1", position: 0 })
+    .select("id")
+    .single();
+  if (optionError || !option) {
+    return { error: optionError?.message ?? "Could not create the option." };
+  }
+
+  const lines: Record<string, unknown>[] = [];
+  let pos = 0;
+  for (const r of input.rooms) {
+    if (!r.name && !r.sqft && !r.description) continue;
+    lines.push({
+      option_id: option.id,
+      position: pos++,
+      room: r.name || null,
+      description: r.description || r.name || "Flooring",
+      line_type: r.line_type,
+      sqft: toNumOrNull(r.sqft),
+      material_rate: toNumOrNull(r.material_rate),
+      labor_rate: toNumOrNull(r.labor_rate),
+      installed_rate: toNumOrNull(r.installed_rate),
+      flat_amount: null,
+      product_id: r.product_id || null,
+    });
+  }
+  for (const a of addons) {
+    lines.push({
+      option_id: option.id,
+      position: pos++,
+      room: null,
+      description: a.label,
+      line_type: "flat",
+      sqft: null,
+      material_rate: null,
+      labor_rate: null,
+      installed_rate: null,
+      flat_amount: toNumOrNull(a.amount),
+      product_id: null,
+    });
+  }
+  if (lines.length) {
+    const { error: lineError } = await supabase
+      .from("estimate_line_items")
+      .insert(lines);
+    if (lineError) return { error: lineError.message };
+  }
+
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/estimates");
+  return { error: null, id: estimate.id };
 }
 
 export async function deleteEstimate(formData: FormData): Promise<void> {

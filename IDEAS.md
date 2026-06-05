@@ -10,24 +10,27 @@ Running list of every feature idea, tagged by phase. Legend:
 
 ## Phase 2 — Estimates (current)
 
-- 🔨 Line-by-line line-item estimate builder
-- 🔨 Present to the customer **either** detailed line-by-line **or** a "ball of wax"
+- ✅ Line-by-line line-item estimate builder
+- ✅ Present to the customer **either** detailed line-by-line **or** a "ball of wax"
   single lump-sum total (per-estimate toggle)
-- 🔨 Add / edit / delete estimates
-- 🔨 Multiple options per estimate + one-click **duplicate option**
-- 🔨 Flexible line types: material+labor / installed per sqft / flat amount
-- 🔨 Materials catalog with rate autofill
-- 🔨 Tax applied to the full amount (editable rate)
+- ✅ Add / edit / delete estimates
+- ✅ Multiple options per estimate + one-click **duplicate option**
+- ✅ Flexible line types: material+labor / installed per sqft / flat amount
+- ✅ Materials catalog with rate autofill
+- ✅ Tax applied to the full amount (editable rate)
+- ✅ Job description / "detailed explanation of the job" field on the estimate
+- ✅ Internal approve / decline / request-changes workflow (staff records the outcome;
+  decline reason + change request captured)
 - 🔨 **Estimate Wizard** — guided questionnaire that builds the estimate so the
   salesperson can't forget job details; details flow into the estimate
-  - Product types: carpet, vinyl plank, hardwood, laminate (choose one or more)
-  - Produces line items **and** a detailed written explanation of the job
-- 🔨 Job description / "detailed explanation of the job" field on the estimate
-- 📋 Customer **approve / decline** (lives in the customer portal, Phase 5 — but the
-  data model supports it now)
-  - 📋 On **decline**: require a reason
-  - 📋 OR **request changes** (to save money / switch products) instead of declining
-- ❓ Wizard questionnaire content — exactly which questions per product type (see ask)
+  - 🔨 **One line item per room** (room + sqft + product → a line)
+  - 🔨 **Editable questions** — owner can add / edit / remove / reorder the wizard's
+    questions (Wizard Setup screen); wizard pulls live from that list
+  - 🔨 Detail questions → compiled into the job description
+  - 🔨 Add-on questions → each becomes its own line item with a default price
+  - 📋 later: per-product-type question branching (carpet/LVP/hardwood/laminate)
+- 📋 Customer-facing **approve / decline / request changes** (self-service in the
+  portal, Phase 5 — data model already supports it)
 
 ## Phase 2.5 — Purchase Orders
 - 📋 Generate a PO from an approved estimate (roll up material quantities by product)

@@ -258,3 +258,31 @@ export const LINE_TYPE_LABELS: Record<LineType, string> = {
   installed: "Installed / sq ft",
   flat: "Flat amount",
 };
+
+// --- Estimate Wizard (configurable questions) -------------------------------
+
+export type WizardQuestionKind = "detail" | "addon";
+export type WizardQuestionInput = "text" | "yesno" | "number";
+
+export interface WizardQuestion {
+  id: string;
+  label: string;
+  help: string | null;
+  kind: WizardQuestionKind;
+  input: WizardQuestionInput;
+  default_amount: number | null;
+  position: number;
+  active: boolean;
+  created_at: string;
+}
+
+export const WIZARD_KIND_LABELS: Record<WizardQuestionKind, string> = {
+  detail: "Detail (adds to job description)",
+  addon: "Add-on (adds a line item)",
+};
+
+export const WIZARD_INPUT_LABELS: Record<WizardQuestionInput, string> = {
+  text: "Text",
+  yesno: "Yes / No",
+  number: "Number",
+};

@@ -19,7 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { StageBadge } from "@/components/stage-badge";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import {
@@ -31,7 +31,6 @@ import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { optionTotals } from "@/lib/estimate-calc";
 import { type ActivityType } from "@/lib/types";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
-import { createEstimate } from "@/app/(app)/estimates/actions";
 import { StageSelect } from "./stage-select";
 import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
@@ -121,12 +120,12 @@ export default async function CustomerPage({
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
-              <form action={createEstimate}>
-                <input type="hidden" name="customer_id" value={customer.id} />
-                <Button type="submit" size="sm">
-                  <Plus className="size-3.5" /> New estimate
-                </Button>
-              </form>
+              <Link
+                href={`/estimates/new?customer=${customer.id}`}
+                className={buttonVariants({ size: "sm" })}
+              >
+                <Plus className="size-3.5" /> New estimate
+              </Link>
             </CardHeader>
             <CardContent>
               {estimates.length === 0 ? (
