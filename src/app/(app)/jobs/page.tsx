@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { CalendarDays } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -8,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { listJobs, listAssignableUsers } from "@/lib/data/jobs";
@@ -33,7 +35,14 @@ export default async function JobsPage() {
             ? "Scheduled and active installations."
             : "Your assigned jobs."
         }
-      />
+      >
+        <Link
+          href="/jobs/calendar"
+          className={buttonVariants({ variant: "outline", size: "lg" })}
+        >
+          <CalendarDays className="size-4" /> Calendar
+        </Link>
+      </PageHeader>
 
       {jobs.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">

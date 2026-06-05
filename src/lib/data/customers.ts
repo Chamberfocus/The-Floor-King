@@ -80,6 +80,19 @@ export async function getProfileNames(
   return map;
 }
 
+export async function getPortalUser(
+  customerId: string,
+): Promise<{ id: string; email: string } | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("id, email")
+    .eq("customer_id", customerId)
+    .limit(1)
+    .maybeSingle();
+  return data ? { id: data.id as string, email: data.email as string } : null;
+}
+
 export interface DashboardCounts {
   openLeads: number;
   quoted: number;

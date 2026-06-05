@@ -1,5 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
-import type { Customer, EstimateLineItem, Job } from "@/lib/types";
+import type {
+  Customer,
+  EstimateLineItem,
+  Job,
+  JobFile,
+  JobFileWithUrl,
+} from "@/lib/types";
 
 export interface JobListRow extends Job {
   customer_name: string | null;
@@ -117,6 +123,27 @@ export async function listAssignableUsers(): Promise<AssignableUser[]> {
     name: p.full_name || p.email,
     role: p.role,
   }));
+}
+
+export async function listJobFiles(
+  jobId: string,
+): Promise<JobFileWithUrl[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("job_files")
+    .select("*")
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: false });
+  const files = (data ?? []) as JobFile[];
+
+  const out: JobFileWithUrl[] = [];
+  for (const f of files) {
+    const { data: signed } = await supabase.storage
+      .from("job-files")
+      .createSignedUrl(f.path, 3600);
+    out.push({ ...f, url: signed?.signedUrl ?? null });
+  }
+  return out;
 }
 
 export async function getActiveJobCount(): Promise<number> {

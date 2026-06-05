@@ -28,6 +28,7 @@ import {
   getCustomer,
   listActivities,
   getProfileNames,
+  getPortalUser,
 } from "@/lib/data/customers";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer } from "@/lib/data/jobs";
@@ -43,6 +44,7 @@ import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { StageSelect } from "./stage-select";
 import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
+import { InvitePortalForm } from "./invite-portal-form";
 
 export async function generateMetadata({
   params,
@@ -76,6 +78,7 @@ export default async function CustomerPage({
   const estimates = await listEstimatesForCustomer(id);
   const jobs = await listJobsForCustomer(id);
   const invoices = await listInvoicesForCustomer(id);
+  const portalUser = await getPortalUser(id);
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
@@ -123,6 +126,28 @@ export default async function CustomerPage({
           </Card>
 
           <CustomerInfoCard customer={customer} />
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Customer portal</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {portalUser ? (
+                <p className="text-sm text-muted-foreground">
+                  Portal access enabled for{" "}
+                  <span className="font-medium text-foreground">
+                    {portalUser.email}
+                  </span>
+                  .
+                </p>
+              ) : (
+                <InvitePortalForm
+                  customerId={customer.id}
+                  defaultEmail={customer.email ?? ""}
+                />
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Right: estimates + activity timeline */}

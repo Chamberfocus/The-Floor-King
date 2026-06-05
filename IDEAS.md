@@ -33,21 +33,21 @@ Running list of every feature idea, tagged by phase. Legend:
   portal, Phase 5 — data model already supports it)
 
 ## Phase 2.5 — Purchase Orders
-- 📋 Generate a PO from an approved estimate (roll up material quantities by product)
+- ✅ Generate a PO from an approved estimate (material lines → items with cost)
+- ✅ Editable PO (supplier, status, items, total), printable
 
 ## Phase 3 — Jobs / Work Orders / Scheduling
-- 📋 Work order for installers generated from the approved estimate/PO (scope by room)
-- 📋 Schedule jobs, assign crew, calendar, mobile job screen, photos, on-site signature
+- ✅ Work order for installers from the approved estimate (scope by room)
+- ✅ Schedule jobs (dates), assign crew, mobile job screen, crew status updates
+- 📋 Calendar view of jobs
+- 📋 On-site photos + customer signature on the work order
 
 ## Phase 4 — Invoicing & Payments
-- 📋 Clear, informational invoices
-- 📋 Customer payment options:
-  - payment link we provide (online card)
-  - mailed check
-  - emailed/photographed check → electronic debit (ACH / eCheck)
-  - credit card
-  - cash
-  - financing + other financing options we offer
+- ✅ Clear, informational invoices (items, tax, terms, printable) + balance tracking
+- ✅ Record payments by method: credit card, cash, check, eCheck/ACH, financing, other
+- 📋 Online **payment link** (Stripe) — needs Stripe account
+- 📋 Real **financing** provider integration (Wisetack/Synchrony/etc.)
+- 📋 emailed/photographed check → electronic debit automation
 
 ## Phase 5 — Customer Portal & Automation
 - 📋 Customer logs in to view, approve, decline (with reason), or request changes

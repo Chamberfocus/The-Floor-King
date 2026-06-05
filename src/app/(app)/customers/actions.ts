@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   LEAD_STAGE_LABELS,
   type ActivityType,
@@ -127,6 +128,59 @@ export async function changeStage(formData: FormData): Promise<void> {
   }
 
   refreshCustomerViews(id);
+}
+
+/** Create a customer portal login linked to this customer record. */
+export async function inviteCustomerToPortal(
+  _prev: CustomerFormState,
+  formData: FormData,
+): Promise<CustomerFormState> {
+  const customerId = str(formData.get("customer_id"));
+  const email = str(formData.get("email")).toLowerCase();
+  const password = str(formData.get("password"));
+  if (!customerId || !email) return { error: "Email is required." };
+  if (password.length < 8) {
+    return { error: "Password must be at least 8 characters." };
+  }
+
+  const supabase = await createClient();
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("full_name")
+    .eq("id", customerId)
+    .maybeSingle();
+
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return {
+      error:
+        "Portal invites need the Supabase secret key configured on the server.",
+    };
+  }
+
+  const { data: created, error } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: {
+      full_name: (customer?.full_name as string) ?? null,
+      role: "customer",
+    },
+  });
+  if (error || !created.user) {
+    return { error: error?.message ?? "Could not create the login." };
+  }
+
+  // Link the new login to this customer (and ensure the customer role).
+  await admin
+    .from("profiles")
+    .update({ customer_id: customerId, role: "customer" })
+    .eq("id", created.user.id);
+
+  revalidatePath(`/customers/${customerId}`);
+  return { error: null, ok: true };
 }
 
 export async function addActivity(

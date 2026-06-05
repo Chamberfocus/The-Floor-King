@@ -7,6 +7,7 @@ export interface Profile {
   full_name: string | null;
   phone: string | null;
   role: UserRole;
+  customer_id: string | null;
   created_at: string;
 }
 
@@ -478,3 +479,22 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   link: "Online Payment Link",
   other: "Other",
 };
+
+// --- Job files (photos + signature) -----------------------------------------
+
+export type JobFileKind = "photo" | "signature";
+
+export interface JobFile {
+  id: string;
+  job_id: string;
+  path: string;
+  kind: JobFileKind;
+  caption: string | null;
+  signer_name: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
+export interface JobFileWithUrl extends JobFile {
+  url: string | null;
+}

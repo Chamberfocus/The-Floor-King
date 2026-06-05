@@ -10,13 +10,16 @@ import {
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { JobStatusBadge } from "@/components/job-status-badge";
-import { getJob, listAssignableUsers } from "@/lib/data/jobs";
+import { getJob, listAssignableUsers, listJobFiles } from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
 import { requireProfile } from "@/lib/auth";
 import { lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney } from "@/lib/format";
 import { JobForm } from "../job-form";
 import { setJobStatus, deleteJob } from "../actions";
+import { deleteJobFile } from "../file-actions";
+import { JobPhotoUpload } from "../job-photo-upload";
+import { SignaturePad } from "../signature-pad";
 
 export async function generateMetadata({
   params,
@@ -43,6 +46,10 @@ export default async function JobPage({
   const users = isStaff ? await listAssignableUsers() : [];
   const names = job.assigned_to ? await getProfileNames([job.assigned_to]) : {};
   const assignedName = job.assigned_to ? names[job.assigned_to] : null;
+
+  const files = await listJobFiles(id);
+  const photos = files.filter((f) => f.kind === "photo");
+  const signatures = files.filter((f) => f.kind === "signature");
 
   const siteParts = [
     job.site_street,
@@ -187,6 +194,77 @@ export default async function JobPage({
               </p>
             </div>
           ) : null}
+        </CardContent>
+      </Card>
+
+      {/* Photos & sign-off */}
+      <Card className="mb-6">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">Photos &amp; sign-off</CardTitle>
+          <JobPhotoUpload jobId={job.id} />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {photos.length ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {photos.map((f) => (
+                <div key={f.id} className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {f.url ? (
+                    <img
+                      src={f.url}
+                      alt={f.caption ?? "Job photo"}
+                      className="aspect-square w-full rounded-md border object-cover"
+                    />
+                  ) : null}
+                  {isStaff ? (
+                    <form
+                      action={deleteJobFile}
+                      className="absolute right-1 top-1"
+                    >
+                      <input type="hidden" name="id" value={f.id} />
+                      <input type="hidden" name="job_id" value={job.id} />
+                      <input type="hidden" name="path" value={f.path} />
+                      <Button
+                        type="submit"
+                        variant="destructive"
+                        size="icon-xs"
+                        aria-label="Delete photo"
+                      >
+                        <Trash2 className="size-3" />
+                      </Button>
+                    </form>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No photos yet. Tap &ldquo;Upload photos&rdquo; to add job-site
+              pictures (works with your phone camera).
+            </p>
+          )}
+
+          <div className="border-t pt-4">
+            <div className="mb-2 text-sm font-medium">Customer sign-off</div>
+            {signatures.length ? (
+              <div className="space-y-2">
+                {signatures.map((s) => (
+                  <div key={s.id} className="rounded-md border p-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {s.url ? (
+                      <img src={s.url} alt="Signature" className="h-24 bg-white" />
+                    ) : null}
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {s.signer_name ? `Signed by ${s.signer_name} · ` : ""}
+                      {formatDate(s.created_at)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <SignaturePad jobId={job.id} />
+            )}
+          </div>
         </CardContent>
       </Card>
 
