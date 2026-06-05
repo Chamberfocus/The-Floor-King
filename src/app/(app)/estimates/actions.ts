@@ -107,6 +107,9 @@ export async function saveEstimate(
         description: line.description || "",
         line_type: line.line_type,
         sqft: toNumOrNull(line.sqft),
+        length_in: toNumOrNull(line.length_in),
+        width_in: toNumOrNull(line.width_in),
+        measure_unit: line.measure_unit === "sqyd" ? "sqyd" : "sqft",
         material_rate: toNumOrNull(line.material_rate),
         labor_rate: toNumOrNull(line.labor_rate),
         installed_rate: toNumOrNull(line.installed_rate),
@@ -236,7 +239,8 @@ export async function createEstimateFromWizard(
   const lines: Record<string, unknown>[] = [];
   let pos = 0;
   for (const r of input.rooms) {
-    if (!r.name && !r.sqft && !r.description) continue;
+    if (!r.name && !r.sqft && !r.description && !r.length_in && !r.width_in)
+      continue;
     lines.push({
       option_id: option.id,
       position: pos++,
@@ -244,6 +248,9 @@ export async function createEstimateFromWizard(
       description: r.description || r.name || "Flooring",
       line_type: r.line_type,
       sqft: toNumOrNull(r.sqft),
+      length_in: toNumOrNull(r.length_in),
+      width_in: toNumOrNull(r.width_in),
+      measure_unit: r.measure_unit === "sqyd" ? "sqyd" : "sqft",
       material_rate: toNumOrNull(r.material_rate),
       labor_rate: toNumOrNull(r.labor_rate),
       installed_rate: toNumOrNull(r.installed_rate),

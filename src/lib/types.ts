@@ -154,6 +154,14 @@ export type EstimatePresentation = "detailed" | "summary";
 /** How a single estimate line is priced. */
 export type LineType = "mat_labor" | "installed" | "flat";
 
+/** Whether a line is measured/priced by square foot or square yard (carpet). */
+export type MeasureUnit = "sqft" | "sqyd";
+
+export const MEASURE_UNIT_LABELS: Record<MeasureUnit, string> = {
+  sqft: "sq ft",
+  sqyd: "sq yd",
+};
+
 export interface Product {
   id: string;
   name: string;
@@ -176,6 +184,9 @@ export interface EstimateLineItem {
   description: string;
   line_type: LineType;
   sqft: number | null;
+  length_in: number | null;
+  width_in: number | null;
+  measure_unit: MeasureUnit;
   material_rate: number | null;
   labor_rate: number | null;
   installed_rate: number | null;

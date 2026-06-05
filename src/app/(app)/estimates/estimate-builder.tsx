@@ -11,13 +11,19 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
-import { lineTotal, optionTotals, type SaveEstimateInput } from "@/lib/estimate-calc";
+import {
+  lineTotal,
+  optionTotals,
+  num,
+  type SaveEstimateInput,
+} from "@/lib/estimate-calc";
 import {
   LINE_TYPE_LABELS,
   PRODUCT_CATEGORY_LABELS,
   type Estimate,
   type EstimatePresentation,
   type LineType,
+  type MeasureUnit,
   type Product,
 } from "@/lib/types";
 import { saveEstimate } from "./actions";
@@ -28,11 +34,35 @@ interface LineState {
   description: string;
   line_type: LineType;
   sqft: string;
+  len_ft: string;
+  len_in: string;
+  wid_ft: string;
+  wid_in: string;
+  measure_unit: MeasureUnit;
   material_rate: string;
   labor_rate: string;
   installed_rate: string;
   flat_amount: string;
   product_id: string;
+}
+
+function inToFt(total: number | null | undefined): string {
+  if (!total) return "";
+  return String(Math.floor(total / 12));
+}
+function inToIn(total: number | null | undefined): string {
+  if (!total) return "";
+  return String(Math.round(total % 12));
+}
+function dimsToSqft(
+  lenFt: string,
+  lenIn: string,
+  widFt: string,
+  widIn: string,
+): number | null {
+  const L = num(lenFt) * 12 + num(lenIn);
+  const W = num(widFt) * 12 + num(widIn);
+  return L > 0 && W > 0 ? (L / 12) * (W / 12) : null;
 }
 
 interface OptionState {
@@ -101,6 +131,11 @@ export function EstimateBuilder({
     description: "",
     line_type: "mat_labor",
     sqft: "",
+    len_ft: "",
+    len_in: "",
+    wid_ft: "",
+    wid_in: "",
+    measure_unit: "sqft",
     material_rate: "",
     labor_rate: "",
     installed_rate: "",
@@ -129,6 +164,11 @@ export function EstimateBuilder({
         description: l.description ?? "",
         line_type: l.line_type,
         sqft: l.sqft?.toString() ?? "",
+        len_ft: inToFt(l.length_in),
+        len_in: inToIn(l.length_in),
+        wid_ft: inToFt(l.width_in),
+        wid_in: inToIn(l.width_in),
+        measure_unit: l.measure_unit ?? "sqft",
         material_rate: l.material_rate?.toString() ?? "",
         labor_rate: l.labor_rate?.toString() ?? "",
         installed_rate: l.installed_rate?.toString() ?? "",
@@ -196,6 +236,31 @@ export function EstimateBuilder({
       ),
     );
 
+  // Update a dimension field and auto-recompute sq ft from L×W.
+  const updateDim = (oi: number, li: number, patch: Partial<LineState>) =>
+    setOptions((prev) =>
+      prev.map((o, i) =>
+        i === oi
+          ? {
+              ...o,
+              lines: o.lines.map((l, j) => {
+                if (j !== li) return l;
+                const merged = { ...l, ...patch };
+                const s = dimsToSqft(
+                  merged.len_ft,
+                  merged.len_in,
+                  merged.wid_ft,
+                  merged.wid_in,
+                );
+                return s !== null
+                  ? { ...merged, sqft: (Math.round(s * 100) / 100).toString() }
+                  : merged;
+              }),
+            }
+          : o,
+      ),
+    );
+
   const applyProduct = (oi: number, li: number, productId: string) => {
     const p = products.find((x) => x.id === productId);
     updateLine(oi, li, p
@@ -237,6 +302,9 @@ export function EstimateBuilder({
         description: l.description,
         line_type: l.line_type,
         sqft: l.sqft || null,
+        length_in: num(l.len_ft) * 12 + num(l.len_in) || null,
+        width_in: num(l.wid_ft) * 12 + num(l.wid_in) || null,
+        measure_unit: l.measure_unit,
         material_rate: l.material_rate || null,
         labor_rate: l.labor_rate || null,
         installed_rate: l.installed_rate || null,
@@ -328,6 +396,7 @@ export function EstimateBuilder({
             option.lines.map((l) => ({
               line_type: l.line_type,
               sqft: l.sqft,
+              measure_unit: l.measure_unit,
               material_rate: l.material_rate,
               labor_rate: l.labor_rate,
               installed_rate: l.installed_rate,
@@ -412,11 +481,87 @@ export function EstimateBuilder({
                       </div>
 
                       {line.line_type !== "flat" ? (
-                        <LabeledNumber
-                          label="Sq ft"
-                          value={line.sqft}
-                          onChange={(v) => updateLine(oi, li, { sqft: v })}
-                        />
+                        <>
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">
+                              Length (ft / in)
+                            </label>
+                            <div className="flex gap-1">
+                              <input
+                                type="number"
+                                min="0"
+                                value={line.len_ft}
+                                onChange={(e) =>
+                                  updateDim(oi, li, { len_ft: e.target.value })
+                                }
+                                placeholder="ft"
+                                className={cn(inputSm, "w-14")}
+                              />
+                              <input
+                                type="number"
+                                min="0"
+                                value={line.len_in}
+                                onChange={(e) =>
+                                  updateDim(oi, li, { len_in: e.target.value })
+                                }
+                                placeholder="in"
+                                className={cn(inputSm, "w-12")}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">
+                              Width (ft / in)
+                            </label>
+                            <div className="flex gap-1">
+                              <input
+                                type="number"
+                                min="0"
+                                value={line.wid_ft}
+                                onChange={(e) =>
+                                  updateDim(oi, li, { wid_ft: e.target.value })
+                                }
+                                placeholder="ft"
+                                className={cn(inputSm, "w-14")}
+                              />
+                              <input
+                                type="number"
+                                min="0"
+                                value={line.wid_in}
+                                onChange={(e) =>
+                                  updateDim(oi, li, { wid_in: e.target.value })
+                                }
+                                placeholder="in"
+                                className={cn(inputSm, "w-12")}
+                              />
+                            </div>
+                          </div>
+                          <LabeledNumber
+                            label="Sq ft"
+                            value={line.sqft}
+                            onChange={(v) => updateLine(oi, li, { sqft: v })}
+                          />
+                          <div className="pb-2 text-xs text-muted-foreground">
+                            {(num(line.sqft) / 9).toFixed(1)} sq yd
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">
+                              Price per
+                            </label>
+                            <select
+                              value={line.measure_unit}
+                              onChange={(e) =>
+                                updateLine(oi, li, {
+                                  measure_unit: e.target.value as MeasureUnit,
+                                })
+                              }
+                              className={cn(inputSm, "w-20")}
+                            >
+                              <option value="sqft">sq ft</option>
+                              <option value="sqyd">sq yd</option>
+                            </select>
+                          </div>
+                        </>
                       ) : null}
 
                       {line.line_type !== "flat" && products.length ? (
@@ -444,7 +589,7 @@ export function EstimateBuilder({
                       {line.line_type === "mat_labor" ? (
                         <>
                           <LabeledNumber
-                            label="Material /sqft"
+                            label={`Material /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`}
                             prefix="$"
                             value={line.material_rate}
                             onChange={(v) =>
@@ -452,7 +597,7 @@ export function EstimateBuilder({
                             }
                           />
                           <LabeledNumber
-                            label="Labor /sqft"
+                            label={`Labor /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`}
                             prefix="$"
                             value={line.labor_rate}
                             onChange={(v) =>
@@ -464,7 +609,7 @@ export function EstimateBuilder({
 
                       {line.line_type === "installed" ? (
                         <LabeledNumber
-                          label="Installed /sqft"
+                          label={`Installed /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`}
                           prefix="$"
                           value={line.installed_rate}
                           onChange={(v) =>
@@ -494,6 +639,7 @@ export function EstimateBuilder({
                             lineTotal({
                               line_type: line.line_type,
                               sqft: line.sqft,
+                              measure_unit: line.measure_unit,
                               material_rate: line.material_rate,
                               labor_rate: line.labor_rate,
                               installed_rate: line.installed_rate,

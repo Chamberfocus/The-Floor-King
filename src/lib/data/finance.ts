@@ -115,11 +115,16 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   const optionIds = [...new Set(jobs.map((j) => j.option_id))] as string[];
   const { data: lineData } = await supabase
     .from("estimate_line_items")
-    .select("option_id, sqft, material_rate, labor_rate, installed_rate, flat_amount, line_type")
+    .select(
+      "option_id, sqft, length_in, width_in, measure_unit, material_rate, labor_rate, installed_rate, flat_amount, line_type",
+    )
     .in("option_id", optionIds);
   const lines = (lineData ?? []) as {
     option_id: string;
     sqft: number | null;
+    length_in: number | null;
+    width_in: number | null;
+    measure_unit: "sqft" | "sqyd";
     material_rate: number | null;
     labor_rate: number | null;
     installed_rate: number | null;

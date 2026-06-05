@@ -10,10 +10,16 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
-import { lineTotal, optionTotals, type WizardSubmit } from "@/lib/estimate-calc";
+import {
+  lineTotal,
+  optionTotals,
+  num,
+  type WizardSubmit,
+} from "@/lib/estimate-calc";
 import {
   PRODUCT_CATEGORY_LABELS,
   type EstimatePresentation,
+  type MeasureUnit,
   type Product,
   type WizardQuestion,
 } from "@/lib/types";
@@ -23,12 +29,28 @@ interface RoomState {
   key: string;
   name: string;
   sqft: string;
+  len_ft: string;
+  len_in: string;
+  wid_ft: string;
+  wid_in: string;
+  measure_unit: MeasureUnit;
   product_id: string;
   description: string;
   line_type: "mat_labor" | "installed";
   material_rate: string;
   labor_rate: string;
   installed_rate: string;
+}
+
+function dimsToSqft(
+  lenFt: string,
+  lenIn: string,
+  widFt: string,
+  widIn: string,
+): number | null {
+  const L = num(lenFt) * 12 + num(lenIn);
+  const W = num(widFt) * 12 + num(widIn);
+  return L > 0 && W > 0 ? (L / 12) * (W / 12) : null;
 }
 
 const inputSm =
@@ -54,6 +76,11 @@ export function EstimateWizard({
     key: newKey(),
     name: "",
     sqft: "",
+    len_ft: "",
+    len_in: "",
+    wid_ft: "",
+    wid_in: "",
+    measure_unit: "sqft",
     product_id: "",
     description: "",
     line_type: "mat_labor",
@@ -87,6 +114,23 @@ export function EstimateWizard({
 
   const updateRoom = (i: number, patch: Partial<RoomState>) =>
     setRooms((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+
+  const updateRoomDim = (i: number, patch: Partial<RoomState>) =>
+    setRooms((prev) =>
+      prev.map((r, j) => {
+        if (j !== i) return r;
+        const merged = { ...r, ...patch };
+        const s = dimsToSqft(
+          merged.len_ft,
+          merged.len_in,
+          merged.wid_ft,
+          merged.wid_in,
+        );
+        return s !== null
+          ? { ...merged, sqft: (Math.round(s * 100) / 100).toString() }
+          : merged;
+      }),
+    );
   const addRoom = () => setRooms((prev) => [...prev, emptyRoom()]);
   const removeRoom = (i: number) =>
     setRooms((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev));
@@ -115,6 +159,7 @@ export function EstimateWizard({
     ...rooms.map((r) => ({
       line_type: r.line_type,
       sqft: r.sqft,
+      measure_unit: r.measure_unit,
       material_rate: r.material_rate,
       labor_rate: r.labor_rate,
       installed_rate: r.installed_rate,
@@ -137,6 +182,9 @@ export function EstimateWizard({
         rooms: rooms.map((r) => ({
           name: r.name,
           sqft: r.sqft || null,
+          length_in: num(r.len_ft) * 12 + num(r.len_in) || null,
+          width_in: num(r.wid_ft) * 12 + num(r.wid_in) || null,
+          measure_unit: r.measure_unit,
           product_id: r.product_id || null,
           description: r.description,
           line_type: r.line_type,
@@ -240,6 +288,60 @@ export function EstimateWizard({
               <div className="mt-2 flex flex-wrap items-end gap-2">
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">
+                    Length (ft / in)
+                  </label>
+                  <div className="flex gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      value={r.len_ft}
+                      onChange={(e) =>
+                        updateRoomDim(i, { len_ft: e.target.value })
+                      }
+                      placeholder="ft"
+                      className={cn(inputSm, "w-14")}
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      value={r.len_in}
+                      onChange={(e) =>
+                        updateRoomDim(i, { len_in: e.target.value })
+                      }
+                      placeholder="in"
+                      className={cn(inputSm, "w-12")}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Width (ft / in)
+                  </label>
+                  <div className="flex gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      value={r.wid_ft}
+                      onChange={(e) =>
+                        updateRoomDim(i, { wid_ft: e.target.value })
+                      }
+                      placeholder="ft"
+                      className={cn(inputSm, "w-14")}
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      value={r.wid_in}
+                      onChange={(e) =>
+                        updateRoomDim(i, { wid_in: e.target.value })
+                      }
+                      placeholder="in"
+                      className={cn(inputSm, "w-12")}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
                     Sq ft
                   </label>
                   <input
@@ -249,8 +351,28 @@ export function EstimateWizard({
                     inputMode="decimal"
                     value={r.sqft}
                     onChange={(e) => updateRoom(i, { sqft: e.target.value })}
-                    className={cn(inputSm, "w-24")}
+                    className={cn(inputSm, "w-20")}
                   />
+                </div>
+                <div className="pb-2 text-xs text-muted-foreground">
+                  {(num(r.sqft) / 9).toFixed(1)} sq yd
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Price per
+                  </label>
+                  <select
+                    value={r.measure_unit}
+                    onChange={(e) =>
+                      updateRoom(i, {
+                        measure_unit: e.target.value as MeasureUnit,
+                      })
+                    }
+                    className={cn(inputSm, "w-20")}
+                  >
+                    <option value="sqft">sq ft</option>
+                    <option value="sqyd">sq yd</option>
+                  </select>
                 </div>
                 {products.length ? (
                   <div>
@@ -292,7 +414,7 @@ export function EstimateWizard({
                   <>
                     <div>
                       <label className="mb-1 block text-xs text-muted-foreground">
-                        Material /sqft
+                        Material /{r.measure_unit === "sqyd" ? "sq yd" : "sqft"}
                       </label>
                       <input
                         type="number"
@@ -307,7 +429,7 @@ export function EstimateWizard({
                     </div>
                     <div>
                       <label className="mb-1 block text-xs text-muted-foreground">
-                        Labor /sqft
+                        Labor /{r.measure_unit === "sqyd" ? "sq yd" : "sqft"}
                       </label>
                       <input
                         type="number"
@@ -324,7 +446,7 @@ export function EstimateWizard({
                 ) : (
                   <div>
                     <label className="mb-1 block text-xs text-muted-foreground">
-                      Installed /sqft
+                      Installed /{r.measure_unit === "sqyd" ? "sq yd" : "sqft"}
                     </label>
                     <input
                       type="number"
@@ -345,6 +467,7 @@ export function EstimateWizard({
                       lineTotal({
                         line_type: r.line_type,
                         sqft: r.sqft,
+                        measure_unit: r.measure_unit,
                         material_rate: r.material_rate,
                         labor_rate: r.labor_rate,
                         installed_rate: r.installed_rate,

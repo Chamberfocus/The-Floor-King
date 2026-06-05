@@ -8,6 +8,7 @@ import {
   type SaveInvoiceInput,
 } from "@/lib/invoice-calc";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { lineQty } from "@/lib/estimate-calc";
 import type {
   EstimateLineItem,
   InvoiceStatus,
@@ -143,8 +144,8 @@ export async function createInvoiceFromEstimate(
       invoice_id: invoice.id,
       position: i,
       description: l.room ? `${l.room} — ${l.description}` : l.description,
-      quantity: l.sqft,
-      unit: "sqft",
+      quantity: Math.round(lineQty(l) * 100) / 100,
+      unit: l.measure_unit === "sqyd" ? "sqyd" : "sqft",
       rate,
     };
   });

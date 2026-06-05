@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { SavePoInput } from "@/lib/po-calc";
+import { lineQty } from "@/lib/estimate-calc";
 import type { EstimateLineItem, PoStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -100,8 +101,8 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
         position: i,
         product_id: l.product_id,
         description: desc,
-        quantity: l.sqft,
-        unit: "sqft",
+        quantity: Math.round(lineQty(l) * 100) / 100,
+        unit: l.measure_unit === "sqyd" ? "sqyd" : "sqft",
         unit_cost: unitCost,
       };
     });

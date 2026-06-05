@@ -20,7 +20,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { getEstimate } from "@/lib/data/estimates";
 import { getCustomer } from "@/lib/data/customers";
-import { optionTotals, lineTotal } from "@/lib/estimate-calc";
+import { optionTotals, lineTotal, lineQty } from "@/lib/estimate-calc";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, deleteEstimate } from "../actions";
@@ -40,11 +40,12 @@ export async function generateMetadata({
 
 function lineMath(l: EstimateLineItem): string {
   if (l.line_type === "flat") return "Flat amount";
-  const sqft = l.sqft ?? 0;
+  const unit = l.measure_unit === "sqyd" ? "sq yd" : "sq ft";
+  const qty = lineQty(l);
   if (l.line_type === "installed") {
-    return `${sqft} sq ft × ${formatMoney(l.installed_rate ?? 0)}`;
+    return `${qty.toFixed(2)} ${unit} × ${formatMoney(l.installed_rate ?? 0)}`;
   }
-  return `${sqft} sq ft × ${formatMoney(
+  return `${qty.toFixed(2)} ${unit} × ${formatMoney(
     (l.material_rate ?? 0) + (l.labor_rate ?? 0),
   )} (mat + labor)`;
 }

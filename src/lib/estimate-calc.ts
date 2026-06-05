@@ -1,4 +1,4 @@
-import type { EstimatePresentation, LineType } from "@/lib/types";
+import type { EstimatePresentation, LineType, MeasureUnit } from "@/lib/types";
 
 /**
  * Pure pricing math shared by the live builder (client) and the server.
@@ -7,6 +7,9 @@ import type { EstimatePresentation, LineType } from "@/lib/types";
 export interface CalcLine {
   line_type: LineType;
   sqft?: number | string | null;
+  length_in?: number | string | null;
+  width_in?: number | string | null;
+  measure_unit?: MeasureUnit | null;
   material_rate?: number | string | null;
   labor_rate?: number | string | null;
   installed_rate?: number | string | null;
@@ -19,13 +22,32 @@ export function num(v: number | string | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Area in square feet: from L×W (inches) when present, else the sqft field. */
+export function lineAreaSqft(line: CalcLine): number {
+  const len = num(line.length_in);
+  const wid = num(line.width_in);
+  if (len > 0 && wid > 0) return (len / 12) * (wid / 12);
+  return num(line.sqft);
+}
+
+export function lineAreaSqyd(line: CalcLine): number {
+  return lineAreaSqft(line) / 9;
+}
+
+/** Quantity used for pricing, in the line's measure unit. */
+export function lineQty(line: CalcLine): number {
+  return line.measure_unit === "sqyd"
+    ? lineAreaSqyd(line)
+    : lineAreaSqft(line);
+}
+
 export function lineTotal(line: CalcLine): number {
-  const sqft = num(line.sqft);
+  const qty = lineQty(line);
   switch (line.line_type) {
     case "mat_labor":
-      return sqft * (num(line.material_rate) + num(line.labor_rate));
+      return qty * (num(line.material_rate) + num(line.labor_rate));
     case "installed":
-      return sqft * num(line.installed_rate);
+      return qty * num(line.installed_rate);
     case "flat":
       return num(line.flat_amount);
     default:
@@ -55,6 +77,9 @@ export interface SaveLineInput {
   description: string;
   line_type: LineType;
   sqft: string | number | null;
+  length_in: string | number | null;
+  width_in: string | number | null;
+  measure_unit: MeasureUnit;
   material_rate: string | number | null;
   labor_rate: string | number | null;
   installed_rate: string | number | null;
@@ -82,6 +107,9 @@ export interface SaveEstimateInput {
 export interface WizardRoom {
   name: string;
   sqft: string | number | null;
+  length_in: string | number | null;
+  width_in: string | number | null;
+  measure_unit: MeasureUnit;
   product_id: string | null;
   description: string;
   line_type: "mat_labor" | "installed";
