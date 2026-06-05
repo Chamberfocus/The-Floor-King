@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { FileText, Wrench, Receipt } from "lucide-react";
+import { FileText, Wrench, Receipt, MessageSquare } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -14,9 +15,11 @@ import { requireProfile } from "@/lib/auth";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer } from "@/lib/data/jobs";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
+import { listClientThread } from "@/lib/data/messages";
+import { portalSendMessage } from "./actions";
 import { optionTotals } from "@/lib/estimate-calc";
 import { invoiceTotals } from "@/lib/invoice-calc";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 
 export const metadata: Metadata = { title: "My account" };
 
@@ -35,10 +38,11 @@ export default async function PortalHome() {
     );
   }
 
-  const [estimates, jobs, invoices] = await Promise.all([
+  const [estimates, jobs, invoices, thread] = await Promise.all([
     listEstimatesForCustomer(profile.customer_id),
     listJobsForCustomer(profile.customer_id),
     listInvoicesForCustomer(profile.customer_id),
+    listClientThread(profile.customer_id),
   ]);
 
   return (
@@ -51,6 +55,47 @@ export default async function PortalHome() {
           Your estimates, project schedule, and invoices in one place.
         </p>
       </div>
+
+      {/* Messages */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageSquare className="size-4" /> Messages with us
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {thread.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No messages yet. Send us a note below — we&apos;re happy to help.
+            </p>
+          ) : (
+            <div className="max-h-72 space-y-3 overflow-y-auto">
+              {thread.map((m) => (
+                <div key={m.id}>
+                  <div className="text-xs text-muted-foreground">
+                    {m.author_id === profile.id ? "You" : "Cleveland Floor King"}{" "}
+                    · {formatDateTime(m.created_at)}
+                  </div>
+                  <p className="whitespace-pre-wrap text-sm">{m.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <form
+            action={portalSendMessage}
+            className="space-y-2 border-t pt-3"
+          >
+            <textarea
+              name="body"
+              rows={2}
+              required
+              placeholder="Write a message…"
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <Button type="submit">Send</Button>
+          </form>
+        </CardContent>
+      </Card>
 
       {/* Estimates */}
       <Card>

@@ -116,14 +116,15 @@ export function CustomerForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="source">Lead source</Label>
+          <Label htmlFor="source">Lead source * (where did they come from?)</Label>
           <select
             id="source"
             name="source"
             defaultValue={customer?.source ?? ""}
+            required
             className={selectClass}
           >
-            <option value="">— Select —</option>
+            <option value="">— Select a source —</option>
             {Object.entries(LEAD_SOURCE_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}

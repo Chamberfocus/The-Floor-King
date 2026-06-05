@@ -27,6 +27,13 @@ export async function createEstimate(formData: FormData): Promise<void> {
   if (!customerId) return;
 
   const supabase = await createClient();
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("source")
+    .eq("id", customerId)
+    .maybeSingle();
+  if (!cust?.source) redirect(`/customers/${customerId}`);
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -174,6 +181,17 @@ export async function createEstimateFromWizard(
   if (!customerId) return { error: "Missing customer." };
 
   const supabase = await createClient();
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("source")
+    .eq("id", customerId)
+    .maybeSingle();
+  if (!cust?.source) {
+    return {
+      error: "Set this customer's lead source before creating an estimate.",
+    };
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();

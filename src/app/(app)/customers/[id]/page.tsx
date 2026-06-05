@@ -36,6 +36,7 @@ import { listJobsForCustomer } from "@/lib/data/jobs";
 import { createJob } from "@/app/(app)/jobs/actions";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
+import { listCustomerMessages } from "@/lib/data/messages";
 import { createEstimate } from "@/app/(app)/estimates/actions";
 import { createInvoice } from "@/app/(app)/invoices/actions";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
@@ -47,6 +48,7 @@ import { StageSelect } from "./stage-select";
 import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
 import { InvitePortalForm } from "./invite-portal-form";
+import { CustomerChat } from "./customer-chat";
 
 export async function generateMetadata({
   params,
@@ -81,6 +83,7 @@ export default async function CustomerPage({
   const jobs = await listJobsForCustomer(id);
   const invoices = await listInvoicesForCustomer(id);
   const portalUser = await getPortalUser(id);
+  const messages = await listCustomerMessages(id);
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
@@ -152,29 +155,41 @@ export default async function CustomerPage({
           </Card>
         </div>
 
-        {/* Right: estimates + activity timeline */}
+        {/* Right: chat + estimates + activity timeline */}
         <div className="space-y-6 lg:col-span-2">
+          {/* Chat */}
+          <CustomerChat customerId={customer.id} messages={messages} />
+
           {/* Estimates */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
-              <div className="flex items-center gap-2">
-                <Link
-                  href={`/estimates/new?customer=${customer.id}`}
-                  className={buttonVariants({ size: "sm" })}
-                >
-                  <Sparkles className="size-3.5" /> Wizard
-                </Link>
-                <form action={createEstimate}>
-                  <input type="hidden" name="customer_id" value={customer.id} />
-                  <button
-                    type="submit"
-                    className={buttonVariants({ variant: "outline", size: "sm" })}
+              {customer.source ? (
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/estimates/new?customer=${customer.id}`}
+                    className={buttonVariants({ size: "sm" })}
                   >
-                    <Plus className="size-3.5" /> Blank
-                  </button>
-                </form>
-              </div>
+                    <Sparkles className="size-3.5" /> Wizard
+                  </Link>
+                  <form action={createEstimate}>
+                    <input type="hidden" name="customer_id" value={customer.id} />
+                    <button
+                      type="submit"
+                      className={buttonVariants({
+                        variant: "outline",
+                        size: "sm",
+                      })}
+                    >
+                      <Plus className="size-3.5" /> Blank
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <span className="text-xs font-medium text-amber-600">
+                  Set a lead source (Edit) to create estimates
+                </span>
+              )}
             </CardHeader>
             <CardContent>
               {estimates.length === 0 ? (

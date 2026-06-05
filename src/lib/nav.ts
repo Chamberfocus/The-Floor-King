@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Warehouse,
   UserCog,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types";
@@ -40,6 +41,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Job Board", href: "/board", icon: ClipboardList, roles: STAFF_AND_CREW },
   { label: "Invoices", href: "/invoices", icon: Receipt, roles: STAFF },
   { label: "Catalog", href: "/catalog", icon: Package, roles: STAFF },
+  { label: "Reports", href: "/reports", icon: BarChart3, roles: STAFF },
   { label: "Warehouse", href: "/warehouse", icon: Warehouse, roles: ["admin", "office", "warehouse"] },
   { label: "Wizard Setup", href: "/settings/wizard", icon: Settings, roles: ["admin"] },
   { label: "Team", href: "/settings/team", icon: UserCog, roles: ["admin"] },

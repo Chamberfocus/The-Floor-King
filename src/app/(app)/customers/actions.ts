@@ -51,6 +51,9 @@ export async function createCustomer(
 ): Promise<CustomerFormState> {
   const fields = readCustomerFields(formData);
   if (!fields.full_name) return { error: "A name is required." };
+  if (!fields.source) {
+    return { error: "Please choose where this lead came from (lead source)." };
+  }
 
   const stage = (str(formData.get("stage")) || "new") as LeadStage;
 

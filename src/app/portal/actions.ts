@@ -36,6 +36,42 @@ async function notifyOwner(
   });
 }
 
+export async function portalSendMessage(formData: FormData): Promise<void> {
+  const body = str(formData.get("body"));
+  if (!body) return;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("customer_id, full_name")
+    .eq("id", user.id)
+    .maybeSingle();
+  const customerId = prof?.customer_id as string | null;
+  if (!customerId) return;
+
+  await supabase.from("messages").insert({
+    customer_id: customerId,
+    channel: "client",
+    author_id: user.id,
+    body,
+  });
+
+  await sendEmail({
+    to: ownerEmail(),
+    subject: "New message from a customer",
+    html: emailLayout(
+      "New customer message",
+      `<p>${(prof?.full_name as string) ?? "A customer"} sent a message:</p><p>${body}</p>`,
+      { label: "Open in CRM", url: `${siteUrl()}/customers/${customerId}` },
+    ),
+  });
+
+  revalidatePath("/portal");
+}
+
 export async function portalApproveEstimate(formData: FormData): Promise<void> {
   const id = str(formData.get("estimate_id"));
   const optionId = str(formData.get("accepted_option_id")) || null;

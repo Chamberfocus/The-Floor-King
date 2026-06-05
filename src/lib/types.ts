@@ -551,3 +551,81 @@ export interface JobFile {
 export interface JobFileWithUrl extends JobFile {
   url: string | null;
 }
+
+// --- Messaging --------------------------------------------------------------
+
+export type MessageChannel = "internal" | "client";
+
+export interface Message {
+  id: string;
+  customer_id: string;
+  channel: MessageChannel;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface MessageWithAuthor extends Message {
+  author_name: string;
+}
+
+// --- Expenses / Finance -----------------------------------------------------
+
+export type ExpenseCategory =
+  | "materials"
+  | "labor"
+  | "subcontractor"
+  | "vehicle"
+  | "fuel"
+  | "rent"
+  | "utilities"
+  | "insurance"
+  | "marketing"
+  | "tools"
+  | "payroll"
+  | "office"
+  | "other";
+
+export interface Expense {
+  id: string;
+  date: string;
+  category: ExpenseCategory;
+  amount: number;
+  vendor: string | null;
+  note: string | null;
+  job_id: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
+  materials: "Materials",
+  labor: "Labor",
+  subcontractor: "Subcontractor",
+  vehicle: "Vehicle",
+  fuel: "Fuel",
+  rent: "Rent",
+  utilities: "Utilities",
+  insurance: "Insurance",
+  marketing: "Marketing",
+  tools: "Tools",
+  payroll: "Payroll",
+  office: "Office",
+  other: "Other",
+};
+
+export const EXPENSE_CATEGORY_ORDER: ExpenseCategory[] = [
+  "materials",
+  "labor",
+  "subcontractor",
+  "vehicle",
+  "fuel",
+  "rent",
+  "utilities",
+  "insurance",
+  "marketing",
+  "tools",
+  "payroll",
+  "office",
+  "other",
+];
