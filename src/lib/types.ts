@@ -340,3 +340,53 @@ export const JOB_STATUS_BADGE: Record<JobStatus, string> = {
   completed: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
   cancelled: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
 };
+
+// --- Purchase Orders --------------------------------------------------------
+
+export type PoStatus = "draft" | "ordered" | "received" | "cancelled";
+
+export interface PoItem {
+  id: string;
+  po_id: string;
+  product_id: string | null;
+  position: number;
+  description: string;
+  quantity: number | null;
+  unit: string;
+  unit_cost: number | null;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  customer_id: string | null;
+  estimate_id: string | null;
+  job_id: string | null;
+  supplier: string | null;
+  status: PoStatus;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  items?: PoItem[];
+}
+
+export const PO_STATUS_LABELS: Record<PoStatus, string> = {
+  draft: "Draft",
+  ordered: "Ordered",
+  received: "Received",
+  cancelled: "Cancelled",
+};
+
+export const PO_STATUS_ORDER: PoStatus[] = [
+  "draft",
+  "ordered",
+  "received",
+  "cancelled",
+];
+
+export const PO_STATUS_BADGE: Record<PoStatus, string> = {
+  draft: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  ordered: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  received: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  cancelled: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+};
