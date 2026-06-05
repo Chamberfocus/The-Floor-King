@@ -37,18 +37,25 @@ import { createJob } from "@/app/(app)/jobs/actions";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
 import { listCustomerMessages } from "@/lib/data/messages";
+import {
+  listWorkflowStages,
+  listHandoffMembers,
+  listHandoffs,
+} from "@/lib/data/workflow";
 import { createEstimate } from "@/app/(app)/estimates/actions";
 import { createInvoice } from "@/app/(app)/invoices/actions";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { optionTotals } from "@/lib/estimate-calc";
 import { invoiceTotals } from "@/lib/invoice-calc";
-import { type ActivityType } from "@/lib/types";
+import { STAGE_COLOR_BADGE, type ActivityType } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { StageSelect } from "./stage-select";
 import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
 import { InvitePortalForm } from "./invite-portal-form";
 import { CustomerChat } from "./customer-chat";
+import { HandoffControl } from "./handoff-control";
 
 export async function generateMetadata({
   params,
@@ -84,11 +91,20 @@ export default async function CustomerPage({
   const invoices = await listInvoicesForCustomer(id);
   const portalUser = await getPortalUser(id);
   const messages = await listCustomerMessages(id);
+  const stages = await listWorkflowStages();
+  const handoffMembers = await listHandoffMembers();
+  const handoffHistory = await listHandoffs(id);
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
     customer.created_by ?? "",
+    customer.workflow_owner_id ?? "",
   ]);
+  const currentStage =
+    stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
+  const ownerName = customer.workflow_owner_id
+    ? (names[customer.workflow_owner_id] ?? null)
+    : null;
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -114,8 +130,65 @@ export default async function CustomerPage({
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left: stage + contact */}
+        {/* Left: workflow + stage + contact */}
         <div className="space-y-6">
+          {/* Workflow & handoff */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Workflow &amp; handoff</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-start justify-between gap-3 text-sm">
+                <div>
+                  <div className="text-xs text-muted-foreground">
+                    Current stage
+                  </div>
+                  {currentStage ? (
+                    <span
+                      className={cn(
+                        "mt-0.5 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                        STAGE_COLOR_BADGE[currentStage.color] ??
+                          STAGE_COLOR_BADGE.zinc,
+                      )}
+                    >
+                      {currentStage.name}
+                    </span>
+                  ) : (
+                    <div className="text-muted-foreground">Not started</div>
+                  )}
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-muted-foreground">Owner</div>
+                  <div className="font-medium">{ownerName ?? "Unassigned"}</div>
+                </div>
+              </div>
+
+              <HandoffControl
+                customerId={customer.id}
+                currentStageId={customer.workflow_stage_id}
+                currentOwnerId={customer.workflow_owner_id}
+                stages={stages}
+                members={handoffMembers}
+              />
+
+              {handoffHistory.length ? (
+                <div className="border-t pt-3">
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">
+                    Recent handoffs
+                  </div>
+                  <ul className="space-y-1 text-xs text-muted-foreground">
+                    {handoffHistory.slice(0, 5).map((h) => (
+                      <li key={h.id}>
+                        → {h.to_stage_name ?? "stage"} ·{" "}
+                        {h.to_name ?? "unassigned"} · {formatDate(h.created_at)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Pipeline stage</CardTitle>

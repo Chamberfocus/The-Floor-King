@@ -22,6 +22,7 @@ export async function inviteTeamMember(
   const email = str(formData.get("email")).toLowerCase();
   const password = str(formData.get("password"));
   const fullName = str(formData.get("full_name"));
+  const title = str(formData.get("title"));
   const role = (str(formData.get("role")) || "crew") as UserRole;
 
   if (!email) return { error: "Email is required." };
@@ -51,11 +52,25 @@ export async function inviteTeamMember(
 
   await admin
     .from("profiles")
-    .update({ role, full_name: fullName || null })
+    .update({ role, full_name: fullName || null, title: title || null })
     .eq("id", created.user.id);
 
   revalidatePath("/settings/team");
   return { error: null, ok: true };
+}
+
+export async function setMemberTitle(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const title = str(formData.get("title"));
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return;
+  }
+  await admin.from("profiles").update({ title: title || null }).eq("id", id);
+  revalidatePath("/settings/team");
 }
 
 export async function setMemberRole(formData: FormData): Promise<void> {

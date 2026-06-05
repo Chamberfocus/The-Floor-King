@@ -12,6 +12,8 @@ import {
   Warehouse,
   UserCog,
   BarChart3,
+  Route,
+  GitBranch,
   type LucideIcon,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types";
@@ -33,6 +35,7 @@ const STAFF_AND_CREW: UserRole[] = ["admin", "office", "crew"];
 /** Primary navigation. Items are filtered by the current user's role. */
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: STAFF },
+  { label: "Pipeline", href: "/pipeline", icon: Route, roles: STAFF },
   { label: "Leads", href: "/leads", icon: Contact, roles: STAFF },
   { label: "Customers", href: "/customers", icon: Users, roles: STAFF },
   { label: "Estimates", href: "/estimates", icon: FileText, roles: STAFF },
@@ -43,6 +46,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Catalog", href: "/catalog", icon: Package, roles: STAFF },
   { label: "Reports", href: "/reports", icon: BarChart3, roles: STAFF },
   { label: "Warehouse", href: "/warehouse", icon: Warehouse, roles: ["admin", "office", "warehouse"] },
+  { label: "Workflow Stages", href: "/settings/stages", icon: GitBranch, roles: ["admin"] },
   { label: "Wizard Setup", href: "/settings/wizard", icon: Settings, roles: ["admin"] },
   { label: "Team", href: "/settings/team", icon: UserCog, roles: ["admin"] },
 ];

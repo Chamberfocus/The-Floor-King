@@ -5,10 +5,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { listTeamMembers } from "@/lib/data/team";
 import { InviteTeamForm } from "./invite-form";
 import { RoleSelect } from "./role-select";
+import { setMemberTitle } from "./actions";
 
 export const metadata: Metadata = { title: "Team" };
 
@@ -43,7 +45,7 @@ export default async function TeamPage() {
               {members.map((m) => (
                 <li
                   key={m.id}
-                  className="flex items-center justify-between gap-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-3 py-2"
                 >
                   <div className="min-w-0">
                     <div className="truncate font-medium">
@@ -53,7 +55,21 @@ export default async function TeamPage() {
                       {m.email}
                     </div>
                   </div>
-                  <RoleSelect id={m.id} role={m.role} />
+                  <div className="flex items-center gap-2">
+                    <form action={setMemberTitle} className="flex items-center gap-1">
+                      <input type="hidden" name="id" value={m.id} />
+                      <input
+                        name="title"
+                        defaultValue={m.title ?? ""}
+                        placeholder="Job title"
+                        className="h-8 w-36 rounded-md border border-input bg-transparent px-2 text-sm"
+                      />
+                      <Button type="submit" variant="outline" size="sm">
+                        Save
+                      </Button>
+                    </form>
+                    <RoleSelect id={m.id} role={m.role} />
+                  </div>
                 </li>
               ))}
             </ul>

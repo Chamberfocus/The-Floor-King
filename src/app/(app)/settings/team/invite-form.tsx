@@ -30,6 +30,10 @@ export function InviteTeamForm() {
         <Input id="full_name" name="full_name" placeholder="Mike Installer" />
       </div>
       <div className="space-y-1">
+        <Label htmlFor="title">Job title</Label>
+        <Input id="title" name="title" placeholder="e.g. Lead Estimator" />
+      </div>
+      <div className="space-y-1">
         <Label htmlFor="role">Role</Label>
         <select id="role" name="role" defaultValue="crew" className={fieldClass}>
           <option value="crew">{ROLE_LABELS.crew}</option>

@@ -6,6 +6,7 @@ export interface Profile {
   email: string;
   full_name: string | null;
   phone: string | null;
+  title: string | null;
   role: UserRole;
   customer_id: string | null;
   created_at: string;
@@ -61,6 +62,8 @@ export interface Customer {
   source: LeadSource | null;
   notes: string | null;
   assigned_to: string | null;
+  workflow_stage_id: string | null;
+  workflow_owner_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -628,4 +631,51 @@ export const EXPENSE_CATEGORY_ORDER: ExpenseCategory[] = [
   "payroll",
   "office",
   "other",
+];
+
+// --- Workflow stages & handoffs --------------------------------------------
+
+export interface WorkflowStage {
+  id: string;
+  name: string;
+  position: number;
+  color: string;
+  default_owner: string | null;
+  created_at: string;
+}
+
+export interface Handoff {
+  id: string;
+  customer_id: string;
+  from_stage_id: string | null;
+  to_stage_id: string | null;
+  from_user: string | null;
+  to_user: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+/** Tailwind classes for a stage's color token. */
+export const STAGE_COLOR_BADGE: Record<string, string> = {
+  blue: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  amber: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  cyan: "bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300",
+  green: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  purple: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300",
+  indigo: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300",
+  teal: "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300",
+  rose: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+  zinc: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+};
+
+export const STAGE_COLORS = [
+  "blue",
+  "amber",
+  "cyan",
+  "green",
+  "purple",
+  "indigo",
+  "teal",
+  "rose",
+  "zinc",
 ];
