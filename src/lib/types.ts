@@ -390,3 +390,91 @@ export const PO_STATUS_BADGE: Record<PoStatus, string> = {
   received: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
   cancelled: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
 };
+
+// --- Invoicing & Payments ---------------------------------------------------
+
+export type InvoiceStatus = "draft" | "sent" | "partial" | "paid" | "void";
+
+export type PaymentMethod =
+  | "card"
+  | "cash"
+  | "check"
+  | "echeck"
+  | "financing"
+  | "link"
+  | "other";
+
+export interface InvoiceItem {
+  id: string;
+  invoice_id: string;
+  position: number;
+  description: string;
+  quantity: number | null;
+  unit: string;
+  rate: number | null;
+}
+
+export interface Payment {
+  id: string;
+  invoice_id: string;
+  amount: number;
+  method: PaymentMethod;
+  reference: string | null;
+  paid_at: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface Invoice {
+  id: string;
+  customer_id: string;
+  job_id: string | null;
+  estimate_id: string | null;
+  number: string | null;
+  status: InvoiceStatus;
+  issue_date: string | null;
+  due_date: string | null;
+  tax_rate: number;
+  notes: string | null;
+  terms: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  items?: InvoiceItem[];
+  payments?: Payment[];
+}
+
+export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
+  draft: "Draft",
+  sent: "Sent",
+  partial: "Partially Paid",
+  paid: "Paid",
+  void: "Void",
+};
+
+export const INVOICE_STATUS_ORDER: InvoiceStatus[] = [
+  "draft",
+  "sent",
+  "partial",
+  "paid",
+  "void",
+];
+
+export const INVOICE_STATUS_BADGE: Record<InvoiceStatus, string> = {
+  draft: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  sent: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  partial: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  paid: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  void: "bg-zinc-100 text-zinc-500 line-through dark:bg-zinc-800",
+};
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  card: "Credit Card",
+  cash: "Cash",
+  check: "Check",
+  echeck: "eCheck / ACH",
+  financing: "Financing",
+  link: "Online Payment Link",
+  other: "Other",
+};

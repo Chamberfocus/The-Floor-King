@@ -8,6 +8,7 @@ import {
   Check,
   Wrench,
   ShoppingCart,
+  Receipt,
 } from "lucide-react";
 import {
   Card,
@@ -25,6 +26,7 @@ import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, deleteEstimate } from "../actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
+import { createInvoiceFromEstimate } from "@/app/(app)/invoices/actions";
 
 export async function generateMetadata({
   params,
@@ -104,6 +106,12 @@ export default async function EstimatePage({
                 <input type="hidden" name="estimate_id" value={estimate.id} />
                 <Button type="submit" variant="outline" size="lg">
                   <ShoppingCart className="size-4" /> Create PO
+                </Button>
+              </form>
+              <form action={createInvoiceFromEstimate}>
+                <input type="hidden" name="estimate_id" value={estimate.id} />
+                <Button type="submit" variant="outline" size="lg">
+                  <Receipt className="size-4" /> Create invoice
                 </Button>
               </form>
             </>

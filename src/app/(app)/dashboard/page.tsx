@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   Contact,
-  FileText,
+  Receipt,
   Trophy,
   CalendarDays,
   Plus,
@@ -19,6 +19,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getDashboardCounts } from "@/lib/data/customers";
 import { getActiveJobCount } from "@/lib/data/jobs";
+import { getOutstandingInvoiceCount } from "@/lib/data/invoices";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -26,6 +27,7 @@ export default async function DashboardPage() {
   const profile = await requireProfile();
   const counts = await getDashboardCounts();
   const activeJobs = await getActiveJobCount();
+  const outstanding = await getOutstandingInvoiceCount();
   const firstName = profile.full_name?.split(" ")[0] ?? "there";
 
   const stats: {
@@ -43,11 +45,11 @@ export default async function DashboardPage() {
       href: "/leads",
     },
     {
-      label: "Quoted",
-      value: counts.quoted,
-      hint: "Awaiting decision",
-      icon: FileText,
-      href: "/customers?stage=quoted",
+      label: "Outstanding invoices",
+      value: outstanding,
+      hint: "Unpaid or partial",
+      icon: Receipt,
+      href: "/invoices",
     },
     {
       label: "Won customers",

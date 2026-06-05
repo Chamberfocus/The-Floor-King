@@ -12,6 +12,7 @@ import {
   Plus,
   FileText,
   Wrench,
+  Receipt,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -32,7 +33,11 @@ import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer } from "@/lib/data/jobs";
 import { createJob } from "@/app/(app)/jobs/actions";
 import { JobStatusBadge } from "@/components/job-status-badge";
+import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
+import { createInvoice } from "@/app/(app)/invoices/actions";
+import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { optionTotals } from "@/lib/estimate-calc";
+import { invoiceTotals } from "@/lib/invoice-calc";
 import { type ActivityType } from "@/lib/types";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { StageSelect } from "./stage-select";
@@ -70,6 +75,7 @@ export default async function CustomerPage({
   const activities = await listActivities(id);
   const estimates = await listEstimatesForCustomer(id);
   const jobs = await listJobsForCustomer(id);
+  const invoices = await listInvoicesForCustomer(id);
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
@@ -214,6 +220,56 @@ export default async function CustomerPage({
                       </div>
                     </li>
                   ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Invoices */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">Invoices</CardTitle>
+              <form action={createInvoice}>
+                <input type="hidden" name="customer_id" value={customer.id} />
+                <button type="submit" className={buttonVariants({ size: "sm" })}>
+                  <Receipt className="size-3.5" /> New invoice
+                </button>
+              </form>
+            </CardHeader>
+            <CardContent>
+              {invoices.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No invoices yet.</p>
+              ) : (
+                <ul className="divide-y text-sm">
+                  {invoices.map((inv) => {
+                    const t = invoiceTotals(
+                      inv.items ?? [],
+                      inv.tax_rate,
+                      amountPaid(inv),
+                    );
+                    return (
+                      <li
+                        key={inv.id}
+                        className="flex items-center justify-between gap-3 py-2"
+                      >
+                        <Link
+                          href={`/invoices/${inv.id}`}
+                          className="flex min-w-0 items-center gap-2 hover:underline"
+                        >
+                          <Receipt className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate">
+                            {inv.number || "Invoice"}
+                          </span>
+                        </Link>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <InvoiceStatusBadge status={inv.status} />
+                          <span className="font-medium">
+                            {formatMoney(t.balance)} due
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </CardContent>
