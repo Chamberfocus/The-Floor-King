@@ -39,8 +39,8 @@ Running list of every feature idea, tagged by phase. Legend:
 ## Phase 3 — Jobs / Work Orders / Scheduling
 - ✅ Work order for installers from the approved estimate (scope by room)
 - ✅ Schedule jobs (dates), assign crew, mobile job screen, crew status updates
-- 📋 Calendar view of jobs
-- 📋 On-site photos + customer signature on the work order
+- ✅ Calendar view of jobs (month grid)
+- ✅ On-site photos + customer signature on the work order
 
 ## Phase 4 — Invoicing & Payments
 - ✅ Clear, informational invoices (items, tax, terms, printable) + balance tracking
@@ -50,8 +50,11 @@ Running list of every feature idea, tagged by phase. Legend:
 - 📋 emailed/photographed check → electronic debit automation
 
 ## Phase 5 — Customer Portal & Automation
-- 📋 Customer logs in to view, approve, decline (with reason), or request changes
+- ✅ Customer logs in to view, approve, decline (with reason), or request changes
+- ✅ Customer portal: see estimates, project schedule (jobs), invoices
+- ✅ Staff "invite to portal" creates a linked customer login
 - 📋 Notifications (email/text) for quote sent, approved, scheduled, invoice due
+- 📋 Online invoice payment in the portal (with Stripe)
 
 ---
 
