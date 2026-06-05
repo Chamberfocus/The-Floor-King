@@ -10,6 +10,7 @@ import {
   Play,
   Check,
   Send,
+  Megaphone,
 } from "lucide-react";
 import {
   Card,
@@ -19,13 +20,25 @@ import {
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { JobStatusBadge } from "@/components/job-status-badge";
-import { getJob, listAssignableUsers, listJobFiles } from "@/lib/data/jobs";
+import {
+  getJob,
+  listAssignableUsers,
+  listJobFiles,
+  getJobApplications,
+} from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
 import { requireProfile } from "@/lib/auth";
 import { lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney } from "@/lib/format";
 import { JobForm } from "../job-form";
-import { setJobStatus, deleteJob, emailJobSchedule } from "../actions";
+import {
+  setJobStatus,
+  deleteJob,
+  emailJobSchedule,
+  postJobToBoard,
+  unpostJobFromBoard,
+  assignInstaller,
+} from "../actions";
 import { deleteJobFile } from "../file-actions";
 import { JobPhotoUpload } from "../job-photo-upload";
 import { SignaturePad } from "../signature-pad";
@@ -59,6 +72,9 @@ export default async function JobPage({
   const files = await listJobFiles(id);
   const photos = files.filter((f) => f.kind === "photo");
   const signatures = files.filter((f) => f.kind === "signature");
+
+  const isAssignedToMe = job.assigned_to === profile.id;
+  const applicants = isStaff ? await getJobApplications(id) : [];
 
   const siteParts = [
     job.site_street,
@@ -96,27 +112,29 @@ export default async function JobPage({
             )}
           </p>
         </div>
-        {/* Crew quick actions */}
-        <div className="flex items-center gap-2">
-          {job.status !== "in_progress" && job.status !== "completed" ? (
-            <form action={setJobStatus}>
-              <input type="hidden" name="id" value={job.id} />
-              <input type="hidden" name="status" value="in_progress" />
-              <Button type="submit" variant="outline">
-                <Play className="size-4" /> Start job
-              </Button>
-            </form>
-          ) : null}
-          {job.status !== "completed" ? (
-            <form action={setJobStatus}>
-              <input type="hidden" name="id" value={job.id} />
-              <input type="hidden" name="status" value="completed" />
-              <Button type="submit">
-                <Check className="size-4" /> Mark complete
-              </Button>
-            </form>
-          ) : null}
-        </div>
+        {/* Quick actions — the assigned installer or staff */}
+        {isStaff || isAssignedToMe ? (
+          <div className="flex items-center gap-2">
+            {job.status !== "in_progress" && job.status !== "completed" ? (
+              <form action={setJobStatus}>
+                <input type="hidden" name="id" value={job.id} />
+                <input type="hidden" name="status" value="in_progress" />
+                <Button type="submit" variant="outline">
+                  <Play className="size-4" /> Start job
+                </Button>
+              </form>
+            ) : null}
+            {job.status !== "completed" ? (
+              <form action={setJobStatus}>
+                <input type="hidden" name="id" value={job.id} />
+                <input type="hidden" name="status" value="completed" />
+                <Button type="submit">
+                  <Check className="size-4" /> Mark complete
+                </Button>
+              </form>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {/* Schedule / site summary */}
@@ -289,6 +307,64 @@ export default async function JobPage({
       {/* Staff editing */}
       {isStaff ? (
         <>
+          <Card className="mb-6">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">Job board</CardTitle>
+              {job.open_for_claim ? (
+                <form action={unpostJobFromBoard}>
+                  <input type="hidden" name="id" value={job.id} />
+                  <Button type="submit" variant="outline" size="sm">
+                    Remove from board
+                  </Button>
+                </form>
+              ) : (
+                <form action={postJobToBoard}>
+                  <input type="hidden" name="id" value={job.id} />
+                  <Button type="submit" size="sm">
+                    <Megaphone className="size-3.5" /> Post to board
+                  </Button>
+                </form>
+              )}
+            </CardHeader>
+            <CardContent>
+              {applicants.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {job.open_for_claim
+                    ? "Posted — waiting for installers to apply."
+                    : "Post this job so installers can claim it."}
+                </p>
+              ) : (
+                <ul className="divide-y text-sm">
+                  {applicants.map((a) => (
+                    <li
+                      key={a.id}
+                      className="flex items-center justify-between gap-3 py-2"
+                    >
+                      <span className="font-medium">{a.installer_name}</span>
+                      {job.assigned_to === a.installer_id ? (
+                        <span className="text-xs font-medium text-green-600">
+                          Assigned ✓
+                        </span>
+                      ) : (
+                        <form action={assignInstaller}>
+                          <input type="hidden" name="job_id" value={job.id} />
+                          <input
+                            type="hidden"
+                            name="installer_id"
+                            value={a.installer_id}
+                          />
+                          <Button type="submit" size="sm">
+                            Assign
+                          </Button>
+                        </form>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Schedule &amp; details</CardTitle>

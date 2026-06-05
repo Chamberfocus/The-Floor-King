@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { JOB_STATUS_LABELS, JOB_STATUS_ORDER, type Job } from "@/lib/types";
+import {
+  JOB_STATUS_LABELS,
+  JOB_STATUS_ORDER,
+  JOB_DELIVERY_LABELS,
+  type Job,
+  type JobDeliveryType,
+} from "@/lib/types";
 import type { AssignableUser } from "@/lib/data/jobs";
 import { updateJob, type JobFormState } from "./actions";
 
@@ -86,6 +92,21 @@ export function JobForm({
             type="date"
             defaultValue={job.scheduled_end ?? ""}
           />
+        </div>
+        <div className="space-y-2 sm:col-span-2">
+          <Label htmlFor="delivery_type">Material delivery</Label>
+          <select
+            id="delivery_type"
+            name="delivery_type"
+            defaultValue={job.delivery_type}
+            className={fieldClass}
+          >
+            {(Object.keys(JOB_DELIVERY_LABELS) as JobDeliveryType[]).map((d) => (
+              <option key={d} value={d}>
+                {JOB_DELIVERY_LABELS[d]}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 

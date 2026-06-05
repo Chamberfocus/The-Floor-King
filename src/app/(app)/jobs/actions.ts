@@ -4,7 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
-import type { JobStatus } from "@/lib/types";
+import type {
+  JobDeliveryType,
+  JobStatus,
+  WarehouseStatus,
+} from "@/lib/types";
 
 export interface JobFormState {
   error: string | null;
@@ -130,6 +134,8 @@ export async function updateJob(
       site_state: nullable(formData.get("site_state")),
       site_zip: nullable(formData.get("site_zip")),
       notes: nullable(formData.get("notes")),
+      delivery_type: (str(formData.get("delivery_type")) ||
+        "deliver") as JobDeliveryType,
     })
     .eq("id", id);
   if (error) return { error: error.message };
@@ -188,6 +194,116 @@ export async function emailJobSchedule(formData: FormData): Promise<void> {
       ),
     });
   }
+  revalidatePath(`/jobs/${id}`);
+}
+
+// --- Job board (installers claim open jobs) ---------------------------------
+
+export async function postJobToBoard(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const supabase = await createClient();
+  await supabase.from("jobs").update({ open_for_claim: true }).eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+  revalidatePath("/board");
+}
+
+export async function unpostJobFromBoard(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const supabase = await createClient();
+  await supabase.from("jobs").update({ open_for_claim: false }).eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+  revalidatePath("/board");
+}
+
+/** An installer signals they can do an open job. */
+export async function applyToJob(formData: FormData): Promise<void> {
+  const jobId = str(formData.get("job_id"));
+  if (!jobId) return;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  await supabase
+    .from("job_applications")
+    .upsert(
+      { job_id: jobId, installer_id: user.id, status: "applied" },
+      { onConflict: "job_id,installer_id" },
+    );
+  revalidatePath("/board");
+  revalidatePath(`/jobs/${jobId}`);
+}
+
+export async function withdrawApplication(formData: FormData): Promise<void> {
+  const jobId = str(formData.get("job_id"));
+  if (!jobId) return;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  await supabase
+    .from("job_applications")
+    .delete()
+    .eq("job_id", jobId)
+    .eq("installer_id", user.id);
+  revalidatePath("/board");
+  revalidatePath(`/jobs/${jobId}`);
+}
+
+/** Scheduler assigns an applicant — the job becomes theirs and leaves the board. */
+export async function assignInstaller(formData: FormData): Promise<void> {
+  const jobId = str(formData.get("job_id"));
+  const installerId = str(formData.get("installer_id"));
+  if (!jobId || !installerId) return;
+  const supabase = await createClient();
+  await supabase
+    .from("jobs")
+    .update({
+      assigned_to: installerId,
+      open_for_claim: false,
+      status: "scheduled",
+    })
+    .eq("id", jobId);
+  await supabase
+    .from("job_applications")
+    .update({ status: "accepted" })
+    .eq("job_id", jobId)
+    .eq("installer_id", installerId);
+  await supabase
+    .from("job_applications")
+    .update({ status: "declined" })
+    .eq("job_id", jobId)
+    .neq("installer_id", installerId);
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/board");
+  revalidatePath("/jobs");
+}
+
+// --- Warehouse --------------------------------------------------------------
+
+export async function setWarehouseStatus(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const status = str(formData.get("warehouse_status")) as WarehouseStatus;
+  if (!id || !status) return;
+  const supabase = await createClient();
+  await supabase.from("jobs").update({ warehouse_status: status }).eq("id", id);
+  revalidatePath("/warehouse");
+  revalidatePath(`/jobs/${id}`);
+}
+
+export async function setDeliveryType(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const deliveryType = str(formData.get("delivery_type")) as JobDeliveryType;
+  if (!id || !deliveryType) return;
+  const supabase = await createClient();
+  await supabase
+    .from("jobs")
+    .update({ delivery_type: deliveryType })
+    .eq("id", id);
+  revalidatePath("/warehouse");
   revalidatePath(`/jobs/${id}`);
 }
 

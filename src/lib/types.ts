@@ -1,5 +1,5 @@
 /** Roles that govern what a signed-in user can see and do. */
-export type UserRole = "admin" | "office" | "crew" | "customer";
+export type UserRole = "admin" | "office" | "crew" | "warehouse" | "customer";
 
 export interface Profile {
   id: string;
@@ -14,7 +14,8 @@ export interface Profile {
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Administrator",
   office: "Office Staff",
-  crew: "Field Crew",
+  crew: "Installer",
+  warehouse: "Warehouse",
   customer: "Customer",
 };
 
@@ -312,10 +313,62 @@ export interface Job {
   site_state: string | null;
   site_zip: string | null;
   notes: string | null;
+  delivery_type: JobDeliveryType;
+  warehouse_status: WarehouseStatus;
+  open_for_claim: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export type JobDeliveryType = "cash_carry" | "deliver" | "deliver_acclimate";
+export type WarehouseStatus =
+  | "pending"
+  | "staged"
+  | "out_for_delivery"
+  | "delivered"
+  | "picked_up";
+export type JobApplicationStatus = "applied" | "accepted" | "declined";
+
+export interface JobApplication {
+  id: string;
+  job_id: string;
+  installer_id: string;
+  status: JobApplicationStatus;
+  note: string | null;
+  created_at: string;
+}
+
+export const JOB_DELIVERY_LABELS: Record<JobDeliveryType, string> = {
+  cash_carry: "Cash & Carry",
+  deliver: "Deliver to site",
+  deliver_acclimate: "Deliver for acclimation",
+};
+
+export const WAREHOUSE_STATUS_LABELS: Record<WarehouseStatus, string> = {
+  pending: "Not started",
+  staged: "Staged",
+  out_for_delivery: "Out for delivery",
+  delivered: "Delivered",
+  picked_up: "Picked up",
+};
+
+export const WAREHOUSE_STATUS_ORDER: WarehouseStatus[] = [
+  "pending",
+  "staged",
+  "out_for_delivery",
+  "delivered",
+  "picked_up",
+];
+
+export const WAREHOUSE_STATUS_BADGE: Record<WarehouseStatus, string> = {
+  pending: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  staged: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  out_for_delivery:
+    "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  delivered: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  picked_up: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+};
 
 export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   unscheduled: "Unscheduled",

@@ -7,5 +7,8 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const profile = await getProfile();
   if (!profile) redirect("/login");
-  redirect(profile.role === "customer" ? "/portal" : "/dashboard");
+  if (profile.role === "customer") redirect("/portal");
+  if (profile.role === "warehouse") redirect("/warehouse");
+  if (profile.role === "crew") redirect("/jobs");
+  redirect("/dashboard");
 }

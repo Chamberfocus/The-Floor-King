@@ -1,0 +1,114 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { MapPin, CalendarDays, Check } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { requireProfile } from "@/lib/auth";
+import { listOpenJobs, getMyApplicationJobIds } from "@/lib/data/jobs";
+import { JOB_DELIVERY_LABELS } from "@/lib/types";
+import { formatDate } from "@/lib/format";
+import { applyToJob, withdrawApplication } from "../jobs/actions";
+
+export const metadata: Metadata = { title: "Job Board" };
+
+export default async function JobBoardPage() {
+  const profile = await requireProfile();
+  const isStaff = profile.role === "admin" || profile.role === "office";
+
+  const [jobs, appliedIds] = await Promise.all([
+    listOpenJobs(),
+    getMyApplicationJobIds(),
+  ]);
+  const applied = new Set(appliedIds);
+
+  return (
+    <div>
+      <PageHeader
+        title="Job Board"
+        description={
+          isStaff
+            ? "Jobs posted for installers to claim."
+            : "Upcoming jobs you can take. Tap a job to see the details, then claim it."
+        }
+      />
+
+      {jobs.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
+          No open jobs right now. Check back soon.
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {jobs.map((j) => {
+            const city = [j.site_city, j.site_state].filter(Boolean).join(", ");
+            const hasApplied = applied.has(j.id);
+            return (
+              <Card key={j.id} className="flex flex-col">
+                <CardContent className="flex flex-1 flex-col gap-3 pt-6">
+                  <div>
+                    <Link
+                      href={`/jobs/${j.id}`}
+                      className="text-lg font-semibold hover:underline"
+                    >
+                      {j.title || "Flooring job"}
+                    </Link>
+                    <div className="mt-1 space-y-1 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="size-4" />
+                        {city || "Address on the job"}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <CalendarDays className="size-4" />
+                        {j.scheduled_date
+                          ? formatDate(j.scheduled_date)
+                          : "Flexible timing"}
+                      </div>
+                      <div className="text-xs">
+                        {JOB_DELIVERY_LABELS[j.delivery_type]}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-auto flex gap-2">
+                    <Link
+                      href={`/jobs/${j.id}`}
+                      className={buttonVariants({
+                        variant: "outline",
+                        size: "lg",
+                        className: "flex-1",
+                      })}
+                    >
+                      View details
+                    </Link>
+                    {!isStaff ? (
+                      hasApplied ? (
+                        <form action={withdrawApplication} className="flex-1">
+                          <input type="hidden" name="job_id" value={j.id} />
+                          <Button
+                            type="submit"
+                            variant="secondary"
+                            size="lg"
+                            className="w-full"
+                          >
+                            <Check className="size-4" /> Applied — tap to undo
+                          </Button>
+                        </form>
+                      ) : (
+                        <form action={applyToJob} className="flex-1">
+                          <input type="hidden" name="job_id" value={j.id} />
+                          <Button type="submit" size="lg" className="w-full">
+                            I can do this job
+                          </Button>
+                        </form>
+                      )
+                    ) : null}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}

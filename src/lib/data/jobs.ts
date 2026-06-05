@@ -3,6 +3,7 @@ import type {
   Customer,
   EstimateLineItem,
   Job,
+  JobApplication,
   JobFile,
   JobFileWithUrl,
 } from "@/lib/types";
@@ -144,6 +145,117 @@ export async function listJobFiles(
     out.push({ ...f, url: signed?.signedUrl ?? null });
   }
   return out;
+}
+
+export async function listOpenJobs(): Promise<JobListRow[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("jobs")
+    .select("*, customer:customers(full_name)")
+    .eq("open_for_claim", true)
+    .order("created_at", { ascending: false });
+  const rows = (data ?? []) as (Job & {
+    customer?: { full_name: string | null } | null;
+  })[];
+  return rows.map((r) => ({ ...r, customer_name: r.customer?.full_name ?? null }));
+}
+
+export interface JobApplicant extends JobApplication {
+  installer_name: string;
+}
+
+export async function getJobApplications(
+  jobId: string,
+): Promise<JobApplicant[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("job_applications")
+    .select("*")
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: true });
+  const apps = (data ?? []) as JobApplication[];
+  if (!apps.length) return [];
+
+  const ids = [...new Set(apps.map((a) => a.installer_id))];
+  const { data: profs } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", ids);
+  const nameById = new Map<string, string>();
+  for (const p of profs ?? []) {
+    nameById.set(p.id as string, (p.full_name as string) || (p.email as string));
+  }
+  return apps.map((a) => ({
+    ...a,
+    installer_name: nameById.get(a.installer_id) ?? "Installer",
+  }));
+}
+
+export async function getMyApplicationJobIds(): Promise<string[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+  const { data } = await supabase
+    .from("job_applications")
+    .select("job_id")
+    .eq("installer_id", user.id);
+  return (data ?? []).map((r) => r.job_id as string);
+}
+
+export interface WarehouseMaterial {
+  room: string | null;
+  description: string;
+  sqft: number | null;
+}
+
+export interface WarehouseJob extends JobListRow {
+  materials: WarehouseMaterial[];
+}
+
+export async function listWarehouseJobs(): Promise<WarehouseJob[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("jobs")
+    .select("*, customer:customers(full_name)")
+    .in("status", ["unscheduled", "scheduled", "in_progress"])
+    .order("scheduled_date", { ascending: true });
+  const jobs = (data ?? []) as (Job & {
+    customer?: { full_name: string | null } | null;
+  })[];
+  const rows: WarehouseJob[] = jobs.map((j) => ({
+    ...j,
+    customer_name: j.customer?.full_name ?? null,
+    materials: [],
+  }));
+
+  const optionIds = rows.map((r) => r.option_id).filter(Boolean) as string[];
+  if (optionIds.length) {
+    const { data: lineData } = await supabase
+      .from("estimate_line_items")
+      .select("option_id, room, description, sqft, line_type, position")
+      .in("option_id", optionIds)
+      .order("position", { ascending: true });
+    const lines = (lineData ?? []) as {
+      option_id: string;
+      room: string | null;
+      description: string;
+      sqft: number | null;
+      line_type: string;
+    }[];
+    const byOption = new Map<string, WarehouseMaterial[]>();
+    for (const l of lines) {
+      if (l.line_type === "flat") continue;
+      const arr = byOption.get(l.option_id) ?? [];
+      arr.push({ room: l.room, description: l.description, sqft: l.sqft });
+      byOption.set(l.option_id, arr);
+    }
+    for (const r of rows) {
+      if (r.option_id) r.materials = byOption.get(r.option_id) ?? [];
+    }
+  }
+  return rows;
 }
 
 export async function getActiveJobCount(): Promise<number> {
