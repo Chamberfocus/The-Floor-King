@@ -11,6 +11,7 @@ import {
   Info,
   Plus,
   FileText,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -28,6 +29,9 @@ import {
   getProfileNames,
 } from "@/lib/data/customers";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
+import { listJobsForCustomer } from "@/lib/data/jobs";
+import { createJob } from "@/app/(app)/jobs/actions";
+import { JobStatusBadge } from "@/components/job-status-badge";
 import { optionTotals } from "@/lib/estimate-calc";
 import { type ActivityType } from "@/lib/types";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
@@ -65,6 +69,7 @@ export default async function CustomerPage({
 
   const activities = await listActivities(id);
   const estimates = await listEstimatesForCustomer(id);
+  const jobs = await listJobsForCustomer(id);
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
@@ -166,6 +171,49 @@ export default async function CustomerPage({
                       </li>
                     );
                   })}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Jobs */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">Jobs</CardTitle>
+              <form action={createJob}>
+                <input type="hidden" name="customer_id" value={customer.id} />
+                <button type="submit" className={buttonVariants({ size: "sm" })}>
+                  <Wrench className="size-3.5" /> New job
+                </button>
+              </form>
+            </CardHeader>
+            <CardContent>
+              {jobs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No jobs yet.</p>
+              ) : (
+                <ul className="divide-y text-sm">
+                  {jobs.map((j) => (
+                    <li
+                      key={j.id}
+                      className="flex items-center justify-between gap-3 py-2"
+                    >
+                      <Link
+                        href={`/jobs/${j.id}`}
+                        className="flex min-w-0 items-center gap-2 hover:underline"
+                      >
+                        <Wrench className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{j.title || "Job"}</span>
+                      </Link>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <JobStatusBadge status={j.status} />
+                        {j.scheduled_date ? (
+                          <span className="text-muted-foreground">
+                            {formatDate(j.scheduled_date)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
                 </ul>
               )}
             </CardContent>

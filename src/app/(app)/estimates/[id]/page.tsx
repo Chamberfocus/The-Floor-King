@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Pencil, Trash2, Check } from "lucide-react";
+import { ArrowLeft, Pencil, Trash2, Check, Wrench } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -16,6 +16,7 @@ import { optionTotals, lineTotal } from "@/lib/estimate-calc";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, deleteEstimate } from "../actions";
+import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 
 export async function generateMetadata({
   params,
@@ -83,6 +84,14 @@ export default async function EstimatePage({
           >
             <Pencil className="size-4" /> Edit
           </Link>
+          {estimate.status === "approved" ? (
+            <form action={createJobFromEstimate}>
+              <input type="hidden" name="estimate_id" value={estimate.id} />
+              <Button type="submit" size="lg">
+                <Wrench className="size-4" /> Create job
+              </Button>
+            </form>
+          ) : null}
         </div>
       </div>
 

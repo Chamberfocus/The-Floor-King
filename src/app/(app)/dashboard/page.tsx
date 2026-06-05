@@ -18,12 +18,14 @@ import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getDashboardCounts } from "@/lib/data/customers";
+import { getActiveJobCount } from "@/lib/data/jobs";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const profile = await requireProfile();
   const counts = await getDashboardCounts();
+  const activeJobs = await getActiveJobCount();
   const firstName = profile.full_name?.split(" ")[0] ?? "there";
 
   const stats: {
@@ -56,9 +58,10 @@ export default async function DashboardPage() {
     },
     {
       label: "Active jobs",
-      value: "—",
-      hint: "Coming in scheduling",
+      value: activeJobs,
+      hint: "Scheduled & in progress",
       icon: CalendarDays,
+      href: "/jobs",
     },
   ];
 

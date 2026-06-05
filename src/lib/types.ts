@@ -286,3 +286,57 @@ export const WIZARD_INPUT_LABELS: Record<WizardQuestionInput, string> = {
   yesno: "Yes / No",
   number: "Number",
 };
+
+// --- Jobs & Work Orders -----------------------------------------------------
+
+export type JobStatus =
+  | "unscheduled"
+  | "scheduled"
+  | "in_progress"
+  | "completed"
+  | "cancelled";
+
+export interface Job {
+  id: string;
+  customer_id: string;
+  estimate_id: string | null;
+  option_id: string | null;
+  title: string | null;
+  status: JobStatus;
+  scheduled_date: string | null;
+  scheduled_end: string | null;
+  assigned_to: string | null;
+  site_street: string | null;
+  site_city: string | null;
+  site_state: string | null;
+  site_zip: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
+  unscheduled: "Unscheduled",
+  scheduled: "Scheduled",
+  in_progress: "In Progress",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+export const JOB_STATUS_ORDER: JobStatus[] = [
+  "unscheduled",
+  "scheduled",
+  "in_progress",
+  "completed",
+  "cancelled",
+];
+
+export const JOB_STATUS_BADGE: Record<JobStatus, string> = {
+  unscheduled: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  scheduled: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  in_progress:
+    "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  completed: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  cancelled: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+};

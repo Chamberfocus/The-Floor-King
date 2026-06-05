@@ -21,13 +21,13 @@ Running list of every feature idea, tagged by phase. Legend:
 - ✅ Job description / "detailed explanation of the job" field on the estimate
 - ✅ Internal approve / decline / request-changes workflow (staff records the outcome;
   decline reason + change request captured)
-- 🔨 **Estimate Wizard** — guided questionnaire that builds the estimate so the
+- ✅ **Estimate Wizard** — guided questionnaire that builds the estimate so the
   salesperson can't forget job details; details flow into the estimate
-  - 🔨 **One line item per room** (room + sqft + product → a line)
-  - 🔨 **Editable questions** — owner can add / edit / remove / reorder the wizard's
+  - ✅ **One line item per room** (room + sqft + product → a line)
+  - ✅ **Editable questions** — owner can add / edit / remove / reorder the wizard's
     questions (Wizard Setup screen); wizard pulls live from that list
-  - 🔨 Detail questions → compiled into the job description
-  - 🔨 Add-on questions → each becomes its own line item with a default price
+  - ✅ Detail questions → compiled into the job description
+  - ✅ Add-on questions → each becomes its own line item with a default price
   - 📋 later: per-product-type question branching (carpet/LVP/hardwood/laminate)
 - 📋 Customer-facing **approve / decline / request changes** (self-service in the
   portal, Phase 5 — data model already supports it)
