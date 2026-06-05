@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -8,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { listAllEstimates, type EstimateListRow } from "@/lib/data/estimates";
@@ -32,8 +34,12 @@ export default async function EstimatesPage() {
     <div>
       <PageHeader
         title="Estimates"
-        description="Every quote across all customers. Start a new estimate from a customer's profile."
-      />
+        description="Every quote across all customers."
+      >
+        <Link href="/estimates/start" className={buttonVariants({ size: "lg" })}>
+          <Plus className="size-4" /> New estimate
+        </Link>
+      </PageHeader>
 
       {estimates.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center">
