@@ -21,6 +21,7 @@ const inputSm =
 export function PriceListImporter() {
   const router = useRouter();
   const [rows, setRows] = useState<PriceRow[] | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const [reading, startReading] = useTransition();
   const [importing, startImport] = useTransition();
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -29,13 +30,23 @@ export function PriceListImporter() {
   const parseTextChunks = async (text: string): Promise<PriceRow[]> => {
     const chunks = chunkText(text);
     const out: PriceRow[] = [];
-    for (const ch of chunks) {
-      const fd = new FormData();
-      fd.set("text", ch);
-      const res = await parsePriceList(fd);
-      if (res.rows?.length) out.push(...res.rows);
-      else if (res.error && chunks.length === 1) toast.error(res.error);
+    let failed = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      setStatus(
+        `Reading part ${i + 1} of ${chunks.length}… (${out.length} products so far)`,
+      );
+      try {
+        const fd = new FormData();
+        fd.set("text", chunks[i]);
+        const res = await parsePriceList(fd);
+        if (res.rows?.length) out.push(...res.rows);
+        else if (res.error && chunks.length === 1) toast.error(res.error);
+      } catch {
+        failed += 1; // one bad part won't kill the whole import
+      }
     }
+    if (failed)
+      toast.error(`${failed} section(s) couldn't be read — the rest came through.`);
     return out;
   };
 
@@ -59,26 +70,39 @@ export function PriceListImporter() {
 
   const read = () =>
     startReading(async () => {
+      setStatus(null);
       try {
         const f = fileRef.current?.files?.[0];
         const pasted = textRef.current?.value ?? "";
         let rows: PriceRow[] = [];
 
         if (f && f.type === "application/pdf") {
+          setStatus("Reading the PDF in your browser…");
           let text = "";
+          let pages = 0;
           try {
-            text = await pdfToText(f);
-          } catch {
-            text = "";
+            const r = await pdfToText(f);
+            text = r.text;
+            pages = r.pages;
+          } catch (err) {
+            toast.error(
+              `Couldn't read the PDF locally (${err instanceof Error ? err.message : "error"}). Trying image mode…`,
+            );
           }
-          // Digital PDF: read locally (no size/time limits). Scanned: AI vision.
-          rows =
-            text.trim().length >= 20
-              ? await parseTextChunks(text)
-              : await parseViaStorage(f);
+          if (text.trim().length >= 20) {
+            setStatus(`Extracted ${text.length.toLocaleString()} characters from ${pages} page(s). Parsing…`);
+            rows = await parseTextChunks(text);
+          } else {
+            setStatus(
+              "No selectable text found (scanned PDF) — reading it as an image…",
+            );
+            rows = await parseViaStorage(f);
+          }
         } else if (f) {
+          setStatus("Reading the image…");
           rows = await parseViaStorage(f);
         } else if (pasted.trim()) {
+          setStatus("Parsing pasted text…");
           rows = await parseTextChunks(pasted);
         } else {
           toast.error("Paste a price list or choose a file.");
@@ -86,10 +110,12 @@ export function PriceListImporter() {
         }
 
         setRows(rows);
+        setStatus(null);
         if (rows.length)
           toast.success(`Found ${rows.length} products — review & import`);
         else toast.error("No products found — try pasting the rows as text.");
       } catch (e) {
+        setStatus(null);
         toast.error(
           e instanceof Error ? e.message : "Something went wrong reading that.",
         );
@@ -157,6 +183,9 @@ export function PriceListImporter() {
             </>
           )}
         </Button>
+        {status ? (
+          <p className="text-xs text-muted-foreground">{status}</p>
+        ) : null}
       </div>
 
       {rows ? (

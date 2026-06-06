@@ -2,7 +2,9 @@
 // Used by the importers so big PDFs are read locally and only TEXT is sent to
 // the server (no upload-size or function-time limits).
 
-export async function pdfToText(file: File): Promise<string> {
+export async function pdfToText(
+  file: File,
+): Promise<{ text: string; pages: number }> {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
   const data = await file.arrayBuffer();
@@ -16,12 +18,16 @@ export async function pdfToText(file: File): Promise<string> {
         .map((i) => ("str" in i ? (i as { str: string }).str : ""))
         .join(" ") + "\n";
   }
-  return out;
+  return { text: out, pages: doc.numPages };
 }
 
-/** Split long text into chunks (by lines) so each server call stays small/fast. */
+/** Split long text into chunks (by lines, and hard-splitting any huge line). */
 export function chunkText(text: string, maxChars = 12000): string[] {
-  const lines = text.split(/\r?\n/);
+  const lines: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    if (raw.length <= maxChars) lines.push(raw);
+    else for (let i = 0; i < raw.length; i += maxChars) lines.push(raw.slice(i, i + maxChars));
+  }
   const chunks: string[] = [];
   let cur = "";
   for (const line of lines) {
