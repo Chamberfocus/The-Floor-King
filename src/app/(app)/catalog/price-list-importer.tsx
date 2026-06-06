@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Sparkles, Upload, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   PRODUCT_CATEGORY_LABELS,
@@ -22,17 +21,29 @@ export function PriceListImporter() {
   const [rows, setRows] = useState<PriceRow[] | null>(null);
   const [reading, startReading] = useTransition();
   const [importing, startImport] = useTransition();
-  const formRef = useRef<HTMLFormElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  const read = (formData: FormData) =>
+  const read = () =>
     startReading(async () => {
-      const res = await parsePriceList(formData);
-      if (res.error) {
-        toast.error(res.error);
-        return;
+      try {
+        const fd = new FormData();
+        fd.set("text", textRef.current?.value ?? "");
+        const f = fileRef.current?.files?.[0];
+        if (f) fd.set("file", f);
+        const res = await parsePriceList(fd);
+        if (res.error) {
+          toast.error(res.error);
+          if (!res.rows?.length) return;
+        }
+        setRows(res.rows ?? []);
+        if (res.rows?.length)
+          toast.success(`Found ${res.rows.length} products — review & import`);
+      } catch (e) {
+        toast.error(
+          e instanceof Error ? e.message : "Something went wrong reading that.",
+        );
       }
-      setRows(res.rows ?? []);
-      toast.success(`Found ${res.rows?.length ?? 0} products — review & import`);
     });
 
   const update = (i: number, patch: Partial<PriceRow>) =>
@@ -45,24 +56,28 @@ export function PriceListImporter() {
   const doImport = () =>
     startImport(async () => {
       if (!rows?.length) return;
-      const res = await importProducts(rows);
-      if (res.error) {
-        toast.error(res.error);
-        return;
+      try {
+        const res = await importProducts(rows);
+        if (res.error) {
+          toast.error(res.error);
+          return;
+        }
+        toast.success(`Imported ${res.count} products`);
+        router.push("/catalog");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Import failed.");
       }
-      toast.success(`Imported ${res.count} products`);
-      router.push("/catalog");
     });
 
   return (
     <div className="space-y-6">
-      <form ref={formRef} action={read} className="space-y-3">
+      <div className="space-y-3">
         <div>
           <label className="mb-1 block text-sm font-medium">
             Paste a price list
           </label>
           <textarea
-            name="text"
+            ref={textRef}
             rows={8}
             placeholder={
               "Paste rows from a vendor sheet, email, or spreadsheet — any format.\nExample:\nShaw Anso Caress carpet  SKU 1234  $3.85/sf\nMohawk RevWood laminate  $2.10 sqft"
@@ -74,14 +89,14 @@ export function PriceListImporter() {
           <label className="text-sm text-muted-foreground">
             …or upload a file (PDF / image):
             <input
+              ref={fileRef}
               type="file"
-              name="file"
               accept=".pdf,image/*"
               className="ml-2 text-sm"
             />
           </label>
         </div>
-        <Button type="submit" disabled={reading}>
+        <Button type="button" onClick={read} disabled={reading}>
           {reading ? (
             <>
               <Sparkles className="size-4 animate-pulse" /> Reading…
@@ -92,7 +107,7 @@ export function PriceListImporter() {
             </>
           )}
         </Button>
-      </form>
+      </div>
 
       {rows ? (
         rows.length === 0 ? (
@@ -126,7 +141,13 @@ export function PriceListImporter() {
                       </td>
                       <td className="px-2 py-1">
                         <select
-                          value={r.category}
+                          value={
+                            PRODUCT_CATEGORY_ORDER.includes(
+                              r.category as never,
+                            )
+                              ? r.category
+                              : "other"
+                          }
                           onChange={(e) => update(i, { category: e.target.value })}
                           className={inputSm}
                         >

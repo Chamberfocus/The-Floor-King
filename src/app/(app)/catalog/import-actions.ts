@@ -14,39 +14,95 @@ export interface ParseResult {
   rows?: PriceRow[];
 }
 
+/** Plain-text fallback parser (no AI): one product per line. */
+function parseTextRows(text: string): PriceRow[] {
+  const rows: PriceRow[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    let name = line;
+    let sku: string | null = null;
+    let rate: number | null = null;
+
+    const parts = line.includes("\t")
+      ? line.split("\t")
+      : line.includes(",")
+        ? line.split(",")
+        : null;
+    if (parts && parts.length > 1) {
+      const cells = parts.map((p) => p.trim());
+      name = cells[0] || line;
+      for (let k = cells.length - 1; k >= 1; k--) {
+        const n = parseFloat(cells[k].replace(/[^0-9.]/g, ""));
+        if (Number.isFinite(n) && /\d/.test(cells[k])) {
+          rate = n;
+          break;
+        }
+      }
+      const skuCell = cells
+        .slice(1)
+        .find((c) => /[a-z]/i.test(c) && /\d/.test(c) && c.length <= 20);
+      if (skuCell) sku = skuCell;
+    } else {
+      const m = line.match(/\$?\s*([0-9]+(?:\.[0-9]+)?)\b/);
+      if (m) rate = parseFloat(m[1]);
+      const skuM = line.match(/\b(?:sku|item|style)\s*#?\s*([a-z0-9-]+)/i);
+      if (skuM) sku = skuM[1];
+      name = line
+        .replace(/\$?\s*[0-9]+(?:\.[0-9]+)?\s*\/?\s*(?:sf|sq\s?ft|sqft|sy|sq\s?yd|sqyd|yd|lf|lnft|each|ea)?\b/gi, " ")
+        .replace(/\b(?:sku|item|style)\s*#?\s*[a-z0-9-]+/gi, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      if (!name) name = line;
+    }
+    rows.push({
+      name,
+      category: "other",
+      unit: "sqft",
+      sku,
+      material_rate: rate,
+      labor_rate: null,
+      notes: null,
+    });
+  }
+  return rows;
+}
+
 export async function parsePriceList(formData: FormData): Promise<ParseResult> {
   const text = str(formData.get("text"));
   const file = formData.get("file");
+  const hasKey = Boolean(process.env.ANTHROPIC_API_KEY);
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return {
-      error:
-        "The AI key isn't active on the server yet. Add ANTHROPIC_API_KEY in Vercel (Production) and redeploy.",
-    };
-  }
-
-  let rows: PriceRow[] | null = null;
   if (file instanceof File && file.size > 0) {
     if (file.size > 20 * 1024 * 1024) return { error: "File too large (max 20 MB)." };
+    if (!hasKey) {
+      return {
+        error:
+          "Reading a file needs the AI key (ANTHROPIC_API_KEY in Vercel). For now, paste the rows as text instead.",
+      };
+    }
     const bytes = Buffer.from(await file.arrayBuffer());
-    rows = await extractPriceList({
+    const rows = await extractPriceList({
       base64: bytes.toString("base64"),
       mediaType: file.type || "application/octet-stream",
     });
-  } else if (text) {
-    rows = await extractPriceList({ text });
-  } else {
-    return { error: "Paste a price list or choose a file." };
+    if (!rows || !rows.length) {
+      return {
+        error:
+          "Couldn't read that file — try a clearer PDF/scan, or paste the rows as text.",
+      };
+    }
+    return { error: null, rows };
   }
 
-  if (!rows) {
-    return {
-      error:
-        "Couldn't read that one — try pasting the rows as plain text, or check the file is a clear PDF/image.",
-    };
+  if (text) {
+    let rows = hasKey ? await extractPriceList({ text }) : null;
+    if (!rows || !rows.length) rows = parseTextRows(text); // AI-free fallback
+    if (!rows.length) return { error: "No products found in that text." };
+    return { error: null, rows };
   }
-  if (!rows.length) return { error: "No products found in that price list." };
-  return { error: null, rows };
+
+  return { error: "Paste a price list or choose a file." };
 }
 
 export interface ImportResult {
