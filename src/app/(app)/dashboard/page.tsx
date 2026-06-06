@@ -38,6 +38,7 @@ export default async function DashboardPage() {
     hint: string;
     icon: LucideIcon;
     href?: string;
+    tint: string;
   }[] = [
     {
       label: "Open leads",
@@ -45,6 +46,7 @@ export default async function DashboardPage() {
       hint: "New through quoted",
       icon: Contact,
       href: "/leads",
+      tint: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
     },
     {
       label: "Outstanding invoices",
@@ -52,6 +54,7 @@ export default async function DashboardPage() {
       hint: "Unpaid or partial",
       icon: Receipt,
       href: "/invoices",
+      tint: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
     },
     {
       label: "Won customers",
@@ -59,6 +62,7 @@ export default async function DashboardPage() {
       hint: "Closed deals",
       icon: Trophy,
       href: "/customers?stage=won",
+      tint: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300",
     },
     {
       label: "Active jobs",
@@ -66,6 +70,7 @@ export default async function DashboardPage() {
       hint: "Scheduled & in progress",
       icon: CalendarDays,
       href: "/jobs",
+      tint: "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
     },
   ];
 
@@ -84,15 +89,27 @@ export default async function DashboardPage() {
         {stats.map((stat) => {
           const Icon = stat.icon;
           const card = (
-            <Card className={stat.href ? "transition-colors hover:bg-muted/50" : ""}>
+            <Card
+              className={
+                stat.href
+                  ? "overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md"
+                  : "overflow-hidden"
+              }
+            >
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {stat.label}
                 </CardTitle>
-                <Icon className="size-4 text-muted-foreground" />
+                <span
+                  className={`flex size-9 items-center justify-center rounded-full ${stat.tint}`}
+                >
+                  <Icon className="size-4" />
+                </span>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-semibold">{stat.value}</div>
+                <div className="text-3xl font-bold tracking-tight">
+                  {stat.value}
+                </div>
                 <p className="text-xs text-muted-foreground">{stat.hint}</p>
               </CardContent>
             </Card>
