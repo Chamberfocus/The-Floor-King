@@ -155,6 +155,79 @@ export async function createInvoiceFromEstimate(
   redirect(`/invoices/${invoice.id}`);
 }
 
+/** Create an invoice from a chosen subset of an estimate's line items. */
+export async function createInvoiceFromSelection(
+  formData: FormData,
+): Promise<void> {
+  const estimateId = str(formData.get("estimate_id"));
+  const lineIds = formData.getAll("line").map(String).filter(Boolean);
+  if (!estimateId) return;
+
+  const supabase = await createClient();
+  const { data: est } = await supabase
+    .from("estimates")
+    .select("id, customer_id, tax_rate")
+    .eq("id", estimateId)
+    .maybeSingle();
+  if (!est) return;
+
+  let lines: EstimateLineItem[] = [];
+  if (lineIds.length) {
+    const { data } = await supabase
+      .from("estimate_line_items")
+      .select("*")
+      .in("id", lineIds)
+      .order("position", { ascending: true });
+    lines = (data ?? []) as EstimateLineItem[];
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: invoice, error } = await supabase
+    .from("invoices")
+    .insert({
+      customer_id: est.customer_id,
+      estimate_id: estimateId,
+      number: await nextInvoiceNumber(supabase),
+      tax_rate: est.tax_rate,
+      issue_date: today(),
+      created_by: user?.id ?? null,
+    })
+    .select("id")
+    .single();
+  if (error || !invoice) return;
+
+  const items = lines.map((l, i) => {
+    if (l.line_type === "flat") {
+      return {
+        invoice_id: invoice.id,
+        position: i,
+        description: l.room ? `${l.room} — ${l.description}` : l.description,
+        quantity: 1,
+        unit: "ea",
+        rate: l.flat_amount,
+      };
+    }
+    const rate =
+      l.line_type === "mat_labor"
+        ? (l.material_rate ?? 0) + (l.labor_rate ?? 0)
+        : (l.installed_rate ?? 0);
+    return {
+      invoice_id: invoice.id,
+      position: i,
+      description: l.room ? `${l.room} — ${l.description}` : l.description,
+      quantity: Math.round(lineQty(l) * 100) / 100,
+      unit: l.measure_unit === "sqyd" ? "sqyd" : "sqft",
+      rate,
+    };
+  });
+  if (items.length) await supabase.from("invoice_items").insert(items);
+
+  revalidatePath("/invoices");
+  redirect(`/invoices/${invoice.id}`);
+}
+
 export async function createInvoice(formData: FormData): Promise<void> {
   const customerId = str(formData.get("customer_id"));
   if (!customerId) return;

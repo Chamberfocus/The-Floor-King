@@ -26,7 +26,6 @@ import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, deleteEstimate } from "../actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
-import { createInvoiceFromEstimate } from "@/app/(app)/invoices/actions";
 
 export async function generateMetadata({
   params,
@@ -109,12 +108,12 @@ export default async function EstimatePage({
                   <ShoppingCart className="size-4" /> Create PO
                 </Button>
               </form>
-              <form action={createInvoiceFromEstimate}>
-                <input type="hidden" name="estimate_id" value={estimate.id} />
-                <Button type="submit" variant="outline" size="lg">
-                  <Receipt className="size-4" /> Create invoice
-                </Button>
-              </form>
+              <Link
+                href={`/estimates/${estimate.id}/invoice`}
+                className={buttonVariants({ variant: "outline", size: "lg" })}
+              >
+                <Receipt className="size-4" /> Create invoice
+              </Link>
             </>
           ) : null}
         </div>
