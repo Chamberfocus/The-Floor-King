@@ -11,6 +11,40 @@ function n(v: FormDataEntryValue | null, fallback: number): number {
   return Number.isFinite(x) ? x : fallback;
 }
 
+function numOrNull(v: FormDataEntryValue | null): number | null {
+  const s = str(v);
+  if (!s) return null;
+  const x = parseFloat(s);
+  return Number.isFinite(x) ? x : null;
+}
+
+export async function saveInstallerSettings(formData: FormData): Promise<void> {
+  const id = str(formData.get("installer_id"));
+  if (!id) return;
+  const days = formData
+    .getAll("work_days")
+    .map((d) => str(d))
+    .filter(Boolean)
+    .join(",");
+  const supabase = await createClient();
+  await supabase.from("installer_settings").upsert(
+    {
+      installer_id: id,
+      work_days: days || null,
+      cap_carpet_yd: numOrNull(formData.get("cap_carpet_yd")),
+      cap_lvt_sf: numOrNull(formData.get("cap_lvt_sf")),
+      cap_laminate_sf: numOrNull(formData.get("cap_laminate_sf")),
+      cap_hardwood_sf: numOrNull(formData.get("cap_hardwood_sf")),
+      cap_tile_teardown_sf: numOrNull(formData.get("cap_tile_teardown_sf")),
+      cap_subfloor_sheets: numOrNull(formData.get("cap_subfloor_sheets")),
+      cap_selflevel_sf: numOrNull(formData.get("cap_selflevel_sf")),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "installer_id" },
+  );
+  revalidatePath("/settings/scheduling");
+}
+
 export async function saveSchedulingSettings(formData: FormData): Promise<void> {
   const days = formData
     .getAll("work_days")

@@ -2,13 +2,38 @@ import { createClient } from "@/lib/supabase/server";
 import {
   nextFreeWindow,
   workDaySet,
+  installDaysForJob,
   ymd,
   fromYmd,
   addDaysYmd,
   type DateRange,
 } from "@/lib/scheduling";
 import { getDriveTime, storeAddress } from "@/lib/maps";
-import type { SchedulingSettings } from "@/lib/types";
+import type { EstimateLineItem, SchedulingSettings } from "@/lib/types";
+
+const CAP_KEYS = [
+  "cap_carpet_yd",
+  "cap_lvt_sf",
+  "cap_laminate_sf",
+  "cap_hardwood_sf",
+  "cap_tile_teardown_sf",
+  "cap_subfloor_sheets",
+  "cap_selflevel_sf",
+] as const;
+
+/** Merge global settings with an installer's non-null overrides. */
+function mergeInstaller(
+  global: SchedulingSettings,
+  ov: Record<string, unknown> | undefined,
+): SchedulingSettings {
+  if (!ov) return global;
+  const merged = { ...global };
+  if (ov.work_days) merged.work_days = ov.work_days as string;
+  for (const k of CAP_KEYS) {
+    if (ov[k] != null) (merged as Record<string, unknown>)[k] = ov[k];
+  }
+  return merged;
+}
 
 const DEFAULTS: SchedulingSettings = {
   id: "default",
@@ -40,17 +65,20 @@ export async function getSchedulingSettings(): Promise<SchedulingSettings> {
 export interface InstallerSuggestion {
   installerId: string;
   name: string;
+  days: number;
   start: string;
   end: string;
 }
 
-/** Earliest available window per installer for a job needing `daysNeeded` days. */
+/**
+ * Earliest window per installer for a job — each installer is sized with THEIR
+ * own daily capacities and work days (falling back to the shop defaults).
+ */
 export async function getInstallerSuggestions(
-  daysNeeded: number,
-  settings: SchedulingSettings,
+  lines: EstimateLineItem[],
+  global: SchedulingSettings,
   fromDate?: string,
 ): Promise<InstallerSuggestion[]> {
-  if (daysNeeded <= 0) return [];
   const supabase = await createClient();
   const { data: insts } = await supabase
     .from("profiles")
@@ -62,8 +90,16 @@ export async function getInstallerSuggestions(
     email: string;
   }[];
   if (!installers.length) return [];
-
   const ids = installers.map((i) => i.id);
+
+  const { data: ovRows } = await supabase
+    .from("installer_settings")
+    .select("*")
+    .in("installer_id", ids);
+  const overrides = new Map<string, Record<string, unknown>>();
+  for (const r of ovRows ?? [])
+    overrides.set(r.installer_id as string, r as Record<string, unknown>);
+
   const { data: jobs } = await supabase
     .from("jobs")
     .select("assigned_to, scheduled_date, scheduled_end")
@@ -80,24 +116,75 @@ export async function getInstallerSuggestions(
   }
 
   const from = fromDate ?? ymd(new Date());
-  const workDays = workDaySet(settings);
   const out: InstallerSuggestion[] = [];
   for (const inst of installers) {
+    const settings = mergeInstaller(global, overrides.get(inst.id));
+    const days = installDaysForJob(lines, settings).days;
+    if (days <= 0) continue;
     const win = nextFreeWindow(
       booked.get(inst.id) ?? [],
-      workDays,
-      daysNeeded,
+      workDaySet(settings),
+      days,
       from,
     );
     if (win)
       out.push({
         installerId: inst.id,
         name: inst.full_name || inst.email,
+        days,
         start: win.start,
         end: win.end,
       });
   }
-  return out.sort((a, b) => a.start.localeCompare(b.start));
+  return out.sort((a, b) => a.start.localeCompare(b.start) || a.days - b.days);
+}
+
+export interface InstallerSettingsRow {
+  installer_id: string;
+  work_days: string | null;
+  cap_carpet_yd: number | null;
+  cap_lvt_sf: number | null;
+  cap_laminate_sf: number | null;
+  cap_hardwood_sf: number | null;
+  cap_tile_teardown_sf: number | null;
+  cap_subfloor_sheets: number | null;
+  cap_selflevel_sf: number | null;
+}
+
+/** All crew members with their capacity overrides (for the settings screen). */
+export async function listInstallerSettings(): Promise<
+  {
+    id: string;
+    name: string;
+    settings: InstallerSettingsRow | null;
+  }[]
+> {
+  const supabase = await createClient();
+  const { data: insts } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .eq("role", "crew")
+    .order("full_name", { ascending: true });
+  const crew = (insts ?? []) as {
+    id: string;
+    full_name: string | null;
+    email: string;
+  }[];
+  if (!crew.length) return [];
+  const { data: ov } = await supabase
+    .from("installer_settings")
+    .select("*")
+    .in(
+      "installer_id",
+      crew.map((c) => c.id),
+    );
+  const map = new Map<string, InstallerSettingsRow>();
+  for (const r of ov ?? []) map.set(r.installer_id as string, r as InstallerSettingsRow);
+  return crew.map((c) => ({
+    id: c.id,
+    name: c.full_name || c.email,
+    settings: map.get(c.id) ?? null,
+  }));
 }
 
 // --- Estimate appointment suggestions (geo-aware) ----------------------------

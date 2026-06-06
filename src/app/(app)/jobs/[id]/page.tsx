@@ -96,7 +96,7 @@ export default async function JobPage({
       : null;
   const installerSuggestions =
     schedSettings && installEst && installEst.days > 0
-      ? await getInstallerSuggestions(installEst.days, schedSettings)
+      ? await getInstallerSuggestions(job.line_items, schedSettings)
       : [];
 
   const siteParts = [
@@ -302,7 +302,8 @@ export default async function JobPage({
                         <div>
                           <span className="font-medium">{sug.name}</span>{" "}
                           <span className="text-muted-foreground">
-                            — {formatDate(sug.start)}
+                            — {sug.days} day{sug.days === 1 ? "" : "s"},{" "}
+                            {formatDate(sug.start)}
                             {sug.end !== sug.start ? ` → ${formatDate(sug.end)}` : ""}
                           </span>
                         </div>

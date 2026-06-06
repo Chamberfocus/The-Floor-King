@@ -11,8 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
-import { getSchedulingSettings } from "@/lib/data/scheduling";
-import { saveSchedulingSettings } from "./actions";
+import {
+  getSchedulingSettings,
+  listInstallerSettings,
+} from "@/lib/data/scheduling";
+import { saveSchedulingSettings, saveInstallerSettings } from "./actions";
 
 export const metadata: Metadata = { title: "Scheduling" };
 
@@ -31,6 +34,7 @@ export default async function SchedulingSettingsPage() {
   if (profile.role !== "admin") redirect("/");
   const s = await getSchedulingSettings();
   const active = new Set(s.work_days.split(","));
+  const installers = await listInstallerSettings();
 
   const caps: { name: string; label: string; value: number; unit: string }[] = [
     { name: "cap_carpet_yd", label: "Carpet (incl. takeup + furniture)", value: s.cap_carpet_yd, unit: "sq yd / day" },
@@ -138,6 +142,88 @@ export default async function SchedulingSettingsPage() {
           <Button type="submit">Save settings</Button>
         </div>
       </form>
+
+      {installers.length ? (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="text-base">Per-installer capacity</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <p className="text-xs text-muted-foreground">
+              Override any number for a specific installer. Leave a box blank to
+              use the shop default shown as the placeholder. These drive how the
+              job scheduler sizes each crew&apos;s days.
+            </p>
+            {installers.map((inst) => {
+              const ov = inst.settings;
+              const ovDays = ov?.work_days
+                ? new Set(ov.work_days.split(","))
+                : active;
+              const fields: { name: string; label: string; def: number }[] = [
+                { name: "cap_carpet_yd", label: "Carpet yd", def: s.cap_carpet_yd },
+                { name: "cap_lvt_sf", label: "LVT ft", def: s.cap_lvt_sf },
+                { name: "cap_laminate_sf", label: "Laminate ft", def: s.cap_laminate_sf },
+                { name: "cap_hardwood_sf", label: "Hardwood ft", def: s.cap_hardwood_sf },
+                { name: "cap_tile_teardown_sf", label: "Tear-out ft", def: s.cap_tile_teardown_sf },
+                { name: "cap_subfloor_sheets", label: "Subfloor sheets", def: s.cap_subfloor_sheets },
+                { name: "cap_selflevel_sf", label: "Self-level ft", def: s.cap_selflevel_sf },
+              ];
+              const ovVal = (ov ?? {}) as unknown as Record<
+                string,
+                number | null | undefined
+              >;
+              return (
+                <form
+                  key={inst.id}
+                  action={saveInstallerSettings}
+                  className="space-y-2 rounded-md border p-3"
+                >
+                  <input type="hidden" name="installer_id" value={inst.id} />
+                  <div className="text-sm font-medium">{inst.name}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {DAYS.map((d) => (
+                      <label key={d.v} className="flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          name="work_days"
+                          value={d.v}
+                          defaultChecked={ovDays.has(d.v)}
+                          className="size-3.5 rounded border-input"
+                        />
+                        {d.label}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {fields.map((f) => (
+                      <div key={f.name}>
+                        <label className="mb-0.5 block text-[11px] text-muted-foreground">
+                          {f.label}
+                        </label>
+                        <Input
+                          name={f.name}
+                          type="number"
+                          step="0.01"
+                          defaultValue={
+                            ovVal[f.name] != null ? String(ovVal[f.name]) : ""
+                          }
+                          placeholder={String(f.def)}
+                          className="h-8"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" variant="outline" size="sm">
+                      Save {inst.name.split(" ")[0]}
+                    </Button>
+                  </div>
+                </form>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }
