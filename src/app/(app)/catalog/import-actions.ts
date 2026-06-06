@@ -18,6 +18,13 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
   const text = str(formData.get("text"));
   const file = formData.get("file");
 
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return {
+      error:
+        "The AI key isn't active on the server yet. Add ANTHROPIC_API_KEY in Vercel (Production) and redeploy.",
+    };
+  }
+
   let rows: PriceRow[] | null = null;
   if (file instanceof File && file.size > 0) {
     if (file.size > 20 * 1024 * 1024) return { error: "File too large (max 20 MB)." };
@@ -35,7 +42,7 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
   if (!rows) {
     return {
       error:
-        "Couldn't read that automatically. Make sure ANTHROPIC_API_KEY is set, or paste the rows as plain text.",
+        "Couldn't read that one — try pasting the rows as plain text, or check the file is a clear PDF/image.",
     };
   }
   if (!rows.length) return { error: "No products found in that price list." };
