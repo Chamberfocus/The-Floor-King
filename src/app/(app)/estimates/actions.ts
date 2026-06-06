@@ -119,6 +119,10 @@ export async function saveEstimate(
         style: line.style || null,
         color: line.color || null,
         item_no: line.item_no || null,
+        material_cost: toNumOrNull(line.material_cost ?? null),
+        labor_cost: toNumOrNull(line.labor_cost ?? null),
+        quantity: toNumOrNull(line.quantity ?? null),
+        unit: line.unit || null,
       }));
       const { error: lineError } = await supabase
         .from("estimate_line_items")
@@ -303,21 +307,37 @@ export async function createEstimateFromWizard(
       installed_rate: toNumOrNull(r.installed_rate),
       flat_amount: null,
       product_id: r.product_id || null,
+      material_cost: toNumOrNull(r.material_cost ?? null),
+      labor_cost: toNumOrNull(r.labor_cost ?? null),
+      quantity: null,
+      unit: r.measure_unit === "sqyd" ? "sqyd" : "sqft",
+      manufacturer: r.manufacturer || null,
+      style: r.style || null,
+      color: r.color || null,
+      item_no: r.item_no || null,
     });
   }
   for (const a of addons) {
+    const qty = toNumOrNull(a.quantity ?? null);
+    const unitPrice = toNumOrNull(a.unit_price ?? null);
+    const usesQty = qty != null || unitPrice != null;
     lines.push({
       option_id: option.id,
       position: pos++,
       room: null,
       description: a.label,
-      line_type: "flat",
+      line_type: usesQty ? "mat_labor" : "flat",
       sqft: null,
-      material_rate: null,
-      labor_rate: null,
+      measure_unit: "sqft",
+      material_rate: usesQty ? unitPrice : null,
+      labor_rate: usesQty ? 0 : null,
       installed_rate: null,
-      flat_amount: toNumOrNull(a.amount),
+      flat_amount: usesQty ? null : toNumOrNull(a.amount),
       product_id: null,
+      material_cost: toNumOrNull(a.material_cost ?? null),
+      labor_cost: toNumOrNull(a.labor_cost ?? null),
+      quantity: usesQty ? (qty ?? 1) : null,
+      unit: a.unit || null,
     });
   }
   if (lines.length) {

@@ -230,6 +230,10 @@ export interface EstimateLineItem {
   style: string | null;
   color: string | null;
   item_no: string | null;
+  material_cost: number | null;
+  labor_cost: number | null;
+  quantity: number | null;
+  unit: string | null;
 }
 
 export interface EstimateOption {

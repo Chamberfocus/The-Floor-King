@@ -1,19 +1,29 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Sparkles } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import {
   lineTotal,
-  optionTotals,
+  lineCost,
   num,
+  marginPct,
+  markupPct,
+  priceFromMargin,
+  type CalcLine,
   type WizardSubmit,
 } from "@/lib/estimate-calc";
 import {
@@ -26,14 +36,17 @@ import {
 } from "@/lib/types";
 import { createEstimateFromWizard } from "./actions";
 
+const inputSm =
+  "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
 interface RoomState {
   key: string;
   name: string;
-  sqft: string;
   len_ft: string;
   len_in: string;
   wid_ft: string;
   wid_in: string;
+  sqft: string;
   measure_unit: MeasureUnit;
   product_id: string;
   description: string;
@@ -41,21 +54,90 @@ interface RoomState {
   material_rate: string;
   labor_rate: string;
   installed_rate: string;
+  material_cost: string;
+  labor_cost: string;
 }
 
-function dimsToSqft(
-  lenFt: string,
-  lenIn: string,
-  widFt: string,
-  widIn: string,
-): number | null {
+interface AddonState {
+  included: boolean;
+  quantity: string;
+  unit: string;
+  unit_price: string;
+  material_cost: string;
+  labor_cost: string;
+}
+
+function dimsToSqft(lenFt: string, lenIn: string, widFt: string, widIn: string) {
   const L = num(lenFt) * 12 + num(lenIn);
   const W = num(widFt) * 12 + num(widIn);
   return L > 0 && W > 0 ? (L / 12) * (W / 12) : null;
 }
 
-const inputSm =
-  "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+function roomToCalc(r: RoomState): CalcLine {
+  return {
+    line_type: r.line_type,
+    sqft: r.sqft,
+    measure_unit: r.measure_unit,
+    material_rate: r.material_rate,
+    labor_rate: r.labor_rate,
+    installed_rate: r.installed_rate,
+    material_cost: r.material_cost,
+    labor_cost: r.labor_cost,
+  };
+}
+
+function addonToCalc(a: AddonState): CalcLine {
+  return {
+    line_type: "mat_labor",
+    quantity: a.quantity || 1,
+    material_rate: a.unit_price,
+    labor_rate: 0,
+    material_cost: a.material_cost,
+    labor_cost: a.labor_cost,
+  };
+}
+
+/** Cost / price / margin readout shown under each priced item. */
+function MarginReadout({ sell, cost }: { sell: number; cost: number }) {
+  const profit = sell - cost;
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-muted/60 px-3 py-2 text-xs">
+      <span className="text-muted-foreground">
+        Cost <span className="font-medium text-foreground">{formatMoney(cost)}</span>
+      </span>
+      <span className="text-muted-foreground">
+        Price <span className="font-medium text-foreground">{formatMoney(sell)}</span>
+      </span>
+      <span className="text-muted-foreground">
+        Margin{" "}
+        <span className="font-medium text-foreground">
+          {marginPct(sell, cost).toFixed(1)}%
+        </span>
+      </span>
+      <span className="text-muted-foreground">
+        Markup{" "}
+        <span className="font-medium text-foreground">
+          {markupPct(sell, cost).toFixed(1)}%
+        </span>
+      </span>
+      <span
+        className={cn(
+          "ml-auto font-semibold",
+          profit >= 0 ? "text-emerald-600" : "text-destructive",
+        )}
+      >
+        Profit {formatMoney(profit)}
+      </span>
+    </div>
+  );
+}
+
+type Step =
+  | { kind: "basics" }
+  | { kind: "detail"; q: WizardQuestion }
+  | { kind: "rooms" }
+  | { kind: "addons" }
+  | { kind: "review" };
 
 export function EstimateWizard({
   customerId,
@@ -76,11 +158,11 @@ export function EstimateWizard({
   const emptyRoom = (): RoomState => ({
     key: newKey(),
     name: "",
-    sqft: "",
     len_ft: "",
     len_in: "",
     wid_ft: "",
     wid_in: "",
+    sqft: "",
     measure_unit: "sqft",
     product_id: "",
     description: "",
@@ -88,34 +170,61 @@ export function EstimateWizard({
     material_rate: "",
     labor_rate: "",
     installed_rate: "",
+    material_cost: "",
+    labor_cost: "",
   });
 
+  const detailQs = useMemo(
+    () =>
+      questions
+        .filter((q) => q.kind === "detail")
+        .sort(
+          (a, b) =>
+            wizardSectionRank(a.section) - wizardSectionRank(b.section) ||
+            a.position - b.position,
+        ),
+    [questions],
+  );
+  const addonQs = useMemo(
+    () => questions.filter((q) => q.kind === "addon"),
+    [questions],
+  );
+
+  const steps: Step[] = useMemo(
+    () => [
+      { kind: "basics" },
+      ...detailQs.map((q) => ({ kind: "detail", q }) as Step),
+      { kind: "rooms" },
+      { kind: "addons" },
+      { kind: "review" },
+    ],
+    [detailQs],
+  );
+
+  const [open, setOpen] = useState(true);
+  const [step, setStep] = useState(0);
   const [title, setTitle] = useState(`${customerName} — Flooring`);
   const [taxRate, setTaxRate] = useState("8");
   const [presentation, setPresentation] =
     useState<EstimatePresentation>("detailed");
   const [rooms, setRooms] = useState<RoomState[]>([emptyRoom()]);
-
-  const detailQs = questions.filter((q) => q.kind === "detail");
-  const addonQs = questions.filter((q) => q.kind === "addon");
-
   const [detailValues, setDetailValues] = useState<Record<string, string>>({});
-  const [addon, setAddon] = useState<
-    Record<string, { included: boolean; amount: string }>
-  >(() => {
-    const init: Record<string, { included: boolean; amount: string }> = {};
-    for (const q of addonQs) {
+  const [addon, setAddon] = useState<Record<string, AddonState>>(() => {
+    const init: Record<string, AddonState> = {};
+    for (const q of addonQs)
       init[q.id] = {
         included: false,
-        amount: q.default_amount != null ? String(q.default_amount) : "",
+        quantity: "1",
+        unit: "each",
+        unit_price: q.default_amount != null ? String(q.default_amount) : "",
+        material_cost: "",
+        labor_cost: "",
       };
-    }
     return init;
   });
 
   const updateRoom = (i: number, patch: Partial<RoomState>) =>
     setRooms((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-
   const updateRoomDim = (i: number, patch: Partial<RoomState>) =>
     setRooms((prev) =>
       prev.map((r, j) => {
@@ -135,113 +244,58 @@ export function EstimateWizard({
   const addRoom = () => setRooms((prev) => [...prev, emptyRoom()]);
   const removeRoom = (i: number) =>
     setRooms((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev));
-
   const applyProduct = (i: number, productId: string) => {
     const p = products.find((x) => x.id === productId);
-    setRooms((prev) =>
-      prev.map((r, j) =>
-        j === i
-          ? p
-            ? {
-                ...r,
-                product_id: p.id,
-                material_rate: String(p.material_rate),
-                labor_rate: String(p.labor_rate),
-                line_type: "mat_labor",
-                description: r.description || p.name,
-              }
-            : { ...r, product_id: "" }
-          : r,
-      ),
+    updateRoom(
+      i,
+      p
+        ? {
+            product_id: p.id,
+            material_rate: String(p.material_rate),
+            labor_rate: String(p.labor_rate),
+            line_type: "mat_labor",
+            description: rooms[i].description || p.name,
+          }
+        : { product_id: "" },
     );
   };
+  /** Set a room's sell rates to hit a target gross margin from its costs. */
+  const roomTargetMargin = (i: number, t: string) => {
+    const r = rooms[i];
+    if (r.line_type === "installed") {
+      updateRoom(i, {
+        installed_rate: priceFromMargin(
+          num(r.material_cost) + num(r.labor_cost),
+          t,
+        ).toFixed(2),
+      });
+    } else {
+      updateRoom(i, {
+        material_rate: priceFromMargin(num(r.material_cost), t).toFixed(2),
+        labor_rate: priceFromMargin(num(r.labor_cost), t).toFixed(2),
+      });
+    }
+  };
+  const setAddonField = (id: string, patch: Partial<AddonState>) =>
+    setAddon((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
 
-  const calcLines = [
-    ...rooms.map((r) => ({
-      line_type: r.line_type,
-      sqft: r.sqft,
-      measure_unit: r.measure_unit,
-      material_rate: r.material_rate,
-      labor_rate: r.labor_rate,
-      installed_rate: r.installed_rate,
-    })),
-    ...addonQs
-      .filter((q) => addon[q.id]?.included)
-      .map((q) => ({
-        line_type: "flat" as const,
-        flat_amount: addon[q.id]?.amount ?? 0,
-      })),
+  // Live totals across rooms + included add-ons.
+  const calcLines: CalcLine[] = [
+    ...rooms.map(roomToCalc),
+    ...addonQs.filter((q) => addon[q.id]?.included).map((q) => addonToCalc(addon[q.id])),
   ];
-  const totals = optionTotals(calcLines, taxRate);
+  const revenue = calcLines.reduce((s, l) => s + lineTotal(l), 0);
+  const cost = calcLines.reduce((s, l) => s + lineCost(l), 0);
+  const profit = revenue - cost;
+  const tax = revenue * (num(taxRate) / 100);
 
-  // Journey: group detail questions into ordered sections.
-  const detailSections = Array.from(new Set(detailQs.map((q) => q.section))).sort(
-    (a, b) => wizardSectionRank(a) - wizardSectionRank(b) || a.localeCompare(b),
-  );
-
-  const renderDetailField = (q: WizardQuestion) => {
-    const value = detailValues[q.id] ?? "";
-    const set = (v: string) =>
-      setDetailValues((p) => ({ ...p, [q.id]: v }));
-    return (
-      <div key={q.id} className="space-y-1.5">
-        <Label htmlFor={`q-${q.id}`}>
-          {q.required ? <span className="text-amber-600">★ </span> : null}
-          {q.label}
-        </Label>
-        {q.options?.length ? (
-          <select
-            id={`q-${q.id}`}
-            value={value}
-            onChange={(e) => set(e.target.value)}
-            className={cn(inputSm, "w-full")}
-          >
-            <option value="">—</option>
-            {q.options.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-        ) : q.input === "yesno" ? (
-          <select
-            id={`q-${q.id}`}
-            value={value}
-            onChange={(e) => set(e.target.value)}
-            className={cn(inputSm, "w-full")}
-          >
-            <option value="">—</option>
-            <option value="Yes">Yes</option>
-            <option value="No">No</option>
-          </select>
-        ) : (
-          <Input
-            id={`q-${q.id}`}
-            type={q.input === "number" ? "number" : "text"}
-            value={value}
-            onChange={(e) => set(e.target.value)}
-          />
-        )}
-        {q.help ? (
-          <p className="text-xs text-muted-foreground">{q.help}</p>
-        ) : null}
-      </div>
-    );
-  };
-
-  const detailSectionCards = detailSections.map((section) => (
-    <Card key={section} className="mb-6">
-      <CardHeader>
-        <CardTitle className="text-base">{section}</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4 sm:grid-cols-2">
-        {detailQs
-          .filter((q) => q.section === section)
-          .sort((a, b) => a.position - b.position)
-          .map(renderDetailField)}
-      </CardContent>
-    </Card>
-  ));
+  const current = steps[step];
+  const canNext =
+    current.kind !== "detail" ||
+    !current.q.required ||
+    Boolean(detailValues[current.q.id]?.trim());
+  const back = () => setStep((s) => Math.max(0, s - 1));
+  const next = () => setStep((s) => Math.min(steps.length - 1, s + 1));
 
   const create = () =>
     startTransition(async () => {
@@ -261,6 +315,8 @@ export function EstimateWizard({
           material_rate: r.material_rate || null,
           labor_rate: r.labor_rate || null,
           installed_rate: r.installed_rate || null,
+          material_cost: r.material_cost || null,
+          labor_cost: r.labor_cost || null,
         })),
         answers: questions.map((q) =>
           q.kind === "detail"
@@ -278,7 +334,12 @@ export function EstimateWizard({
                 kind: "addon" as const,
                 included: addon[q.id]?.included ?? false,
                 value: "",
-                amount: addon[q.id]?.amount ?? null,
+                amount: null,
+                quantity: addon[q.id]?.quantity ?? "1",
+                unit: addon[q.id]?.unit ?? "each",
+                unit_price: addon[q.id]?.unit_price ?? null,
+                material_cost: addon[q.id]?.material_cost ?? null,
+                labor_cost: addon[q.id]?.labor_cost ?? null,
               },
         ),
       };
@@ -291,372 +352,609 @@ export function EstimateWizard({
       router.push(`/estimates/${res.id}/edit`);
     });
 
-  return (
-    <div className="mx-auto max-w-4xl pb-24">
-      {/* Basics */}
-      <Card className="mb-6">
-        <CardContent className="grid gap-4 pt-6 sm:grid-cols-2">
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="title">Estimate title</Label>
-            <Input
-              id="title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="presentation">Show customer</Label>
-            <select
-              id="presentation"
-              value={presentation}
-              onChange={(e) =>
-                setPresentation(e.target.value as EstimatePresentation)
-              }
-              className={cn(inputSm, "w-full")}
-            >
-              <option value="detailed">Itemized (line by line)</option>
-              <option value="summary">Lump sum (single total)</option>
-            </select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="tax">Tax rate %</Label>
-            <Input
-              id="tax"
-              type="number"
-              step="0.01"
-              min="0"
-              value={taxRate}
-              onChange={(e) => setTaxRate(e.target.value)}
-            />
-          </div>
-        </CardContent>
-      </Card>
+  if (!open) {
+    return (
+      <div className="rounded-lg border border-dashed p-10 text-center">
+        <p className="mb-3 text-sm text-muted-foreground">
+          Guided estimate paused.
+        </p>
+        <Button onClick={() => setOpen(true)}>
+          <Sparkles className="size-4" /> Resume guided estimate
+        </Button>
+      </div>
+    );
+  }
 
-      {/* Rooms */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-base">Rooms (one line each)</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {rooms.map((r, i) => (
-            <div key={r.key} className="rounded-md border p-3">
-              <div className="grid gap-2 sm:grid-cols-3">
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center">
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border bg-background shadow-2xl">
+        {/* Header + progress */}
+        <div className="border-b px-5 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold">Guided estimate</div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">
+                Step {step + 1} of {steps.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Close"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          </div>
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all"
+              style={{ width: `${((step + 1) / steps.length) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          {current.kind === "basics" ? (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold">Let&apos;s set up the estimate</h2>
+              <div className="space-y-2">
+                <Label htmlFor="w-title">Estimate title</Label>
                 <Input
-                  value={r.name}
-                  onChange={(e) => updateRoom(i, { name: e.target.value })}
-                  placeholder="Room (e.g. Living Room)"
-                />
-                <Input
-                  value={r.description}
-                  onChange={(e) =>
-                    updateRoom(i, { description: e.target.value })
-                  }
-                  placeholder="Material / description"
-                  className="sm:col-span-2"
+                  id="w-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
                 />
               </div>
-              <div className="mt-2 flex flex-wrap items-end gap-2">
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">
-                    Length (ft / in)
-                  </label>
-                  <div className="flex gap-1">
-                    <input
-                      type="number"
-                      min="0"
-                      value={r.len_ft}
-                      onChange={(e) =>
-                        updateRoomDim(i, { len_ft: e.target.value })
-                      }
-                      placeholder="ft"
-                      className={cn(inputSm, "w-14")}
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      value={r.len_in}
-                      onChange={(e) =>
-                        updateRoomDim(i, { len_in: e.target.value })
-                      }
-                      placeholder="in"
-                      className={cn(inputSm, "w-12")}
-                    />
-                  </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="w-pres">Show the customer</Label>
+                  <select
+                    id="w-pres"
+                    value={presentation}
+                    onChange={(e) =>
+                      setPresentation(e.target.value as EstimatePresentation)
+                    }
+                    className={cn(inputSm, "w-full")}
+                  >
+                    <option value="detailed">Itemized (line by line)</option>
+                    <option value="summary">Lump sum (single total)</option>
+                  </select>
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">
-                    Width (ft / in)
-                  </label>
-                  <div className="flex gap-1">
-                    <input
-                      type="number"
-                      min="0"
-                      value={r.wid_ft}
-                      onChange={(e) =>
-                        updateRoomDim(i, { wid_ft: e.target.value })
-                      }
-                      placeholder="ft"
-                      className={cn(inputSm, "w-14")}
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      value={r.wid_in}
-                      onChange={(e) =>
-                        updateRoomDim(i, { wid_in: e.target.value })
-                      }
-                      placeholder="in"
-                      className={cn(inputSm, "w-12")}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">
-                    Sq ft
-                  </label>
-                  <input
+                <div className="space-y-2">
+                  <Label htmlFor="w-tax">Tax rate %</Label>
+                  <Input
+                    id="w-tax"
                     type="number"
                     step="0.01"
                     min="0"
-                    inputMode="decimal"
-                    value={r.sqft}
-                    onChange={(e) => updateRoom(i, { sqft: e.target.value })}
-                    className={cn(inputSm, "w-20")}
+                    value={taxRate}
+                    onChange={(e) => setTaxRate(e.target.value)}
                   />
                 </div>
-                <div className="pb-2 text-xs text-muted-foreground">
-                  {(num(r.sqft) / 9).toFixed(1)} sq yd
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">
-                    Price per
-                  </label>
-                  <select
-                    value={r.measure_unit}
-                    onChange={(e) =>
-                      updateRoom(i, {
-                        measure_unit: e.target.value as MeasureUnit,
-                      })
-                    }
-                    className={cn(inputSm, "w-20")}
-                  >
-                    <option value="sqft">sq ft</option>
-                    <option value="sqyd">sq yd</option>
-                  </select>
-                </div>
-                {products.length ? (
-                  <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">
-                      Product
-                    </label>
-                    <select
-                      value={r.product_id}
-                      onChange={(e) => applyProduct(i, e.target.value)}
-                      className={cn(inputSm, "w-44")}
-                    >
-                      <option value="">— Manual —</option>
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({PRODUCT_CATEGORY_LABELS[p.category]})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : null}
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">
-                    Pricing
-                  </label>
-                  <select
-                    value={r.line_type}
-                    onChange={(e) =>
-                      updateRoom(i, {
-                        line_type: e.target.value as "mat_labor" | "installed",
-                      })
-                    }
-                    className={cn(inputSm, "w-36")}
-                  >
-                    <option value="mat_labor">Material + Labor</option>
-                    <option value="installed">Installed / sq ft</option>
-                  </select>
-                </div>
-                {r.line_type === "mat_labor" ? (
-                  <>
-                    <div>
-                      <label className="mb-1 block text-xs text-muted-foreground">
-                        Material /{r.measure_unit === "sqyd" ? "sq yd" : "sqft"}
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={r.material_rate}
-                        onChange={(e) =>
-                          updateRoom(i, { material_rate: e.target.value })
-                        }
-                        className={cn(inputSm, "w-24")}
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs text-muted-foreground">
-                        Labor /{r.measure_unit === "sqyd" ? "sq yd" : "sqft"}
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={r.labor_rate}
-                        onChange={(e) =>
-                          updateRoom(i, { labor_rate: e.target.value })
-                        }
-                        className={cn(inputSm, "w-24")}
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">
-                      Installed /{r.measure_unit === "sqyd" ? "sq yd" : "sqft"}
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={r.installed_rate}
-                      onChange={(e) =>
-                        updateRoom(i, { installed_rate: e.target.value })
-                      }
-                      className={cn(inputSm, "w-24")}
-                    />
-                  </div>
-                )}
-                <div className="ml-auto text-right">
-                  <div className="text-xs text-muted-foreground">Line total</div>
-                  <div className="font-semibold">
-                    {formatMoney(
-                      lineTotal({
-                        line_type: r.line_type,
-                        sqft: r.sqft,
-                        measure_unit: r.measure_unit,
-                        material_rate: r.material_rate,
-                        labor_rate: r.labor_rate,
-                        installed_rate: r.installed_rate,
-                      }),
-                    )}
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Remove room"
-                  onClick={() => removeRoom(i)}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
               </div>
             </div>
-          ))}
-          <Button type="button" variant="outline" size="sm" onClick={addRoom}>
-            <Plus className="size-3.5" /> Add room
-          </Button>
-        </CardContent>
-      </Card>
+          ) : null}
 
-      {/* Journey: detail questions grouped into ordered sections */}
-      {detailSectionCards}
+          {current.kind === "detail" ? (
+            <div className="space-y-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {current.q.section}
+              </div>
+              <h2 className="text-lg font-semibold">
+                {current.q.required ? (
+                  <span className="text-amber-600">★ </span>
+                ) : null}
+                {current.q.label}
+              </h2>
+              {current.q.help ? (
+                <p className="text-sm text-muted-foreground">{current.q.help}</p>
+              ) : null}
+              <DetailInput
+                q={current.q}
+                value={detailValues[current.q.id] ?? ""}
+                onChange={(v) =>
+                  setDetailValues((p) => ({ ...p, [current.q.id]: v }))
+                }
+              />
+            </div>
+          ) : null}
 
-      {/* Add-on questions */}
-      {addonQs.length ? (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">Add-ons</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {addonQs.map((q) => {
-              const state = addon[q.id] ?? { included: false, amount: "" };
-              return (
-                <div
-                  key={q.id}
-                  className="flex flex-wrap items-center gap-3 rounded-md border p-3"
-                >
-                  <label className="flex flex-1 items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={state.included}
-                      onChange={(e) =>
-                        setAddon((p) => ({
-                          ...p,
-                          [q.id]: { ...state, included: e.target.checked },
-                        }))
-                      }
-                      className="size-4 rounded border-input"
-                    />
-                    <span>
-                      {q.label}
-                      {q.help ? (
-                        <span className="block text-xs text-muted-foreground">
-                          {q.help}
-                        </span>
+          {current.kind === "rooms" ? (
+            <div className="space-y-3">
+              <h2 className="text-lg font-semibold">Rooms & measurements</h2>
+              <p className="text-sm text-muted-foreground">
+                Enter each area, your cost, and your price — margin updates live.
+              </p>
+              {rooms.map((r, i) => {
+                const cl = roomToCalc(r);
+                return (
+                  <div key={r.key} className="space-y-2 rounded-md border p-3">
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Input
+                        value={r.name}
+                        onChange={(e) => updateRoom(i, { name: e.target.value })}
+                        placeholder="Room (e.g. Living Room)"
+                      />
+                      <Input
+                        value={r.description}
+                        onChange={(e) =>
+                          updateRoom(i, { description: e.target.value })
+                        }
+                        placeholder="Material / description"
+                        className="sm:col-span-2"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <DimField
+                        label="Length"
+                        ft={r.len_ft}
+                        inch={r.len_in}
+                        onFt={(v) => updateRoomDim(i, { len_ft: v })}
+                        onIn={(v) => updateRoomDim(i, { len_in: v })}
+                      />
+                      <DimField
+                        label="Width"
+                        ft={r.wid_ft}
+                        inch={r.wid_in}
+                        onFt={(v) => updateRoomDim(i, { wid_ft: v })}
+                        onIn={(v) => updateRoomDim(i, { wid_in: v })}
+                      />
+                      <div>
+                        <label className="mb-1 block text-xs text-muted-foreground">
+                          Sq ft
+                        </label>
+                        <input
+                          type="number"
+                          value={r.sqft}
+                          onChange={(e) => updateRoom(i, { sqft: e.target.value })}
+                          className={cn(inputSm, "w-20")}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs text-muted-foreground">
+                          Price per
+                        </label>
+                        <select
+                          value={r.measure_unit}
+                          onChange={(e) =>
+                            updateRoom(i, {
+                              measure_unit: e.target.value as MeasureUnit,
+                            })
+                          }
+                          className={cn(inputSm, "w-20")}
+                        >
+                          <option value="sqft">sq ft</option>
+                          <option value="sqyd">sq yd</option>
+                        </select>
+                      </div>
+                      {products.length ? (
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">
+                            Product
+                          </label>
+                          <select
+                            value={r.product_id}
+                            onChange={(e) => applyProduct(i, e.target.value)}
+                            className={cn(inputSm, "w-40")}
+                          >
+                            <option value="">— Manual —</option>
+                            {products.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({PRODUCT_CATEGORY_LABELS[p.category]})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       ) : null}
-                    </span>
-                  </label>
-                  <div className="relative">
-                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                      $
-                    </span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={state.amount}
-                      onChange={(e) =>
-                        setAddon((p) => ({
-                          ...p,
-                          [q.id]: { ...state, amount: e.target.value },
-                        }))
-                      }
-                      disabled={!state.included}
-                      placeholder="0.00"
-                      className={cn(inputSm, "w-28 pl-5 disabled:opacity-50")}
-                    />
+                    </div>
+                    {/* Cost + price */}
+                    <div className="flex flex-wrap items-end gap-2">
+                      <RateField
+                        label="Material cost"
+                        value={r.material_cost}
+                        onChange={(v) => updateRoom(i, { material_cost: v })}
+                      />
+                      <RateField
+                        label="Labor cost"
+                        value={r.labor_cost}
+                        onChange={(v) => updateRoom(i, { labor_cost: v })}
+                      />
+                      {r.line_type === "installed" ? (
+                        <RateField
+                          label="Installed price"
+                          value={r.installed_rate}
+                          onChange={(v) => updateRoom(i, { installed_rate: v })}
+                        />
+                      ) : (
+                        <>
+                          <RateField
+                            label="Material price"
+                            value={r.material_rate}
+                            onChange={(v) => updateRoom(i, { material_rate: v })}
+                          />
+                          <RateField
+                            label="Labor price"
+                            value={r.labor_rate}
+                            onChange={(v) => updateRoom(i, { labor_rate: v })}
+                          />
+                        </>
+                      )}
+                      <div>
+                        <label className="mb-1 block text-xs text-muted-foreground">
+                          Target margin %
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 40"
+                          onChange={(e) => roomTargetMargin(i, e.target.value)}
+                          className={cn(inputSm, "w-24")}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Remove room"
+                        onClick={() => removeRoom(i)}
+                        className="ml-auto"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                    <MarginReadout sell={lineTotal(cl)} cost={lineCost(cl)} />
                   </div>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      ) : null}
+                );
+              })}
+              <Button type="button" variant="outline" size="sm" onClick={addRoom}>
+                <Plus className="size-3.5" /> Add room
+              </Button>
+            </div>
+          ) : null}
 
-      {/* Totals */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="ml-auto w-full max-w-xs space-y-1 text-sm">
-            <div className="flex justify-between text-muted-foreground">
-              <span>Subtotal</span>
-              <span>{formatMoney(totals.subtotal)}</span>
+          {current.kind === "addons" ? (
+            <div className="space-y-3">
+              <h2 className="text-lg font-semibold">Add-ons & extras</h2>
+              <p className="text-sm text-muted-foreground">
+                Toggle what applies, set the quantity, your cost, and your price.
+              </p>
+              {addonQs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No add-ons configured. Manage them under Wizard Setup.
+                </p>
+              ) : null}
+              {addonQs.map((q) => {
+                const a = addon[q.id];
+                const cl = addonToCalc(a);
+                return (
+                  <div key={q.id} className="space-y-2 rounded-md border p-3">
+                    <label className="flex items-center gap-2 text-sm font-medium">
+                      <input
+                        type="checkbox"
+                        checked={a.included}
+                        onChange={(e) =>
+                          setAddonField(q.id, { included: e.target.checked })
+                        }
+                        className="size-4 rounded border-input"
+                      />
+                      {q.label}
+                    </label>
+                    {q.help ? (
+                      <p className="pl-6 text-xs text-muted-foreground">{q.help}</p>
+                    ) : null}
+                    {a.included ? (
+                      <>
+                        <div className="flex flex-wrap items-end gap-2 pl-6">
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">
+                              Qty
+                            </label>
+                            <input
+                              type="number"
+                              value={a.quantity}
+                              onChange={(e) =>
+                                setAddonField(q.id, { quantity: e.target.value })
+                              }
+                              className={cn(inputSm, "w-16")}
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">
+                              Unit
+                            </label>
+                            <input
+                              value={a.unit}
+                              onChange={(e) =>
+                                setAddonField(q.id, { unit: e.target.value })
+                              }
+                              placeholder="each / lnft"
+                              className={cn(inputSm, "w-20")}
+                            />
+                          </div>
+                          <RateField
+                            label="Cost / unit (matl)"
+                            value={a.material_cost}
+                            onChange={(v) =>
+                              setAddonField(q.id, { material_cost: v })
+                            }
+                          />
+                          <RateField
+                            label="Cost / unit (labor)"
+                            value={a.labor_cost}
+                            onChange={(v) =>
+                              setAddonField(q.id, { labor_cost: v })
+                            }
+                          />
+                          <RateField
+                            label="Price / unit"
+                            value={a.unit_price}
+                            onChange={(v) =>
+                              setAddonField(q.id, { unit_price: v })
+                            }
+                          />
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">
+                              Target margin %
+                            </label>
+                            <input
+                              type="number"
+                              placeholder="40"
+                              onChange={(e) =>
+                                setAddonField(q.id, {
+                                  unit_price: priceFromMargin(
+                                    num(a.material_cost) + num(a.labor_cost),
+                                    e.target.value,
+                                  ).toFixed(2),
+                                })
+                              }
+                              className={cn(inputSm, "w-20")}
+                            />
+                          </div>
+                        </div>
+                        <div className="pl-6">
+                          <MarginReadout sell={lineTotal(cl)} cost={lineCost(cl)} />
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
-            <div className="flex justify-between text-muted-foreground">
-              <span>Tax ({taxRate || 0}%)</span>
-              <span>{formatMoney(totals.tax)}</span>
-            </div>
-            <div className="flex justify-between text-base font-semibold">
-              <span>Total</span>
-              <span>{formatMoney(totals.total)}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          ) : null}
 
-      {/* Sticky create bar */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-3 backdrop-blur md:pl-64">
-        <div className="mx-auto flex max-w-4xl items-center justify-end gap-2 px-1">
-          <Button type="button" disabled={isPending} onClick={create}>
-            <Sparkles className="size-4" />
-            {isPending ? "Creating…" : "Create estimate"}
+          {current.kind === "review" ? (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold">Review & create</h2>
+              <div className="overflow-hidden rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/60 text-xs text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Item</th>
+                      <th className="px-3 py-2 text-right">Cost</th>
+                      <th className="px-3 py-2 text-right">Price</th>
+                      <th className="px-3 py-2 text-right">Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {rooms.map((r) => {
+                      const cl = roomToCalc(r);
+                      return (
+                        <tr key={r.key}>
+                          <td className="px-3 py-2">{r.name || r.description || "Room"}</td>
+                          <td className="px-3 py-2 text-right">{formatMoney(lineCost(cl))}</td>
+                          <td className="px-3 py-2 text-right">{formatMoney(lineTotal(cl))}</td>
+                          <td className="px-3 py-2 text-right text-emerald-600">
+                            {formatMoney(lineTotal(cl) - lineCost(cl))}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {addonQs
+                      .filter((q) => addon[q.id]?.included)
+                      .map((q) => {
+                        const cl = addonToCalc(addon[q.id]);
+                        return (
+                          <tr key={q.id}>
+                            <td className="px-3 py-2">{q.label}</td>
+                            <td className="px-3 py-2 text-right">{formatMoney(lineCost(cl))}</td>
+                            <td className="px-3 py-2 text-right">{formatMoney(lineTotal(cl))}</td>
+                            <td className="px-3 py-2 text-right text-emerald-600">
+                              {formatMoney(lineTotal(cl) - lineCost(cl))}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="ml-auto w-full max-w-xs space-y-1 text-sm">
+                <Row label="Revenue" value={formatMoney(revenue)} />
+                <Row label="Cost" value={formatMoney(cost)} muted />
+                <Row
+                  label="Profit"
+                  value={`${formatMoney(profit)} (${marginPct(revenue, cost).toFixed(1)}% margin)`}
+                  strong
+                />
+                <Row label={`Tax (${taxRate || 0}%)`} value={formatMoney(tax)} muted />
+                <Row label="Total to customer" value={formatMoney(revenue + tax)} strong />
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Footer nav + live profit */}
+        <div className="flex items-center justify-between gap-3 border-t px-5 py-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={back}
+            disabled={step === 0}
+          >
+            <ChevronLeft className="size-4" /> Back
           </Button>
+          <div className="hidden text-xs text-muted-foreground sm:block">
+            {formatMoney(revenue)} price ·{" "}
+            <span className="text-emerald-600">{formatMoney(profit)} profit</span>
+          </div>
+          {current.kind === "review" ? (
+            <Button type="button" disabled={isPending} onClick={create}>
+              <Sparkles className="size-4" />
+              {isPending ? "Creating…" : "Create estimate"}
+            </Button>
+          ) : (
+            <Button type="button" onClick={next} disabled={!canNext}>
+              Next <ChevronRight className="size-4" />
+            </Button>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  muted,
+  strong,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex justify-between",
+        muted && "text-muted-foreground",
+        strong && "text-base font-semibold",
+      )}
+    >
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function DimField({
+  label,
+  ft,
+  inch,
+  onFt,
+  onIn,
+}: {
+  label: string;
+  ft: string;
+  inch: string;
+  onFt: (v: string) => void;
+  onIn: (v: string) => void;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs text-muted-foreground">
+        {label} (ft / in)
+      </label>
+      <div className="flex gap-1">
+        <input
+          type="number"
+          min="0"
+          value={ft}
+          onChange={(e) => onFt(e.target.value)}
+          placeholder="ft"
+          className={cn(inputSm, "w-14")}
+        />
+        <input
+          type="number"
+          min="0"
+          value={inch}
+          onChange={(e) => onIn(e.target.value)}
+          placeholder="in"
+          className={cn(inputSm, "w-12")}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RateField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
+      <div className="relative">
+        <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+          $
+        </span>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={cn(inputSm, "w-24 pl-5")}
+        />
+      </div>
+    </div>
+  );
+}
+
+function DetailInput({
+  q,
+  value,
+  onChange,
+}: {
+  q: WizardQuestion;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  if (q.options?.length) {
+    return (
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(inputSm, "w-full")}
+        autoFocus
+      >
+        <option value="">—</option>
+        {q.options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (q.input === "yesno") {
+    return (
+      <div className="flex gap-2">
+        {["Yes", "No"].map((opt) => (
+          <Button
+            key={opt}
+            type="button"
+            variant={value === opt ? "default" : "outline"}
+            onClick={() => onChange(opt)}
+          >
+            {opt}
+          </Button>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <Input
+      type={q.input === "number" ? "number" : "text"}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      autoFocus
+    />
   );
 }

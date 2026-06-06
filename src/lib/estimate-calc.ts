@@ -14,6 +14,11 @@ export interface CalcLine {
   labor_rate?: number | string | null;
   installed_rate?: number | string | null;
   flat_amount?: number | string | null;
+  // OUR cost + explicit quantity (for margin & post-job analysis).
+  material_cost?: number | string | null;
+  labor_cost?: number | string | null;
+  quantity?: number | string | null;
+  unit?: string | null;
 }
 
 export function num(v: number | string | null | undefined): number {
@@ -34,8 +39,11 @@ export function lineAreaSqyd(line: CalcLine): number {
   return lineAreaSqft(line) / 9;
 }
 
-/** Quantity used for pricing, in the line's measure unit. */
+/** Quantity used for pricing. An explicit `quantity` wins (e.g. add-ons by the
+ *  each / linear foot); otherwise it's the measured area in the line's unit. */
 export function lineQty(line: CalcLine): number {
+  const q = num(line.quantity);
+  if (q > 0) return q;
   return line.measure_unit === "sqyd"
     ? lineAreaSqyd(line)
     : lineAreaSqft(line);
@@ -53,6 +61,53 @@ export function lineTotal(line: CalcLine): number {
     default:
       return 0;
   }
+}
+
+/** OUR cost for a line (material + labor), quantity-aware. */
+export function lineCost(line: CalcLine): number {
+  const unitCost = num(line.material_cost) + num(line.labor_cost);
+  if (line.line_type === "flat") return unitCost; // flat = a single lump cost
+  return lineQty(line) * unitCost;
+}
+
+export function lineProfit(line: CalcLine): number {
+  return lineTotal(line) - lineCost(line);
+}
+
+/** Gross margin: profit as a % of the sell price. */
+export function marginPct(sell: number, cost: number): number {
+  return sell > 0 ? ((sell - cost) / sell) * 100 : 0;
+}
+
+/** Markup: profit as a % of cost. */
+export function markupPct(sell: number, cost: number): number {
+  return cost > 0 ? ((sell - cost) / cost) * 100 : 0;
+}
+
+/** Sell price that yields a target gross margin from a given cost. */
+export function priceFromMargin(
+  cost: number,
+  targetMarginPct: number | string,
+): number {
+  const m = num(targetMarginPct) / 100;
+  return m < 1 && m >= 0 ? cost / (1 - m) : cost;
+}
+
+export interface CostTotals {
+  material: number;
+  labor: number;
+  cost: number;
+}
+
+export function optionCostTotals(lines: CalcLine[]): CostTotals {
+  let material = 0;
+  let labor = 0;
+  for (const line of lines) {
+    const q = line.line_type === "flat" ? 1 : lineQty(line);
+    material += q * num(line.material_cost);
+    labor += q * num(line.labor_cost);
+  }
+  return { material, labor, cost: material + labor };
 }
 
 export interface OptionTotals {
@@ -89,6 +144,10 @@ export interface SaveLineInput {
   style?: string | null;
   color?: string | null;
   item_no?: string | null;
+  material_cost?: string | number | null;
+  labor_cost?: string | number | null;
+  quantity?: string | number | null;
+  unit?: string | null;
 }
 
 export interface SaveOptionInput {
@@ -120,6 +179,12 @@ export interface WizardRoom {
   material_rate: string | number | null;
   labor_rate: string | number | null;
   installed_rate: string | number | null;
+  material_cost?: string | number | null;
+  labor_cost?: string | number | null;
+  manufacturer?: string | null;
+  style?: string | null;
+  color?: string | null;
+  item_no?: string | null;
 }
 
 export interface WizardAnswer {
@@ -129,6 +194,12 @@ export interface WizardAnswer {
   included: boolean;
   value: string;
   amount: string | number | null;
+  // Add-ons priced by quantity × unit price, with our cost.
+  quantity?: string | number | null;
+  unit?: string | null;
+  unit_price?: string | number | null;
+  material_cost?: string | number | null;
+  labor_cost?: string | number | null;
 }
 
 export interface WizardSubmit {
