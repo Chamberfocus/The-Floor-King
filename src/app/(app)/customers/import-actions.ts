@@ -73,15 +73,18 @@ export async function parseClients(
           "Reading a file needs the AI key. Paste the rows as text instead.",
       };
     const supabase = await createClient();
-    const { data: blob, error } = await supabase.storage
+    const { data: signed } = await supabase.storage
       .from("documents")
-      .download(storagePath);
-    if (error || !blob) return { error: "Couldn't open the uploaded file." };
-    const bytes = Buffer.from(await blob.arrayBuffer());
+      .createSignedUrl(storagePath, 600);
+    if (!signed?.signedUrl)
+      return { error: "Couldn't open the uploaded file." };
     const mediaType =
-      str(formData.get("storage_mime")) || blob.type || "application/pdf";
+      str(formData.get("storage_mime")) ||
+      (storagePath.toLowerCase().endsWith(".pdf")
+        ? "application/pdf"
+        : "image/jpeg");
     const rows = await extractClients({
-      base64: bytes.toString("base64"),
+      url: signed.signedUrl,
       mediaType,
     });
     if (!rows || !rows.length)

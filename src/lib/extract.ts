@@ -91,18 +91,23 @@ const CLIENT_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
 export async function extractClients(opts: {
   text?: string;
   base64?: string;
+  url?: string;
   mediaType?: string;
 }): Promise<ClientRow[] | null> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return null;
 
   const content: unknown[] = [];
-  if (opts.base64 && opts.mediaType) {
-    const source = { type: "base64", media_type: opts.mediaType, data: opts.base64 };
+  const fileSource = opts.url
+    ? { type: "url", url: opts.url }
+    : opts.base64
+      ? { type: "base64", media_type: opts.mediaType, data: opts.base64 }
+      : null;
+  if (fileSource && opts.mediaType) {
     content.push(
       opts.mediaType === "application/pdf"
-        ? { type: "document", source }
-        : { type: "image", source },
+        ? { type: "document", source: fileSource }
+        : { type: "image", source: fileSource },
     );
     content.push({ type: "text", text: `Read this customer list. ${CLIENT_SCHEMA}` });
   } else if (opts.text) {
@@ -185,26 +190,27 @@ const PRICE_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
 - sku is the item/style/SKU number if present.
 Extract every product row. Skip headers, totals, and blank lines.`;
 
-/** Parse a price list (pasted text OR a PDF/image) into catalog products. */
+/** Parse a price list (pasted text, a URL, OR base64 PDF/image) into products. */
 export async function extractPriceList(opts: {
   text?: string;
   base64?: string;
+  url?: string;
   mediaType?: string;
 }): Promise<PriceRow[] | null> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return null;
 
   const content: unknown[] = [];
-  if (opts.base64 && opts.mediaType) {
-    const source = {
-      type: "base64",
-      media_type: opts.mediaType,
-      data: opts.base64,
-    };
+  const fileSource = opts.url
+    ? { type: "url", url: opts.url }
+    : opts.base64
+      ? { type: "base64", media_type: opts.mediaType, data: opts.base64 }
+      : null;
+  if (fileSource && opts.mediaType) {
     content.push(
       opts.mediaType === "application/pdf"
-        ? { type: "document", source }
-        : { type: "image", source },
+        ? { type: "document", source: fileSource }
+        : { type: "image", source: fileSource },
     );
     content.push({ type: "text", text: `Read this flooring price list. ${PRICE_SCHEMA}` });
   } else if (opts.text) {
