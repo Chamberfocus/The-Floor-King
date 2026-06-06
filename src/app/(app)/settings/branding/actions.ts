@@ -7,7 +7,16 @@ function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-export async function saveBranding(formData: FormData): Promise<void> {
+export interface BrandingState {
+  error: string | null;
+  ok?: boolean;
+}
+
+/** Save branding. The logo is uploaded client-side; we just store its URL. */
+export async function saveBranding(
+  _prev: BrandingState,
+  formData: FormData,
+): Promise<BrandingState> {
   const supabase = await createClient();
 
   const update: Record<string, unknown> = {
@@ -18,25 +27,16 @@ export async function saveBranding(formData: FormData): Promise<void> {
     address: str(formData.get("address")) || null,
     updated_at: new Date().toISOString(),
   };
+  const logoUrl = str(formData.get("logo_url"));
+  if (logoUrl) update.logo_url = logoUrl;
 
-  const file = formData.get("logo");
-  if (file instanceof File && file.size > 0 && file.size <= 5 * 1024 * 1024) {
-    const ext = file.name.split(".").pop() || "png";
-    const path = `logo-${crypto.randomUUID()}.${ext}`;
-    const bytes = Buffer.from(await file.arrayBuffer());
-    const { error } = await supabase.storage
-      .from("branding")
-      .upload(path, bytes, {
-        contentType: file.type || "image/png",
-        upsert: true,
-      });
-    if (!error) {
-      const { data } = supabase.storage.from("branding").getPublicUrl(path);
-      update.logo_url = data.publicUrl;
-    }
-  }
+  const { error } = await supabase
+    .from("org_settings")
+    .update(update)
+    .eq("id", "default");
+  if (error) return { error: error.message };
 
-  await supabase.from("org_settings").update(update).eq("id", "default");
   revalidatePath("/settings/branding");
   revalidatePath("/", "layout");
+  return { error: null, ok: true };
 }
