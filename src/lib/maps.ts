@@ -8,9 +8,10 @@ export function storeAddress(): string {
 
 export async function getDriveTime(
   destination: string,
+  originOverride?: string,
 ): Promise<{ text: string; minutes: number } | null> {
   const key = process.env.GOOGLE_MAPS_API_KEY;
-  const origin = storeAddress();
+  const origin = originOverride || storeAddress();
   if (!key || !origin || !destination) return null;
 
   const url =

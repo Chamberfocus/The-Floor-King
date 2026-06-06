@@ -1,5 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
-import { nextFreeWindow, workDaySet, ymd, type DateRange } from "@/lib/scheduling";
+import {
+  nextFreeWindow,
+  workDaySet,
+  ymd,
+  fromYmd,
+  addDaysYmd,
+  type DateRange,
+} from "@/lib/scheduling";
+import { getDriveTime, storeAddress } from "@/lib/maps";
 import type { SchedulingSettings } from "@/lib/types";
 
 const DEFAULTS: SchedulingSettings = {
@@ -90,4 +98,151 @@ export async function getInstallerSuggestions(
       });
   }
   return out.sort((a, b) => a.start.localeCompare(b.start));
+}
+
+// --- Estimate appointment suggestions (geo-aware) ----------------------------
+function parseHM(s: string): number {
+  const [h, m] = s.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+function toHM(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+export interface EstimateSlot {
+  salespersonId: string;
+  name: string;
+  date: string;
+  time: string;
+  endTime: string;
+  address: string;
+  driveMinutes: number | null;
+  driveText: string | null;
+}
+
+/**
+ * Suggest estimate slots for a customer. "assigned" routes the designated
+ * salesperson's next open days; "closest" scans reps and ranks by drive time
+ * from each rep's prior stop that day (gas + time efficient).
+ */
+export async function getEstimateSuggestions(
+  customerId: string,
+  mode: "assigned" | "closest",
+): Promise<EstimateSlot[]> {
+  const supabase = await createClient();
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("street, city, state, zip, assigned_to, workflow_owner_id")
+    .eq("id", customerId)
+    .maybeSingle();
+  if (!cust) return [];
+  const customerAddress = [
+    cust.street,
+    [cust.city, cust.state].filter(Boolean).join(", "),
+    cust.zip,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  if (!customerAddress) return [];
+
+  const settings = await getSchedulingSettings();
+  const workDays = workDaySet(settings);
+  const dur = settings.estimate_duration_min;
+  const buffer = settings.travel_buffer_min;
+  const dayStart = parseHM(settings.day_start);
+  const dayEnd = parseHM(settings.day_end);
+
+  const designated =
+    (cust.assigned_to as string) || (cust.workflow_owner_id as string) || null;
+  let reps: { id: string; full_name: string | null; email: string }[] = [];
+  if (mode === "assigned" && designated) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .eq("id", designated);
+    reps = (data ?? []) as typeof reps;
+  }
+  if (!reps.length) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("role", ["salesman", "sales_manager", "office", "admin"]);
+    reps = (data ?? []) as typeof reps;
+  }
+  if (!reps.length) return [];
+  if (mode === "closest") reps = reps.slice(0, 5);
+
+  const today = ymd(new Date());
+  const numDays = mode === "assigned" ? 7 : 3;
+  const days: string[] = [];
+  let cur = today;
+  for (let i = 0; i < 30 && days.length < numDays; i++) {
+    if (workDays.has(fromYmd(cur).getUTCDay())) days.push(cur);
+    cur = addDaysYmd(cur, 1);
+  }
+
+  const repIds = reps.map((r) => r.id);
+  const windowEnd = days[days.length - 1] ?? today;
+  const { data: appts } = await supabase
+    .from("appointments")
+    .select("salesperson_id, starts_at, ends_at, address")
+    .in("salesperson_id", repIds)
+    .eq("status", "scheduled")
+    .gte("starts_at", `${today}T00:00:00Z`)
+    .lte("starts_at", `${windowEnd}T23:59:59Z`);
+  const byRepDay = new Map<string, { endMin: number; address: string | null }[]>();
+  for (const a of appts ?? []) {
+    const st = a.starts_at as string;
+    const date = st.slice(0, 10);
+    const startMin = parseHM(st.slice(11, 16));
+    const en = (a.ends_at as string) || "";
+    const endMin = en ? parseHM(en.slice(11, 16)) : startMin + dur;
+    const k = `${a.salesperson_id}|${date}`;
+    const arr = byRepDay.get(k) ?? [];
+    arr.push({ endMin, address: (a.address as string) || null });
+    byRepDay.set(k, arr);
+  }
+
+  const slots: EstimateSlot[] = [];
+  for (const rep of reps) {
+    for (const date of days) {
+      const dayAppts = (byRepDay.get(`${rep.id}|${date}`) ?? []).sort(
+        (a, b) => a.endMin - b.endMin,
+      );
+      let startMin = dayStart;
+      let priorAddr = storeAddress();
+      if (dayAppts.length) {
+        const last = dayAppts[dayAppts.length - 1];
+        startMin = last.endMin + buffer;
+        priorAddr = last.address || storeAddress();
+      }
+      if (startMin + dur > dayEnd) continue;
+      const drive = await getDriveTime(customerAddress, priorAddr || undefined);
+      slots.push({
+        salespersonId: rep.id,
+        name: rep.full_name || rep.email,
+        date,
+        time: toHM(startMin),
+        endTime: toHM(startMin + dur),
+        address: customerAddress,
+        driveMinutes: drive?.minutes ?? null,
+        driveText: drive?.text ?? null,
+      });
+    }
+  }
+
+  slots.sort((a, b) => {
+    if (mode === "closest") {
+      const da = a.driveMinutes ?? 9999;
+      const db = b.driveMinutes ?? 9999;
+      if (da !== db) return da - db;
+      return `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`);
+    }
+    const cmp = `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`);
+    if (cmp !== 0) return cmp;
+    return (a.driveMinutes ?? 9999) - (b.driveMinutes ?? 9999);
+  });
+  return slots.slice(0, 6);
 }

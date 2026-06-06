@@ -39,6 +39,7 @@ import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
 import { listCustomerMessages } from "@/lib/data/messages";
 import { listCustomerDocuments } from "@/lib/data/documents";
 import { CustomerDocuments } from "./customer-documents";
+import { EstimateScheduler } from "./estimate-scheduler";
 import {
   listWorkflowStages,
   listHandoffMembers,
@@ -202,6 +203,8 @@ export default async function CustomerPage({
             questions={qualifyingQuestions}
             qualified={customer.qualified}
           />
+
+          <EstimateScheduler customerId={customer.id} />
 
           <Card>
             <CardHeader>
