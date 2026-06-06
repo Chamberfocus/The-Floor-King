@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { SavePoInput } from "@/lib/po-calc";
 import { lineQty } from "@/lib/estimate-calc";
-import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import type { EstimateLineItem, PoStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -121,7 +121,7 @@ export async function savePurchaseOrder(
 
   const { data: before } = await supabase
     .from("purchase_orders")
-    .select("status, customer_id")
+    .select("status, customer_id, backordered")
     .eq("id", poId)
     .maybeSingle();
 
@@ -131,9 +131,88 @@ export async function savePurchaseOrder(
       supplier: input.supplier || null,
       status: input.status,
       notes: input.notes || null,
+      eta_date: input.eta_date || null,
+      backordered: input.backordered,
     })
     .eq("id", poId);
   if (updateError) return { error: updateError.message };
+
+  // Newly backordered → alert the whole team + warehouse + the customer.
+  if (input.backordered && !before?.backordered) {
+    const customerId = (before?.customer_id as string | null) ?? null;
+    const etaText = input.eta_date
+      ? new Date(input.eta_date).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : "TBD";
+
+    const recipients = new Set<string>([ownerEmail()]);
+    const { data: wh } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("role", "warehouse");
+    for (const w of wh ?? []) if (w.email) recipients.add(w.email as string);
+
+    let cust: { full_name: string | null; email: string | null } | null = null;
+    if (customerId) {
+      const { data: c } = await supabase
+        .from("customers")
+        .select("full_name, email, assigned_to, workflow_owner_id")
+        .eq("id", customerId)
+        .maybeSingle();
+      cust = (c as { full_name: string | null; email: string | null }) ?? null;
+      const repId =
+        (c?.assigned_to as string | null) ??
+        (c?.workflow_owner_id as string | null) ??
+        null;
+      if (repId) {
+        const { data: rep } = await supabase
+          .from("profiles")
+          .select("email")
+          .eq("id", repId)
+          .maybeSingle();
+        if (rep?.email) recipients.add(rep.email as string);
+      }
+    }
+
+    for (const to of recipients) {
+      await sendEmail({
+        to,
+        subject: `⚠️ Backorder — ${input.supplier || "materials"}`,
+        html: emailLayout(
+          "Material backordered",
+          `<p>A purchase order${input.supplier ? ` from ${input.supplier}` : ""} is on <strong>backorder</strong>. Expected arrival: <strong>${etaText}</strong>.</p>${cust?.full_name ? `<p>Customer: ${cust.full_name}</p>` : ""}`,
+          { label: "Open PO", url: `${siteUrl()}/purchase-orders/${poId}` },
+        ),
+      });
+    }
+
+    if (customerId && cust?.email) {
+      await sendEmail({
+        to: cust.email,
+        subject: "Update on your materials",
+        html: emailLayout(
+          "A quick update on your materials",
+          `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
+           <p>One of the items for your project is on backorder from the supplier. We now expect it by <strong>${etaText}</strong> and will keep you posted.</p>`,
+          { label: "View your project", url: `${siteUrl()}/portal` },
+        ),
+      });
+    }
+    if (customerId) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      await supabase.from("messages").insert({
+        customer_id: customerId,
+        channel: "client",
+        author_id: user?.id ?? null,
+        body: `⏳ Heads up: an item is on backorder — new ETA ${etaText}. We'll keep you updated.`,
+      });
+    }
+  }
 
   // When a PO is newly marked "ordered", let the customer know.
   if (

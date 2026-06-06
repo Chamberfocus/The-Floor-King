@@ -19,7 +19,11 @@ import {
 } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { setWarehouseStatus, setDeliveryType } from "../jobs/actions";
+import {
+  setWarehouseStatus,
+  setDeliveryType,
+  reportMaterialIssue,
+} from "../jobs/actions";
 
 export const metadata: Metadata = { title: "Warehouse" };
 
@@ -177,6 +181,27 @@ export default async function WarehousePage() {
                       Update
                     </Button>
                   </form>
+
+                  <details className="text-sm">
+                    <summary className="cursor-pointer text-muted-foreground">
+                      Report a problem (missing / short / wrong item)
+                    </summary>
+                    <form
+                      action={reportMaterialIssue}
+                      className="mt-2 flex flex-wrap gap-2"
+                    >
+                      <input type="hidden" name="id" value={j.id} />
+                      <input
+                        name="note"
+                        required
+                        placeholder="What's missing or wrong?"
+                        className={cn(fieldClass, "flex-1")}
+                      />
+                      <Button type="submit" variant="destructive" size="sm">
+                        Alert the team
+                      </Button>
+                    </form>
+                  </details>
                 </CardContent>
               </Card>
             );

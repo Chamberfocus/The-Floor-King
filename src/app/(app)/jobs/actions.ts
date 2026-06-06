@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import type {
   JobDeliveryType,
   JobStatus,
@@ -292,6 +292,72 @@ export async function setWarehouseStatus(formData: FormData): Promise<void> {
   await supabase.from("jobs").update({ warehouse_status: status }).eq("id", id);
   revalidatePath("/warehouse");
   revalidatePath(`/jobs/${id}`);
+}
+
+/** Warehouse flags a problem (missing/short/wrong) → alert everyone on the job. */
+export async function reportMaterialIssue(formData: FormData): Promise<void> {
+  const jobId = str(formData.get("id"));
+  const note = str(formData.get("note"));
+  if (!jobId || !note) return;
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select(
+      "title, assigned_to, customer_id, customer:customers(full_name, assigned_to, workflow_owner_id)",
+    )
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job) return;
+
+  const cust = job.customer as unknown as {
+    full_name: string | null;
+    assigned_to: string | null;
+    workflow_owner_id: string | null;
+  } | null;
+
+  const ids = [
+    job.assigned_to as string | null,
+    cust?.assigned_to ?? null,
+    cust?.workflow_owner_id ?? null,
+  ].filter(Boolean) as string[];
+
+  const recipients = new Set<string>([ownerEmail()]);
+  if (ids.length) {
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("email")
+      .in("id", [...new Set(ids)]);
+    for (const p of profs ?? []) if (p.email) recipients.add(p.email as string);
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  for (const to of recipients) {
+    await sendEmail({
+      to,
+      subject: `⚠️ Material problem — ${(job.title as string) || cust?.full_name || "job"}`,
+      html: emailLayout(
+        "Material problem reported",
+        `<p>The warehouse flagged an issue on${job.title ? ` "${job.title}"` : ""}${cust?.full_name ? ` for ${cust.full_name}` : ""}:</p><p><strong>${note}</strong></p>`,
+        { label: "Open job", url: `${siteUrl()}/jobs/${jobId}` },
+      ),
+    });
+  }
+
+  // Log it on the job for the record.
+  if (job.customer_id) {
+    await supabase.from("activities").insert({
+      customer_id: job.customer_id,
+      user_id: user?.id ?? null,
+      type: "system",
+      body: `Warehouse reported a material problem: ${note}`,
+    });
+  }
+
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/warehouse");
 }
 
 export async function setDeliveryType(formData: FormData): Promise<void> {

@@ -56,6 +56,8 @@ export function PoBuilder({
   const [supplier, setSupplier] = useState(po.supplier ?? "");
   const [status, setStatus] = useState<PoStatus>(po.status);
   const [notes, setNotes] = useState(po.notes ?? "");
+  const [backordered, setBackordered] = useState(po.backordered ?? false);
+  const [etaDate, setEtaDate] = useState(po.eta_date ?? "");
   const [items, setItems] = useState<ItemState[]>(() => {
     const initial = (po.items ?? []).map((it) => ({
       key: newKey(),
@@ -98,6 +100,8 @@ export function PoBuilder({
         supplier,
         status,
         notes,
+        eta_date: etaDate || null,
+        backordered,
         items: items.map((it) => ({
           product_id: it.product_id || null,
           description: it.description,
@@ -142,6 +146,24 @@ export function PoBuilder({
                 </option>
               ))}
             </select>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={backordered}
+              onChange={(e) => setBackordered(e.target.checked)}
+              className="size-4 rounded border-input"
+            />
+            Backordered
+          </label>
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="eta">Expected arrival (ETA)</Label>
+            <Input
+              id="eta"
+              type="date"
+              value={etaDate}
+              onChange={(e) => setEtaDate(e.target.value)}
+            />
           </div>
         </CardContent>
       </Card>

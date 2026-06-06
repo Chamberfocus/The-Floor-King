@@ -31,5 +31,7 @@ export interface SavePoInput {
   supplier: string;
   status: PoStatus;
   notes: string;
+  eta_date: string | null;
+  backordered: boolean;
   items: SavePoItemInput[];
 }
