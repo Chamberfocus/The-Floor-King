@@ -64,9 +64,19 @@ export interface Customer {
   assigned_to: string | null;
   workflow_stage_id: string | null;
   workflow_owner_id: string | null;
+  qualified: boolean | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface QualifyingQuestion {
+  id: string;
+  label: string;
+  help: string | null;
+  position: number;
+  active: boolean;
+  created_at: string;
 }
 
 export interface Activity {
@@ -214,6 +224,8 @@ export interface Estimate {
   notes: string | null;
   job_description: string | null;
   customer_response_note: string | null;
+  sent_at: string | null;
+  thankyou_sent_at: string | null;
   accepted_option_id: string | null;
   created_by: string | null;
   created_at: string;
@@ -330,6 +342,7 @@ export interface Job {
   delivery_type: JobDeliveryType;
   warehouse_status: WarehouseStatus;
   open_for_claim: boolean;
+  reminder_sent_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -432,6 +445,8 @@ export interface PurchaseOrder {
   supplier: string | null;
   status: PoStatus;
   notes: string | null;
+  eta_date: string | null;
+  backordered: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;

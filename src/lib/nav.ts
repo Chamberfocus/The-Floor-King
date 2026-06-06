@@ -14,6 +14,7 @@ import {
   BarChart3,
   Route,
   GitBranch,
+  ListChecks,
   type LucideIcon,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types";
@@ -47,6 +48,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Reports", href: "/reports", icon: BarChart3, roles: STAFF },
   { label: "Warehouse", href: "/warehouse", icon: Warehouse, roles: ["admin", "office", "warehouse"] },
   { label: "Workflow Stages", href: "/settings/stages", icon: GitBranch, roles: ["admin"] },
+  { label: "Qualifying Qs", href: "/settings/qualifying", icon: ListChecks, roles: ["admin"] },
   { label: "Wizard Setup", href: "/settings/wizard", icon: Settings, roles: ["admin"] },
   { label: "Team", href: "/settings/team", icon: UserCog, roles: ["admin"] },
 ];

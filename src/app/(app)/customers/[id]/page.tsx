@@ -42,6 +42,7 @@ import {
   listHandoffMembers,
   listHandoffs,
 } from "@/lib/data/workflow";
+import { listQualifyingQuestions } from "@/lib/data/qualifying";
 import { createEstimate } from "@/app/(app)/estimates/actions";
 import { createInvoice } from "@/app/(app)/invoices/actions";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
@@ -57,6 +58,7 @@ import { InvitePortalForm } from "./invite-portal-form";
 import { CustomerChat } from "./customer-chat";
 import { HandoffControl } from "./handoff-control";
 import { OnTheWayButton } from "./on-the-way-button";
+import { QualifyPanel } from "./qualify-panel";
 
 export async function generateMetadata({
   params,
@@ -95,6 +97,7 @@ export default async function CustomerPage({
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
   const handoffHistory = await listHandoffs(id);
+  const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
@@ -190,6 +193,12 @@ export default async function CustomerPage({
               ) : null}
             </CardContent>
           </Card>
+
+          <QualifyPanel
+            customerId={customer.id}
+            questions={qualifyingQuestions}
+            qualified={customer.qualified}
+          />
 
           <Card>
             <CardHeader>

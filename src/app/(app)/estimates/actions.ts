@@ -136,6 +136,10 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
   if (!id || !status) return;
 
   const patch: Record<string, unknown> = { status };
+  if (status === "sent") {
+    patch.sent_at = new Date().toISOString();
+    patch.thankyou_sent_at = null;
+  }
   if (status === "approved") {
     patch.accepted_option_id = str(formData.get("accepted_option_id")) || null;
   }
