@@ -4,7 +4,8 @@ import { invoiceTotals } from "@/lib/invoice-calc";
 import { listPurchaseOrders } from "@/lib/data/purchase-orders";
 import { poTotal } from "@/lib/po-calc";
 import { listJobs } from "@/lib/data/jobs";
-import { optionTotals } from "@/lib/estimate-calc";
+import { optionTotals, optionCostTotals, marginPct } from "@/lib/estimate-calc";
+import type { CalcLine } from "@/lib/estimate-calc";
 import type { Expense, LineType } from "@/lib/types";
 
 export interface PeriodSummary {
@@ -183,6 +184,82 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
       profit: revenue - materialCost - otherCost,
     };
   });
+}
+
+export interface JobCostAnalysis {
+  estRevenue: number;
+  estMaterial: number;
+  estLabor: number;
+  estCost: number;
+  estProfit: number;
+  estMargin: number;
+  actualMaterial: number; // from purchase orders
+  actualExpense: number; // from logged expenses
+  actualCost: number;
+  actualProfit: number;
+  actualMargin: number;
+  costVariance: number; // actual − estimated (positive = over budget)
+  marginDelta: number; // actual − estimated margin points
+  hasEstimateCosts: boolean;
+}
+
+/** Estimated-vs-actual cost & margin for one job (post-completion analysis). */
+export async function getJobCostAnalysis(
+  jobId: string,
+): Promise<JobCostAnalysis | null> {
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("option_id, estimate_id")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job) return null;
+
+  const { data: lineData } = job.option_id
+    ? await supabase
+        .from("estimate_line_items")
+        .select("*")
+        .eq("option_id", job.option_id)
+    : { data: [] };
+  const lines = (lineData ?? []) as CalcLine[];
+
+  const estRevenue = optionTotals(lines, 0).subtotal;
+  const ct = optionCostTotals(lines);
+  const estCost = ct.cost;
+  const estProfit = estRevenue - estCost;
+
+  const pos = await listPurchaseOrders();
+  const actualMaterial = pos
+    .filter((p) => p.estimate_id && p.estimate_id === job.estimate_id)
+    .reduce((s, p) => s + poTotal(p.items ?? []), 0);
+
+  const { data: expData } = await supabase
+    .from("expenses")
+    .select("amount")
+    .eq("job_id", jobId);
+  const actualExpense = (expData ?? []).reduce(
+    (s, e) => s + (Number(e.amount) || 0),
+    0,
+  );
+  const actualCost = actualMaterial + actualExpense;
+  const actualProfit = estRevenue - actualCost;
+
+  return {
+    estRevenue,
+    estMaterial: ct.material,
+    estLabor: ct.labor,
+    estCost,
+    estProfit,
+    estMargin: marginPct(estRevenue, estCost),
+    actualMaterial,
+    actualExpense,
+    actualCost,
+    actualProfit,
+    actualMargin: marginPct(estRevenue, actualCost),
+    costVariance: actualCost - estCost,
+    marginDelta: marginPct(estRevenue, actualCost) - marginPct(estRevenue, estCost),
+    hasEstimateCosts: estCost > 0,
+  };
 }
 
 export async function listExpenses(): Promise<Expense[]> {

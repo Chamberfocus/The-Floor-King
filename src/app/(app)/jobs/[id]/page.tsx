@@ -27,6 +27,7 @@ import {
   getJobApplications,
 } from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
+import { getJobCostAnalysis } from "@/lib/data/finance";
 import { requireProfile } from "@/lib/auth";
 import { lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -75,6 +76,10 @@ export default async function JobPage({
 
   const isAssignedToMe = job.assigned_to === profile.id;
   const applicants = isStaff ? await getJobApplications(id) : [];
+
+  // Profit/cost analysis is owner & admin only.
+  const costAnalysis =
+    profile.role === "admin" ? await getJobCostAnalysis(id) : null;
 
   const siteParts = [
     job.site_street,
@@ -232,6 +237,125 @@ export default async function JobPage({
           ) : null}
         </CardContent>
       </Card>
+
+      {/* Profitability — estimated vs actual (owner/admin only) */}
+      {costAnalysis ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Profitability — estimated vs actual
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!costAnalysis.hasEstimateCosts ? (
+              <p className="text-sm text-muted-foreground">
+                No costs were entered on the estimate, so there&apos;s nothing to
+                compare yet. Add material/labor costs in the wizard to track
+                margin here.
+              </p>
+            ) : null}
+            <div className="overflow-hidden rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/60 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Metric</th>
+                    <th className="px-3 py-2 text-right">Estimated</th>
+                    <th className="px-3 py-2 text-right">Actual</th>
+                    <th className="px-3 py-2 text-right">Variance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  <tr>
+                    <td className="px-3 py-2">Material cost</td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.estMaterial)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.actualMaterial)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">
+                      {formatMoney(
+                        costAnalysis.actualMaterial - costAnalysis.estMaterial,
+                      )}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-3 py-2">Labor / other cost</td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.estLabor)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.actualExpense)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">
+                      {formatMoney(
+                        costAnalysis.actualExpense - costAnalysis.estLabor,
+                      )}
+                    </td>
+                  </tr>
+                  <tr className="font-medium">
+                    <td className="px-3 py-2">Total cost</td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.estCost)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.actualCost)}
+                    </td>
+                    <td
+                      className={
+                        costAnalysis.costVariance > 0
+                          ? "px-3 py-2 text-right text-destructive"
+                          : "px-3 py-2 text-right text-emerald-600"
+                      }
+                    >
+                      {costAnalysis.costVariance > 0 ? "+" : ""}
+                      {formatMoney(costAnalysis.costVariance)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-3 py-2">Profit (at sold price)</td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.estProfit)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.actualProfit)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">
+                      {formatMoney(
+                        costAnalysis.actualProfit - costAnalysis.estProfit,
+                      )}
+                    </td>
+                  </tr>
+                  <tr className="font-semibold">
+                    <td className="px-3 py-2">Margin</td>
+                    <td className="px-3 py-2 text-right">
+                      {costAnalysis.estMargin.toFixed(1)}%
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {costAnalysis.actualMargin.toFixed(1)}%
+                    </td>
+                    <td
+                      className={
+                        costAnalysis.marginDelta < 0
+                          ? "px-3 py-2 text-right text-destructive"
+                          : "px-3 py-2 text-right text-emerald-600"
+                      }
+                    >
+                      {costAnalysis.marginDelta >= 0 ? "+" : ""}
+                      {costAnalysis.marginDelta.toFixed(1)} pts
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Actual material = purchase orders on this estimate. Actual
+              labor/other = expenses logged to this job. Revenue held at the sold
+              price to show whether the job hit its target margin.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Photos & sign-off */}
       <Card className="mb-6">
