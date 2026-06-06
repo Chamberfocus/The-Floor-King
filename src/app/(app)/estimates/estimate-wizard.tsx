@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Plus,
+  Copy,
   Trash2,
   Sparkles,
   ChevronLeft,
@@ -238,6 +239,13 @@ export function EstimateWizard({
       }),
     );
   const addRoom = () => setRooms((prev) => [...prev, emptyRoom()]);
+  /** Repeat a room (same material & pricing) right below it. */
+  const duplicateRoom = (i: number) =>
+    setRooms((prev) => {
+      const next = [...prev];
+      next.splice(i + 1, 0, { ...prev[i], key: newKey() });
+      return next;
+    });
   const removeRoom = (i: number) =>
     setRooms((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev));
   const setCategory = (i: number, cat: string) => {
@@ -574,9 +582,19 @@ export function EstimateWizard({
                         type="button"
                         variant="ghost"
                         size="icon-sm"
+                        aria-label="Duplicate room"
+                        title="Repeat this material"
+                        onClick={() => duplicateRoom(i)}
+                        className="ml-auto"
+                      >
+                        <Copy className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
                         aria-label="Remove room"
                         onClick={() => removeRoom(i)}
-                        className="ml-auto"
                       >
                         <Trash2 className="size-3.5" />
                       </Button>

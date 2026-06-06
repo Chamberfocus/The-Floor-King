@@ -236,6 +236,17 @@ export function EstimateBuilder({
       ),
     );
 
+  /** Repeat a line (same material & pricing) right below it. */
+  const duplicateLine = (oi: number, li: number) =>
+    setOptions((prev) =>
+      prev.map((o, i) => {
+        if (i !== oi) return o;
+        const lines = [...o.lines];
+        lines.splice(li + 1, 0, { ...o.lines[li], key: newKey() });
+        return { ...o, lines };
+      }),
+    );
+
   const updateLine = (oi: number, li: number, patch: Partial<LineState>) =>
     setOptions((prev) =>
       prev.map((o, i) =>
@@ -699,6 +710,16 @@ export function EstimateBuilder({
                           )}
                         </div>
                       </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Duplicate line"
+                        title="Repeat this material"
+                        onClick={() => duplicateLine(oi, li)}
+                      >
+                        <Copy className="size-3.5" />
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"
