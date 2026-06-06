@@ -62,11 +62,33 @@ export async function inviteTeamMember(
 
   await admin
     .from("profiles")
-    .update({ role, full_name: fullName || null, title: title || null })
+    .update({
+      role,
+      full_name: fullName || null,
+      title: title || null,
+      home_address: str(formData.get("home_address")) || null,
+    })
     .eq("id", created.user.id);
 
   revalidatePath("/settings/team");
   return { error: null, ok: true };
+}
+
+export async function setMemberHome(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const home = str(formData.get("home_address"));
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return;
+  }
+  await admin
+    .from("profiles")
+    .update({ home_address: home || null })
+    .eq("id", id);
+  revalidatePath("/settings/team");
 }
 
 export async function setMemberTitle(formData: FormData): Promise<void> {

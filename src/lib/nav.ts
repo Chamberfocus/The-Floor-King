@@ -58,6 +58,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: OVERVIEW },
   { label: "Estimates", href: "/estimates", icon: FileText, roles: SALES_VIEW },
   { label: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, roles: OFFICE_PLUS },
+  { label: "Estimate Schedule", href: "/schedule", icon: CalendarClock, roles: SALES_VIEW },
   { label: "Jobs", href: "/jobs", icon: CalendarDays, roles: JOBS_ROLES },
   { label: "Job Board", href: "/board", icon: ClipboardList, roles: ["admin", "office", "scheduler", "crew"] },
   { label: "Invoices", href: "/invoices", icon: Receipt, roles: SALES },

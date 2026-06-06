@@ -156,18 +156,23 @@ export async function getEstimateSuggestions(
 
   const designated =
     (cust.assigned_to as string) || (cust.workflow_owner_id as string) || null;
-  let reps: { id: string; full_name: string | null; email: string }[] = [];
+  let reps: {
+    id: string;
+    full_name: string | null;
+    email: string;
+    home_address: string | null;
+  }[] = [];
   if (mode === "assigned" && designated) {
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, email")
+      .select("id, full_name, email, home_address")
       .eq("id", designated);
     reps = (data ?? []) as typeof reps;
   }
   if (!reps.length) {
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, email")
+      .select("id, full_name, email, home_address")
       .in("role", ["salesman", "sales_manager", "office", "admin"]);
     reps = (data ?? []) as typeof reps;
   }
@@ -212,7 +217,8 @@ export async function getEstimateSuggestions(
         (a, b) => a.endMin - b.endMin,
       );
       let startMin = dayStart;
-      let priorAddr = storeAddress();
+      // First stop of the day starts from the rep's home base (or the shop).
+      let priorAddr = rep.home_address || storeAddress();
       if (dayAppts.length) {
         const last = dayAppts[dayAppts.length - 1];
         startMin = last.endMin + buffer;
@@ -245,4 +251,43 @@ export async function getEstimateSuggestions(
     return (a.driveMinutes ?? 9999) - (b.driveMinutes ?? 9999);
   });
   return slots.slice(0, 6);
+}
+
+export interface AppointmentRow {
+  id: string;
+  date: string;
+  time: string;
+  customerId: string;
+  customerName: string;
+  salespersonId: string | null;
+  address: string | null;
+  driveMinutes: number | null;
+}
+
+/** Upcoming estimate appointments (today forward), time-ordered. */
+export async function listUpcomingAppointments(): Promise<AppointmentRow[]> {
+  const supabase = await createClient();
+  const today = ymd(new Date());
+  const { data } = await supabase
+    .from("appointments")
+    .select(
+      "id, starts_at, salesperson_id, address, drive_minutes, customer:customers(id, full_name)",
+    )
+    .eq("status", "scheduled")
+    .gte("starts_at", `${today}T00:00:00Z`)
+    .order("starts_at", { ascending: true });
+  return (data ?? []).map((a) => {
+    const c = a.customer as unknown as { id: string; full_name: string } | null;
+    const st = a.starts_at as string;
+    return {
+      id: a.id as string,
+      date: st.slice(0, 10),
+      time: st.slice(11, 16),
+      customerId: c?.id ?? "",
+      customerName: c?.full_name ?? "Customer",
+      salespersonId: (a.salesperson_id as string) ?? null,
+      address: (a.address as string) ?? null,
+      driveMinutes: (a.drive_minutes as number) ?? null,
+    };
+  });
 }

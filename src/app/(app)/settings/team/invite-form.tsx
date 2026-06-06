@@ -48,6 +48,14 @@ export function InviteTeamForm() {
           ))}
         </select>
       </div>
+      <div className="space-y-1 sm:col-span-2">
+        <Label htmlFor="home_address">Home base address (for routing, optional)</Label>
+        <Input
+          id="home_address"
+          name="home_address"
+          placeholder="Where their day starts (used to route estimates)"
+        />
+      </div>
       <div className="space-y-1">
         <Label htmlFor="email">Email</Label>
         <Input id="email" name="email" type="email" required />

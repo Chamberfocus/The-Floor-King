@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getEstimateSuggestions, type EstimateSlot } from "@/lib/data/scheduling";
+import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 
 export interface SuggestResult {
   error: string | null;
@@ -64,6 +65,44 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     type: "note",
     body: `Estimate appointment scheduled for ${date} at ${time}.`,
   });
+
+  // Notify the salesperson and the customer.
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("full_name, email")
+    .eq("id", customerId)
+    .maybeSingle();
+  const when = `${date} at ${time}`;
+  if (salesperson) {
+    const { data: rep } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("id", salesperson)
+      .maybeSingle();
+    if (rep?.email) {
+      await sendEmail({
+        to: rep.email as string,
+        subject: `New estimate: ${cust?.full_name ?? "customer"} — ${when}`,
+        html: emailLayout(
+          "New estimate appointment",
+          `<p>You're booked for an estimate with <strong>${cust?.full_name ?? "a customer"}</strong> on <strong>${when}</strong>.</p>
+           ${address ? `<p>${address}</p>` : ""}`,
+          { label: "Open customer", url: `${siteUrl()}/customers/${customerId}` },
+        ),
+      });
+    }
+  }
+  if (cust?.email) {
+    await sendEmail({
+      to: cust.email as string,
+      subject: "Your estimate appointment is confirmed",
+      html: emailLayout(
+        "Estimate confirmed",
+        `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
+         <p>Your in-home flooring estimate is confirmed for <strong>${when}</strong>. We look forward to seeing you!</p>`,
+      ),
+    });
+  }
 
   revalidatePath(`/customers/${customerId}`);
 }
