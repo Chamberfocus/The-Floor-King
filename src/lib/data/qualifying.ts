@@ -14,3 +14,15 @@ export async function listQualifyingQuestions(
   if (error) throw error;
   return (data ?? []) as QualifyingQuestion[];
 }
+
+export async function getQualifyingQuestion(
+  id: string,
+): Promise<QualifyingQuestion | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("qualifying_questions")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  return (data as QualifyingQuestion) ?? null;
+}

@@ -28,10 +28,10 @@ import {
 } from "@/lib/estimate-calc";
 import {
   PRODUCT_CATEGORY_LABELS,
-  wizardSectionRank,
   type EstimatePresentation,
   type MeasureUnit,
   type Product,
+  type ProductCategory,
   type WizardQuestion,
 } from "@/lib/types";
 import { createEstimateFromWizard } from "./actions";
@@ -39,9 +39,20 @@ import { createEstimateFromWizard } from "./actions";
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+/** Flooring types the quote builder offers (carpet defaults to sq yd). */
+const MATERIAL_TYPES: { id: ProductCategory; label: string }[] = [
+  { id: "carpet", label: "Carpet" },
+  { id: "lvp", label: "Luxury Vinyl" },
+  { id: "hardwood", label: "Hardwood" },
+  { id: "laminate", label: "Laminate" },
+  { id: "vinyl", label: "Sheet Vinyl" },
+  { id: "tile", label: "Tile" },
+];
+
 interface RoomState {
   key: string;
   name: string;
+  category: string;
   len_ft: string;
   len_in: string;
   wid_ft: string;
@@ -97,7 +108,6 @@ function addonToCalc(a: AddonState): CalcLine {
   };
 }
 
-/** Cost / price / margin readout shown under each priced item. */
 function MarginReadout({ sell, cost }: { sell: number; cost: number }) {
   const profit = sell - cost;
   return (
@@ -134,7 +144,6 @@ function MarginReadout({ sell, cost }: { sell: number; cost: number }) {
 
 type Step =
   | { kind: "basics" }
-  | { kind: "detail"; q: WizardQuestion }
   | { kind: "rooms" }
   | { kind: "addons" }
   | { kind: "review" };
@@ -158,6 +167,7 @@ export function EstimateWizard({
   const emptyRoom = (): RoomState => ({
     key: newKey(),
     name: "",
+    category: "",
     len_ft: "",
     len_in: "",
     wid_ft: "",
@@ -174,32 +184,17 @@ export function EstimateWizard({
     labor_cost: "",
   });
 
-  const detailQs = useMemo(
-    () =>
-      questions
-        .filter((q) => q.kind === "detail")
-        .sort(
-          (a, b) =>
-            wizardSectionRank(a.section) - wizardSectionRank(b.section) ||
-            a.position - b.position,
-        ),
-    [questions],
-  );
   const addonQs = useMemo(
     () => questions.filter((q) => q.kind === "addon"),
     [questions],
   );
 
-  const steps: Step[] = useMemo(
-    () => [
-      { kind: "basics" },
-      ...detailQs.map((q) => ({ kind: "detail", q }) as Step),
-      { kind: "rooms" },
-      { kind: "addons" },
-      { kind: "review" },
-    ],
-    [detailQs],
-  );
+  const steps: Step[] = [
+    { kind: "basics" },
+    { kind: "rooms" },
+    { kind: "addons" },
+    { kind: "review" },
+  ];
 
   const [open, setOpen] = useState(true);
   const [step, setStep] = useState(0);
@@ -207,8 +202,8 @@ export function EstimateWizard({
   const [taxRate, setTaxRate] = useState("8");
   const [presentation, setPresentation] =
     useState<EstimatePresentation>("detailed");
+  const [addonsSeparate, setAddonsSeparate] = useState(false);
   const [rooms, setRooms] = useState<RoomState[]>([emptyRoom()]);
-  const [detailValues, setDetailValues] = useState<Record<string, string>>({});
   const [addon, setAddon] = useState<Record<string, AddonState>>(() => {
     const init: Record<string, AddonState> = {};
     for (const q of addonQs)
@@ -244,6 +239,15 @@ export function EstimateWizard({
   const addRoom = () => setRooms((prev) => [...prev, emptyRoom()]);
   const removeRoom = (i: number) =>
     setRooms((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev));
+  const setCategory = (i: number, cat: string) => {
+    const label = MATERIAL_TYPES.find((m) => m.id === cat)?.label ?? "";
+    updateRoom(i, {
+      category: cat,
+      measure_unit: cat === "carpet" ? "sqyd" : "sqft",
+      description: rooms[i].description || label,
+      product_id: "",
+    });
+  };
   const applyProduct = (i: number, productId: string) => {
     const p = products.find((x) => x.id === productId);
     updateRoom(
@@ -259,7 +263,6 @@ export function EstimateWizard({
         : { product_id: "" },
     );
   };
-  /** Set a room's sell rates to hit a target gross margin from its costs. */
   const roomTargetMargin = (i: number, t: string) => {
     const r = rooms[i];
     if (r.line_type === "installed") {
@@ -279,21 +282,23 @@ export function EstimateWizard({
   const setAddonField = (id: string, patch: Partial<AddonState>) =>
     setAddon((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
 
-  // Live totals across rooms + included add-ons.
-  const calcLines: CalcLine[] = [
-    ...rooms.map(roomToCalc),
-    ...addonQs.filter((q) => addon[q.id]?.included).map((q) => addonToCalc(addon[q.id])),
-  ];
-  const revenue = calcLines.reduce((s, l) => s + lineTotal(l), 0);
-  const cost = calcLines.reduce((s, l) => s + lineCost(l), 0);
+  const roomsRevenue = rooms.reduce((s, r) => s + lineTotal(roomToCalc(r)), 0);
+  const roomsCost = rooms.reduce((s, r) => s + lineCost(roomToCalc(r)), 0);
+  const includedAddons = addonQs.filter((q) => addon[q.id]?.included);
+  const addonsRevenue = includedAddons.reduce(
+    (s, q) => s + lineTotal(addonToCalc(addon[q.id])),
+    0,
+  );
+  const addonsCost = includedAddons.reduce(
+    (s, q) => s + lineCost(addonToCalc(addon[q.id])),
+    0,
+  );
+  const revenue = roomsRevenue + addonsRevenue;
+  const cost = roomsCost + addonsCost;
   const profit = revenue - cost;
   const tax = revenue * (num(taxRate) / 100);
 
   const current = steps[step];
-  const canNext =
-    current.kind !== "detail" ||
-    !current.q.required ||
-    Boolean(detailValues[current.q.id]?.trim());
   const back = () => setStep((s) => Math.max(0, s - 1));
   const next = () => setStep((s) => Math.min(steps.length - 1, s + 1));
 
@@ -318,30 +323,19 @@ export function EstimateWizard({
           material_cost: r.material_cost || null,
           labor_cost: r.labor_cost || null,
         })),
-        answers: questions.map((q) =>
-          q.kind === "detail"
-            ? {
-                question_id: q.id,
-                label: q.label,
-                kind: "detail" as const,
-                included: false,
-                value: detailValues[q.id] ?? "",
-                amount: null,
-              }
-            : {
-                question_id: q.id,
-                label: q.label,
-                kind: "addon" as const,
-                included: addon[q.id]?.included ?? false,
-                value: "",
-                amount: null,
-                quantity: addon[q.id]?.quantity ?? "1",
-                unit: addon[q.id]?.unit ?? "each",
-                unit_price: addon[q.id]?.unit_price ?? null,
-                material_cost: addon[q.id]?.material_cost ?? null,
-                labor_cost: addon[q.id]?.labor_cost ?? null,
-              },
-        ),
+        answers: addonQs.map((q) => ({
+          question_id: q.id,
+          label: q.label,
+          kind: "addon" as const,
+          included: addon[q.id]?.included ?? false,
+          value: "",
+          amount: null,
+          quantity: addon[q.id]?.quantity ?? "1",
+          unit: addon[q.id]?.unit ?? "each",
+          unit_price: addon[q.id]?.unit_price ?? null,
+          material_cost: addon[q.id]?.material_cost ?? null,
+          labor_cost: addon[q.id]?.labor_cost ?? null,
+        })),
       };
       const res = await createEstimateFromWizard(customerId, input);
       if (res.error || !res.id) {
@@ -355,11 +349,9 @@ export function EstimateWizard({
   if (!open) {
     return (
       <div className="rounded-lg border border-dashed p-10 text-center">
-        <p className="mb-3 text-sm text-muted-foreground">
-          Guided estimate paused.
-        </p>
+        <p className="mb-3 text-sm text-muted-foreground">Quote builder paused.</p>
         <Button onClick={() => setOpen(true)}>
-          <Sparkles className="size-4" /> Resume guided estimate
+          <Sparkles className="size-4" /> Resume quote builder
         </Button>
       </div>
     );
@@ -368,10 +360,9 @@ export function EstimateWizard({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center">
       <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border bg-background shadow-2xl">
-        {/* Header + progress */}
         <div className="border-b px-5 py-3">
           <div className="flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold">Guided estimate</div>
+            <div className="text-sm font-semibold">Quote builder</div>
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted-foreground">
                 Step {step + 1} of {steps.length}
@@ -394,11 +385,10 @@ export function EstimateWizard({
           </div>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-5">
           {current.kind === "basics" ? (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Let&apos;s set up the estimate</h2>
+              <h2 className="text-lg font-semibold">Set up the quote</h2>
               <div className="space-y-2">
                 <Label htmlFor="w-title">Estimate title</Label>
                 <Input
@@ -437,41 +427,34 @@ export function EstimateWizard({
             </div>
           ) : null}
 
-          {current.kind === "detail" ? (
-            <div className="space-y-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {current.q.section}
-              </div>
-              <h2 className="text-lg font-semibold">
-                {current.q.required ? (
-                  <span className="text-amber-600">★ </span>
-                ) : null}
-                {current.q.label}
-              </h2>
-              {current.q.help ? (
-                <p className="text-sm text-muted-foreground">{current.q.help}</p>
-              ) : null}
-              <DetailInput
-                q={current.q}
-                value={detailValues[current.q.id] ?? ""}
-                onChange={(v) =>
-                  setDetailValues((p) => ({ ...p, [current.q.id]: v }))
-                }
-              />
-            </div>
-          ) : null}
-
           {current.kind === "rooms" ? (
             <div className="space-y-3">
-              <h2 className="text-lg font-semibold">Rooms & measurements</h2>
+              <h2 className="text-lg font-semibold">Rooms & materials</h2>
               <p className="text-sm text-muted-foreground">
-                Enter each area, your cost, and your price — margin updates live.
+                Pick the flooring type per area (mix as many as you like). Carpet
+                prices by sq yd; everything else by sq ft.
               </p>
               {rooms.map((r, i) => {
                 const cl = roomToCalc(r);
+                const sqyd = num(r.sqft) / 9;
+                const productOpts = products.filter(
+                  (p) => !r.category || p.category === r.category,
+                );
                 return (
                   <div key={r.key} className="space-y-2 rounded-md border p-3">
                     <div className="grid gap-2 sm:grid-cols-3">
+                      <select
+                        value={r.category}
+                        onChange={(e) => setCategory(i, e.target.value)}
+                        className={cn(inputSm, "w-full")}
+                      >
+                        <option value="">Material type…</option>
+                        {MATERIAL_TYPES.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
                       <Input
                         value={r.name}
                         onChange={(e) => updateRoom(i, { name: e.target.value })}
@@ -482,8 +465,7 @@ export function EstimateWizard({
                         onChange={(e) =>
                           updateRoom(i, { description: e.target.value })
                         }
-                        placeholder="Material / description"
-                        className="sm:col-span-2"
+                        placeholder="Description"
                       />
                     </div>
                     <div className="flex flex-wrap items-end gap-2">
@@ -512,6 +494,9 @@ export function EstimateWizard({
                           className={cn(inputSm, "w-20")}
                         />
                       </div>
+                      <div className="pb-2 text-xs text-muted-foreground">
+                        = {num(r.sqft).toFixed(0)} sq ft · {sqyd.toFixed(1)} sq yd
+                      </div>
                       <div>
                         <label className="mb-1 block text-xs text-muted-foreground">
                           Price per
@@ -529,7 +514,7 @@ export function EstimateWizard({
                           <option value="sqyd">sq yd</option>
                         </select>
                       </div>
-                      {products.length ? (
+                      {productOpts.length ? (
                         <div>
                           <label className="mb-1 block text-xs text-muted-foreground">
                             Product
@@ -540,7 +525,7 @@ export function EstimateWizard({
                             className={cn(inputSm, "w-40")}
                           >
                             <option value="">— Manual —</option>
-                            {products.map((p) => (
+                            {productOpts.map((p) => (
                               <option key={p.id} value={p.id}>
                                 {p.name} ({PRODUCT_CATEGORY_LABELS[p.category]})
                               </option>
@@ -549,7 +534,6 @@ export function EstimateWizard({
                         </div>
                       ) : null}
                     </div>
-                    {/* Cost + price */}
                     <div className="flex flex-wrap items-end gap-2">
                       <RateField
                         label="Material cost"
@@ -561,33 +545,23 @@ export function EstimateWizard({
                         value={r.labor_cost}
                         onChange={(v) => updateRoom(i, { labor_cost: v })}
                       />
-                      {r.line_type === "installed" ? (
-                        <RateField
-                          label="Installed price"
-                          value={r.installed_rate}
-                          onChange={(v) => updateRoom(i, { installed_rate: v })}
-                        />
-                      ) : (
-                        <>
-                          <RateField
-                            label="Material price"
-                            value={r.material_rate}
-                            onChange={(v) => updateRoom(i, { material_rate: v })}
-                          />
-                          <RateField
-                            label="Labor price"
-                            value={r.labor_rate}
-                            onChange={(v) => updateRoom(i, { labor_rate: v })}
-                          />
-                        </>
-                      )}
+                      <RateField
+                        label="Material price"
+                        value={r.material_rate}
+                        onChange={(v) => updateRoom(i, { material_rate: v })}
+                      />
+                      <RateField
+                        label="Labor price"
+                        value={r.labor_rate}
+                        onChange={(v) => updateRoom(i, { labor_rate: v })}
+                      />
                       <div>
                         <label className="mb-1 block text-xs text-muted-foreground">
                           Target margin %
                         </label>
                         <input
                           type="number"
-                          placeholder="e.g. 40"
+                          placeholder="40"
                           onChange={(e) => roomTargetMargin(i, e.target.value)}
                           className={cn(inputSm, "w-24")}
                         />
@@ -608,7 +582,7 @@ export function EstimateWizard({
                 );
               })}
               <Button type="button" variant="outline" size="sm" onClick={addRoom}>
-                <Plus className="size-3.5" /> Add room
+                <Plus className="size-3.5" /> Add room / material
               </Button>
             </div>
           ) : null}
@@ -617,7 +591,7 @@ export function EstimateWizard({
             <div className="space-y-3">
               <h2 className="text-lg font-semibold">Add-ons & extras</h2>
               <p className="text-sm text-muted-foreground">
-                Toggle what applies, set the quantity, your cost, and your price.
+                Toggle what applies, set quantity, your cost, and your price.
               </p>
               {addonQs.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -682,16 +656,12 @@ export function EstimateWizard({
                           <RateField
                             label="Cost / unit (labor)"
                             value={a.labor_cost}
-                            onChange={(v) =>
-                              setAddonField(q.id, { labor_cost: v })
-                            }
+                            onChange={(v) => setAddonField(q.id, { labor_cost: v })}
                           />
                           <RateField
                             label="Price / unit"
                             value={a.unit_price}
-                            onChange={(v) =>
-                              setAddonField(q.id, { unit_price: v })
-                            }
+                            onChange={(v) => setAddonField(q.id, { unit_price: v })}
                           />
                           <div>
                             <label className="mb-1 block text-xs text-muted-foreground">
@@ -726,6 +696,15 @@ export function EstimateWizard({
           {current.kind === "review" ? (
             <div className="space-y-4">
               <h2 className="text-lg font-semibold">Review & create</h2>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={addonsSeparate}
+                  onChange={(e) => setAddonsSeparate(e.target.checked)}
+                  className="size-4 rounded border-input"
+                />
+                Show add-ons as a separate total (instead of rolling into one)
+              </label>
               <div className="overflow-hidden rounded-md border">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/60 text-xs text-muted-foreground">
@@ -741,7 +720,9 @@ export function EstimateWizard({
                       const cl = roomToCalc(r);
                       return (
                         <tr key={r.key}>
-                          <td className="px-3 py-2">{r.name || r.description || "Room"}</td>
+                          <td className="px-3 py-2">
+                            {r.name || r.description || "Room"}
+                          </td>
                           <td className="px-3 py-2 text-right">{formatMoney(lineCost(cl))}</td>
                           <td className="px-3 py-2 text-right">{formatMoney(lineTotal(cl))}</td>
                           <td className="px-3 py-2 text-right text-emerald-600">
@@ -750,25 +731,29 @@ export function EstimateWizard({
                         </tr>
                       );
                     })}
-                    {addonQs
-                      .filter((q) => addon[q.id]?.included)
-                      .map((q) => {
-                        const cl = addonToCalc(addon[q.id]);
-                        return (
-                          <tr key={q.id}>
-                            <td className="px-3 py-2">{q.label}</td>
-                            <td className="px-3 py-2 text-right">{formatMoney(lineCost(cl))}</td>
-                            <td className="px-3 py-2 text-right">{formatMoney(lineTotal(cl))}</td>
-                            <td className="px-3 py-2 text-right text-emerald-600">
-                              {formatMoney(lineTotal(cl) - lineCost(cl))}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                    {includedAddons.map((q) => {
+                      const cl = addonToCalc(addon[q.id]);
+                      return (
+                        <tr key={q.id}>
+                          <td className="px-3 py-2">{q.label}</td>
+                          <td className="px-3 py-2 text-right">{formatMoney(lineCost(cl))}</td>
+                          <td className="px-3 py-2 text-right">{formatMoney(lineTotal(cl))}</td>
+                          <td className="px-3 py-2 text-right text-emerald-600">
+                            {formatMoney(lineTotal(cl) - lineCost(cl))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
               <div className="ml-auto w-full max-w-xs space-y-1 text-sm">
+                {addonsSeparate ? (
+                  <>
+                    <Row label="Materials & labor" value={formatMoney(roomsRevenue)} />
+                    <Row label="Add-ons" value={formatMoney(addonsRevenue)} />
+                  </>
+                ) : null}
                 <Row label="Revenue" value={formatMoney(revenue)} />
                 <Row label="Cost" value={formatMoney(cost)} muted />
                 <Row
@@ -783,14 +768,8 @@ export function EstimateWizard({
           ) : null}
         </div>
 
-        {/* Footer nav + live profit */}
         <div className="flex items-center justify-between gap-3 border-t px-5 py-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={back}
-            disabled={step === 0}
-          >
+          <Button type="button" variant="outline" onClick={back} disabled={step === 0}>
             <ChevronLeft className="size-4" /> Back
           </Button>
           <div className="hidden text-xs text-muted-foreground sm:block">
@@ -803,7 +782,7 @@ export function EstimateWizard({
               {isPending ? "Creating…" : "Create estimate"}
             </Button>
           ) : (
-            <Button type="button" onClick={next} disabled={!canNext}>
+            <Button type="button" onClick={next}>
               Next <ChevronRight className="size-4" />
             </Button>
           )}
@@ -904,57 +883,5 @@ function RateField({
         />
       </div>
     </div>
-  );
-}
-
-function DetailInput({
-  q,
-  value,
-  onChange,
-}: {
-  q: WizardQuestion;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  if (q.options?.length) {
-    return (
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={cn(inputSm, "w-full")}
-        autoFocus
-      >
-        <option value="">—</option>
-        {q.options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-    );
-  }
-  if (q.input === "yesno") {
-    return (
-      <div className="flex gap-2">
-        {["Yes", "No"].map((opt) => (
-          <Button
-            key={opt}
-            type="button"
-            variant={value === opt ? "default" : "outline"}
-            onClick={() => onChange(opt)}
-          >
-            {opt}
-          </Button>
-        ))}
-      </div>
-    );
-  }
-  return (
-    <Input
-      type={q.input === "number" ? "number" : "text"}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      autoFocus
-    />
   );
 }

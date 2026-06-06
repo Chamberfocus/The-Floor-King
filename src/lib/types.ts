@@ -98,6 +98,9 @@ export interface QualifyingQuestion {
   id: string;
   label: string;
   help: string | null;
+  section: string;
+  options: string[] | null;
+  required: boolean;
   position: number;
   active: boolean;
   created_at: string;

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChevronUp, ChevronDown, Trash2 } from "lucide-react";
+import { ChevronUp, ChevronDown, Pencil, Trash2 } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -11,7 +12,8 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listQualifyingQuestions } from "@/lib/data/qualifying";
-import { AddQualifyingForm } from "./add-form";
+import { wizardSectionRank } from "@/lib/types";
+import { QualifyingForm } from "./qualifying-form";
 import { deleteQualifyingQuestion, moveQualifyingQuestion } from "./actions";
 
 export const metadata: Metadata = { title: "Qualifying questions" };
@@ -21,12 +23,15 @@ export default async function QualifyingSettingsPage() {
   if (profile.role !== "admin") redirect("/");
 
   const questions = await listQualifyingQuestions();
+  const sections = Array.from(new Set(questions.map((q) => q.section))).sort(
+    (a, b) => wizardSectionRank(a) - wizardSectionRank(b) || a.localeCompare(b),
+  );
 
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
-        title="Qualifying questions"
-        description="The questions your team runs through when qualifying a new lead."
+        title="Qualifying questionnaire"
+        description="The intake journey your team walks through with a new lead. Grouped into sections; reorder within a section, edit any question, or change its Section to move it."
       />
 
       <Card className="mb-6">
@@ -34,7 +39,7 @@ export default async function QualifyingSettingsPage() {
           <CardTitle className="text-base">Add a question</CardTitle>
         </CardHeader>
         <CardContent>
-          <AddQualifyingForm />
+          <QualifyingForm />
         </CardContent>
       </Card>
 
@@ -43,59 +48,88 @@ export default async function QualifyingSettingsPage() {
           No questions yet.
         </div>
       ) : (
-        <div className="space-y-2">
-          {questions.map((q, i) => (
-            <div
-              key={q.id}
-              className="flex items-center gap-2 rounded-md border p-2"
-            >
-              <div className="flex flex-col">
-                <form action={moveQualifyingQuestion}>
-                  <input type="hidden" name="id" value={q.id} />
-                  <input type="hidden" name="dir" value="up" />
-                  <Button
-                    type="submit"
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="Move up"
-                    disabled={i === 0}
-                  >
-                    <ChevronUp className="size-3.5" />
-                  </Button>
-                </form>
-                <form action={moveQualifyingQuestion}>
-                  <input type="hidden" name="id" value={q.id} />
-                  <input type="hidden" name="dir" value="down" />
-                  <Button
-                    type="submit"
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="Move down"
-                    disabled={i === questions.length - 1}
-                  >
-                    <ChevronDown className="size-3.5" />
-                  </Button>
-                </form>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="font-medium">{q.label}</div>
-                {q.help ? (
-                  <div className="text-xs text-muted-foreground">{q.help}</div>
-                ) : null}
-              </div>
-              <form action={deleteQualifyingQuestion}>
-                <input type="hidden" name="id" value={q.id} />
-                <Button
-                  type="submit"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Delete"
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </form>
-            </div>
-          ))}
+        <div className="space-y-6">
+          {sections.map((section) => {
+            const items = questions
+              .filter((q) => q.section === section)
+              .sort((a, b) => a.position - b.position);
+            return (
+              <section key={section}>
+                <h2 className="mb-2 px-1 text-sm font-semibold text-muted-foreground">
+                  {section}
+                </h2>
+                <div className="space-y-2">
+                  {items.map((q, i) => (
+                    <div
+                      key={q.id}
+                      className={`flex items-center gap-2 rounded-md border p-2 ${
+                        q.active ? "" : "opacity-60"
+                      }`}
+                    >
+                      <div className="flex flex-col">
+                        <form action={moveQualifyingQuestion}>
+                          <input type="hidden" name="id" value={q.id} />
+                          <input type="hidden" name="dir" value="up" />
+                          <Button
+                            type="submit"
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Move up"
+                            disabled={i === 0}
+                          >
+                            <ChevronUp className="size-3.5" />
+                          </Button>
+                        </form>
+                        <form action={moveQualifyingQuestion}>
+                          <input type="hidden" name="id" value={q.id} />
+                          <input type="hidden" name="dir" value="down" />
+                          <Button
+                            type="submit"
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Move down"
+                            disabled={i === items.length - 1}
+                          >
+                            <ChevronDown className="size-3.5" />
+                          </Button>
+                        </form>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium">
+                          {q.required ? (
+                            <span className="text-amber-600">★ </span>
+                          ) : null}
+                          {q.label}
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          {q.options?.length ? <span>Dropdown</span> : <span>Text</span>}
+                          {!q.active ? <span>· inactive</span> : null}
+                        </div>
+                      </div>
+                      <Link
+                        href={`/settings/qualifying/${q.id}`}
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label="Edit"
+                      >
+                        <Pencil className="size-4" />
+                      </Link>
+                      <form action={deleteQualifyingQuestion}>
+                        <input type="hidden" name="id" value={q.id} />
+                        <Button
+                          type="submit"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Delete"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </form>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
     </div>

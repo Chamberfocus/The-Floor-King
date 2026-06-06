@@ -6,8 +6,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import type { QualifyingQuestion } from "@/lib/types";
+import { wizardSectionRank, type QualifyingQuestion } from "@/lib/types";
 import { saveQualification, skipQualification } from "./qualify-actions";
+
+const selectClass =
+  "w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function QualifyPanel({
   customerId,
@@ -18,21 +21,55 @@ export function QualifyPanel({
   questions: QualifyingQuestion[];
   qualified: boolean | null;
 }) {
+  const sections = Array.from(new Set(questions.map((q) => q.section))).sort(
+    (a, b) => wizardSectionRank(a) - wizardSectionRank(b) || a.localeCompare(b),
+  );
+
   const form = (
     <div className="space-y-3">
-      <form action={saveQualification} className="space-y-3">
+      <form action={saveQualification} className="space-y-4">
         <input type="hidden" name="customer_id" value={customerId} />
-        {questions.map((q) => (
-          <div key={q.id} className="space-y-1">
-            <label className="text-sm font-medium">{q.label}</label>
-            {q.help ? (
-              <p className="text-xs text-muted-foreground">{q.help}</p>
-            ) : null}
-            <textarea
-              name={`q_${q.id}`}
-              rows={2}
-              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
+        {sections.map((section) => (
+          <div key={section} className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {section}
+            </div>
+            {questions
+              .filter((q) => q.section === section)
+              .sort((a, b) => a.position - b.position)
+              .map((q) => (
+                <div key={q.id} className="space-y-1">
+                  <label className="text-sm font-medium">
+                    {q.required ? (
+                      <span className="text-amber-600">★ </span>
+                    ) : null}
+                    {q.label}
+                  </label>
+                  {q.help ? (
+                    <p className="text-xs text-muted-foreground">{q.help}</p>
+                  ) : null}
+                  {q.options?.length ? (
+                    <select
+                      name={`q_${q.id}`}
+                      defaultValue=""
+                      className={selectClass}
+                    >
+                      <option value="">—</option>
+                      {q.options.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <textarea
+                      name={`q_${q.id}`}
+                      rows={2}
+                      className={selectClass}
+                    />
+                  )}
+                </div>
+              ))}
           </div>
         ))}
         <Button type="submit" className="w-full">

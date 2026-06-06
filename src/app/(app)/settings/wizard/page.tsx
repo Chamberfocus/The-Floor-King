@@ -12,7 +12,10 @@ import { moveQuestion, deleteQuestion } from "./actions";
 export const metadata: Metadata = { title: "Wizard Setup" };
 
 export default async function WizardSetupPage() {
-  const questions = await listWizardQuestions();
+  // Intake questions now live in the Qualifying Questionnaire; the quote builder
+  // only uses add-on line items.
+  const all = await listWizardQuestions();
+  const questions = all.filter((q) => q.kind === "addon");
 
   // Group into journey sections (canonical order; unknown sections last).
   const sections = Array.from(new Set(questions.map((q) => q.section))).sort(
@@ -22,8 +25,8 @@ export default async function WizardSetupPage() {
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
-        title="Estimate Wizard"
-        description="The guided questionnaire your salespeople walk through. Reorder within a section with the arrows, edit any question, or change its Section to move it in the journey. Detail questions build the job description; add-on questions add a priced line."
+        title="Quote add-ons"
+        description="The priced extras offered in the quote builder (tear-out, subfloor prep, baseboards, stairs, etc.). Intake questions now live in the Qualifying Questionnaire."
       >
         <Link
           href="/settings/wizard/new"
