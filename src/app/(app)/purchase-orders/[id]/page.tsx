@@ -12,6 +12,7 @@ import { PoBuilder } from "../po-builder";
 import { deletePurchaseOrder } from "../actions";
 
 export const metadata: Metadata = { title: "Purchase Order" };
+export const maxDuration = 60;
 
 export default async function PurchaseOrderPage({
   params,

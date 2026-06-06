@@ -8,6 +8,7 @@ import { requireProfile } from "@/lib/auth";
 import { PriceListImporter } from "../price-list-importer";
 
 export const metadata: Metadata = { title: "Import price list" };
+export const maxDuration = 60;
 
 export default async function ImportPriceListPage() {
   const profile = await requireProfile();

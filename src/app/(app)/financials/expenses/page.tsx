@@ -27,6 +27,7 @@ import { ExpenseForm } from "../expense-form";
 import { deleteExpense } from "../actions";
 
 export const metadata: Metadata = { title: "Expenses" };
+export const maxDuration = 60;
 
 export default async function ExpensesPage() {
   const profile = await requireProfile();

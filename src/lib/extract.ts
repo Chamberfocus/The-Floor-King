@@ -125,7 +125,7 @@ export async function extractClients(opts: {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 8000,
+        max_tokens: 16000,
         messages: [{ role: "user", content }],
       }),
     });
@@ -227,7 +227,7 @@ export async function extractPriceList(opts: {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 8000,
+        max_tokens: 16000,
         messages: [{ role: "user", content }],
       }),
     });
@@ -293,7 +293,7 @@ export async function extractOrderDocument(opts: {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 4096,
+        max_tokens: 8000,
         messages: [
           {
             role: "user",

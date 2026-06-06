@@ -8,6 +8,7 @@ import { requireProfile } from "@/lib/auth";
 import { ClientImporter } from "../client-importer";
 
 export const metadata: Metadata = { title: "Import clients" };
+export const maxDuration = 60;
 
 export default async function ImportClientsPage() {
   const profile = await requireProfile();
