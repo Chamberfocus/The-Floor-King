@@ -19,6 +19,7 @@ import { formatMoney } from "@/lib/format";
 import {
   lineTotal,
   lineCost,
+  lineAreaSqft,
   num,
   marginPct,
   markupPct,
@@ -282,6 +283,8 @@ export function EstimateWizard({
   const setAddonField = (id: string, patch: Partial<AddonState>) =>
     setAddon((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
 
+  const totalSqft = rooms.reduce((s, r) => s + lineAreaSqft(roomToCalc(r)), 0);
+  const totalSqyd = totalSqft / 9;
   const roomsRevenue = rooms.reduce((s, r) => s + lineTotal(roomToCalc(r)), 0);
   const roomsCost = rooms.reduce((s, r) => s + lineCost(roomToCalc(r)), 0);
   const includedAddons = addonQs.filter((q) => addon[q.id]?.included);
@@ -594,6 +597,19 @@ export function EstimateWizard({
               <p className="text-sm text-muted-foreground">
                 Toggle what applies, set quantity, your cost, and your price.
               </p>
+              {totalSqft > 0 ? (
+                <div className="rounded-md bg-muted/60 px-3 py-2 text-xs">
+                  Job total:{" "}
+                  <span className="font-semibold">
+                    {totalSqft.toFixed(0)} sq ft
+                  </span>{" "}
+                  ·{" "}
+                  <span className="font-semibold">
+                    {totalSqyd.toFixed(1)} sq yd
+                  </span>{" "}
+                  — tap a chip on an add-on to use it as the quantity.
+                </div>
+              ) : null}
               {addonQs.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   No add-ons configured. Manage them under Wizard Setup.
@@ -633,6 +649,34 @@ export function EstimateWizard({
                               }
                               className={cn(inputSm, "w-16")}
                             />
+                            {totalSqft > 0 ? (
+                              <div className="mt-1 flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setAddonField(q.id, {
+                                      quantity: String(Math.round(totalSqft)),
+                                      unit: "sqft",
+                                    })
+                                  }
+                                  className="rounded border px-1.5 py-0.5 text-[11px] hover:bg-muted"
+                                >
+                                  {totalSqft.toFixed(0)} ft²
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setAddonField(q.id, {
+                                      quantity: totalSqyd.toFixed(1),
+                                      unit: "sqyd",
+                                    })
+                                  }
+                                  className="rounded border px-1.5 py-0.5 text-[11px] hover:bg-muted"
+                                >
+                                  {totalSqyd.toFixed(1)} yd²
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                           <div>
                             <label className="mb-1 block text-xs text-muted-foreground">
