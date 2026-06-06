@@ -20,6 +20,19 @@ export interface Profile {
   created_at: string;
 }
 
+export interface CustomerDocument {
+  id: string;
+  customer_id: string | null;
+  po_id: string | null;
+  uploaded_by: string | null;
+  name: string;
+  path: string;
+  mime: string | null;
+  kind: string;
+  created_at: string;
+  url?: string | null;
+}
+
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Administrator",
   office: "Office Staff",

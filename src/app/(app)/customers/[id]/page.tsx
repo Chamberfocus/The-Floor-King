@@ -37,6 +37,8 @@ import { createJob } from "@/app/(app)/jobs/actions";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
 import { listCustomerMessages } from "@/lib/data/messages";
+import { listCustomerDocuments } from "@/lib/data/documents";
+import { CustomerDocuments } from "./customer-documents";
 import {
   listWorkflowStages,
   listHandoffMembers,
@@ -94,6 +96,7 @@ export default async function CustomerPage({
   const invoices = await listInvoicesForCustomer(id);
   const portalUser = await getPortalUser(id);
   const messages = await listCustomerMessages(id);
+  const documents = await listCustomerDocuments(id);
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
   const handoffHistory = await listHandoffs(id);
@@ -411,6 +414,9 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
+
+          {/* Documents */}
+          <CustomerDocuments customerId={customer.id} documents={documents} />
 
           {/* Activity */}
           <Card>
