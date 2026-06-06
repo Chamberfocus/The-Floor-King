@@ -311,6 +311,7 @@ export async function createEstimateFromWizard(
       labor_cost: toNumOrNull(r.labor_cost ?? null),
       quantity: null,
       unit: r.measure_unit === "sqyd" ? "sqyd" : "sqft",
+      category: r.category || null,
       manufacturer: r.manufacturer || null,
       style: r.style || null,
       color: r.color || null,

@@ -20,6 +20,23 @@ export interface Profile {
   created_at: string;
 }
 
+export interface SchedulingSettings {
+  id: string;
+  work_days: string; // "1,2,3,4,5,6" (0=Sun..6=Sat)
+  day_start: string;
+  day_end: string;
+  estimate_duration_min: number;
+  travel_buffer_min: number;
+  cap_carpet_yd: number;
+  cap_lvt_sf: number;
+  cap_laminate_sf: number;
+  cap_hardwood_sf: number;
+  cap_tile_teardown_sf: number;
+  cap_subfloor_sheets: number;
+  cap_selflevel_sf: number;
+  updated_at: string;
+}
+
 export interface CustomerDocument {
   id: string;
   customer_id: string | null;
@@ -237,6 +254,7 @@ export interface EstimateLineItem {
   labor_cost: number | null;
   quantity: number | null;
   unit: string | null;
+  category: ProductCategory | null;
 }
 
 export interface EstimateOption {

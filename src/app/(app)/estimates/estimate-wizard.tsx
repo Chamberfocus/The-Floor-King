@@ -322,6 +322,7 @@ export function EstimateWizard({
           installed_rate: r.installed_rate || null,
           material_cost: r.material_cost || null,
           labor_cost: r.labor_cost || null,
+          category: r.category || null,
         })),
         answers: addonQs.map((q) => ({
           question_id: q.id,

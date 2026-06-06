@@ -22,6 +22,28 @@ function nullable(v: FormDataEntryValue | null): string | null {
   return str(v) || null;
 }
 
+/** Book a smart-scheduled install: assign installer + date range. */
+export async function bookInstall(formData: FormData): Promise<void> {
+  const id = str(formData.get("job_id"));
+  const installer = str(formData.get("installer_id"));
+  const start = str(formData.get("start"));
+  const end = str(formData.get("end")) || start;
+  if (!id || !start) return;
+  const supabase = await createClient();
+  await supabase
+    .from("jobs")
+    .update({
+      assigned_to: installer || null,
+      scheduled_date: start,
+      scheduled_end: end,
+      status: "scheduled",
+      open_for_claim: false,
+    })
+    .eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+  revalidatePath("/jobs");
+}
+
 /** Create a job from an estimate (uses the accepted option, or the first one). */
 export async function createJobFromEstimate(formData: FormData): Promise<void> {
   const estimateId = str(formData.get("estimate_id"));

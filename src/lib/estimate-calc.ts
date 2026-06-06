@@ -181,6 +181,7 @@ export interface WizardRoom {
   installed_rate: string | number | null;
   material_cost?: string | number | null;
   labor_cost?: string | number | null;
+  category?: string | null;
   manufacturer?: string | null;
   style?: string | null;
   color?: string | null;

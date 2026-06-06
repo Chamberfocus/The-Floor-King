@@ -28,6 +28,12 @@ import {
 } from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
 import { getJobCostAnalysis } from "@/lib/data/finance";
+import {
+  getSchedulingSettings,
+  getInstallerSuggestions,
+} from "@/lib/data/scheduling";
+import { installDaysForJob } from "@/lib/scheduling";
+import { bookInstall } from "../actions";
 import { requireProfile } from "@/lib/auth";
 import { lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -80,6 +86,18 @@ export default async function JobPage({
   // Profit/cost analysis is owner & admin only.
   const costAnalysis =
     profile.role === "admin" ? await getJobCostAnalysis(id) : null;
+
+  // Smart install scheduling (staff + scheduler).
+  const canSchedule = isStaff || profile.role === "scheduler";
+  const schedSettings = canSchedule ? await getSchedulingSettings() : null;
+  const installEst =
+    schedSettings && job.line_items.length
+      ? installDaysForJob(job.line_items, schedSettings)
+      : null;
+  const installerSuggestions =
+    schedSettings && installEst && installEst.days > 0
+      ? await getInstallerSuggestions(installEst.days, schedSettings)
+      : [];
 
   const siteParts = [
     job.site_street,
@@ -237,6 +255,79 @@ export default async function JobPage({
           ) : null}
         </CardContent>
       </Card>
+
+      {/* Smart install scheduling */}
+      {schedSettings && installEst ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Smart install scheduling</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {installEst.days === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Add material types &amp; quantities to the estimate so the
+                scheduler can size this job.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <div className="text-sm">
+                    Estimated{" "}
+                    <span className="font-semibold">
+                      {installEst.days} day{installEst.days === 1 ? "" : "s"}
+                    </span>{" "}
+                    based on your crew capacity:
+                  </div>
+                  <ul className="mt-1 text-xs text-muted-foreground">
+                    {installEst.breakdown.map((b, i) => (
+                      <li key={i}>
+                        • {b.label}: {b.amount.toFixed(0)} {b.unit} →{" "}
+                        {b.days.toFixed(2)} day(s)
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">Next available crews</div>
+                  {installerSuggestions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No installers found. Add crew under Team.
+                    </p>
+                  ) : (
+                    installerSuggestions.slice(0, 4).map((sug) => (
+                      <div
+                        key={sug.installerId}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
+                      >
+                        <div>
+                          <span className="font-medium">{sug.name}</span>{" "}
+                          <span className="text-muted-foreground">
+                            — {formatDate(sug.start)}
+                            {sug.end !== sug.start ? ` → ${formatDate(sug.end)}` : ""}
+                          </span>
+                        </div>
+                        <form action={bookInstall}>
+                          <input type="hidden" name="job_id" value={job.id} />
+                          <input
+                            type="hidden"
+                            name="installer_id"
+                            value={sug.installerId}
+                          />
+                          <input type="hidden" name="start" value={sug.start} />
+                          <input type="hidden" name="end" value={sug.end} />
+                          <Button type="submit" size="sm" variant="outline">
+                            Book
+                          </Button>
+                        </form>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Profitability — estimated vs actual (owner/admin only) */}
       {costAnalysis ? (
