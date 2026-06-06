@@ -327,10 +327,29 @@ export interface WizardQuestion {
   help: string | null;
   kind: WizardQuestionKind;
   input: WizardQuestionInput;
+  options: string[] | null;
+  section: string;
+  required: boolean;
   default_amount: number | null;
   position: number;
   active: boolean;
   created_at: string;
+}
+
+/** Canonical journey order for wizard sections; unknown sections sort last. */
+export const WIZARD_SECTIONS: string[] = [
+  "The customer & project",
+  "The space",
+  "Existing floor & subfloor",
+  "Product & style",
+  "Installation logistics",
+  "Add-ons & extras",
+  "Job details",
+];
+
+export function wizardSectionRank(section: string): number {
+  const i = WIZARD_SECTIONS.indexOf(section);
+  return i === -1 ? WIZARD_SECTIONS.length : i;
 }
 
 export const WIZARD_KIND_LABELS: Record<WizardQuestionKind, string> = {

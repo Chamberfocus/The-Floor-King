@@ -24,12 +24,25 @@ function intOr(v: FormDataEntryValue | null, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function optionsOrNull(v: FormDataEntryValue | null): string[] | null {
+  const s = str(v);
+  if (!s) return null;
+  const arr = s
+    .split("\n")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  return arr.length ? arr : null;
+}
+
 function readFields(formData: FormData) {
   return {
     label: str(formData.get("label")),
     help: str(formData.get("help")) || null,
     kind: (str(formData.get("kind")) || "detail") as WizardQuestionKind,
     input: (str(formData.get("input")) || "text") as WizardQuestionInput,
+    section: str(formData.get("section")) || "Job details",
+    options: optionsOrNull(formData.get("options")),
+    required: str(formData.get("required")) === "on",
     default_amount: moneyOrNull(formData.get("default_amount")),
     position: intOr(formData.get("position"), 0),
   };
@@ -98,9 +111,15 @@ export async function moveQuestion(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("wizard_questions")
-    .select("id, position")
+    .select("id, position, section")
     .order("position", { ascending: true });
-  const list = (data ?? []) as { id: string; position: number }[];
+  const all = (data ?? []) as { id: string; position: number; section: string }[];
+
+  // Reorder within the question's own section (move across sections by editing
+  // the Section field instead).
+  const target = all.find((q) => q.id === id);
+  if (!target) return;
+  const list = all.filter((q) => q.section === target.section);
 
   const idx = list.findIndex((q) => q.id === id);
   const swapIdx = dir === "up" ? idx - 1 : idx + 1;

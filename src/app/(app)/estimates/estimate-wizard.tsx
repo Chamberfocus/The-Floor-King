@@ -18,6 +18,7 @@ import {
 } from "@/lib/estimate-calc";
 import {
   PRODUCT_CATEGORY_LABELS,
+  wizardSectionRank,
   type EstimatePresentation,
   type MeasureUnit,
   type Product,
@@ -172,6 +173,75 @@ export function EstimateWizard({
       })),
   ];
   const totals = optionTotals(calcLines, taxRate);
+
+  // Journey: group detail questions into ordered sections.
+  const detailSections = Array.from(new Set(detailQs.map((q) => q.section))).sort(
+    (a, b) => wizardSectionRank(a) - wizardSectionRank(b) || a.localeCompare(b),
+  );
+
+  const renderDetailField = (q: WizardQuestion) => {
+    const value = detailValues[q.id] ?? "";
+    const set = (v: string) =>
+      setDetailValues((p) => ({ ...p, [q.id]: v }));
+    return (
+      <div key={q.id} className="space-y-1.5">
+        <Label htmlFor={`q-${q.id}`}>
+          {q.required ? <span className="text-amber-600">★ </span> : null}
+          {q.label}
+        </Label>
+        {q.options?.length ? (
+          <select
+            id={`q-${q.id}`}
+            value={value}
+            onChange={(e) => set(e.target.value)}
+            className={cn(inputSm, "w-full")}
+          >
+            <option value="">—</option>
+            {q.options.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        ) : q.input === "yesno" ? (
+          <select
+            id={`q-${q.id}`}
+            value={value}
+            onChange={(e) => set(e.target.value)}
+            className={cn(inputSm, "w-full")}
+          >
+            <option value="">—</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+        ) : (
+          <Input
+            id={`q-${q.id}`}
+            type={q.input === "number" ? "number" : "text"}
+            value={value}
+            onChange={(e) => set(e.target.value)}
+          />
+        )}
+        {q.help ? (
+          <p className="text-xs text-muted-foreground">{q.help}</p>
+        ) : null}
+      </div>
+    );
+  };
+
+  const detailSectionCards = detailSections.map((section) => (
+    <Card key={section} className="mb-6">
+      <CardHeader>
+        <CardTitle className="text-base">{section}</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4 sm:grid-cols-2">
+        {detailQs
+          .filter((q) => q.section === section)
+          .sort((a, b) => a.position - b.position)
+          .map(renderDetailField)}
+      </CardContent>
+    </Card>
+  ));
 
   const create = () =>
     startTransition(async () => {
@@ -493,47 +563,8 @@ export function EstimateWizard({
         </CardContent>
       </Card>
 
-      {/* Detail questions */}
-      {detailQs.length ? (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">Job details</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            {detailQs.map((q) => (
-              <div key={q.id} className="space-y-1.5">
-                <Label htmlFor={`q-${q.id}`}>{q.label}</Label>
-                {q.input === "yesno" ? (
-                  <select
-                    id={`q-${q.id}`}
-                    value={detailValues[q.id] ?? ""}
-                    onChange={(e) =>
-                      setDetailValues((p) => ({ ...p, [q.id]: e.target.value }))
-                    }
-                    className={cn(inputSm, "w-full")}
-                  >
-                    <option value="">—</option>
-                    <option value="Yes">Yes</option>
-                    <option value="No">No</option>
-                  </select>
-                ) : (
-                  <Input
-                    id={`q-${q.id}`}
-                    type={q.input === "number" ? "number" : "text"}
-                    value={detailValues[q.id] ?? ""}
-                    onChange={(e) =>
-                      setDetailValues((p) => ({ ...p, [q.id]: e.target.value }))
-                    }
-                  />
-                )}
-                {q.help ? (
-                  <p className="text-xs text-muted-foreground">{q.help}</p>
-                ) : null}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
+      {/* Journey: detail questions grouped into ordered sections */}
+      {detailSectionCards}
 
       {/* Add-on questions */}
       {addonQs.length ? (

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import {
   WIZARD_INPUT_LABELS,
   WIZARD_KIND_LABELS,
+  WIZARD_SECTIONS,
   type WizardQuestion,
   type WizardQuestionInput,
   type WizardQuestionKind,
@@ -58,6 +59,41 @@ export function QuestionForm({ question }: { question?: WizardQuestion }) {
           defaultValue={question?.help ?? ""}
           placeholder="A hint shown under the question"
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="section">Section (journey step)</Label>
+        <Input
+          id="section"
+          name="section"
+          list="wizard-sections"
+          defaultValue={question?.section ?? "Job details"}
+          placeholder="e.g. Existing floor & subfloor"
+        />
+        <datalist id="wizard-sections">
+          {WIZARD_SECTIONS.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+        <p className="text-xs text-muted-foreground">
+          Questions are grouped by section in the order shown in the wizard.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="options">Multiple-choice options (optional)</Label>
+        <textarea
+          id="options"
+          name="options"
+          rows={4}
+          defaultValue={question?.options?.join("\n") ?? ""}
+          placeholder={"One choice per line, e.g.\nCarpet\nHardwood\nLVP\nTile"}
+          className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <p className="text-xs text-muted-foreground">
+          Add choices to turn this into a dropdown. Leave blank for a normal
+          text / yes-no / number question.
+        </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -122,17 +158,28 @@ export function QuestionForm({ question }: { question?: WizardQuestion }) {
         </div>
       </div>
 
-      {isEdit ? (
+      <div className="flex flex-wrap gap-6">
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
-            name="active"
-            defaultChecked={question?.active ?? true}
+            name="required"
+            defaultChecked={question?.required ?? false}
             className="size-4 rounded border-input"
           />
-          Active (show in the wizard)
+          Mark as a must-ask (★) question
         </label>
-      ) : null}
+        {isEdit ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="active"
+              defaultChecked={question?.active ?? true}
+              className="size-4 rounded border-input"
+            />
+            Active (show in the wizard)
+          </label>
+        ) : null}
+      </div>
 
       {state.error ? (
         <p className="text-sm text-destructive" role="alert">
