@@ -68,6 +68,101 @@ function coerceStr(v: unknown): string | null {
   return null;
 }
 
+export interface ClientRow {
+  full_name: string;
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+  street: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+}
+
+const CLIENT_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
+{ "clients": [ { "full_name": string, "company": string|null, "email": string|null,
+  "phone": string|null, "street": string|null, "city": string|null,
+  "state": string|null, "zip": string|null } ] }
+- One entry per customer. Separate a person's name from a company name.
+- Split mailing addresses into street / city / state / zip.
+- Keep phone digits/format as given. Skip header rows and blank lines.`;
+
+/** Parse a client/customer list (pasted text OR a PDF/image) into customers. */
+export async function extractClients(opts: {
+  text?: string;
+  base64?: string;
+  mediaType?: string;
+}): Promise<ClientRow[] | null> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return null;
+
+  const content: unknown[] = [];
+  if (opts.base64 && opts.mediaType) {
+    const source = { type: "base64", media_type: opts.mediaType, data: opts.base64 };
+    content.push(
+      opts.mediaType === "application/pdf"
+        ? { type: "document", source }
+        : { type: "image", source },
+    );
+    content.push({ type: "text", text: `Read this customer list. ${CLIENT_SCHEMA}` });
+  } else if (opts.text) {
+    content.push({
+      type: "text",
+      text: `Parse this customer list. ${CLIENT_SCHEMA}\n\nLIST:\n${opts.text}`,
+    });
+  } else {
+    return null;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 8000,
+        messages: [{ role: "user", content }],
+      }),
+    });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  const json = (await res.json()) as { content?: AnthropicBlock[] };
+  const text = json.content?.find((b) => b.type === "text")?.text?.trim() ?? "";
+  const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1) return null;
+  let parsed: { clients?: unknown };
+  try {
+    parsed = JSON.parse(cleaned.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const raw = Array.isArray(parsed.clients) ? parsed.clients : [];
+  return raw
+    .map((it) => {
+      const o = (it ?? {}) as Record<string, unknown>;
+      return {
+        full_name: coerceStr(o.full_name) ?? "",
+        company: coerceStr(o.company),
+        email: coerceStr(o.email),
+        phone: coerceStr(o.phone),
+        street: coerceStr(o.street),
+        city: coerceStr(o.city),
+        state: coerceStr(o.state),
+        zip: coerceStr(o.zip),
+      } satisfies ClientRow;
+    })
+    .filter((c) => c.full_name || c.company || c.email || c.phone);
+}
+
 export interface PriceRow {
   name: string;
   category: string;

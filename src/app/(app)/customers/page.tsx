@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Upload } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -46,9 +46,17 @@ export default async function CustomersPage({
         title="Customers"
         description="Everyone in your pipeline — leads and customers alike."
       >
-        <Link href="/customers/new" className={buttonVariants({ size: "lg" })}>
-          <Plus className="size-4" /> Add customer
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/customers/import"
+            className={buttonVariants({ size: "lg", variant: "outline" })}
+          >
+            <Upload className="size-4" /> Import clients
+          </Link>
+          <Link href="/customers/new" className={buttonVariants({ size: "lg" })}>
+            <Plus className="size-4" /> Add customer
+          </Link>
+        </div>
       </PageHeader>
 
       {/* Search + filter (works without JavaScript) */}
