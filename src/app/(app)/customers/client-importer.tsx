@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Sparkles, Upload, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 import type { ClientRow } from "@/lib/extract";
 import { parseClients, importClients } from "./import-actions";
 
@@ -35,9 +36,22 @@ export function ClientImporter() {
     startReading(async () => {
       try {
         const fd = new FormData();
-        fd.set("text", textRef.current?.value ?? "");
         const f = fileRef.current?.files?.[0];
-        if (f) fd.set("file", f);
+        if (f) {
+          const supabase = createClient();
+          const path = `imports/${crypto.randomUUID()}-${f.name}`;
+          const { error: upErr } = await supabase.storage
+            .from("documents")
+            .upload(path, f, { contentType: f.type || undefined });
+          if (upErr) {
+            toast.error(`Upload failed: ${upErr.message}`);
+            return;
+          }
+          fd.set("storage_path", path);
+          fd.set("storage_mime", f.type ?? "");
+        } else {
+          fd.set("text", textRef.current?.value ?? "");
+        }
         const res = await parseClients(fd);
         if (res.error) {
           toast.error(res.error);

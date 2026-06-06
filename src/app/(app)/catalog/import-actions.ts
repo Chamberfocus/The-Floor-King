@@ -71,7 +71,35 @@ function parseTextRows(text: string): PriceRow[] {
 export async function parsePriceList(formData: FormData): Promise<ParseResult> {
   const text = str(formData.get("text"));
   const file = formData.get("file");
+  const storagePath = str(formData.get("storage_path"));
   const hasKey = Boolean(process.env.ANTHROPIC_API_KEY);
+
+  // Preferred path: file already uploaded to storage by the browser.
+  if (storagePath) {
+    if (!hasKey)
+      return {
+        error:
+          "Reading a file needs the AI key (ANTHROPIC_API_KEY in Vercel). Paste the rows as text instead.",
+      };
+    const supabase = await createClient();
+    const { data: blob, error } = await supabase.storage
+      .from("documents")
+      .download(storagePath);
+    if (error || !blob) return { error: "Couldn't open the uploaded file." };
+    const bytes = Buffer.from(await blob.arrayBuffer());
+    const mediaType =
+      str(formData.get("storage_mime")) || blob.type || "application/pdf";
+    const rows = await extractPriceList({
+      base64: bytes.toString("base64"),
+      mediaType,
+    });
+    if (!rows || !rows.length)
+      return {
+        error:
+          "Couldn't read that file — try a clearer PDF/scan, or paste the rows as text.",
+      };
+    return { error: null, rows };
+  }
 
   if (file instanceof File && file.size > 0) {
     if (file.size > 20 * 1024 * 1024) return { error: "File too large (max 20 MB)." };

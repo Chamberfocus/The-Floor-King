@@ -10,6 +10,7 @@ import {
   PRODUCT_CATEGORY_LABELS,
   PRODUCT_CATEGORY_ORDER,
 } from "@/lib/types";
+import { createClient } from "@/lib/supabase/client";
 import type { PriceRow } from "@/lib/extract";
 import { parsePriceList, importProducts } from "./import-actions";
 
@@ -28,9 +29,24 @@ export function PriceListImporter() {
     startReading(async () => {
       try {
         const fd = new FormData();
-        fd.set("text", textRef.current?.value ?? "");
         const f = fileRef.current?.files?.[0];
-        if (f) fd.set("file", f);
+        if (f) {
+          // Upload straight to storage (no Vercel function size cap), then the
+          // server reads it from there.
+          const supabase = createClient();
+          const path = `imports/${crypto.randomUUID()}-${f.name}`;
+          const { error: upErr } = await supabase.storage
+            .from("documents")
+            .upload(path, f, { contentType: f.type || undefined });
+          if (upErr) {
+            toast.error(`Upload failed: ${upErr.message}`);
+            return;
+          }
+          fd.set("storage_path", path);
+          fd.set("storage_mime", f.type ?? "");
+        } else {
+          fd.set("text", textRef.current?.value ?? "");
+        }
         const res = await parsePriceList(fd);
         if (res.error) {
           toast.error(res.error);
