@@ -291,3 +291,57 @@ export async function listUpcomingAppointments(): Promise<AppointmentRow[]> {
     };
   });
 }
+
+export interface RouteStop {
+  id: string;
+  time: string;
+  seq: number;
+  customerId: string;
+  customerName: string;
+  address: string | null;
+  driveMinutes: number | null;
+}
+export interface DayRoute {
+  repName: string;
+  origin: string;
+  stops: RouteStop[];
+}
+
+/** One rep's appointments for a day, in route order (seq, then time). */
+export async function getDayRoute(
+  repId: string,
+  date: string,
+): Promise<DayRoute> {
+  const supabase = await createClient();
+  const { data: rep } = await supabase
+    .from("profiles")
+    .select("full_name, email, home_address")
+    .eq("id", repId)
+    .maybeSingle();
+  const { data } = await supabase
+    .from("appointments")
+    .select("id, starts_at, seq, address, drive_minutes, customer:customers(id, full_name)")
+    .eq("salesperson_id", repId)
+    .eq("status", "scheduled")
+    .gte("starts_at", `${date}T00:00:00Z`)
+    .lte("starts_at", `${date}T23:59:59Z`)
+    .order("seq", { ascending: true })
+    .order("starts_at", { ascending: true });
+  const stops: RouteStop[] = (data ?? []).map((a) => {
+    const c = a.customer as unknown as { id: string; full_name: string } | null;
+    return {
+      id: a.id as string,
+      time: (a.starts_at as string).slice(11, 16),
+      seq: (a.seq as number) ?? 0,
+      customerId: c?.id ?? "",
+      customerName: c?.full_name ?? "Customer",
+      address: (a.address as string) ?? null,
+      driveMinutes: (a.drive_minutes as number) ?? null,
+    };
+  });
+  return {
+    repName: (rep?.full_name as string) || (rep?.email as string) || "Rep",
+    origin: (rep?.home_address as string) || storeAddress(),
+    stops,
+  };
+}

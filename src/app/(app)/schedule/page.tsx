@@ -89,6 +89,14 @@ export default async function SchedulePage() {
                           ) : null}
                         </div>
                       </div>
+                      {a.salespersonId ? (
+                        <Link
+                          href={`/schedule/route?rep=${a.salespersonId}&date=${a.date}`}
+                          className="shrink-0 text-xs text-primary hover:underline"
+                        >
+                          View route →
+                        </Link>
+                      ) : null}
                     </div>
                   ))}
                 </CardContent>
