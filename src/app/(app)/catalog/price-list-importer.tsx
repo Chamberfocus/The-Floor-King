@@ -11,6 +11,7 @@ import {
   PRODUCT_CATEGORY_ORDER,
 } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
+import { pdfToText, chunkText } from "@/lib/pdf-client";
 import type { PriceRow } from "@/lib/extract";
 import { parsePriceList, importProducts } from "./import-actions";
 
@@ -25,36 +26,69 @@ export function PriceListImporter() {
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const parseTextChunks = async (text: string): Promise<PriceRow[]> => {
+    const chunks = chunkText(text);
+    const out: PriceRow[] = [];
+    for (const ch of chunks) {
+      const fd = new FormData();
+      fd.set("text", ch);
+      const res = await parsePriceList(fd);
+      if (res.rows?.length) out.push(...res.rows);
+      else if (res.error && chunks.length === 1) toast.error(res.error);
+    }
+    return out;
+  };
+
+  const parseViaStorage = async (f: File): Promise<PriceRow[]> => {
+    const supabase = createClient();
+    const path = `imports/${crypto.randomUUID()}-${f.name}`;
+    const { error: upErr } = await supabase.storage
+      .from("documents")
+      .upload(path, f, { contentType: f.type || undefined });
+    if (upErr) {
+      toast.error(`Upload failed: ${upErr.message}`);
+      return [];
+    }
+    const fd = new FormData();
+    fd.set("storage_path", path);
+    fd.set("storage_mime", f.type ?? "");
+    const res = await parsePriceList(fd);
+    if (res.error && !res.rows?.length) toast.error(res.error);
+    return res.rows ?? [];
+  };
+
   const read = () =>
     startReading(async () => {
       try {
-        const fd = new FormData();
         const f = fileRef.current?.files?.[0];
-        if (f) {
-          // Upload straight to storage (no Vercel function size cap), then the
-          // server reads it from there.
-          const supabase = createClient();
-          const path = `imports/${crypto.randomUUID()}-${f.name}`;
-          const { error: upErr } = await supabase.storage
-            .from("documents")
-            .upload(path, f, { contentType: f.type || undefined });
-          if (upErr) {
-            toast.error(`Upload failed: ${upErr.message}`);
-            return;
+        const pasted = textRef.current?.value ?? "";
+        let rows: PriceRow[] = [];
+
+        if (f && f.type === "application/pdf") {
+          let text = "";
+          try {
+            text = await pdfToText(f);
+          } catch {
+            text = "";
           }
-          fd.set("storage_path", path);
-          fd.set("storage_mime", f.type ?? "");
+          // Digital PDF: read locally (no size/time limits). Scanned: AI vision.
+          rows =
+            text.trim().length >= 20
+              ? await parseTextChunks(text)
+              : await parseViaStorage(f);
+        } else if (f) {
+          rows = await parseViaStorage(f);
+        } else if (pasted.trim()) {
+          rows = await parseTextChunks(pasted);
         } else {
-          fd.set("text", textRef.current?.value ?? "");
+          toast.error("Paste a price list or choose a file.");
+          return;
         }
-        const res = await parsePriceList(fd);
-        if (res.error) {
-          toast.error(res.error);
-          if (!res.rows?.length) return;
-        }
-        setRows(res.rows ?? []);
-        if (res.rows?.length)
-          toast.success(`Found ${res.rows.length} products — review & import`);
+
+        setRows(rows);
+        if (rows.length)
+          toast.success(`Found ${rows.length} products — review & import`);
+        else toast.error("No products found — try pasting the rows as text.");
       } catch (e) {
         toast.error(
           e instanceof Error ? e.message : "Something went wrong reading that.",
