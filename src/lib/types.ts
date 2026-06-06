@@ -226,6 +226,7 @@ export interface Estimate {
   customer_response_note: string | null;
   sent_at: string | null;
   thankyou_sent_at: string | null;
+  viewed_at: string | null;
   accepted_option_id: string | null;
   created_by: string | null;
   created_at: string;

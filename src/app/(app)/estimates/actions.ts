@@ -171,6 +171,10 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
            <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or request changes.</p>`,
           { label: "View & approve", url: `${siteUrl()}/portal/estimates/${id}` },
         ),
+        tags: [
+          { name: "category", value: "estimate" },
+          { name: "estimate_id", value: id },
+        ],
       });
     }
   }
