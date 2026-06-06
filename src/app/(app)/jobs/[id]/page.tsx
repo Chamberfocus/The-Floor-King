@@ -324,6 +324,64 @@ export default async function JobPage({
                     ))
                   )}
                 </div>
+
+                {/* Manual booking */}
+                <details className="border-t pt-3">
+                  <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+                    Schedule manually
+                  </summary>
+                  <form
+                    action={bookInstall}
+                    className="mt-2 flex flex-wrap items-end gap-2"
+                  >
+                    <input type="hidden" name="job_id" value={job.id} />
+                    <div>
+                      <label className="mb-1 block text-xs text-muted-foreground">
+                        Installer
+                      </label>
+                      <select
+                        name="installer_id"
+                        defaultValue={job.assigned_to ?? ""}
+                        className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                      >
+                        <option value="">— Choose —</option>
+                        {users
+                          .filter((u) => u.role === "crew")
+                          .map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs text-muted-foreground">
+                        Start
+                      </label>
+                      <input
+                        type="date"
+                        name="start"
+                        required
+                        defaultValue={job.scheduled_date ?? ""}
+                        className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs text-muted-foreground">
+                        End
+                      </label>
+                      <input
+                        type="date"
+                        name="end"
+                        defaultValue={job.scheduled_end ?? ""}
+                        className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                      />
+                    </div>
+                    <Button type="submit" size="sm">
+                      Book manually
+                    </Button>
+                  </form>
+                </details>
               </>
             )}
           </CardContent>

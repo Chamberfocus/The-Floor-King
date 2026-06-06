@@ -38,6 +38,13 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
 import { listCustomerMessages } from "@/lib/data/messages";
 import { listCustomerDocuments } from "@/lib/data/documents";
+import { getJob } from "@/lib/data/jobs";
+import {
+  getSchedulingSettings,
+  getInstallerSuggestions,
+} from "@/lib/data/scheduling";
+import { installDaysForJob } from "@/lib/scheduling";
+import { bookInstall } from "@/app/(app)/jobs/actions";
 import { CustomerDocuments } from "./customer-documents";
 import { EstimateScheduler } from "./estimate-scheduler";
 import {
@@ -110,9 +117,34 @@ export default async function CustomerPage({
   ]);
   const currentStage =
     stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
+  const autoAction = currentStage?.auto_action ?? "none";
   const ownerName = customer.workflow_owner_id
     ? (names[customer.workflow_owner_id] ?? null)
     : null;
+
+  // When the stage auto-action is "schedule install", pop install suggestions
+  // for the customer's latest job right here on the file.
+  const repOptions = handoffMembers.map((m) => ({ id: m.id, name: m.name }));
+  let installPop: {
+    jobId: string;
+    days: number;
+    suggestions: { installerId: string; name: string; days: number; start: string; end: string }[];
+  } | null = null;
+  if (autoAction === "schedule_install" && jobs.length) {
+    const targetJob =
+      jobs.find((j) => j.status !== "completed" && j.status !== "cancelled") ??
+      jobs[0];
+    const jobDetail = await getJob(targetJob.id);
+    if (jobDetail?.line_items?.length) {
+      const settings = await getSchedulingSettings();
+      const est = installDaysForJob(jobDetail.line_items, settings);
+      const suggestions =
+        est.days > 0
+          ? await getInstallerSuggestions(jobDetail.line_items, settings)
+          : [];
+      installPop = { jobId: targetJob.id, days: est.days, suggestions };
+    }
+  }
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -204,7 +236,75 @@ export default async function CustomerPage({
             qualified={customer.qualified}
           />
 
-          <EstimateScheduler customerId={customer.id} />
+          <EstimateScheduler
+            customerId={customer.id}
+            autoOpen={autoAction === "schedule_estimate"}
+            reps={repOptions}
+          />
+
+          {installPop ? (
+            <Card className="ring-2 ring-primary">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  Schedule installation
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                    Due now
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {installPop.suggestions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Add material types/quantities to the estimate, or set crew
+                    capacity in Settings → Scheduling.
+                  </p>
+                ) : (
+                  installPop.suggestions.slice(0, 4).map((sug) => (
+                    <div
+                      key={sug.installerId}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
+                    >
+                      <div>
+                        <span className="font-medium">{sug.name}</span>{" "}
+                        <span className="text-muted-foreground">
+                          — {sug.days} day{sug.days === 1 ? "" : "s"},{" "}
+                          {formatDate(sug.start)}
+                          {sug.end !== sug.start
+                            ? ` → ${formatDate(sug.end)}`
+                            : ""}
+                        </span>
+                      </div>
+                      <form action={bookInstall}>
+                        <input type="hidden" name="job_id" value={installPop.jobId} />
+                        <input
+                          type="hidden"
+                          name="installer_id"
+                          value={sug.installerId}
+                        />
+                        <input type="hidden" name="start" value={sug.start} />
+                        <input type="hidden" name="end" value={sug.end} />
+                        <button
+                          type="submit"
+                          className={buttonVariants({
+                            size: "sm",
+                            variant: "outline",
+                          })}
+                        >
+                          Book
+                        </button>
+                      </form>
+                    </div>
+                  ))
+                )}
+                <Link
+                  href={`/jobs/${installPop.jobId}`}
+                  className="text-xs text-primary hover:underline"
+                >
+                  Open job for full scheduling / manual booking →
+                </Link>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>

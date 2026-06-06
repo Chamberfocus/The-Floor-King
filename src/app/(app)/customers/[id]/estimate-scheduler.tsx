@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { CalendarClock, Car, MapPin } from "lucide-react";
 import {
@@ -10,6 +10,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import {
   suggestEstimateTimes,
@@ -17,10 +19,20 @@ import {
 } from "./schedule-actions";
 import type { EstimateSlot } from "@/lib/data/scheduling";
 
-export function EstimateScheduler({ customerId }: { customerId: string }) {
+export function EstimateScheduler({
+  customerId,
+  autoOpen,
+  reps = [],
+}: {
+  customerId: string;
+  autoOpen?: boolean;
+  reps?: { id: string; name: string }[];
+}) {
   const [slots, setSlots] = useState<EstimateSlot[] | null>(null);
   const [mode, setMode] = useState<"assigned" | "closest">("assigned");
   const [pending, startTransition] = useTransition();
+  const [showManual, setShowManual] = useState(false);
+  const auto = useRef(false);
 
   const find = (m: "assigned" | "closest") =>
     startTransition(async () => {
@@ -34,11 +46,25 @@ export function EstimateScheduler({ customerId }: { customerId: string }) {
       setSlots(res.slots ?? []);
     });
 
+  // Auto-open suggestions when the customer lands in the trigger stage.
+  useEffect(() => {
+    if (autoOpen && !auto.current) {
+      auto.current = true;
+      find("assigned");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
+
   return (
-    <Card>
+    <Card className={autoOpen ? "ring-2 ring-primary" : undefined}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <CalendarClock className="size-4" /> Schedule estimate
+          {autoOpen ? (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+              Due now
+            </span>
+          ) : null}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -119,6 +145,60 @@ export function EstimateScheduler({ customerId }: { customerId: string }) {
             </p>
           </div>
         ) : null}
+
+        {/* Manual scheduling */}
+        <div className="border-t pt-3">
+          <button
+            type="button"
+            onClick={() => setShowManual((v) => !v)}
+            className="text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            {showManual ? "− Hide manual" : "+ Schedule manually"}
+          </button>
+          {showManual ? (
+            <form
+              action={bookEstimateAppointment}
+              className="mt-2 grid grid-cols-2 gap-2"
+            >
+              <input type="hidden" name="customer_id" value={customerId} />
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  Date
+                </label>
+                <Input type="date" name="date" required className="h-9" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  Time
+                </label>
+                <Input type="time" name="time" required className="h-9" />
+              </div>
+              <div className="col-span-2">
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  Salesperson
+                </label>
+                <select
+                  name="salesperson_id"
+                  className={cn(
+                    "h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm",
+                  )}
+                >
+                  <option value="">— Choose —</option>
+                  {reps.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-2 flex justify-end">
+                <Button type="submit" size="sm">
+                  Book appointment
+                </Button>
+              </div>
+            </form>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );

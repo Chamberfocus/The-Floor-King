@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import {
   STAGE_COLORS,
   STAGE_COLOR_BADGE,
+  STAGE_AUTO_ACTION_LABELS,
+  type StageAutoAction,
   type WorkflowStage,
 } from "@/lib/types";
 import type { HandoffMember } from "@/lib/data/workflow";
@@ -110,6 +112,20 @@ export function StageRow({
               {m.title ? ` (${m.title})` : ""}
             </option>
           ))}
+        </select>
+        <select
+          name="auto_action"
+          defaultValue={stage.auto_action ?? "none"}
+          className={fieldClass}
+          title="Auto-action when a customer enters this stage"
+        >
+          {(Object.keys(STAGE_AUTO_ACTION_LABELS) as StageAutoAction[]).map(
+            (a) => (
+              <option key={a} value={a}>
+                {STAGE_AUTO_ACTION_LABELS[a]}
+              </option>
+            ),
+          )}
         </select>
         <Button type="submit" variant="outline" size="sm" disabled={pending}>
           Save

@@ -5,7 +5,11 @@ import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { STAGE_COLORS } from "@/lib/types";
+import {
+  STAGE_COLORS,
+  STAGE_AUTO_ACTION_LABELS,
+  type StageAutoAction,
+} from "@/lib/types";
 import type { HandoffMember } from "@/lib/data/workflow";
 import { createStage, type StageFormState } from "./actions";
 
@@ -45,6 +49,13 @@ export function AddStageForm({ members }: { members: HandoffMember[] }) {
           <option key={m.id} value={m.id}>
             {m.name}
             {m.title ? ` (${m.title})` : ""}
+          </option>
+        ))}
+      </select>
+      <select name="auto_action" defaultValue="none" className={fieldClass}>
+        {(Object.keys(STAGE_AUTO_ACTION_LABELS) as StageAutoAction[]).map((a) => (
+          <option key={a} value={a}>
+            {STAGE_AUTO_ACTION_LABELS[a]}
           </option>
         ))}
       </select>

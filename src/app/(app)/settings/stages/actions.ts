@@ -35,6 +35,7 @@ export async function createStage(
     name,
     color: str(formData.get("color")) || "zinc",
     default_owner: str(formData.get("default_owner")) || null,
+    auto_action: str(formData.get("auto_action")) || "none",
     position,
   });
   if (error) return { error: error.message };
@@ -57,6 +58,7 @@ export async function updateStage(
       name,
       color: str(formData.get("color")) || "zinc",
       default_owner: str(formData.get("default_owner")) || null,
+      auto_action: str(formData.get("auto_action")) || "none",
     })
     .eq("id", id);
   if (error) return { error: error.message };
