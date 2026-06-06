@@ -136,7 +136,7 @@ export function AppShell({
   return (
     <div className="flex min-h-svh flex-1">
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
         <Brand org={org} />
         <div className="flex-1 overflow-y-auto py-2">
           <NavLinks role={profile.role} />
@@ -156,7 +156,7 @@ export function AppShell({
               >
                 <Menu className="size-5" />
               </SheetTrigger>
-              <SheetContent side="left" className="flex w-72 flex-col p-0">
+              <SheetContent side="left" className="flex w-72 flex-col bg-sidebar p-0 text-sidebar-foreground">
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
                 <Brand org={org} />
                 <div className="flex-1 overflow-y-auto py-2">

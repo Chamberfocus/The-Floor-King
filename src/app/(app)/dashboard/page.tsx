@@ -46,7 +46,7 @@ export default async function DashboardPage() {
       hint: "New through quoted",
       icon: Contact,
       href: "/leads",
-      tint: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+      tint: "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-300",
     },
     {
       label: "Outstanding invoices",
@@ -54,7 +54,7 @@ export default async function DashboardPage() {
       hint: "Unpaid or partial",
       icon: Receipt,
       href: "/invoices",
-      tint: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
+      tint: "bg-zinc-200 text-zinc-700 dark:bg-zinc-500/20 dark:text-zinc-200",
     },
     {
       label: "Won customers",
@@ -70,7 +70,7 @@ export default async function DashboardPage() {
       hint: "Scheduled & in progress",
       icon: CalendarDays,
       href: "/jobs",
-      tint: "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
+      tint: "bg-stone-200 text-stone-700 dark:bg-stone-500/20 dark:text-stone-200",
     },
   ];
 
