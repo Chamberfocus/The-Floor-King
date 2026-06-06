@@ -12,6 +12,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { GlobalSearch } from "@/components/global-search";
 import { cn } from "@/lib/utils";
 import { APP_NAME, COMPANY_NAME, navItemsForRole } from "@/lib/nav";
 import { ROLE_LABELS, type Profile } from "@/lib/types";
@@ -124,29 +125,31 @@ export function AppShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile top bar */}
-        <header className="flex items-center gap-3 border-b bg-background px-4 py-3 md:hidden">
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetTrigger
-              render={
-                <Button variant="outline" size="icon" aria-label="Open menu" />
-              }
-            >
-              <Menu className="size-5" />
-            </SheetTrigger>
-            <SheetContent side="left" className="flex w-72 flex-col p-0">
-              <SheetTitle className="sr-only">Navigation</SheetTitle>
-              <Brand />
-              <div className="flex-1 overflow-y-auto py-2">
-                <NavLinks
-                  role={profile.role}
-                  onNavigate={() => setMobileOpen(false)}
-                />
-              </div>
-              <UserCard profile={profile} />
-            </SheetContent>
-          </Sheet>
-          <span className="font-semibold">{APP_NAME}</span>
+        {/* Top bar: mobile menu (mobile only) + global search (always) */}
+        <header className="flex items-center gap-3 border-b bg-background px-4 py-3">
+          <div className="md:hidden">
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetTrigger
+                render={
+                  <Button variant="outline" size="icon" aria-label="Open menu" />
+                }
+              >
+                <Menu className="size-5" />
+              </SheetTrigger>
+              <SheetContent side="left" className="flex w-72 flex-col p-0">
+                <SheetTitle className="sr-only">Navigation</SheetTitle>
+                <Brand />
+                <div className="flex-1 overflow-y-auto py-2">
+                  <NavLinks
+                    role={profile.role}
+                    onNavigate={() => setMobileOpen(false)}
+                  />
+                </div>
+                <UserCard profile={profile} />
+              </SheetContent>
+            </Sheet>
+          </div>
+          <GlobalSearch className="w-full max-w-xl" />
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 md:p-8">{children}</main>
