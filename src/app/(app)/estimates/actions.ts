@@ -8,7 +8,7 @@ import {
   type SaveEstimateInput,
   type WizardSubmit,
 } from "@/lib/estimate-calc";
-import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import type { EstimateStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -166,6 +166,41 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
           `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
            <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or request changes.</p>`,
           { label: "View & approve", url: `${siteUrl()}/portal/estimates/${id}` },
+        ),
+      });
+    }
+  }
+
+  if (status === "approved") {
+    const { data: est } = await supabase
+      .from("estimates")
+      .select("title, customer:customers(full_name, assigned_to, workflow_owner_id)")
+      .eq("id", id)
+      .maybeSingle();
+    const cust = est?.customer as unknown as {
+      full_name: string | null;
+      assigned_to: string | null;
+      workflow_owner_id: string | null;
+    } | null;
+
+    const recipients = new Set<string>([ownerEmail()]);
+    const repId = cust?.assigned_to ?? cust?.workflow_owner_id ?? null;
+    if (repId) {
+      const { data: rep } = await supabase
+        .from("profiles")
+        .select("email")
+        .eq("id", repId)
+        .maybeSingle();
+      if (rep?.email) recipients.add(rep.email as string);
+    }
+    for (const to of recipients) {
+      await sendEmail({
+        to,
+        subject: `Estimate approved 🎉 — ${cust?.full_name ?? "customer"}`,
+        html: emailLayout(
+          "Estimate approved",
+          `<p><strong>${cust?.full_name ?? "A customer"}</strong> approved estimate${est?.title ? ` "${est.title}"` : ""}. Time to collect the deposit and order materials.</p>`,
+          { label: "Open estimate", url: `${siteUrl()}/estimates/${id}` },
         ),
       });
     }

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { SavePoInput } from "@/lib/po-calc";
 import { lineQty } from "@/lib/estimate-calc";
+import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import type { EstimateLineItem, PoStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -118,6 +119,12 @@ export async function savePurchaseOrder(
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
+  const { data: before } = await supabase
+    .from("purchase_orders")
+    .select("status, customer_id")
+    .eq("id", poId)
+    .maybeSingle();
+
   const { error: updateError } = await supabase
     .from("purchase_orders")
     .update({
@@ -127,6 +134,41 @@ export async function savePurchaseOrder(
     })
     .eq("id", poId);
   if (updateError) return { error: updateError.message };
+
+  // When a PO is newly marked "ordered", let the customer know.
+  if (
+    before?.status !== "ordered" &&
+    input.status === "ordered" &&
+    before?.customer_id
+  ) {
+    const customerId = before.customer_id as string;
+    const { data: c } = await supabase
+      .from("customers")
+      .select("full_name, email")
+      .eq("id", customerId)
+      .maybeSingle();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (c?.email) {
+      await sendEmail({
+        to: c.email as string,
+        subject: "Your materials are on order",
+        html: emailLayout(
+          "Materials ordered ✅",
+          `<p>Hi ${(c.full_name as string)?.split(" ")[0] ?? "there"},</p>
+           <p>Good news — the materials for your project have been ordered. We'll let you know as soon as they arrive and we can schedule your install.</p>`,
+          { label: "View your project", url: `${siteUrl()}/portal` },
+        ),
+      });
+    }
+    await supabase.from("messages").insert({
+      customer_id: customerId,
+      channel: "client",
+      author_id: user?.id ?? null,
+      body: "📦 Your materials have been ordered. We'll update you when they arrive.",
+    });
+  }
 
   const { error: deleteError } = await supabase
     .from("po_items")

@@ -85,8 +85,38 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
     supabase,
     id,
     "Estimate approved ✅",
-    "<p>They approved — time to schedule the job.</p>",
+    "<p>They approved — time to collect the deposit and order materials.</p>",
   );
+  // Also notify the assigned salesperson.
+  const { data: est } = await supabase
+    .from("estimates")
+    .select("customer:customers(assigned_to, workflow_owner_id, full_name)")
+    .eq("id", id)
+    .maybeSingle();
+  const cust = est?.customer as unknown as {
+    assigned_to: string | null;
+    workflow_owner_id: string | null;
+    full_name: string | null;
+  } | null;
+  const repId = cust?.assigned_to ?? cust?.workflow_owner_id ?? null;
+  if (repId) {
+    const { data: rep } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("id", repId)
+      .maybeSingle();
+    if (rep?.email) {
+      await sendEmail({
+        to: rep.email as string,
+        subject: `Your customer approved! — ${cust?.full_name ?? ""}`.trim(),
+        html: emailLayout(
+          "Your estimate was approved 🎉",
+          `<p>${cust?.full_name ?? "Your customer"} approved their estimate. Next: collect the deposit.</p>`,
+          { label: "Open estimate", url: `${siteUrl()}/estimates/${id}` },
+        ),
+      });
+    }
+  }
   revalidatePath(`/portal/estimates/${id}`);
   revalidatePath("/portal");
 }
