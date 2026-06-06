@@ -20,6 +20,17 @@ export interface Profile {
   created_at: string;
 }
 
+export interface OrgSettings {
+  id: string;
+  company_name: string;
+  logo_url: string | null;
+  primary_color: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  updated_at: string;
+}
+
 export interface SchedulingSettings {
   id: string;
   work_days: string; // "1,2,3,4,5,6" (0=Sun..6=Sat)

@@ -15,6 +15,7 @@ import {
   GitBranch,
   ListChecks,
   CalendarClock,
+  Palette,
   type LucideIcon,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types";
@@ -65,6 +66,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Catalog", href: "/catalog", icon: Package, roles: SALES },
   { label: "Reports", href: "/reports", icon: BarChart3, roles: OVERVIEW },
   { label: "Warehouse", href: "/warehouse", icon: Warehouse, roles: ["admin", "office", "warehouse"] },
+  { label: "Branding", href: "/settings/branding", icon: Palette, roles: ADMIN },
   { label: "Scheduling", href: "/settings/scheduling", icon: CalendarClock, roles: ADMIN },
   { label: "Workflow Stages", href: "/settings/stages", icon: GitBranch, roles: ADMIN },
   { label: "Qualifying Qs", href: "/settings/qualifying", icon: ListChecks, roles: ADMIN },

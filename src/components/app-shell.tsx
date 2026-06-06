@@ -15,7 +15,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { GlobalSearch } from "@/components/global-search";
 import { cn } from "@/lib/utils";
 import { APP_NAME, COMPANY_NAME, navItemsForRole } from "@/lib/nav";
-import { ROLE_LABELS, type Profile } from "@/lib/types";
+import { ROLE_LABELS, type OrgSettings, type Profile } from "@/lib/types";
 import { signout } from "@/app/(app)/actions";
 
 function initials(profile: Profile) {
@@ -59,15 +59,33 @@ function NavLinks({ role, onNavigate }: { role: Profile["role"]; onNavigate?: ()
   );
 }
 
-function Brand() {
+function Brand({ org }: { org?: OrgSettings }) {
+  const name = org?.company_name || COMPANY_NAME;
+  const initials = name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join("");
   return (
     <div className="flex items-center gap-3 px-5 py-4">
-      <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold">
-        FK
-      </div>
+      {org?.logo_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={org.logo_url}
+          alt={name}
+          className="h-9 w-auto max-w-[140px] object-contain"
+        />
+      ) : (
+        <div
+          className="flex size-9 items-center justify-center rounded-lg text-sm font-bold text-white"
+          style={{ backgroundColor: org?.primary_color || "var(--primary)" }}
+        >
+          {initials || "FK"}
+        </div>
+      )}
       <div className="leading-tight">
-        <div className="text-sm font-semibold">{APP_NAME}</div>
-        <div className="text-xs text-muted-foreground">{COMPANY_NAME}</div>
+        <div className="text-sm font-semibold">{name}</div>
+        <div className="text-xs text-muted-foreground">{APP_NAME}</div>
       </div>
     </div>
   );
@@ -106,9 +124,11 @@ function UserCard({ profile }: { profile: Profile }) {
 
 export function AppShell({
   profile,
+  org,
   children,
 }: {
   profile: Profile;
+  org?: OrgSettings;
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -117,7 +137,7 @@ export function AppShell({
     <div className="flex min-h-svh flex-1">
       {/* Desktop sidebar */}
       <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
-        <Brand />
+        <Brand org={org} />
         <div className="flex-1 overflow-y-auto py-2">
           <NavLinks role={profile.role} />
         </div>
@@ -138,7 +158,7 @@ export function AppShell({
               </SheetTrigger>
               <SheetContent side="left" className="flex w-72 flex-col p-0">
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
-                <Brand />
+                <Brand org={org} />
                 <div className="flex-1 overflow-y-auto py-2">
                   <NavLinks
                     role={profile.role}
