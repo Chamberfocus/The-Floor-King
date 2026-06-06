@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import {
   Table,
@@ -26,9 +26,17 @@ export default async function CatalogPage() {
         title="Materials catalog"
         description="Your flooring products and rates. Pull these into estimates to fill prices instantly."
       >
-        <Link href="/catalog/new" className={buttonVariants({ size: "lg" })}>
-          <Plus className="size-4" /> Add product
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/catalog/import"
+            className={buttonVariants({ size: "lg", variant: "outline" })}
+          >
+            <Upload className="size-4" /> Import price list
+          </Link>
+          <Link href="/catalog/new" className={buttonVariants({ size: "lg" })}>
+            <Plus className="size-4" /> Add product
+          </Link>
+        </div>
       </PageHeader>
 
       {products.length === 0 ? (

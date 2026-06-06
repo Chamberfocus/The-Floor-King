@@ -68,6 +68,108 @@ function coerceStr(v: unknown): string | null {
   return null;
 }
 
+export interface PriceRow {
+  name: string;
+  category: string;
+  unit: string;
+  sku: string | null;
+  material_rate: number | null;
+  labor_rate: number | null;
+  notes: string | null;
+}
+
+const PRICE_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
+{ "items": [ { "name": string, "category": string, "unit": string,
+  "sku": string|null, "material_rate": number|null, "labor_rate": number|null,
+  "notes": string|null } ] }
+- category MUST be one of: carpet, lvp, hardwood, laminate, tile, vinyl,
+  underlayment, trim, labor, other  (infer from the product name/description).
+- unit: "sqft" for most; "sqyd" for carpet; "lnft" for trim/molding; else best guess.
+- material_rate is the per-unit PRICE/cost from the list (a number only, no $).
+- labor_rate only if the list separates labor; otherwise null.
+- sku is the item/style/SKU number if present.
+Extract every product row. Skip headers, totals, and blank lines.`;
+
+/** Parse a price list (pasted text OR a PDF/image) into catalog products. */
+export async function extractPriceList(opts: {
+  text?: string;
+  base64?: string;
+  mediaType?: string;
+}): Promise<PriceRow[] | null> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return null;
+
+  const content: unknown[] = [];
+  if (opts.base64 && opts.mediaType) {
+    const source = {
+      type: "base64",
+      media_type: opts.mediaType,
+      data: opts.base64,
+    };
+    content.push(
+      opts.mediaType === "application/pdf"
+        ? { type: "document", source }
+        : { type: "image", source },
+    );
+    content.push({ type: "text", text: `Read this flooring price list. ${PRICE_SCHEMA}` });
+  } else if (opts.text) {
+    content.push({
+      type: "text",
+      text: `Parse this flooring price list. ${PRICE_SCHEMA}\n\nPRICE LIST:\n${opts.text}`,
+    });
+  } else {
+    return null;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 8000,
+        messages: [{ role: "user", content }],
+      }),
+    });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+
+  const json = (await res.json()) as { content?: AnthropicBlock[] };
+  const text = json.content?.find((b) => b.type === "text")?.text?.trim() ?? "";
+  const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1) return null;
+  let parsed: { items?: unknown };
+  try {
+    parsed = JSON.parse(cleaned.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+  return rawItems
+    .map((it) => {
+      const o = (it ?? {}) as Record<string, unknown>;
+      return {
+        name: coerceStr(o.name) ?? "",
+        category: coerceStr(o.category) ?? "other",
+        unit: coerceStr(o.unit) ?? "sqft",
+        sku: coerceStr(o.sku),
+        material_rate: coerceNum(o.material_rate),
+        labor_rate: coerceNum(o.labor_rate),
+        notes: coerceStr(o.notes),
+      } satisfies PriceRow;
+    })
+    .filter((r) => r.name);
+}
+
 export async function extractOrderDocument(opts: {
   base64: string;
   mediaType: string;
