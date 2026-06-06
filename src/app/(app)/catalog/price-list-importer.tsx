@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Sparkles, Upload, Trash2 } from "lucide-react";
+import { Sparkles, Upload, Trash2, FileUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -11,7 +11,7 @@ import {
   PRODUCT_CATEGORY_ORDER,
 } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
-import { pdfToText, chunkText } from "@/lib/pdf-client";
+import { pdfToText, spreadsheetToText, chunkText } from "@/lib/pdf-client";
 import type { PriceRow } from "@/lib/extract";
 import { parsePriceList, importProducts } from "./import-actions";
 
@@ -22,6 +22,8 @@ export function PriceListImporter() {
   const router = useRouter();
   const [rows, setRows] = useState<PriceRow[] | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [reading, startReading] = useTransition();
   const [importing, startImport] = useTransition();
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -72,11 +74,25 @@ export function PriceListImporter() {
     startReading(async () => {
       setStatus(null);
       try {
-        const f = fileRef.current?.files?.[0];
+        const f = file;
         const pasted = textRef.current?.value ?? "";
+        const name = (f?.name ?? "").toLowerCase();
+        const type = f?.type ?? "";
+        const isPdf = type === "application/pdf" || name.endsWith(".pdf");
+        const isExcel =
+          name.endsWith(".xlsx") ||
+          name.endsWith(".xls") ||
+          type.includes("spreadsheet") ||
+          type.includes("excel");
+        const isCsvTxt =
+          name.endsWith(".csv") ||
+          name.endsWith(".txt") ||
+          type === "text/csv" ||
+          type === "text/plain";
+        const isImage = type.startsWith("image/");
         let rows: PriceRow[] = [];
 
-        if (f && f.type === "application/pdf") {
+        if (f && isPdf) {
           setStatus("Reading the PDF in your browser…");
           let text = "";
           let pages = 0;
@@ -98,9 +114,25 @@ export function PriceListImporter() {
             );
             rows = await parseViaStorage(f);
           }
-        } else if (f) {
+        } else if (f && isExcel) {
+          setStatus("Reading the spreadsheet in your browser…");
+          const text = await spreadsheetToText(f);
+          setStatus(`Extracted ${text.length.toLocaleString()} characters. Parsing…`);
+          rows = await parseTextChunks(text);
+        } else if (f && isCsvTxt) {
+          setStatus("Reading the file…");
+          const text = await f.text();
+          setStatus(`Extracted ${text.length.toLocaleString()} characters. Parsing…`);
+          rows = await parseTextChunks(text);
+        } else if (f && isImage) {
           setStatus("Reading the image…");
           rows = await parseViaStorage(f);
+        } else if (f) {
+          // Unknown type — try as text, fall back to image.
+          setStatus("Reading the file…");
+          const text = await f.text().catch(() => "");
+          if (text.trim().length >= 20) rows = await parseTextChunks(text);
+          else rows = await parseViaStorage(f);
         } else if (pasted.trim()) {
           setStatus("Parsing pasted text…");
           rows = await parseTextChunks(pasted);
@@ -161,16 +193,60 @@ export function PriceListImporter() {
             className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="text-sm text-muted-foreground">
-            …or upload a file (PDF / image):
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".pdf,image/*"
-              className="ml-2 text-sm"
-            />
-          </label>
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            const dropped = e.dataTransfer.files?.[0];
+            if (dropped) setFile(dropped);
+          }}
+          onClick={() => fileRef.current?.click()}
+          className={cn(
+            "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed p-6 text-center transition-colors",
+            dragOver
+              ? "border-primary bg-primary/5"
+              : "border-input hover:border-primary/50 hover:bg-muted/40",
+          )}
+        >
+          <FileUp className="size-6 text-muted-foreground" />
+          {file ? (
+            <span className="flex items-center gap-2 text-sm font-medium">
+              {file.name}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFile(null);
+                  if (fileRef.current) fileRef.current.value = "";
+                }}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Remove file"
+              >
+                <X className="size-4" />
+              </button>
+            </span>
+          ) : (
+            <>
+              <span className="text-sm font-medium">
+                Drag &amp; drop a file here, or click to choose
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Excel (.xlsx, .xls), CSV, PDF, or an image
+              </span>
+            </>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".pdf,.xlsx,.xls,.csv,.txt,image/*"
+            className="hidden"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
         </div>
         <Button type="button" onClick={read} disabled={reading}>
           {reading ? (

@@ -21,6 +21,18 @@ export async function pdfToText(
   return { text: out, pages: doc.numPages };
 }
 
+/** Read an Excel/CSV file into CSV text (all sheets). */
+export async function spreadsheetToText(file: File): Promise<string> {
+  const XLSX = await import("xlsx");
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  let out = "";
+  for (const name of wb.SheetNames) {
+    out += XLSX.utils.sheet_to_csv(wb.Sheets[name]) + "\n";
+  }
+  return out;
+}
+
 /** Split long text into chunks (by lines, and hard-splitting any huge line). */
 export function chunkText(text: string, maxChars = 12000): string[] {
   const lines: string[] = [];

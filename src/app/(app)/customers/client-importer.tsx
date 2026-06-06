@@ -3,10 +3,11 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Sparkles, Upload, Trash2 } from "lucide-react";
+import { Sparkles, Upload, Trash2, FileUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { pdfToText, spreadsheetToText, chunkText } from "@/lib/pdf-client";
 import type { ClientRow } from "@/lib/extract";
 import { parseClients, importClients } from "./import-actions";
 
@@ -27,40 +28,117 @@ const COLS: { key: keyof ClientRow; label: string; w?: string }[] = [
 export function ClientImporter() {
   const router = useRouter();
   const [rows, setRows] = useState<ClientRow[] | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [reading, startReading] = useTransition();
   const [importing, startImport] = useTransition();
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Parse long text in chunks so big lists never hit server limits.
+  const parseTextChunks = async (text: string): Promise<ClientRow[]> => {
+    const chunks = chunkText(text);
+    const out: ClientRow[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+      if (chunks.length > 1)
+        setStatus(`Parsing part ${i + 1} of ${chunks.length}…`);
+      const fd = new FormData();
+      fd.set("text", chunks[i]);
+      try {
+        const res = await parseClients(fd);
+        if (res.rows?.length) out.push(...res.rows);
+        else if (res.error && chunks.length === 1) toast.error(res.error);
+      } catch {
+        /* skip a bad chunk, keep going */
+      }
+    }
+    return out;
+  };
+
+  // Upload to storage and parse via signed URL (for images / scanned docs).
+  const parseViaStorage = async (f: File): Promise<ClientRow[]> => {
+    const supabase = createClient();
+    const path = `imports/${crypto.randomUUID()}-${f.name}`;
+    const { error: upErr } = await supabase.storage
+      .from("documents")
+      .upload(path, f, { contentType: f.type || undefined });
+    if (upErr) {
+      toast.error(`Upload failed: ${upErr.message}`);
+      return [];
+    }
+    const fd = new FormData();
+    fd.set("storage_path", path);
+    fd.set("storage_mime", f.type ?? "");
+    const res = await parseClients(fd);
+    if (res.error && !res.rows?.length) toast.error(res.error);
+    return res.rows ?? [];
+  };
+
   const read = () =>
     startReading(async () => {
+      setStatus(null);
       try {
-        const fd = new FormData();
-        const f = fileRef.current?.files?.[0];
-        if (f) {
-          const supabase = createClient();
-          const path = `imports/${crypto.randomUUID()}-${f.name}`;
-          const { error: upErr } = await supabase.storage
-            .from("documents")
-            .upload(path, f, { contentType: f.type || undefined });
-          if (upErr) {
-            toast.error(`Upload failed: ${upErr.message}`);
-            return;
+        const f = file;
+        const pasted = textRef.current?.value ?? "";
+        const name = (f?.name ?? "").toLowerCase();
+        const type = f?.type ?? "";
+        const isPdf = type === "application/pdf" || name.endsWith(".pdf");
+        const isExcel =
+          name.endsWith(".xlsx") ||
+          name.endsWith(".xls") ||
+          type.includes("spreadsheet") ||
+          type.includes("excel");
+        const isCsvTxt =
+          name.endsWith(".csv") ||
+          name.endsWith(".txt") ||
+          type === "text/csv" ||
+          type === "text/plain";
+        const isImage = type.startsWith("image/");
+        let rows: ClientRow[] = [];
+
+        if (f && isPdf) {
+          setStatus("Reading the PDF in your browser…");
+          let text = "";
+          try {
+            text = (await pdfToText(f)).text;
+          } catch {
+            /* fall through to image mode */
           }
-          fd.set("storage_path", path);
-          fd.set("storage_mime", f.type ?? "");
+          if (text.trim().length >= 20) rows = await parseTextChunks(text);
+          else {
+            setStatus("No selectable text found — reading it as an image…");
+            rows = await parseViaStorage(f);
+          }
+        } else if (f && isExcel) {
+          setStatus("Reading the spreadsheet in your browser…");
+          rows = await parseTextChunks(await spreadsheetToText(f));
+        } else if (f && isCsvTxt) {
+          setStatus("Reading the file…");
+          rows = await parseTextChunks(await f.text());
+        } else if (f && isImage) {
+          setStatus("Reading the image…");
+          rows = await parseViaStorage(f);
+        } else if (f) {
+          setStatus("Reading the file…");
+          const text = await f.text().catch(() => "");
+          if (text.trim().length >= 20) rows = await parseTextChunks(text);
+          else rows = await parseViaStorage(f);
+        } else if (pasted.trim()) {
+          setStatus("Parsing pasted text…");
+          rows = await parseTextChunks(pasted);
         } else {
-          fd.set("text", textRef.current?.value ?? "");
+          toast.error("Paste a client list or choose a file.");
+          return;
         }
-        const res = await parseClients(fd);
-        if (res.error) {
-          toast.error(res.error);
-          if (!res.rows?.length) return;
-        }
-        setRows(res.rows ?? []);
-        if (res.rows?.length)
-          toast.success(`Found ${res.rows.length} customers — review & import`);
+
+        setRows(rows);
+        setStatus(null);
+        if (rows.length)
+          toast.success(`Found ${rows.length} customers — review & import`);
+        else toast.error("No customers found — try pasting the rows as text.");
       } catch (e) {
+        setStatus(null);
         toast.error(e instanceof Error ? e.message : "Couldn't read that.");
       }
     });
@@ -104,15 +182,61 @@ export function ClientImporter() {
             className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
-        <label className="block text-sm text-muted-foreground">
-          …or upload a file (PDF / image):
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            const dropped = e.dataTransfer.files?.[0];
+            if (dropped) setFile(dropped);
+          }}
+          onClick={() => fileRef.current?.click()}
+          className={cn(
+            "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed p-6 text-center transition-colors",
+            dragOver
+              ? "border-primary bg-primary/5"
+              : "border-input hover:border-primary/50 hover:bg-muted/40",
+          )}
+        >
+          <FileUp className="size-6 text-muted-foreground" />
+          {file ? (
+            <span className="flex items-center gap-2 text-sm font-medium">
+              {file.name}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFile(null);
+                  if (fileRef.current) fileRef.current.value = "";
+                }}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Remove file"
+              >
+                <X className="size-4" />
+              </button>
+            </span>
+          ) : (
+            <>
+              <span className="text-sm font-medium">
+                Drag &amp; drop a file here, or click to choose
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Excel (.xlsx, .xls), CSV, PDF, or an image
+              </span>
+            </>
+          )}
           <input
             ref={fileRef}
             type="file"
-            accept=".pdf,image/*"
-            className="ml-2 text-sm"
+            accept=".pdf,.xlsx,.xls,.csv,.txt,image/*"
+            className="hidden"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
-        </label>
+        </div>
         <Button type="button" onClick={read} disabled={reading}>
           {reading ? (
             <>
@@ -124,6 +248,9 @@ export function ClientImporter() {
             </>
           )}
         </Button>
+        {status ? (
+          <p className="text-xs text-muted-foreground">{status}</p>
+        ) : null}
       </div>
 
       {rows && rows.length > 0 ? (
