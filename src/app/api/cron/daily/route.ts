@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { sendSms } from "@/lib/sms";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest) {
   const tomorrow = new Date(now + 24 * 3600 * 1000).toISOString().slice(0, 10);
   const { data: jobs } = await admin
     .from("jobs")
-    .select("id, title, assigned_to, customer:customers(full_name, email)")
+    .select("id, title, assigned_to, customer:customers(full_name, email, phone)")
     .eq("status", "scheduled")
     .eq("scheduled_date", tomorrow)
     .is("reminder_sent_at", null);
@@ -71,6 +72,7 @@ export async function GET(request: NextRequest) {
     const cust = j.customer as unknown as {
       full_name: string | null;
       email: string | null;
+      phone: string | null;
     } | null;
     const recipients = new Set<string>([ownerEmail()]);
     if (j.assigned_to) {
@@ -102,6 +104,12 @@ export async function GET(request: NextRequest) {
            <p>Just a friendly reminder that your flooring installation is scheduled for <strong>tomorrow</strong>. We look forward to it!</p>`,
         ),
       });
+    }
+    if (cust?.phone) {
+      await sendSms(
+        cust.phone,
+        "Cleveland Floor King: your flooring installation is scheduled for tomorrow. See you then!",
+      );
     }
     await admin
       .from("jobs")

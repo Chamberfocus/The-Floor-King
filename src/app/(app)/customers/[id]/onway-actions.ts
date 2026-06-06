@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { sendSms } from "@/lib/sms";
 import { getDriveTime } from "@/lib/maps";
 
 export async function notifyOnTheWay(
@@ -12,7 +13,7 @@ export async function notifyOnTheWay(
   const supabase = await createClient();
   const { data: c } = await supabase
     .from("customers")
-    .select("full_name, email, street, city, state, zip")
+    .select("full_name, email, phone, street, city, state, zip")
     .eq("id", customerId)
     .maybeSingle();
   if (!c) return { error: "Customer not found." };
@@ -37,6 +38,14 @@ export async function notifyOnTheWay(
         { label: "View your project", url: `${siteUrl()}/portal` },
       ),
     });
+  }
+
+  // Text the customer (if we have a number).
+  if (c.phone) {
+    await sendSms(
+      c.phone as string,
+      `Cleveland Floor King is on the way${etaText ? ` — ETA about ${etaText}` : ""}. See you soon!`,
+    );
   }
 
   // Also drop it in the customer chat so it shows in their portal.

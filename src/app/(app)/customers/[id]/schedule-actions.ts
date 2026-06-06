@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getEstimateSuggestions, type EstimateSlot } from "@/lib/data/scheduling";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { sendSms } from "@/lib/sms";
 
 export interface SuggestResult {
   error: string | null;
@@ -69,7 +70,7 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   // Notify the salesperson and the customer.
   const { data: cust } = await supabase
     .from("customers")
-    .select("full_name, email")
+    .select("full_name, email, phone")
     .eq("id", customerId)
     .maybeSingle();
   const when = `${date} at ${time}`;
@@ -102,6 +103,12 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
          <p>Your in-home flooring estimate is confirmed for <strong>${when}</strong>. We look forward to seeing you!</p>`,
       ),
     });
+  }
+  if (cust?.phone) {
+    await sendSms(
+      cust.phone as string,
+      `Cleveland Floor King: your flooring estimate is confirmed for ${when}. Reply with any questions!`,
+    );
   }
 
   revalidatePath(`/customers/${customerId}`);
