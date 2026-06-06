@@ -4,7 +4,15 @@ import { useRef } from "react";
 import { ROLE_LABELS, type UserRole } from "@/lib/types";
 import { setMemberRole } from "./actions";
 
-const ROLES: UserRole[] = ["crew", "warehouse", "office", "admin"];
+const ROLES: UserRole[] = [
+  "admin",
+  "sales_manager",
+  "salesman",
+  "scheduler",
+  "office",
+  "crew",
+  "warehouse",
+];
 
 export function RoleSelect({ id, role }: { id: string; role: UserRole }) {
   const formRef = useRef<HTMLFormElement>(null);

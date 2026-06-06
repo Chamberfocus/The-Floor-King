@@ -1,5 +1,13 @@
 /** Roles that govern what a signed-in user can see and do. */
-export type UserRole = "admin" | "office" | "crew" | "warehouse" | "customer";
+export type UserRole =
+  | "admin"
+  | "office"
+  | "sales_manager"
+  | "salesman"
+  | "scheduler"
+  | "crew"
+  | "warehouse"
+  | "customer";
 
 export interface Profile {
   id: string;
@@ -15,6 +23,9 @@ export interface Profile {
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Administrator",
   office: "Office Staff",
+  sales_manager: "Sales Manager",
+  salesman: "Salesman",
+  scheduler: "Scheduler",
   crew: "Installer",
   warehouse: "Warehouse",
   customer: "Customer",

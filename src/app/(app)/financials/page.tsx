@@ -39,7 +39,8 @@ export default async function FinancialsPage({
   searchParams: Promise<{ start?: string; end?: string }>;
 }) {
   const profile = await requireProfile();
-  if (profile.role !== "admin" && profile.role !== "office") redirect("/");
+  // Profit, expenses, and P&L are owner & admin only.
+  if (profile.role !== "admin") redirect("/");
 
   const sp = await searchParams;
   const today = new Date();

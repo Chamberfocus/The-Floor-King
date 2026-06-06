@@ -10,7 +10,15 @@ export interface TeamFormState {
   ok?: boolean;
 }
 
-const STAFF_ROLES: UserRole[] = ["admin", "office", "crew", "warehouse"];
+const STAFF_ROLES: UserRole[] = [
+  "admin",
+  "office",
+  "sales_manager",
+  "salesman",
+  "scheduler",
+  "crew",
+  "warehouse",
+];
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";

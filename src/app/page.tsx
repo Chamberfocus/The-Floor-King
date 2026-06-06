@@ -10,5 +10,7 @@ export default async function Home() {
   if (profile.role === "customer") redirect("/portal");
   if (profile.role === "warehouse") redirect("/warehouse");
   if (profile.role === "crew") redirect("/jobs");
+  if (profile.role === "scheduler") redirect("/jobs");
+  if (profile.role === "salesman") redirect("/customers");
   redirect("/dashboard");
 }

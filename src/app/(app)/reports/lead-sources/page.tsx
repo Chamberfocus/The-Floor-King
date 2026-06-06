@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import {
   Table,
@@ -13,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
 import { getLeadSourceReport } from "@/lib/data/reports";
+import { requireProfile } from "@/lib/auth";
 import { LEAD_SOURCE_LABELS } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Lead Sources report" };
@@ -26,6 +28,9 @@ export default async function LeadSourcesReportPage({
 }: {
   searchParams: Promise<{ start?: string; end?: string }>;
 }) {
+  const profile = await requireProfile();
+  if (!["admin", "office", "sales_manager"].includes(profile.role)) redirect("/");
+
   const sp = await searchParams;
   const today = new Date();
   const end = sp.end || isoDay(today);

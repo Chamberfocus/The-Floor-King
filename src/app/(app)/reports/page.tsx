@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Reports" };
 
 export default async function ReportsPage() {
   const profile = await requireProfile();
-  if (profile.role !== "admin" && profile.role !== "office") redirect("/");
+  if (!["admin", "office", "sales_manager"].includes(profile.role)) redirect("/");
 
   const reports = [
     {
@@ -19,12 +19,17 @@ export default async function ReportsPage() {
       title: "Lead Sources",
       desc: "Where your leads come from, for any date range.",
     },
-    {
-      href: "/financials",
-      icon: Wallet,
-      title: "Financials",
-      desc: "Money in vs out, receivables, and job profitability.",
-    },
+    // Profit / expenses / P&L are owner & admin only.
+    ...(profile.role === "admin"
+      ? [
+          {
+            href: "/financials",
+            icon: Wallet,
+            title: "Financials",
+            desc: "Money in vs out, receivables, and job profitability.",
+          },
+        ]
+      : []),
   ];
 
   return (

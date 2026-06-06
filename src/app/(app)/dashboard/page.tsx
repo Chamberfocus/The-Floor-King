@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   Contact,
   Receipt,
@@ -25,6 +26,7 @@ export const metadata: Metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const profile = await requireProfile();
+  if (!["admin", "office", "sales_manager"].includes(profile.role)) redirect("/");
   const counts = await getDashboardCounts();
   const activeJobs = await getActiveJobCount();
   const outstanding = await getOutstandingInvoiceCount();
