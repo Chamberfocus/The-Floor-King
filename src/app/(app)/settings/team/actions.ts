@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { positionById } from "./positions";
 import type { UserRole } from "@/lib/types";
 
 export interface TeamFormState {
@@ -22,14 +23,15 @@ export async function inviteTeamMember(
   const email = str(formData.get("email")).toLowerCase();
   const password = str(formData.get("password"));
   const fullName = str(formData.get("full_name"));
-  const title = str(formData.get("title"));
-  const role = (str(formData.get("role")) || "crew") as UserRole;
+  const pos = positionById(str(formData.get("position")));
+  const role: UserRole = pos?.role ?? "office";
+  const title = str(formData.get("title")) || pos?.label || "";
 
   if (!email) return { error: "Email is required." };
   if (password.length < 8) {
     return { error: "Password must be at least 8 characters." };
   }
-  if (!STAFF_ROLES.includes(role)) return { error: "Invalid role." };
+  if (!pos) return { error: "Pick a position." };
 
   let admin;
   try {

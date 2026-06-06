@@ -5,8 +5,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ROLE_LABELS } from "@/lib/types";
 import { inviteTeamMember, type TeamFormState } from "./actions";
+import { POSITIONS } from "./positions";
 
 const fieldClass =
   "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -34,12 +34,18 @@ export function InviteTeamForm() {
         <Input id="title" name="title" placeholder="e.g. Lead Estimator" />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="role">Role</Label>
-        <select id="role" name="role" defaultValue="crew" className={fieldClass}>
-          <option value="crew">{ROLE_LABELS.crew}</option>
-          <option value="warehouse">{ROLE_LABELS.warehouse}</option>
-          <option value="office">{ROLE_LABELS.office}</option>
-          <option value="admin">{ROLE_LABELS.admin}</option>
+        <Label htmlFor="position">Position</Label>
+        <select
+          id="position"
+          name="position"
+          defaultValue="salesman"
+          className={fieldClass}
+        >
+          {POSITIONS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
         </select>
       </div>
       <div className="space-y-1">
