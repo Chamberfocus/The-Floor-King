@@ -74,9 +74,18 @@ export async function searchCrm(qRaw: string): Promise<SearchHit[]> {
   const { data: lines } = await supabase
     .from("estimate_line_items")
     .select(
-      "description, room, estimate_options!inner ( estimates!inner ( customers!inner ( id, full_name, company, phone, city ) ) )",
+      "description, room, manufacturer, style, color, item_no, estimate_options!inner ( estimates!inner ( customers!inner ( id, full_name, company, phone, city ) ) )",
     )
-    .or([`description.ilike.${like}`, `room.ilike.${like}`].join(","))
+    .or(
+      [
+        `description.ilike.${like}`,
+        `room.ilike.${like}`,
+        `manufacturer.ilike.${like}`,
+        `style.ilike.${like}`,
+        `color.ilike.${like}`,
+        `item_no.ilike.${like}`,
+      ].join(","),
+    )
     .limit(50);
   for (const l of lines ?? []) {
     const eo = one(
@@ -84,8 +93,20 @@ export async function searchCrm(qRaw: string): Promise<SearchHit[]> {
     ) as { estimates?: unknown } | null;
     const est = one(eo?.estimates as object) as { customers?: unknown } | null;
     const c = one(est?.customers as object) as CustRef | null;
-    const label = (l as { description?: string; room?: string }).description ||
-      (l as { room?: string }).room ||
+    const li = l as {
+      description?: string;
+      room?: string;
+      manufacturer?: string;
+      style?: string;
+      color?: string;
+      item_no?: string;
+    };
+    const label =
+      [li.manufacturer, li.style, li.color, li.item_no]
+        .filter(Boolean)
+        .join(" ") ||
+      li.description ||
+      li.room ||
       "line item";
     add(c, `Estimate: ${label}`);
   }

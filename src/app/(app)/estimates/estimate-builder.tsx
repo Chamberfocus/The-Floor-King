@@ -44,6 +44,10 @@ interface LineState {
   installed_rate: string;
   flat_amount: string;
   product_id: string;
+  manufacturer: string;
+  style: string;
+  color: string;
+  item_no: string;
 }
 
 function inToFt(total: number | null | undefined): string {
@@ -141,6 +145,10 @@ export function EstimateBuilder({
     installed_rate: "",
     flat_amount: "",
     product_id: "",
+    manufacturer: "",
+    style: "",
+    color: "",
+    item_no: "",
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -174,6 +182,10 @@ export function EstimateBuilder({
         installed_rate: l.installed_rate?.toString() ?? "",
         flat_amount: l.flat_amount?.toString() ?? "",
         product_id: l.product_id ?? "",
+        manufacturer: l.manufacturer ?? "",
+        style: l.style ?? "",
+        color: l.color ?? "",
+        item_no: l.item_no ?? "",
       })),
     }));
     return initial.length
@@ -310,6 +322,10 @@ export function EstimateBuilder({
         installed_rate: l.installed_rate || null,
         flat_amount: l.flat_amount || null,
         product_id: l.product_id || null,
+        manufacturer: l.manufacturer || null,
+        style: l.style || null,
+        color: l.color || null,
+        item_no: l.item_no || null,
       })),
     })),
   });
@@ -453,6 +469,41 @@ export function EstimateBuilder({
                         }
                         placeholder="Description"
                         className="sm:col-span-2"
+                      />
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <Input
+                        value={line.manufacturer}
+                        onChange={(e) =>
+                          updateLine(oi, li, { manufacturer: e.target.value })
+                        }
+                        placeholder="Manufacturer"
+                        className="h-9"
+                      />
+                      <Input
+                        value={line.style}
+                        onChange={(e) =>
+                          updateLine(oi, li, { style: e.target.value })
+                        }
+                        placeholder="Style"
+                        className="h-9"
+                      />
+                      <Input
+                        value={line.color}
+                        onChange={(e) =>
+                          updateLine(oi, li, { color: e.target.value })
+                        }
+                        placeholder="Color"
+                        className="h-9"
+                      />
+                      <Input
+                        value={line.item_no}
+                        onChange={(e) =>
+                          updateLine(oi, li, { item_no: e.target.value })
+                        }
+                        placeholder="Item #"
+                        className="h-9"
                       />
                     </div>
 

@@ -25,6 +25,10 @@ export interface SavePoItemInput {
   quantity: string | number | null;
   unit: string;
   unit_cost: string | number | null;
+  manufacturer?: string | null;
+  style?: string | null;
+  color?: string | null;
+  item_no?: string | null;
 }
 
 export interface SavePoInput {

@@ -11,6 +11,6 @@ export default async function Home() {
   if (profile.role === "warehouse") redirect("/warehouse");
   if (profile.role === "crew") redirect("/jobs");
   if (profile.role === "scheduler") redirect("/jobs");
-  if (profile.role === "salesman") redirect("/customers");
-  redirect("/dashboard");
+  // Customer-centric: staff land on the customer list, not a summary screen.
+  redirect("/customers");
 }

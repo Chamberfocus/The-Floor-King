@@ -85,6 +85,10 @@ export interface SaveLineInput {
   installed_rate: string | number | null;
   flat_amount: string | number | null;
   product_id: string | null;
+  manufacturer?: string | null;
+  style?: string | null;
+  color?: string | null;
+  item_no?: string | null;
 }
 
 export interface SaveOptionInput {

@@ -115,6 +115,10 @@ export async function saveEstimate(
         installed_rate: toNumOrNull(line.installed_rate),
         flat_amount: toNumOrNull(line.flat_amount),
         product_id: line.product_id || null,
+        manufacturer: line.manufacturer || null,
+        style: line.style || null,
+        color: line.color || null,
+        item_no: line.item_no || null,
       }));
       const { error: lineError } = await supabase
         .from("estimate_line_items")

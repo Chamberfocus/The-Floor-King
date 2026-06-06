@@ -1,7 +1,6 @@
 import {
   LayoutDashboard,
   Users,
-  Contact,
   FileText,
   CalendarDays,
   Receipt,
@@ -53,10 +52,9 @@ const JOBS_ROLES: UserRole[] = [
 
 /** Primary navigation. Items are filtered by the current user's role. */
 export const NAV_ITEMS: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: OVERVIEW },
-  { label: "Pipeline", href: "/pipeline", icon: Route, roles: SALES_VIEW },
-  { label: "Leads", href: "/leads", icon: Contact, roles: SALES },
   { label: "Customers", href: "/customers", icon: Users, roles: SALES_VIEW },
+  { label: "Pipeline", href: "/pipeline", icon: Route, roles: SALES_VIEW },
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: OVERVIEW },
   { label: "Estimates", href: "/estimates", icon: FileText, roles: SALES_VIEW },
   { label: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, roles: OFFICE_PLUS },
   { label: "Jobs", href: "/jobs", icon: CalendarDays, roles: JOBS_ROLES },

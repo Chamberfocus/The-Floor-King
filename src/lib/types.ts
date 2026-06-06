@@ -213,6 +213,10 @@ export interface EstimateLineItem {
   installed_rate: number | null;
   flat_amount: number | null;
   product_id: string | null;
+  manufacturer: string | null;
+  style: string | null;
+  color: string | null;
+  item_no: string | null;
 }
 
 export interface EstimateOption {
@@ -447,6 +451,10 @@ export interface PoItem {
   quantity: number | null;
   unit: string;
   unit_cost: number | null;
+  manufacturer: string | null;
+  style: string | null;
+  color: string | null;
+  item_no: string | null;
 }
 
 export interface PurchaseOrder {

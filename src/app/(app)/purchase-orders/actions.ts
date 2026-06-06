@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { SavePoInput } from "@/lib/po-calc";
 import { lineQty } from "@/lib/estimate-calc";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { extractOrderDocument, type ExtractedDoc } from "@/lib/extract";
 import type { EstimateLineItem, PoStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -264,6 +265,10 @@ export async function savePurchaseOrder(
       quantity: toNumOrNull(it.quantity),
       unit: it.unit || "sqft",
       unit_cost: toNumOrNull(it.unit_cost),
+      manufacturer: it.manufacturer || null,
+      style: it.style || null,
+      color: it.color || null,
+      item_no: it.item_no || null,
     }));
     const { error: insertError } = await supabase.from("po_items").insert(rows);
     if (insertError) return { error: insertError.message };
@@ -293,4 +298,63 @@ export async function deletePurchaseOrder(formData: FormData): Promise<void> {
   await supabase.from("purchase_orders").delete().eq("id", id);
   revalidatePath("/purchase-orders");
   redirect("/purchase-orders");
+}
+
+export interface ExtractResult {
+  error: string | null;
+  data?: ExtractedDoc;
+}
+
+/**
+ * Smart uploader: store an uploaded order confirmation, run AI extraction,
+ * and return structured line items to drop into the PO builder.
+ */
+export async function extractPoDocument(
+  formData: FormData,
+): Promise<ExtractResult> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Choose a file to upload." };
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    return { error: "File is too large (max 20 MB)." };
+  }
+  const poId = str(formData.get("po_id")) || null;
+  const customerId = str(formData.get("customer_id")) || null;
+
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const mime = file.type || "application/octet-stream";
+  const path = `${poId ?? "misc"}/${crypto.randomUUID()}-${file.name}`;
+
+  // Store the original document (best-effort — extraction still runs if this fails).
+  await supabase.storage
+    .from("documents")
+    .upload(path, bytes, { contentType: mime, upsert: false });
+
+  const extracted = await extractOrderDocument({
+    base64: bytes.toString("base64"),
+    mediaType: mime,
+  });
+
+  await supabase.from("documents").insert({
+    customer_id: customerId,
+    po_id: poId,
+    uploaded_by: auth.user?.id ?? null,
+    name: file.name,
+    path,
+    mime,
+    kind: "order_confirmation",
+    extracted: extracted ?? null,
+  });
+
+  if (!extracted) {
+    return {
+      error:
+        "Couldn't read that document automatically. The file is saved — add the items manually, or set ANTHROPIC_API_KEY to enable AI reading.",
+    };
+  }
+  return { error: null, data: extracted };
 }

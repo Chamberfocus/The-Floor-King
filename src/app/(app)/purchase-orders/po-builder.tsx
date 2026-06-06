@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Printer } from "lucide-react";
+import { Plus, Trash2, Save, Printer, Upload, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +18,7 @@ import {
   type PurchaseOrder,
   type PoStatus,
 } from "@/lib/types";
-import { savePurchaseOrder } from "./actions";
+import { savePurchaseOrder, extractPoDocument } from "./actions";
 
 interface ItemState {
   key: string;
@@ -27,6 +27,10 @@ interface ItemState {
   quantity: string;
   unit: string;
   unit_cost: string;
+  manufacturer: string;
+  style: string;
+  color: string;
+  item_no: string;
 }
 
 const inputSm =
@@ -51,6 +55,10 @@ export function PoBuilder({
     quantity: "",
     unit: "sqft",
     unit_cost: "",
+    manufacturer: "",
+    style: "",
+    color: "",
+    item_no: "",
   });
 
   const [supplier, setSupplier] = useState(po.supplier ?? "");
@@ -66,6 +74,10 @@ export function PoBuilder({
       quantity: it.quantity?.toString() ?? "",
       unit: it.unit ?? "sqft",
       unit_cost: it.unit_cost?.toString() ?? "",
+      manufacturer: it.manufacturer ?? "",
+      style: it.style ?? "",
+      color: it.color ?? "",
+      item_no: it.item_no ?? "",
     }));
     return initial.length ? initial : [emptyItem()];
   });
@@ -94,6 +106,58 @@ export function PoBuilder({
     items.map((it) => ({ quantity: it.quantity, unit_cost: it.unit_cost })),
   );
 
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (fileRef.current) fileRef.current.value = "";
+    if (!f) return;
+    setUploading(true);
+    const fd = new FormData();
+    fd.set("file", f);
+    fd.set("po_id", po.id);
+    const res = await extractPoDocument(fd);
+    setUploading(false);
+    if (res.error) {
+      toast.error(res.error);
+      return;
+    }
+    const d = res.data;
+    if (!d) return;
+    if (d.vendor && !supplier) setSupplier(d.vendor);
+    if (d.eta_date && !etaDate) setEtaDate(d.eta_date);
+    const incoming: ItemState[] = d.items.map((it) => ({
+      key: newKey(),
+      product_id: "",
+      description:
+        it.description ||
+        [it.manufacturer, it.style, it.color].filter(Boolean).join(" "),
+      quantity: it.quantity != null ? String(it.quantity) : "",
+      unit: it.unit || "sqft",
+      unit_cost: it.unit_cost != null ? String(it.unit_cost) : "",
+      manufacturer: it.manufacturer ?? "",
+      style: it.style ?? "",
+      color: it.color ?? "",
+      item_no: it.item_no ?? "",
+    }));
+    setItems((prev) => {
+      const kept = prev.filter(
+        (p) =>
+          p.description ||
+          p.quantity ||
+          p.unit_cost ||
+          p.manufacturer ||
+          p.style ||
+          p.color ||
+          p.item_no,
+      );
+      return [...kept, ...incoming];
+    });
+    toast.success(
+      `Pulled ${incoming.length} item${incoming.length === 1 ? "" : "s"} from the document`,
+    );
+  };
+
   const save = () =>
     startTransition(async () => {
       const input: SavePoInput = {
@@ -108,6 +172,10 @@ export function PoBuilder({
           quantity: it.quantity || null,
           unit: it.unit,
           unit_cost: it.unit_cost || null,
+          manufacturer: it.manufacturer || null,
+          style: it.style || null,
+          color: it.color || null,
+          item_no: it.item_no || null,
         })),
       };
       const res = await savePurchaseOrder(po.id, input);
@@ -169,8 +237,34 @@ export function PoBuilder({
       </Card>
 
       <Card className="mb-6">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-base">Items to order</CardTitle>
+          <div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".pdf,image/*"
+              className="hidden"
+              onChange={onFile}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={uploading}
+              onClick={() => fileRef.current?.click()}
+            >
+              {uploading ? (
+                <>
+                  <Sparkles className="size-3.5 animate-pulse" /> Reading…
+                </>
+              ) : (
+                <>
+                  <Upload className="size-3.5" /> Upload order confirmation
+                </>
+              )}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {items.map((it, i) => (
@@ -197,6 +291,34 @@ export function PoBuilder({
                   }
                   placeholder="Description"
                   className={products.length ? "" : "sm:col-span-2"}
+                />
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <Input
+                  value={it.manufacturer}
+                  onChange={(e) =>
+                    updateItem(i, { manufacturer: e.target.value })
+                  }
+                  placeholder="Manufacturer"
+                  className="h-9"
+                />
+                <Input
+                  value={it.style}
+                  onChange={(e) => updateItem(i, { style: e.target.value })}
+                  placeholder="Style"
+                  className="h-9"
+                />
+                <Input
+                  value={it.color}
+                  onChange={(e) => updateItem(i, { color: e.target.value })}
+                  placeholder="Color"
+                  className="h-9"
+                />
+                <Input
+                  value={it.item_no}
+                  onChange={(e) => updateItem(i, { item_no: e.target.value })}
+                  placeholder="Item #"
+                  className="h-9"
                 />
               </div>
               <div className="mt-2 flex flex-wrap items-end gap-2">
