@@ -116,6 +116,15 @@ export function PriceListImporter() {
           </p>
         ) : (
           <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 p-3">
+              <p className="text-sm font-medium">
+                Step 2 — review {rows.length} product
+                {rows.length === 1 ? "" : "s"}, then click Import to save.
+              </p>
+              <Button type="button" onClick={doImport} disabled={importing}>
+                {importing ? "Importing…" : `Import ${rows.length} products`}
+              </Button>
+            </div>
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full text-sm">
                 <thead className="bg-muted/60 text-xs text-muted-foreground">
