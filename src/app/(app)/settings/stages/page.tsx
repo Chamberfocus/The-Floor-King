@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
 import { AddStageForm } from "./add-stage-form";
-import { StageRow } from "./stage-row";
+import { StageList } from "./stage-list";
 
 export const metadata: Metadata = { title: "Workflow stages" };
 
@@ -44,17 +44,7 @@ export default async function StagesPage() {
           No stages yet. Add your first one above.
         </div>
       ) : (
-        <div className="space-y-2">
-          {stages.map((s, i) => (
-            <StageRow
-              key={s.id}
-              stage={s}
-              members={members}
-              isFirst={i === 0}
-              isLast={i === stages.length - 1}
-            />
-          ))}
-        </div>
+        <StageList stages={stages} members={members} />
       )}
     </div>
   );

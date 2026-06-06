@@ -72,6 +72,19 @@ export async function deleteStage(formData: FormData): Promise<void> {
   refresh();
 }
 
+/** Persist a new stage order (drag-and-drop). */
+export async function reorderStages(orderedIds: string[]): Promise<void> {
+  if (!orderedIds?.length) return;
+  const supabase = await createClient();
+  for (let i = 0; i < orderedIds.length; i++) {
+    await supabase
+      .from("workflow_stages")
+      .update({ position: (i + 1) * 10 })
+      .eq("id", orderedIds[i]);
+  }
+  refresh();
+}
+
 export async function moveStage(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   const dir = str(formData.get("dir"));

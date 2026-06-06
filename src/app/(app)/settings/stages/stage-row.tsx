@@ -29,11 +29,13 @@ export function StageRow({
   members,
   isFirst,
   isLast,
+  hideMove,
 }: {
   stage: WorkflowStage;
   members: HandoffMember[];
   isFirst: boolean;
   isLast: boolean;
+  hideMove?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(updateStage, initialState);
   useEffect(() => {
@@ -42,35 +44,37 @@ export function StageRow({
   }, [state]);
 
   return (
-    <div className="flex items-center gap-2 rounded-md border p-2">
-      <div className="flex flex-col">
-        <form action={moveStage}>
-          <input type="hidden" name="id" value={stage.id} />
-          <input type="hidden" name="dir" value="up" />
-          <Button
-            type="submit"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Move up"
-            disabled={isFirst}
-          >
-            <ChevronUp className="size-3.5" />
-          </Button>
-        </form>
-        <form action={moveStage}>
-          <input type="hidden" name="id" value={stage.id} />
-          <input type="hidden" name="dir" value="down" />
-          <Button
-            type="submit"
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Move down"
-            disabled={isLast}
-          >
-            <ChevronDown className="size-3.5" />
-          </Button>
-        </form>
-      </div>
+    <div className="flex items-center gap-2 rounded-md border bg-card p-2">
+      {!hideMove ? (
+        <div className="flex flex-col">
+          <form action={moveStage}>
+            <input type="hidden" name="id" value={stage.id} />
+            <input type="hidden" name="dir" value="up" />
+            <Button
+              type="submit"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Move up"
+              disabled={isFirst}
+            >
+              <ChevronUp className="size-3.5" />
+            </Button>
+          </form>
+          <form action={moveStage}>
+            <input type="hidden" name="id" value={stage.id} />
+            <input type="hidden" name="dir" value="down" />
+            <Button
+              type="submit"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Move down"
+              disabled={isLast}
+            >
+              <ChevronDown className="size-3.5" />
+            </Button>
+          </form>
+        </div>
+      ) : null}
 
       <span
         className={cn(
