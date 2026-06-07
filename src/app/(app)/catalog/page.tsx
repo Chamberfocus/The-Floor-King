@@ -4,12 +4,17 @@ import { Plus, Upload } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { listProducts } from "@/lib/data/products";
+import { requireProfile } from "@/lib/auth";
 import { CatalogTable } from "./catalog-table";
+import { CatalogCleanup } from "./catalog-cleanup";
 
 export const metadata: Metadata = { title: "Catalog" };
 
 export default async function CatalogPage() {
-  const products = await listProducts();
+  const [products, profile] = await Promise.all([
+    listProducts(),
+    requireProfile(),
+  ]);
 
   return (
     <div>
@@ -44,7 +49,12 @@ export default async function CatalogPage() {
           </Link>
         </div>
       ) : (
-        <CatalogTable products={products} />
+        <div className="space-y-3">
+          {profile.role === "admin" ? (
+            <CatalogCleanup total={products.length} />
+          ) : null}
+          <CatalogTable products={products} />
+        </div>
       )}
     </div>
   );

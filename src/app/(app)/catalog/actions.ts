@@ -113,6 +113,67 @@ export async function updateProduct(
   return { error: null, ok: true };
 }
 
+/**
+ * Remove duplicate products, keeping the oldest of each set. Duplicates are
+ * matched on name + SKU + manufacturer + color (case-insensitive).
+ */
+export async function dedupeProducts(): Promise<{
+  error: string | null;
+  removed?: number;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, name, sku, manufacturer, color, created_at")
+    .order("created_at", { ascending: true });
+  if (error) return { error: error.message };
+
+  const seen = new Set<string>();
+  const toDelete: string[] = [];
+  for (const p of data ?? []) {
+    const key = [
+      (p.name ?? "").trim().toLowerCase(),
+      (p.sku ?? "").trim().toLowerCase(),
+      (p.manufacturer ?? "").trim().toLowerCase(),
+      (p.color ?? "").trim().toLowerCase(),
+    ].join("|");
+    if (seen.has(key)) toDelete.push(p.id as string);
+    else seen.add(key);
+  }
+  if (!toDelete.length) return { error: null, removed: 0 };
+
+  let removed = 0;
+  for (let i = 0; i < toDelete.length; i += 200) {
+    const batch = toDelete.slice(i, i + 200);
+    const { error: delErr } = await supabase
+      .from("products")
+      .delete()
+      .in("id", batch);
+    if (delErr) return { error: delErr.message, removed };
+    removed += batch.length;
+  }
+  revalidatePath("/catalog");
+  return { error: null, removed };
+}
+
+/** Delete every product (estimate lines keep their copied prices). */
+export async function clearCatalog(): Promise<{
+  error: string | null;
+  removed?: number;
+}> {
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("products")
+    .select("*", { count: "exact", head: true });
+  const { error } = await supabase
+    .from("products")
+    .delete()
+    .not("id", "is", null);
+  if (error) return { error: error.message };
+  revalidatePath("/catalog");
+  return { error: null, removed: count ?? 0 };
+}
+
 export async function deleteProduct(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   if (!id) return;

@@ -29,27 +29,16 @@ import {
   type WizardSubmit,
 } from "@/lib/estimate-calc";
 import {
-  PRODUCT_CATEGORY_LABELS,
   type EstimatePresentation,
   type MeasureUnit,
   type Product,
-  type ProductCategory,
   type WizardQuestion,
 } from "@/lib/types";
 import { createEstimateFromWizard } from "./actions";
+import { ProductPicker } from "./product-picker";
 
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
-/** Flooring types the quote builder offers (carpet defaults to sq yd). */
-const MATERIAL_TYPES: { id: ProductCategory; label: string }[] = [
-  { id: "carpet", label: "Carpet" },
-  { id: "lvp", label: "Luxury Vinyl" },
-  { id: "hardwood", label: "Hardwood" },
-  { id: "laminate", label: "Laminate" },
-  { id: "vinyl", label: "Sheet Vinyl" },
-  { id: "tile", label: "Tile" },
-];
 
 interface RoomState {
   key: string;
@@ -166,6 +155,9 @@ export function EstimateWizard({
   const keyCounter = useRef(0);
   const newKey = () => `r${keyCounter.current++}`;
 
+  // Catalog held in state so inline-added products show up immediately.
+  const [catalog, setCatalog] = useState<Product[]>(products);
+
   const emptyRoom = (): RoomState => ({
     key: newKey(),
     name: "",
@@ -248,29 +240,36 @@ export function EstimateWizard({
     });
   const removeRoom = (i: number) =>
     setRooms((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev));
-  const setCategory = (i: number, cat: string) => {
-    const label = MATERIAL_TYPES.find((m) => m.id === cat)?.label ?? "";
+  // Pick a catalog product for a room — fills category, unit, rates, and
+  // converts carpet to sq-yd pricing automatically.
+  const pickRoomProduct = (i: number, p: Product | null) => {
+    if (!p) {
+      updateRoom(i, { product_id: "" });
+      return;
+    }
+    const catalogUnit: MeasureUnit = (p.unit || "")
+      .toLowerCase()
+      .includes("yd")
+      ? "sqyd"
+      : "sqft";
+    const measure_unit: MeasureUnit =
+      p.category === "carpet" ? "sqyd" : catalogUnit;
+    const factor =
+      measure_unit === catalogUnit ? 1 : measure_unit === "sqyd" ? 9 : 1 / 9;
+    const round2 = (n: number) => String(Math.round(n * 100) / 100);
     updateRoom(i, {
-      category: cat,
-      measure_unit: cat === "carpet" ? "sqyd" : "sqft",
-      description: rooms[i].description || label,
-      product_id: "",
+      product_id: p.id,
+      category: p.category,
+      line_type: "mat_labor",
+      measure_unit,
+      material_rate: round2(p.material_rate * factor),
+      labor_rate: round2(p.labor_rate * factor),
+      description: rooms[i].description || p.name,
     });
   };
-  const applyProduct = (i: number, productId: string) => {
-    const p = products.find((x) => x.id === productId);
-    updateRoom(
-      i,
-      p
-        ? {
-            product_id: p.id,
-            material_rate: String(p.material_rate),
-            labor_rate: String(p.labor_rate),
-            line_type: "mat_labor",
-            description: rooms[i].description || p.name,
-          }
-        : { product_id: "" },
-    );
+  const handleRoomProductCreated = (i: number, p: Product) => {
+    setCatalog((prev) => [p, ...prev.filter((x) => x.id !== p.id)]);
+    pickRoomProduct(i, p);
   };
   const roomTargetMargin = (i: number, t: string) => {
     const r = rooms[i];
@@ -449,28 +448,20 @@ export function EstimateWizard({
               {rooms.map((r, i) => {
                 const cl = roomToCalc(r);
                 const sqyd = num(r.sqft) / 9;
-                const productOpts = products.filter(
-                  (p) => !r.category || p.category === r.category,
-                );
                 return (
                   <div key={r.key} className="space-y-2 rounded-md border p-3">
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      <select
-                        value={r.category}
-                        onChange={(e) => setCategory(i, e.target.value)}
-                        className={cn(inputSm, "w-full")}
-                      >
-                        <option value="">Material type…</option>
-                        {MATERIAL_TYPES.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </select>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <ProductPicker
+                        products={catalog}
+                        value={r.product_id}
+                        onPick={(p) => pickRoomProduct(i, p)}
+                        onCreated={(p) => handleRoomProductCreated(i, p)}
+                      />
                       <Input
                         value={r.name}
                         onChange={(e) => updateRoom(i, { name: e.target.value })}
                         placeholder="Room (e.g. Living Room)"
+                        className="w-40"
                       />
                       <Input
                         value={r.description}
@@ -478,6 +469,7 @@ export function EstimateWizard({
                           updateRoom(i, { description: e.target.value })
                         }
                         placeholder="Description"
+                        className="min-w-40 flex-1"
                       />
                     </div>
                     <div className="flex flex-wrap items-end gap-2">
@@ -526,25 +518,6 @@ export function EstimateWizard({
                           <option value="sqyd">sq yd</option>
                         </select>
                       </div>
-                      {productOpts.length ? (
-                        <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">
-                            Product
-                          </label>
-                          <select
-                            value={r.product_id}
-                            onChange={(e) => applyProduct(i, e.target.value)}
-                            className={cn(inputSm, "w-40")}
-                          >
-                            <option value="">— Manual —</option>
-                            {productOpts.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name} ({PRODUCT_CATEGORY_LABELS[p.category]})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : null}
                     </div>
                     <div className="flex flex-wrap items-end gap-2">
                       <RateField
