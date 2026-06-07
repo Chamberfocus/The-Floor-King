@@ -179,7 +179,8 @@ export async function startPriceListImport(input: {
   if (!text && !storagePath)
     return { error: "Nothing to import — choose a file or paste a list." };
 
-  const chunks = text ? chunkText(text) : [];
+  // Smaller chunks keep each AI call well under the function time limit.
+  const chunks = text ? chunkText(text, 5000) : [];
   const total = storagePath && !chunks.length ? 1 : chunks.length;
 
   const { data: job, error } = await supabase

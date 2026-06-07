@@ -74,24 +74,36 @@ async function insertProducts(
  */
 export async function processImportJobBatch(
   jobId: string,
-  budgetMs = 40_000,
-): Promise<{ done: boolean; error?: string }> {
+  budgetMs = 35_000,
+): Promise<{ done: boolean; busy?: boolean; error?: string }> {
   const admin = createAdminClient();
   const started = Date.now();
+  const nowIso = () => new Date().toISOString();
 
-  const { data: job, error: loadErr } = await admin
+  // Atomically CLAIM the job: take it only if it's queued, or if a prior runner
+  // crashed and left it "processing" but stale (>90s). This prevents two
+  // runners (e.g. two open tabs) from double-processing the same chunks.
+  const staleIso = new Date(Date.now() - 90_000).toISOString();
+  const { data: job } = await admin
     .from("import_jobs")
-    .select("*")
+    .update({ status: "processing", updated_at: nowIso() })
     .eq("id", jobId)
+    .or(`status.eq.queued,and(status.eq.processing,updated_at.lt.${staleIso})`)
+    .select(
+      "id, chunks, processed_chunks, imported_count, total_chunks, storage_path, storage_mime",
+    )
     .maybeSingle();
-  if (loadErr || !job) return { done: true, error: "Job not found." };
-  if (job.status === "done" || job.status === "error")
-    return { done: true };
-
-  await admin
-    .from("import_jobs")
-    .update({ status: "processing", updated_at: new Date().toISOString() })
-    .eq("id", jobId);
+  if (!job) {
+    // Either already done/error, or another runner holds it right now.
+    const { data: cur } = await admin
+      .from("import_jobs")
+      .select("status")
+      .eq("id", jobId)
+      .maybeSingle();
+    if (cur && (cur.status === "done" || cur.status === "error"))
+      return { done: true };
+    return { done: false, busy: true };
+  }
 
   const chunks: string[] = Array.isArray(job.chunks) ? job.chunks : [];
   let processed = job.processed_chunks ?? 0;
@@ -119,7 +131,7 @@ export async function processImportJobBatch(
           status: "done",
           processed_chunks: job.total_chunks || 1,
           imported_count: imported,
-          updated_at: new Date().toISOString(),
+          updated_at: nowIso(),
         })
         .eq("id", jobId);
       return { done: true };
@@ -128,13 +140,15 @@ export async function processImportJobBatch(
     // Text path: parse chunks one at a time within the time budget.
     while (processed < chunks.length) {
       if (Date.now() - started > budgetMs && processed > (job.processed_chunks ?? 0)) {
-        // Out of time this invocation — save progress and ask for a re-trigger.
+        // Out of time this invocation — release the job back to "queued" so the
+        // next nudge/cron picks it up and continues.
         await admin
           .from("import_jobs")
           .update({
+            status: "queued",
             processed_chunks: processed,
             imported_count: imported,
-            updated_at: new Date().toISOString(),
+            updated_at: nowIso(),
           })
           .eq("id", jobId);
         return { done: false };
@@ -145,9 +159,10 @@ export async function processImportJobBatch(
       await admin
         .from("import_jobs")
         .update({
+          status: "processing",
           processed_chunks: processed,
           imported_count: imported,
-          updated_at: new Date().toISOString(),
+          updated_at: nowIso(),
         })
         .eq("id", jobId);
     }
@@ -157,7 +172,7 @@ export async function processImportJobBatch(
       .update({
         status: "done",
         imported_count: imported,
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso(),
       })
       .eq("id", jobId);
     return { done: true };

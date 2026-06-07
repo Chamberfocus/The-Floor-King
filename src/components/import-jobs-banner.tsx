@@ -26,6 +26,25 @@ export function ImportJobsBanner() {
   const [finished, setFinished] = useState<ImportJob | null>(null);
   const mountedAt = useRef(new Date().toISOString());
   const notified = useRef<Set<string>>(new Set());
+  const nudging = useRef<Set<string>>(new Set());
+
+  // Drive a job forward: ask the worker to process one batch. Guarded so we
+  // never run two batches for the same job from this tab at once.
+  const nudge = async (jobId: string) => {
+    if (nudging.current.has(jobId)) return;
+    nudging.current.add(jobId);
+    try {
+      await fetch("/api/import/process", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobId }),
+      });
+    } catch {
+      /* the next poll will retry */
+    } finally {
+      nudging.current.delete(jobId);
+    }
+  };
 
   useEffect(() => {
     let stop = false;
@@ -36,6 +55,8 @@ export function ImportJobsBanner() {
         const { active, recent } = await getImportJobsState(mountedAt.current);
         if (stop) return;
         setActive(active);
+        // Keep each running job moving (server processes one batch per call).
+        for (const job of active) void nudge(job.id);
         for (const job of recent) {
           if (notified.current.has(job.id)) continue;
           notified.current.add(job.id);

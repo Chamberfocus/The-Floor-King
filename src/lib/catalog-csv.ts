@@ -81,20 +81,15 @@ function splitLine(line: string, delim: string): string[] {
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-// Header synonyms → our canonical column key.
-const HEADER_MAP: Record<string, string> = {};
-const addSyn = (key: string, syns: string[]) =>
-  syns.forEach((s) => (HEADER_MAP[norm(s)] = key));
-addSyn("name", ["name", "product", "productname", "item", "itemname", "description", "product description"]);
-addSyn("category", ["category", "type", "producttype", "flooringtype"]);
-addSyn("manufacturer", ["manufacturer", "mfg", "brand", "vendor", "supplier", "make"]);
-addSyn("style", ["style", "stylename", "pattern", "collection", "series"]);
-addSyn("color", ["color", "colour", "colorname", "shade", "finish"]);
-addSyn("sku", ["sku", "item", "itemno", "itemnumber", "itemnum", "partno", "partnumber", "stylenumber", "styleno", "stylenum"]);
-addSyn("unit", ["unit", "uom", "unitofmeasure", "priceper"]);
-addSyn("material_rate", ["materialrate", "material", "materialprice", "materialcost", "cost", "price", "unitprice", "yourcost", "matrate", "msrp"]);
-addSyn("labor_rate", ["laborrate", "labor", "labour", "laborprice", "laborcost", "install", "installrate", "installprice"]);
-addSyn("notes", ["notes", "note", "comments", "comment", "remarks"]);
+function normUnit(v: string): string {
+  const u = norm(v);
+  if (!u) return "sqft";
+  if (u.startsWith("sy") || u.includes("yd")) return "sqyd";
+  if (u.includes("sf") || u.includes("sq")) return "sqft";
+  if (u.includes("lf") || u.includes("lnft") || u.includes("linear")) return "lnft";
+  if (u.startsWith("ea") || u === "each" || u === "pc" || u === "piece") return "each";
+  return "sqft";
+}
 
 function mapCategory(v: string): string {
   const n = norm(v);
@@ -129,32 +124,62 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
   if (lines.length < 2) return null;
 
   const delim = lines[0].includes("\t") && !lines[0].includes(",") ? "\t" : ",";
-  const headerCells = splitLine(lines[0], delim);
-  const cols = headerCells.map((h) => HEADER_MAP[norm(h)] ?? null);
-  if (!cols.includes("name")) return null; // not a recognizable header row
+  const H = splitLine(lines[0], delim).map(norm);
 
-  const idx = (key: string) => cols.indexOf(key);
-  const iName = idx("name");
+  // Find the column index whose header matches any of these normalized names.
+  const col = (...names: string[]) => {
+    for (const n of names) {
+      const i = H.indexOf(norm(n));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+
+  const iName = col("name", "productname", "product", "itemname", "itemdescription", "description", "productdescription");
+  const iStyleName = col("stylename", "pattern", "collection", "series", "design");
+  const iColorName = col("colorname", "colourname", "shade", "finish");
+  const iStyleNum = col("style", "styleno", "stylenumber", "stylenum", "sku", "itemno", "itemnumber", "item", "partno", "partnumber", "productcode", "code");
+  const iColorNum = col("color", "colour", "colorno", "colornumber", "colorcode");
+  const iMfg = col("sellingcompanyname", "manufacturer", "mfg", "mfr", "brand", "vendor", "supplier", "make", "mill");
+  const iCat = col("category", "prodtype", "producttype", "type", "flooringtype", "productcategory");
+  const iUnit = col("unitofmeasure", "unit", "uom", "priceper", "sellunit");
+  const iPrice = col("unitprice", "materialrate", "material", "materialprice", "materialcost", "cost", "price", "yourcost", "msrp", "unitcost", "dealerprice", "netprice");
+  const iLabor = col("laborrate", "labor", "labour", "laborprice", "laborcost", "install", "installrate", "installprice");
+  const iSize = col("size", "dimensions", "sqftperbox");
+  const iNotes = col("notes", "note", "comments", "comment", "remarks");
+
+  // Need a price column AND a way to name the product, else it's not something
+  // we can safely parse without the AI.
+  const canName = iName >= 0 || iStyleName >= 0 || iStyleNum >= 0;
+  if (iPrice < 0 || !canName) return null;
+
   const rows: PriceRow[] = [];
   for (let r = 1; r < lines.length; r++) {
     const cells = splitLine(lines[r], delim);
-    const get = (key: string) => {
-      const i = idx(key);
-      return i >= 0 ? (cells[i] ?? "").trim() : "";
-    };
-    const name = (cells[iName] ?? "").trim();
+    const get = (i: number) => (i >= 0 ? (cells[i] ?? "").trim() : "");
+
+    const styleName = get(iStyleName);
+    const colorName = get(iColorName);
+    let name = get(iName);
+    if (!name) {
+      const sn = styleName || get(iStyleNum);
+      const cn = colorName || get(iColorNum);
+      name = [sn, cn].filter(Boolean).join(" ").trim();
+    }
     if (!name) continue;
+
+    const sizeNote = get(iSize);
     rows.push({
       name,
-      category: mapCategory(get("category")),
-      unit: get("unit") || "sqft",
-      sku: get("sku") || null,
-      material_rate: toNum(get("material_rate")),
-      labor_rate: toNum(get("labor_rate")),
-      manufacturer: get("manufacturer") || null,
-      style: get("style") || null,
-      color: get("color") || null,
-      notes: get("notes") || null,
+      category: mapCategory(get(iCat)),
+      unit: normUnit(get(iUnit)),
+      sku: get(iStyleNum) || null,
+      material_rate: toNum(get(iPrice)),
+      labor_rate: iLabor >= 0 ? toNum(get(iLabor)) : null,
+      manufacturer: get(iMfg) || null,
+      style: styleName || null,
+      color: colorName || null,
+      notes: get(iNotes) || (sizeNote ? `Size: ${sizeNote}` : null),
     });
   }
   return rows.length ? rows : null;
