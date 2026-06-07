@@ -1,9 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { Loader2, PackageCheck } from "lucide-react";
+import { CheckCircle2, Loader2, PackageCheck, XCircle } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { getImportJobsState } from "@/app/(app)/catalog/import-actions";
 import type { ImportJob } from "@/lib/data/import-jobs";
 
@@ -14,6 +23,7 @@ import type { ImportJob } from "@/lib/data/import-jobs";
 export function ImportJobsBanner() {
   const router = useRouter();
   const [active, setActive] = useState<ImportJob[]>([]);
+  const [finished, setFinished] = useState<ImportJob | null>(null);
   const mountedAt = useRef(new Date().toISOString());
   const notified = useRef<Set<string>>(new Set());
 
@@ -29,17 +39,8 @@ export function ImportJobsBanner() {
         for (const job of recent) {
           if (notified.current.has(job.id)) continue;
           notified.current.add(job.id);
-          if (job.status === "done") {
-            toast.success(
-              `Imported ${job.imported_count} product${
-                job.imported_count === 1 ? "" : "s"
-              } from ${job.label ?? "your price list"}`,
-            );
-          } else if (job.status === "error") {
-            toast.error(
-              `Import failed (${job.label ?? "price list"}): ${job.error ?? "unknown error"}`,
-            );
-          }
+          // Show a clear confirmation dialog (most recent wins).
+          setFinished(job);
           router.refresh();
         }
       } catch {
@@ -57,8 +58,88 @@ export function ImportJobsBanner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (active.length === 0) return null;
+  return (
+    <>
+      <CompletionDialog
+        job={finished}
+        onClose={() => setFinished(null)}
+      />
+      {active.length > 0 ? <ProgressBar active={active} /> : null}
+    </>
+  );
+}
 
+function CompletionDialog({
+  job,
+  onClose,
+}: {
+  job: ImportJob | null;
+  onClose: () => void;
+}) {
+  const ok = job?.status === "done";
+  return (
+    <Dialog open={!!job} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <div className="mb-1 flex items-center gap-2">
+            {ok ? (
+              <CheckCircle2 className="size-6 text-primary" />
+            ) : (
+              <XCircle className="size-6 text-destructive" />
+            )}
+            <DialogTitle>
+              {ok ? "Import complete" : "Import failed"}
+            </DialogTitle>
+          </div>
+          <DialogDescription>
+            {ok ? (
+              <>
+                Added{" "}
+                <strong className="text-foreground">
+                  {job?.imported_count} product
+                  {job?.imported_count === 1 ? "" : "s"}
+                </strong>{" "}
+                to your catalog from{" "}
+                <strong className="text-foreground">
+                  {job?.label ?? "your price list"}
+                </strong>
+                .
+              </>
+            ) : (
+              <>
+                We couldn&apos;t finish importing{" "}
+                <strong className="text-foreground">
+                  {job?.label ?? "your price list"}
+                </strong>
+                : {job?.error ?? "unknown error"}
+              </>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          {ok ? (
+            <>
+              <Button variant="outline" onClick={onClose}>
+                Keep working
+              </Button>
+              <Link
+                href="/catalog"
+                onClick={onClose}
+                className={buttonVariants()}
+              >
+                View catalog
+              </Link>
+            </>
+          ) : (
+            <Button onClick={onClose}>Got it</Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ProgressBar({ active }: { active: ImportJob[] }) {
   return (
     <div className="border-b bg-primary/5 px-4 py-2">
       <div className="mx-auto flex max-w-5xl flex-col gap-2">
