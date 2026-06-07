@@ -8,6 +8,7 @@ import {
   ShoppingCart,
   GitBranch,
   UserCog,
+  Truck,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -39,6 +40,12 @@ const SECTIONS = [
     icon: ShoppingCart,
     title: "Quote add-ons",
     desc: "Priced extras offered in the quote builder.",
+  },
+  {
+    href: "/settings/suppliers",
+    icon: Truck,
+    title: "Freight, fuel & quote terms",
+    desc: "Per-supplier freight, a global fuel surcharge, and quote validity.",
   },
   {
     href: "/settings/stages",

@@ -33,8 +33,10 @@ import {
   type EstimatePresentation,
   type MeasureUnit,
   type Product,
+  type Supplier,
   type WizardQuestion,
 } from "@/lib/types";
+import { landedCost, freightPctForManufacturer } from "@/lib/freight";
 import { createEstimateFromWizard } from "./actions";
 import { ProductPicker } from "./product-picker";
 
@@ -154,11 +156,15 @@ export function EstimateWizard({
   customerName,
   products,
   questions,
+  suppliers = [],
+  fuelPct = 0,
 }: {
   customerId: string;
   customerName: string;
   products: Product[];
   questions: WizardQuestion[];
+  suppliers?: Supplier[];
+  fuelPct?: number;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -287,7 +293,9 @@ export function EstimateWizard({
       p.category === "carpet" ? "sqyd" : catalogUnit;
     const factor =
       measure_unit === catalogUnit ? 1 : measure_unit === "sqyd" ? 9 : 1 / 9;
-    const round2 = (n: number) => Math.round(n * factor * 100) / 100;
+    // Material cost = product cost (unit-converted) + freight + fuel surcharge.
+    const baseCost = p.material_rate * factor;
+    const landed = landedCost(baseCost, p.manufacturer, suppliers, fuelPct);
     setRooms((prev) =>
       prev.map((r, j) => {
         if (j !== i) return r;
@@ -297,8 +305,8 @@ export function EstimateWizard({
           category: p.category,
           line_type: "mat_labor",
           measure_unit,
-          material_cost: String(round2(p.material_rate)),
-          labor_cost: p.labor_rate ? String(round2(p.labor_rate)) : r.labor_cost,
+          material_cost: String(landed),
+          labor_cost: r.labor_cost,
           description: r.description || p.name,
         };
         return { ...merged, ...repriced(merged) };
@@ -580,16 +588,30 @@ export function EstimateWizard({
                       const costUnit =
                         num(r.material_cost) + num(r.labor_cost);
                       const profit = total - lineCost(cl);
+                      const prod = catalog.find((x) => x.id === r.product_id);
+                      const freightPct = prod
+                        ? freightPctForManufacturer(prod.manufacturer, suppliers)
+                        : 0;
+                      const uplift = freightPct + fuelPct;
                       return (
                         <>
                           <div className="flex flex-wrap items-end gap-2">
-                            <RateField
-                              label={`Material cost /${unitLabel}`}
-                              value={r.material_cost}
-                              onChange={(v) =>
-                                updateRoomPricing(i, { material_cost: v })
-                              }
-                            />
+                            <div>
+                              <RateField
+                                label={`Material cost /${unitLabel}`}
+                                value={r.material_cost}
+                                onChange={(v) =>
+                                  updateRoomPricing(i, { material_cost: v })
+                                }
+                              />
+                              {prod && uplift > 0 ? (
+                                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                                  incl. {freightPct > 0 ? `${freightPct}% freight` : ""}
+                                  {freightPct > 0 && fuelPct > 0 ? " + " : ""}
+                                  {fuelPct > 0 ? `${fuelPct}% fuel` : ""}
+                                </p>
+                              ) : null}
+                            </div>
                             <RateField
                               label={`Labor cost /${unitLabel}`}
                               value={r.labor_cost}

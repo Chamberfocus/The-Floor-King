@@ -21,6 +21,21 @@ function toNumOrNull(v: string | number | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Quote expiration date = today + the org's quote_valid_days (default 30). */
+async function quoteValidUntil(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<string> {
+  const { data } = await supabase
+    .from("org_settings")
+    .select("quote_valid_days")
+    .eq("id", "default")
+    .maybeSingle();
+  const days = Number(data?.quote_valid_days) || 30;
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 /** Create a blank draft estimate for a customer and open the builder. */
 export async function createEstimate(formData: FormData): Promise<void> {
   const customerId = str(formData.get("customer_id"));
@@ -44,6 +59,7 @@ export async function createEstimate(formData: FormData): Promise<void> {
       customer_id: customerId,
       created_by: user?.id ?? null,
       title: "New estimate",
+      valid_until: await quoteValidUntil(supabase),
     })
     .select("id")
     .single();
@@ -272,6 +288,7 @@ export async function createEstimateFromWizard(
       tax_rate: num(input.tax_rate),
       presentation: input.presentation,
       job_description: jobDescription || null,
+      valid_until: await quoteValidUntil(supabase),
     })
     .select("id")
     .single();

@@ -1,0 +1,39 @@
+// Pure freight helpers — safe to use on the client.
+import type { Supplier } from "@/lib/types";
+
+/**
+ * Freight % for a product's manufacturer. Matches the supplier whose name is
+ * contained in (or equals) the manufacturer text — longest match wins, so
+ * "Shaw Resilient T&P" still maps to the "Shaw" supplier.
+ */
+export function freightPctForManufacturer(
+  manufacturer: string | null | undefined,
+  suppliers: Supplier[],
+): number {
+  const m = (manufacturer ?? "").toLowerCase().trim();
+  if (!m) return 0;
+  let best: Supplier | null = null;
+  for (const s of suppliers) {
+    const name = s.name.toLowerCase().trim();
+    if (!name) continue;
+    if (m.includes(name) || name.includes(m)) {
+      if (!best || s.name.length > best.name.length) best = s;
+    }
+  }
+  return best?.freight_pct ?? 0;
+}
+
+/**
+ * Landed material cost = product cost × (1 + freight% + fuel%).
+ * Freight is matched per supplier; fuel is the global surcharge.
+ */
+export function landedCost(
+  productCost: number,
+  manufacturer: string | null | undefined,
+  suppliers: Supplier[],
+  fuelPct: number,
+): number {
+  const freight = freightPctForManufacturer(manufacturer, suppliers);
+  const mult = 1 + (freight + (fuelPct || 0)) / 100;
+  return Math.round(productCost * mult * 100) / 100;
+}

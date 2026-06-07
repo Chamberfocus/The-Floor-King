@@ -30,6 +30,19 @@ export interface OrgSettings {
   address: string | null;
   financing_url: string | null;
   google_review_url: string | null;
+  fuel_surcharge_pct: number;
+  quote_valid_days: number;
+  freight_disclaimer: string | null;
+  updated_at: string;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  freight_pct: number;
+  freight_per_unit: number;
+  notes: string | null;
+  created_at: string;
   updated_at: string;
 }
 
@@ -294,6 +307,7 @@ export interface Estimate {
   notes: string | null;
   job_description: string | null;
   customer_response_note: string | null;
+  valid_until: string | null;
   sent_at: string | null;
   thankyou_sent_at: string | null;
   viewed_at: string | null;

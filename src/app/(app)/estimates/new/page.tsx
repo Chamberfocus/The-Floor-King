@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/page-header";
 import { getCustomer } from "@/lib/data/customers";
 import { listProducts } from "@/lib/data/products";
 import { listWizardQuestions } from "@/lib/data/wizard";
+import { listSuppliers } from "@/lib/data/suppliers";
+import { getOrgSettings } from "@/lib/data/org";
 import { EstimateWizard } from "../estimate-wizard";
 import { createEstimate } from "../actions";
 
@@ -22,9 +24,11 @@ export default async function NewEstimatePage({
   const customer = await getCustomer(customerId);
   if (!customer) notFound();
 
-  const [products, questions] = await Promise.all([
+  const [products, questions, suppliers, org] = await Promise.all([
     listProducts({ activeOnly: true }),
     listWizardQuestions({ activeOnly: true }),
+    listSuppliers(),
+    getOrgSettings(),
   ]);
 
   return (
@@ -57,6 +61,8 @@ export default async function NewEstimatePage({
         customerName={customer.full_name}
         products={products}
         questions={questions}
+        suppliers={suppliers}
+        fuelPct={org.fuel_surcharge_pct}
       />
     </div>
   );

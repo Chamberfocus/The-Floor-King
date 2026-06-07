@@ -49,12 +49,33 @@ export default async function PortalEstimatePage({
         <ArrowLeft className="size-4" /> Back
       </Link>
 
-      <div className="mb-6 flex items-center gap-3">
+      <div className="mb-2 flex items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">
           {estimate.title || "Estimate"}
         </h1>
         <EstimateStatusBadge status={estimate.status} />
       </div>
+
+      {estimate.valid_until
+        ? (() => {
+            const expired =
+              new Date(estimate.valid_until) <
+              new Date(new Date().toISOString().slice(0, 10));
+            return (
+              <p
+                className={
+                  expired
+                    ? "mb-6 text-sm font-medium text-destructive"
+                    : "mb-6 text-sm text-muted-foreground"
+                }
+              >
+                {expired
+                  ? `This quote expired on ${estimate.valid_until} — please contact us for current pricing.`
+                  : `Valid until ${estimate.valid_until}.`}
+              </p>
+            );
+          })()
+        : null}
 
       {estimate.job_description ? (
         <Card className="mb-6">
@@ -219,6 +240,12 @@ export default async function PortalEstimatePage({
             </details>
           </CardContent>
         </Card>
+      ) : null}
+
+      {org.freight_disclaimer ? (
+        <p className="mt-6 text-xs text-muted-foreground">
+          {org.freight_disclaimer}
+        </p>
       ) : null}
     </div>
   );
