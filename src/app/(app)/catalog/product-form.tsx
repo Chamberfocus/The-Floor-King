@@ -103,6 +103,33 @@ export function ProductForm({ product }: { product?: Product }) {
           <Label htmlFor="sku">SKU / item # (optional)</Label>
           <Input id="sku" name="sku" defaultValue={product?.sku ?? ""} />
         </div>
+        <div className="space-y-2">
+          <Label htmlFor="manufacturer">Manufacturer</Label>
+          <Input
+            id="manufacturer"
+            name="manufacturer"
+            defaultValue={product?.manufacturer ?? ""}
+            placeholder="e.g. Mohawk, Shaw"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="style">Style</Label>
+          <Input
+            id="style"
+            name="style"
+            defaultValue={product?.style ?? ""}
+            placeholder="e.g. RevWood"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="color">Color</Label>
+          <Input
+            id="color"
+            name="color"
+            defaultValue={product?.color ?? ""}
+            placeholder="e.g. Honey Oak"
+          />
+        </div>
         {isEdit ? (
           <div className="flex items-end">
             <label className="flex items-center gap-2 text-sm">

@@ -19,7 +19,6 @@ import {
 } from "@/lib/estimate-calc";
 import {
   LINE_TYPE_LABELS,
-  PRODUCT_CATEGORY_LABELS,
   type Estimate,
   type EstimatePresentation,
   type LineType,
@@ -27,6 +26,7 @@ import {
   type Product,
 } from "@/lib/types";
 import { saveEstimate } from "./actions";
+import { ProductPicker } from "./product-picker";
 
 interface LineState {
   key: string;
@@ -128,6 +128,9 @@ export function EstimateBuilder({
   const [isPending, startTransition] = useTransition();
   const keyCounter = useRef(0);
   const newKey = () => `k${keyCounter.current++}`;
+
+  // Catalog held in state so products added inline appear everywhere at once.
+  const [catalog, setCatalog] = useState<Product[]>(products);
 
   const emptyLine = (): LineState => ({
     key: newKey(),
@@ -284,31 +287,45 @@ export function EstimateBuilder({
       ),
     );
 
-  const applyProduct = (oi: number, li: number, productId: string) => {
-    const p = products.find((x) => x.id === productId);
-    updateLine(oi, li, p
-      ? {
-          product_id: p.id,
-          material_rate: String(p.material_rate),
-          labor_rate: String(p.labor_rate),
-        }
-      : { product_id: "" });
-    if (p) {
-      setOptions((prev) =>
-        prev.map((o, i) =>
-          i === oi
-            ? {
-                ...o,
-                lines: o.lines.map((l, j) =>
-                  j === li && !l.description
-                    ? { ...l, description: p.name }
-                    : l,
-                ),
-              }
-            : o,
-        ),
-      );
+  // Pick a catalog product for a line — fills every field the catalog knows.
+  const pickProduct = (oi: number, li: number, p: Product | null) => {
+    if (!p) {
+      updateLine(oi, li, { product_id: "" });
+      return;
     }
+    const unit = (p.unit || "").toLowerCase();
+    const measure_unit: MeasureUnit = unit.includes("yd") ? "sqyd" : "sqft";
+    setOptions((prev) =>
+      prev.map((o, i) =>
+        i === oi
+          ? {
+              ...o,
+              lines: o.lines.map((l, j) =>
+                j === li
+                  ? {
+                      ...l,
+                      product_id: p.id,
+                      material_rate: String(p.material_rate),
+                      labor_rate: String(p.labor_rate),
+                      manufacturer: p.manufacturer ?? l.manufacturer,
+                      style: p.style ?? l.style,
+                      color: p.color ?? l.color,
+                      item_no: p.sku ?? l.item_no,
+                      measure_unit,
+                      description: l.description || p.name,
+                    }
+                  : l,
+              ),
+            }
+          : o,
+      ),
+    );
+  };
+
+  // A product created inline: add it to the catalog and apply it to the line.
+  const handleProductCreated = (oi: number, li: number, p: Product) => {
+    setCatalog((prev) => [p, ...prev.filter((x) => x.id !== p.id)]);
+    pickProduct(oi, li, p);
   };
 
   const buildInput = (): SaveEstimateInput => ({
@@ -626,26 +643,13 @@ export function EstimateBuilder({
                         </>
                       ) : null}
 
-                      {line.line_type !== "flat" && products.length ? (
-                        <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">
-                            Product
-                          </label>
-                          <select
-                            value={line.product_id}
-                            onChange={(e) =>
-                              applyProduct(oi, li, e.target.value)
-                            }
-                            className={cn(inputSm, "w-44")}
-                          >
-                            <option value="">— Manual —</option>
-                            {products.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name} ({PRODUCT_CATEGORY_LABELS[p.category]})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                      {line.line_type !== "flat" ? (
+                        <ProductPicker
+                          products={catalog}
+                          value={line.product_id}
+                          onPick={(p) => pickProduct(oi, li, p)}
+                          onCreated={(p) => handleProductCreated(oi, li, p)}
+                        />
                       ) : null}
 
                       {line.line_type === "mat_labor" ? (

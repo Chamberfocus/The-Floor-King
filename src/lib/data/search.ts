@@ -151,6 +151,9 @@ export async function searchProducts(qRaw: string): Promise<Product[]> {
   const orParts = [
     `name.ilike.${like}`,
     `sku.ilike.${like}`,
+    `manufacturer.ilike.${like}`,
+    `style.ilike.${like}`,
+    `color.ilike.${like}`,
     `notes.ilike.${like}`,
   ];
   if (matchingCategories.length)

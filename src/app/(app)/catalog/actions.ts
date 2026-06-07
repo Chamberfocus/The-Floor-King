@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { ProductCategory } from "@/lib/types";
+import type { Product, ProductCategory } from "@/lib/types";
 
 export interface ProductFormState {
   error: string | null;
@@ -26,6 +26,9 @@ function readFields(formData: FormData) {
     material_rate: money(formData.get("material_rate")),
     labor_rate: money(formData.get("labor_rate")),
     sku: str(formData.get("sku")) || null,
+    manufacturer: str(formData.get("manufacturer")) || null,
+    style: str(formData.get("style")) || null,
+    color: str(formData.get("color")) || null,
     notes: str(formData.get("notes")) || null,
   };
 }
@@ -43,6 +46,51 @@ export async function createProduct(
 
   revalidatePath("/catalog");
   redirect("/catalog");
+}
+
+/**
+ * Create a product and return it — used by the estimate wizard's "add new
+ * product" so a material entered on a line is saved to the catalog and linked.
+ */
+export async function createProductInline(input: {
+  name: string;
+  category?: string;
+  unit?: string;
+  material_rate?: number | string;
+  labor_rate?: number | string;
+  sku?: string;
+  manufacturer?: string;
+  style?: string;
+  color?: string;
+}): Promise<{ error: string | null; product?: Product }> {
+  const name = input.name?.trim();
+  if (!name) return { error: "A product name is required." };
+
+  const numOr0 = (v: number | string | undefined) => {
+    const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("products")
+    .insert({
+      name,
+      category: (input.category || "other") as ProductCategory,
+      unit: input.unit?.trim() || "sqft",
+      material_rate: numOr0(input.material_rate),
+      labor_rate: numOr0(input.labor_rate),
+      sku: input.sku?.trim() || null,
+      manufacturer: input.manufacturer?.trim() || null,
+      style: input.style?.trim() || null,
+      color: input.color?.trim() || null,
+    })
+    .select("*")
+    .single();
+  if (error) return { error: error.message };
+
+  revalidatePath("/catalog");
+  return { error: null, product: data as Product };
 }
 
 export async function updateProduct(

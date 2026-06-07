@@ -235,6 +235,9 @@ export interface Product {
   material_rate: number;
   labor_rate: number;
   sku: string | null;
+  manufacturer: string | null;
+  style: string | null;
+  color: string | null;
   notes: string | null;
   active: boolean;
   created_at: string;

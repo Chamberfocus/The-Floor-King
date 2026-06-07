@@ -26,6 +26,9 @@ export function CatalogTable({ products }: { products: Product[] }) {
       [
         p.name,
         p.sku ?? "",
+        p.manufacturer ?? "",
+        p.style ?? "",
+        p.color ?? "",
         p.unit,
         p.notes ?? "",
         PRODUCT_CATEGORY_LABELS[p.category],
