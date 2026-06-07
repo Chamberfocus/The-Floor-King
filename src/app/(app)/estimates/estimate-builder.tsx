@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import {
   lineTotal,
+  lineQty,
   optionTotals,
   num,
   type SaveEstimateInput,
@@ -293,8 +294,20 @@ export function EstimateBuilder({
       updateLine(oi, li, { product_id: "" });
       return;
     }
-    const unit = (p.unit || "").toLowerCase();
-    const measure_unit: MeasureUnit = unit.includes("yd") ? "sqyd" : "sqft";
+    // The catalog rate is in the product's own unit. Carpet is quoted by the
+    // square yard, so for carpet we switch the line to sq yd and convert the
+    // rate (×9 if the catalog price was per sq ft) so the math stays correct.
+    const catalogUnit: MeasureUnit = (p.unit || "")
+      .toLowerCase()
+      .includes("yd")
+      ? "sqyd"
+      : "sqft";
+    const measure_unit: MeasureUnit =
+      p.category === "carpet" ? "sqyd" : catalogUnit;
+    const factor =
+      measure_unit === catalogUnit ? 1 : measure_unit === "sqyd" ? 9 : 1 / 9;
+    const round2 = (n: number) => String(Math.round(n * 100) / 100);
+
     setOptions((prev) =>
       prev.map((o, i) =>
         i === oi
@@ -305,8 +318,8 @@ export function EstimateBuilder({
                   ? {
                       ...l,
                       product_id: p.id,
-                      material_rate: String(p.material_rate),
-                      labor_rate: String(p.labor_rate),
+                      material_rate: round2(p.material_rate * factor),
+                      labor_rate: round2(p.labor_rate * factor),
                       manufacturer: p.manufacturer ?? l.manufacturer,
                       style: p.style ?? l.style,
                       color: p.color ?? l.color,
@@ -696,24 +709,35 @@ export function EstimateBuilder({
                         />
                       ) : null}
 
-                      <div className="ml-auto text-right">
-                        <div className="text-xs text-muted-foreground">
-                          Line total
-                        </div>
-                        <div className="font-semibold">
-                          {formatMoney(
-                            lineTotal({
-                              line_type: line.line_type,
-                              sqft: line.sqft,
-                              measure_unit: line.measure_unit,
-                              material_rate: line.material_rate,
-                              labor_rate: line.labor_rate,
-                              installed_rate: line.installed_rate,
-                              flat_amount: line.flat_amount,
-                            }),
-                          )}
-                        </div>
-                      </div>
+                      {(() => {
+                        const calc = {
+                          line_type: line.line_type,
+                          sqft: line.sqft,
+                          measure_unit: line.measure_unit,
+                          material_rate: line.material_rate,
+                          labor_rate: line.labor_rate,
+                          installed_rate: line.installed_rate,
+                          flat_amount: line.flat_amount,
+                        };
+                        const qty = lineQty(calc);
+                        const unitLabel =
+                          line.measure_unit === "sqyd" ? "sq yd" : "sq ft";
+                        return (
+                          <div className="ml-auto text-right">
+                            <div className="text-xs text-muted-foreground">
+                              Line total
+                            </div>
+                            <div className="font-semibold">
+                              {formatMoney(lineTotal(calc))}
+                            </div>
+                            {line.line_type !== "flat" && qty > 0 ? (
+                              <div className="text-[11px] tabular-nums text-muted-foreground">
+                                {qty.toFixed(qty < 100 ? 1 : 0)} {unitLabel}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
                       <Button
                         type="button"
                         variant="ghost"
