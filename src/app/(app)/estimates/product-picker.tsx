@@ -37,12 +37,19 @@ export function ProductPicker({
   onPick: (product: Product | null) => void;
   onCreated: (product: Product) => void;
 }) {
+  const selected = products.find((p) => p.id === value) ?? null;
+
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(selected ? productLabel(selected) : "");
   const boxRef = useRef<HTMLDivElement>(null);
 
-  const selected = products.find((p) => p.id === value) ?? null;
+  // Keep the input text in sync when the line's product changes elsewhere
+  // (e.g. picking a product, duplicating a line, or adding one inline).
+  useEffect(() => {
+    setQ(selected ? productLabel(selected) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
 
   // Close when clicking outside.
   useEffect(() => {
@@ -51,15 +58,19 @@ export function ProductPicker({
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
         setOpen(false);
         setAdding(false);
+        // Restore the selected product's label if they didn't pick anything.
+        setQ(selected ? productLabel(selected) : "");
       }
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+  }, [open, selected]);
 
   const matches = useMemo(() => {
     const term = q.trim().toLowerCase();
-    if (!term) return products.slice(0, 30);
+    const selLabel = selected ? productLabel(selected).toLowerCase() : "";
+    // No query yet (or just the current selection showing) → browse the catalog.
+    if (!term || term === selLabel) return products.slice(0, 40);
     return products
       .filter((p) =>
         [
@@ -74,42 +85,49 @@ export function ProductPicker({
           .toLowerCase()
           .includes(term),
       )
-      .slice(0, 40);
-  }, [products, q]);
+      .slice(0, 50);
+  }, [products, q, selected]);
 
   return (
     <div ref={boxRef} className="relative">
       <label className="mb-1 block text-xs text-muted-foreground">
         Material (from catalog)
       </label>
-      <button
-        type="button"
-        onClick={() => {
-          setOpen((v) => !v);
-          setAdding(false);
-        }}
-        className={cn(
-          inputSm,
-          "flex w-56 items-center justify-between gap-1 text-left",
-          !selected && "text-muted-foreground",
+      <div className="relative w-56">
+        <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setOpen(true);
+            setAdding(false);
+          }}
+          onFocus={(e) => {
+            setOpen(true);
+            e.currentTarget.select();
+          }}
+          placeholder="Type a product name…"
+          className={cn(inputSm, "w-56 pl-8 pr-7")}
+        />
+        {selected ? (
+          <button
+            type="button"
+            onClick={() => {
+              onPick(null);
+              setQ("");
+              setOpen(false);
+            }}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            aria-label="Clear product"
+          >
+            <X className="size-4" />
+          </button>
+        ) : (
+          <ChevronDown
+            className="pointer-events-none absolute right-1.5 top-1/2 size-4 -translate-y-1/2 opacity-50"
+          />
         )}
-      >
-        <span className="truncate">
-          {selected ? productLabel(selected) : "Search or add…"}
-        </span>
-        <ChevronDown className="size-4 shrink-0 opacity-60" />
-      </button>
-
-      {selected ? (
-        <button
-          type="button"
-          onClick={() => onPick(null)}
-          className="absolute -right-5 top-7 text-muted-foreground hover:text-foreground"
-          aria-label="Clear product"
-        >
-          <X className="size-4" />
-        </button>
-      ) : null}
+      </div>
 
       {open ? (
         <div className="absolute z-30 mt-1 w-80 rounded-md border bg-popover shadow-lg">
@@ -121,21 +139,10 @@ export function ProductPicker({
                 onCreated(p);
                 setOpen(false);
                 setAdding(false);
-                setQ("");
               }}
             />
           ) : (
             <>
-              <div className="relative border-b p-2">
-                <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  autoFocus
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search the catalog…"
-                  className={cn(inputSm, "w-full pl-8")}
-                />
-              </div>
               <div className="max-h-64 overflow-y-auto py-1">
                 {matches.length === 0 ? (
                   <p className="px-3 py-3 text-sm text-muted-foreground">
