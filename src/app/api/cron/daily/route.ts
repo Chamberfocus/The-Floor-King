@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
+import { triggerImportProcessing } from "@/lib/import-worker";
 
 export const dynamic = "force-dynamic";
 
@@ -118,5 +119,18 @@ export async function GET(request: NextRequest) {
     reminders += 1;
   }
 
-  return NextResponse.json({ ok: true, thankyou, reminders });
+  // --- Safety net: resume any import job that stalled (e.g. a dropped trigger) ---
+  let resumed = 0;
+  const staleCutoff = new Date(now - 3 * 60 * 1000).toISOString();
+  const { data: stalled } = await admin
+    .from("import_jobs")
+    .select("id")
+    .in("status", ["queued", "processing"])
+    .lt("updated_at", staleCutoff);
+  for (const job of stalled ?? []) {
+    await triggerImportProcessing(job.id as string);
+    resumed += 1;
+  }
+
+  return NextResponse.json({ ok: true, thankyou, reminders, resumed });
 }

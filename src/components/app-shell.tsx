@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { GlobalSearch } from "@/components/global-search";
+import { ImportJobsBanner } from "@/components/import-jobs-banner";
 import { cn } from "@/lib/utils";
 import { APP_NAME, COMPANY_NAME, navItemsForRole } from "@/lib/nav";
 import { ROLE_LABELS, type OrgSettings, type Profile } from "@/lib/types";
@@ -171,6 +172,8 @@ export function AppShell({
           </div>
           <GlobalSearch className="w-full max-w-xl" />
         </header>
+
+        {profile.role !== "customer" ? <ImportJobsBanner /> : null}
 
         <main className="flex-1 overflow-y-auto p-4 md:p-8">{children}</main>
       </div>

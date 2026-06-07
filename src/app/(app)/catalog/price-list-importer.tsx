@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Sparkles, Upload, Trash2, FileUp, X } from "lucide-react";
+import { Sparkles, Upload, Trash2, FileUp, X, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -13,7 +13,11 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { pdfToText, spreadsheetToText, chunkText } from "@/lib/pdf-client";
 import type { PriceRow } from "@/lib/extract";
-import { parsePriceList, importProducts } from "./import-actions";
+import {
+  parsePriceList,
+  importProducts,
+  startPriceListImport,
+} from "./import-actions";
 
 const inputSm =
   "h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -26,8 +30,109 @@ export function PriceListImporter() {
   const [dragOver, setDragOver] = useState(false);
   const [reading, startReading] = useTransition();
   const [importing, startImport] = useTransition();
+  const [queueing, startQueue] = useTransition();
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Extract a file/paste to plain text in the browser, or (for images/scanned
+  // docs) upload it to storage and return a path the server worker can read.
+  const toTextOrStorage = async (): Promise<{
+    label: string;
+    text?: string;
+    storagePath?: string;
+    storageMime?: string;
+  } | null> => {
+    const f = file;
+    const pasted = textRef.current?.value ?? "";
+    const name = (f?.name ?? "").toLowerCase();
+    const type = f?.type ?? "";
+    const isPdf = type === "application/pdf" || name.endsWith(".pdf");
+    const isExcel =
+      name.endsWith(".xlsx") ||
+      name.endsWith(".xls") ||
+      type.includes("spreadsheet") ||
+      type.includes("excel");
+    const isCsvTxt =
+      name.endsWith(".csv") ||
+      name.endsWith(".txt") ||
+      type === "text/csv" ||
+      type === "text/plain";
+    const isImage = type.startsWith("image/");
+
+    if (f && isPdf) {
+      setStatus("Reading the PDF in your browser…");
+      let text = "";
+      try {
+        text = (await pdfToText(f)).text;
+      } catch {
+        /* fall through to image mode */
+      }
+      if (text.trim().length >= 20) return { label: f.name, text };
+      // Scanned PDF — upload so the server can read it as an image.
+      const path = await uploadToStorage(f);
+      return path ? { label: f.name, storagePath: path, storageMime: f.type } : null;
+    }
+    if (f && isExcel) {
+      setStatus("Reading the spreadsheet in your browser…");
+      return { label: f.name, text: await spreadsheetToText(f) };
+    }
+    if (f && isCsvTxt) {
+      return { label: f.name, text: await f.text() };
+    }
+    if (f && isImage) {
+      const path = await uploadToStorage(f);
+      return path ? { label: f.name, storagePath: path, storageMime: f.type } : null;
+    }
+    if (f) {
+      const text = await f.text().catch(() => "");
+      if (text.trim().length >= 20) return { label: f.name, text };
+      const path = await uploadToStorage(f);
+      return path ? { label: f.name, storagePath: path, storageMime: f.type } : null;
+    }
+    if (pasted.trim()) return { label: "Pasted price list", text: pasted };
+    return null;
+  };
+
+  const uploadToStorage = async (f: File): Promise<string | null> => {
+    const supabase = createClient();
+    const path = `imports/${crypto.randomUUID()}-${f.name}`;
+    const { error: upErr } = await supabase.storage
+      .from("documents")
+      .upload(path, f, { contentType: f.type || undefined });
+    if (upErr) {
+      toast.error(`Upload failed: ${upErr.message}`);
+      return null;
+    }
+    return path;
+  };
+
+  const importInBackground = () =>
+    startQueue(async () => {
+      setStatus(null);
+      try {
+        const payload = await toTextOrStorage();
+        if (!payload) {
+          toast.error("Choose a file or paste a price list first.");
+          return;
+        }
+        const res = await startPriceListImport(payload);
+        if (res.error) {
+          toast.error(res.error);
+          return;
+        }
+        toast.success(
+          "Importing in the background — you can keep working. We'll let you know when it's done.",
+        );
+        // Clear the form and head to the catalog so they can carry on.
+        setFile(null);
+        if (fileRef.current) fileRef.current.value = "";
+        if (textRef.current) textRef.current.value = "";
+        setStatus(null);
+        router.push("/catalog");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Couldn't start the import.");
+      }
+    });
 
   const parseTextChunks = async (text: string): Promise<PriceRow[]> => {
     const chunks = chunkText(text);
@@ -248,17 +353,45 @@ export function PriceListImporter() {
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
         </div>
-        <Button type="button" onClick={read} disabled={reading}>
-          {reading ? (
-            <>
-              <Sparkles className="size-4 animate-pulse" /> Reading…
-            </>
-          ) : (
-            <>
-              <Upload className="size-4" /> Read price list
-            </>
-          )}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            onClick={importInBackground}
+            disabled={queueing || reading}
+          >
+            {queueing ? (
+              <>
+                <Sparkles className="size-4 animate-pulse" /> Starting…
+              </>
+            ) : (
+              <>
+                <Rocket className="size-4" /> Import in background
+              </>
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={read}
+            disabled={reading || queueing}
+          >
+            {reading ? (
+              <>
+                <Sparkles className="size-4 animate-pulse" /> Reading…
+              </>
+            ) : (
+              <>
+                <Upload className="size-4" /> Read &amp; review first
+              </>
+            )}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          <strong>Import in background</strong> parses and adds everything for
+          you while you keep working — best for big lists.{" "}
+          <strong>Read &amp; review first</strong> lets you check and edit each
+          product before saving.
+        </p>
         {status ? (
           <p className="text-xs text-muted-foreground">{status}</p>
         ) : null}

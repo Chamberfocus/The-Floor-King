@@ -1,9 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { extractPriceList, type PriceRow } from "@/lib/extract";
 import { PRODUCT_CATEGORY_ORDER, type ProductCategory } from "@/lib/types";
+import { chunkText } from "@/lib/pdf-client";
+import { triggerImportProcessing } from "@/lib/import-worker";
+import {
+  listActiveImportJobs,
+  listRecentImportJobs,
+  type ImportJob,
+} from "@/lib/data/import-jobs";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -134,6 +142,77 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
   }
 
   return { error: "Paste a price list or choose a file." };
+}
+
+export interface StartImportResult {
+  error: string | null;
+  jobId?: string;
+  chunks?: number;
+}
+
+/**
+ * Queue a price list to import in the background. The browser has already
+ * extracted the text (or uploaded an image to storage); we chunk it, create an
+ * import_jobs row, and kick off the server-side worker — so the user can keep
+ * working while it parses and imports.
+ */
+export async function startPriceListImport(input: {
+  label?: string;
+  text?: string;
+  storagePath?: string;
+  storageMime?: string;
+}): Promise<StartImportResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  if (!process.env.ANTHROPIC_API_KEY)
+    return {
+      error:
+        "Background import needs the AI key (ANTHROPIC_API_KEY in Vercel).",
+    };
+
+  const text = (input.text ?? "").trim();
+  const storagePath = (input.storagePath ?? "").trim();
+  if (!text && !storagePath)
+    return { error: "Nothing to import — choose a file or paste a list." };
+
+  const chunks = text ? chunkText(text) : [];
+  const total = storagePath && !chunks.length ? 1 : chunks.length;
+
+  const { data: job, error } = await supabase
+    .from("import_jobs")
+    .insert({
+      kind: "price_list",
+      label: input.label || "Price list",
+      status: "queued",
+      total_chunks: total,
+      chunks,
+      storage_path: storagePath || null,
+      storage_mime: input.storageMime || null,
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
+  if (error || !job) return { error: error?.message || "Couldn't queue import." };
+
+  // Start the worker after the response is sent (doesn't block the user).
+  after(() => triggerImportProcessing(job.id));
+
+  return { error: null, jobId: job.id, chunks: total };
+}
+
+/** Snapshot of import jobs for the live progress banner. */
+export async function getImportJobsState(
+  sinceIso: string,
+): Promise<{ active: ImportJob[]; recent: ImportJob[] }> {
+  const [active, recent] = await Promise.all([
+    listActiveImportJobs(),
+    listRecentImportJobs(sinceIso),
+  ]);
+  return { active, recent };
 }
 
 export interface ImportResult {
