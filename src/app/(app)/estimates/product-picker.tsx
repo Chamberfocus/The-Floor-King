@@ -42,7 +42,9 @@ export function ProductPicker({
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [q, setQ] = useState(selected ? productLabel(selected) : "");
+  const [activeIndex, setActiveIndex] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Keep the input text in sync when the line's product changes elsewhere
   // (e.g. picking a product, duplicating a line, or adding one inline).
@@ -88,6 +90,51 @@ export function ProductPicker({
       .slice(0, 50);
   }, [products, q, selected]);
 
+  // Reset the highlight when the list changes; keep it in range.
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [q, open]);
+
+  // Keep the highlighted row scrolled into view.
+  useEffect(() => {
+    if (!open || adding) return;
+    const el = listRef.current?.children[activeIndex] as
+      | HTMLElement
+      | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, open, adding]);
+
+  // total = number of product rows; index === total is the "Add to catalog" row.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!open) {
+        setOpen(true);
+        return;
+      }
+      setActiveIndex((i) => Math.min(i + 1, matches.length));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      if (!open || adding) return;
+      e.preventDefault();
+      if (activeIndex < matches.length) {
+        const p = matches[activeIndex];
+        if (p) {
+          onPick(p);
+          setOpen(false);
+        }
+      } else {
+        setAdding(true); // highlighted the "Add to catalog" row
+      }
+    } else if (e.key === "Escape") {
+      setOpen(false);
+      setAdding(false);
+      setQ(selected ? productLabel(selected) : "");
+    }
+  };
+
   return (
     <div ref={boxRef} className="relative">
       <label className="mb-1 block text-xs text-muted-foreground">
@@ -106,6 +153,7 @@ export function ProductPicker({
             setOpen(true);
             e.currentTarget.select();
           }}
+          onKeyDown={onKeyDown}
           placeholder="Type a product name…"
           className={cn(inputSm, "w-72 pl-8 pr-7")}
         />
@@ -143,60 +191,82 @@ export function ProductPicker({
             />
           ) : (
             <>
-              <div className="max-h-64 overflow-y-auto py-1">
+              <div ref={listRef} className="max-h-64 overflow-y-auto py-1">
                 {matches.length === 0 ? (
                   <p className="px-3 py-3 text-sm text-muted-foreground">
                     No match in the catalog.
                   </p>
                 ) : (
-                  matches.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => {
-                        onPick(p);
-                        setOpen(false);
-                      }}
-                      className="flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted/60"
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-1 font-medium">
-                          {p.id === value ? (
-                            <Check className="size-3.5 shrink-0 text-primary" />
-                          ) : null}
-                          <span className="truncate">{productLabel(p)}</span>
-                        </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {[
-                            PRODUCT_CATEGORY_LABELS[p.category],
-                            p.style,
-                            p.sku ? `#${p.sku}` : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-right">
-                        <span className="block font-medium tabular-nums">
-                          {formatMoney(p.material_rate + p.labor_rate)}
-                          <span className="font-normal text-muted-foreground">
-                            /{p.unit}
+                  matches.map((p, i) => {
+                    const installed = p.material_rate + p.labor_rate;
+                    const isCarpet = p.category === "carpet";
+                    const perSqyd = (p.unit || "").toLowerCase().includes("yd")
+                      ? installed
+                      : installed * 9;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onMouseEnter={() => setActiveIndex(i)}
+                        onClick={() => {
+                          onPick(p);
+                          setOpen(false);
+                        }}
+                        className={cn(
+                          "flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm",
+                          i === activeIndex ? "bg-muted/70" : "hover:bg-muted/60",
+                        )}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1 font-medium">
+                            {p.id === value ? (
+                              <Check className="size-3.5 shrink-0 text-primary" />
+                            ) : null}
+                            <span className="truncate">{productLabel(p)}</span>
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {[
+                              PRODUCT_CATEGORY_LABELS[p.category],
+                              p.style,
+                              p.sku ? `#${p.sku}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </span>
                         </span>
-                        <span className="block text-[11px] tabular-nums text-muted-foreground">
-                          mat {formatMoney(p.material_rate)} · lab{" "}
-                          {formatMoney(p.labor_rate)}
+                        <span className="shrink-0 text-right">
+                          <span className="block font-medium tabular-nums">
+                            {formatMoney(installed)}
+                            <span className="font-normal text-muted-foreground">
+                              /{p.unit}
+                            </span>
+                          </span>
+                          {isCarpet ? (
+                            <span className="block text-[11px] font-medium tabular-nums text-primary">
+                              {formatMoney(perSqyd)}/sq yd
+                            </span>
+                          ) : null}
+                          <span className="block text-[11px] tabular-nums text-muted-foreground">
+                            mat {formatMoney(p.material_rate)} · lab{" "}
+                            {formatMoney(p.labor_rate)}
+                          </span>
                         </span>
-                      </span>
-                    </button>
-                  ))
+                      </button>
+                    );
+                  })
                 )}
               </div>
               <div className="border-t p-1">
                 <button
                   type="button"
+                  onMouseEnter={() => setActiveIndex(matches.length)}
                   onClick={() => setAdding(true)}
-                  className="flex w-full items-center gap-2 rounded px-2 py-2 text-sm font-medium text-primary hover:bg-primary/5"
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded px-2 py-2 text-sm font-medium text-primary",
+                    activeIndex === matches.length
+                      ? "bg-primary/10"
+                      : "hover:bg-primary/5",
+                  )}
                 >
                   <Plus className="size-4" />
                   Add{q.trim() ? ` “${q.trim()}”` : " a new product"} to catalog
