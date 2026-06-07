@@ -20,6 +20,7 @@ import { formatMoney } from "@/lib/format";
 import {
   lineTotal,
   lineCost,
+  lineQty,
   lineAreaSqft,
   num,
   marginPct,
@@ -157,6 +158,14 @@ export function EstimateWizard({
 
   // Catalog held in state so inline-added products show up immediately.
   const [catalog, setCatalog] = useState<Product[]>(products);
+  // Rooms whose optional cost/margin panel is expanded (by room key).
+  const [advRooms, setAdvRooms] = useState<Set<string>>(new Set());
+  const toggleAdv = (key: string) =>
+    setAdvRooms((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
 
   const emptyRoom = (): RoomState => ({
     key: newKey(),
@@ -519,60 +528,106 @@ export function EstimateWizard({
                         </select>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-end gap-2">
-                      <RateField
-                        label="Material cost"
-                        value={r.material_cost}
-                        onChange={(v) => updateRoom(i, { material_cost: v })}
-                      />
-                      <RateField
-                        label="Labor cost"
-                        value={r.labor_cost}
-                        onChange={(v) => updateRoom(i, { labor_cost: v })}
-                      />
-                      <RateField
-                        label="Material price"
-                        value={r.material_rate}
-                        onChange={(v) => updateRoom(i, { material_rate: v })}
-                      />
-                      <RateField
-                        label="Labor price"
-                        value={r.labor_rate}
-                        onChange={(v) => updateRoom(i, { labor_rate: v })}
-                      />
-                      <div>
-                        <label className="mb-1 block text-xs text-muted-foreground">
-                          Target margin %
-                        </label>
-                        <input
-                          type="number"
-                          placeholder="40"
-                          onChange={(e) => roomTargetMargin(i, e.target.value)}
-                          className={cn(inputSm, "w-24")}
+                    {(() => {
+                      const unitLabel =
+                        r.measure_unit === "sqyd" ? "sq yd" : "sq ft";
+                      const qty = lineQty(cl);
+                      const total = lineTotal(cl);
+                      const combined = num(r.material_rate) + num(r.labor_rate);
+                      return (
+                        <div className="flex flex-wrap items-end gap-2">
+                          <RateField
+                            label={`Material $/${unitLabel}`}
+                            value={r.material_rate}
+                            onChange={(v) =>
+                              updateRoom(i, { material_rate: v })
+                            }
+                          />
+                          <RateField
+                            label={`Labor $/${unitLabel}`}
+                            value={r.labor_rate}
+                            onChange={(v) => updateRoom(i, { labor_rate: v })}
+                          />
+                          <div className="ml-auto text-right">
+                            <div className="text-xs text-muted-foreground">
+                              Room total
+                            </div>
+                            <div className="text-base font-semibold tabular-nums">
+                              {formatMoney(total)}
+                            </div>
+                            {qty > 0 && combined > 0 ? (
+                              <div className="text-[11px] tabular-nums text-muted-foreground">
+                                {qty.toFixed(1)} {unitLabel} ×{" "}
+                                {formatMoney(combined)}
+                              </div>
+                            ) : null}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="Duplicate room"
+                            title="Repeat this material for another area"
+                            onClick={() => duplicateRoom(i)}
+                          >
+                            <Copy className="size-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="Remove room"
+                            onClick={() => removeRoom(i)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      );
+                    })()}
+
+                    <button
+                      type="button"
+                      onClick={() => toggleAdv(r.key)}
+                      className="text-xs font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      {advRooms.has(r.key) ? "− Hide" : "+ Cost & margin"} (your
+                      profit)
+                    </button>
+                    {advRooms.has(r.key) ? (
+                      <div className="space-y-2 rounded-md bg-muted/40 p-2">
+                        <div className="flex flex-wrap items-end gap-2">
+                          <RateField
+                            label="Material cost"
+                            value={r.material_cost}
+                            onChange={(v) =>
+                              updateRoom(i, { material_cost: v })
+                            }
+                          />
+                          <RateField
+                            label="Labor cost"
+                            value={r.labor_cost}
+                            onChange={(v) => updateRoom(i, { labor_cost: v })}
+                          />
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">
+                              Target margin %
+                            </label>
+                            <input
+                              type="number"
+                              placeholder="40"
+                              onChange={(e) =>
+                                roomTargetMargin(i, e.target.value)
+                              }
+                              className={cn(inputSm, "w-24")}
+                            />
+                          </div>
+                        </div>
+                        <MarginReadout
+                          sell={lineTotal(cl)}
+                          cost={lineCost(cl)}
                         />
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Duplicate room"
-                        title="Repeat this material"
-                        onClick={() => duplicateRoom(i)}
-                        className="ml-auto"
-                      >
-                        <Copy className="size-3.5" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Remove room"
-                        onClick={() => removeRoom(i)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                    <MarginReadout sell={lineTotal(cl)} cost={lineCost(cl)} />
+                    ) : null}
                   </div>
                 );
               })}
