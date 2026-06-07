@@ -14,6 +14,7 @@ export interface CalcLine {
   labor_rate?: number | string | null;
   installed_rate?: number | string | null;
   flat_amount?: number | string | null;
+  waste_pct?: number | string | null;
   // OUR cost + explicit quantity (for margin & post-job analysis).
   material_cost?: number | string | null;
   labor_cost?: number | string | null;
@@ -49,13 +50,22 @@ export function lineQty(line: CalcLine): number {
     : lineAreaSqft(line);
 }
 
+/** Waste multiplier for material (e.g. 10% waste → 1.1). */
+function wasteMult(line: CalcLine): number {
+  return 1 + num(line.waste_pct) / 100;
+}
+
 export function lineTotal(line: CalcLine): number {
   const qty = lineQty(line);
   switch (line.line_type) {
     case "mat_labor":
-      return qty * (num(line.material_rate) + num(line.labor_rate));
+      // Waste applies to material (you order extra); labor is on actual area.
+      return (
+        qty * num(line.material_rate) * wasteMult(line) +
+        qty * num(line.labor_rate)
+      );
     case "installed":
-      return qty * num(line.installed_rate);
+      return qty * num(line.installed_rate) * wasteMult(line);
     case "flat":
       return num(line.flat_amount);
     default:
@@ -104,7 +114,8 @@ export function optionCostTotals(lines: CalcLine[]): CostTotals {
   let labor = 0;
   for (const line of lines) {
     const q = line.line_type === "flat" ? 1 : lineQty(line);
-    material += q * num(line.material_cost);
+    // Waste raises material purchased (and our cost), not labor.
+    material += q * num(line.material_cost) * wasteMult(line);
     labor += q * num(line.labor_cost);
   }
   return { material, labor, cost: material + labor };
@@ -139,6 +150,7 @@ export interface SaveLineInput {
   labor_rate: string | number | null;
   installed_rate: string | number | null;
   flat_amount: string | number | null;
+  waste_pct?: string | number | null;
   product_id: string | null;
   manufacturer?: string | null;
   style?: string | null;

@@ -119,6 +119,60 @@ export async function GET(request: NextRequest) {
     reminders += 1;
   }
 
+  // --- Review request after a completed job ---
+  let reviews = 0;
+  const { data: org } = await admin
+    .from("org_settings")
+    .select("google_review_url, company_name")
+    .eq("id", "default")
+    .maybeSingle();
+  const reviewUrl = (org?.google_review_url as string | null)?.trim() || "";
+  const company = (org?.company_name as string) || "Cleveland Floor King";
+  if (reviewUrl) {
+    // Ask ~2h after completion so the crew is gone but it's still same-day-ish.
+    const doneCutoff = new Date(now - 2 * 3600 * 1000).toISOString();
+    const { data: doneJobs } = await admin
+      .from("jobs")
+      .select("id, customer:customers(full_name, email, phone)")
+      .eq("status", "completed")
+      .is("review_request_sent_at", null)
+      .not("completed_at", "is", null)
+      .lte("completed_at", doneCutoff);
+    for (const j of doneJobs ?? []) {
+      const cust = j.customer as unknown as {
+        full_name: string | null;
+        email: string | null;
+        phone: string | null;
+      } | null;
+      const first = cust?.full_name?.split(" ")[0] ?? "there";
+      if (cust?.email) {
+        await sendEmail({
+          to: cust.email,
+          subject: `How did we do? — ${company}`,
+          html: emailLayout(
+            "Thank you — we'd love your feedback",
+            `<p>Hi ${first},</p>
+             <p>Thank you for choosing ${company}! We hope you love your new floors.
+             If you have a moment, a quick review would mean the world to us and
+             helps other homeowners find us.</p>`,
+            { label: "Leave a review", url: reviewUrl },
+          ),
+        });
+      }
+      if (cust?.phone) {
+        await sendSms(
+          cust.phone,
+          `Thanks for choosing ${company}! We'd love a quick review: ${reviewUrl}`,
+        );
+      }
+      await admin
+        .from("jobs")
+        .update({ review_request_sent_at: new Date(now).toISOString() })
+        .eq("id", j.id);
+      reviews += 1;
+    }
+  }
+
   // --- Safety net: resume any import job that stalled (e.g. a dropped trigger) ---
   let resumed = 0;
   const staleCutoff = new Date(now - 3 * 60 * 1000).toISOString();
@@ -132,5 +186,5 @@ export async function GET(request: NextRequest) {
     resumed += 1;
   }
 
-  return NextResponse.json({ ok: true, thankyou, reminders, resumed });
+  return NextResponse.json({ ok: true, thankyou, reminders, reviews, resumed });
 }

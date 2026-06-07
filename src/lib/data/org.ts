@@ -10,6 +10,8 @@ const DEFAULTS: OrgSettings = {
   phone: null,
   email: null,
   address: null,
+  financing_url: null,
+  google_review_url: null,
   updated_at: "",
 };
 

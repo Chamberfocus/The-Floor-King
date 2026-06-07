@@ -114,6 +114,7 @@ export async function saveEstimate(
         labor_rate: toNumOrNull(line.labor_rate),
         installed_rate: toNumOrNull(line.installed_rate),
         flat_amount: toNumOrNull(line.flat_amount),
+        waste_pct: toNumOrNull(line.waste_pct ?? null) ?? 0,
         product_id: line.product_id || null,
         manufacturer: line.manufacturer || null,
         style: line.style || null,

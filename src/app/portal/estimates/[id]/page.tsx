@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { getEstimate } from "@/lib/data/estimates";
+import { getOrgSettings } from "@/lib/data/org";
 import { optionTotals, lineTotal } from "@/lib/estimate-calc";
 import { formatMoney } from "@/lib/format";
 import type { EstimateOption } from "@/lib/types";
@@ -30,6 +31,7 @@ export default async function PortalEstimatePage({
   const { id } = await params;
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
+  const org = await getOrgSettings();
 
   const options = estimate.options ?? [];
   const detailed = estimate.presentation === "detailed";
@@ -124,6 +126,22 @@ export default async function PortalEstimatePage({
           );
         })}
       </div>
+
+      {org.financing_url ? (
+        <Card className="mt-6 border-primary/30 bg-primary/5">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div>
+              <p className="font-medium">Need flexible payments?</p>
+              <p className="text-sm text-muted-foreground">
+                Apply for financing in minutes — quick, no obligation.
+              </p>
+            </div>
+            <Button render={<a href={org.financing_url} target="_blank" rel="noopener noreferrer" />}>
+              Apply for financing
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {estimate.customer_response_note &&
       estimate.status !== "approved" ? (

@@ -28,6 +28,8 @@ export interface OrgSettings {
   phone: string | null;
   email: string | null;
   address: string | null;
+  financing_url: string | null;
+  google_review_url: string | null;
   updated_at: string;
 }
 
@@ -259,6 +261,7 @@ export interface EstimateLineItem {
   labor_rate: number | null;
   installed_rate: number | null;
   flat_amount: number | null;
+  waste_pct: number | null;
   product_id: string | null;
   manufacturer: string | null;
   style: string | null;

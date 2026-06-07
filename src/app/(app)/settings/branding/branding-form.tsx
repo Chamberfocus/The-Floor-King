@@ -130,6 +130,40 @@ export function BrandingForm({ org }: { org: OrgSettings }) {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Growth links</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="google_review_url">Google review link</Label>
+            <Input
+              id="google_review_url"
+              name="google_review_url"
+              defaultValue={org.google_review_url ?? ""}
+              placeholder="https://g.page/r/...  (your 'leave a review' link)"
+            />
+            <p className="text-xs text-muted-foreground">
+              After a job is marked complete, we&apos;ll automatically text and
+              email the customer this link to ask for a review.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="financing_url">Financing application link</Label>
+            <Input
+              id="financing_url"
+              name="financing_url"
+              defaultValue={org.financing_url ?? ""}
+              placeholder="https://...  (Wisetack, Synchrony, etc.)"
+            />
+            <p className="text-xs text-muted-foreground">
+              Shown to customers on their estimate so they can apply for
+              financing.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex justify-end">
         <Button type="submit" disabled={saving}>
           {saving ? "Saving…" : "Save branding"}

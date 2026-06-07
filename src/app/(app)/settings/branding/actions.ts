@@ -25,6 +25,8 @@ export async function saveBranding(
     phone: str(formData.get("phone")) || null,
     email: str(formData.get("email")) || null,
     address: str(formData.get("address")) || null,
+    financing_url: str(formData.get("financing_url")) || null,
+    google_review_url: str(formData.get("google_review_url")) || null,
     updated_at: new Date().toISOString(),
   };
   const logoUrl = str(formData.get("logo_url"));

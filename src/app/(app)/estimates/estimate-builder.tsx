@@ -44,12 +44,23 @@ interface LineState {
   labor_rate: string;
   installed_rate: string;
   flat_amount: string;
+  waste_pct: string;
   product_id: string;
   manufacturer: string;
   style: string;
   color: string;
   item_no: string;
 }
+
+// Typical material waste by category (%), used as a smart default on pick.
+const WASTE_BY_CATEGORY: Record<string, number> = {
+  carpet: 10,
+  tile: 10,
+  hardwood: 7,
+  laminate: 5,
+  lvp: 5,
+  vinyl: 5,
+};
 
 function inToFt(total: number | null | undefined): string {
   if (!total) return "";
@@ -148,6 +159,7 @@ export function EstimateBuilder({
     labor_rate: "",
     installed_rate: "",
     flat_amount: "",
+    waste_pct: "",
     product_id: "",
     manufacturer: "",
     style: "",
@@ -185,6 +197,7 @@ export function EstimateBuilder({
         labor_rate: l.labor_rate?.toString() ?? "",
         installed_rate: l.installed_rate?.toString() ?? "",
         flat_amount: l.flat_amount?.toString() ?? "",
+        waste_pct: l.waste_pct ? l.waste_pct.toString() : "",
         product_id: l.product_id ?? "",
         manufacturer: l.manufacturer ?? "",
         style: l.style ?? "",
@@ -325,6 +338,12 @@ export function EstimateBuilder({
                       color: p.color ?? l.color,
                       item_no: p.sku ?? l.item_no,
                       measure_unit,
+                      // Suggest a typical waste % for the category (only if unset).
+                      waste_pct:
+                        l.waste_pct ||
+                        (WASTE_BY_CATEGORY[p.category]
+                          ? String(WASTE_BY_CATEGORY[p.category])
+                          : ""),
                       description: l.description || p.name,
                     }
                   : l,
@@ -362,6 +381,7 @@ export function EstimateBuilder({
         labor_rate: l.labor_rate || null,
         installed_rate: l.installed_rate || null,
         flat_amount: l.flat_amount || null,
+        waste_pct: l.waste_pct || null,
         product_id: l.product_id || null,
         manufacturer: l.manufacturer || null,
         style: l.style || null,
@@ -458,6 +478,7 @@ export function EstimateBuilder({
               labor_rate: l.labor_rate,
               installed_rate: l.installed_rate,
               flat_amount: l.flat_amount,
+              waste_pct: l.waste_pct,
             })),
             taxRate,
           );
@@ -653,6 +674,14 @@ export function EstimateBuilder({
                               <option value="sqyd">sq yd</option>
                             </select>
                           </div>
+                          <LabeledNumber
+                            label="Waste %"
+                            value={line.waste_pct}
+                            width="w-20"
+                            onChange={(v) =>
+                              updateLine(oi, li, { waste_pct: v })
+                            }
+                          />
                         </>
                       ) : null}
 
@@ -718,6 +747,7 @@ export function EstimateBuilder({
                           labor_rate: line.labor_rate,
                           installed_rate: line.installed_rate,
                           flat_amount: line.flat_amount,
+                          waste_pct: line.waste_pct,
                         };
                         const qty = lineQty(calc);
                         const unitLabel =
