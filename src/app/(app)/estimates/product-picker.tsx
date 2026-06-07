@@ -93,7 +93,7 @@ export function ProductPicker({
       <label className="mb-1 block text-xs text-muted-foreground">
         Material (from catalog)
       </label>
-      <div className="relative w-56">
+      <div className="relative w-72">
         <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
           value={q}
@@ -107,7 +107,7 @@ export function ProductPicker({
             e.currentTarget.select();
           }}
           placeholder="Type a product name…"
-          className={cn(inputSm, "w-56 pl-8 pr-7")}
+          className={cn(inputSm, "w-72 pl-8 pr-7")}
         />
         {selected ? (
           <button
@@ -130,7 +130,7 @@ export function ProductPicker({
       </div>
 
       {open ? (
-        <div className="absolute z-30 mt-1 w-80 rounded-md border bg-popover shadow-lg">
+        <div className="absolute z-30 mt-1 w-96 rounded-md border bg-popover shadow-lg">
           {adding ? (
             <AddProductForm
               initialName={q}
@@ -157,16 +157,16 @@ export function ProductPicker({
                         onPick(p);
                         setOpen(false);
                       }}
-                      className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted/60"
+                      className="flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted/60"
                     >
-                      <span className="min-w-0">
+                      <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1 font-medium">
                           {p.id === value ? (
-                            <Check className="size-3.5 text-primary" />
+                            <Check className="size-3.5 shrink-0 text-primary" />
                           ) : null}
                           <span className="truncate">{productLabel(p)}</span>
                         </span>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="block truncate text-xs text-muted-foreground">
                           {[
                             PRODUCT_CATEGORY_LABELS[p.category],
                             p.style,
@@ -176,8 +176,17 @@ export function ProductPicker({
                             .join(" · ")}
                         </span>
                       </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatMoney(p.material_rate + p.labor_rate)}/{p.unit}
+                      <span className="shrink-0 text-right">
+                        <span className="block font-medium tabular-nums">
+                          {formatMoney(p.material_rate + p.labor_rate)}
+                          <span className="font-normal text-muted-foreground">
+                            /{p.unit}
+                          </span>
+                        </span>
+                        <span className="block text-[11px] tabular-nums text-muted-foreground">
+                          mat {formatMoney(p.material_rate)} · lab{" "}
+                          {formatMoney(p.labor_rate)}
+                        </span>
                       </span>
                     </button>
                   ))
