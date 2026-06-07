@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import type { Product } from "@/lib/types";
+import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
 
 export interface SearchHit {
   customerId: string;
@@ -127,4 +129,38 @@ export async function searchCrm(qRaw: string): Promise<SearchHit[]> {
   return Array.from(hits.values()).sort((a, b) =>
     a.name.localeCompare(b.name),
   );
+}
+
+/** Catalog products matching the query — by name, SKU, category, or notes. */
+export async function searchProducts(qRaw: string): Promise<Product[]> {
+  const q = qRaw.trim();
+  if (q.length < 2) return [];
+  const supabase = await createClient();
+  const like = `%${q}%`;
+  const lower = q.toLowerCase();
+
+  // category is a Postgres enum, so we can't ilike it — instead match the query
+  // against the category labels/keys and filter by the matching enum values.
+  const matchingCategories = Object.entries(PRODUCT_CATEGORY_LABELS)
+    .filter(
+      ([key, label]) =>
+        key.includes(lower) || label.toLowerCase().includes(lower),
+    )
+    .map(([key]) => key);
+
+  const orParts = [
+    `name.ilike.${like}`,
+    `sku.ilike.${like}`,
+    `notes.ilike.${like}`,
+  ];
+  if (matchingCategories.length)
+    orParts.push(`category.in.(${matchingCategories.join(",")})`);
+
+  const { data } = await supabase
+    .from("products")
+    .select("*")
+    .or(orParts.join(","))
+    .order("name", { ascending: true })
+    .limit(50);
+  return (data ?? []) as Product[];
 }
