@@ -176,11 +176,15 @@ export interface PriceRow {
   material_rate: number | null;
   labor_rate: number | null;
   notes: string | null;
+  manufacturer?: string | null;
+  style?: string | null;
+  color?: string | null;
 }
 
 const PRICE_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
 { "items": [ { "name": string, "category": string, "unit": string,
   "sku": string|null, "material_rate": number|null, "labor_rate": number|null,
+  "manufacturer": string|null, "style": string|null, "color": string|null,
   "notes": string|null } ] }
 - category MUST be one of: carpet, lvp, hardwood, laminate, tile, vinyl,
   underlayment, trim, labor, other  (infer from the product name/description).
@@ -188,6 +192,7 @@ const PRICE_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
 - material_rate is the per-unit PRICE/cost from the list (a number only, no $).
 - labor_rate only if the list separates labor; otherwise null.
 - sku is the item/style/SKU number if present.
+- manufacturer / style / color if the list shows them; otherwise null.
 Extract every product row. Skip headers, totals, and blank lines.`;
 
 /** Parse a price list (pasted text, a URL, OR base64 PDF/image) into products. */

@@ -232,13 +232,22 @@ export async function importProducts(rows: PriceRow[]): Promise<ImportResult> {
     material_rate: Number(r.material_rate) || 0,
     labor_rate: Number(r.labor_rate) || 0,
     sku: r.sku || null,
+    manufacturer: r.manufacturer || null,
+    style: r.style || null,
+    color: r.color || null,
     notes: r.notes || null,
   }));
 
   const supabase = await createClient();
-  const { error } = await supabase.from("products").insert(insertRows);
-  if (error) return { error: error.message };
+  // Insert in batches so very large lists never hit a payload/row limit.
+  let count = 0;
+  for (let i = 0; i < insertRows.length; i += 500) {
+    const batch = insertRows.slice(i, i + 500);
+    const { error } = await supabase.from("products").insert(batch);
+    if (error) return { error: error.message, count };
+    count += batch.length;
+  }
 
   revalidatePath("/catalog");
-  return { error: null, count: insertRows.length };
+  return { error: null, count };
 }

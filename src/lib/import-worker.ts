@@ -33,6 +33,9 @@ interface RawRow {
   sku?: string | null;
   material_rate?: number | null;
   labor_rate?: number | null;
+  manufacturer?: string | null;
+  style?: string | null;
+  color?: string | null;
   notes?: string | null;
 }
 
@@ -53,6 +56,9 @@ async function insertProducts(
       material_rate: Number(r.material_rate) || 0,
       labor_rate: Number(r.labor_rate) || 0,
       sku: r.sku || null,
+      manufacturer: r.manufacturer || null,
+      style: r.style || null,
+      color: r.color || null,
       notes: r.notes || null,
     }));
   if (!insertRows.length) return 0;

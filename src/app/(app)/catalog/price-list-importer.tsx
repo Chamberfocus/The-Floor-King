@@ -3,8 +3,26 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Sparkles, Upload, Trash2, FileUp, X, Rocket } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import {
+  Sparkles,
+  Upload,
+  Trash2,
+  FileUp,
+  X,
+  Rocket,
+  Download,
+  CheckCircle2,
+} from "lucide-react";
+import Link from "next/link";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
   PRODUCT_CATEGORY_LABELS,
@@ -12,6 +30,7 @@ import {
 } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { pdfToText, spreadsheetToText, chunkText } from "@/lib/pdf-client";
+import { buildCatalogTemplate, parseStructuredRows } from "@/lib/catalog-csv";
 import type { PriceRow } from "@/lib/extract";
 import {
   parsePriceList,
@@ -31,8 +50,42 @@ export function PriceListImporter() {
   const [reading, startReading] = useTransition();
   const [importing, startImport] = useTransition();
   const [queueing, startQueue] = useTransition();
+  const [instant, setInstant] = useState<{ count: number; label: string } | null>(
+    null,
+  );
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const downloadTemplate = () => {
+    const blob = new Blob([buildCatalogTemplate()], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "floor-king-catalog-template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const resetForm = () => {
+    setFile(null);
+    if (fileRef.current) fileRef.current.value = "";
+    if (textRef.current) textRef.current.value = "";
+    setStatus(null);
+  };
+
+  // Parse text: instant if it has recognizable columns, else AI in chunks.
+  const parseTextSmart = async (text: string): Promise<PriceRow[]> => {
+    const structured = parseStructuredRows(text);
+    if (structured) {
+      setStatus(
+        `Recognized ${structured.length} rows from the column headers — no AI needed.`,
+      );
+      return structured;
+    }
+    return parseTextChunks(text);
+  };
 
   // Extract a file/paste to plain text in the browser, or (for images/scanned
   // docs) upload it to storage and return a path the server worker can read.
@@ -115,6 +168,27 @@ export function PriceListImporter() {
           toast.error("Choose a file or paste a price list first.");
           return;
         }
+
+        // Already structured (our template / a clean export)? Import instantly,
+        // no AI and no background job needed.
+        if (payload.text) {
+          const structured = parseStructuredRows(payload.text);
+          if (structured) {
+            setStatus(
+              `Recognized ${structured.length} rows — importing instantly…`,
+            );
+            const imp = await importProducts(structured);
+            if (imp.error) {
+              toast.error(imp.error);
+              return;
+            }
+            resetForm();
+            setInstant({ count: imp.count ?? 0, label: payload.label });
+            router.refresh();
+            return;
+          }
+        }
+
         const res = await startPriceListImport(payload);
         if (res.error) {
           toast.error(res.error);
@@ -123,11 +197,7 @@ export function PriceListImporter() {
         toast.success(
           "Importing in the background — you can keep working. We'll let you know when it's done.",
         );
-        // Clear the form and head to the catalog so they can carry on.
-        setFile(null);
-        if (fileRef.current) fileRef.current.value = "";
-        if (textRef.current) textRef.current.value = "";
-        setStatus(null);
+        resetForm();
         router.push("/catalog");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Couldn't start the import.");
@@ -212,7 +282,7 @@ export function PriceListImporter() {
           }
           if (text.trim().length >= 20) {
             setStatus(`Extracted ${text.length.toLocaleString()} characters from ${pages} page(s). Parsing…`);
-            rows = await parseTextChunks(text);
+            rows = await parseTextSmart(text);
           } else {
             setStatus(
               "No selectable text found (scanned PDF) — reading it as an image…",
@@ -223,12 +293,12 @@ export function PriceListImporter() {
           setStatus("Reading the spreadsheet in your browser…");
           const text = await spreadsheetToText(f);
           setStatus(`Extracted ${text.length.toLocaleString()} characters. Parsing…`);
-          rows = await parseTextChunks(text);
+          rows = await parseTextSmart(text);
         } else if (f && isCsvTxt) {
           setStatus("Reading the file…");
           const text = await f.text();
           setStatus(`Extracted ${text.length.toLocaleString()} characters. Parsing…`);
-          rows = await parseTextChunks(text);
+          rows = await parseTextSmart(text);
         } else if (f && isImage) {
           setStatus("Reading the image…");
           rows = await parseViaStorage(f);
@@ -236,11 +306,11 @@ export function PriceListImporter() {
           // Unknown type — try as text, fall back to image.
           setStatus("Reading the file…");
           const text = await f.text().catch(() => "");
-          if (text.trim().length >= 20) rows = await parseTextChunks(text);
+          if (text.trim().length >= 20) rows = await parseTextSmart(text);
           else rows = await parseViaStorage(f);
         } else if (pasted.trim()) {
           setStatus("Parsing pasted text…");
-          rows = await parseTextChunks(pasted);
+          rows = await parseTextSmart(pasted);
         } else {
           toast.error("Paste a price list or choose a file.");
           return;
@@ -284,6 +354,19 @@ export function PriceListImporter() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/40 p-3">
+        <div className="text-sm">
+          <p className="font-medium">Fastest way: use the catalog template</p>
+          <p className="text-muted-foreground">
+            Fill it in (or paste your prices into it) and import — it skips the
+            AI and loads instantly, even for thousands of rows.
+          </p>
+        </div>
+        <Button type="button" variant="outline" onClick={downloadTemplate}>
+          <Download className="size-4" /> Download template
+        </Button>
+      </div>
+
       <div className="space-y-3">
         <div>
           <label className="mb-1 block text-sm font-medium">
@@ -527,6 +610,37 @@ export function PriceListImporter() {
           </div>
         )
       ) : null}
+
+      <Dialog open={!!instant} onOpenChange={(o) => !o && setInstant(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="mb-1 flex items-center gap-2">
+              <CheckCircle2 className="size-6 text-primary" />
+              <DialogTitle>Import complete</DialogTitle>
+            </div>
+            <DialogDescription>
+              Added{" "}
+              <strong className="text-foreground">
+                {instant?.count} product{instant?.count === 1 ? "" : "s"}
+              </strong>{" "}
+              to your catalog from{" "}
+              <strong className="text-foreground">{instant?.label}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInstant(null)}>
+              Import another
+            </Button>
+            <Link
+              href="/catalog"
+              onClick={() => setInstant(null)}
+              className={buttonVariants()}
+            >
+              View catalog
+            </Link>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
