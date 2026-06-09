@@ -131,6 +131,7 @@ export interface Customer {
   assigned_to: string | null;
   workflow_stage_id: string | null;
   workflow_owner_id: string | null;
+  next_action_due: string | null;
   qualified: boolean | null;
   created_by: string | null;
   created_at: string;

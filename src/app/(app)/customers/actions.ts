@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import {
   LEAD_STAGE_LABELS,
   type ActivityType,
@@ -211,4 +212,90 @@ export async function addActivity(
 
   revalidatePath(`/customers/${customerId}`);
   return { error: null, ok: true };
+}
+
+/**
+ * Advance (or move) a customer to a workflow stage, assign the owner, set the
+ * next-action due date from the stage SLA, log a handoff + activity, and notify
+ * the new owner. This is the engine behind the customer command center.
+ */
+export async function advanceWorkflow(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const toStageId = str(formData.get("to_stage"));
+  const toUser = nullable(formData.get("to_user"));
+  const note = str(formData.get("note"));
+  if (!id || !toStageId) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("workflow_stage_id, workflow_owner_id, full_name")
+    .eq("id", id)
+    .maybeSingle();
+
+  const { data: stage } = await supabase
+    .from("workflow_stages")
+    .select("name, sla_hours, next_action")
+    .eq("id", toStageId)
+    .maybeSingle();
+
+  const due =
+    stage?.sla_hours && stage.sla_hours > 0
+      ? new Date(Date.now() + stage.sla_hours * 3600 * 1000).toISOString()
+      : null;
+
+  const { error } = await supabase
+    .from("customers")
+    .update({
+      workflow_stage_id: toStageId,
+      workflow_owner_id: toUser,
+      next_action_due: due,
+    })
+    .eq("id", id);
+  if (error) return;
+
+  await supabase.from("handoffs").insert({
+    customer_id: id,
+    from_stage_id: cust?.workflow_stage_id ?? null,
+    to_stage_id: toStageId,
+    from_user: cust?.workflow_owner_id ?? null,
+    to_user: toUser,
+    note: note || null,
+  });
+
+  await supabase.from("activities").insert({
+    customer_id: id,
+    user_id: user?.id ?? null,
+    type: "stage_change",
+    body: `Moved to "${stage?.name ?? "stage"}"${note ? ` — ${note}` : ""}`,
+  });
+
+  // Notify the new owner (best-effort).
+  if (toUser && toUser !== user?.id) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("email, full_name")
+      .eq("id", toUser)
+      .maybeSingle();
+    if (prof?.email) {
+      await sendEmail({
+        to: prof.email,
+        subject: `Your turn: ${cust?.full_name ?? "a customer"} — ${stage?.name ?? "next step"}`,
+        html: emailLayout(
+          "A customer needs your attention",
+          `<p>${cust?.full_name ?? "A customer"} is now at <strong>${stage?.name ?? "a new stage"}</strong>.</p>
+           <p>Next action: <strong>${stage?.next_action ?? "see the file"}</strong>.</p>
+           ${note ? `<p>Note: ${note}</p>` : ""}`,
+          { label: "Open customer", url: `${siteUrl()}/customers/${id}` },
+        ),
+      });
+    }
+  }
+
+  refreshCustomerViews(id);
+  revalidatePath("/pipeline");
 }

@@ -66,6 +66,7 @@ import { CustomerInfoCard } from "./customer-info-card";
 import { InvitePortalForm } from "./invite-portal-form";
 import { CustomerChat } from "./customer-chat";
 import { HandoffControl } from "./handoff-control";
+import { CommandCenter } from "./command-center";
 import { OnTheWayButton } from "./on-the-way-button";
 
 export async function generateMetadata({
@@ -115,6 +116,19 @@ export default async function CustomerPage({
   const currentStage =
     stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
   const autoAction = currentStage?.auto_action ?? "none";
+
+  // Money status for the command center.
+  const money = invoices.reduce(
+    (acc, inv) => {
+      const paid = amountPaid(inv);
+      const t = invoiceTotals(inv.items ?? [], inv.tax_rate, paid);
+      acc.invoiced += t.total;
+      acc.paid += paid;
+      acc.balance += t.balance;
+      return acc;
+    },
+    { invoiced: 0, paid: 0, balance: 0 },
+  );
   const ownerName = customer.workflow_owner_id
     ? (names[customer.workflow_owner_id] ?? null)
     : null;
@@ -165,6 +179,19 @@ export default async function CustomerPage({
           </p>
         </div>
         <OnTheWayButton customerId={customer.id} />
+      </div>
+
+      {/* Command center — the cockpit for this lead */}
+      <div className="mb-6">
+        <CommandCenter
+          customerId={customer.id}
+          stages={stages}
+          members={handoffMembers}
+          currentStageId={customer.workflow_stage_id}
+          ownerName={ownerName}
+          nextActionDue={customer.next_action_due ?? null}
+          money={money}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
