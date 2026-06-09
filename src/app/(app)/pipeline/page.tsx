@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Search, User } from "lucide-react";
+import { Search, User, AlertTriangle } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
@@ -16,7 +16,7 @@ export const metadata: Metadata = { title: "Pipeline" };
 export default async function PipelinePage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; mine?: string }>;
+  searchParams: Promise<{ q?: string; mine?: string; overdue?: string }>;
 }) {
   const profile = await requireProfile();
   if (profile.role !== "admin" && profile.role !== "office") redirect("/");
@@ -24,12 +24,19 @@ export default async function PipelinePage({
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
   const mine = sp.mine === "1";
+  const overdueOnly = sp.overdue === "1";
 
   const stages = await listWorkflowStages();
   let customers = await listCustomers({ search: q });
   if (mine) {
     customers = customers.filter((c) => c.workflow_owner_id === profile.id);
   }
+
+  const nowMs = Date.now();
+  const isOverdue = (c: Customer) =>
+    !!c.next_action_due && new Date(c.next_action_due).getTime() < nowMs;
+  const overdueCount = customers.filter(isOverdue).length;
+  if (overdueOnly) customers = customers.filter(isOverdue);
 
   const ownerIds = [
     ...new Set(customers.map((c) => c.workflow_owner_id).filter(Boolean)),
@@ -93,6 +100,31 @@ export default async function PipelinePage({
         </Button>
       </form>
 
+      {overdueCount > 0 || overdueOnly ? (
+        <Link
+          href={
+            overdueOnly
+              ? mine
+                ? "/pipeline?mine=1"
+                : "/pipeline"
+              : mine
+                ? "/pipeline?mine=1&overdue=1"
+                : "/pipeline?overdue=1"
+          }
+          className={cn(
+            "mb-4 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium",
+            overdueOnly
+              ? "border-primary bg-primary/5"
+              : "border-destructive/40 bg-destructive/5 text-destructive",
+          )}
+        >
+          <AlertTriangle className="size-4" />
+          {overdueOnly
+            ? "Showing overdue only — clear filter"
+            : `${overdueCount} lead${overdueCount === 1 ? "" : "s"} overdue — show only these`}
+        </Link>
+      ) : null}
+
       <div className="flex gap-4 overflow-x-auto pb-4">
         {columns.map((col) => (
           <section key={col.id} className="w-72 shrink-0">
@@ -110,24 +142,37 @@ export default async function PipelinePage({
               </span>
             </div>
             <div className="space-y-2">
-              {col.items.map((c) => (
-                <Link
-                  key={c.id}
-                  href={`/customers/${c.id}`}
-                  className="block rounded-lg border bg-card p-3 shadow-sm transition-colors hover:bg-muted/50"
-                >
-                  <div className="font-medium">{c.full_name}</div>
-                  {c.city ? (
-                    <div className="text-xs text-muted-foreground">{c.city}</div>
-                  ) : null}
-                  <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <User className="size-3" />
-                    {c.workflow_owner_id
-                      ? (ownerNames[c.workflow_owner_id] ?? "Owner")
-                      : "Unassigned"}
-                  </div>
-                </Link>
-              ))}
+              {col.items.map((c) => {
+                const over = isOverdue(c);
+                return (
+                  <Link
+                    key={c.id}
+                    href={`/customers/${c.id}`}
+                    className={cn(
+                      "block rounded-lg border bg-card p-3 shadow-sm transition-colors hover:bg-muted/50",
+                      over && "border-destructive/50 ring-1 ring-destructive/30",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium">{c.full_name}</div>
+                      {over ? (
+                        <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
+                      ) : null}
+                    </div>
+                    {c.city ? (
+                      <div className="text-xs text-muted-foreground">
+                        {c.city}
+                      </div>
+                    ) : null}
+                    <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <User className="size-3" />
+                      {c.workflow_owner_id
+                        ? (ownerNames[c.workflow_owner_id] ?? "Owner")
+                        : "Unassigned"}
+                    </div>
+                  </Link>
+                );
+              })}
               {col.items.length === 0 ? (
                 <div className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
                   Empty

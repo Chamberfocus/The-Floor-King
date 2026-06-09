@@ -173,6 +173,61 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // --- Stalled-lead nudges: email each owner their overdue leads ---
+  let nudges = 0;
+  const { data: overdue } = await admin
+    .from("customers")
+    .select(
+      "id, full_name, next_action_due, workflow_owner_id, stage:workflow_stages(name, next_action)",
+    )
+    .not("workflow_owner_id", "is", null)
+    .not("next_action_due", "is", null)
+    .lt("next_action_due", new Date(now).toISOString());
+
+  const byOwner = new Map<
+    string,
+    { name: string; stage: string; action: string }[]
+  >();
+  for (const c of overdue ?? []) {
+    const owner = c.workflow_owner_id as string;
+    const stage = c.stage as unknown as {
+      name: string | null;
+      next_action: string | null;
+    } | null;
+    const arr = byOwner.get(owner) ?? [];
+    arr.push({
+      name: (c.full_name as string) ?? "A customer",
+      stage: stage?.name ?? "—",
+      action: stage?.next_action ?? "Follow up",
+    });
+    byOwner.set(owner, arr);
+  }
+  for (const [ownerId, leads] of byOwner) {
+    const { data: prof } = await admin
+      .from("profiles")
+      .select("email, full_name")
+      .eq("id", ownerId)
+      .maybeSingle();
+    if (!prof?.email) continue;
+    const rows = leads
+      .map(
+        (l) =>
+          `<li><strong>${l.name}</strong> — ${l.stage}: ${l.action}</li>`,
+      )
+      .join("");
+    await sendEmail({
+      to: prof.email,
+      subject: `${leads.length} lead${leads.length === 1 ? "" : "s"} need your attention`,
+      html: emailLayout(
+        "Leads waiting on you",
+        `<p>These leads are past their target time for the next step:</p>
+         <ul>${rows}</ul>`,
+        { label: "Open the pipeline", url: `${siteUrl()}/pipeline?mine=1&overdue=1` },
+      ),
+    });
+    nudges += 1;
+  }
+
   // --- Safety net: resume any import job that stalled (e.g. a dropped trigger) ---
   let resumed = 0;
   const staleCutoff = new Date(now - 3 * 60 * 1000).toISOString();
@@ -186,5 +241,12 @@ export async function GET(request: NextRequest) {
     resumed += 1;
   }
 
-  return NextResponse.json({ ok: true, thankyou, reminders, reviews, resumed });
+  return NextResponse.json({
+    ok: true,
+    thankyou,
+    reminders,
+    reviews,
+    nudges,
+    resumed,
+  });
 }
