@@ -92,7 +92,39 @@ export function StageRow({
         className="flex flex-1 flex-wrap items-center gap-2"
       >
         <input type="hidden" name="id" value={stage.id} />
-        <Input name="name" defaultValue={stage.name} className="w-40" />
+        <Input name="name" defaultValue={stage.name} className="w-36" />
+        <Input
+          name="next_action"
+          defaultValue={stage.next_action ?? ""}
+          placeholder="Next action (e.g. Call the customer)"
+          className="w-52"
+        />
+        <div className="flex items-center gap-1" title="Flag as stalled after">
+          <Input
+            name="sla_value"
+            type="number"
+            min="0"
+            defaultValue={
+              stage.sla_hours
+                ? stage.sla_hours % 24 === 0
+                  ? stage.sla_hours / 24
+                  : stage.sla_hours
+                : ""
+            }
+            placeholder="0"
+            className="w-16"
+          />
+          <select
+            name="sla_unit"
+            defaultValue={
+              stage.sla_hours && stage.sla_hours % 24 === 0 ? "days" : "hours"
+            }
+            className={fieldClass}
+          >
+            <option value="hours">hrs</option>
+            <option value="days">days</option>
+          </select>
+        </div>
         <select name="color" defaultValue={stage.color} className={fieldClass}>
           {STAGE_COLORS.map((c) => (
             <option key={c} value={c}>

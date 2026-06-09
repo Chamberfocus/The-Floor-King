@@ -12,6 +12,13 @@ function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+/** Read "target time" (value + hours/days unit) into hours; 0 = no SLA. */
+function slaHours(formData: FormData): number {
+  const v = parseFloat(str(formData.get("sla_value")));
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  return Math.round(v * (str(formData.get("sla_unit")) === "days" ? 24 : 1));
+}
+
 function refresh() {
   revalidatePath("/settings/stages");
   revalidatePath("/pipeline");
@@ -36,6 +43,8 @@ export async function createStage(
     color: str(formData.get("color")) || "zinc",
     default_owner: str(formData.get("default_owner")) || null,
     auto_action: str(formData.get("auto_action")) || "none",
+    next_action: str(formData.get("next_action")) || null,
+    sla_hours: slaHours(formData),
     position,
   });
   if (error) return { error: error.message };
@@ -59,6 +68,8 @@ export async function updateStage(
       color: str(formData.get("color")) || "zinc",
       default_owner: str(formData.get("default_owner")) || null,
       auto_action: str(formData.get("auto_action")) || "none",
+      next_action: str(formData.get("next_action")) || null,
+      sla_hours: slaHours(formData),
     })
     .eq("id", id);
   if (error) return { error: error.message };

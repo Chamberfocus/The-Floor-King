@@ -35,7 +35,25 @@ export function AddStageForm({ members }: { members: HandoffMember[] }) {
       action={formAction}
       className="flex flex-wrap items-center gap-2"
     >
-      <Input name="name" placeholder="New stage name" className="w-44" required />
+      <Input name="name" placeholder="New stage name" className="w-36" required />
+      <Input
+        name="next_action"
+        placeholder="Next action"
+        className="w-44"
+      />
+      <div className="flex items-center gap-1">
+        <Input
+          name="sla_value"
+          type="number"
+          min="0"
+          placeholder="0"
+          className="w-16"
+        />
+        <select name="sla_unit" defaultValue="days" className={fieldClass}>
+          <option value="hours">hrs</option>
+          <option value="days">days</option>
+        </select>
+      </div>
       <select name="color" defaultValue="blue" className={fieldClass}>
         {STAGE_COLORS.map((c) => (
           <option key={c} value={c}>

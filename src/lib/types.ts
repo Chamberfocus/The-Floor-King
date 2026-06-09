@@ -778,6 +778,8 @@ export interface WorkflowStage {
   color: string;
   default_owner: string | null;
   auto_action: StageAutoAction;
+  next_action: string | null;
+  sla_hours: number;
   created_at: string;
 }
 
