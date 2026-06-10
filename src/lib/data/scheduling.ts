@@ -49,8 +49,14 @@ const DEFAULTS: SchedulingSettings = {
   cap_tile_teardown_sf: 100,
   cap_subfloor_sheets: 10,
   cap_selflevel_sf: 600,
+  default_origin: null,
   updated_at: "",
 };
+
+/** The shop / default starting address (settings value, else the env shop). */
+export function defaultOrigin(settings: SchedulingSettings): string {
+  return settings.default_origin?.trim() || storeAddress();
+}
 
 export async function getSchedulingSettings(): Promise<SchedulingSettings> {
   const supabase = await createClient();
@@ -305,11 +311,11 @@ export async function getEstimateSuggestions(
       );
       let startMin = dayStart;
       // First stop of the day starts from the rep's home base (or the shop).
-      let priorAddr = rep.home_address || storeAddress();
+      let priorAddr = rep.home_address || defaultOrigin(settings);
       if (dayAppts.length) {
         const last = dayAppts[dayAppts.length - 1];
         startMin = last.endMin + buffer;
-        priorAddr = last.address || storeAddress();
+        priorAddr = last.address || defaultOrigin(settings);
       }
       if (startMin + dur > dayEnd) continue;
       const drive = await getDriveTime(customerAddress, priorAddr || undefined);
@@ -400,6 +406,7 @@ export async function getDayRoute(
   date: string,
 ): Promise<DayRoute> {
   const supabase = await createClient();
+  const settings = await getSchedulingSettings();
   const { data: rep } = await supabase
     .from("profiles")
     .select("full_name, email, home_address")
@@ -428,7 +435,7 @@ export async function getDayRoute(
   });
   return {
     repName: (rep?.full_name as string) || (rep?.email as string) || "Rep",
-    origin: (rep?.home_address as string) || storeAddress(),
+    origin: (rep?.home_address as string) || defaultOrigin(settings),
     stops,
   };
 }

@@ -22,7 +22,15 @@ export async function listHandoffMembers(): Promise<HandoffMember[]> {
   const { data } = await supabase
     .from("profiles")
     .select("id, full_name, email, title, role")
-    .in("role", ["admin", "office", "crew", "warehouse"])
+    .in("role", [
+      "admin",
+      "office",
+      "sales_manager",
+      "salesman",
+      "scheduler",
+      "crew",
+      "warehouse",
+    ])
     .order("full_name", { ascending: true });
   const rows = (data ?? []) as {
     id: string;

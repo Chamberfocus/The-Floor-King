@@ -59,6 +59,7 @@ export async function saveSchedulingSettings(formData: FormData): Promise<void> 
       work_days: days || "1,2,3,4,5,6",
       day_start: str(formData.get("day_start")) || "09:00",
       day_end: str(formData.get("day_end")) || "17:00",
+      default_origin: str(formData.get("default_origin")) || null,
       estimate_duration_min: n(formData.get("estimate_duration_min"), 60),
       travel_buffer_min: n(formData.get("travel_buffer_min"), 30),
       cap_carpet_yd: n(formData.get("cap_carpet_yd"), 100),

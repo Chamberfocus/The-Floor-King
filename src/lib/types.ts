@@ -60,6 +60,7 @@ export interface SchedulingSettings {
   cap_tile_teardown_sf: number;
   cap_subfloor_sheets: number;
   cap_selflevel_sf: number;
+  default_origin: string | null;
   updated_at: string;
 }
 

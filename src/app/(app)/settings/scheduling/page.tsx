@@ -111,6 +111,20 @@ export default async function SchedulingSettingsPage() {
                 defaultValue={s.travel_buffer_min}
               />
             </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="default_origin">
+                Default starting address (shop)
+              </Label>
+              <Input
+                id="default_origin"
+                name="default_origin"
+                defaultValue={s.default_origin ?? ""}
+                placeholder="3580 West 140th Street, Cleveland, OH 44111"
+              />
+              <p className="text-xs text-muted-foreground">
+                Where routing starts when a rep has no home base of their own.
+              </p>
+            </div>
           </CardContent>
         </Card>
 
