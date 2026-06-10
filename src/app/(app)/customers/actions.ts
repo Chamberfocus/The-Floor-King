@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { advanceFromFirstStage } from "@/lib/workflow-engine";
 import {
   LEAD_STAGE_LABELS,
   type ActivityType,
@@ -209,6 +210,11 @@ export async function addActivity(
     body,
   });
   if (error) return { error: error.message };
+
+  // Intelligent flow: logging the first contact nudges a brand-new lead forward.
+  if (type !== "stage_change") {
+    await advanceFromFirstStage(supabase, customerId);
+  }
 
   revalidatePath(`/customers/${customerId}`);
   return { error: null, ok: true };

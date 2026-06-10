@@ -8,6 +8,7 @@ import {
   type SaveInvoiceInput,
 } from "@/lib/invoice-calc";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { advanceFromAutoAction } from "@/lib/workflow-engine";
 import { lineQty } from "@/lib/estimate-calc";
 import type {
   EstimateLineItem,
@@ -315,6 +316,22 @@ export async function recordPayment(formData: FormData): Promise<void> {
   });
 
   await recomputeStatus(supabase, invoiceId);
+
+  // Intelligent flow: a deposit recorded while at "collect deposit" → order materials.
+  const { data: inv } = await supabase
+    .from("invoices")
+    .select("customer_id")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  if (inv?.customer_id) {
+    await advanceFromAutoAction(
+      supabase,
+      inv.customer_id as string,
+      "collect_deposit",
+    );
+    revalidatePath(`/customers/${inv.customer_id}`);
+  }
+
   revalidatePath(`/invoices/${invoiceId}`);
   revalidatePath("/invoices");
   revalidatePath("/dashboard");
