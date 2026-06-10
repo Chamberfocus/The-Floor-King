@@ -771,7 +771,12 @@ export const EXPENSE_CATEGORY_ORDER: ExpenseCategory[] = [
 
 // --- Workflow stages & handoffs --------------------------------------------
 
-export type StageAutoAction = "none" | "schedule_estimate" | "schedule_install";
+export type StageAutoAction =
+  | "none"
+  | "schedule_estimate"
+  | "build_quote"
+  | "collect_deposit"
+  | "schedule_install";
 
 export interface WorkflowStage {
   id: string;
@@ -788,6 +793,8 @@ export interface WorkflowStage {
 export const STAGE_AUTO_ACTION_LABELS: Record<StageAutoAction, string> = {
   none: "No auto-action",
   schedule_estimate: "Open estimate scheduler",
+  build_quote: "Open quote builder",
+  collect_deposit: "Open deposit invoice",
   schedule_install: "Open install scheduler",
 };
 

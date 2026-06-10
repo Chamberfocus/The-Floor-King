@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { moveToAutoActionStage } from "@/lib/workflow-engine";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -81,6 +82,16 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
     .from("estimates")
     .update({ status: "approved", accepted_option_id: optionId })
     .eq("id", id);
+
+  // Intelligent flow: approved → jump to the "collect deposit" stage.
+  const { data: e } = await supabase
+    .from("estimates")
+    .select("customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (e?.customer_id)
+    await moveToAutoActionStage(supabase, e.customer_id as string, "collect_deposit");
+
   await notifyOwner(
     supabase,
     id,

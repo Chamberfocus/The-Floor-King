@@ -9,6 +9,7 @@ import {
   type WizardSubmit,
 } from "@/lib/estimate-calc";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { moveToAutoActionStage } from "@/lib/workflow-engine";
 import type { EstimateStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -175,6 +176,21 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
 
   const supabase = await createClient();
   await supabase.from("estimates").update(patch).eq("id", id);
+
+  // Intelligent flow: approved → jump the customer to the deposit stage.
+  if (status === "approved") {
+    const { data: ec } = await supabase
+      .from("estimates")
+      .select("customer_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (ec?.customer_id)
+      await moveToAutoActionStage(
+        supabase,
+        ec.customer_id as string,
+        "collect_deposit",
+      );
+  }
 
   if (status === "sent") {
     const { data: est } = await supabase

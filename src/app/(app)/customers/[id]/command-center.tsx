@@ -24,6 +24,7 @@ export function CommandCenter({
   stages,
   members,
   currentStageId,
+  currentOwnerId,
   ownerName,
   nextActionDue,
   money,
@@ -33,6 +34,7 @@ export function CommandCenter({
   stages: WorkflowStage[];
   members: HandoffMember[];
   currentStageId: string | null;
+  currentOwnerId: string | null;
   ownerName: string | null;
   nextActionDue: string | null;
   money: { invoiced: number; paid: number; balance: number };
@@ -48,23 +50,28 @@ export function CommandCenter({
 
   const [mode, setMode] = useState<null | "advance" | "move">(null);
   const [toStage, setToStage] = useState<string>(nextStage?.id ?? "");
-  const [toUser, setToUser] = useState<string>("");
+  // Default to keeping the same person — only changes if you choose to.
+  const [toUser, setToUser] = useState<string>(currentOwnerId ?? "");
 
-  // When the target stage changes, default the assignee to its default owner.
-  const onPickStage = (id: string) => {
-    setToStage(id);
-    const st = ordered.find((s) => s.id === id);
-    setToUser(st?.default_owner ?? "");
-  };
+  const onPickStage = (id: string) => setToStage(id);
 
   const openAdvance = () => {
     setMode("advance");
-    onPickStage(nextStage?.id ?? "");
+    setToStage(nextStage?.id ?? "");
+    setToUser(currentOwnerId ?? "");
   };
   const openMove = () => {
     setMode("move");
-    onPickStage(current?.id ?? ordered[0]?.id ?? "");
+    setToStage(current?.id ?? ordered[0]?.id ?? "");
+    setToUser(currentOwnerId ?? "");
   };
+
+  // The stage's suggested owner (for a quick "hand off" shortcut).
+  const targetStage = ordered.find((s) => s.id === toStage) ?? null;
+  const suggestedOwner = targetStage?.default_owner ?? null;
+  const suggestedName = suggestedOwner
+    ? (members.find((m) => m.id === suggestedOwner)?.name ?? null)
+    : null;
 
   const due = nextActionDue ? new Date(nextActionDue) : null;
   const overdue = due ? due.getTime() < Date.now() : false;
@@ -195,7 +202,7 @@ export function CommandCenter({
             </div>
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">
-                Assign to
+                Assign to {toUser === currentOwnerId && currentOwnerId ? "(keeping same person)" : ""}
               </label>
               <select
                 value={toUser}
@@ -210,6 +217,15 @@ export function CommandCenter({
                   </option>
                 ))}
               </select>
+              {suggestedOwner && suggestedOwner !== toUser ? (
+                <button
+                  type="button"
+                  onClick={() => setToUser(suggestedOwner)}
+                  className="mt-1 block text-xs font-medium text-primary hover:underline"
+                >
+                  Hand off to {suggestedName ?? "stage owner"}
+                </button>
+              ) : null}
             </div>
           </div>
           <input

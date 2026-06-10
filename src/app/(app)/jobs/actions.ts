@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { moveToAutoActionStage } from "@/lib/workflow-engine";
 import type {
   JobDeliveryType,
   JobStatus,
@@ -312,6 +313,22 @@ export async function setWarehouseStatus(formData: FormData): Promise<void> {
   if (!id || !status) return;
   const supabase = await createClient();
   await supabase.from("jobs").update({ warehouse_status: status }).eq("id", id);
+
+  // Intelligent flow: materials received/staged → jump to the install-scheduling stage.
+  if (status === "staged") {
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("customer_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (job?.customer_id)
+      await moveToAutoActionStage(
+        supabase,
+        job.customer_id as string,
+        "schedule_install",
+      );
+  }
+
   revalidatePath("/warehouse");
   revalidatePath(`/jobs/${id}`);
 }

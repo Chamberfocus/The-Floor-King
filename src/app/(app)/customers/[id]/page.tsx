@@ -116,6 +116,15 @@ export default async function CustomerPage({
     stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
   const autoAction = currentStage?.auto_action ?? "none";
 
+  // Estimates the contextual cards open.
+  const pricingEstimate =
+    estimates.find((e) => e.status === "draft") ??
+    estimates.find((e) => e.status === "sent") ??
+    estimates[0] ??
+    null;
+  const approvedEstimate =
+    estimates.find((e) => e.status === "approved") ?? null;
+
   // Money status for the command center.
   const money = invoices.reduce(
     (acc, inv) => {
@@ -187,6 +196,7 @@ export default async function CustomerPage({
           stages={stages}
           members={handoffMembers}
           currentStageId={customer.workflow_stage_id}
+          currentOwnerId={customer.workflow_owner_id}
           ownerName={ownerName}
           nextActionDue={customer.next_action_due ?? null}
           money={money}
@@ -215,6 +225,62 @@ export default async function CustomerPage({
               </Link>
             </CardContent>
           </Card>
+
+          {autoAction === "build_quote" ? (
+            <Card className="ring-2 ring-primary">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  Build the quote
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                    Due now
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Time to price this job and send the quote.
+                </p>
+                <Link
+                  href={
+                    pricingEstimate
+                      ? `/estimates/${pricingEstimate.id}/edit`
+                      : `/estimates/new?customer=${customer.id}`
+                  }
+                  className={buttonVariants({ size: "sm" })}
+                >
+                  {pricingEstimate ? "Open quote builder" : "Start the quote"}
+                </Link>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {autoAction === "collect_deposit" ? (
+            <Card className="ring-2 ring-primary">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  Collect the deposit
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                    Due now
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Approved — create the deposit invoice and order materials.
+                </p>
+                <Link
+                  href={
+                    approvedEstimate
+                      ? `/estimates/${approvedEstimate.id}/invoice`
+                      : `/customers/${customer.id}`
+                  }
+                  className={buttonVariants({ size: "sm" })}
+                >
+                  Create deposit invoice
+                </Link>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <EstimateScheduler
             customerId={customer.id}
