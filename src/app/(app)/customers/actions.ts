@@ -213,7 +213,7 @@ export async function addActivity(
 
   // Intelligent flow: logging the first contact nudges a brand-new lead forward.
   if (type !== "stage_change") {
-    await advanceFromFirstStage(supabase, customerId);
+    await advanceFromFirstStage(customerId);
   }
 
   revalidatePath(`/customers/${customerId}`);

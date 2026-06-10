@@ -90,7 +90,7 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
     .eq("id", id)
     .maybeSingle();
   if (e?.customer_id)
-    await moveToAutoActionStage(supabase, e.customer_id as string, "collect_deposit");
+    await moveToAutoActionStage(e.customer_id as string, "collect_deposit");
 
   await notifyOwner(
     supabase,

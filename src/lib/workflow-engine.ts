@@ -2,10 +2,24 @@
 // is configured (by its auto_action) to handle a given event — e.g. an
 // approved estimate jumps them to the "collect deposit" stage. SERVER ONLY.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { StageAutoAction } from "@/lib/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = SupabaseClient<any, any, any>;
+
+/**
+ * Workflow automation runs with the service role so it works no matter who
+ * triggered the event (staff or a customer in the portal) — it's trusted
+ * server logic, not user input. Returns null if the key isn't configured.
+ */
+function engineDb(): DB | null {
+  try {
+    return createAdminClient() as unknown as DB;
+  } catch {
+    return null;
+  }
+}
 
 interface StageRow {
   id: string;
@@ -75,11 +89,12 @@ async function loadCustomer(
  * No-op if no stage uses that auto_action, or the customer is already there.
  */
 export async function moveToAutoActionStage(
-  supabase: DB,
   customerId: string,
   autoAction: StageAutoAction,
 ): Promise<void> {
   if (!customerId) return;
+  const supabase = engineDb();
+  if (!supabase) return;
   const { data: stage } = await supabase
     .from("workflow_stages")
     .select("id, name, position, sla_hours, default_owner")
@@ -99,11 +114,12 @@ export async function moveToAutoActionStage(
  * "next" stage has no tool of its own (e.g. deposit recorded → order materials).
  */
 export async function advanceFromAutoAction(
-  supabase: DB,
   customerId: string,
   fromAutoAction: StageAutoAction,
 ): Promise<void> {
   if (!customerId) return;
+  const supabase = engineDb();
+  if (!supabase) return;
   const cust = await loadCustomer(supabase, customerId);
   if (!cust?.workflow_stage_id) return;
 
@@ -124,10 +140,11 @@ export async function advanceFromAutoAction(
  * activity is logged. No-op if the customer has already moved past stage one.
  */
 export async function advanceFromFirstStage(
-  supabase: DB,
   customerId: string,
 ): Promise<void> {
   if (!customerId) return;
+  const supabase = engineDb();
+  if (!supabase) return;
   const cust = await loadCustomer(supabase, customerId);
   if (!cust) return;
 
@@ -138,7 +155,8 @@ export async function advanceFromFirstStage(
   const list = (stages ?? []) as StageRow[];
   if (list.length < 2) return;
   const first = list[0];
-  // Only nudge if they're still on the very first stage (or unstaged).
-  if (cust.workflow_stage_id && cust.workflow_stage_id !== first.id) return;
+  // Only nudge a lead that is explicitly sitting on stage one. An unstaged
+  // customer (no workflow stage yet) is left alone — never auto-jumped.
+  if (cust.workflow_stage_id !== first.id) return;
   await applyMove(supabase, customerId, cust, list[1]);
 }

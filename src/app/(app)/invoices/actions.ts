@@ -325,7 +325,6 @@ export async function recordPayment(formData: FormData): Promise<void> {
     .maybeSingle();
   if (inv?.customer_id) {
     await advanceFromAutoAction(
-      supabase,
       inv.customer_id as string,
       "collect_deposit",
     );

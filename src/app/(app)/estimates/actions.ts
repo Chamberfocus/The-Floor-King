@@ -186,7 +186,6 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
       .maybeSingle();
     if (ec?.customer_id)
       await moveToAutoActionStage(
-        supabase,
         ec.customer_id as string,
         "collect_deposit",
       );

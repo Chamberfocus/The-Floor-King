@@ -323,7 +323,6 @@ export async function setWarehouseStatus(formData: FormData): Promise<void> {
       .maybeSingle();
     if (job?.customer_id)
       await moveToAutoActionStage(
-        supabase,
         job.customer_id as string,
         "schedule_install",
       );
