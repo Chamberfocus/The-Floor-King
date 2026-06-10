@@ -8,13 +8,14 @@ export interface TeamMember {
   title: string | null;
   role: UserRole;
   home_address: string | null;
+  phone: string | null;
 }
 
 export async function listTeamMembers(): Promise<TeamMember[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("profiles")
-    .select("id, email, full_name, title, role, home_address")
+    .select("id, email, full_name, title, role, home_address, phone")
     .in("role", [
       "admin",
       "office",

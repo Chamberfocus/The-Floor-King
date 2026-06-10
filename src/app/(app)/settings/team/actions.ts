@@ -24,20 +24,33 @@ function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+/** Phone → digits only, dropping a leading US country code. */
+function normalizePhone(raw: string): string {
+  let d = (raw || "").replace(/\D/g, "");
+  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+  return d;
+}
+
 export async function inviteTeamMember(
   _prev: TeamFormState,
   formData: FormData,
 ): Promise<TeamFormState> {
   const email = str(formData.get("email")).toLowerCase();
+  const phone = normalizePhone(str(formData.get("phone")));
   const password = str(formData.get("password"));
   const fullName = str(formData.get("full_name"));
   const pos = positionById(str(formData.get("position")));
   const role: UserRole = pos?.role ?? "office";
   const title = str(formData.get("title")) || pos?.label || "";
 
-  if (!email) return { error: "Email is required." };
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
+  if (!email && !phone) {
+    return { error: "Enter an email or a phone number for the login." };
+  }
+  if (phone && phone.length < 10) {
+    return { error: "Enter a valid 10-digit phone number." };
+  }
+  if (password.length < 6) {
+    return { error: "The PIN / password must be at least 6 characters." };
   }
   if (!pos) return { error: "Pick a position." };
 
@@ -50,8 +63,23 @@ export async function inviteTeamMember(
     };
   }
 
+  // Phone must be unique so phone login is unambiguous.
+  if (phone) {
+    const { data: dupe } = await admin
+      .from("profiles")
+      .select("id")
+      .eq("phone", phone)
+      .maybeSingle();
+    if (dupe) return { error: "That phone number already has a login." };
+  }
+
+  // Email is what Supabase auth uses. If only a phone was given, create a
+  // private placeholder email so the account can exist; the employee still
+  // signs in with their phone + PIN.
+  const authEmail = email || `p${phone}@crew.floorking.local`;
+
   const { data: created, error } = await admin.auth.admin.createUser({
-    email,
+    email: authEmail,
     password,
     email_confirm: true,
     user_metadata: { full_name: fullName || null, role },
@@ -65,6 +93,7 @@ export async function inviteTeamMember(
     .update({
       role,
       full_name: fullName || null,
+      phone: phone || null,
       title: title || null,
       home_address: str(formData.get("home_address")) || null,
     })
@@ -72,6 +101,33 @@ export async function inviteTeamMember(
 
   revalidatePath("/settings/team");
   return { error: null, ok: true };
+}
+
+/** Set or change an existing member's phone + PIN (enables phone login). */
+export async function setMemberPhonePin(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const phone = normalizePhone(str(formData.get("phone")));
+  const pin = str(formData.get("pin"));
+  if (!id || !phone || pin.length < 6) return;
+
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return;
+  }
+  // Don't steal a phone already used by someone else.
+  const { data: dupe } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("phone", phone)
+    .neq("id", id)
+    .maybeSingle();
+  if (dupe) return;
+
+  await admin.auth.admin.updateUserById(id, { password: pin });
+  await admin.from("profiles").update({ phone }).eq("id", id);
+  revalidatePath("/settings/team");
 }
 
 export async function setMemberHome(formData: FormData): Promise<void> {

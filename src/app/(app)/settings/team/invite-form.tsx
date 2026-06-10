@@ -57,18 +57,33 @@ export function InviteTeamForm() {
         />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="email">Email</Label>
-        <Input id="email" name="email" type="email" required />
+        <Label htmlFor="email">Email (optional)</Label>
+        <Input id="email" name="email" type="email" placeholder="optional" />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="password">Temporary password</Label>
+        <Label htmlFor="phone">Phone number</Label>
+        <Input
+          id="phone"
+          name="phone"
+          type="tel"
+          inputMode="tel"
+          placeholder="(216) 555-1212"
+        />
+      </div>
+      <div className="space-y-1 sm:col-span-2">
+        <Label htmlFor="password">PIN / password</Label>
         <Input
           id="password"
           name="password"
           type="text"
-          placeholder="At least 8 characters"
+          placeholder="At least 6 characters/digits — they'll use this to sign in"
           required
         />
+        <p className="text-xs text-muted-foreground">
+          Give them an <strong>email or a phone number</strong> (or both). With a
+          phone, they sign in using <strong>phone + this PIN</strong> — no email
+          needed.
+        </p>
       </div>
       {state.error ? (
         <p className="text-sm text-destructive sm:col-span-2" role="alert">

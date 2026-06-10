@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/page-header";
 import { listTeamMembers } from "@/lib/data/team";
 import { InviteTeamForm } from "./invite-form";
 import { RoleSelect } from "./role-select";
-import { setMemberTitle, setMemberHome } from "./actions";
+import { setMemberTitle, setMemberHome, setMemberPhonePin } from "./actions";
 
 export const metadata: Metadata = { title: "Team" };
 
@@ -79,6 +79,26 @@ export default async function TeamPage() {
                     />
                     <Button type="submit" variant="ghost" size="sm">
                       Save base
+                    </Button>
+                  </form>
+                  <form
+                    action={setMemberPhonePin}
+                    className="flex items-center gap-1"
+                  >
+                    <input type="hidden" name="id" value={m.id} />
+                    <input
+                      name="phone"
+                      defaultValue={m.phone ?? ""}
+                      placeholder="Phone for sign-in"
+                      className="h-8 w-40 rounded-md border border-input bg-transparent px-2 text-sm"
+                    />
+                    <input
+                      name="pin"
+                      placeholder="New PIN (6+)"
+                      className="h-8 w-28 rounded-md border border-input bg-transparent px-2 text-sm"
+                    />
+                    <Button type="submit" variant="ghost" size="sm">
+                      Set phone PIN
                     </Button>
                   </form>
                 </li>
