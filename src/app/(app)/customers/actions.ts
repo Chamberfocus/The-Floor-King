@@ -304,4 +304,6 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
 
   refreshCustomerViews(id);
   revalidatePath("/pipeline");
+  // Redirect back so the command-center form closes and the new stage shows.
+  redirect(`/customers/${id}`);
 }
