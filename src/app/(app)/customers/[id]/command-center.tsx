@@ -4,10 +4,17 @@ import { useMemo, useState } from "react";
 import { ArrowRight, CircleDot, Clock, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatDate } from "@/lib/format";
 import { STAGE_COLOR_BADGE, type WorkflowStage } from "@/lib/types";
 import type { HandoffMember } from "@/lib/data/workflow";
 import { advanceWorkflow } from "../actions";
+
+interface HandoffRow {
+  id: string;
+  to_stage_name: string | null;
+  to_name: string | null;
+  created_at: string;
+}
 
 const fieldClass =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -20,6 +27,7 @@ export function CommandCenter({
   ownerName,
   nextActionDue,
   money,
+  handoffs = [],
 }: {
   customerId: string;
   stages: WorkflowStage[];
@@ -28,6 +36,7 @@ export function CommandCenter({
   ownerName: string | null;
   nextActionDue: string | null;
   money: { invoiced: number; paid: number; balance: number };
+  handoffs?: HandoffRow[];
 }) {
   const ordered = useMemo(
     () => [...stages].sort((a, b) => a.position - b.position),
@@ -216,6 +225,22 @@ export function CommandCenter({
           </div>
         </form>
       )}
+
+      {handoffs.length ? (
+        <div className="mt-4 border-t pt-3">
+          <div className="mb-1 text-xs font-medium text-muted-foreground">
+            Recent handoffs
+          </div>
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {handoffs.slice(0, 5).map((h) => (
+              <li key={h.id}>
+                → {h.to_stage_name ?? "stage"} · {h.to_name ?? "unassigned"} ·{" "}
+                {formatDate(h.created_at)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -57,7 +57,7 @@ import { createInvoice } from "@/app/(app)/invoices/actions";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { optionTotals } from "@/lib/estimate-calc";
 import { invoiceTotals } from "@/lib/invoice-calc";
-import { STAGE_COLOR_BADGE, type ActivityType } from "@/lib/types";
+import { type ActivityType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { StageSelect } from "./stage-select";
@@ -65,7 +65,6 @@ import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
 import { InvitePortalForm } from "./invite-portal-form";
 import { CustomerChat } from "./customer-chat";
-import { HandoffControl } from "./handoff-control";
 import { CommandCenter } from "./command-center";
 import { OnTheWayButton } from "./on-the-way-button";
 
@@ -191,69 +190,13 @@ export default async function CustomerPage({
           ownerName={ownerName}
           nextActionDue={customer.next_action_due ?? null}
           money={money}
+          handoffs={handoffHistory}
         />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left: workflow + stage + contact */}
+        {/* Left: stage automations + contact */}
         <div className="space-y-6">
-          {/* Workflow & handoff */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Workflow &amp; handoff</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-start justify-between gap-3 text-sm">
-                <div>
-                  <div className="text-xs text-muted-foreground">
-                    Current stage
-                  </div>
-                  {currentStage ? (
-                    <span
-                      className={cn(
-                        "mt-0.5 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                        STAGE_COLOR_BADGE[currentStage.color] ??
-                          STAGE_COLOR_BADGE.zinc,
-                      )}
-                    >
-                      {currentStage.name}
-                    </span>
-                  ) : (
-                    <div className="text-muted-foreground">Not started</div>
-                  )}
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-muted-foreground">Owner</div>
-                  <div className="font-medium">{ownerName ?? "Unassigned"}</div>
-                </div>
-              </div>
-
-              <HandoffControl
-                customerId={customer.id}
-                currentStageId={customer.workflow_stage_id}
-                currentOwnerId={customer.workflow_owner_id}
-                stages={stages}
-                members={handoffMembers}
-              />
-
-              {handoffHistory.length ? (
-                <div className="border-t pt-3">
-                  <div className="mb-1 text-xs font-medium text-muted-foreground">
-                    Recent handoffs
-                  </div>
-                  <ul className="space-y-1 text-xs text-muted-foreground">
-                    {handoffHistory.slice(0, 5).map((h) => (
-                      <li key={h.id}>
-                        → {h.to_stage_name ?? "stage"} ·{" "}
-                        {h.to_name ?? "unassigned"} · {formatDate(h.created_at)}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-
           <Card>
             <CardContent className="flex items-center justify-between gap-3 py-4">
               <div>
