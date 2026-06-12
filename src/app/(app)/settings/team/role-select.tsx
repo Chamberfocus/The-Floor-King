@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef } from "react";
+import { useState, useTransition } from "react";
 import { ROLE_LABELS, type UserRole } from "@/lib/types";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { setMemberRole } from "./actions";
 
 const ROLES: UserRole[] = [
@@ -15,23 +16,25 @@ const ROLES: UserRole[] = [
 ];
 
 export function RoleSelect({ id, role }: { id: string; role: UserRole }) {
-  const formRef = useRef<HTMLFormElement>(null);
+  const [current, setCurrent] = useState<UserRole>(role);
+  const [, start] = useTransition();
+
+  const change = (r: string) => {
+    setCurrent(r as UserRole);
+    const fd = new FormData();
+    fd.set("id", id);
+    fd.set("role", r);
+    start(() => {
+      setMemberRole(fd);
+    });
+  };
+
   return (
-    <form ref={formRef} action={setMemberRole}>
-      <input type="hidden" name="id" value={id} />
-      <select
-        name="role"
-        defaultValue={role}
-        onChange={() => formRef.current?.requestSubmit()}
-        aria-label="Role"
-        className="h-8 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {ROLES.map((r) => (
-          <option key={r} value={r}>
-            {ROLE_LABELS[r]}
-          </option>
-        ))}
-      </select>
-    </form>
+    <SegmentedField
+      size="sm"
+      value={current}
+      onChange={change}
+      options={ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }))}
+    />
   );
 }

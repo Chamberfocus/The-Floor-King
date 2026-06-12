@@ -15,9 +15,8 @@ import {
   extractBillDocument,
   type ExpenseFormState,
 } from "./actions";
-
-const fieldClass =
-  "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+import { SegmentedField } from "@/components/ui/segmented-field";
+import { SearchPicker } from "@/components/ui/search-picker";
 
 const initialState: ExpenseFormState = { error: null };
 
@@ -100,14 +99,15 @@ export function ExpenseForm({
         <Input id="date" name="date" type="date" />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="category">Category</Label>
-        <select id="category" name="category" className={fieldClass} defaultValue="materials">
-          {EXPENSE_CATEGORY_ORDER.map((c) => (
-            <option key={c} value={c}>
-              {EXPENSE_CATEGORY_LABELS[c]}
-            </option>
-          ))}
-        </select>
+        <Label>Category</Label>
+        <SegmentedField
+          name="category"
+          defaultValue="materials"
+          options={EXPENSE_CATEGORY_ORDER.map((c) => ({
+            value: c,
+            label: EXPENSE_CATEGORY_LABELS[c],
+          }))}
+        />
       </div>
       <div className="space-y-1">
         <Label htmlFor="amount">Amount</Label>
@@ -129,15 +129,13 @@ export function ExpenseForm({
         <Input id="note" name="note" />
       </div>
       <div className="space-y-1 sm:col-span-2">
-        <Label htmlFor="job_id">Link to a job (optional)</Label>
-        <select id="job_id" name="job_id" className={fieldClass} defaultValue="">
-          <option value="">— None —</option>
-          {jobs.map((j) => (
-            <option key={j.id} value={j.id}>
-              {j.label}
-            </option>
-          ))}
-        </select>
+        <Label>Link to a job (optional)</Label>
+        <SearchPicker
+          name="job_id"
+          placeholder="— None —"
+          allowClear
+          options={jobs.map((j) => ({ value: j.id, label: j.label }))}
+        />
       </div>
       <div className="flex items-end">
         <Button type="submit" disabled={pending} className="w-full">

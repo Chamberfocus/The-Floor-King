@@ -12,9 +12,7 @@ import {
   type Customer,
 } from "@/lib/types";
 import { createCustomer, updateCustomer, type CustomerFormState } from "./actions";
-
-const selectClass =
-  "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+import { SegmentedField } from "@/components/ui/segmented-field";
 
 const initialState: CustomerFormState = { error: null };
 
@@ -116,38 +114,28 @@ export function CustomerForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="source">Lead source * (where did they come from?)</Label>
-          <select
-            id="source"
+          <Label>Lead source * (where did they come from?)</Label>
+          <SegmentedField
             name="source"
             defaultValue={customer?.source ?? ""}
-            required
-            className={selectClass}
-          >
-            <option value="">— Select a source —</option>
-            {Object.entries(LEAD_SOURCE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={Object.entries(LEAD_SOURCE_LABELS).map(([value, label]) => ({
+              value,
+              label,
+            }))}
+          />
         </div>
 
         {!isEdit ? (
           <div className="space-y-2">
-            <Label htmlFor="stage">Stage</Label>
-            <select
-              id="stage"
+            <Label>Stage</Label>
+            <SegmentedField
               name="stage"
               defaultValue="new"
-              className={selectClass}
-            >
-              {LEAD_STAGE_ORDER.map((value) => (
-                <option key={value} value={value}>
-                  {LEAD_STAGE_LABELS[value]}
-                </option>
-              ))}
-            </select>
+              options={LEAD_STAGE_ORDER.map((value) => ({
+                value,
+                label: LEAD_STAGE_LABELS[value],
+              }))}
+            />
           </div>
         ) : null}
 

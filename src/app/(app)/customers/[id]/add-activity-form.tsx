@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { addActivity, type CustomerFormState } from "../actions";
 
 const initialState: CustomerFormState = { error: null };
@@ -29,17 +30,16 @@ export function AddActivityForm({ customerId }: { customerId: string }) {
         className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
       <div className="flex items-center justify-between gap-2">
-        <select
+        <SegmentedField
           name="type"
           defaultValue="note"
-          aria-label="Activity type"
-          className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <option value="note">Note</option>
-          <option value="call">Call</option>
-          <option value="text">Text</option>
-          <option value="email">Email</option>
-        </select>
+          options={[
+            { value: "note", label: "Note" },
+            { value: "call", label: "Call" },
+            { value: "text", label: "Text" },
+            { value: "email", label: "Email" },
+          ]}
+        />
         <Button type="submit" size="lg" disabled={pending}>
           {pending ? "Adding…" : "Add"}
         </Button>

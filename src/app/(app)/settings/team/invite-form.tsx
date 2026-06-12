@@ -7,9 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { inviteTeamMember, type TeamFormState } from "./actions";
 import { POSITIONS } from "./positions";
-
-const fieldClass =
-  "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+import { SegmentedField } from "@/components/ui/segmented-field";
 
 const initialState: TeamFormState = { error: null };
 
@@ -33,20 +31,13 @@ export function InviteTeamForm() {
         <Label htmlFor="title">Job title</Label>
         <Input id="title" name="title" placeholder="e.g. Lead Estimator" />
       </div>
-      <div className="space-y-1">
-        <Label htmlFor="position">Position</Label>
-        <select
-          id="position"
+      <div className="space-y-1 sm:col-span-2">
+        <Label>Position</Label>
+        <SegmentedField
           name="position"
           defaultValue="salesman"
-          className={fieldClass}
-        >
-          {POSITIONS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+          options={POSITIONS.map((p) => ({ value: p.id, label: p.label }))}
+        />
       </div>
       <div className="space-y-1 sm:col-span-2">
         <Label htmlFor="home_address">Home base address (for routing, optional)</Label>

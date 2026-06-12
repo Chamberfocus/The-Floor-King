@@ -10,14 +10,12 @@ import {
   PRODUCT_CATEGORY_ORDER,
   type Product,
 } from "@/lib/types";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import {
   createProduct,
   updateProduct,
   type ProductFormState,
 } from "./actions";
-
-const selectClass =
-  "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 const initialState: ProductFormState = { error: null };
 
@@ -50,19 +48,15 @@ export function ProductForm({ product }: { product?: Product }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="category">Category</Label>
-          <select
-            id="category"
+          <Label>Category</Label>
+          <SegmentedField
             name="category"
             defaultValue={product?.category ?? "lvp"}
-            className={selectClass}
-          >
-            {PRODUCT_CATEGORY_ORDER.map((c) => (
-              <option key={c} value={c}>
-                {PRODUCT_CATEGORY_LABELS[c]}
-              </option>
-            ))}
-          </select>
+            options={PRODUCT_CATEGORY_ORDER.map((c) => ({
+              value: c,
+              label: PRODUCT_CATEGORY_LABELS[c],
+            }))}
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="unit">Unit</Label>
