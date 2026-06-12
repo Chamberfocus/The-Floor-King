@@ -233,6 +233,20 @@ export function ProductPicker({
                               .filter(Boolean)
                               .join(" · ")}
                           </span>
+                          {p.track_stock ? (
+                            <span
+                              className={cn(
+                                "mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium",
+                                p.on_hand > 0
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-amber-100 text-amber-700",
+                              )}
+                            >
+                              {p.on_hand > 0
+                                ? `In stock: ${p.on_hand} ${p.unit}`
+                                : "Out of stock — order"}
+                            </span>
+                          ) : null}
                         </span>
                         <span className="shrink-0 text-right">
                           <span className="block font-medium tabular-nums">

@@ -257,8 +257,33 @@ export interface Product {
   color: string | null;
   notes: string | null;
   active: boolean;
+  track_stock: boolean;
+  on_hand: number;
+  reorder_point: number;
+  bin_location: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type StockMovementKind = "receive" | "pull" | "adjust" | "return";
+
+export const STOCK_MOVEMENT_LABELS: Record<StockMovementKind, string> = {
+  receive: "Received",
+  pull: "Pulled for job",
+  adjust: "Adjustment",
+  return: "Returned to stock",
+};
+
+export interface StockMovement {
+  id: string;
+  product_id: string;
+  qty: number;
+  kind: StockMovementKind;
+  job_id: string | null;
+  customer_id: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
 }
 
 export interface EstimateLineItem {
