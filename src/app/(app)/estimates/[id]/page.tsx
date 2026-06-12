@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate } from "@/lib/data/estimates";
 import { getCustomer } from "@/lib/data/customers";
 import { optionTotals, lineTotal, lineQty } from "@/lib/estimate-calc";
@@ -246,17 +247,14 @@ export default async function EstimatePage({
                   <label className="mb-1 block text-xs text-muted-foreground">
                     Accept which option?
                   </label>
-                  <select
+                  <SegmentedField
                     name="accepted_option_id"
                     defaultValue={options[0]?.id}
-                    className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-sm"
-                  >
-                    {options.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.name} — {formatMoney(totalsFor(o).total)}
-                      </option>
-                    ))}
-                  </select>
+                    options={options.map((o) => ({
+                      value: o.id,
+                      label: `${o.name} — ${formatMoney(totalsFor(o).total)}`,
+                    }))}
+                  />
                 </div>
                 <Button type="submit" variant="default">
                   Mark approved

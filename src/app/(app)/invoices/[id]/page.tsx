@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { getInvoice, amountPaid } from "@/lib/data/invoices";
 import { getCustomer } from "@/lib/data/customers";
@@ -157,15 +158,14 @@ export default async function InvoicePage({
               <label className="mb-1 block text-xs text-muted-foreground">
                 Method
               </label>
-              <select name="method" className={fieldClass} defaultValue="card">
-                {(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethod[]).map(
-                  (m) => (
-                    <option key={m} value={m}>
-                      {PAYMENT_METHOD_LABELS[m]}
-                    </option>
-                  ),
+              <SegmentedField
+                size="sm"
+                name="method"
+                defaultValue="card"
+                options={(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethod[]).map(
+                  (m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m] }),
                 )}
-              </select>
+              />
             </div>
             <div className="sm:col-span-1">
               <label className="mb-1 block text-xs text-muted-foreground">

@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { SearchPicker } from "@/components/ui/search-picker";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import {
   getJob,
@@ -339,20 +340,14 @@ export default async function JobPage({
                       <label className="mb-1 block text-xs text-muted-foreground">
                         Installer
                       </label>
-                      <select
+                      <SearchPicker
                         name="installer_id"
                         defaultValue={job.assigned_to ?? ""}
-                        className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-                      >
-                        <option value="">— Choose —</option>
-                        {users
+                        placeholder="— Choose —"
+                        options={users
                           .filter((u) => u.role === "crew")
-                          .map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.name}
-                            </option>
-                          ))}
-                      </select>
+                          .map((u) => ({ value: u.id, label: u.name }))}
+                      />
                     </div>
                     <div>
                       <label className="mb-1 block text-xs text-muted-foreground">

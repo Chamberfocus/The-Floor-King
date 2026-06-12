@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { requireProfile } from "@/lib/auth";
 import { listWarehouseJobs } from "@/lib/data/jobs";
 import {
@@ -164,19 +165,14 @@ export default async function WarehousePage() {
                     <span className="text-sm text-muted-foreground">
                       Delivery:
                     </span>
-                    <select
+                    <SegmentedField
+                      size="sm"
                       name="delivery_type"
                       defaultValue={j.delivery_type}
-                      className={fieldClass}
-                    >
-                      {(Object.keys(JOB_DELIVERY_LABELS) as JobDeliveryType[]).map(
-                        (d) => (
-                          <option key={d} value={d}>
-                            {JOB_DELIVERY_LABELS[d]}
-                          </option>
-                        ),
+                      options={(Object.keys(JOB_DELIVERY_LABELS) as JobDeliveryType[]).map(
+                        (d) => ({ value: d, label: JOB_DELIVERY_LABELS[d] }),
                       )}
-                    </select>
+                    />
                     <Button type="submit" variant="outline" size="sm">
                       Update
                     </Button>
