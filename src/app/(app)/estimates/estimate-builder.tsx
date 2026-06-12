@@ -28,6 +28,7 @@ import {
 } from "@/lib/types";
 import { saveEstimate } from "./actions";
 import { ProductPicker } from "./product-picker";
+import { SegmentedField } from "@/components/ui/segmented-field";
 
 interface LineState {
   key: string;
@@ -568,23 +569,16 @@ export function EstimateBuilder({
                         <label className="mb-1 block text-xs text-muted-foreground">
                           Pricing
                         </label>
-                        <select
+                        <SegmentedField
+                          size="sm"
                           value={line.line_type}
-                          onChange={(e) =>
-                            updateLine(oi, li, {
-                              line_type: e.target.value as LineType,
-                            })
+                          onChange={(v) =>
+                            updateLine(oi, li, { line_type: v as LineType })
                           }
-                          className={cn(inputSm, "w-40")}
-                        >
-                          {(Object.keys(LINE_TYPE_LABELS) as LineType[]).map(
-                            (t) => (
-                              <option key={t} value={t}>
-                                {LINE_TYPE_LABELS[t]}
-                              </option>
-                            ),
+                          options={(Object.keys(LINE_TYPE_LABELS) as LineType[]).map(
+                            (t) => ({ value: t, label: LINE_TYPE_LABELS[t] }),
                           )}
-                        </select>
+                        />
                       </div>
 
                       {line.line_type !== "flat" ? (
@@ -655,18 +649,19 @@ export function EstimateBuilder({
                             <label className="mb-1 block text-xs text-muted-foreground">
                               Price per
                             </label>
-                            <select
+                            <SegmentedField
+                              size="sm"
                               value={line.measure_unit}
-                              onChange={(e) =>
+                              onChange={(v) =>
                                 updateLine(oi, li, {
-                                  measure_unit: e.target.value as MeasureUnit,
+                                  measure_unit: v as MeasureUnit,
                                 })
                               }
-                              className={cn(inputSm, "w-20")}
-                            >
-                              <option value="sqft">sq ft</option>
-                              <option value="sqyd">sq yd</option>
-                            </select>
+                              options={[
+                                { value: "sqft", label: "sq ft" },
+                                { value: "sqyd", label: "sq yd" },
+                              ]}
+                            />
                           </div>
                           <LabeledNumber
                             label="Waste %"

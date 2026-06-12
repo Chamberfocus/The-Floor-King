@@ -39,6 +39,7 @@ import {
 import { landedCost, freightPctForManufacturer } from "@/lib/freight";
 import { createEstimateFromWizard } from "./actions";
 import { ProductPicker } from "./product-picker";
+import { SegmentedField } from "@/components/ui/segmented-field";
 
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -448,18 +449,17 @@ export function EstimateWizard({
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="w-pres">Show the customer</Label>
-                  <select
-                    id="w-pres"
+                  <Label>Show the customer</Label>
+                  <SegmentedField
                     value={presentation}
-                    onChange={(e) =>
-                      setPresentation(e.target.value as EstimatePresentation)
+                    onChange={(v) =>
+                      setPresentation(v as EstimatePresentation)
                     }
-                    className={cn(inputSm, "w-full")}
-                  >
-                    <option value="detailed">Itemized (line by line)</option>
-                    <option value="summary">Lump sum (single total)</option>
-                  </select>
+                    options={[
+                      { value: "detailed", label: "Itemized (line by line)" },
+                      { value: "summary", label: "Lump sum (single total)" },
+                    ]}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="w-tax">Tax rate %</Label>
@@ -562,18 +562,17 @@ export function EstimateWizard({
                         <label className="mb-1 block text-xs text-muted-foreground">
                           Price per
                         </label>
-                        <select
+                        <SegmentedField
+                          size="sm"
                           value={r.measure_unit}
-                          onChange={(e) =>
-                            updateRoom(i, {
-                              measure_unit: e.target.value as MeasureUnit,
-                            })
+                          onChange={(v) =>
+                            updateRoom(i, { measure_unit: v as MeasureUnit })
                           }
-                          className={cn(inputSm, "w-20")}
-                        >
-                          <option value="sqft">sq ft</option>
-                          <option value="sqyd">sq yd</option>
-                        </select>
+                          options={[
+                            { value: "sqft", label: "sq ft" },
+                            { value: "sqyd", label: "sq yd" },
+                          ]}
+                        />
                       </div>
                     </div>
                     {(() => {

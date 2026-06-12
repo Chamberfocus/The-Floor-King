@@ -15,6 +15,8 @@ import {
 } from "@/lib/types";
 import type { AssignableUser } from "@/lib/data/jobs";
 import { updateJob, type JobFormState } from "./actions";
+import { SegmentedField } from "@/components/ui/segmented-field";
+import { SearchPicker } from "@/components/ui/search-picker";
 
 const fieldClass =
   "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -45,35 +47,29 @@ export function JobForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="status">Status</Label>
-          <select
-            id="status"
+          <Label>Status</Label>
+          <SegmentedField
             name="status"
             defaultValue={job.status}
-            className={fieldClass}
-          >
-            {JOB_STATUS_ORDER.map((s) => (
-              <option key={s} value={s}>
-                {JOB_STATUS_LABELS[s]}
-              </option>
-            ))}
-          </select>
+            options={JOB_STATUS_ORDER.map((s) => ({
+              value: s,
+              label: JOB_STATUS_LABELS[s],
+            }))}
+          />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="assigned_to">Assigned crew</Label>
-          <select
-            id="assigned_to"
+          <Label>Assigned crew</Label>
+          <SearchPicker
             name="assigned_to"
             defaultValue={job.assigned_to ?? ""}
-            className={fieldClass}
-          >
-            <option value="">— Unassigned —</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} ({u.role})
-              </option>
-            ))}
-          </select>
+            placeholder="— Unassigned —"
+            allowClear
+            options={users.map((u) => ({
+              value: u.id,
+              label: u.name,
+              hint: u.role,
+            }))}
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="scheduled_date">Start date</Label>
@@ -94,19 +90,14 @@ export function JobForm({
           />
         </div>
         <div className="space-y-2 sm:col-span-2">
-          <Label htmlFor="delivery_type">Material delivery</Label>
-          <select
-            id="delivery_type"
+          <Label>Material delivery</Label>
+          <SegmentedField
             name="delivery_type"
             defaultValue={job.delivery_type}
-            className={fieldClass}
-          >
-            {(Object.keys(JOB_DELIVERY_LABELS) as JobDeliveryType[]).map((d) => (
-              <option key={d} value={d}>
-                {JOB_DELIVERY_LABELS[d]}
-              </option>
-            ))}
-          </select>
+            options={(Object.keys(JOB_DELIVERY_LABELS) as JobDeliveryType[]).map(
+              (d) => ({ value: d, label: JOB_DELIVERY_LABELS[d] }),
+            )}
+          />
         </div>
       </div>
 

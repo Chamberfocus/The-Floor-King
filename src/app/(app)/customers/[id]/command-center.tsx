@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { formatMoney, formatDate } from "@/lib/format";
 import { STAGE_COLOR_BADGE, type WorkflowStage } from "@/lib/types";
 import type { HandoffMember } from "@/lib/data/workflow";
+import { SearchPicker } from "@/components/ui/search-picker";
 import { advanceWorkflow } from "../actions";
 
 interface HandoffRow {
@@ -188,35 +189,29 @@ export function CommandCenter({
               <label className="mb-1 block text-xs text-muted-foreground">
                 {mode === "advance" ? "Advance to" : "Move to"}
               </label>
-              <select
+              <SearchPicker
+                className="w-52"
                 value={toStage}
-                onChange={(e) => onPickStage(e.target.value)}
-                className={cn(fieldClass, "w-52")}
-              >
-                {ordered.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+                onChange={onPickStage}
+                options={ordered.map((s) => ({ value: s.id, label: s.name }))}
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">
                 Assign to {toUser === currentOwnerId && currentOwnerId ? "(keeping same person)" : ""}
               </label>
-              <select
+              <SearchPicker
+                className="w-48"
                 value={toUser}
-                onChange={(e) => setToUser(e.target.value)}
-                className={cn(fieldClass, "w-48")}
-              >
-                <option value="">— Unassigned —</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                    {m.title ? ` (${m.title})` : ""}
-                  </option>
-                ))}
-              </select>
+                onChange={setToUser}
+                placeholder="— Unassigned —"
+                allowClear
+                options={members.map((m) => ({
+                  value: m.id,
+                  label: m.name,
+                  hint: m.title ?? undefined,
+                }))}
+              />
               {suggestedOwner && suggestedOwner !== toUser ? (
                 <button
                   type="button"
