@@ -14,7 +14,6 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import {
   listInventory,
-  listUntracked,
   inventorySummary,
   listAgedStock,
   daysIdle,
@@ -22,12 +21,8 @@ import {
 } from "@/lib/data/inventory";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import {
-  receiveStock,
-  adjustStock,
-  startTracking,
-  setClearance,
-} from "./actions";
+import { receiveStock, adjustStock, setClearance } from "./actions";
+import { AddToInventoryForm } from "./add-to-inventory";
 
 export const metadata: Metadata = { title: "Inventory" };
 
@@ -44,10 +39,9 @@ export default async function InventoryPage({
     redirect("/");
   const q = (await searchParams).q?.trim() ?? "";
 
-  const [items, summary, untracked, aged] = await Promise.all([
+  const [items, summary, aged] = await Promise.all([
     listInventory(q),
     inventorySummary(),
-    listUntracked(),
     listAgedStock(),
   ]);
 
@@ -231,42 +225,7 @@ export default async function InventoryPage({
           <CardTitle className="text-base">Add a product to inventory</CardTitle>
         </CardHeader>
         <CardContent>
-          {untracked.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Every catalog product is already tracked.
-            </p>
-          ) : (
-            <form action={startTracking} className="flex flex-wrap items-end gap-2">
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Product</label>
-                <select name="product_id" required className="h-9 w-64 rounded-md border border-input bg-transparent px-2 text-sm">
-                  {untracked.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                      {p.sku ? ` (#${p.sku})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Opening count</label>
-                <Input name="on_hand" type="number" step="0.01" min="0" defaultValue="0" className="w-24" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Reorder at</label>
-                <Input name="reorder_point" type="number" step="0.01" min="0" defaultValue="0" className="w-24" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Bin</label>
-                <Input name="bin_location" placeholder="A-12" className="w-28" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">In stock since</label>
-                <Input name="stocked_since" type="date" className="w-36" />
-              </div>
-              <Button type="submit">Track</Button>
-            </form>
-          )}
+          <AddToInventoryForm />
         </CardContent>
       </Card>
     </div>

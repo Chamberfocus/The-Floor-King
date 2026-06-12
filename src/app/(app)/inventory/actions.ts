@@ -2,7 +2,31 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import type { StockMovementKind } from "@/lib/types";
+import type { Product, StockMovementKind } from "@/lib/types";
+
+/** Search catalog products NOT yet tracked — for the "add to inventory" picker. */
+export async function searchUntrackedProducts(
+  query: string,
+): Promise<Product[]> {
+  const supabase = await createClient();
+  let q = supabase
+    .from("products")
+    .select("*")
+    .eq("track_stock", false)
+    .order("name", { ascending: true })
+    .limit(30);
+  const term = query.trim();
+  if (term) {
+    const like = `%${term}%`;
+    q = q.or(
+      [`name.ilike.${like}`, `sku.ilike.${like}`, `manufacturer.ilike.${like}`].join(
+        ",",
+      ),
+    );
+  }
+  const { data } = await q;
+  return (data ?? []) as Product[];
+}
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
