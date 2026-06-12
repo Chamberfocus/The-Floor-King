@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { searchCatalog } from "@/lib/data/products";
 import type { Product, ProductCategory } from "@/lib/types";
+
+/** Live catalog search for the estimate material picker (active products). */
+export async function searchCatalogProducts(query: string): Promise<Product[]> {
+  return searchCatalog(query, { activeOnly: true, limit: 40 });
+}
 
 export interface ProductFormState {
   error: string | null;

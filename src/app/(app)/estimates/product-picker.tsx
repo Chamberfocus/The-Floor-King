@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import {
   PRODUCT_CATEGORY_ORDER,
   type Product,
 } from "@/lib/types";
-import { createProductInline } from "../catalog/actions";
+import { createProductInline, searchCatalogProducts } from "../catalog/actions";
 
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -22,36 +22,35 @@ function productLabel(p: Product): string {
 }
 
 /**
- * Searchable catalog picker for an estimate line. Type to find a product by
- * name / manufacturer / style / color / SKU, or add a brand-new one that's
- * saved to the catalog and linked here.
+ * Searchable catalog picker for an estimate line. Searches the catalog
+ * server-side (so it stays fast with thousands of products) by name /
+ * manufacturer / style / color / SKU, or adds a brand-new product.
  */
 export function ProductPicker({
-  products,
   value,
+  initialLabel = "",
   onPick,
   onCreated,
 }: {
-  products: Product[];
   value: string;
+  initialLabel?: string;
   onPick: (product: Product | null) => void;
   onCreated: (product: Product) => void;
 }) {
-  const selected = products.find((p) => p.id === value) ?? null;
-
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [q, setQ] = useState(selected ? productLabel(selected) : "");
+  const [q, setQ] = useState(initialLabel);
+  const [results, setResults] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Keep the input text in sync when the line's product changes elsewhere
-  // (e.g. picking a product, duplicating a line, or adding one inline).
+  // Keep the field in sync when the line's product changes elsewhere.
   useEffect(() => {
-    setQ(selected ? productLabel(selected) : "");
+    setQ(initialLabel);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
+  }, [value, initialLabel]);
 
   // Close when clicking outside.
   useEffect(() => {
@@ -60,35 +59,31 @@ export function ProductPicker({
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
         setOpen(false);
         setAdding(false);
-        // Restore the selected product's label if they didn't pick anything.
-        setQ(selected ? productLabel(selected) : "");
+        setQ(initialLabel);
       }
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [open, selected]);
+  }, [open, initialLabel]);
 
-  const matches = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    const selLabel = selected ? productLabel(selected).toLowerCase() : "";
-    // No query yet (or just the current selection showing) → browse the catalog.
-    if (!term || term === selLabel) return products.slice(0, 40);
-    return products
-      .filter((p) =>
-        [
-          p.name,
-          p.manufacturer ?? "",
-          p.style ?? "",
-          p.color ?? "",
-          p.sku ?? "",
-          PRODUCT_CATEGORY_LABELS[p.category],
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(term),
-      )
-      .slice(0, 50);
-  }, [products, q, selected]);
+  // Debounced server-side search while the dropdown is open.
+  useEffect(() => {
+    if (!open || adding) return;
+    setLoading(true);
+    const term = q.trim() === initialLabel.trim() ? "" : q;
+    const t = setTimeout(async () => {
+      try {
+        setResults(await searchCatalogProducts(term));
+      } catch {
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [q, open, adding, initialLabel]);
+
+  const matches = results;
 
   // Reset the highlight when the list changes; keep it in range.
   useEffect(() => {
@@ -131,7 +126,7 @@ export function ProductPicker({
     } else if (e.key === "Escape") {
       setOpen(false);
       setAdding(false);
-      setQ(selected ? productLabel(selected) : "");
+      setQ(initialLabel);
     }
   };
 
@@ -157,7 +152,7 @@ export function ProductPicker({
           placeholder="Type a product name…"
           className={cn(inputSm, "w-72 pl-8 pr-7")}
         />
-        {selected ? (
+        {value ? (
           <button
             type="button"
             onClick={() => {
@@ -194,7 +189,7 @@ export function ProductPicker({
               <div ref={listRef} className="max-h-64 overflow-y-auto py-1">
                 {matches.length === 0 ? (
                   <p className="px-3 py-3 text-sm text-muted-foreground">
-                    No match in the catalog.
+                    {loading ? "Searching…" : "No match in the catalog."}
                   </p>
                 ) : (
                   matches.map((p, i) => {

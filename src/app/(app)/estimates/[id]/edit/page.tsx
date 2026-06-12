@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getEstimate } from "@/lib/data/estimates";
 import { getCustomer } from "@/lib/data/customers";
-import { listProducts } from "@/lib/data/products";
 import { EstimateBuilder } from "../../estimate-builder";
 
 export const metadata: Metadata = { title: "Edit estimate" };
@@ -16,15 +15,11 @@ export default async function EditEstimatePage({
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
 
-  const [customer, products] = await Promise.all([
-    getCustomer(estimate.customer_id),
-    listProducts({ activeOnly: true }),
-  ]);
+  const customer = await getCustomer(estimate.customer_id);
 
   return (
     <EstimateBuilder
       estimate={estimate}
-      products={products}
       customerName={customer?.full_name ?? "customer"}
     />
   );

@@ -4,7 +4,6 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { getCustomer } from "@/lib/data/customers";
-import { listProducts } from "@/lib/data/products";
 import { listWizardQuestions } from "@/lib/data/wizard";
 import { listSuppliers } from "@/lib/data/suppliers";
 import { getOrgSettings } from "@/lib/data/org";
@@ -24,8 +23,7 @@ export default async function NewEstimatePage({
   const customer = await getCustomer(customerId);
   if (!customer) notFound();
 
-  const [products, questions, suppliers, org] = await Promise.all([
-    listProducts({ activeOnly: true }),
+  const [questions, suppliers, org] = await Promise.all([
     listWizardQuestions({ activeOnly: true }),
     listSuppliers(),
     getOrgSettings(),
@@ -59,7 +57,6 @@ export default async function NewEstimatePage({
       <EstimateWizard
         customerId={customerId}
         customerName={customer.full_name}
-        products={products}
         questions={questions}
         suppliers={suppliers}
         fuelPct={org.fuel_surcharge_pct}

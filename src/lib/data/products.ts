@@ -29,6 +29,47 @@ export async function listProducts(
   return all;
 }
 
+/**
+ * Server-side product search — fetches only what matches so big catalogs stay
+ * fast. Empty query returns the first `limit` by name.
+ */
+export async function searchCatalog(
+  query: string,
+  opts: { activeOnly?: boolean; limit?: number } = {},
+): Promise<Product[]> {
+  const supabase = await createClient();
+  const limit = opts.limit ?? 50;
+  let q = supabase
+    .from("products")
+    .select("*")
+    .order("name", { ascending: true })
+    .limit(limit);
+  if (opts.activeOnly) q = q.eq("active", true);
+  const term = query.trim();
+  if (term) {
+    const like = `%${term}%`;
+    q = q.or(
+      [
+        `name.ilike.${like}`,
+        `sku.ilike.${like}`,
+        `manufacturer.ilike.${like}`,
+        `style.ilike.${like}`,
+        `color.ilike.${like}`,
+      ].join(","),
+    );
+  }
+  const { data } = await q;
+  return (data ?? []) as Product[];
+}
+
+export async function productCount(): Promise<number> {
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("products")
+    .select("id", { count: "exact", head: true });
+  return count ?? 0;
+}
+
 export async function getProduct(id: string): Promise<Product | null> {
   const supabase = await createClient();
   const { data } = await supabase

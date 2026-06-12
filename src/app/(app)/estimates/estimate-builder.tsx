@@ -129,20 +129,15 @@ function LabeledNumber({
 
 export function EstimateBuilder({
   estimate,
-  products,
   customerName,
 }: {
   estimate: Estimate;
-  products: Product[];
   customerName: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const keyCounter = useRef(0);
   const newKey = () => `k${keyCounter.current++}`;
-
-  // Catalog held in state so products added inline appear everywhere at once.
-  const [catalog, setCatalog] = useState<Product[]>(products);
 
   const emptyLine = (): LineState => ({
     key: newKey(),
@@ -354,9 +349,8 @@ export function EstimateBuilder({
     );
   };
 
-  // A product created inline: add it to the catalog and apply it to the line.
+  // A product created inline is returned ready to use; apply it to the line.
   const handleProductCreated = (oi: number, li: number, p: Product) => {
-    setCatalog((prev) => [p, ...prev.filter((x) => x.id !== p.id)]);
     pickProduct(oi, li, p);
   };
 
@@ -687,8 +681,8 @@ export function EstimateBuilder({
 
                       {line.line_type !== "flat" ? (
                         <ProductPicker
-                          products={catalog}
                           value={line.product_id}
+                          initialLabel={line.description}
                           onPick={(p) => pickProduct(oi, li, p)}
                           onCreated={(p) => handleProductCreated(oi, li, p)}
                         />

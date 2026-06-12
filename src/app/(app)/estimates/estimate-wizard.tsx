@@ -62,6 +62,7 @@ interface RoomState {
   material_cost: string;
   labor_cost: string;
   margin: string;
+  freight_pct: number;
 }
 
 /** Selling price from cost + margin %: price = cost / (1 - margin). */
@@ -154,14 +155,12 @@ type Step =
 export function EstimateWizard({
   customerId,
   customerName,
-  products,
   questions,
   suppliers = [],
   fuelPct = 0,
 }: {
   customerId: string;
   customerName: string;
-  products: Product[];
   questions: WizardQuestion[];
   suppliers?: Supplier[];
   fuelPct?: number;
@@ -170,9 +169,6 @@ export function EstimateWizard({
   const [isPending, startTransition] = useTransition();
   const keyCounter = useRef(0);
   const newKey = () => `r${keyCounter.current++}`;
-
-  // Catalog held in state so inline-added products show up immediately.
-  const [catalog, setCatalog] = useState<Product[]>(products);
   // The profit margin we commit to (drives selling price from cost).
   const [defaultMargin, setDefaultMargin] = useState(40);
 
@@ -195,6 +191,7 @@ export function EstimateWizard({
     material_cost: "",
     labor_cost: "",
     margin: String(defaultMargin),
+    freight_pct: 0,
   });
 
   const addonQs = useMemo(
@@ -296,6 +293,7 @@ export function EstimateWizard({
     // Material cost = product cost (unit-converted) + freight + fuel surcharge.
     const baseCost = p.material_rate * factor;
     const landed = landedCost(baseCost, p.manufacturer, suppliers, fuelPct);
+    const freight_pct = freightPctForManufacturer(p.manufacturer, suppliers);
     setRooms((prev) =>
       prev.map((r, j) => {
         if (j !== i) return r;
@@ -308,13 +306,13 @@ export function EstimateWizard({
           material_cost: String(landed),
           labor_cost: r.labor_cost,
           description: r.description || p.name,
+          freight_pct,
         };
         return { ...merged, ...repriced(merged) };
       }),
     );
   };
   const handleRoomProductCreated = (i: number, p: Product) => {
-    setCatalog((prev) => [p, ...prev.filter((x) => x.id !== p.id)]);
     pickRoomProduct(i, p);
   };
   // Apply one margin to every room and re-price them all.
@@ -511,8 +509,8 @@ export function EstimateWizard({
                   <div key={r.key} className="space-y-2 rounded-md border p-3">
                     <div className="flex flex-wrap items-end gap-2">
                       <ProductPicker
-                        products={catalog}
                         value={r.product_id}
+                        initialLabel={r.description}
                         onPick={(p) => pickRoomProduct(i, p)}
                         onCreated={(p) => handleRoomProductCreated(i, p)}
                       />
@@ -588,10 +586,8 @@ export function EstimateWizard({
                       const costUnit =
                         num(r.material_cost) + num(r.labor_cost);
                       const profit = total - lineCost(cl);
-                      const prod = catalog.find((x) => x.id === r.product_id);
-                      const freightPct = prod
-                        ? freightPctForManufacturer(prod.manufacturer, suppliers)
-                        : 0;
+                      const freightPct = r.freight_pct;
+                      const hasProduct = !!r.product_id;
                       const uplift = freightPct + fuelPct;
                       return (
                         <>
@@ -604,7 +600,7 @@ export function EstimateWizard({
                                   updateRoomPricing(i, { material_cost: v })
                                 }
                               />
-                              {prod && uplift > 0 ? (
+                              {hasProduct && uplift > 0 ? (
                                 <p className="mt-0.5 text-[10px] text-muted-foreground">
                                   incl. {freightPct > 0 ? `${freightPct}% freight` : ""}
                                   {freightPct > 0 && fuelPct > 0 ? " + " : ""}
