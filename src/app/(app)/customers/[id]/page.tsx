@@ -165,6 +165,133 @@ export default async function CustomerPage({
     }
   }
 
+  const isScheduleEstimate = autoAction === "schedule_estimate";
+  const hasStageTool =
+    isScheduleEstimate ||
+    autoAction === "build_quote" ||
+    autoAction === "collect_deposit" ||
+    !!installPop;
+
+  // The tool the current stage activates — shown ON TOP of the command center.
+  const stageToolsRegion = (
+    <div className="mb-6 space-y-4">
+      {isScheduleEstimate ? (
+        <EstimateScheduler customerId={customer.id} autoOpen reps={repOptions} />
+      ) : null}
+
+      {autoAction === "build_quote" ? (
+        <Card className="ring-2 ring-primary">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              Build the quote
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                Due now
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Time to price this job and send the quote.
+            </p>
+            <Link
+              href={
+                pricingEstimate
+                  ? `/estimates/${pricingEstimate.id}/edit`
+                  : `/estimates/new?customer=${customer.id}`
+              }
+              className={buttonVariants({ size: "sm" })}
+            >
+              {pricingEstimate ? "Open quote builder" : "Start the quote"}
+            </Link>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {autoAction === "collect_deposit" ? (
+        <Card className="ring-2 ring-primary">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              Collect the deposit
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                Due now
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Approved — create the deposit invoice and order materials.
+            </p>
+            <Link
+              href={
+                approvedEstimate
+                  ? `/estimates/${approvedEstimate.id}/invoice`
+                  : `/customers/${customer.id}`
+              }
+              className={buttonVariants({ size: "sm" })}
+            >
+              Create deposit invoice
+            </Link>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {installPop ? (
+        <Card className="ring-2 ring-primary">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              Schedule installation
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                Due now
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {installPop.suggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Add material types/quantities to the estimate, or set crew
+                capacity in Settings → Scheduling.
+              </p>
+            ) : (
+              installPop.suggestions.slice(0, 4).map((sug) => (
+                <div
+                  key={sug.installerId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
+                >
+                  <div>
+                    <span className="font-medium">{sug.name}</span>{" "}
+                    <span className="text-muted-foreground">
+                      — {sug.days} day{sug.days === 1 ? "" : "s"},{" "}
+                      {formatDate(sug.start)}
+                      {sug.end !== sug.start ? ` → ${formatDate(sug.end)}` : ""}
+                    </span>
+                  </div>
+                  <form action={bookInstall}>
+                    <input type="hidden" name="job_id" value={installPop.jobId} />
+                    <input type="hidden" name="installer_id" value={sug.installerId} />
+                    <input type="hidden" name="start" value={sug.start} />
+                    <input type="hidden" name="end" value={sug.end} />
+                    <button
+                      type="submit"
+                      className={buttonVariants({ size: "sm", variant: "outline" })}
+                    >
+                      Book
+                    </button>
+                  </form>
+                </div>
+              ))
+            )}
+            <Link
+              href={`/jobs/${installPop.jobId}`}
+              className="text-xs text-primary hover:underline"
+            >
+              Open job for full scheduling / manual booking →
+            </Link>
+          </CardContent>
+        </Card>
+      ) : null}
+    </div>
+  );
+
   return (
     <div className="mx-auto max-w-5xl">
       <Link
@@ -188,6 +315,9 @@ export default async function CustomerPage({
         </div>
         <OnTheWayButton customerId={customer.id} />
       </div>
+
+      {/* Active stage tool — sits on top of the command center */}
+      {hasStageTool ? stageToolsRegion : null}
 
       {/* Command center — the cockpit for this lead */}
       <div className="mb-6">
@@ -226,130 +356,12 @@ export default async function CustomerPage({
             </CardContent>
           </Card>
 
-          {autoAction === "build_quote" ? (
-            <Card className="ring-2 ring-primary">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  Build the quote
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                    Due now
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  Time to price this job and send the quote.
-                </p>
-                <Link
-                  href={
-                    pricingEstimate
-                      ? `/estimates/${pricingEstimate.id}/edit`
-                      : `/estimates/new?customer=${customer.id}`
-                  }
-                  className={buttonVariants({ size: "sm" })}
-                >
-                  {pricingEstimate ? "Open quote builder" : "Start the quote"}
-                </Link>
-              </CardContent>
-            </Card>
-          ) : null}
-
-          {autoAction === "collect_deposit" ? (
-            <Card className="ring-2 ring-primary">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  Collect the deposit
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                    Due now
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  Approved — create the deposit invoice and order materials.
-                </p>
-                <Link
-                  href={
-                    approvedEstimate
-                      ? `/estimates/${approvedEstimate.id}/invoice`
-                      : `/customers/${customer.id}`
-                  }
-                  className={buttonVariants({ size: "sm" })}
-                >
-                  Create deposit invoice
-                </Link>
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <EstimateScheduler
-            customerId={customer.id}
-            autoOpen={autoAction === "schedule_estimate"}
-            reps={repOptions}
-          />
-
-          {installPop ? (
-            <Card className="ring-2 ring-primary">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  Schedule installation
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                    Due now
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {installPop.suggestions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Add material types/quantities to the estimate, or set crew
-                    capacity in Settings → Scheduling.
-                  </p>
-                ) : (
-                  installPop.suggestions.slice(0, 4).map((sug) => (
-                    <div
-                      key={sug.installerId}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
-                    >
-                      <div>
-                        <span className="font-medium">{sug.name}</span>{" "}
-                        <span className="text-muted-foreground">
-                          — {sug.days} day{sug.days === 1 ? "" : "s"},{" "}
-                          {formatDate(sug.start)}
-                          {sug.end !== sug.start
-                            ? ` → ${formatDate(sug.end)}`
-                            : ""}
-                        </span>
-                      </div>
-                      <form action={bookInstall}>
-                        <input type="hidden" name="job_id" value={installPop.jobId} />
-                        <input
-                          type="hidden"
-                          name="installer_id"
-                          value={sug.installerId}
-                        />
-                        <input type="hidden" name="start" value={sug.start} />
-                        <input type="hidden" name="end" value={sug.end} />
-                        <button
-                          type="submit"
-                          className={buttonVariants({
-                            size: "sm",
-                            variant: "outline",
-                          })}
-                        >
-                          Book
-                        </button>
-                      </form>
-                    </div>
-                  ))
-                )}
-                <Link
-                  href={`/jobs/${installPop.jobId}`}
-                  className="text-xs text-primary hover:underline"
-                >
-                  Open job for full scheduling / manual booking →
-                </Link>
-              </CardContent>
-            </Card>
+          {!isScheduleEstimate ? (
+            <EstimateScheduler
+              customerId={customer.id}
+              autoOpen={false}
+              reps={repOptions}
+            />
           ) : null}
 
           <Card>
