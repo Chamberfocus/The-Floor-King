@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { SearchPicker } from "@/components/ui/search-picker";
 import { formatDate } from "@/lib/format";
 import {
   suggestEstimateTimes,
@@ -177,19 +177,11 @@ export function EstimateScheduler({
                 <label className="mb-1 block text-xs text-muted-foreground">
                   Salesperson
                 </label>
-                <select
+                <SearchPicker
                   name="salesperson_id"
-                  className={cn(
-                    "h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm",
-                  )}
-                >
-                  <option value="">— Choose —</option>
-                  {reps.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="— Choose —"
+                  options={reps.map((r) => ({ value: r.id, label: r.name }))}
+                />
               </div>
               <div className="col-span-2 flex justify-end">
                 <Button type="submit" size="sm">

@@ -11,10 +11,9 @@ import {
   type StageAutoAction,
 } from "@/lib/types";
 import type { HandoffMember } from "@/lib/data/workflow";
+import { SegmentedField } from "@/components/ui/segmented-field";
+import { SearchPicker } from "@/components/ui/search-picker";
 import { createStage, type StageFormState } from "./actions";
-
-const fieldClass =
-  "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 const initialState: StageFormState = { error: null };
 
@@ -49,34 +48,41 @@ export function AddStageForm({ members }: { members: HandoffMember[] }) {
           placeholder="0"
           className="w-16"
         />
-        <select name="sla_unit" defaultValue="days" className={fieldClass}>
-          <option value="hours">hrs</option>
-          <option value="days">days</option>
-        </select>
+        <SegmentedField
+          size="sm"
+          name="sla_unit"
+          defaultValue="days"
+          options={[
+            { value: "hours", label: "hrs" },
+            { value: "days", label: "days" },
+          ]}
+        />
       </div>
-      <select name="color" defaultValue="blue" className={fieldClass}>
-        {STAGE_COLORS.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
-      </select>
-      <select name="default_owner" defaultValue="" className={fieldClass}>
-        <option value="">— No default owner —</option>
-        {members.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.name}
-            {m.title ? ` (${m.title})` : ""}
-          </option>
-        ))}
-      </select>
-      <select name="auto_action" defaultValue="none" className={fieldClass}>
-        {(Object.keys(STAGE_AUTO_ACTION_LABELS) as StageAutoAction[]).map((a) => (
-          <option key={a} value={a}>
-            {STAGE_AUTO_ACTION_LABELS[a]}
-          </option>
-        ))}
-      </select>
+      <SearchPicker
+        className="w-32"
+        name="color"
+        defaultValue="blue"
+        options={STAGE_COLORS.map((c) => ({ value: c, label: c }))}
+      />
+      <SearchPicker
+        className="w-44"
+        name="default_owner"
+        placeholder="— No default owner —"
+        allowClear
+        options={members.map((m) => ({
+          value: m.id,
+          label: m.name,
+          hint: m.title ?? undefined,
+        }))}
+      />
+      <SearchPicker
+        className="w-44"
+        name="auto_action"
+        defaultValue="none"
+        options={(Object.keys(STAGE_AUTO_ACTION_LABELS) as StageAutoAction[]).map(
+          (a) => ({ value: a, label: STAGE_AUTO_ACTION_LABELS[a] }),
+        )}
+      />
       <Button type="submit" disabled={pending}>
         <Plus className="size-4" /> Add stage
       </Button>
