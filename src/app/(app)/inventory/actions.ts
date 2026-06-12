@@ -47,7 +47,10 @@ async function move(
   });
 
   const next = Math.round(((prod.on_hand as number) + delta) * 100) / 100;
-  await supabase.from("products").update({ on_hand: next }).eq("id", productId);
+  await supabase
+    .from("products")
+    .update({ on_hand: next, last_movement_at: new Date().toISOString() })
+    .eq("id", productId);
   refresh(productId);
 }
 
@@ -87,17 +90,35 @@ export async function adjustStock(formData: FormData): Promise<void> {
   });
 }
 
-/** Turn tracking on/off and set reorder point + bin. */
+/** Turn tracking on/off and set reorder point, bin, and "in stock since". */
 export async function setStockSettings(formData: FormData): Promise<void> {
   const id = str(formData.get("product_id"));
   if (!id) return;
+  const update: Record<string, unknown> = {
+    track_stock: str(formData.get("track_stock")) === "on",
+    reorder_point: numv(formData.get("reorder_point")),
+    bin_location: str(formData.get("bin_location")) || null,
+  };
+  // Optional: backdate "in stock since" so known-old stock ages correctly.
+  const since = str(formData.get("stocked_since"));
+  if (since) update.last_movement_at = new Date(since).toISOString();
+  const supabase = await createClient();
+  await supabase.from("products").update(update).eq("id", id);
+  refresh(id);
+}
+
+/** Mark/unmark an item as clearance with a custom deal price. */
+export async function setClearance(formData: FormData): Promise<void> {
+  const id = str(formData.get("product_id"));
+  if (!id) return;
+  const on = str(formData.get("clearance")) === "on";
+  const price = numv(formData.get("clearance_price"));
   const supabase = await createClient();
   await supabase
     .from("products")
     .update({
-      track_stock: str(formData.get("track_stock")) === "on",
-      reorder_point: numv(formData.get("reorder_point")),
-      bin_location: str(formData.get("bin_location")) || null,
+      clearance: on,
+      clearance_price: on && price > 0 ? price : null,
     })
     .eq("id", id);
   refresh(id);
@@ -108,6 +129,7 @@ export async function startTracking(formData: FormData): Promise<void> {
   const id = str(formData.get("product_id"));
   if (!id) return;
   const supabase = await createClient();
+  const since = str(formData.get("stocked_since"));
   await supabase
     .from("products")
     .update({
@@ -115,6 +137,10 @@ export async function startTracking(formData: FormData): Promise<void> {
       on_hand: numv(formData.get("on_hand")),
       reorder_point: numv(formData.get("reorder_point")),
       bin_location: str(formData.get("bin_location")) || null,
+      // Backdate aging to when you actually got it (else now).
+      last_movement_at: since
+        ? new Date(since).toISOString()
+        : new Date().toISOString(),
     })
     .eq("id", id);
   if (numv(formData.get("on_hand")) > 0) {

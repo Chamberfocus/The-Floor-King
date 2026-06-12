@@ -1,6 +1,20 @@
 import { createClient } from "@/lib/supabase/server";
 import type { Product, StockMovement } from "@/lib/types";
 
+/** Stock untouched for this many days is flagged "aged". */
+export const AGED_DAYS = 90;
+
+/** Days since the item last moved (received/pulled/adjusted). */
+export function daysIdle(p: Product): number {
+  const anchor = p.last_movement_at ?? p.created_at;
+  if (!anchor) return 0;
+  return Math.floor((Date.now() - new Date(anchor).getTime()) / 86400000);
+}
+
+export function isAged(p: Product): boolean {
+  return p.track_stock && p.on_hand > 0 && daysIdle(p) >= AGED_DAYS;
+}
+
 export interface InventorySummary {
   trackedCount: number;
   lowStockCount: number;
@@ -53,6 +67,21 @@ export async function inventorySummary(): Promise<InventorySummary> {
     totalValue += p.on_hand * (p.material_rate || 0);
   }
   return { trackedCount: items.length, lowStockCount, totalValue };
+}
+
+/** Tracked stock idle ≥ AGED_DAYS (oldest first) — the aged-stock list. */
+export async function listAgedStock(): Promise<Product[]> {
+  const cutoff = new Date(Date.now() - AGED_DAYS * 86400000).toISOString();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("products")
+    .select("*")
+    .eq("track_stock", true)
+    .gt("on_hand", 0)
+    .or(`last_movement_at.lte.${cutoff},last_movement_at.is.null`)
+    .order("last_movement_at", { ascending: true, nullsFirst: true })
+    .limit(100);
+  return (data ?? []) as Product[];
 }
 
 export async function getProduct(id: string): Promise<Product | null> {

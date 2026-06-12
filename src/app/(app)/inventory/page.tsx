@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Boxes, AlertTriangle, DollarSign } from "lucide-react";
+import { Boxes, AlertTriangle, DollarSign, Tag } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -16,10 +16,18 @@ import {
   listInventory,
   listUntracked,
   inventorySummary,
+  listAgedStock,
+  daysIdle,
+  AGED_DAYS,
 } from "@/lib/data/inventory";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { receiveStock, adjustStock, startTracking } from "./actions";
+import {
+  receiveStock,
+  adjustStock,
+  startTracking,
+  setClearance,
+} from "./actions";
 
 export const metadata: Metadata = { title: "Inventory" };
 
@@ -36,10 +44,11 @@ export default async function InventoryPage({
     redirect("/");
   const q = (await searchParams).q?.trim() ?? "";
 
-  const [items, summary, untracked] = await Promise.all([
+  const [items, summary, untracked, aged] = await Promise.all([
     listInventory(q),
     inventorySummary(),
     listUntracked(),
+    listAgedStock(),
   ]);
 
   return (
@@ -64,6 +73,75 @@ export default async function InventoryPage({
           value={formatMoney(summary.totalValue)}
         />
       </div>
+
+      {aged.length > 0 ? (
+        <Card className="mb-6 border-amber-300 bg-amber-50/50 dark:bg-amber-500/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Tag className="size-4 text-amber-600" />
+              Aged stock — sitting {AGED_DAYS}+ days ({aged.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-3 text-sm text-muted-foreground">
+              Slow movers. Set a clearance deal price and reps will see it in
+              quotes.
+            </p>
+            <ul className="divide-y">
+              {aged.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex flex-wrap items-center justify-between gap-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <Link
+                      href={`/inventory/${p.id}`}
+                      className="font-medium hover:underline"
+                    >
+                      {p.name}
+                    </Link>
+                    <div className="text-xs text-muted-foreground">
+                      {p.on_hand} {p.unit} · idle {daysIdle(p)} days
+                      {p.clearance && p.clearance_price != null
+                        ? ` · clearance ${formatMoney(p.clearance_price)}`
+                        : ""}
+                    </div>
+                  </div>
+                  {p.clearance ? (
+                    <form action={setClearance} className="flex items-center gap-1">
+                      <input type="hidden" name="product_id" value={p.id} />
+                      <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+                        On clearance
+                      </span>
+                      <Button type="submit" size="sm" variant="ghost">
+                        Remove
+                      </Button>
+                    </form>
+                  ) : (
+                    <form action={setClearance} className="flex items-center gap-1">
+                      <input type="hidden" name="product_id" value={p.id} />
+                      <input type="hidden" name="clearance" value="on" />
+                      <span className="text-xs text-muted-foreground">$</span>
+                      <input
+                        name="clearance_price"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="deal price"
+                        required
+                        className={cell.replace("w-20", "w-24")}
+                      />
+                      <Button type="submit" size="sm" variant="outline">
+                        Mark clearance
+                      </Button>
+                    </form>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <form method="get" className="mb-4 flex max-w-sm gap-2">
         <Input name="q" defaultValue={q} placeholder="Search stock…" />
@@ -96,9 +174,16 @@ export default async function InventoryPage({
                 return (
                   <tr key={p.id} className={low ? "bg-destructive/5" : ""}>
                     <td className="px-3 py-2">
-                      <Link href={`/inventory/${p.id}`} className="font-medium hover:underline">
-                        {p.name}
-                      </Link>
+                      <span className="flex items-center gap-1.5">
+                        <Link href={`/inventory/${p.id}`} className="font-medium hover:underline">
+                          {p.name}
+                        </Link>
+                        {p.clearance ? (
+                          <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                            Clearance
+                          </span>
+                        ) : null}
+                      </span>
                       <div className="text-xs text-muted-foreground">
                         {[p.manufacturer, p.sku ? `#${p.sku}` : null].filter(Boolean).join(" · ")}
                       </div>
@@ -174,6 +259,10 @@ export default async function InventoryPage({
               <div>
                 <label className="mb-1 block text-xs text-muted-foreground">Bin</label>
                 <Input name="bin_location" placeholder="A-12" className="w-28" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">In stock since</label>
+                <Input name="stocked_since" type="date" className="w-36" />
               </div>
               <Button type="submit">Track</Button>
             </form>

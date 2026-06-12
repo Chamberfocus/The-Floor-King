@@ -17,7 +17,13 @@ import { getProduct, listMovements } from "@/lib/data/inventory";
 import { STOCK_MOVEMENT_LABELS, type StockMovementKind } from "@/lib/types";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { receiveStock, pullStock, adjustStock, setStockSettings } from "../actions";
+import {
+  receiveStock,
+  pullStock,
+  adjustStock,
+  setStockSettings,
+  setClearance,
+} from "../actions";
 
 export const metadata: Metadata = { title: "Stock item" };
 
@@ -104,7 +110,51 @@ export default async function InventoryItemPage({
               <Label htmlFor="bin_location">Bin</Label>
               <Input id="bin_location" name="bin_location" defaultValue={product.bin_location ?? ""} className="w-28" />
             </div>
+            <div>
+              <Label htmlFor="stocked_since">In stock since</Label>
+              <Input
+                id="stocked_since"
+                name="stocked_since"
+                type="date"
+                defaultValue={product.last_movement_at?.slice(0, 10) ?? ""}
+                className="w-36"
+              />
+            </div>
             <Button type="submit" variant="outline">Save</Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Clearance */}
+      <Card className="mt-4 border-amber-300 bg-amber-50/40 dark:bg-amber-500/5">
+        <CardHeader>
+          <CardTitle className="text-base">Clearance deal</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form action={setClearance} className="flex flex-wrap items-end gap-3">
+            <input type="hidden" name="product_id" value={product.id} />
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="clearance"
+                defaultChecked={product.clearance}
+                className="size-4"
+              />
+              On clearance
+            </label>
+            <div>
+              <Label htmlFor="clearance_price">Deal price (per {product.unit})</Label>
+              <Input
+                id="clearance_price"
+                name="clearance_price"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={product.clearance_price ?? ""}
+                className="w-28"
+              />
+            </div>
+            <Button type="submit" variant="outline">Save deal</Button>
           </form>
         </CardContent>
       </Card>

@@ -261,6 +261,9 @@ export interface Product {
   on_hand: number;
   reorder_point: number;
   bin_location: string | null;
+  clearance: boolean;
+  clearance_price: number | null;
+  last_movement_at: string | null;
   created_at: string;
   updated_at: string;
 }
