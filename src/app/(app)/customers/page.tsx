@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { PageHeader } from "@/components/page-header";
 import { StageBadge } from "@/components/stage-badge";
+import { SearchPicker } from "@/components/ui/search-picker";
 import { listCustomers } from "@/lib/data/customers";
 import {
   LEAD_SOURCE_LABELS,
@@ -23,9 +24,6 @@ import {
 import { formatDate } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Customers" };
-
-const selectClass =
-  "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export default async function CustomersPage({
   searchParams,
@@ -70,14 +68,19 @@ export default async function CustomersPage({
             className="pl-8"
           />
         </div>
-        <select name="stage" defaultValue={stage ?? ""} className={selectClass}>
-          <option value="">All stages</option>
-          {LEAD_STAGE_ORDER.map((s) => (
-            <option key={s} value={s}>
-              {LEAD_STAGE_LABELS[s]}
-            </option>
-          ))}
-        </select>
+        <SearchPicker
+          className="w-44"
+          name="stage"
+          defaultValue={stage ?? ""}
+          placeholder="All stages"
+          options={[
+            { value: "", label: "All stages" },
+            ...LEAD_STAGE_ORDER.map((s) => ({
+              value: s,
+              label: LEAD_STAGE_LABELS[s],
+            })),
+          ]}
+        />
         <Button type="submit" variant="outline" size="lg">
           Search
         </Button>
