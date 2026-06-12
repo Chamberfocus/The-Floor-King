@@ -7,6 +7,7 @@ import {
   Trophy,
   CalendarDays,
   Plus,
+  AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -18,9 +19,11 @@ import {
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
-import { getDashboardCounts } from "@/lib/data/customers";
+import { getDashboardCounts, listMyQueue } from "@/lib/data/customers";
 import { getActiveJobCount } from "@/lib/data/jobs";
 import { getOutstandingInvoiceCount } from "@/lib/data/invoices";
+import { STAGE_COLOR_BADGE } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -30,6 +33,11 @@ export default async function DashboardPage() {
   const counts = await getDashboardCounts();
   const activeJobs = await getActiveJobCount();
   const outstanding = await getOutstandingInvoiceCount();
+  const queue = await listMyQueue(profile.id);
+  const nowMs = Date.now();
+  const overdueCount = queue.filter(
+    (q) => q.next_action_due && new Date(q.next_action_due).getTime() < nowMs,
+  ).length;
   const firstName = profile.full_name?.split(" ")[0] ?? "there";
 
   const stats: {
@@ -125,17 +133,69 @@ export default async function DashboardPage() {
       </div>
 
       <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="text-base">What&apos;s next</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">Your queue</CardTitle>
+          {overdueCount > 0 ? (
+            <Link
+              href="/pipeline?mine=1&overdue=1"
+              className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/20"
+            >
+              <AlertTriangle className="size-3.5" />
+              {overdueCount} overdue
+            </Link>
+          ) : null}
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          <p>
-            Leads &amp; Customers is live — track every prospect from first call to
-            won deal. Up next we&apos;ll add{" "}
-            <span className="font-medium text-foreground">Estimates</span> so you
-            can build a quote right from a customer&apos;s profile and send it for
-            approval.
-          </p>
+        <CardContent>
+          {queue.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nothing assigned to you right now. Leads you own will show here
+              with their next step.
+            </p>
+          ) : (
+            <ul className="divide-y">
+              {queue.map((q) => {
+                const overdue =
+                  !!q.next_action_due &&
+                  new Date(q.next_action_due).getTime() < nowMs;
+                return (
+                  <li key={q.id}>
+                    <Link
+                      href={`/customers/${q.id}`}
+                      className="flex items-center justify-between gap-3 py-2.5 hover:bg-muted/40"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-medium">
+                            {q.full_name}
+                          </span>
+                          {q.stage_name ? (
+                            <span
+                              className={cn(
+                                "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                STAGE_COLOR_BADGE[q.stage_color ?? "zinc"] ??
+                                  STAGE_COLOR_BADGE.zinc,
+                              )}
+                            >
+                              {q.stage_name}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {q.next_action ?? "—"}
+                          {q.city ? ` · ${q.city}` : ""}
+                        </div>
+                      </div>
+                      {overdue ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-destructive">
+                          <AlertTriangle className="size-3.5" /> Overdue
+                        </span>
+                      ) : null}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </CardContent>
       </Card>
     </div>

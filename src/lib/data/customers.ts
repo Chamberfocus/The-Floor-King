@@ -118,3 +118,43 @@ export async function getDashboardCounts(): Promise<DashboardCounts> {
 
   return { openLeads, quoted, wonCustomers };
 }
+
+export interface QueueItem {
+  id: string;
+  full_name: string;
+  city: string | null;
+  next_action_due: string | null;
+  stage_name: string | null;
+  stage_color: string | null;
+  next_action: string | null;
+}
+
+/** A user's active leads (assigned to them) with their stage + next action. */
+export async function listMyQueue(userId: string): Promise<QueueItem[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("customers")
+    .select(
+      "id, full_name, city, next_action_due, stage:workflow_stages(name, next_action, color)",
+    )
+    .eq("workflow_owner_id", userId)
+    .not("workflow_stage_id", "is", null)
+    .order("next_action_due", { ascending: true, nullsFirst: false })
+    .limit(15);
+  return (data ?? []).map((c) => {
+    const s = c.stage as unknown as {
+      name: string | null;
+      next_action: string | null;
+      color: string | null;
+    } | null;
+    return {
+      id: c.id as string,
+      full_name: c.full_name as string,
+      city: (c.city as string) ?? null,
+      next_action_due: (c.next_action_due as string) ?? null,
+      stage_name: s?.name ?? null,
+      stage_color: s?.color ?? null,
+      next_action: s?.next_action ?? null,
+    };
+  });
+}
