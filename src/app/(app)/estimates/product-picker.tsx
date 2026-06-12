@@ -13,6 +13,7 @@ import {
   type Product,
 } from "@/lib/types";
 import { createProductInline, searchCatalogProducts } from "../catalog/actions";
+import { SegmentedField } from "@/components/ui/segmented-field";
 
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -370,17 +371,17 @@ function AddProductForm({
           placeholder="SKU / item #"
           className="h-9"
         />
-        <select
-          value={f.category}
-          onChange={(e) => set({ category: e.target.value })}
-          className={cn(inputSm, "w-full")}
-        >
-          {PRODUCT_CATEGORY_ORDER.map((c) => (
-            <option key={c} value={c}>
-              {PRODUCT_CATEGORY_LABELS[c]}
-            </option>
-          ))}
-        </select>
+        <div className="col-span-2">
+          <SegmentedField
+            size="sm"
+            value={f.category}
+            onChange={(v) => set({ category: v })}
+            options={PRODUCT_CATEGORY_ORDER.map((c) => ({
+              value: c,
+              label: PRODUCT_CATEGORY_LABELS[c],
+            }))}
+          />
+        </div>
         <Input
           value={f.unit}
           onChange={(e) => set({ unit: e.target.value })}

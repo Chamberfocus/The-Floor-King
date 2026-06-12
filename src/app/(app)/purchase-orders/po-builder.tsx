@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SegmentedField } from "@/components/ui/segmented-field";
+import { SearchPicker } from "@/components/ui/search-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
@@ -201,19 +203,15 @@ export function PoBuilder({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="status">Status</Label>
-            <select
-              id="status"
+            <Label>Status</Label>
+            <SegmentedField
               value={status}
-              onChange={(e) => setStatus(e.target.value as PoStatus)}
-              className={cn(inputSm, "w-full")}
-            >
-              {PO_STATUS_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {PO_STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setStatus(v as PoStatus)}
+              options={PO_STATUS_ORDER.map((s) => ({
+                value: s,
+                label: PO_STATUS_LABELS[s],
+              }))}
+            />
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -271,18 +269,13 @@ export function PoBuilder({
             <div key={it.key} className="rounded-md border p-3">
               <div className="grid gap-2 sm:grid-cols-2">
                 {products.length ? (
-                  <select
+                  <SearchPicker
                     value={it.product_id}
-                    onChange={(e) => applyProduct(i, e.target.value)}
-                    className={cn(inputSm, "w-full")}
-                  >
-                    <option value="">— Manual item —</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => applyProduct(i, v)}
+                    placeholder="— Manual item —"
+                    allowClear
+                    options={products.map((p) => ({ value: p.id, label: p.name }))}
+                  />
                 ) : null}
                 <Input
                   value={it.description}

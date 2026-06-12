@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate } from "@/lib/data/estimates";
 import { getOrgSettings } from "@/lib/data/org";
 import { optionTotals, lineTotal } from "@/lib/estimate-calc";
@@ -188,17 +189,14 @@ export default async function PortalEstimatePage({
                 <label className="mb-1 block text-xs text-muted-foreground">
                   Choose your option
                 </label>
-                <select
+                <SegmentedField
                   name="accepted_option_id"
                   defaultValue={options[0]?.id}
-                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                >
-                  {options.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name} — {formatMoney(totalsFor(o).total)}
-                    </option>
-                  ))}
-                </select>
+                  options={options.map((o) => ({
+                    value: o.id,
+                    label: `${o.name} — ${formatMoney(totalsFor(o).total)}`,
+                  }))}
+                />
               </div>
               <Button type="submit">
                 <Check className="size-4" /> Approve estimate

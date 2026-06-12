@@ -31,6 +31,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { pdfToText, spreadsheetToText, chunkText } from "@/lib/pdf-client";
 import { buildCatalogTemplate, parseStructuredRows } from "@/lib/catalog-csv";
+import { SearchPicker } from "@/components/ui/search-picker";
 import type { PriceRow } from "@/lib/extract";
 import {
   parsePriceList,
@@ -520,23 +521,19 @@ export function PriceListImporter() {
                         />
                       </td>
                       <td className="px-2 py-1">
-                        <select
+                        <SearchPicker
+                          className="w-36"
                           value={
-                            PRODUCT_CATEGORY_ORDER.includes(
-                              r.category as never,
-                            )
+                            PRODUCT_CATEGORY_ORDER.includes(r.category as never)
                               ? r.category
                               : "other"
                           }
-                          onChange={(e) => update(i, { category: e.target.value })}
-                          className={inputSm}
-                        >
-                          {PRODUCT_CATEGORY_ORDER.map((c) => (
-                            <option key={c} value={c}>
-                              {PRODUCT_CATEGORY_LABELS[c]}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(v) => update(i, { category: v })}
+                          options={PRODUCT_CATEGORY_ORDER.map((c) => ({
+                            value: c,
+                            label: PRODUCT_CATEGORY_LABELS[c],
+                          }))}
+                        />
                       </td>
                       <td className="px-2 py-1">
                         <input

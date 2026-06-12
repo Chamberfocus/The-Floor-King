@@ -18,9 +18,7 @@ import {
   updateQuestion,
   type QuestionFormState,
 } from "./actions";
-
-const selectClass =
-  "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+import { SegmentedField } from "@/components/ui/segmented-field";
 
 const initialState: QuestionFormState = { error: null };
 
@@ -98,38 +96,24 @@ export function QuestionForm({ question }: { question?: WizardQuestion }) {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="kind">Type</Label>
-          <select
-            id="kind"
+          <Label>Type</Label>
+          <SegmentedField
             name="kind"
             defaultValue={question?.kind ?? "detail"}
-            className={selectClass}
-          >
-            {(Object.keys(WIZARD_KIND_LABELS) as WizardQuestionKind[]).map(
-              (k) => (
-                <option key={k} value={k}>
-                  {WIZARD_KIND_LABELS[k]}
-                </option>
-              ),
+            options={(Object.keys(WIZARD_KIND_LABELS) as WizardQuestionKind[]).map(
+              (k) => ({ value: k, label: WIZARD_KIND_LABELS[k] }),
             )}
-          </select>
+          />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="input">Answer format</Label>
-          <select
-            id="input"
+          <Label>Answer format</Label>
+          <SegmentedField
             name="input"
             defaultValue={question?.input ?? "text"}
-            className={selectClass}
-          >
-            {(Object.keys(WIZARD_INPUT_LABELS) as WizardQuestionInput[]).map(
-              (i) => (
-                <option key={i} value={i}>
-                  {WIZARD_INPUT_LABELS[i]}
-                </option>
-              ),
+            options={(Object.keys(WIZARD_INPUT_LABELS) as WizardQuestionInput[]).map(
+              (i) => ({ value: i, label: WIZARD_INPUT_LABELS[i] }),
             )}
-          </select>
+          />
         </div>
 
         <div className="space-y-2">

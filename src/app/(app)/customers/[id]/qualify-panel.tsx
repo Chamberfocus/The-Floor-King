@@ -7,10 +7,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { wizardSectionRank, type QualifyingQuestion } from "@/lib/types";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { saveQualification, skipQualification } from "./qualify-actions";
-
-const selectClass =
-  "w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function QualifyPanel({
   customerId,
@@ -49,23 +47,16 @@ export function QualifyPanel({
                     <p className="text-xs text-muted-foreground">{q.help}</p>
                   ) : null}
                   {q.options?.length ? (
-                    <select
+                    <SegmentedField
                       name={`q_${q.id}`}
                       defaultValue=""
-                      className={selectClass}
-                    >
-                      <option value="">—</option>
-                      {q.options.map((o) => (
-                        <option key={o} value={o}>
-                          {o}
-                        </option>
-                      ))}
-                    </select>
+                      options={q.options.map((o) => ({ value: o, label: o }))}
+                    />
                   ) : (
                     <textarea
                       name={`q_${q.id}`}
                       rows={2}
-                      className={selectClass}
+                      className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     />
                   )}
                 </div>

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import {
@@ -123,19 +124,15 @@ export function InvoiceBuilder({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="status">Status</Label>
-            <select
-              id="status"
+            <Label>Status</Label>
+            <SegmentedField
               value={status}
-              onChange={(e) => setStatus(e.target.value as InvoiceStatus)}
-              className={cn(inputSm, "w-full")}
-            >
-              {INVOICE_STATUS_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {INVOICE_STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setStatus(v as InvoiceStatus)}
+              options={INVOICE_STATUS_ORDER.map((s) => ({
+                value: s,
+                label: INVOICE_STATUS_LABELS[s],
+              }))}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="tax">Tax rate %</Label>

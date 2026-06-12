@@ -421,18 +421,15 @@ export function EstimateBuilder({
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="presentation">Show customer</Label>
-                <select
-                  id="presentation"
+                <Label>Show customer</Label>
+                <SegmentedField
                   value={presentation}
-                  onChange={(e) =>
-                    setPresentation(e.target.value as EstimatePresentation)
-                  }
-                  className={cn(inputSm, "w-full")}
-                >
-                  <option value="detailed">Itemized (line by line)</option>
-                  <option value="summary">Lump sum (single total)</option>
-                </select>
+                  onChange={(v) => setPresentation(v as EstimatePresentation)}
+                  options={[
+                    { value: "detailed", label: "Itemized (line by line)" },
+                    { value: "summary", label: "Lump sum (single total)" },
+                  ]}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="tax">Tax rate %</Label>

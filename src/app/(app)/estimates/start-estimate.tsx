@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Sparkles, Plus } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
+import { SearchPicker } from "@/components/ui/search-picker";
 import { createEstimate } from "./actions";
 
 export function StartEstimate({
@@ -30,21 +30,13 @@ export function StartEstimate({
   return (
     <div className="max-w-md space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="customer">Customer</Label>
-        <select
-          id="customer"
+        <Label>Customer</Label>
+        <SearchPicker
           value={id}
-          onChange={(e) => setId(e.target.value)}
-          className={cn(
-            "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          )}
-        >
-          {customers.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.full_name}
-            </option>
-          ))}
-        </select>
+          onChange={setId}
+          placeholder="Search a customer…"
+          options={customers.map((c) => ({ value: c.id, label: c.full_name }))}
+        />
       </div>
 
       <div className="flex flex-wrap gap-2">
