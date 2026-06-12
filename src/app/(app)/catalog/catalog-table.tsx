@@ -16,6 +16,8 @@ import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
 import type { Product } from "@/lib/types";
 import { formatMoney } from "@/lib/format";
 
+const MAX_ROWS = 300; // render cap for large catalogs (search to find more)
+
 export function CatalogTable({ products }: { products: Product[] }) {
   const [q, setQ] = useState("");
 
@@ -38,6 +40,8 @@ export function CatalogTable({ products }: { products: Product[] }) {
         .includes(term),
     );
   }, [products, q]);
+
+  const shown = filtered.slice(0, MAX_ROWS);
 
   return (
     <div className="space-y-3">
@@ -71,7 +75,7 @@ export function CatalogTable({ products }: { products: Product[] }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p) => (
+              {shown.map((p) => (
                 <TableRow key={p.id} className={p.active ? "" : "opacity-50"}>
                   <TableCell className="font-medium">
                     <Link href={`/catalog/${p.id}`} className="hover:underline">
@@ -117,8 +121,9 @@ export function CatalogTable({ products }: { products: Product[] }) {
       )}
 
       <p className="text-xs text-muted-foreground">
-        {filtered.length} of {products.length} product
-        {products.length === 1 ? "" : "s"}
+        Showing {shown.length} of {filtered.length.toLocaleString()}
+        {q ? " matches" : ""} · {products.length.toLocaleString()} total
+        {filtered.length > MAX_ROWS ? " — search to narrow down" : ""}
       </p>
     </div>
   );
