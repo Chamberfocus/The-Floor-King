@@ -55,6 +55,7 @@ export function MappingImporter() {
   const [map, setMap] = useState<Record<string, number>>({});
   const [defCategory, setDefCategory] = useState("other");
   const [defUnit, setDefUnit] = useState("sqft");
+  const [updateMode, setUpdateMode] = useState(false);
   const [parsing, startParse] = useTransition();
   const [importing, startImport] = useTransition();
   const [done, setDone] = useState<number | null>(null);
@@ -143,7 +144,7 @@ export function MappingImporter() {
         toast.error("Map at least the Product name column.");
         return;
       }
-      const res = await importProducts(built);
+      const res = await importProducts(built, { update: updateMode });
       if (res.error) {
         toast.error(res.error);
         return;
@@ -286,9 +287,22 @@ export function MappingImporter() {
         </div>
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={updateMode}
+            onChange={(e) => setUpdateMode(e.target.checked)}
+            className="size-4 rounded border-input"
+          />
+          Update existing products (match by name) instead of adding duplicates
+        </label>
         <Button type="button" onClick={doImport} disabled={importing || !preview.length}>
-          {importing ? "Importing…" : `Import ${preview.length} products`}
+          {importing
+            ? "Importing…"
+            : updateMode
+              ? `Update / add ${preview.length}`
+              : `Import ${preview.length} products`}
         </Button>
       </div>
 

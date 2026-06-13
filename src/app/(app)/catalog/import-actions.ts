@@ -221,32 +221,39 @@ export interface ImportResult {
   count?: number;
 }
 
-export async function importProducts(rows: PriceRow[]): Promise<ImportResult> {
+export async function importProducts(
+  rows: PriceRow[],
+  opts: { update?: boolean } = {},
+): Promise<ImportResult> {
   const valid = (rows ?? []).filter((r) => r.name?.trim());
   if (!valid.length) return { error: "Nothing to import." };
 
   const cats = new Set<string>(PRODUCT_CATEGORY_ORDER);
-  const insertRows = valid.map((r) => ({
+  const items = valid.map((r) => ({
     name: r.name.trim(),
     category: (cats.has(r.category) ? r.category : "other") as ProductCategory,
     unit: r.unit || "sqft",
     material_rate: Number(r.material_rate) || 0,
     labor_rate: Number(r.labor_rate) || 0,
-    sku: r.sku || null,
-    manufacturer: r.manufacturer || null,
-    style: r.style || null,
-    color: r.color || null,
-    notes: r.notes || null,
+    sku: r.sku || "",
+    manufacturer: r.manufacturer || "",
+    style: r.style || "",
+    color: r.color || "",
+    notes: r.notes || "",
   }));
 
   const supabase = await createClient();
-  // Insert in batches so very large lists never hit a payload/row limit.
+  // One bulk call: inserts new products and (when update=true) updates the
+  // price of any product whose name already matches — no duplicates.
   let count = 0;
-  for (let i = 0; i < insertRows.length; i += 500) {
-    const batch = insertRows.slice(i, i + 500);
-    const { error } = await supabase.from("products").insert(batch);
+  for (let i = 0; i < items.length; i += 1000) {
+    const batch = items.slice(i, i + 1000);
+    const { data, error } = await supabase.rpc("import_products", {
+      items: batch,
+      do_update: opts.update ?? false,
+    });
     if (error) return { error: error.message, count };
-    count += batch.length;
+    count += (data as number) ?? batch.length;
   }
 
   revalidatePath("/catalog");
