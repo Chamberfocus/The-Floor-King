@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Upload, Search } from "lucide-react";
+import { Plus, Upload, Search, Download } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
@@ -32,6 +32,12 @@ export default async function CatalogPage({
         description="Your flooring products and rates. Pull these into estimates to fill prices instantly."
       >
         <div className="flex gap-2">
+          <a
+            href="/catalog/export"
+            className={buttonVariants({ size: "lg", variant: "ghost" })}
+          >
+            <Download className="size-4" /> Download CSV
+          </a>
           <Link
             href="/catalog/import"
             className={buttonVariants({ size: "lg", variant: "outline" })}

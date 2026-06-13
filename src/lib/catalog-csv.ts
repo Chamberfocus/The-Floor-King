@@ -81,7 +81,7 @@ function splitLine(line: string, delim: string): string[] {
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-function normUnit(v: string): string {
+export function normUnit(v: string): string {
   const u = norm(v);
   if (!u) return "sqft";
   if (u.startsWith("sy") || u.includes("yd")) return "sqyd";
@@ -91,7 +91,7 @@ function normUnit(v: string): string {
   return "sqft";
 }
 
-function mapCategory(v: string): string {
+export function mapCategory(v: string): string {
   const n = norm(v);
   if (!n) return "other";
   if (CATEGORIES.includes(n)) return n;
