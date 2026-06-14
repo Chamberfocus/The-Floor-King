@@ -22,6 +22,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getBusinessPulse } from "@/lib/data/pulse";
+import { getPipelineForecast } from "@/lib/data/finance";
 import { buildInsights, type InsightTone } from "@/lib/insights";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -58,7 +59,10 @@ export default async function PulsePage() {
   const profile = await requireProfile();
   if (profile.role !== "admin") redirect("/");
 
-  const pulse = await getBusinessPulse();
+  const [pulse, forecast] = await Promise.all([
+    getBusinessPulse(),
+    getPipelineForecast(),
+  ]);
   const insights = buildInsights(pulse);
   const target = pulse.settings.target_gross_margin_pct;
 
@@ -183,6 +187,65 @@ export default async function PulsePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Forecast */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">
+            Cash forecast — about {formatMoney(forecast.projected30)} over the
+            next 30 days
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">
+                Owed, due soon
+              </div>
+              <div className="font-semibold">{formatMoney(forecast.arSoon)}</div>
+              <div className="text-xs text-muted-foreground">AR 0–60 days</div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">Work in hand</div>
+              <div className="font-semibold">
+                {formatMoney(forecast.workInHand)}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Sold, not yet invoiced
+              </div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">Open quotes</div>
+              <div className="font-semibold">
+                {formatMoney(forecast.openQuoteValue)}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {Math.round(forecast.winRate * 100)}% win rate →{" "}
+                {formatMoney(forecast.weightedPipeline)}
+              </div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">
+                Last 30 days net
+              </div>
+              <div
+                className={cn(
+                  "font-semibold",
+                  forecast.trailingNet < 0 && "text-destructive",
+                )}
+              >
+                {formatMoney(forecast.trailingNet)}
+              </div>
+              <div className="text-xs text-muted-foreground">Run-rate check</div>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Projection blends near-term receivables, sold work still to be
+            invoiced, and open quotes weighted by your win rate. It&apos;s a
+            guide, not a guarantee.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* What to do — ranked insights */}
       <Card>

@@ -7,6 +7,11 @@ import {
   type JobProfit,
 } from "@/lib/data/finance";
 import { getBusinessSettings } from "@/lib/data/business-settings";
+import {
+  getProductPerformance,
+  getDeadStock,
+  type ProductPerf,
+} from "@/lib/data/product-performance";
 import { marginPct } from "@/lib/estimate-calc";
 import type { BusinessSettings } from "@/lib/types";
 
@@ -38,6 +43,11 @@ export interface BusinessPulse {
   belowTargetJobs: JobProfit[]; // profitable but under target margin
   jobsMissingLabor: JobProfit[]; // completed jobs with no subcontractor cost recorded
   avgJobMargin: number;
+  // Products
+  bestSeller: ProductPerf | null;
+  worstMarginSeller: ProductPerf | null;
+  deadStockValue: number;
+  deadStockCount: number;
 }
 
 export async function getBusinessPulse(): Promise<BusinessPulse> {
@@ -47,13 +57,16 @@ export async function getBusinessPulse(): Promise<BusinessPulse> {
   const thisR = monthRange(y, m);
   const lastR = monthRange(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1);
 
-  const [settings, thisMonth, lastMonth, ar, jobs] = await Promise.all([
-    getBusinessSettings(),
-    getPeriodSummary(thisR.start, thisR.end),
-    getPeriodSummary(lastR.start, lastR.end),
-    getOutstandingAR(),
-    getJobProfitability(),
-  ]);
+  const [settings, thisMonth, lastMonth, ar, jobs, perf, dead] =
+    await Promise.all([
+      getBusinessSettings(),
+      getPeriodSummary(thisR.start, thisR.end),
+      getPeriodSummary(lastR.start, lastR.end),
+      getOutstandingAR(),
+      getJobProfitability(),
+      getProductPerformance(),
+      getDeadStock(90),
+    ]);
 
   const target = settings.target_gross_margin_pct;
 
@@ -82,6 +95,12 @@ export async function getBusinessPulse(): Promise<BusinessPulse> {
       ? realized.reduce((s, j) => s + j.margin, 0) / realized.length
       : 0;
 
+  const bestSeller = perf.length ? perf[0] : null; // perf is revenue-sorted
+  const worstMarginSeller =
+    perf.filter((p) => p.revenue > 0).sort((a, b) => a.margin - b.margin)[0] ??
+    null;
+  const deadStockValue = dead.reduce((s, d) => s + d.value, 0);
+
   const monthLabel = now.toLocaleString("en-US", {
     month: "long",
     year: "numeric",
@@ -108,5 +127,9 @@ export async function getBusinessPulse(): Promise<BusinessPulse> {
     belowTargetJobs,
     jobsMissingLabor,
     avgJobMargin,
+    bestSeller,
+    worstMarginSeller,
+    deadStockValue,
+    deadStockCount: dead.length,
   };
 }

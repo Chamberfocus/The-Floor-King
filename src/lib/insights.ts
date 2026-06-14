@@ -128,7 +128,54 @@ export function buildInsights(p: BusinessPulse): Insight[] {
     }
   }
 
-  // 6) Pace toward the monthly revenue goal.
+  // 6) Dead stock tying up cash.
+  if (p.deadStockValue > 0) {
+    out.push({
+      id: "dead-stock",
+      tone: "opportunity",
+      title: `${formatMoney(p.deadStockValue)} sitting in dead stock`,
+      detail: `${p.deadStockCount} product${
+        p.deadStockCount === 1 ? "" : "s"
+      } haven't moved in 90+ days. Mark them clearance to turn that shelf into cash.`,
+      impact: p.deadStockValue,
+      href: "/reports/products",
+      cta: "See dead stock",
+    });
+  }
+
+  // 7) A low-margin product you keep selling — raise the price.
+  if (p.worstMarginSeller && p.worstMarginSeller.margin < target) {
+    const s = p.worstMarginSeller;
+    out.push({
+      id: `prod-margin-${s.productId}`,
+      tone: "opportunity",
+      title: `${s.name} sells at only ${pct(s.margin)} margin`,
+      detail: `You've sold ${formatMoney(
+        s.revenue,
+      )} of it. Even a few points of price would add real money — or stop leading with it.`,
+      impact: s.revenue * Math.max(0, (target - s.margin) / 100),
+      href: "/reports/products",
+      cta: "Review products",
+    });
+  }
+
+  // 8) Your money-maker — lean into it.
+  if (p.bestSeller && p.bestSeller.revenue > 0) {
+    const b = p.bestSeller;
+    out.push({
+      id: `prod-top-${b.productId}`,
+      tone: "good",
+      title: `${b.name} is your top seller (${formatMoney(b.revenue)})`,
+      detail: `At ${pct(
+        b.margin,
+      )} margin across ${b.jobs} job${b.jobs === 1 ? "" : "s"}. Keep it stocked and front-and-center.`,
+      impact: b.profit,
+      href: "/reports/products",
+      cta: "See products",
+    });
+  }
+
+  // 9) Pace toward the monthly revenue goal.
   if (p.goalProgressPct !== null) {
     const goal = p.settings.monthly_revenue_goal;
     const remaining = Math.max(0, goal - p.thisMonth.collected);

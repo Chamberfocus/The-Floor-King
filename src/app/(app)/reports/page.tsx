@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Contact, Wallet } from "lucide-react";
+import { Contact, Wallet, Package, Activity } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
@@ -23,10 +23,22 @@ export default async function ReportsPage() {
     ...(profile.role === "admin"
       ? [
           {
+            href: "/pulse",
+            icon: Activity,
+            title: "Business Pulse",
+            desc: "Real profit, what's owed, and ranked suggestions to act on.",
+          },
+          {
             href: "/financials",
             icon: Wallet,
             title: "Financials",
             desc: "Money in vs out, receivables, and job profitability.",
+          },
+          {
+            href: "/reports/products",
+            icon: Package,
+            title: "Product performance",
+            desc: "Best & worst sellers by revenue and margin, plus dead stock.",
           },
         ]
       : []),

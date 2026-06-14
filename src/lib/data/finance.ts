@@ -345,3 +345,110 @@ export async function listExpenses(): Promise<Expense[]> {
     .limit(200);
   return (data ?? []) as Expense[];
 }
+
+export interface PipelineForecast {
+  workInHand: number; // sold work not yet invoiced (jobs in progress/scheduled)
+  openQuoteValue: number; // total value of quotes sent, not yet won/lost
+  winRate: number; // historical approved / (approved + declined)
+  weightedPipeline: number; // openQuoteValue × winRate
+  arSoon: number; // receivables likely to land soon (0–60 days)
+  projected30: number; // best estimate of cash arriving in ~30 days
+  trailingNet: number; // last 30 days net, as a sanity run-rate
+}
+
+/**
+ * A forward look: cash already earned but uncollected, sold work still to be
+ * invoiced, and open quotes weighted by how often you win. Deliberately simple
+ * and explainable — every input is shown on the dashboard.
+ */
+export async function getPipelineForecast(): Promise<PipelineForecast> {
+  const supabase = await createClient();
+
+  // 1) Sold work not yet invoiced (jobs that aren't completed/cancelled).
+  const jobs = await getJobProfitability();
+  const workInHand = jobs
+    .filter((j) =>
+      ["unscheduled", "scheduled", "in_progress"].includes(j.status),
+    )
+    .reduce((s, j) => s + Math.max(0, j.quotedRevenue - j.billed), 0);
+
+  // 2) Win rate from decided estimates.
+  const { data: decided } = await supabase
+    .from("estimates")
+    .select("status")
+    .in("status", ["approved", "declined"]);
+  const won = (decided ?? []).filter((e) => e.status === "approved").length;
+  const lost = (decided ?? []).filter((e) => e.status === "declined").length;
+  const winRate = won + lost > 0 ? won / (won + lost) : 0.3; // sensible default
+
+  // 3) Value of quotes still open (status = sent).
+  const { data: sent } = await supabase
+    .from("estimates")
+    .select("id, accepted_option_id")
+    .eq("status", "sent");
+  let openQuoteValue = 0;
+  if (sent && sent.length) {
+    const estIds = sent.map((e) => e.id as string);
+    // Pick an option per estimate: the accepted one, else the first.
+    const { data: opts } = await supabase
+      .from("estimate_options")
+      .select("id, estimate_id, position")
+      .in("estimate_id", estIds)
+      .order("position", { ascending: true });
+    const optionByEstimate = new Map<string, string>();
+    for (const e of sent) {
+      const acc = e.accepted_option_id as string | null;
+      if (acc) optionByEstimate.set(e.id as string, acc);
+    }
+    for (const o of opts ?? []) {
+      const eid = o.estimate_id as string;
+      if (!optionByEstimate.has(eid)) optionByEstimate.set(eid, o.id as string);
+    }
+    const useOptionIds = [...optionByEstimate.values()];
+    if (useOptionIds.length) {
+      const { data: lineData } = await supabase
+        .from("estimate_line_items")
+        .select(
+          "option_id, line_type, sqft, length_in, width_in, measure_unit, material_rate, labor_rate, installed_rate, flat_amount, waste_pct, quantity",
+        )
+        .in("option_id", useOptionIds);
+      const byOption = new Map<string, CalcLine[]>();
+      for (const l of (lineData ?? []) as (CalcLine & { option_id: string })[]) {
+        const arr = byOption.get(l.option_id) ?? [];
+        arr.push(l);
+        byOption.set(l.option_id, arr);
+      }
+      for (const oid of useOptionIds) {
+        openQuoteValue += optionTotals(byOption.get(oid) ?? [], 0).subtotal;
+      }
+    }
+  }
+
+  const weightedPipeline = openQuoteValue * winRate;
+
+  const ar = await getOutstandingAR();
+  const arSoon = ar.current + ar.d30;
+
+  // Trailing 30-day net as a run-rate sanity check.
+  const today = new Date();
+  const end = today.toISOString().slice(0, 10);
+  const start = new Date(today.getTime() - 29 * 86400000)
+    .toISOString()
+    .slice(0, 10);
+  const trailing = await getPeriodSummary(start, end);
+
+  // ~30-day cash: most of near-term AR + a slice of work-in-hand + a slice of
+  // weighted pipeline (only part of it closes & collects within the month).
+  const projected30 =
+    arSoon * 0.8 + workInHand * 0.5 + weightedPipeline * 0.25;
+
+  return {
+    workInHand,
+    openQuoteValue,
+    winRate,
+    weightedPipeline,
+    arSoon,
+    projected30,
+    trailingNet: trailing.net,
+  };
+}
