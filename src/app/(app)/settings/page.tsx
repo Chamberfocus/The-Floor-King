@@ -9,6 +9,7 @@ import {
   GitBranch,
   UserCog,
   Truck,
+  Target,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -17,6 +18,12 @@ import { requireProfile } from "@/lib/auth";
 export const metadata: Metadata = { title: "Settings" };
 
 const SECTIONS = [
+  {
+    href: "/settings/targets",
+    icon: Target,
+    title: "Profit targets",
+    desc: "Target gross margin and monthly revenue goal that Business Pulse measures against.",
+  },
   {
     href: "/settings/branding",
     icon: Palette,

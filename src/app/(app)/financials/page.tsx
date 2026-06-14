@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Receipt } from "lucide-react";
+import { Receipt, Activity } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -57,7 +57,11 @@ export default async function FinancialsPage({
     { label: "Collected", value: summary.collected, hint: "Payments received" },
     { label: "Billed", value: summary.billed, hint: "Invoiced in period" },
     { label: "Expenses", value: summary.expenses, hint: "Recorded spend" },
-    { label: "Net cash", value: summary.net, hint: "Collected − expenses" },
+    {
+      label: "Net cash",
+      value: summary.net,
+      hint: "Collected − expenses − POs − crew pay",
+    },
   ];
 
   return (
@@ -66,12 +70,20 @@ export default async function FinancialsPage({
         title="Financials"
         description="How the business is doing — money in, money out, and what's owed."
       >
-        <Link
-          href="/financials/expenses"
-          className={buttonVariants({ variant: "outline", size: "lg" })}
-        >
-          <Receipt className="size-4" /> Expenses
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/pulse"
+            className={buttonVariants({ variant: "outline", size: "lg" })}
+          >
+            <Activity className="size-4" /> Business Pulse
+          </Link>
+          <Link
+            href="/financials/expenses"
+            className={buttonVariants({ variant: "ghost", size: "lg" })}
+          >
+            <Receipt className="size-4" /> Expenses
+          </Link>
+        </div>
       </PageHeader>
 
       <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
@@ -163,7 +175,8 @@ export default async function FinancialsPage({
                     <TableHead>Job</TableHead>
                     <TableHead className="text-right">Revenue</TableHead>
                     <TableHead className="text-right">Material</TableHead>
-                    <TableHead className="text-right">Other cost</TableHead>
+                    <TableHead className="text-right">Crew pay</TableHead>
+                    <TableHead className="text-right">Other</TableHead>
                     <TableHead className="text-right">Profit</TableHead>
                     <TableHead className="text-right">Margin</TableHead>
                   </TableRow>
@@ -182,9 +195,17 @@ export default async function FinancialsPage({
                       </TableCell>
                       <TableCell className="text-right">
                         {formatMoney(j.revenue)}
+                        {!j.revenueIsActual ? (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            (quoted)
+                          </span>
+                        ) : null}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
                         {formatMoney(j.materialCost)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {formatMoney(j.laborCost)}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
                         {formatMoney(j.otherCost)}
@@ -199,10 +220,7 @@ export default async function FinancialsPage({
                         {formatMoney(j.profit)}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
-                        {j.revenue
-                          ? Math.round((j.profit / j.revenue) * 100)
-                          : 0}
-                        %
+                        {Math.round(j.margin)}%
                       </TableCell>
                     </TableRow>
                   ))}

@@ -29,6 +29,7 @@ import {
 } from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
 import { getJobCostAnalysis } from "@/lib/data/finance";
+import { listJobLabor } from "@/lib/data/job-labor";
 import {
   getSchedulingSettings,
   getInstallerSuggestions,
@@ -50,6 +51,7 @@ import {
 import { deleteJobFile } from "../file-actions";
 import { JobPhotoUpload } from "../job-photo-upload";
 import { SignaturePad } from "../signature-pad";
+import { JobLaborCard } from "./job-labor-card";
 
 export async function generateMetadata({
   params,
@@ -87,6 +89,8 @@ export default async function JobPage({
   // Profit/cost analysis is owner & admin only.
   const costAnalysis =
     profile.role === "admin" ? await getJobCostAnalysis(id) : null;
+  // Crew pay capture (real labor cost) — staff only.
+  const jobLabor = isStaff ? await listJobLabor(id) : [];
 
   // Smart install scheduling (staff + scheduler).
   const canSchedule = isStaff || profile.role === "scheduler";
@@ -382,6 +386,9 @@ export default async function JobPage({
           </CardContent>
         </Card>
       ) : null}
+
+      {/* Crew pay (real subcontractor labor cost) — staff only */}
+      {isStaff ? <JobLaborCard jobId={id} rows={jobLabor} /> : null}
 
       {/* Profitability — estimated vs actual (owner/admin only) */}
       {costAnalysis ? (

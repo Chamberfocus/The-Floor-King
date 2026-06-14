@@ -423,3 +423,78 @@ export async function deleteJob(formData: FormData): Promise<void> {
   if (customerId) revalidatePath(`/customers/${customerId}`);
   redirect("/jobs");
 }
+
+// --- Subcontractor / crew payouts (the real labor cost per job) -------------
+
+function toNum(v: FormDataEntryValue | null): number | null {
+  const s = str(v).replace(/[^0-9.]/g, "");
+  if (!s) return null;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Record what we paid a crew/sub on a job. Amount is computed when per-unit. */
+export async function addJobLabor(formData: FormData): Promise<void> {
+  const jobId = str(formData.get("job_id"));
+  if (!jobId) return;
+  const basis = (str(formData.get("basis")) || "flat") as
+    | "flat"
+    | "per_sqft"
+    | "per_sqyd";
+  const rate = toNum(formData.get("rate"));
+  const area = toNum(formData.get("area"));
+  const flat = toNum(formData.get("amount"));
+  const amount =
+    basis === "flat"
+      ? (flat ?? 0)
+      : Math.round((rate ?? 0) * (area ?? 0) * 100) / 100;
+  if (amount <= 0) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  await supabase.from("job_labor").insert({
+    job_id: jobId,
+    payee: nullable(formData.get("payee")),
+    basis,
+    rate: basis === "flat" ? null : rate,
+    area: basis === "flat" ? null : area,
+    amount,
+    paid: str(formData.get("paid")) === "on",
+    paid_on: str(formData.get("paid")) === "on" ? nullable(formData.get("paid_on")) : null,
+    note: nullable(formData.get("note")),
+    created_by: user?.id ?? null,
+  });
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/pulse");
+  revalidatePath("/financials");
+}
+
+export async function toggleJobLaborPaid(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const jobId = str(formData.get("job_id"));
+  const paid = str(formData.get("paid")) === "true"; // current value
+  if (!id) return;
+  const supabase = await createClient();
+  await supabase
+    .from("job_labor")
+    .update({
+      paid: !paid,
+      paid_on: !paid ? new Date().toISOString().slice(0, 10) : null,
+    })
+    .eq("id", id);
+  if (jobId) revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/pulse");
+}
+
+export async function deleteJobLabor(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const jobId = str(formData.get("job_id"));
+  if (!id) return;
+  const supabase = await createClient();
+  await supabase.from("job_labor").delete().eq("id", id);
+  if (jobId) revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/pulse");
+  revalidatePath("/financials");
+}

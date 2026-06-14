@@ -1,0 +1,214 @@
+"use client";
+
+import { useState } from "react";
+import { Trash2, Check, Plus } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { SegmentedField } from "@/components/ui/segmented-field";
+import { formatMoney } from "@/lib/format";
+import { LABOR_BASIS_LABELS, type JobLabor, type LaborBasis } from "@/lib/types";
+import { addJobLabor, toggleJobLaborPaid, deleteJobLabor } from "../actions";
+
+export function JobLaborCard({
+  jobId,
+  rows,
+}: {
+  jobId: string;
+  rows: JobLabor[];
+}) {
+  const [basis, setBasis] = useState<LaborBasis>("flat");
+  const [rate, setRate] = useState("");
+  const [area, setArea] = useState("");
+
+  const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const unpaid = rows
+    .filter((r) => !r.paid)
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const computed =
+    basis === "flat"
+      ? null
+      : (parseFloat(rate || "0") || 0) * (parseFloat(area || "0") || 0);
+
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle className="text-base">
+          Crew pay (subcontractor cost) — {formatMoney(total)}
+          {unpaid > 0 ? (
+            <span className="ml-2 text-sm font-normal text-amber-600">
+              {formatMoney(unpaid)} unpaid
+            </span>
+          ) : null}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {rows.length > 0 ? (
+          <div className="divide-y rounded-md border">
+            {rows.map((r) => (
+              <div
+                key={r.id}
+                className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm"
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="font-medium">{r.payee || "Crew"}</span>
+                  <span className="ml-2 text-muted-foreground">
+                    {r.basis === "flat"
+                      ? "flat"
+                      : `${formatMoney(r.rate)}/${
+                          r.basis === "per_sqft" ? "sf" : "yd"
+                        } × ${r.area}`}
+                    {r.note ? ` · ${r.note}` : ""}
+                  </span>
+                </div>
+                <span className="font-semibold">{formatMoney(r.amount)}</span>
+                <span
+                  className={
+                    r.paid
+                      ? "rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-600"
+                      : "rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-600"
+                  }
+                >
+                  {r.paid ? `Paid${r.paid_on ? ` ${r.paid_on}` : ""}` : "Unpaid"}
+                </span>
+                <form action={toggleJobLaborPaid}>
+                  <input type="hidden" name="id" value={r.id} />
+                  <input type="hidden" name="job_id" value={jobId} />
+                  <input type="hidden" name="paid" value={String(r.paid)} />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="ghost"
+                    title={r.paid ? "Mark unpaid" : "Mark paid"}
+                  >
+                    <Check className="size-4" />
+                  </Button>
+                </form>
+                <form action={deleteJobLabor}>
+                  <input type="hidden" name="id" value={r.id} />
+                  <input type="hidden" name="job_id" value={jobId} />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="ghost"
+                    title="Remove"
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </form>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No crew pay recorded yet. Add what you pay the installer so this
+            job&apos;s profit is real.
+          </p>
+        )}
+
+        {/* Add a payout */}
+        <form action={addJobLabor} className="space-y-3 border-t pt-4">
+          <input type="hidden" name="job_id" value={jobId} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Crew / installer
+              </label>
+              <Input name="payee" placeholder="e.g. Mike's crew" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">How paid</label>
+              <SegmentedField
+                name="basis"
+                value={basis}
+                onChange={(v) => setBasis(v as LaborBasis)}
+                options={(Object.keys(LABOR_BASIS_LABELS) as LaborBasis[]).map(
+                  (b) => ({ value: b, label: LABOR_BASIS_LABELS[b] }),
+                )}
+              />
+            </div>
+          </div>
+
+          {basis === "flat" ? (
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Amount paid
+              </label>
+              <Input
+                name="amount"
+                inputMode="decimal"
+                placeholder="0.00"
+                className="max-w-40"
+              />
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">
+                  Rate / {basis === "per_sqft" ? "sq ft" : "sq yd"}
+                </label>
+                <Input
+                  name="rate"
+                  value={rate}
+                  onChange={(e) => setRate(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  className="w-28"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">
+                  {basis === "per_sqft" ? "Sq ft" : "Sq yd"}
+                </label>
+                <Input
+                  name="area"
+                  value={area}
+                  onChange={(e) => setArea(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0"
+                  className="w-28"
+                />
+              </div>
+              <div className="pb-2 text-sm text-muted-foreground">
+                = <span className="font-semibold text-foreground">
+                  {formatMoney(computed)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="paid"
+                className="size-4 rounded border-input"
+              />
+              Already paid
+            </label>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Paid on (if paid)
+              </label>
+              <Input type="date" name="paid_on" className="w-44" />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Note</label>
+            <Input name="note" placeholder="optional" />
+          </div>
+
+          <Button type="submit">
+            <Plus className="size-4" /> Add crew pay
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}

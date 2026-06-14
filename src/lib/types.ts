@@ -765,6 +765,38 @@ export interface Expense {
   created_at: string;
 }
 
+export type LaborBasis = "flat" | "per_sqft" | "per_sqyd";
+
+export const LABOR_BASIS_LABELS: Record<LaborBasis, string> = {
+  flat: "Flat (per job)",
+  per_sqft: "Per sq ft",
+  per_sqyd: "Per sq yd",
+};
+
+/** A subcontractor / crew payout recorded against a job (the real labor cost). */
+export interface JobLabor {
+  id: string;
+  job_id: string;
+  payee: string | null;
+  basis: LaborBasis;
+  rate: number | null;
+  area: number | null;
+  amount: number;
+  paid: boolean;
+  paid_on: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BusinessSettings {
+  id: string;
+  target_gross_margin_pct: number;
+  monthly_revenue_goal: number;
+  updated_at: string;
+}
+
 export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   materials: "Materials",
   labor: "Labor",

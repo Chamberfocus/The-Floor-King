@@ -4,6 +4,7 @@ import { invoiceTotals } from "@/lib/invoice-calc";
 import { listPurchaseOrders } from "@/lib/data/purchase-orders";
 import { poTotal } from "@/lib/po-calc";
 import { listJobs } from "@/lib/data/jobs";
+import { laborCostByJob } from "@/lib/data/job-labor";
 import { optionTotals, optionCostTotals, marginPct } from "@/lib/estimate-calc";
 import type { CalcLine } from "@/lib/estimate-calc";
 import type { Expense, LineType } from "@/lib/types";
@@ -13,6 +14,7 @@ export interface PeriodSummary {
   billed: number;
   expenses: number;
   poSpend: number;
+  subLabor: number;
   net: number;
 }
 
@@ -39,6 +41,15 @@ export async function getPeriodSummary(
     .lte("date", end);
   const expenses = (exps ?? []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
+  // Subcontractor payouts marked paid in the period (the real labor cost).
+  const { data: lab } = await supabase
+    .from("job_labor")
+    .select("amount, paid, paid_on")
+    .eq("paid", true)
+    .gte("paid_on", start)
+    .lte("paid_on", end);
+  const subLabor = (lab ?? []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
   const invoices = await listInvoices();
   const billed = invoices
     .filter((i) => i.issue_date && i.issue_date >= start && i.issue_date <= end)
@@ -55,7 +66,14 @@ export async function getPeriodSummary(
     })
     .reduce((s, p) => s + poTotal(p.items ?? []), 0);
 
-  return { collected, billed, expenses, poSpend, net: collected - expenses };
+  return {
+    collected,
+    billed,
+    expenses,
+    poSpend,
+    subLabor,
+    net: collected - expenses - poSpend - subLabor,
+  };
 }
 
 export interface ARBuckets {
@@ -102,10 +120,18 @@ export interface JobProfit {
   jobId: string;
   title: string;
   customer: string | null;
+  status: string;
   revenue: number;
+  quotedRevenue: number;
+  billed: number;
+  collected: number;
+  revenueIsActual: boolean; // true when revenue comes from invoices, not the quote
   materialCost: number;
-  otherCost: number;
+  laborCost: number; // subcontractor payouts
+  otherCost: number; // logged expenses tagged to the job
+  cost: number;
   profit: number;
+  margin: number; // gross margin % of revenue
 }
 
 export async function getJobProfitability(): Promise<JobProfit[]> {
@@ -168,20 +194,55 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     }
   }
 
+  // Real labor cost: subcontractor payouts recorded against each job.
+  const laborByJob = await laborCostByJob(jobs.map((j) => j.id));
+
+  // Actual revenue from invoices (pre-tax billed + cash collected), per job.
+  const invoices = await listInvoices();
+  const billedByJob = new Map<string, number>();
+  const collectedByJob = new Map<string, number>();
+  for (const inv of invoices) {
+    if (!inv.job_id || inv.status === "void") continue;
+    const t = invoiceTotals(inv.items ?? [], 0, 0); // pre-tax subtotal = revenue
+    billedByJob.set(inv.job_id, (billedByJob.get(inv.job_id) ?? 0) + t.subtotal);
+    collectedByJob.set(
+      inv.job_id,
+      (collectedByJob.get(inv.job_id) ?? 0) + amountPaid(inv),
+    );
+  }
+
   return jobs.map((j) => {
-    const revenue = j.option_id ? (subtotalByOption.get(j.option_id) ?? 0) : 0;
+    const quotedRevenue = j.option_id
+      ? (subtotalByOption.get(j.option_id) ?? 0)
+      : 0;
+    const billed = billedByJob.get(j.id) ?? 0;
+    const collected = collectedByJob.get(j.id) ?? 0;
+    const revenueIsActual = billed > 0;
+    const revenue = revenueIsActual ? billed : quotedRevenue;
+
     const materialCost = j.estimate_id
       ? (poByEstimate.get(j.estimate_id) ?? 0)
       : 0;
+    const laborCost = laborByJob.get(j.id) ?? 0;
     const otherCost = expByJob.get(j.id) ?? 0;
+    const cost = materialCost + laborCost + otherCost;
+    const profit = revenue - cost;
     return {
       jobId: j.id,
       title: j.title ?? "Job",
       customer: j.customer_name,
+      status: j.status,
       revenue,
+      quotedRevenue,
+      billed,
+      collected,
+      revenueIsActual,
       materialCost,
+      laborCost,
       otherCost,
-      profit: revenue - materialCost - otherCost,
+      cost,
+      profit,
+      margin: marginPct(revenue, cost),
     };
   });
 }
@@ -194,6 +255,7 @@ export interface JobCostAnalysis {
   estProfit: number;
   estMargin: number;
   actualMaterial: number; // from purchase orders
+  actualLabor: number; // from subcontractor payouts
   actualExpense: number; // from logged expenses
   actualCost: number;
   actualProfit: number;
@@ -241,7 +303,18 @@ export async function getJobCostAnalysis(
     (s, e) => s + (Number(e.amount) || 0),
     0,
   );
-  const actualCost = actualMaterial + actualExpense;
+
+  // Real labor cost: subcontractor payouts recorded against the job.
+  const { data: labData } = await supabase
+    .from("job_labor")
+    .select("amount")
+    .eq("job_id", jobId);
+  const actualLabor = (labData ?? []).reduce(
+    (s, r) => s + (Number(r.amount) || 0),
+    0,
+  );
+
+  const actualCost = actualMaterial + actualLabor + actualExpense;
   const actualProfit = estRevenue - actualCost;
 
   return {
@@ -252,6 +325,7 @@ export async function getJobCostAnalysis(
     estProfit,
     estMargin: marginPct(estRevenue, estCost),
     actualMaterial,
+    actualLabor,
     actualExpense,
     actualCost,
     actualProfit,
