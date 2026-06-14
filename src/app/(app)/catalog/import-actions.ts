@@ -243,17 +243,56 @@ export async function importProducts(
   }));
 
   const supabase = await createClient();
-  // One bulk call: inserts new products and (when update=true) updates the
-  // price of any product whose name already matches — no duplicates.
+
+  // Preferred path: one bulk RPC call that inserts new products and (when
+  // update=true) updates any product whose name already matches — no
+  // duplicates. Requires migration 0039. If that migration hasn't been run,
+  // the RPC is missing; we fall back to a plain insert so imports still work.
   let count = 0;
+  let rpcUnavailable = false;
   for (let i = 0; i < items.length; i += 1000) {
     const batch = items.slice(i, i + 1000);
     const { data, error } = await supabase.rpc("import_products", {
       items: batch,
       do_update: opts.update ?? false,
     });
-    if (error) return { error: error.message, count };
+    if (error) {
+      // Function not found / not yet created → fall back to direct insert.
+      if (
+        error.code === "PGRST202" ||
+        error.code === "42883" ||
+        /import_products|function|schema cache/i.test(error.message)
+      ) {
+        rpcUnavailable = true;
+        break;
+      }
+      return { error: error.message, count };
+    }
     count += (data as number) ?? batch.length;
+  }
+
+  if (rpcUnavailable) {
+    // Direct insert fallback. Empty strings → null for cleaner rows.
+    const toNull = (v: string) => (v && v.trim() ? v.trim() : null);
+    const insertRows = items.map((it) => ({
+      name: it.name,
+      category: it.category,
+      unit: it.unit,
+      material_rate: it.material_rate,
+      labor_rate: it.labor_rate,
+      sku: toNull(it.sku),
+      manufacturer: toNull(it.manufacturer),
+      style: toNull(it.style),
+      color: toNull(it.color),
+      notes: toNull(it.notes),
+    }));
+    count = 0;
+    for (let i = 0; i < insertRows.length; i += 500) {
+      const batch = insertRows.slice(i, i + 500);
+      const { error } = await supabase.from("products").insert(batch);
+      if (error) return { error: error.message, count };
+      count += batch.length;
+    }
   }
 
   revalidatePath("/catalog");

@@ -128,22 +128,49 @@ export async function dedupeProducts(): Promise<{
   removed?: number;
 }> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("products")
-    .select("id, name, sku, manufacturer, color, created_at")
-    .order("created_at", { ascending: true });
-  if (error) return { error: error.message };
 
+  // Supabase caps a single select at 1000 rows — page through the WHOLE catalog
+  // so we actually see every product. (A 6,000-row catalog was only ever
+  // deduping its first 1,000 rows, which is why duplicates kept surviving.)
+  type Row = {
+    id: string;
+    name: string | null;
+    sku: string | null;
+    manufacturer: string | null;
+    color: string | null;
+  };
+  const all: Row[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("products")
+      .select("id, name, sku, manufacturer, color")
+      .order("created_at", { ascending: true })
+      .range(from, from + 999);
+    if (error) return { error: error.message };
+    const batch = (data ?? []) as Row[];
+    all.push(...batch);
+    if (batch.length < 1000) break;
+  }
+
+  const norm = (v: string | null) => (v ?? "").trim().toLowerCase();
   const seen = new Set<string>();
+  const seenBySku = new Set<string>();
   const toDelete: string[] = [];
-  for (const p of data ?? []) {
-    const key = [
-      (p.name ?? "").trim().toLowerCase(),
-      (p.sku ?? "").trim().toLowerCase(),
-      (p.manufacturer ?? "").trim().toLowerCase(),
-      (p.color ?? "").trim().toLowerCase(),
-    ].join("|");
-    if (seen.has(key)) toDelete.push(p.id as string);
+  for (const p of all) {
+    const name = norm(p.name);
+    const sku = norm(p.sku);
+    // A matching name+SKU is the strongest duplicate signal (same item from a
+    // re-imported list), even if manufacturer/color got entered differently.
+    if (sku) {
+      const skuKey = `${name}|${sku}`;
+      if (seenBySku.has(skuKey)) {
+        toDelete.push(p.id);
+        continue;
+      }
+      seenBySku.add(skuKey);
+    }
+    const key = [name, sku, norm(p.manufacturer), norm(p.color)].join("|");
+    if (seen.has(key)) toDelete.push(p.id);
     else seen.add(key);
   }
   if (!toDelete.length) return { error: null, removed: 0 };
