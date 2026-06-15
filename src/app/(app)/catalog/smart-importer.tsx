@@ -117,6 +117,9 @@ export function SmartImporter() {
   };
 
   // ---- AI / structured parse for text (PDF text, pasted) ----
+  // Order: column-structured (instant) → AI (best) → local line parser
+  // (guaranteed). So extracted text ALWAYS yields rows to review, even with no
+  // AI key.
   const parseTextSmart = async (text: string): Promise<PriceRow[]> => {
     const structured = parseStructuredRows(text);
     if (structured?.length) {
@@ -125,38 +128,50 @@ export function SmartImporter() {
     }
     const chunks = chunkText(text);
     const out: PriceRow[] = [];
+    let aiFailed = false;
     for (let i = 0; i < chunks.length; i++) {
-      setStatus(`Reading with AI — part ${i + 1} of ${chunks.length}… (${out.length} found)`);
+      setStatus(`Reading — part ${i + 1} of ${chunks.length}… (${out.length} found)`);
       try {
         const fd = new FormData();
         fd.set("text", chunks[i]);
         const res = await parsePriceList(fd);
         if (res.rows?.length) out.push(...res.rows);
       } catch {
-        /* one bad chunk won't kill the rest */
+        aiFailed = true;
       }
     }
-    return out;
+    if (out.length) return out;
+    // Nothing came back — fall back to a local line parse so the user still
+    // gets rows they can review and clean up.
+    if (aiFailed) setStatus("Reading offline…");
+    return localLineParse(text);
   };
 
-  const parseViaStorage = async (file: File): Promise<PriceRow[]> => {
+  const parseViaStorage = async (
+    file: File,
+  ): Promise<{ rows: PriceRow[]; error: string | null }> => {
     const supabase = createClient();
     const path = `imports/${crypto.randomUUID()}-${file.name}`;
     setStatus("Uploading…");
     const { error: upErr } = await supabase.storage
       .from("documents")
       .upload(path, file, { contentType: file.type || undefined });
-    if (upErr) {
-      toast.error(`Upload failed: ${upErr.message}`);
-      return [];
-    }
+    if (upErr) return { rows: [], error: `Upload failed: ${upErr.message}` };
     setStatus("Reading the document with AI…");
     const fd = new FormData();
     fd.set("storage_path", path);
     fd.set("storage_mime", file.type ?? "");
     const res = await parsePriceList(fd);
-    if (res.error && !res.rows?.length) toast.error(res.error);
-    return res.rows ?? [];
+    return { rows: res.rows ?? [], error: res.error };
+  };
+
+  // Send the extracted text to the paste box so the user can adjust & retry.
+  const fallbackToPaste = (text: string, msg: string) => {
+    reset();
+    setStatus(msg);
+    requestAnimationFrame(() => {
+      if (textRef.current) textRef.current.value = text;
+    });
   };
 
   const setGridFromRows = (g: string[][], src: Source) => {
@@ -209,24 +224,58 @@ export function SmartImporter() {
           if (isPdf) {
             setStatus("Reading the PDF…");
             let text = "";
+            let pages = 0;
             try {
-              text = (await pdfToText(file)).text;
+              const r = await pdfToText(file);
+              text = r.text ?? "";
+              pages = r.pages;
             } catch {
-              /* scanned -> image path */
+              /* worker/parse failed -> treat as scanned */
             }
-            if (text.trim().length >= 20) {
-              const r = await parseTextSmart(text);
-              finishRows(r, { name: file.name, how: "pdf" });
-            } else {
-              setStatus("No selectable text (scanned) — reading as an image with AI…");
-              const r = await parseViaStorage(file);
+            const clean = text.replace(/[ \t]+\n/g, "\n").trim();
+            if (clean.length >= 20) {
+              setStatus(
+                `Extracted ${clean.length.toLocaleString()} characters from ${pages} page(s). Parsing…`,
+              );
+              let r = await parseTextSmart(clean);
+              if (!r.length) r = localLineParse(clean);
+              if (r.length) {
+                finishRows(r, { name: file.name, how: "pdf" });
+              } else {
+                fallbackToPaste(
+                  clean,
+                  "We pulled the text out of that PDF but couldn't auto-detect products. It's in the box below — tidy it up and click Read it, or paste a cleaner copy.",
+                );
+              }
+              return;
+            }
+            // No selectable text — scanned PDF. Needs AI vision.
+            setStatus("No selectable text (scanned PDF) — reading with AI…");
+            const { rows: r, error } = await parseViaStorage(file);
+            if (r.length) {
               finishRows(r, { name: file.name, how: "image" });
+            } else {
+              const aiOff = (error ?? "").toLowerCase().includes("ai key");
+              toast.error(error || "Couldn't read that scanned PDF.");
+              setStatus(
+                aiOff
+                  ? "This is a scanned PDF (no text to read), and AI reading is off. Add ANTHROPIC_API_KEY in Vercel, export the list to Excel/CSV, or paste the rows above."
+                  : "Couldn't read that scanned PDF. Try exporting it to Excel/CSV, or paste the rows above.",
+              );
             }
             return;
           }
           if (isImage) {
-            const r = await parseViaStorage(file);
-            finishRows(r, { name: file.name, how: "image" });
+            const { rows: r, error } = await parseViaStorage(file);
+            if (r.length) finishRows(r, { name: file.name, how: "image" });
+            else {
+              toast.error(error || "Couldn't read that image.");
+              setStatus(
+                (error ?? "").toLowerCase().includes("ai key")
+                  ? "Reading a photo needs AI. Add ANTHROPIC_API_KEY in Vercel, or paste the rows above."
+                  : error || "Couldn't read that image.",
+              );
+            }
             return;
           }
           if (isText) {
@@ -248,8 +297,9 @@ export function SmartImporter() {
             const r = await parseTextSmart(text);
             finishRows(r, { name: file.name, how: "text" });
           } else {
-            const r = await parseViaStorage(file);
-            finishRows(r, { name: file.name, how: "image" });
+            const { rows: r, error } = await parseViaStorage(file);
+            if (r.length) finishRows(r, { name: file.name, how: "image" });
+            else toast.error(error || "Couldn't read that file.");
           }
           return;
         }
@@ -593,6 +643,72 @@ function SourceIcon({ how }: { how?: Source["how"] }) {
   if (how === "pdf") return <FileText className="size-4 text-rose-600" />;
   if (how === "image") return <ImageIcon className="size-4 text-violet-600" />;
   return <FileText className="size-4 text-muted-foreground" />;
+}
+
+// Guaranteed offline parser: one product per line. Pulls a price and a SKU out
+// of each line and uses the rest as the name. Coarse, but it always returns
+// reviewable rows from any extracted text — no AI needed.
+function localLineParse(text: string): PriceRow[] {
+  const rows: PriceRow[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.length < 3) continue;
+    if (!/[a-z]/i.test(line)) continue; // skip pure number/symbol lines
+    let name = line;
+    let sku: string | null = null;
+    let rate: number | null = null;
+
+    const parts = line.includes("\t")
+      ? line.split("\t")
+      : /\s{2,}/.test(line)
+        ? line.split(/\s{2,}/)
+        : line.includes(",")
+          ? line.split(",")
+          : null;
+
+    if (parts && parts.length > 1) {
+      const cells = parts.map((p) => p.trim()).filter(Boolean);
+      name = cells[0] || line;
+      for (let k = cells.length - 1; k >= 1; k--) {
+        const n = parseFloat(cells[k].replace(/[^0-9.]/g, ""));
+        if (Number.isFinite(n) && /\d/.test(cells[k]) && /[$.\d]/.test(cells[k])) {
+          rate = n;
+          break;
+        }
+      }
+      const skuCell = cells
+        .slice(1)
+        .find((c) => /[a-z]/i.test(c) && /\d/.test(c) && c.length <= 20);
+      if (skuCell) sku = skuCell;
+    } else {
+      const m =
+        line.match(/\$\s*([0-9]+(?:\.[0-9]+)?)/) ||
+        line.match(/\b([0-9]+\.[0-9]{2})\b/);
+      if (m) rate = parseFloat(m[1]);
+      const skuM = line.match(/\b(?:sku|item|style)\s*#?\s*([a-z0-9-]{3,})/i);
+      if (skuM) sku = skuM[1];
+      name =
+        line
+          .replace(/\$\s*[0-9.]+/g, " ")
+          .replace(/\b(?:sku|item|style)\s*#?\s*[a-z0-9-]+/gi, " ")
+          .replace(/\s{2,}/g, " ")
+          .trim() || line;
+    }
+    if (name.replace(/[^a-z]/gi, "").length < 2) continue;
+    rows.push({
+      name,
+      category: "other",
+      unit: "sqft",
+      sku,
+      material_rate: rate,
+      labor_rate: null,
+      manufacturer: null,
+      style: null,
+      color: null,
+      notes: null,
+    });
+  }
+  return rows;
 }
 
 // Light CSV/TSV text → grid (for .txt files that are really delimited).
