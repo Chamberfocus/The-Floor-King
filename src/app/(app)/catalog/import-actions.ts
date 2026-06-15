@@ -78,9 +78,9 @@ function parseTextRows(text: string): PriceRow[] {
 }
 
 /**
- * Extract text from a PDF on the server (no browser worker, no AI). Uses unpdf,
- * which bundles a serverless-friendly pdf.js — so text PDFs read reliably even
- * when the browser couldn't extract them.
+ * Extract text from a PDF on the server (no browser worker). Rebuilds real
+ * lines using pdf.js text-item geometry (end-of-line flags + Y position) so a
+ * price list comes out one product per row — not as one giant blob.
  */
 async function pdfTextFromStorage(storagePath: string): Promise<string> {
   try {
@@ -90,10 +90,59 @@ async function pdfTextFromStorage(storagePath: string): Promise<string> {
       .download(storagePath);
     if (!data) return "";
     const buf = new Uint8Array(await data.arrayBuffer());
-    const { extractText, getDocumentProxy } = await import("unpdf");
+    const { getDocumentProxy } = await import("unpdf");
     const pdf = await getDocumentProxy(buf);
-    const { text } = await extractText(pdf, { mergePages: true });
-    return (Array.isArray(text) ? text.join("\n") : text) ?? "";
+
+    const lines: string[] = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      const items = content.items as {
+        str?: string;
+        hasEOL?: boolean;
+        transform?: number[];
+      }[];
+
+      // Group text fragments into rows by their vertical (Y) position, then
+      // order each row left-to-right. Big horizontal gaps become tabs (columns).
+      const byRow = new Map<number, { x: number; s: string }[]>();
+      let usedGeometry = false;
+      let flat = "";
+      for (const it of items) {
+        const s = it.str ?? "";
+        flat += s + (it.hasEOL ? "\n" : " ");
+        if (it.transform && it.transform.length >= 6) {
+          usedGeometry = true;
+          const y = Math.round(it.transform[5]);
+          const x = it.transform[4];
+          const arr = byRow.get(y) ?? [];
+          arr.push({ x, s });
+          byRow.set(y, arr);
+        }
+      }
+
+      if (usedGeometry && byRow.size > 1) {
+        const ys = [...byRow.keys()].sort((a, b) => b - a); // top → bottom
+        for (const y of ys) {
+          const cells = byRow.get(y)!.sort((a, b) => a.x - b.x);
+          let line = "";
+          let prevX: number | null = null;
+          for (const c of cells) {
+            if (prevX !== null && c.x - prevX > 8) line += "\t";
+            line += c.s;
+            prevX = c.x + c.s.length;
+          }
+          const trimmed = line.replace(/\t{2,}/g, "\t").trim();
+          if (trimmed) lines.push(trimmed);
+        }
+      } else {
+        for (const l of flat.split("\n")) {
+          const t = l.trim();
+          if (t) lines.push(t);
+        }
+      }
+    }
+    return lines.join("\n");
   } catch {
     return "";
   }
@@ -111,12 +160,26 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
       storagePath.toLowerCase().endsWith(".pdf") ||
       str(formData.get("storage_mime")).includes("pdf");
 
-    // 1) Free, reliable: extract the PDF's text on the server and parse it.
+    // 1) Extract the PDF's text on the server, then parse it accurately.
     if (isPdf) {
       const pdfText = await pdfTextFromStorage(storagePath);
       if (pdfText.trim().length >= 20) {
-        const rows = parseStructuredRows(pdfText) ?? parseTextRows(pdfText);
-        if (rows.length) return { error: null, rows };
+        // Clean column layout? parse instantly, no AI.
+        const structured = parseStructuredRows(pdfText);
+        if (structured?.length) return { error: null, rows: structured };
+        // Otherwise let AI structure the messy text — far better than a naive
+        // line split for real vendor price lists.
+        if (hasKey) {
+          const aiRows: PriceRow[] = [];
+          for (const chunk of chunkText(pdfText, 12000)) {
+            const part = await extractPriceList({ text: chunk });
+            if (part?.length) aiRows.push(...part);
+          }
+          if (aiRows.length) return { error: null, rows: aiRows };
+        }
+        // Last resort (no AI key): rough line parse so something comes through.
+        const rough = parseTextRows(pdfText);
+        if (rough.length) return { error: null, rows: rough };
       }
     }
 
