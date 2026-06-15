@@ -44,9 +44,7 @@ import {
   getInstallerSuggestions,
 } from "@/lib/data/scheduling";
 import { installDaysForJob } from "@/lib/scheduling";
-import { bookInstall } from "@/app/(app)/jobs/actions";
 import { CustomerDocuments } from "./customer-documents";
-import { EstimateScheduler } from "./estimate-scheduler";
 import {
   listWorkflowStages,
   listHandoffMembers,
@@ -67,6 +65,7 @@ import { InvitePortalForm } from "./invite-portal-form";
 import { CustomerChat } from "./customer-chat";
 import { CommandCenter } from "./command-center";
 import { OnTheWayButton } from "./on-the-way-button";
+import { GuidedFlow } from "./guided-flow";
 
 export async function generateMetadata({
   params,
@@ -116,15 +115,6 @@ export default async function CustomerPage({
     stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
   const autoAction = currentStage?.auto_action ?? "none";
 
-  // Estimates the contextual cards open.
-  const pricingEstimate =
-    estimates.find((e) => e.status === "draft") ??
-    estimates.find((e) => e.status === "sent") ??
-    estimates[0] ??
-    null;
-  const approvedEstimate =
-    estimates.find((e) => e.status === "approved") ?? null;
-
   // Money status for the command center.
   const money = invoices.reduce(
     (acc, inv) => {
@@ -165,133 +155,6 @@ export default async function CustomerPage({
     }
   }
 
-  const isScheduleEstimate = autoAction === "schedule_estimate";
-  const hasStageTool =
-    isScheduleEstimate ||
-    autoAction === "build_quote" ||
-    autoAction === "collect_deposit" ||
-    !!installPop;
-
-  // The tool the current stage activates — shown ON TOP of the command center.
-  const stageToolsRegion = (
-    <div className="mb-6 space-y-4">
-      {isScheduleEstimate ? (
-        <EstimateScheduler customerId={customer.id} autoOpen reps={repOptions} />
-      ) : null}
-
-      {autoAction === "build_quote" ? (
-        <Card className="ring-2 ring-primary">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              Build the quote
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                Due now
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Time to price this job and send the quote.
-            </p>
-            <Link
-              href={
-                pricingEstimate
-                  ? `/estimates/${pricingEstimate.id}/edit`
-                  : `/estimates/new?customer=${customer.id}`
-              }
-              className={buttonVariants({ size: "sm" })}
-            >
-              {pricingEstimate ? "Open quote builder" : "Start the quote"}
-            </Link>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {autoAction === "collect_deposit" ? (
-        <Card className="ring-2 ring-primary">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              Collect the deposit
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                Due now
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Approved — create the deposit invoice and order materials.
-            </p>
-            <Link
-              href={
-                approvedEstimate
-                  ? `/estimates/${approvedEstimate.id}/invoice`
-                  : `/customers/${customer.id}`
-              }
-              className={buttonVariants({ size: "sm" })}
-            >
-              Create deposit invoice
-            </Link>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {installPop ? (
-        <Card className="ring-2 ring-primary">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              Schedule installation
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                Due now
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {installPop.suggestions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Add material types/quantities to the estimate, or set crew
-                capacity in Settings → Scheduling.
-              </p>
-            ) : (
-              installPop.suggestions.slice(0, 4).map((sug) => (
-                <div
-                  key={sug.installerId}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
-                >
-                  <div>
-                    <span className="font-medium">{sug.name}</span>{" "}
-                    <span className="text-muted-foreground">
-                      — {sug.days} day{sug.days === 1 ? "" : "s"},{" "}
-                      {formatDate(sug.start)}
-                      {sug.end !== sug.start ? ` → ${formatDate(sug.end)}` : ""}
-                    </span>
-                  </div>
-                  <form action={bookInstall}>
-                    <input type="hidden" name="job_id" value={installPop.jobId} />
-                    <input type="hidden" name="installer_id" value={sug.installerId} />
-                    <input type="hidden" name="start" value={sug.start} />
-                    <input type="hidden" name="end" value={sug.end} />
-                    <button
-                      type="submit"
-                      className={buttonVariants({ size: "sm", variant: "outline" })}
-                    >
-                      Book
-                    </button>
-                  </form>
-                </div>
-              ))
-            )}
-            <Link
-              href={`/jobs/${installPop.jobId}`}
-              className="text-xs text-primary hover:underline"
-            >
-              Open job for full scheduling / manual booking →
-            </Link>
-          </CardContent>
-        </Card>
-      ) : null}
-    </div>
-  );
-
   return (
     <div className="mx-auto max-w-5xl">
       <Link
@@ -316,8 +179,17 @@ export default async function CustomerPage({
         <OnTheWayButton customerId={customer.id} />
       </div>
 
-      {/* Active stage tool — sits on top of the command center */}
-      {hasStageTool ? stageToolsRegion : null}
+      {/* Guided flow — progress + the one next step, with its tool inline */}
+      <GuidedFlow
+        customer={customer}
+        stages={stages}
+        currentStage={currentStage}
+        estimates={estimates}
+        jobs={jobs}
+        invoices={invoices}
+        repOptions={repOptions}
+        installPop={installPop}
+      />
 
       {/* Command center — the cockpit for this lead */}
       <div className="mb-6">
@@ -355,14 +227,6 @@ export default async function CustomerPage({
               </Link>
             </CardContent>
           </Card>
-
-          {!isScheduleEstimate ? (
-            <EstimateScheduler
-              customerId={customer.id}
-              autoOpen={false}
-              reps={repOptions}
-            />
-          ) : null}
 
           <Card>
             <CardHeader>
