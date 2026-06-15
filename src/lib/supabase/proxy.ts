@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv, isSupabaseConfigured } from "@/lib/env";
 
 /** Paths reachable without being signed in. */
-const PUBLIC_PREFIXES = ["/login", "/auth", "/forgot-password"];
+const PUBLIC_PREFIXES = ["/login", "/auth", "/forgot-password", "/book"];
 
 function isPublicPath(pathname: string) {
   return PUBLIC_PREFIXES.some(

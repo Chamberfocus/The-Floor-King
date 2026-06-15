@@ -34,6 +34,30 @@ export function isoAt(ymd: string, minutes: number): string {
   return `${ymd}T${hmFromMinutes(minutes)}:00+00`;
 }
 
+/**
+ * "Now" as the business's local wall-clock, pinned to +00 to match how
+ * appointment times are stored. Keeps booking-notice math correct regardless
+ * of the server's timezone.
+ */
+export function localNowIso(tz = "America/New_York"): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  const hour = get("hour") === "24" ? "00" : get("hour");
+  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}:00+00`;
+}
+
+export function todayLocalYmd(tz = "America/New_York"): string {
+  return localNowIso(tz).slice(0, 10);
+}
+
 /** Minutes-from-midnight of a stored +00 timestamp, on its own day. */
 export function minutesOfIso(iso: string): number {
   const d = new Date(iso);

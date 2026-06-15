@@ -10,6 +10,7 @@ import {
   UserCog,
   Truck,
   Target,
+  CalendarRange,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -29,6 +30,12 @@ const SECTIONS = [
     icon: Palette,
     title: "Branding",
     desc: "Company name, logo, colors, and contact details.",
+  },
+  {
+    href: "/settings/showroom",
+    icon: CalendarRange,
+    title: "Showroom & calendar",
+    desc: "Showroom hours, capacity, booking link, and appointment types.",
   },
   {
     href: "/settings/scheduling",
