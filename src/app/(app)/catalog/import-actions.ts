@@ -237,9 +237,11 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
       mediaType: file.type || "application/octet-stream",
     });
     if (!rows || !rows.length) {
+      const why = getLastExtractError();
       return {
-        error:
-          "Couldn't read that file — try a clearer PDF/scan, or paste the rows as text.",
+        error: why
+          ? `${why} (or import the Excel/CSV)`
+          : "Couldn't read that file — try a clearer PDF/scan, or paste the rows as text.",
       };
     }
     return { error: null, rows };

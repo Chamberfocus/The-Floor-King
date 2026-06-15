@@ -28,12 +28,7 @@ import {
 import { SearchPicker } from "@/components/ui/search-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { cn } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
-import {
-  fileToGrid,
-  pdfToText,
-  chunkText,
-} from "@/lib/pdf-client";
+import { fileToGrid, chunkText } from "@/lib/pdf-client";
 import {
   parseStructuredRows,
   buildCatalogTemplate,
@@ -45,11 +40,7 @@ import {
   PRODUCT_CATEGORY_ORDER,
 } from "@/lib/types";
 import type { PriceRow } from "@/lib/extract";
-import {
-  parsePriceList,
-  importProducts,
-  extractStoragePdfText,
-} from "./import-actions";
+import { parsePriceList, importProducts } from "./import-actions";
 
 const inputSm =
   "h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -151,52 +142,6 @@ export function SmartImporter() {
     return localLineParse(text);
   };
 
-  const parseViaStorage = async (
-    file: File,
-  ): Promise<{ rows: PriceRow[]; error: string | null }> => {
-    const supabase = createClient();
-    const path = `imports/${crypto.randomUUID()}-${file.name}`;
-    setStatus("Uploading…");
-    const { error: upErr } = await supabase.storage
-      .from("documents")
-      .upload(path, file, { contentType: file.type || undefined });
-    if (upErr) return { rows: [], error: `Upload failed: ${upErr.message}` };
-
-    const isPdf =
-      file.type === "application/pdf" ||
-      file.name.toLowerCase().endsWith(".pdf");
-
-    // PDFs: pull the text out on the server (fast), then parse it HERE in short
-    // chunks so the AI calls never time out the function.
-    if (isPdf) {
-      setStatus("Reading the PDF on our server…");
-      const { text, structured, error } = await extractStoragePdfText(path);
-      if (structured?.length) return { rows: structured, error: null };
-      if (text && text.trim().length >= 20) {
-        const rows = await parseTextSmart(text);
-        return { rows, error: null };
-      }
-      if (error) return { rows: [], error };
-      // No text — it's a scan. Fall through to AI vision (single call).
-    }
-
-    setStatus("Reading the document with AI…");
-    const fd = new FormData();
-    fd.set("storage_path", path);
-    fd.set("storage_mime", file.type ?? "");
-    const res = await parsePriceList(fd);
-    return { rows: res.rows ?? [], error: res.error };
-  };
-
-  // Send the extracted text to the paste box so the user can adjust & retry.
-  const fallbackToPaste = (text: string, msg: string) => {
-    reset();
-    setStatus(msg);
-    requestAnimationFrame(() => {
-      if (textRef.current) textRef.current.value = text;
-    });
-  };
-
   const setGridFromRows = (g: string[][], src: Source) => {
     const headers = g[0] ?? [];
     const body = g.slice(1).filter((r) => r.some((c) => c.trim()));
@@ -244,60 +189,26 @@ export function SmartImporter() {
             setStatus(null);
             return;
           }
-          if (isPdf) {
-            setStatus("Reading the PDF…");
-            let text = "";
-            let pages = 0;
-            try {
-              const r = await pdfToText(file);
-              text = r.text ?? "";
-              pages = r.pages;
-            } catch {
-              /* worker/parse failed -> treat as scanned */
-            }
-            const clean = text.replace(/[ \t]+\n/g, "\n").trim();
-            if (clean.length >= 20) {
-              setStatus(
-                `Extracted ${clean.length.toLocaleString()} characters from ${pages} page(s). Parsing…`,
-              );
-              let r = await parseTextSmart(clean);
-              if (!r.length) r = localLineParse(clean);
-              if (r.length) {
-                finishRows(r, { name: file.name, how: "pdf" });
-              } else {
-                fallbackToPaste(
-                  clean,
-                  "We pulled the text out of that PDF but couldn't auto-detect products. It's in the box below — tidy it up and click Read it, or paste a cleaner copy.",
-                );
-              }
-              return;
-            }
-            // Browser couldn't read it — let the server extract the text
-            // (and fall back to AI vision for true scans).
-            setStatus("Reading the PDF on our server…");
-            const { rows: r, error } = await parseViaStorage(file);
-            if (r.length) {
-              finishRows(r, { name: file.name, how: "image" });
+          // PDFs and photos go straight to the AI as a document — one call,
+          // accurate, no fragile browser PDF worker. (This is the approach that
+          // worked reliably before.)
+          if (isPdf || isImage) {
+            setStatus(
+              isPdf ? "Reading the PDF with AI…" : "Reading the photo with AI…",
+            );
+            const fd = new FormData();
+            fd.set("file", file);
+            const res = await parsePriceList(fd);
+            if (res.rows?.length) {
+              finishRows(res.rows, {
+                name: file.name,
+                how: isPdf ? "pdf" : "image",
+              });
             } else {
-              const aiOff = (error ?? "").toLowerCase().includes("ai key");
-              toast.error(error || "Couldn't read that scanned PDF.");
+              toast.error(res.error || "Couldn't read that file.");
               setStatus(
-                aiOff
-                  ? "This is a scanned PDF (no text to read), and AI reading is off. Add ANTHROPIC_API_KEY in Vercel, export the list to Excel/CSV, or paste the rows above."
-                  : "Couldn't read that scanned PDF. Try exporting it to Excel/CSV, or paste the rows above.",
-              );
-            }
-            return;
-          }
-          if (isImage) {
-            const { rows: r, error } = await parseViaStorage(file);
-            if (r.length) finishRows(r, { name: file.name, how: "image" });
-            else {
-              toast.error(error || "Couldn't read that image.");
-              setStatus(
-                (error ?? "").toLowerCase().includes("ai key")
-                  ? "Reading a photo needs AI. Add ANTHROPIC_API_KEY in Vercel, or paste the rows above."
-                  : error || "Couldn't read that image.",
+                res.error ||
+                  "Couldn't read that file. Try the Excel/CSV, or paste the rows above.",
               );
             }
             return;
@@ -315,15 +226,18 @@ export function SmartImporter() {
             finishRows(r, { name: file.name, how: "text" });
             return;
           }
-          // Unknown — try text, then image.
+          // Unknown — try as text, else hand the whole file to the AI.
           const text = await file.text().catch(() => "");
           if (text.trim().length >= 20) {
             const r = await parseTextSmart(text);
             finishRows(r, { name: file.name, how: "text" });
           } else {
-            const { rows: r, error } = await parseViaStorage(file);
-            if (r.length) finishRows(r, { name: file.name, how: "image" });
-            else toast.error(error || "Couldn't read that file.");
+            const fd = new FormData();
+            fd.set("file", file);
+            const res = await parsePriceList(fd);
+            if (res.rows?.length)
+              finishRows(res.rows, { name: file.name, how: "image" });
+            else toast.error(res.error || "Couldn't read that file.");
           }
           return;
         }
