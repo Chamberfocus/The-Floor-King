@@ -1,0 +1,605 @@
+"use client";
+
+import { useRef, useState, useTransition } from "react";
+import Link from "next/link";
+import { toast } from "sonner";
+import {
+  FileUp,
+  X,
+  Trash2,
+  Sparkles,
+  Download,
+  CheckCircle2,
+  FileSpreadsheet,
+  FileText,
+  Image as ImageIcon,
+  RotateCcw,
+} from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { SearchPicker } from "@/components/ui/search-picker";
+import { SegmentedField } from "@/components/ui/segmented-field";
+import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
+import {
+  fileToGrid,
+  pdfToText,
+  chunkText,
+} from "@/lib/pdf-client";
+import {
+  parseStructuredRows,
+  buildCatalogTemplate,
+  mapCategory,
+  normUnit,
+} from "@/lib/catalog-csv";
+import {
+  PRODUCT_CATEGORY_LABELS,
+  PRODUCT_CATEGORY_ORDER,
+} from "@/lib/types";
+import type { PriceRow } from "@/lib/extract";
+import { parsePriceList, importProducts } from "./import-actions";
+
+const inputSm =
+  "h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+// Spreadsheet column fields, with header synonyms for auto-mapping.
+const FIELDS: { key: string; label: string; syn: string[] }[] = [
+  { key: "name", label: "Product name", syn: ["name", "productname", "product", "itemname", "description", "itemdescription"] },
+  { key: "material_rate", label: "Material / cost", syn: ["unitprice", "price", "cost", "materialrate", "material", "yourcost", "dealerprice", "netprice", "msrp", "unitcost"] },
+  { key: "labor_rate", label: "Labor", syn: ["laborrate", "labor", "labour", "install", "installrate"] },
+  { key: "sku", label: "SKU / item #", syn: ["sku", "style", "styleno", "stylenumber", "item", "itemno", "itemnumber", "partno", "partnumber", "productcode", "code"] },
+  { key: "manufacturer", label: "Manufacturer", syn: ["manufacturer", "mfg", "mfr", "brand", "vendor", "supplier", "mill", "sellingcompanyname"] },
+  { key: "style", label: "Style", syn: ["stylename", "pattern", "collection", "series", "design"] },
+  { key: "color", label: "Color", syn: ["colorname", "color", "colour", "shade", "finish"] },
+  { key: "category", label: "Category", syn: ["category", "prodtype", "producttype", "type", "flooringtype"] },
+  { key: "unit", label: "Unit", syn: ["unit", "uom", "unitofmeasure", "priceper"] },
+  { key: "notes", label: "Notes", syn: ["notes", "note", "comments", "remarks", "size"] },
+];
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+const toNum = (v: string): number | null => {
+  if (!v) return null;
+  const n = parseFloat(v.replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) ? n : null;
+};
+
+type Source = { name: string; how: "spreadsheet" | "pdf" | "image" | "text" };
+
+export function SmartImporter() {
+  // input
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+
+  // progress
+  const [reading, startReading] = useTransition();
+  const [status, setStatus] = useState<string | null>(null);
+
+  // result: spreadsheet => grid; everything else => rows
+  const [source, setSource] = useState<Source | null>(null);
+  const [grid, setGrid] = useState<{ headers: string[]; body: string[][] } | null>(null);
+  const [map, setMap] = useState<Record<string, number>>({});
+  const [defCategory, setDefCategory] = useState("other");
+  const [defUnit, setDefUnit] = useState("sqft");
+  const [rows, setRows] = useState<PriceRow[] | null>(null);
+
+  // import
+  const [updateMode, setUpdateMode] = useState(false);
+  const [importing, startImport] = useTransition();
+  const [done, setDone] = useState<number | null>(null);
+
+  const reset = () => {
+    setSource(null);
+    setGrid(null);
+    setMap({});
+    setRows(null);
+    setStatus(null);
+    if (fileRef.current) fileRef.current.value = "";
+    if (textRef.current) textRef.current.value = "";
+  };
+
+  const downloadTemplate = () => {
+    const blob = new Blob([buildCatalogTemplate()], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "floor-king-catalog-template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ---- AI / structured parse for text (PDF text, pasted) ----
+  const parseTextSmart = async (text: string): Promise<PriceRow[]> => {
+    const structured = parseStructuredRows(text);
+    if (structured?.length) {
+      setStatus(`Recognized ${structured.length} rows from the columns — no AI needed.`);
+      return structured;
+    }
+    const chunks = chunkText(text);
+    const out: PriceRow[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+      setStatus(`Reading with AI — part ${i + 1} of ${chunks.length}… (${out.length} found)`);
+      try {
+        const fd = new FormData();
+        fd.set("text", chunks[i]);
+        const res = await parsePriceList(fd);
+        if (res.rows?.length) out.push(...res.rows);
+      } catch {
+        /* one bad chunk won't kill the rest */
+      }
+    }
+    return out;
+  };
+
+  const parseViaStorage = async (file: File): Promise<PriceRow[]> => {
+    const supabase = createClient();
+    const path = `imports/${crypto.randomUUID()}-${file.name}`;
+    setStatus("Uploading…");
+    const { error: upErr } = await supabase.storage
+      .from("documents")
+      .upload(path, file, { contentType: file.type || undefined });
+    if (upErr) {
+      toast.error(`Upload failed: ${upErr.message}`);
+      return [];
+    }
+    setStatus("Reading the document with AI…");
+    const fd = new FormData();
+    fd.set("storage_path", path);
+    fd.set("storage_mime", file.type ?? "");
+    const res = await parsePriceList(fd);
+    if (res.error && !res.rows?.length) toast.error(res.error);
+    return res.rows ?? [];
+  };
+
+  const setGridFromRows = (g: string[][], src: Source) => {
+    const headers = g[0] ?? [];
+    const body = g.slice(1).filter((r) => r.some((c) => c.trim()));
+    const normHead = headers.map(norm);
+    const guess: Record<string, number> = {};
+    for (const f of FIELDS) {
+      guess[f.key] = -1;
+      for (const s of f.syn) {
+        const i = normHead.indexOf(norm(s));
+        if (i >= 0) {
+          guess[f.key] = i;
+          break;
+        }
+      }
+    }
+    setSource(src);
+    setGrid({ headers, body });
+    setMap(guess);
+  };
+
+  // ---- Main ingest: auto-detect & route ----
+  const ingest = (file: File | null, pasted: string) =>
+    startReading(async () => {
+      try {
+        reset();
+        if (file) {
+          const name = file.name.toLowerCase();
+          const type = file.type || "";
+          const isSheet =
+            name.endsWith(".xlsx") || name.endsWith(".xls") || name.endsWith(".csv") ||
+            type.includes("spreadsheet") || type.includes("excel") || type === "text/csv";
+          const isPdf = type === "application/pdf" || name.endsWith(".pdf");
+          const isImage = type.startsWith("image/");
+          const isText = name.endsWith(".txt") || type === "text/plain";
+
+          if (isSheet) {
+            setStatus("Reading the spreadsheet…");
+            const g = await fileToGrid(file);
+            if (g.length < 2) {
+              toast.error("That file has no data rows.");
+              setStatus(null);
+              return;
+            }
+            setGridFromRows(g, { name: file.name, how: "spreadsheet" });
+            setStatus(null);
+            return;
+          }
+          if (isPdf) {
+            setStatus("Reading the PDF…");
+            let text = "";
+            try {
+              text = (await pdfToText(file)).text;
+            } catch {
+              /* scanned -> image path */
+            }
+            if (text.trim().length >= 20) {
+              const r = await parseTextSmart(text);
+              finishRows(r, { name: file.name, how: "pdf" });
+            } else {
+              setStatus("No selectable text (scanned) — reading as an image with AI…");
+              const r = await parseViaStorage(file);
+              finishRows(r, { name: file.name, how: "image" });
+            }
+            return;
+          }
+          if (isImage) {
+            const r = await parseViaStorage(file);
+            finishRows(r, { name: file.name, how: "image" });
+            return;
+          }
+          if (isText) {
+            const text = await file.text();
+            // A CSV-ish text file? try grid first.
+            const g = csvTextToGrid(text);
+            if (g && g.length >= 2) {
+              setGridFromRows(g, { name: file.name, how: "spreadsheet" });
+              setStatus(null);
+              return;
+            }
+            const r = await parseTextSmart(text);
+            finishRows(r, { name: file.name, how: "text" });
+            return;
+          }
+          // Unknown — try text, then image.
+          const text = await file.text().catch(() => "");
+          if (text.trim().length >= 20) {
+            const r = await parseTextSmart(text);
+            finishRows(r, { name: file.name, how: "text" });
+          } else {
+            const r = await parseViaStorage(file);
+            finishRows(r, { name: file.name, how: "image" });
+          }
+          return;
+        }
+
+        if (pasted.trim()) {
+          const r = await parseTextSmart(pasted);
+          finishRows(r, { name: "Pasted list", how: "text" });
+          return;
+        }
+        toast.error("Drop a file or paste your price list first.");
+      } catch (e) {
+        setStatus(null);
+        toast.error(e instanceof Error ? e.message : "Couldn't read that.");
+      }
+    });
+
+  const finishRows = (r: PriceRow[], src: Source) => {
+    setStatus(null);
+    setSource(src);
+    setRows(r);
+    if (r.length) toast.success(`Found ${r.length} products — review & import`);
+    else toast.error("No products found. Try a clearer file, or paste the rows as text.");
+  };
+
+  // ---- Spreadsheet: build rows from current mapping ----
+  const buildFromGrid = (): PriceRow[] => {
+    if (!grid) return [];
+    const cell = (row: string[], key: string) => {
+      const i = map[key];
+      return i >= 0 ? (row[i] ?? "").trim() : "";
+    };
+    const out: PriceRow[] = [];
+    for (const row of grid.body) {
+      let name = cell(row, "name");
+      if (!name) name = [cell(row, "style"), cell(row, "color")].filter(Boolean).join(" ").trim();
+      if (!name) continue;
+      const catCell = cell(row, "category");
+      const unitCell = cell(row, "unit");
+      out.push({
+        name,
+        category: catCell ? mapCategory(catCell) : defCategory,
+        unit: unitCell ? normUnit(unitCell) : defUnit,
+        sku: cell(row, "sku") || null,
+        material_rate: toNum(cell(row, "material_rate")),
+        labor_rate: toNum(cell(row, "labor_rate")),
+        manufacturer: cell(row, "manufacturer") || null,
+        style: cell(row, "style") || null,
+        color: cell(row, "color") || null,
+        notes: cell(row, "notes") || null,
+      });
+    }
+    return out;
+  };
+
+  const finalRows = grid ? buildFromGrid() : (rows ?? []);
+
+  const doImport = () =>
+    startImport(async () => {
+      const built = grid ? buildFromGrid() : rows ?? [];
+      if (!built.length) {
+        toast.error("Nothing to import yet.");
+        return;
+      }
+      const res = await importProducts(built, { update: updateMode });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      setDone(res.count ?? built.length);
+      reset();
+    });
+
+  const colOptions = grid
+    ? [
+        { value: "-1", label: "— Not in file —" },
+        ...grid.headers.map((h, i) => ({ value: String(i), label: h || `Column ${i + 1}` })),
+      ]
+    : [];
+
+  // editable rows (AI path)
+  const updateRow = (i: number, patch: Partial<PriceRow>) =>
+    setRows((prev) => (prev ? prev.map((r, j) => (j === i ? { ...r, ...patch } : r)) : prev));
+  const removeRow = (i: number) =>
+    setRows((prev) => (prev ? prev.filter((_, j) => j !== i) : prev));
+
+  const hasResult = Boolean(grid) || (rows && rows.length >= 0 && source);
+
+  // ===================== RENDER =====================
+  return (
+    <div className="space-y-5">
+      {/* Step 1 — drop / paste (hidden once we have a result) */}
+      {!hasResult ? (
+        <>
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) ingest(f, "");
+            }}
+            onClick={() => fileRef.current?.click()}
+            className={cn(
+              "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-10 text-center transition-colors",
+              dragOver ? "border-primary bg-primary/5" : "border-input hover:border-primary/50 hover:bg-muted/40",
+            )}
+          >
+            <FileUp className="size-7 text-primary" />
+            <span className="text-base font-medium">
+              {reading ? "Reading…" : "Drop your price list — or click to choose"}
+            </span>
+            <span className="text-sm text-muted-foreground">
+              Excel, CSV, PDF, an image/scan, or anything. We figure out the rest.
+            </span>
+            <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1"><FileSpreadsheet className="size-3.5" /> Excel/CSV — instant</span>
+              <span className="inline-flex items-center gap-1"><FileText className="size-3.5" /> PDF — read automatically</span>
+              <span className="inline-flex items-center gap-1"><ImageIcon className="size-3.5" /> Photo/scan — AI</span>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".pdf,.xlsx,.xls,.csv,.txt,image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) ingest(f, "");
+              }}
+            />
+          </div>
+
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="h-px flex-1 bg-border" />
+            or paste it
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <div className="space-y-2">
+            <textarea
+              ref={textRef}
+              rows={5}
+              placeholder={"Paste rows from a vendor sheet, email, or PDF — any format.\nShaw Anso Caress carpet  SKU 1234  $3.85/sf\nMohawk RevWood laminate  $2.10 sqft"}
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={downloadTemplate}
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <Download className="size-3.5" /> Download a blank template
+              </button>
+              <Button
+                type="button"
+                onClick={() => ingest(null, textRef.current?.value ?? "")}
+                disabled={reading}
+              >
+                {reading ? (
+                  <><Sparkles className="size-4 animate-pulse" /> Reading…</>
+                ) : (
+                  <><Sparkles className="size-4" /> Read it</>
+                )}
+              </Button>
+            </div>
+          </div>
+          {status ? <p className="text-xs text-muted-foreground">{status}</p> : null}
+        </>
+      ) : null}
+
+      {/* Step 2 — review */}
+      {hasResult ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <SourceIcon how={source?.how} />
+            <span className="font-medium">{source?.name}</span>
+            <span className="text-muted-foreground">
+              · {finalRows.length} product{finalRows.length === 1 ? "" : "s"} detected
+            </span>
+            <Button type="button" variant="ghost" size="sm" onClick={reset} className="ml-auto">
+              <RotateCcw className="size-4" /> Start over
+            </Button>
+          </div>
+
+          {/* Spreadsheet column mapping */}
+          {grid ? (
+            <details className="rounded-lg border bg-muted/30 p-3" open={map.name === undefined || map.name < 0}>
+              <summary className="cursor-pointer text-sm font-medium">
+                Columns {map.name >= 0 ? "(auto-matched — adjust if needed)" : "— match your columns"}
+              </summary>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {FIELDS.map((f) => (
+                  <div key={f.key} className="flex items-center gap-2">
+                    <span className="w-28 shrink-0 text-xs text-muted-foreground">
+                      {f.label}{f.key === "name" ? " *" : ""}
+                    </span>
+                    <SearchPicker
+                      className="flex-1"
+                      value={String(map[f.key] ?? -1)}
+                      onChange={(v) => setMap((m) => ({ ...m, [f.key]: Number(v) }))}
+                      options={colOptions}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-4 border-t pt-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">If no category column:</span>
+                  <SegmentedField
+                    size="sm"
+                    value={defCategory}
+                    onChange={setDefCategory}
+                    options={PRODUCT_CATEGORY_ORDER.map((c) => ({ value: c, label: PRODUCT_CATEGORY_LABELS[c] }))}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Default unit:</span>
+                  <Input value={defUnit} onChange={(e) => setDefUnit(e.target.value)} className="h-8 w-20" />
+                </div>
+              </div>
+            </details>
+          ) : null}
+
+          {/* Preview table */}
+          {finalRows.length === 0 ? (
+            <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+              No products detected. Try “Start over” with a clearer file, or paste the rows as text.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/60 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-2 py-2 text-left">Name</th>
+                    <th className="px-2 py-2 text-left">Category</th>
+                    <th className="px-2 py-2 text-left">SKU</th>
+                    <th className="px-2 py-2 text-left">Mfr</th>
+                    <th className="px-2 py-2 text-right">Material</th>
+                    <th className="px-2 py-2 text-right">Labor</th>
+                    {!grid ? <th className="px-2 py-2"></th> : null}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {(grid ? finalRows.slice(0, 12) : (rows ?? []).slice(0, 60)).map((r, i) => (
+                    <tr key={i}>
+                      {grid ? (
+                        <>
+                          <td className="px-2 py-1">{r.name}</td>
+                          <td className="px-2 py-1 text-muted-foreground">{r.category}</td>
+                          <td className="px-2 py-1 text-muted-foreground">{r.sku ?? "—"}</td>
+                          <td className="px-2 py-1 text-muted-foreground">{r.manufacturer ?? "—"}</td>
+                          <td className="px-2 py-1 text-right">{r.material_rate ?? "—"}</td>
+                          <td className="px-2 py-1 text-right">{r.labor_rate ?? "—"}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-2 py-1">
+                            <input value={r.name} onChange={(e) => updateRow(i, { name: e.target.value })} className={cn(inputSm, "min-w-40")} />
+                          </td>
+                          <td className="px-2 py-1">
+                            <SearchPicker
+                              className="w-32"
+                              value={PRODUCT_CATEGORY_ORDER.includes(r.category as never) ? r.category : "other"}
+                              onChange={(v) => updateRow(i, { category: v })}
+                              options={PRODUCT_CATEGORY_ORDER.map((c) => ({ value: c, label: PRODUCT_CATEGORY_LABELS[c] }))}
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input value={r.sku ?? ""} onChange={(e) => updateRow(i, { sku: e.target.value })} className={cn(inputSm, "w-24")} />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input value={r.manufacturer ?? ""} onChange={(e) => updateRow(i, { manufacturer: e.target.value })} className={cn(inputSm, "w-24")} />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input type="number" step="0.01" value={r.material_rate ?? ""} onChange={(e) => updateRow(i, { material_rate: e.target.value ? Number(e.target.value) : null })} className={cn(inputSm, "w-20 text-right")} />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input type="number" step="0.01" value={r.labor_rate ?? ""} onChange={(e) => updateRow(i, { labor_rate: e.target.value ? Number(e.target.value) : null })} className={cn(inputSm, "w-20 text-right")} />
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => removeRow(i)}>
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {finalRows.length > (grid ? 12 : 60) ? (
+                <p className="border-t bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
+                  + {finalRows.length - (grid ? 12 : 60)} more will import
+                </p>
+              ) : null}
+            </div>
+          )}
+
+          {/* Import bar */}
+          {finalRows.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 p-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={updateMode} onChange={(e) => setUpdateMode(e.target.checked)} className="size-4 rounded border-input" />
+                Update existing products (match by name) instead of adding duplicates
+              </label>
+              <Button type="button" onClick={doImport} disabled={importing}>
+                {importing ? "Importing…" : updateMode ? `Update / add ${finalRows.length}` : `Import ${finalRows.length} products`}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Success */}
+      <Dialog open={done !== null} onOpenChange={(o) => !o && setDone(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="mb-1 flex items-center gap-2">
+              <CheckCircle2 className="size-6 text-primary" />
+              <DialogTitle>Import complete</DialogTitle>
+            </div>
+            <DialogDescription>
+              Added <strong className="text-foreground">{done} product{done === 1 ? "" : "s"}</strong> to your catalog.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDone(null)}>Import another</Button>
+            <Link href="/catalog" className={buttonVariants()}>View catalog</Link>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function SourceIcon({ how }: { how?: Source["how"] }) {
+  if (how === "spreadsheet") return <FileSpreadsheet className="size-4 text-emerald-600" />;
+  if (how === "pdf") return <FileText className="size-4 text-rose-600" />;
+  if (how === "image") return <ImageIcon className="size-4 text-violet-600" />;
+  return <FileText className="size-4 text-muted-foreground" />;
+}
+
+// Light CSV/TSV text → grid (for .txt files that are really delimited).
+function csvTextToGrid(text: string): string[][] | null {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) return null;
+  const delim = lines[0].includes("\t") ? "\t" : lines[0].includes(",") ? "," : null;
+  if (!delim) return null;
+  return lines.map((l) => l.split(delim).map((c) => c.trim().replace(/^"|"$/g, "")));
+}
