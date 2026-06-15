@@ -196,14 +196,25 @@ const PRICE_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
 Extract every product row. Skip headers, totals, and blank lines.`;
 
 /** Parse a price list (pasted text, a URL, OR base64 PDF/image) into products. */
+// The reason the most recent AI extraction returned nothing (API error, etc.),
+// so callers can show a real message instead of a silent failure.
+let lastExtractError: string | null = null;
+export function getLastExtractError(): string | null {
+  return lastExtractError;
+}
+
 export async function extractPriceList(opts: {
   text?: string;
   base64?: string;
   url?: string;
   mediaType?: string;
 }): Promise<PriceRow[] | null> {
+  lastExtractError = null;
   const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return null;
+  if (!key) {
+    lastExtractError = "No AI key set (ANTHROPIC_API_KEY).";
+    return null;
+  }
 
   const content: unknown[] = [];
   const fileSource = opts.url
@@ -243,9 +254,20 @@ export async function extractPriceList(opts: {
       }),
     });
   } catch {
+    lastExtractError = "Couldn't reach the AI service.";
     return null;
   }
-  if (!res.ok) return null;
+  if (!res.ok) {
+    let reason = `AI error (${res.status}).`;
+    try {
+      const body = (await res.json()) as { error?: { message?: string } };
+      if (body.error?.message) reason = `AI error: ${body.error.message}`;
+    } catch {
+      /* ignore */
+    }
+    lastExtractError = reason;
+    return null;
+  }
 
   const json = (await res.json()) as { content?: AnthropicBlock[] };
   const text = json.content?.find((b) => b.type === "text")?.text?.trim() ?? "";

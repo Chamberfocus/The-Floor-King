@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { extractPriceList, type PriceRow } from "@/lib/extract";
+import {
+  extractPriceList,
+  getLastExtractError,
+  type PriceRow,
+} from "@/lib/extract";
 import { PRODUCT_CATEGORY_ORDER, type ProductCategory } from "@/lib/types";
 import { chunkText } from "@/lib/pdf-client";
 import { parseStructuredRows } from "@/lib/catalog-csv";
@@ -203,11 +207,14 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
       url: signed.signedUrl,
       mediaType,
     });
-    if (!rows || !rows.length)
+    if (!rows || !rows.length) {
+      const why = getLastExtractError();
       return {
-        error:
-          "Couldn't read that file — try a clearer PDF/scan, or paste the rows as text.",
+        error: why
+          ? `${why} (try a clearer scan, or import the Excel/CSV)`
+          : "Couldn't read that file — try a clearer PDF/scan, or paste the rows as text.",
       };
+    }
     return { error: null, rows };
   }
 
