@@ -40,11 +40,11 @@ function nul(v: FormDataEntryValue | null): string | null {
   return str(v) || null;
 }
 
-/** Build start/end +00 ISO timestamps from a date, time, and duration. */
+/** Build start/end UTC ISO timestamps from a date, time, and duration. */
 function window(date: string, time: string, durationMin: number) {
   const startMin = parseHm(time);
   return {
-    starts_at: `${date}T${time.length === 5 ? `${time}:00` : time}+00`,
+    starts_at: `${date}T${time.length === 5 ? `${time}:00` : time}Z`,
     ends_at: isoAt(date, startMin + durationMin),
     endTime: hmFromMinutes(startMin + durationMin),
   };

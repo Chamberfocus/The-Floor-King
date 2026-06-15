@@ -18,7 +18,7 @@ export function hmFromMinutes(min: number): string {
 
 /** Day of week (0=Sun..6=Sat) for a YYYY-MM-DD string, computed in UTC. */
 export function dowOf(ymd: string): number {
-  return new Date(`${ymd}T12:00:00+00`).getUTCDay();
+  return new Date(`${ymd}T12:00:00Z`).getUTCDay();
 }
 
 export function isOpenDay(settings: ShowroomSettings, ymd: string): boolean {
@@ -29,9 +29,9 @@ export function isOpenDay(settings: ShowroomSettings, ymd: string): boolean {
   return open.includes(dowOf(ymd));
 }
 
-/** Build the +00 ISO timestamp for a date + wall-clock minute offset. */
+/** Build the UTC ISO timestamp for a date + wall-clock minute offset. */
 export function isoAt(ymd: string, minutes: number): string {
-  return `${ymd}T${hmFromMinutes(minutes)}:00+00`;
+  return `${ymd}T${hmFromMinutes(minutes)}:00Z`;
 }
 
 /**
@@ -51,7 +51,7 @@ export function localNowIso(tz = "America/New_York"): string {
   }).formatToParts(new Date());
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
   const hour = get("hour") === "24" ? "00" : get("hour");
-  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}:00+00`;
+  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}:00Z`;
 }
 
 export function todayLocalYmd(tz = "America/New_York"): string {

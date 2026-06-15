@@ -25,12 +25,12 @@ function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 function addDays(s: string, n: number): string {
-  const d = new Date(`${s}T12:00:00+00`);
+  const d = new Date(`${s}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return ymd(d);
 }
 function startOfWeek(s: string): string {
-  const d = new Date(`${s}T12:00:00+00`);
+  const d = new Date(`${s}T12:00:00Z`);
   return addDays(s, -d.getUTCDay()); // back to Sunday
 }
 

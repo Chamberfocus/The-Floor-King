@@ -59,7 +59,7 @@ function dayOf(iso: string): string {
   return iso.slice(0, 10);
 }
 function prettyDay(ymd: string): { wd: string; md: string } {
-  const d = new Date(`${ymd}T12:00:00+00`);
+  const d = new Date(`${ymd}T12:00:00Z`);
   return {
     wd: WD[d.getUTCDay()],
     md: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
@@ -125,7 +125,7 @@ export function CalendarBoard({
     router.push(`/calendar?${q.toString()}`);
   };
   const shift = (n: number) => {
-    const d = new Date(`${anchor}T12:00:00+00`);
+    const d = new Date(`${anchor}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() + n);
     go({ date: d.toISOString().slice(0, 10) });
   };
@@ -233,7 +233,7 @@ export function CalendarBoard({
 
           {/* Day columns */}
           {days.map((d) => {
-            const dow = new Date(`${d}T12:00:00+00`).getUTCDay();
+            const dow = new Date(`${d}T12:00:00Z`).getUTCDay();
             const closed = !openDays.includes(dow);
             const dayAppts = visible.filter((a) => dayOf(a.startsAt) === d);
             const p = prettyDay(d);
