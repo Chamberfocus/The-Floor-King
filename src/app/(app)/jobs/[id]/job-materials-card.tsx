@@ -1,0 +1,140 @@
+import Link from "next/link";
+import { PackageCheck, ShoppingCart, Boxes, AlertTriangle } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import type { JobMaterials, JobMaterialLine } from "@/lib/data/job-materials";
+import {
+  prepareJobMaterials,
+  setLineSource,
+  pullJobLine,
+  pullAllStock,
+} from "../material-actions";
+
+function StatusBadge({ line }: { line: JobMaterialLine }) {
+  const map: Record<JobMaterialLine["status"], { label: string; cls: string }> = {
+    order: { label: "Special order", cls: "bg-sky-500/10 text-sky-600" },
+    short: { label: "Not enough stock", cls: "bg-destructive/10 text-destructive" },
+    to_reserve: { label: "From stock", cls: "bg-violet-500/10 text-violet-600" },
+    reserved: { label: "Reserved", cls: "bg-amber-500/10 text-amber-600" },
+    pulled: { label: "Pulled ✓", cls: "bg-emerald-500/10 text-emerald-600" },
+  };
+  const s = map[line.status];
+  return (
+    <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", s.cls)}>
+      {s.label}
+    </span>
+  );
+}
+
+export function JobMaterialsCard({ data }: { data: JobMaterials }) {
+  if (!data.lines.length) return null;
+
+  return (
+    <Card className="mb-6">
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Boxes className="size-4" /> Materials &amp; sourcing
+        </CardTitle>
+        <div className="flex gap-2">
+          <form action={prepareJobMaterials}>
+            <input type="hidden" name="job_id" value={data.jobId} />
+            <Button type="submit" variant="outline" size="sm">
+              <PackageCheck className="size-4" /> Prepare materials
+            </Button>
+          </form>
+          {data.hasStock ? (
+            <form action={pullAllStock}>
+              <input type="hidden" name="job_id" value={data.jobId} />
+              <Button type="submit" size="sm">
+                Pull all stock
+              </Button>
+            </form>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="mb-3 text-xs text-muted-foreground">
+          &ldquo;Prepare&rdquo; reserves in-stock items and builds a PO for
+          special-order items. Pull stock when you stage the job — its cost lands
+          on this job&apos;s profit.
+        </p>
+        <div className="divide-y rounded-md border">
+          {data.lines.map((l) => (
+            <div
+              key={l.lineId}
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 text-sm"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium">
+                  {l.productName || l.description || "Material"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {l.room ? `${l.room} · ` : ""}
+                  {l.qty} {l.unit}
+                  {l.trackStock
+                    ? ` · ${l.onHand} on hand${
+                        l.available !== l.onHand ? ` (${l.available} free)` : ""
+                      }`
+                    : " · not stocked"}
+                </div>
+              </div>
+
+              <StatusBadge line={l} />
+
+              {/* Source switch */}
+              {l.resolvedSource === "order" && l.trackStock ? (
+                <form action={setLineSource}>
+                  <input type="hidden" name="job_id" value={data.jobId} />
+                  <input type="hidden" name="line_id" value={l.lineId} />
+                  <input type="hidden" name="source" value="stock" />
+                  <Button type="submit" variant="ghost" size="sm">
+                    <Boxes className="size-4" /> Use stock
+                  </Button>
+                </form>
+              ) : null}
+              {l.resolvedSource === "stock" ? (
+                <form action={setLineSource}>
+                  <input type="hidden" name="job_id" value={data.jobId} />
+                  <input type="hidden" name="line_id" value={l.lineId} />
+                  <input type="hidden" name="source" value="order" />
+                  <Button type="submit" variant="ghost" size="sm">
+                    <ShoppingCart className="size-4" /> Order instead
+                  </Button>
+                </form>
+              ) : null}
+
+              {/* Pull (stock lines not fully pulled) */}
+              {l.resolvedSource === "stock" &&
+              l.pulledQty < l.qty - 0.001 &&
+              l.onHand > 0 ? (
+                <form action={pullJobLine}>
+                  <input type="hidden" name="job_id" value={data.jobId} />
+                  <input type="hidden" name="line_id" value={l.lineId} />
+                  <Button type="submit" size="sm" variant="outline">
+                    Pull
+                  </Button>
+                </form>
+              ) : null}
+            </div>
+          ))}
+        </div>
+
+        {data.hasOrder ? (
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <AlertTriangle className="size-3.5 text-amber-600" />
+            Special-order items go on a purchase order.{" "}
+            <Link href="/purchase-orders" className="font-medium hover:underline">
+              View POs
+            </Link>
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}

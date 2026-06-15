@@ -30,6 +30,7 @@ import {
 import { getProfileNames } from "@/lib/data/customers";
 import { getJobCostAnalysis } from "@/lib/data/finance";
 import { listJobLabor } from "@/lib/data/job-labor";
+import { getJobMaterials } from "@/lib/data/job-materials";
 import {
   getSchedulingSettings,
   getInstallerSuggestions,
@@ -52,6 +53,7 @@ import { deleteJobFile } from "../file-actions";
 import { JobPhotoUpload } from "../job-photo-upload";
 import { SignaturePad } from "../signature-pad";
 import { JobLaborCard } from "./job-labor-card";
+import { JobMaterialsCard } from "./job-materials-card";
 
 export async function generateMetadata({
   params,
@@ -91,6 +93,8 @@ export default async function JobPage({
     profile.role === "admin" ? await getJobCostAnalysis(id) : null;
   // Crew pay capture (real labor cost) — staff only.
   const jobLabor = isStaff ? await listJobLabor(id) : [];
+  // Materials & sourcing (stock vs special-order) — staff only.
+  const jobMaterials = isStaff ? await getJobMaterials(id) : null;
 
   // Smart install scheduling (staff + scheduler).
   const canSchedule = isStaff || profile.role === "scheduler";
@@ -386,6 +390,9 @@ export default async function JobPage({
           </CardContent>
         </Card>
       ) : null}
+
+      {/* Materials & sourcing (stock vs special-order) — staff only */}
+      {jobMaterials ? <JobMaterialsCard data={jobMaterials} /> : null}
 
       {/* Crew pay (real subcontractor labor cost) — staff only */}
       {isStaff ? <JobLaborCard jobId={id} rows={jobLabor} /> : null}

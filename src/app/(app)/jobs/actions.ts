@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { moveToAutoActionStage } from "@/lib/workflow-engine";
+import { prepareJobMaterialsFor } from "./material-actions";
 import type {
   JobDeliveryType,
   JobStatus,
@@ -95,6 +97,9 @@ export async function createJobFromEstimate(formData: FormData): Promise<void> {
     .select("id")
     .single();
   if (error || !job) return;
+
+  // Reserve stock + build POs for special-order items right after the win.
+  after(() => prepareJobMaterialsFor(job.id as string));
 
   revalidatePath("/jobs");
   revalidatePath(`/customers/${est.customer_id}`);

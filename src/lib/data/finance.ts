@@ -197,6 +197,22 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   // Real labor cost: subcontractor payouts recorded against each job.
   const laborByJob = await laborCostByJob(jobs.map((j) => j.id));
 
+  // Material pulled from our own stock — cost it to the job (was $0 before).
+  const { data: pullData } = await supabase
+    .from("stock_movements")
+    .select("job_id, qty, unit_cost")
+    .eq("kind", "pull")
+    .in("job_id", jobs.map((j) => j.id));
+  const stockCostByJob = new Map<string, number>();
+  for (const m of pullData ?? []) {
+    if (!m.job_id) continue;
+    const cost = Math.abs(Number(m.qty) || 0) * (Number(m.unit_cost) || 0);
+    stockCostByJob.set(
+      m.job_id as string,
+      (stockCostByJob.get(m.job_id as string) ?? 0) + cost,
+    );
+  }
+
   // Actual revenue from invoices (pre-tax billed + cash collected), per job.
   const invoices = await listInvoices();
   const billedByJob = new Map<string, number>();
@@ -220,9 +236,9 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     const revenueIsActual = billed > 0;
     const revenue = revenueIsActual ? billed : quotedRevenue;
 
-    const materialCost = j.estimate_id
-      ? (poByEstimate.get(j.estimate_id) ?? 0)
-      : 0;
+    const materialCost =
+      (j.estimate_id ? (poByEstimate.get(j.estimate_id) ?? 0) : 0) +
+      (stockCostByJob.get(j.id) ?? 0);
     const laborCost = laborByJob.get(j.id) ?? 0;
     const otherCost = expByJob.get(j.id) ?? 0;
     const cost = materialCost + laborCost + otherCost;
@@ -291,9 +307,20 @@ export async function getJobCostAnalysis(
   const estProfit = estRevenue - estCost;
 
   const pos = await listPurchaseOrders();
-  const actualMaterial = pos
+  const poMaterial = pos
     .filter((p) => p.estimate_id && p.estimate_id === job.estimate_id)
     .reduce((s, p) => s + poTotal(p.items ?? []), 0);
+  // Plus any material pulled from our own stock for this job.
+  const { data: pullRows } = await supabase
+    .from("stock_movements")
+    .select("qty, unit_cost")
+    .eq("kind", "pull")
+    .eq("job_id", jobId);
+  const stockMaterial = (pullRows ?? []).reduce(
+    (s, m) => s + Math.abs(Number(m.qty) || 0) * (Number(m.unit_cost) || 0),
+    0,
+  );
+  const actualMaterial = poMaterial + stockMaterial;
 
   const { data: expData } = await supabase
     .from("expenses")
