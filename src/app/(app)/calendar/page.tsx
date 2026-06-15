@@ -56,13 +56,31 @@ export default async function CalendarPage({
   const rangeStart = `${days[0]}T00:00:00+00`;
   const rangeEnd = `${addDays(days[days.length - 1], 1)}T00:00:00+00`;
 
-  const [appointments, types, staff, pending, settings] = await Promise.all([
-    listAppointmentsRange(rangeStart, rangeEnd),
-    listAppointmentTypes({ activeOnly: true }),
-    listBookingStaff(),
-    listPendingRequests(),
-    getShowroomSettings(),
-  ]);
+  let appointments, types, staff, pending, settings;
+  try {
+    [appointments, types, staff, pending, settings] = await Promise.all([
+      listAppointmentsRange(rangeStart, rangeEnd),
+      listAppointmentTypes({ activeOnly: true }),
+      listBookingStaff(),
+      listPendingRequests(),
+      getShowroomSettings(),
+    ]);
+  } catch (e) {
+    // Surface the real reason instead of a blank "couldn't load".
+    return (
+      <div>
+        <PageHeader title="Booking calendar" />
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
+          <p className="font-medium text-destructive">
+            The calendar couldn&apos;t load.
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            {e instanceof Error ? e.message : String(e)}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
