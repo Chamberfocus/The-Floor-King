@@ -28,6 +28,7 @@ import {
 import { SearchPicker } from "@/components/ui/search-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 import { fileToGrid, chunkText } from "@/lib/pdf-client";
 import {
   parseStructuredRows,
@@ -40,7 +41,11 @@ import {
   PRODUCT_CATEGORY_ORDER,
 } from "@/lib/types";
 import type { PriceRow } from "@/lib/extract";
-import { parsePriceList, importProducts } from "./import-actions";
+import {
+  parsePriceList,
+  importProducts,
+  extractStoragePdfText,
+} from "./import-actions";
 
 const inputSm =
   "h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -142,6 +147,19 @@ export function SmartImporter() {
     return localLineParse(text);
   };
 
+  const uploadToStorage = async (file: File): Promise<string | null> => {
+    const supabase = createClient();
+    const path = `imports/${crypto.randomUUID()}-${file.name}`;
+    const { error } = await supabase.storage
+      .from("documents")
+      .upload(path, file, { contentType: file.type || undefined });
+    if (error) {
+      toast.error(`Upload failed: ${error.message}`);
+      return null;
+    }
+    return path;
+  };
+
   const setGridFromRows = (g: string[][], src: Source) => {
     const headers = g[0] ?? [];
     const body = g.slice(1).filter((r) => r.some((c) => c.trim()));
@@ -189,27 +207,57 @@ export function SmartImporter() {
             setStatus(null);
             return;
           }
-          // PDFs and photos go straight to the AI as a document — one call,
-          // accurate, no fragile browser PDF worker. (This is the approach that
-          // worked reliably before.)
-          if (isPdf || isImage) {
-            setStatus(
-              isPdf ? "Reading the PDF with AI…" : "Reading the photo with AI…",
-            );
+          // PDF: extract the text on the server (fast), then run the AI on it
+          // in short chunks from the browser so no single request hits the 60s
+          // serverless limit. Scanned PDFs (no text) use one AI-vision call.
+          if (isPdf) {
+            setStatus("Uploading…");
+            const path = await uploadToStorage(file);
+            if (!path) {
+              setStatus(null);
+              return;
+            }
+            setStatus("Reading the PDF…");
+            const { text, structured } = await extractStoragePdfText(path);
+            if (structured?.length) {
+              finishRows(structured, { name: file.name, how: "pdf" });
+              return;
+            }
+            if (text && text.trim().length >= 20) {
+              const rows = await parseTextSmart(text); // chunked AI, short calls
+              if (rows.length) {
+                finishRows(rows, { name: file.name, how: "pdf" });
+                return;
+              }
+            }
+            // No usable text → it's a scan. One AI-vision call on the document.
+            setStatus("Reading the scanned PDF with AI…");
+            const fd = new FormData();
+            fd.set("storage_path", path);
+            fd.set("storage_mime", "application/pdf");
+            const res = await parsePriceList(fd);
+            if (res.rows?.length) {
+              finishRows(res.rows, { name: file.name, how: "image" });
+            } else {
+              toast.error(res.error || "Couldn't read that PDF.");
+              setStatus(
+                res.error ||
+                  "Couldn't read that PDF. Try the Excel/CSV, or paste the rows above.",
+              );
+            }
+            return;
+          }
+          // Photo / image: single AI-vision call.
+          if (isImage) {
+            setStatus("Reading the photo with AI…");
             const fd = new FormData();
             fd.set("file", file);
             const res = await parsePriceList(fd);
             if (res.rows?.length) {
-              finishRows(res.rows, {
-                name: file.name,
-                how: isPdf ? "pdf" : "image",
-              });
+              finishRows(res.rows, { name: file.name, how: "image" });
             } else {
-              toast.error(res.error || "Couldn't read that file.");
-              setStatus(
-                res.error ||
-                  "Couldn't read that file. Try the Excel/CSV, or paste the rows above.",
-              );
+              toast.error(res.error || "Couldn't read that photo.");
+              setStatus(res.error || "Couldn't read that photo.");
             }
             return;
           }

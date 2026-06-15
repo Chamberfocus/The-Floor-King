@@ -8,7 +8,9 @@ import { requireProfile } from "@/lib/auth";
 import { SmartImporter } from "../smart-importer";
 
 export const metadata: Metadata = { title: "Import price list" };
-export const maxDuration = 60;
+// Allow long AI reads for scanned PDFs (Vercel caps this to your plan's max —
+// 60s on Hobby, up to 300s on Pro).
+export const maxDuration = 300;
 
 export default async function ImportPriceListPage() {
   const profile = await requireProfile();
