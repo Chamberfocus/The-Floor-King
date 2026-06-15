@@ -9,7 +9,7 @@ import {
   listPendingRequests,
   getShowroomSettings,
 } from "@/lib/data/booking";
-import { CalendarBoard } from "./calendar-board";
+import { CalendarClient } from "./calendar-client";
 
 export const metadata: Metadata = { title: "Calendar" };
 
@@ -88,7 +88,7 @@ export default async function CalendarPage({
         title="Booking calendar"
         description="Showroom appointments and in-home estimates. Book, reschedule, and confirm client requests."
       />
-      <CalendarBoard
+      <CalendarClient
         view={view}
         anchor={anchor}
         today={today}
