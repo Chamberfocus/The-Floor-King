@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { positionById } from "./positions";
 import type { UserRole } from "@/lib/types";
 
@@ -173,4 +174,73 @@ export async function setMemberRole(formData: FormData): Promise<void> {
   }
   await admin.from("profiles").update({ role }).eq("id", id);
   revalidatePath("/settings/team");
+}
+
+export async function setMemberName(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const fullName = str(formData.get("full_name"));
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return;
+  }
+  await admin
+    .from("profiles")
+    .update({ full_name: fullName || null })
+    .eq("id", id);
+  revalidatePath("/settings/team");
+}
+
+export interface RemoveResult {
+  error: string | null;
+  ok?: boolean;
+}
+
+/**
+ * Permanently remove a team member's login and all their access. Their past
+ * work (jobs, estimates, etc.) stays but is unassigned. Guards against deleting
+ * yourself or the last administrator.
+ */
+export async function removeTeamMember(id: string): Promise<RemoveResult> {
+  if (!id) return { error: "Missing member." };
+
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return { error: "Removing logins needs the Supabase secret key on the server." };
+  }
+
+  // Can't remove yourself.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user?.id === id) {
+    return { error: "You can't remove your own login." };
+  }
+
+  // Don't remove the last admin (you'd lock everyone out of settings).
+  const { data: target } = await admin
+    .from("profiles")
+    .select("role")
+    .eq("id", id)
+    .maybeSingle();
+  if (target?.role === "admin") {
+    const { count } = await admin
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("role", "admin");
+    if ((count ?? 0) <= 1) {
+      return { error: "That's the only administrator — make someone else an admin first." };
+    }
+  }
+
+  const { error } = await admin.auth.admin.deleteUser(id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/settings/team");
+  return { error: null, ok: true };
 }

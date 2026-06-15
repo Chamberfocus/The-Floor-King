@@ -7,15 +7,26 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
+import { requireProfile } from "@/lib/auth";
 import { listTeamMembers } from "@/lib/data/team";
 import { InviteTeamForm } from "./invite-form";
 import { RoleSelect } from "./role-select";
-import { setMemberTitle, setMemberHome, setMemberPhonePin } from "./actions";
+import { RemoveMember } from "./remove-member";
+import {
+  setMemberTitle,
+  setMemberHome,
+  setMemberPhonePin,
+  setMemberName,
+} from "./actions";
 
 export const metadata: Metadata = { title: "Team" };
 
 export default async function TeamPage() {
-  const members = await listTeamMembers();
+  const [members, me] = await Promise.all([
+    listTeamMembers(),
+    requireProfile(),
+  ]);
+  const adminCount = members.filter((m) => m.role === "admin").length;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -45,14 +56,25 @@ export default async function TeamPage() {
               {members.map((m) => (
                 <li key={m.id} className="space-y-2 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">
-                        {m.full_name || m.email}
-                      </div>
-                      <div className="truncate text-xs text-muted-foreground">
+                    <form
+                      action={setMemberName}
+                      className="flex min-w-0 items-center gap-1"
+                    >
+                      <input type="hidden" name="id" value={m.id} />
+                      <input
+                        name="full_name"
+                        defaultValue={m.full_name ?? ""}
+                        placeholder="Full name"
+                        className="h-8 w-44 rounded-md border border-input bg-transparent px-2 text-sm font-medium"
+                      />
+                      <Button type="submit" variant="ghost" size="sm">
+                        Save
+                      </Button>
+                      <span className="ml-1 hidden truncate text-xs text-muted-foreground sm:inline">
                         {m.email}
-                      </div>
-                    </div>
+                        {m.id === me.id ? " · you" : ""}
+                      </span>
+                    </form>
                     <div className="flex items-center gap-2">
                       <form action={setMemberTitle} className="flex items-center gap-1">
                         <input type="hidden" name="id" value={m.id} />
@@ -67,6 +89,13 @@ export default async function TeamPage() {
                         </Button>
                       </form>
                       <RoleSelect id={m.id} role={m.role} />
+                      {m.id !== me.id &&
+                      !(m.role === "admin" && adminCount <= 1) ? (
+                        <RemoveMember
+                          id={m.id}
+                          name={m.full_name || m.email}
+                        />
+                      ) : null}
                     </div>
                   </div>
                   <form action={setMemberHome} className="flex items-center gap-1">
