@@ -45,7 +45,11 @@ import {
   PRODUCT_CATEGORY_ORDER,
 } from "@/lib/types";
 import type { PriceRow } from "@/lib/extract";
-import { parsePriceList, importProducts } from "./import-actions";
+import {
+  parsePriceList,
+  importProducts,
+  extractStoragePdfText,
+} from "./import-actions";
 
 const inputSm =
   "h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -157,7 +161,26 @@ export function SmartImporter() {
       .from("documents")
       .upload(path, file, { contentType: file.type || undefined });
     if (upErr) return { rows: [], error: `Upload failed: ${upErr.message}` };
-    setStatus("Reading the document on our server…");
+
+    const isPdf =
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf");
+
+    // PDFs: pull the text out on the server (fast), then parse it HERE in short
+    // chunks so the AI calls never time out the function.
+    if (isPdf) {
+      setStatus("Reading the PDF on our server…");
+      const { text, structured, error } = await extractStoragePdfText(path);
+      if (structured?.length) return { rows: structured, error: null };
+      if (text && text.trim().length >= 20) {
+        const rows = await parseTextSmart(text);
+        return { rows, error: null };
+      }
+      if (error) return { rows: [], error };
+      // No text — it's a scan. Fall through to AI vision (single call).
+    }
+
+    setStatus("Reading the document with AI…");
     const fd = new FormData();
     fd.set("storage_path", path);
     fd.set("storage_mime", file.type ?? "");

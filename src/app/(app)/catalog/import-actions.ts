@@ -152,42 +152,47 @@ async function pdfTextFromStorage(storagePath: string): Promise<string> {
   }
 }
 
+export interface PdfTextResult {
+  text: string;
+  structured: PriceRow[] | null; // clean column layout, parsed instantly
+  error: string | null;
+}
+
+/**
+ * Fast, bounded server action: extract a PDF's text (no AI) and, if it has a
+ * clean column layout, parse it instantly. The browser then sends any messy
+ * text through the AI in short chunks — keeping every request well under the
+ * function time limit.
+ */
+export async function extractStoragePdfText(
+  storagePath: string,
+): Promise<PdfTextResult> {
+  if (!storagePath) return { text: "", structured: null, error: "No file." };
+  const text = await pdfTextFromStorage(storagePath);
+  if (!text || text.trim().length < 20)
+    return { text: "", structured: null, error: null };
+  const structured = parseStructuredRows(text);
+  return {
+    text,
+    structured: structured?.length ? structured : null,
+    error: null,
+  };
+}
+
 export async function parsePriceList(formData: FormData): Promise<ParseResult> {
   const text = str(formData.get("text"));
   const file = formData.get("file");
   const storagePath = str(formData.get("storage_path"));
   const hasKey = Boolean(process.env.ANTHROPIC_API_KEY);
 
-  // Preferred path: file already uploaded to storage by the browser.
+  // Storage path is now ONLY the AI-vision fallback (scanned PDFs / photos),
+  // which is a single API call. Text PDFs are handled via extractStoragePdfText
+  // + client-side chunked parsing so we never exceed the function time limit.
   if (storagePath) {
     const isPdf =
       storagePath.toLowerCase().endsWith(".pdf") ||
       str(formData.get("storage_mime")).includes("pdf");
 
-    // 1) Extract the PDF's text on the server, then parse it accurately.
-    if (isPdf) {
-      const pdfText = await pdfTextFromStorage(storagePath);
-      if (pdfText.trim().length >= 20) {
-        // Clean column layout? parse instantly, no AI.
-        const structured = parseStructuredRows(pdfText);
-        if (structured?.length) return { error: null, rows: structured };
-        // Otherwise let AI structure the messy text — far better than a naive
-        // line split for real vendor price lists.
-        if (hasKey) {
-          const aiRows: PriceRow[] = [];
-          for (const chunk of chunkText(pdfText, 12000)) {
-            const part = await extractPriceList({ text: chunk });
-            if (part?.length) aiRows.push(...part);
-          }
-          if (aiRows.length) return { error: null, rows: aiRows };
-        }
-        // Last resort (no AI key): rough line parse so something comes through.
-        const rough = parseTextRows(pdfText);
-        if (rough.length) return { error: null, rows: rough };
-      }
-    }
-
-    // 2) Fall back to AI vision (scanned PDFs / images) — needs the key.
     if (!hasKey)
       return {
         error: isPdf
