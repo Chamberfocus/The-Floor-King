@@ -13,6 +13,7 @@ import {
   BarChart3,
   Route,
   CalendarClock,
+  CalendarRange,
   Activity,
   type LucideIcon,
 } from "lucide-react";
@@ -58,6 +59,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: OVERVIEW },
   { label: "Estimates", href: "/estimates", icon: FileText, roles: SALES_VIEW },
   { label: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, roles: OFFICE_PLUS },
+  { label: "Calendar", href: "/calendar", icon: CalendarRange, roles: SALES_VIEW },
   { label: "Estimate Schedule", href: "/schedule", icon: CalendarClock, roles: SALES_VIEW },
   { label: "Jobs", href: "/jobs", icon: CalendarDays, roles: JOBS_ROLES },
   { label: "Job Board", href: "/board", icon: ClipboardList, roles: ["admin", "office", "scheduler", "crew"] },

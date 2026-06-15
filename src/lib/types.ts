@@ -797,6 +797,105 @@ export interface BusinessSettings {
   updated_at: string;
 }
 
+// --- Booking calendar -------------------------------------------------------
+
+export type AppointmentColor =
+  | "blue"
+  | "green"
+  | "amber"
+  | "violet"
+  | "rose"
+  | "gray"
+  | "teal";
+
+export const APPOINTMENT_COLORS: AppointmentColor[] = [
+  "blue",
+  "green",
+  "amber",
+  "violet",
+  "rose",
+  "gray",
+  "teal",
+];
+
+/** Tailwind classes per color token, for chips and calendar blocks. */
+export const APPOINTMENT_COLOR_CLASSES: Record<
+  AppointmentColor,
+  { block: string; chip: string; dot: string }
+> = {
+  blue: { block: "border-blue-300 bg-blue-50 text-blue-900", chip: "bg-blue-500/10 text-blue-600", dot: "bg-blue-500" },
+  green: { block: "border-emerald-300 bg-emerald-50 text-emerald-900", chip: "bg-emerald-500/10 text-emerald-600", dot: "bg-emerald-500" },
+  amber: { block: "border-amber-300 bg-amber-50 text-amber-900", chip: "bg-amber-500/10 text-amber-600", dot: "bg-amber-500" },
+  violet: { block: "border-violet-300 bg-violet-50 text-violet-900", chip: "bg-violet-500/10 text-violet-600", dot: "bg-violet-500" },
+  rose: { block: "border-rose-300 bg-rose-50 text-rose-900", chip: "bg-rose-500/10 text-rose-600", dot: "bg-rose-500" },
+  gray: { block: "border-gray-300 bg-gray-50 text-gray-900", chip: "bg-gray-500/10 text-gray-600", dot: "bg-gray-500" },
+  teal: { block: "border-teal-300 bg-teal-50 text-teal-900", chip: "bg-teal-500/10 text-teal-600", dot: "bg-teal-500" },
+};
+
+export type AppointmentKind =
+  | "showroom"
+  | "in_home"
+  | "measure"
+  | "pickup"
+  | "other";
+
+export interface AppointmentType {
+  id: string;
+  name: string;
+  duration_min: number;
+  color: AppointmentColor;
+  kind: AppointmentKind;
+  requires_rep: boolean;
+  active: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShowroomSettings {
+  id: string;
+  open_days: string; // CSV of 0..6
+  day_start: string; // HH:MM
+  day_end: string; // HH:MM
+  slot_interval_min: number;
+  capacity: number;
+  buffer_min: number;
+  booking_enabled: boolean;
+  booking_notice_hours: number;
+  updated_at: string;
+}
+
+export type AppointmentStatus =
+  | "pending"
+  | "scheduled"
+  | "completed"
+  | "cancelled"
+  | "no_show";
+
+export interface Appointment {
+  id: string;
+  customer_id: string | null;
+  estimate_id: string | null;
+  salesperson_id: string | null;
+  type_id: string | null;
+  kind: string;
+  starts_at: string;
+  ends_at: string | null;
+  address: string | null;
+  drive_minutes: number | null;
+  notes: string | null;
+  status: AppointmentStatus;
+  seq: number;
+  is_block: boolean;
+  title: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+  source: string;
+  created_by: string | null;
+  created_at: string;
+}
+
 export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   materials: "Materials",
   labor: "Labor",
