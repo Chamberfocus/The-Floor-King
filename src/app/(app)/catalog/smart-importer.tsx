@@ -157,7 +157,7 @@ export function SmartImporter() {
       .from("documents")
       .upload(path, file, { contentType: file.type || undefined });
     if (upErr) return { rows: [], error: `Upload failed: ${upErr.message}` };
-    setStatus("Reading the document with AI…");
+    setStatus("Reading the document on our server…");
     const fd = new FormData();
     fd.set("storage_path", path);
     fd.set("storage_mime", file.type ?? "");
@@ -249,8 +249,9 @@ export function SmartImporter() {
               }
               return;
             }
-            // No selectable text — scanned PDF. Needs AI vision.
-            setStatus("No selectable text (scanned PDF) — reading with AI…");
+            // Browser couldn't read it — let the server extract the text
+            // (and fall back to AI vision for true scans).
+            setStatus("Reading the PDF on our server…");
             const { rows: r, error } = await parseViaStorage(file);
             if (r.length) {
               finishRows(r, { name: file.name, how: "image" });

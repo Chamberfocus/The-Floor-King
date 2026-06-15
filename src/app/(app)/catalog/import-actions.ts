@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { extractPriceList, type PriceRow } from "@/lib/extract";
 import { PRODUCT_CATEGORY_ORDER, type ProductCategory } from "@/lib/types";
 import { chunkText } from "@/lib/pdf-client";
+import { parseStructuredRows } from "@/lib/catalog-csv";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import {
   listActiveImportJobs,
@@ -76,6 +77,28 @@ function parseTextRows(text: string): PriceRow[] {
   return rows;
 }
 
+/**
+ * Extract text from a PDF on the server (no browser worker, no AI). Uses unpdf,
+ * which bundles a serverless-friendly pdf.js — so text PDFs read reliably even
+ * when the browser couldn't extract them.
+ */
+async function pdfTextFromStorage(storagePath: string): Promise<string> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.storage
+      .from("documents")
+      .download(storagePath);
+    if (!data) return "";
+    const buf = new Uint8Array(await data.arrayBuffer());
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    const pdf = await getDocumentProxy(buf);
+    const { text } = await extractText(pdf, { mergePages: true });
+    return (Array.isArray(text) ? text.join("\n") : text) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export async function parsePriceList(formData: FormData): Promise<ParseResult> {
   const text = str(formData.get("text"));
   const file = formData.get("file");
@@ -84,10 +107,25 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
 
   // Preferred path: file already uploaded to storage by the browser.
   if (storagePath) {
+    const isPdf =
+      storagePath.toLowerCase().endsWith(".pdf") ||
+      str(formData.get("storage_mime")).includes("pdf");
+
+    // 1) Free, reliable: extract the PDF's text on the server and parse it.
+    if (isPdf) {
+      const pdfText = await pdfTextFromStorage(storagePath);
+      if (pdfText.trim().length >= 20) {
+        const rows = parseStructuredRows(pdfText) ?? parseTextRows(pdfText);
+        if (rows.length) return { error: null, rows };
+      }
+    }
+
+    // 2) Fall back to AI vision (scanned PDFs / images) — needs the key.
     if (!hasKey)
       return {
-        error:
-          "Reading a file needs the AI key (ANTHROPIC_API_KEY in Vercel). Paste the rows as text instead.",
+        error: isPdf
+          ? "That PDF has no readable text (it's a scan). Reading scans needs the AI key (ANTHROPIC_API_KEY in Vercel) — or export to Excel/CSV, or paste the rows."
+          : "Reading an image needs the AI key (ANTHROPIC_API_KEY in Vercel). Paste the rows as text instead.",
       };
     const supabase = await createClient();
     const { data: signed } = await supabase.storage
@@ -97,9 +135,7 @@ export async function parsePriceList(formData: FormData): Promise<ParseResult> {
       return { error: "Couldn't open the uploaded file." };
     const mediaType =
       str(formData.get("storage_mime")) ||
-      (storagePath.toLowerCase().endsWith(".pdf")
-        ? "application/pdf"
-        : "image/jpeg");
+      (isPdf ? "application/pdf" : "image/jpeg");
     const rows = await extractPriceList({
       url: signed.signedUrl,
       mediaType,
