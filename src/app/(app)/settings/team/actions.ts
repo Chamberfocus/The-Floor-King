@@ -198,6 +198,63 @@ export interface RemoveResult {
   ok?: boolean;
 }
 
+const BAN_FOREVER = "876600h"; // ~100 years
+
+/**
+ * Deactivate (or reactivate) a member. Deactivating disables their sign-in but
+ * keeps their profile and their name on past records. Reactivating restores
+ * access. Guards against deactivating yourself or the last active admin.
+ */
+export async function setMemberActive(
+  id: string,
+  active: boolean,
+): Promise<RemoveResult> {
+  if (!id) return { error: "Missing member." };
+
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return { error: "This needs the Supabase secret key on the server." };
+  }
+
+  if (!active) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user?.id === id) return { error: "You can't deactivate your own login." };
+
+    const { data: target } = await admin
+      .from("profiles")
+      .select("role")
+      .eq("id", id)
+      .maybeSingle();
+    if (target?.role === "admin") {
+      const { count } = await admin
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "admin")
+        .eq("active", true);
+      if ((count ?? 0) <= 1) {
+        return {
+          error: "That's the only active administrator — make someone else an admin first.",
+        };
+      }
+    }
+  }
+
+  // Block / restore sign-in at the auth layer, and flag the profile.
+  const { error: banErr } = await admin.auth.admin.updateUserById(id, {
+    ban_duration: active ? "none" : BAN_FOREVER,
+  });
+  if (banErr) return { error: banErr.message };
+  await admin.from("profiles").update({ active }).eq("id", id);
+
+  revalidatePath("/settings/team");
+  return { error: null, ok: true };
+}
+
 /**
  * Permanently remove a team member's login and all their access. Their past
  * work (jobs, estimates, etc.) stays but is unassigned. Guards against deleting

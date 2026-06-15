@@ -12,6 +12,7 @@ import { listTeamMembers } from "@/lib/data/team";
 import { InviteTeamForm } from "./invite-form";
 import { RoleSelect } from "./role-select";
 import { RemoveMember } from "./remove-member";
+import { ActiveToggle } from "./active-toggle";
 import {
   setMemberTitle,
   setMemberHome,
@@ -54,7 +55,10 @@ export default async function TeamPage() {
           ) : (
             <ul className="divide-y text-sm">
               {members.map((m) => (
-                <li key={m.id} className="space-y-2 py-3">
+                <li
+                  key={m.id}
+                  className={m.active ? "space-y-2 py-3" : "space-y-2 py-3 opacity-60"}
+                >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <form
                       action={setMemberName}
@@ -70,6 +74,11 @@ export default async function TeamPage() {
                       <Button type="submit" variant="ghost" size="sm">
                         Save
                       </Button>
+                      {!m.active ? (
+                        <span className="ml-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
+                          Deactivated
+                        </span>
+                      ) : null}
                       <span className="ml-1 hidden truncate text-xs text-muted-foreground sm:inline">
                         {m.email}
                         {m.id === me.id ? " · you" : ""}
@@ -89,6 +98,13 @@ export default async function TeamPage() {
                         </Button>
                       </form>
                       <RoleSelect id={m.id} role={m.role} />
+                      {m.id !== me.id ? (
+                        <ActiveToggle
+                          id={m.id}
+                          name={m.full_name || m.email}
+                          active={m.active}
+                        />
+                      ) : null}
                       {m.id !== me.id &&
                       !(m.role === "admin" && adminCount <= 1) ? (
                         <RemoveMember
