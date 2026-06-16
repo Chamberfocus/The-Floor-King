@@ -66,6 +66,7 @@ import { CustomerChat } from "./customer-chat";
 import { CommandCenter } from "./command-center";
 import { OnTheWayButton } from "./on-the-way-button";
 import { GuidedFlow } from "./guided-flow";
+import { CancelCustomer } from "./cancel-customer";
 
 export async function generateMetadata({
   params,
@@ -176,20 +177,47 @@ export default async function CustomerPage({
             Added {formatDate(customer.created_at)}
           </p>
         </div>
-        <OnTheWayButton customerId={customer.id} />
+        <div className="flex flex-wrap items-center gap-2">
+          {!customer.cancelled_at ? (
+            <OnTheWayButton customerId={customer.id} />
+          ) : null}
+          <CancelCustomer
+            customerId={customer.id}
+            name={customer.full_name}
+            cancelled={!!customer.cancelled_at}
+          />
+        </div>
       </div>
 
+      {customer.cancelled_at ? (
+        <div className="mb-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+          <p className="font-medium text-destructive">
+            Cancelled{" "}
+            <span className="font-normal text-muted-foreground">
+              · {formatDate(customer.cancelled_at)}
+              {customer.cancel_reason ? ` · ${customer.cancel_reason}` : ""}
+            </span>
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            This job is out of your active pipeline. Reopen it (top right) to pick
+            back up where it left off.
+          </p>
+        </div>
+      ) : null}
+
       {/* Guided flow — progress + the one next step, with its tool inline */}
-      <GuidedFlow
-        customer={customer}
-        stages={stages}
-        currentStage={currentStage}
-        estimates={estimates}
-        jobs={jobs}
-        invoices={invoices}
-        repOptions={repOptions}
-        installPop={installPop}
-      />
+      {!customer.cancelled_at ? (
+        <GuidedFlow
+          customer={customer}
+          stages={stages}
+          currentStage={currentStage}
+          estimates={estimates}
+          jobs={jobs}
+          invoices={invoices}
+          repOptions={repOptions}
+          installPop={installPop}
+        />
+      ) : null}
 
       {/* Command center — the cockpit for this lead */}
       <div className="mb-6">

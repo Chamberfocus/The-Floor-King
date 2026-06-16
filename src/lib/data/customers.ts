@@ -139,6 +139,7 @@ export async function listMyQueue(userId: string): Promise<QueueItem[]> {
     )
     .eq("workflow_owner_id", userId)
     .not("workflow_stage_id", "is", null)
+    .is("cancelled_at", null)
     .order("next_action_due", { ascending: true, nullsFirst: false })
     .limit(15);
   return (data ?? []).map((c) => {

@@ -307,3 +307,64 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
   // Redirect back so the command-center form closes and the new stage shows.
   redirect(`/customers/${id}`);
 }
+
+/** Cancel a customer/job (deal fell through, no-show, job called off). */
+export async function cancelCustomer(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const reason = str(formData.get("reason"));
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  await supabase
+    .from("customers")
+    .update({
+      cancelled_at: new Date().toISOString(),
+      cancel_reason: reason || null,
+      stage: "lost",
+      next_action_due: null,
+    })
+    .eq("id", id);
+
+  await supabase.from("activities").insert({
+    customer_id: id,
+    user_id: user?.id ?? null,
+    type: "stage_change",
+    body: `Customer cancelled${reason ? ` — ${reason}` : ""}.`,
+  });
+
+  refreshCustomerViews(id);
+  revalidatePath("/pipeline");
+  revalidatePath("/dashboard");
+  redirect(`/customers/${id}`);
+}
+
+/** Reopen a previously cancelled customer. */
+export async function reopenCustomer(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  await supabase
+    .from("customers")
+    .update({ cancelled_at: null, cancel_reason: null })
+    .eq("id", id);
+
+  await supabase.from("activities").insert({
+    customer_id: id,
+    user_id: user?.id ?? null,
+    type: "stage_change",
+    body: "Customer reopened.",
+  });
+
+  refreshCustomerViews(id);
+  revalidatePath("/pipeline");
+  redirect(`/customers/${id}`);
+}

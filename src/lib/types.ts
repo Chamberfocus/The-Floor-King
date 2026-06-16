@@ -134,6 +134,8 @@ export interface Customer {
   workflow_owner_id: string | null;
   next_action_due: string | null;
   qualified: boolean | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
