@@ -18,21 +18,39 @@ export interface PeriodSummary {
   net: number;
 }
 
+/** Customers that have been cancelled — excluded from all financial totals. */
+async function cancelledCustomerIds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<Set<string>> {
+  const { data } = await supabase
+    .from("customers")
+    .select("id")
+    .not("cancelled_at", "is", null);
+  return new Set((data ?? []).map((c) => c.id as string));
+}
+
 export async function getPeriodSummary(
   start: string,
   end: string,
 ): Promise<PeriodSummary> {
   const supabase = await createClient();
+  const cancelled = await cancelledCustomerIds(supabase);
+
+  const invoices = await listInvoices();
+  // Invoices belonging to cancelled customers don't count anywhere.
+  const liveInvoices = invoices.filter((i) => !cancelled.has(i.customer_id));
+  const cancelledInvoiceIds = new Set(
+    invoices.filter((i) => cancelled.has(i.customer_id)).map((i) => i.id),
+  );
 
   const { data: pays } = await supabase
     .from("payments")
-    .select("amount, paid_at")
+    .select("amount, paid_at, invoice_id")
     .gte("paid_at", start)
     .lte("paid_at", end);
-  const collected = (pays ?? []).reduce(
-    (s, p) => s + (Number(p.amount) || 0),
-    0,
-  );
+  const collected = (pays ?? [])
+    .filter((p) => !cancelledInvoiceIds.has(p.invoice_id as string))
+    .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
   const { data: exps } = await supabase
     .from("expenses")
@@ -50,8 +68,7 @@ export async function getPeriodSummary(
     .lte("paid_on", end);
   const subLabor = (lab ?? []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
 
-  const invoices = await listInvoices();
-  const billed = invoices
+  const billed = liveInvoices
     .filter((i) => i.issue_date && i.issue_date >= start && i.issue_date <= end)
     .reduce(
       (s, i) => s + invoiceTotals(i.items ?? [], i.tax_rate, 0).total,
@@ -86,6 +103,8 @@ export interface ARBuckets {
 }
 
 export async function getOutstandingAR(): Promise<ARBuckets> {
+  const supabase = await createClient();
+  const cancelled = await cancelledCustomerIds(supabase);
   const invoices = await listInvoices();
   const today = Date.now();
   const b: ARBuckets = {
@@ -98,6 +117,7 @@ export async function getOutstandingAR(): Promise<ARBuckets> {
   };
   for (const inv of invoices) {
     if (inv.status === "paid" || inv.status === "void") continue;
+    if (cancelled.has(inv.customer_id)) continue;
     const bal = invoiceTotals(
       inv.items ?? [],
       inv.tax_rate,
@@ -136,7 +156,10 @@ export interface JobProfit {
 
 export async function getJobProfitability(): Promise<JobProfit[]> {
   const supabase = await createClient();
-  const jobs = (await listJobs()).filter((j) => j.option_id);
+  const cancelled = await cancelledCustomerIds(supabase);
+  const jobs = (await listJobs()).filter(
+    (j) => j.option_id && !cancelled.has(j.customer_id),
+  );
   if (!jobs.length) return [];
 
   const optionIds = [...new Set(jobs.map((j) => j.option_id))] as string[];

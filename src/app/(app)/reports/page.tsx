@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 
 export const metadata: Metadata = { title: "Reports" };
+export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
   const profile = await requireProfile();

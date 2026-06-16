@@ -28,6 +28,7 @@ import {
 import { formatMoney } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Financials" };
+export const dynamic = "force-dynamic";
 
 function isoDay(d: Date) {
   return d.toISOString().slice(0, 10);

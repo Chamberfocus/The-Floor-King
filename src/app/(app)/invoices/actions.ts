@@ -18,6 +18,15 @@ import type {
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
+/** Money changed → refresh every view that reports on money. */
+function refreshMoneyViews() {
+  revalidatePath("/invoices");
+  revalidatePath("/dashboard");
+  revalidatePath("/pulse");
+  revalidatePath("/financials");
+  revalidatePath("/reports");
+}
+
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
 }
@@ -332,8 +341,7 @@ export async function recordPayment(formData: FormData): Promise<void> {
   }
 
   revalidatePath(`/invoices/${invoiceId}`);
-  revalidatePath("/invoices");
-  revalidatePath("/dashboard");
+  refreshMoneyViews();
 }
 
 export async function deletePayment(formData: FormData): Promise<void> {
@@ -344,6 +352,7 @@ export async function deletePayment(formData: FormData): Promise<void> {
   await supabase.from("payments").delete().eq("id", id);
   await recomputeStatus(supabase, invoiceId);
   revalidatePath(`/invoices/${invoiceId}`);
+  refreshMoneyViews();
 }
 
 export async function setInvoiceStatus(formData: FormData): Promise<void> {
@@ -353,8 +362,7 @@ export async function setInvoiceStatus(formData: FormData): Promise<void> {
   const supabase = await createClient();
   await supabase.from("invoices").update({ status }).eq("id", id);
   revalidatePath(`/invoices/${id}`);
-  revalidatePath("/invoices");
-  revalidatePath("/dashboard");
+  refreshMoneyViews();
 }
 
 /** Mark an invoice as sent and email it to the customer. */
@@ -396,7 +404,8 @@ export async function deleteInvoice(formData: FormData): Promise<void> {
   if (!id) return;
   const supabase = await createClient();
   await supabase.from("invoices").delete().eq("id", id);
-  revalidatePath("/invoices");
+  refreshMoneyViews();
+  if (customerId) revalidatePath(`/customers/${customerId}`);
   if (customerId) redirect(`/customers/${customerId}`);
   redirect("/invoices");
 }

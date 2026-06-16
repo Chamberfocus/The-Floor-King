@@ -26,6 +26,7 @@ import { STAGE_COLOR_BADGE } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Dashboard" };
+export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const profile = await requireProfile();

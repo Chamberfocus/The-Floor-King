@@ -30,6 +30,11 @@ function refreshCustomerViews(id?: string) {
   revalidatePath("/customers");
   revalidatePath("/leads");
   revalidatePath("/dashboard");
+  revalidatePath("/pipeline");
+  // Anything that changes a customer can change the money picture too.
+  revalidatePath("/pulse");
+  revalidatePath("/financials");
+  revalidatePath("/reports");
 }
 
 function readCustomerFields(formData: FormData) {
@@ -391,7 +396,6 @@ export async function deleteCustomer(formData: FormData): Promise<void> {
 
   await supabase.from("customers").delete().eq("id", id);
 
-  revalidatePath("/customers");
-  revalidatePath("/pipeline");
+  refreshCustomerViews();
   redirect("/customers");
 }

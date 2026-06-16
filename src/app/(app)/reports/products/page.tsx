@@ -25,6 +25,7 @@ import {
 import { formatMoney } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Product performance" };
+export const dynamic = "force-dynamic";
 
 export default async function ProductPerformancePage() {
   const profile = await requireProfile();

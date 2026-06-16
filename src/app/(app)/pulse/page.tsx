@@ -28,6 +28,7 @@ import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Business Pulse" };
+export const dynamic = "force-dynamic";
 
 const TONE: Record<
   InsightTone,

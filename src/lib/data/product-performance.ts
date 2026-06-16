@@ -33,7 +33,14 @@ interface PerfLine extends CalcLine {
  */
 export async function getProductPerformance(): Promise<ProductPerf[]> {
   const supabase = await createClient();
-  const jobs = (await listJobs()).filter((j) => j.option_id);
+  const { data: cx } = await supabase
+    .from("customers")
+    .select("id")
+    .not("cancelled_at", "is", null);
+  const cancelled = new Set((cx ?? []).map((c) => c.id as string));
+  const jobs = (await listJobs()).filter(
+    (j) => j.option_id && !cancelled.has(j.customer_id),
+  );
   if (!jobs.length) return [];
 
   const optionIds = [...new Set(jobs.map((j) => j.option_id))] as string[];
