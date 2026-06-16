@@ -6,7 +6,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { cn } from "@/lib/utils";
 import type { JobMaterials, JobMaterialLine } from "@/lib/data/job-materials";
 import {
@@ -44,16 +44,21 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
         <div className="flex gap-2">
           <form action={prepareJobMaterials}>
             <input type="hidden" name="job_id" value={data.jobId} />
-            <Button type="submit" variant="outline" size="sm">
+            <SubmitButton
+              variant="outline"
+              size="sm"
+              pendingText="Preparing…"
+              confirm="Materials prepared"
+            >
               <PackageCheck className="size-4" /> Prepare materials
-            </Button>
+            </SubmitButton>
           </form>
           {data.hasStock ? (
             <form action={pullAllStock}>
               <input type="hidden" name="job_id" value={data.jobId} />
-              <Button type="submit" size="sm">
+              <SubmitButton size="sm" pendingText="Pulling…" confirm="Stock pulled">
                 Pull all stock
-              </Button>
+              </SubmitButton>
             </form>
           ) : null}
         </div>
@@ -93,9 +98,9 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                   <input type="hidden" name="job_id" value={data.jobId} />
                   <input type="hidden" name="line_id" value={l.lineId} />
                   <input type="hidden" name="source" value="stock" />
-                  <Button type="submit" variant="ghost" size="sm">
+                  <SubmitButton variant="ghost" size="sm" confirm="Set to stock">
                     <Boxes className="size-4" /> Use stock
-                  </Button>
+                  </SubmitButton>
                 </form>
               ) : null}
               {l.resolvedSource === "stock" ? (
@@ -103,9 +108,9 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                   <input type="hidden" name="job_id" value={data.jobId} />
                   <input type="hidden" name="line_id" value={l.lineId} />
                   <input type="hidden" name="source" value="order" />
-                  <Button type="submit" variant="ghost" size="sm">
+                  <SubmitButton variant="ghost" size="sm" confirm="Set to order">
                     <ShoppingCart className="size-4" /> Order instead
-                  </Button>
+                  </SubmitButton>
                 </form>
               ) : null}
 
@@ -116,9 +121,14 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                 <form action={pullJobLine}>
                   <input type="hidden" name="job_id" value={data.jobId} />
                   <input type="hidden" name="line_id" value={l.lineId} />
-                  <Button type="submit" size="sm" variant="outline">
+                  <SubmitButton
+                    size="sm"
+                    variant="outline"
+                    pendingText="Pulling…"
+                    confirm="Pulled from stock"
+                  >
                     Pull
-                  </Button>
+                  </SubmitButton>
                 </form>
               ) : null}
             </div>

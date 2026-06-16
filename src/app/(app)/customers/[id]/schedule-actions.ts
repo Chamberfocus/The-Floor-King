@@ -49,11 +49,27 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     data: { user },
   } = await supabase.auth.getUser();
 
+  const startsAt = `${date}T${time}:00+00`;
+
+  // Guard against duplicates (e.g. a double-click): if this customer already
+  // has an estimate appointment at this exact time, don't make another.
+  const { data: existing } = await supabase
+    .from("appointments")
+    .select("id")
+    .eq("customer_id", customerId)
+    .eq("starts_at", startsAt)
+    .neq("status", "cancelled")
+    .maybeSingle();
+  if (existing) {
+    revalidatePath(`/customers/${customerId}`);
+    return;
+  }
+
   await supabase.from("appointments").insert({
     customer_id: customerId,
     salesperson_id: salesperson || null,
     kind: "estimate",
-    starts_at: `${date}T${time}:00+00`,
+    starts_at: startsAt,
     ends_at: endTime ? `${date}T${endTime}:00+00` : null,
     address: address || null,
     drive_minutes: Number.isFinite(driveMin) ? driveMin : null,

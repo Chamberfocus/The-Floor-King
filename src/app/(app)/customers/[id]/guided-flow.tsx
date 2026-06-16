@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { cn } from "@/lib/utils";
 import { formatDate, formatMoney } from "@/lib/format";
 import type {
@@ -113,9 +114,9 @@ function AdvanceButton({
       <input type="hidden" name="id" value={customerId} />
       <input type="hidden" name="to_stage" value={nextStage.id} />
       <input type="hidden" name="to_user" value={ownerId ?? ""} />
-      <button type="submit" className={buttonVariants({ size: "sm" })}>
+      <SubmitButton size="sm" pendingText="Moving…" confirm="Moved to next step">
         {label} <ArrowRight className="size-3.5" />
-      </button>
+      </SubmitButton>
     </form>
   );
 }
@@ -302,12 +303,14 @@ export async function GuidedFlow({
                 <input type="hidden" name="installer_id" value={sug.installerId} />
                 <input type="hidden" name="start" value={sug.start} />
                 <input type="hidden" name="end" value={sug.end} />
-                <button
-                  type="submit"
-                  className={buttonVariants({ size: "sm", variant: "outline" })}
+                <SubmitButton
+                  size="sm"
+                  variant="outline"
+                  pendingText="Booking…"
+                  confirm="Install booked"
                 >
                   Book
-                </button>
+                </SubmitButton>
               </form>
             </div>
           ))
@@ -390,40 +393,34 @@ export async function GuidedFlow({
 
   return (
     <div className="mb-6 space-y-3">
-      {/* Progress bar */}
-      <div className="flex items-stretch gap-1 overflow-x-auto pb-1">
-        {sorted.map((s, i) => {
-          const done = currentIdx >= 0 && i < currentIdx;
-          const active = currentIdx === i;
-          return (
-            <div
-              key={s.id}
-              className="flex min-w-0 flex-1 flex-col items-center gap-1"
-              title={s.name}
-            >
+      {/* Progress: clear current-step label + a simple segmented bar */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-medium text-foreground">
+            {currentStage
+              ? `Step ${currentIdx + 1} of ${sorted.length} · ${currentStage.name}`
+              : "Not started"}
+          </span>
+          {nextStage ? (
+            <span className="text-muted-foreground">Next: {nextStage.name}</span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-1">
+          {sorted.map((s, i) => {
+            const done = currentIdx >= 0 && i < currentIdx;
+            const active = currentIdx === i;
+            return (
               <div
+                key={s.id}
+                title={s.name}
                 className={cn(
-                  "h-1.5 w-full rounded-full",
-                  active
-                    ? "bg-primary"
-                    : done
-                      ? "bg-primary/50"
-                      : "bg-muted",
+                  "h-2 flex-1 rounded-full",
+                  active ? "bg-primary" : done ? "bg-primary/50" : "bg-muted",
                 )}
               />
-              <span
-                className={cn(
-                  "truncate text-[10px]",
-                  active
-                    ? "font-semibold text-foreground"
-                    : "text-muted-foreground",
-                )}
-              >
-                {s.name}
-              </span>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       {/* Do this next */}

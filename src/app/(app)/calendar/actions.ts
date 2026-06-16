@@ -94,6 +94,21 @@ export async function createAppointment(formData: FormData): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Guard against double-clicks creating duplicate appointments.
+  if (customerId) {
+    const { data: dupe } = await supabase
+      .from("appointments")
+      .select("id")
+      .eq("customer_id", customerId)
+      .eq("starts_at", w.starts_at)
+      .neq("status", "cancelled")
+      .maybeSingle();
+    if (dupe) {
+      revalidatePath("/calendar");
+      return;
+    }
+  }
+
   await supabase.from("appointments").insert({
     customer_id: customerId,
     type_id: typeId,

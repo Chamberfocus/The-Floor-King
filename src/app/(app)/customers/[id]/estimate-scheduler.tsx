@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { Input } from "@/components/ui/input";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { formatDate } from "@/lib/format";
@@ -130,9 +131,14 @@ export function EstimateScheduler({
                     name="drive_minutes"
                     value={s.driveMinutes ?? ""}
                   />
-                  <Button type="submit" size="sm" variant="outline">
+                  <SubmitButton
+                    size="sm"
+                    variant="outline"
+                    pendingText="Booking…"
+                    confirm="Appointment booked"
+                  >
                     Book
-                  </Button>
+                  </SubmitButton>
                 </form>
               </div>
             ))}
@@ -184,9 +190,13 @@ export function EstimateScheduler({
                 />
               </div>
               <div className="col-span-2 flex justify-end">
-                <Button type="submit" size="sm">
+                <SubmitButton
+                  size="sm"
+                  pendingText="Booking…"
+                  confirm="Appointment booked"
+                >
                   Book appointment
-                </Button>
+                </SubmitButton>
               </div>
             </form>
           ) : null}
