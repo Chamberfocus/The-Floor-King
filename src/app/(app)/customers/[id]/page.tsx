@@ -67,6 +67,8 @@ import { CommandCenter } from "./command-center";
 import { OnTheWayButton } from "./on-the-way-button";
 import { GuidedFlow } from "./guided-flow";
 import { CancelCustomer } from "./cancel-customer";
+import { DeleteCustomer } from "./delete-customer";
+import { requireProfile } from "@/lib/auth";
 
 export async function generateMetadata({
   params,
@@ -93,8 +95,10 @@ export default async function CustomerPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const profile = await requireProfile();
   const customer = await getCustomer(id);
   if (!customer) notFound();
+  const canDelete = profile.role === "admin" || profile.role === "office";
 
   const activities = await listActivities(id);
   const estimates = await listEstimatesForCustomer(id);
@@ -293,6 +297,23 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
+
+          {canDelete ? (
+            <Card className="border-destructive/30">
+              <CardHeader>
+                <CardTitle className="text-base text-destructive">
+                  Danger zone
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Cancel keeps the record. Delete erases the customer and
+                  everything attached, for good.
+                </p>
+                <DeleteCustomer customerId={customer.id} name={customer.full_name} />
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
 
         {/* Right: chat + estimates + activity timeline */}

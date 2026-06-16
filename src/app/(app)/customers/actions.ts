@@ -368,3 +368,30 @@ export async function reopenCustomer(formData: FormData): Promise<void> {
   revalidatePath("/pipeline");
   redirect(`/customers/${id}`);
 }
+
+/**
+ * Permanently delete a customer and everything attached (estimates, jobs,
+ * invoices, messages, history) via cascade. Admin/office only; irreversible.
+ */
+export async function deleteCustomer(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!me || !["admin", "office"].includes(me.role as string)) return;
+
+  await supabase.from("customers").delete().eq("id", id);
+
+  revalidatePath("/customers");
+  revalidatePath("/pipeline");
+  redirect("/customers");
+}
