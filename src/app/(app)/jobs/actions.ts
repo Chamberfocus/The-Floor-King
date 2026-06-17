@@ -5,7 +5,10 @@ import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
-import { moveToAutoActionStage } from "@/lib/workflow-engine";
+import {
+  moveToAutoActionStage,
+  advanceFromAutoAction,
+} from "@/lib/workflow-engine";
 import { prepareJobMaterialsFor } from "./material-actions";
 import type {
   JobDeliveryType,
@@ -43,8 +46,20 @@ export async function bookInstall(formData: FormData): Promise<void> {
       open_for_claim: false,
     })
     .eq("id", id);
+
+  // Install booked → advance out of the "schedule install" stage.
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (job?.customer_id)
+    await advanceFromAutoAction(job.customer_id as string, "schedule_install");
+
   revalidatePath(`/jobs/${id}`);
   revalidatePath("/jobs");
+  revalidatePath("/pipeline");
+  revalidatePath("/dashboard");
 }
 
 /** Create a job from an estimate (uses the accepted option, or the first one). */

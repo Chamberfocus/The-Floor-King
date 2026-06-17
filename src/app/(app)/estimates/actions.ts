@@ -9,7 +9,10 @@ import {
   type WizardSubmit,
 } from "@/lib/estimate-calc";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
-import { moveToAutoActionStage } from "@/lib/workflow-engine";
+import {
+  moveToAutoActionStage,
+  advanceFromAutoAction,
+} from "@/lib/workflow-engine";
 import type { EstimateStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -177,18 +180,21 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
   const supabase = await createClient();
   await supabase.from("estimates").update(patch).eq("id", id);
 
-  // Intelligent flow: approved → jump the customer to the deposit stage.
-  if (status === "approved") {
+  // Intelligent flow: approved → jump the customer to the deposit stage;
+  // sent → advance out of the "build/price the quote" stage.
+  if (status === "approved" || status === "sent") {
     const { data: ec } = await supabase
       .from("estimates")
       .select("customer_id")
       .eq("id", id)
       .maybeSingle();
-    if (ec?.customer_id)
-      await moveToAutoActionStage(
-        ec.customer_id as string,
-        "collect_deposit",
-      );
+    if (ec?.customer_id) {
+      if (status === "approved")
+        await moveToAutoActionStage(ec.customer_id as string, "collect_deposit");
+      else await advanceFromAutoAction(ec.customer_id as string, "build_quote");
+    }
+    revalidatePath("/pipeline");
+    revalidatePath("/dashboard");
   }
 
   if (status === "sent") {
