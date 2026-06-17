@@ -6,8 +6,32 @@ import { aiText } from "@/lib/ai";
 import { getCustomer, listActivities } from "@/lib/data/customers";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer } from "@/lib/data/jobs";
+import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
+import { getOrgSettings } from "@/lib/data/org";
 import { optionTotals } from "@/lib/estimate-calc";
+import { invoiceTotals } from "@/lib/invoice-calc";
 import { formatMoney } from "@/lib/format";
+
+export type MessageIntent =
+  | "followup"
+  | "quote_nudge"
+  | "appointment_confirm"
+  | "payment_reminder"
+  | "review_request"
+  | "thank_you";
+
+const INTENT_GUIDE: Record<MessageIntent, string> = {
+  followup: "a friendly check-in that naturally nudges the next step",
+  quote_nudge:
+    "a warm follow-up on the quote we sent — ask if they have questions and if they'd like to move forward, no pressure",
+  appointment_confirm:
+    "a short, friendly confirmation of their upcoming appointment (restate the day/time if it's in the data)",
+  payment_reminder:
+    "a polite, warm reminder about their outstanding balance — never aggressive; thank them and offer easy ways to pay",
+  review_request:
+    "a warm thank-you for their business and a friendly ask for a Google review; include the review link if provided",
+  thank_you: "a warm, genuine thank-you for their business",
+};
 
 const SYSTEM = `You write short, warm, professional customer messages for Cleveland Floor King, a family-owned flooring company in Cleveland, Ohio. Tone: friendly, helpful, local small business — never pushy or corporate. Do NOT invent prices, dates, measurements, or facts that aren't given. Keep it tight and ready to send. Output ONLY the message itself, no preamble or notes.`;
 
@@ -16,10 +40,11 @@ export interface DraftResult {
   error: string | null;
 }
 
-/** Draft a context-aware follow-up (text or email) for this customer. */
-export async function draftFollowup(
+/** Draft a context-aware customer message (text or email) by intent. */
+export async function draftMessage(
   customerId: string,
   channel: "text" | "email",
+  intent: MessageIntent = "followup",
 ): Promise<DraftResult> {
   const customer = await getCustomer(customerId);
   if (!customer) return { text: "", error: "Customer not found." };
@@ -80,6 +105,26 @@ export async function draftFollowup(
     }
   }
 
+  // Intent-specific extras.
+  if (intent === "payment_reminder") {
+    const invoices = await listInvoicesForCustomer(customerId);
+    const balance = invoices
+      .filter((i) => i.status !== "void")
+      .reduce(
+        (s, i) =>
+          s + invoiceTotals(i.items ?? [], i.tax_rate, amountPaid(i)).balance,
+        0,
+      );
+    if (balance > 0.5)
+      ctx.push(`Outstanding balance owed: ${formatMoney(balance)}`);
+  }
+  let reviewUrl: string | null = null;
+  if (intent === "review_request") {
+    const org = await getOrgSettings();
+    reviewUrl = org.google_review_url ?? null;
+    if (reviewUrl) ctx.push(`Google review link: ${reviewUrl}`);
+  }
+
   const shape =
     channel === "text"
       ? "a short SMS text message, 2–4 sentences, no subject line"
@@ -88,7 +133,11 @@ export async function draftFollowup(
   const { text, error } = await aiText({
     system: SYSTEM,
     maxTokens: 500,
-    prompt: `Write ${shape} to follow up with this customer and naturally move them toward the next step. Sign off as "Cleveland Floor King" (or the rep) without inventing a personal name.\n\nSITUATION:\n${ctx.join("\n")}`,
+    prompt: `Write ${shape} for this customer. Purpose: ${INTENT_GUIDE[intent]}. Sign off as "Cleveland Floor King" without inventing a personal name.${
+      intent === "review_request" && reviewUrl
+        ? ` Include this exact review link: ${reviewUrl}`
+        : ""
+    }\n\nSITUATION:\n${ctx.join("\n")}`,
   });
   return { text, error };
 }

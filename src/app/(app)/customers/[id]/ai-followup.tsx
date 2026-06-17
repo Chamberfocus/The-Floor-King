@@ -11,10 +11,21 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SegmentedField } from "@/components/ui/segmented-field";
-import { draftFollowup, logFollowup } from "./ai-actions";
+import { SearchPicker } from "@/components/ui/search-picker";
+import { draftMessage, logFollowup, type MessageIntent } from "./ai-actions";
+
+const INTENTS: { value: MessageIntent; label: string }[] = [
+  { value: "followup", label: "Follow-up" },
+  { value: "quote_nudge", label: "Nudge on quote" },
+  { value: "appointment_confirm", label: "Confirm appointment" },
+  { value: "payment_reminder", label: "Payment reminder" },
+  { value: "review_request", label: "Ask for a review" },
+  { value: "thank_you", label: "Thank you" },
+];
 
 export function AiFollowup({ customerId }: { customerId: string }) {
   const [channel, setChannel] = useState<"text" | "email">("text");
+  const [intent, setIntent] = useState<MessageIntent>("followup");
   const [draft, setDraft] = useState("");
   const [drafting, startDraft] = useTransition();
   const [logging, startLog] = useTransition();
@@ -22,7 +33,7 @@ export function AiFollowup({ customerId }: { customerId: string }) {
 
   const generate = () =>
     startDraft(async () => {
-      const res = await draftFollowup(customerId, channel);
+      const res = await draftMessage(customerId, channel, intent);
       if (res.error) {
         toast.error(res.error);
         return;
@@ -52,11 +63,18 @@ export function AiFollowup({ customerId }: { customerId: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <Sparkles className="size-4 text-primary" /> AI follow-up
+          <Sparkles className="size-4 text-primary" /> AI message
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
+          <div className="w-48">
+            <SearchPicker
+              value={intent}
+              onChange={(v) => setIntent(v as MessageIntent)}
+              options={INTENTS}
+            />
+          </div>
           <SegmentedField
             size="sm"
             value={channel}
@@ -107,14 +125,14 @@ export function AiFollowup({ customerId }: { customerId: string }) {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Reads where this job is and what&apos;s happened, then drafts it.
-              Edit anything before you send — copy it into your texts/email.
+              Reads where this job is and what&apos;s happened, then writes it.
+              Edit before you send — copy into your texts/email.
             </p>
           </>
         ) : (
           <p className="text-sm text-muted-foreground">
-            One click and the AI writes a follow-up based on this customer&apos;s
-            stage and history — ready to tweak and send.
+            Pick what you need — a follow-up, a quote nudge, a payment reminder, a
+            review request — and AI writes it from this customer&apos;s situation.
           </p>
         )}
       </CardContent>
