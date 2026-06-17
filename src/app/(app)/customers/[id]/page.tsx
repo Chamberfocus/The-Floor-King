@@ -338,10 +338,16 @@ export default async function CustomerPage({
               {customer.source ? (
                 <div className="flex items-center gap-2">
                   <Link
-                    href={`/estimates/new?customer=${customer.id}`}
+                    href={`/estimates/smart?customer=${customer.id}`}
                     className={buttonVariants({ size: "sm" })}
                   >
-                    <Sparkles className="size-3.5" /> Wizard
+                    <Sparkles className="size-3.5" /> Smart builder
+                  </Link>
+                  <Link
+                    href={`/estimates/new?customer=${customer.id}`}
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    Wizard
                   </Link>
                   <form action={createEstimate}>
                     <input type="hidden" name="customer_id" value={customer.id} />
