@@ -20,6 +20,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getDashboardCounts, listMyQueue } from "@/lib/data/customers";
+import { getTodayTasks } from "@/lib/data/day-tasks";
 import { getActiveJobCount } from "@/lib/data/jobs";
 import { getOutstandingInvoiceCount } from "@/lib/data/invoices";
 import { STAGE_COLOR_BADGE } from "@/lib/types";
@@ -36,6 +37,7 @@ export default async function DashboardPage() {
   const activeJobs = await getActiveJobCount();
   const outstanding = await getOutstandingInvoiceCount();
   const queue = await listMyQueue(profile.id);
+  const todayTasks = await getTodayTasks();
   const nowMs = Date.now();
   const overdueCount = queue.filter(
     (q) => q.next_action_due && new Date(q.next_action_due).getTime() < nowMs,
@@ -95,7 +97,7 @@ export default async function DashboardPage() {
         </Link>
       </PageHeader>
 
-      <DayBriefing firstName={firstName} />
+      <DayBriefing firstName={firstName} tasks={todayTasks} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => {
