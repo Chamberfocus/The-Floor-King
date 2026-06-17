@@ -69,6 +69,7 @@ import { GuidedFlow } from "./guided-flow";
 import { CancelCustomer } from "./cancel-customer";
 import { DeleteCustomer } from "./delete-customer";
 import { AiFollowup } from "./ai-followup";
+import { AiQuote } from "./ai-quote";
 import { requireProfile } from "@/lib/auth";
 
 export async function generateMetadata({
@@ -326,6 +327,9 @@ export default async function CustomerPage({
 
           {/* Chat */}
           <CustomerChat customerId={customer.id} messages={messages} />
+
+          {/* AI quote drafter */}
+          {!customer.cancelled_at ? <AiQuote customerId={customer.id} /> : null}
 
           {/* Estimates */}
           <Card>
