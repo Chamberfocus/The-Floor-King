@@ -68,6 +68,7 @@ import { OnTheWayButton } from "./on-the-way-button";
 import { GuidedFlow } from "./guided-flow";
 import { CancelCustomer } from "./cancel-customer";
 import { DeleteCustomer } from "./delete-customer";
+import { AiFollowup } from "./ai-followup";
 import { requireProfile } from "@/lib/auth";
 
 export async function generateMetadata({
@@ -318,6 +319,11 @@ export default async function CustomerPage({
 
         {/* Right: chat + estimates + activity timeline */}
         <div className="space-y-6 lg:col-span-2">
+          {/* AI follow-up drafting */}
+          {!customer.cancelled_at ? (
+            <AiFollowup customerId={customer.id} />
+          ) : null}
+
           {/* Chat */}
           <CustomerChat customerId={customer.id} messages={messages} />
 
