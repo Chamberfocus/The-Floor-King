@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getEstimateSuggestions, type EstimateSlot } from "@/lib/data/scheduling";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
+import { advanceFromAutoAction } from "@/lib/workflow-engine";
 
 export interface SuggestResult {
   error: string | null;
@@ -127,5 +128,11 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     );
   }
 
+  // Move the lead forward out of the "schedule estimate" stage automatically
+  // (no-op if they're not on that stage).
+  await advanceFromAutoAction(customerId, "schedule_estimate");
+
   revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/pipeline");
+  revalidatePath("/dashboard");
 }
