@@ -26,6 +26,7 @@ import { getOutstandingInvoiceCount } from "@/lib/data/invoices";
 import { STAGE_COLOR_BADGE } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DayBriefing } from "./day-briefing";
+import { AskBusiness } from "./ask-business";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
@@ -98,6 +99,8 @@ export default async function DashboardPage() {
       </PageHeader>
 
       <DayBriefing firstName={firstName} tasks={todayTasks} />
+
+      <AskBusiness />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => {
