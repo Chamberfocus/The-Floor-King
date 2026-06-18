@@ -295,9 +295,100 @@ export async function setPurchaseOrderStatus(
   const status = str(formData.get("status")) as PoStatus;
   if (!id || !status) return;
   const supabase = await createClient();
+
+  // Look at the prior status so we only restock on the transition into/out of
+  // "received" — re-saving "received" must not double-count.
+  const { data: cur } = await supabase
+    .from("purchase_orders")
+    .select("status")
+    .eq("id", id)
+    .maybeSingle();
+  const prev = cur?.status as PoStatus | undefined;
+
   await supabase.from("purchase_orders").update({ status }).eq("id", id);
+
+  const becameReceived = prev !== "received" && status === "received";
+  const unreceived = prev === "received" && status !== "received";
+  if (becameReceived || unreceived) {
+    await applyReceiptToStock(supabase, id, becameReceived ? 1 : -1);
+  }
+
   revalidatePath(`/purchase-orders/${id}`);
   revalidatePath("/purchase-orders");
+  revalidatePath("/inventory");
+  revalidatePath("/warehouse");
+}
+
+/**
+ * Receiving a PO adds its items to on-hand stock — but only for products we
+ * actually TRACK. Special-order items (untracked) flow straight to the job and
+ * never enter inventory, so they're left alone. `sign` is +1 to receive,
+ * -1 to reverse if a PO is moved back out of "received".
+ */
+async function applyReceiptToStock(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  poId: string,
+  sign: 1 | -1,
+): Promise<void> {
+  const { data: items } = await supabase
+    .from("po_items")
+    .select("product_id, quantity, unit_cost")
+    .eq("po_id", poId);
+  const rows = (items ?? []).filter(
+    (it) => it.product_id && (Number(it.quantity) || 0) > 0,
+  );
+  if (!rows.length) return;
+
+  const productIds = [...new Set(rows.map((it) => it.product_id as string))];
+  const { data: prods } = await supabase
+    .from("products")
+    .select("id, on_hand, track_stock")
+    .in("id", productIds);
+  const prodMap = new Map(
+    (prods ?? []).map((p) => [
+      p.id as string,
+      { on_hand: Number(p.on_hand) || 0, track_stock: !!p.track_stock },
+    ]),
+  );
+
+  // Aggregate quantity + cost per tracked product (a PO can list a product on
+  // more than one line).
+  const byProduct = new Map<string, { qty: number; unitCost: number | null }>();
+  for (const it of rows) {
+    const pid = it.product_id as string;
+    const p = prodMap.get(pid);
+    if (!p || !p.track_stock) continue; // untracked special order — skip
+    const agg = byProduct.get(pid) ?? { qty: 0, unitCost: null };
+    agg.qty += Number(it.quantity) || 0;
+    if (agg.unitCost == null && it.unit_cost != null)
+      agg.unitCost = Number(it.unit_cost);
+    byProduct.set(pid, agg);
+  }
+  if (!byProduct.size) return;
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  for (const [pid, { qty, unitCost }] of byProduct) {
+    const delta = Math.round(sign * qty * 100) / 100;
+    const p = prodMap.get(pid)!;
+    await supabase.from("stock_movements").insert({
+      product_id: pid,
+      qty: delta,
+      kind: sign > 0 ? "receive" : "adjust",
+      unit_cost: unitCost,
+      note: sign > 0 ? "Received from PO" : "PO marked not received",
+      created_by: user?.id ?? null,
+    });
+    await supabase
+      .from("products")
+      .update({
+        on_hand: Math.round((p.on_hand + delta) * 100) / 100,
+        last_movement_at: new Date().toISOString(),
+      })
+      .eq("id", pid);
+  }
 }
 
 export async function deletePurchaseOrder(formData: FormData): Promise<void> {
