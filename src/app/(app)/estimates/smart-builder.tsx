@@ -115,8 +115,11 @@ function roomLines(r: Room): SmartLine[] {
     color: r.color,
   });
 
-  // Companion lines (the ones turned on)
+  // Companion lines (the ones turned on). Roll goods (carpet pad) are handled
+  // at the JOB level — see rollGoodsLines — so the quantity is figured off the
+  // whole job's yardage, not rounded up to full rolls room-by-room.
   for (const c of profile.companions) {
+    if (c.rollUnits && c.rollUnits > 0) continue;
     const st = r.comps[c.key];
     if (!st?.on) continue;
     const qty = companionQty(c, sqft, perimeter);
@@ -134,6 +137,79 @@ function roomLines(r: Room): SmartLine[] {
       material_cost: c.labor ? 0 : num(st.cost),
       waste_pct: 0,
       product_id: c.labor ? null : st.productId,
+      manufacturer: null,
+      style: null,
+      color: null,
+    });
+  }
+  return out;
+}
+
+/** Roll goods (e.g. carpet pad) — companions that come in full rolls. */
+const ROLL_COMPANIONS: Companion[] = (() => {
+  const seen = new Set<string>();
+  const out: Companion[] = [];
+  for (const t of FLOORING_TYPES) {
+    const p = profileFor(t);
+    if (!p) continue;
+    for (const c of p.companions) {
+      if (c.rollUnits && c.rollUnits > 0 && !seen.has(c.key)) {
+        seen.add(c.key);
+        out.push(c);
+      }
+    }
+  }
+  return out;
+})();
+
+/** Total area (in the companion's unit) across every room whose floor uses it. */
+function rollGoodsArea(rooms: Room[], comp: Companion): number {
+  let total = 0;
+  for (const r of rooms) {
+    const p = profileFor(r.type);
+    if (!p || !p.companions.some((c) => c.key === comp.key)) continue;
+    const sqft = areaSqft(num(r.length), num(r.width));
+    if (sqft <= 0) continue;
+    total += comp.unit === "sqyd" ? sqft / 9 : sqft;
+  }
+  return Math.round(total * 100) / 100;
+}
+
+/** Whole rolls for a roll-goods total (rounds the JOB total up, once). */
+function rollGoodsRolls(comp: Companion, total: number): number {
+  if (!comp.rollUnits || comp.rollUnits <= 0 || total <= 0) return 0;
+  return Math.ceil(total / comp.rollUnits);
+}
+
+/**
+ * Job-level roll-goods lines (carpet pad): the quantity is the WHOLE job's
+ * yardage rounded up to full rolls once — not summed room-by-room.
+ */
+function rollGoodsLines(
+  rooms: Room[],
+  rollComps: Record<string, CompState>,
+): SmartLine[] {
+  const out: SmartLine[] = [];
+  for (const c of ROLL_COMPANIONS) {
+    const st = rollComps[c.key];
+    if (!st?.on) continue;
+    const total = rollGoodsArea(rooms, c);
+    const rolls = rollGoodsRolls(c, total);
+    if (rolls <= 0) continue;
+    const qty = rolls * (c.rollUnits ?? 1);
+    out.push({
+      room: null,
+      description: st.productLabel ? `${c.label} — ${st.productLabel}` : c.label,
+      category: c.category,
+      measure_unit: c.unit === "sqyd" ? "sqyd" : "sqft",
+      sqft: null,
+      quantity: qty,
+      unit: c.unit,
+      material_rate: num(st.rate),
+      labor_rate: 0,
+      material_cost: num(st.cost),
+      waste_pct: 0,
+      product_id: st.productId,
       manufacturer: null,
       style: null,
       color: null,
@@ -182,6 +258,42 @@ export function SmartBuilder({
   const [title, setTitle] = useState("");
   const [rooms, setRooms] = useState<Room[]>([newRoom()]);
   const [saving, startSave] = useTransition();
+  // Job-level roll goods (carpet pad): quantity is figured off the whole job.
+  const [rollComps, setRollComps] = useState<Record<string, CompState>>(() => {
+    const init: Record<string, CompState> = {};
+    for (const c of ROLL_COMPANIONS)
+      init[c.key] = {
+        on: c.defaultOn,
+        rate: "",
+        cost: "",
+        productId: null,
+        productLabel: "",
+      };
+    return init;
+  });
+
+  const setRoll = (key: string, patch: Partial<CompState>) =>
+    setRollComps((rc) => ({ ...rc, [key]: { ...rc[key], ...patch } }));
+
+  // Pick the catalog product for a job-level roll good (the actual pad).
+  const pickRollProduct = (comp: Companion, p: Product | null) => {
+    if (!p) {
+      setRoll(comp.key, { productId: null, productLabel: "" });
+      return;
+    }
+    const cost =
+      Math.round(compRate(p.unit, comp.unit, p.material_rate || 0) * 100) / 100;
+    const sell =
+      cost > 0 ? Math.round(priceFromMargin(cost, targetMargin) * 100) / 100 : 0;
+    setRoll(comp.key, {
+      on: true,
+      productId: p.id,
+      productLabel:
+        [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name,
+      cost: String(cost),
+      rate: String(sell),
+    });
+  };
 
   const update = (id: string, patch: Partial<Room>) =>
     setRooms((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -273,14 +385,20 @@ export function SmartBuilder({
     });
   };
 
-  const allLines = useMemo(() => rooms.flatMap(roomLines), [rooms]);
+  const allLines = useMemo(
+    () => [...rooms.flatMap(roomLines), ...rollGoodsLines(rooms, rollComps)],
+    [rooms, rollComps],
+  );
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
   const cost = allLines.reduce((s, l) => s + lineCost(l), 0);
   const margin = marginPct(grand, cost);
 
   const save = () =>
     startSave(async () => {
-      const lines = rooms.flatMap(roomLines).filter((l) => l.description.trim());
+      const lines = [
+        ...rooms.flatMap(roomLines),
+        ...rollGoodsLines(rooms, rollComps),
+      ].filter((l) => l.description.trim());
       if (!lines.length) {
         toast.error("Pick a flooring type and add a room first.");
         return;
@@ -459,7 +577,9 @@ export function SmartBuilder({
                       This {profile.label.toLowerCase()} job also needs:
                     </label>
                     <div className="space-y-1.5">
-                      {profile.companions.map((c) => {
+                      {profile.companions
+                        .filter((c) => !(c.rollUnits && c.rollUnits > 0))
+                        .map((c) => {
                         const st: CompState =
                           r.comps[c.key] ?? {
                             on: false,
@@ -581,6 +701,68 @@ export function SmartBuilder({
       >
         <Plus className="size-4" /> Add another room
       </Button>
+
+      {/* Job-level roll goods (carpet pad): figured off the WHOLE job's yardage,
+          rounded up to full rolls once — not room-by-room. */}
+      {ROLL_COMPANIONS.map((c) => {
+        const total = rollGoodsArea(rooms, c);
+        if (total <= 0) return null; // no room uses this roll good yet
+        const st = rollComps[c.key];
+        const rolls = rollGoodsRolls(c, total);
+        const billedQty = rolls * (c.rollUnits ?? 1);
+        return (
+          <Card key={c.key} className="border-primary/20">
+            <CardContent className="space-y-3 pt-5">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={st.on}
+                  onChange={(e) => setRoll(c.key, { on: e.target.checked })}
+                  className="size-4 rounded border-input"
+                />
+                <span className="font-semibold">{c.label}</span>
+                <span className="text-xs text-muted-foreground">
+                  · whole job
+                </span>
+              </label>
+
+              {st.on ? (
+                <>
+                  <p className="flex flex-wrap items-center gap-1.5 rounded-md bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+                    <Sparkles className="size-3.5 text-primary" />
+                    {total} {c.unit} of {c.label.toLowerCase()} across the whole
+                    job →{" "}
+                    <span className="font-medium text-foreground">
+                      {rolls} roll{rolls === 1 ? "" : "s"} ({billedQty} {c.unit})
+                    </span>{" "}
+                    at {c.rollUnits} {c.unit}/roll. No partial rolls.
+                  </p>
+                  <ProductPicker
+                    value={st.productId ?? ""}
+                    initialLabel={st.productLabel}
+                    label={`${c.label} — from catalog`}
+                    defaultCategory={c.category}
+                    onPick={(p) => pickRollProduct(c, p)}
+                    onCreated={(p) => pickRollProduct(c, p)}
+                  />
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <PriceField
+                      label={`Our cost /${c.unit}`}
+                      value={st.cost}
+                      onChange={(v) => setRoll(c.key, { cost: v })}
+                    />
+                    <PriceField
+                      label={`Sell /${c.unit}`}
+                      value={st.rate}
+                      onChange={(v) => setRoll(c.key, { rate: v })}
+                    />
+                  </div>
+                </>
+              ) : null}
+            </CardContent>
+          </Card>
+        );
+      })}
 
       {/* Internal cost check — your cost per line, never shown to the customer */}
       {allLines.length > 0 ? (
