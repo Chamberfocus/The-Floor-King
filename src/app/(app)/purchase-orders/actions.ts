@@ -254,11 +254,13 @@ export async function savePurchaseOrder(
     });
   }
 
-  const { error: deleteError } = await supabase
+  // Crash-safe: insert new items first, then delete the old ones, so a failed
+  // insert can't leave the PO with no line items.
+  const { data: oldItems } = await supabase
     .from("po_items")
-    .delete()
+    .select("id")
     .eq("po_id", poId);
-  if (deleteError) return { error: deleteError.message };
+  const oldIds = (oldItems ?? []).map((r) => r.id as string);
 
   if (input.items.length) {
     const rows = input.items.map((it, i) => ({
@@ -276,6 +278,9 @@ export async function savePurchaseOrder(
     }));
     const { error: insertError } = await supabase.from("po_items").insert(rows);
     if (insertError) return { error: insertError.message };
+  }
+  if (oldIds.length) {
+    await supabase.from("po_items").delete().in("id", oldIds);
   }
 
   revalidatePath(`/purchase-orders/${poId}`);

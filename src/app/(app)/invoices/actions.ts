@@ -283,7 +283,15 @@ export async function saveInvoice(
     .eq("id", invoiceId);
   if (updateError) return { error: updateError.message };
 
-  await supabase.from("invoice_items").delete().eq("invoice_id", invoiceId);
+  // Crash-safe: insert the new items FIRST, then delete only the old ones. If
+  // the insert fails the old line items survive, so an invoice can never be
+  // left with no lines (a $0 invoice). The position index is non-unique, so
+  // old + new rows can briefly coexist.
+  const { data: oldItems } = await supabase
+    .from("invoice_items")
+    .select("id")
+    .eq("invoice_id", invoiceId);
+  const oldIds = (oldItems ?? []).map((r) => r.id as string);
   if (input.items.length) {
     const rows = input.items.map((it, i) => ({
       invoice_id: invoiceId,
@@ -297,6 +305,9 @@ export async function saveInvoice(
       .from("invoice_items")
       .insert(rows);
     if (insertError) return { error: insertError.message };
+  }
+  if (oldIds.length) {
+    await supabase.from("invoice_items").delete().in("id", oldIds);
   }
 
   await recomputeStatus(supabase, invoiceId);
