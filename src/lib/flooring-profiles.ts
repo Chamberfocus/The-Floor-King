@@ -20,6 +20,8 @@ export interface Companion {
   defaultOn: boolean;
   /** Treated as labor (no material to order) vs a real material line. */
   labor?: boolean;
+  /** Comes in full rolls of this many units — round the quantity UP to whole rolls. */
+  rollUnits?: number;
   hint?: string;
 }
 
@@ -54,7 +56,7 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     waste: 10,
     measureHint: "Carpet is priced by the square yard. Enter room L × W; we convert.",
     companions: [
-      { key: "pad", label: "Carpet pad", category: "underlayment", sizeBy: "area", unit: "sqyd", defaultOn: true, hint: "Sized to the room." },
+      { key: "pad", label: "Carpet pad", category: "underlayment", sizeBy: "area", unit: "sqyd", defaultOn: true, rollUnits: 30, hint: "Rounded up to full 30 sq yd rolls." },
       { key: "tackstrip", label: "Tackstrip", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: false },
       tearout("Tear out old carpet & pad", "sqyd"),
     ],
@@ -156,5 +158,15 @@ export function companionQty(
   if (c.sizeBy === "perimeter") return Math.round(perimeterLnft);
   // area — match the companion's unit (sqyd for carpet pad, else sqft)
   const v = c.unit === "sqyd" ? sqft / 9 : sqft;
+  // Materials sold in full rolls (e.g. pad) round UP to whole rolls.
+  if (c.rollUnits && c.rollUnits > 0 && v > 0) {
+    return Math.ceil(v / c.rollUnits) * c.rollUnits;
+  }
   return Math.round(v * 100) / 100;
+}
+
+/** Whole rolls implied by a (roll-rounded) companion quantity. */
+export function companionRolls(c: Companion, qty: number): number | null {
+  if (!c.rollUnits || c.rollUnits <= 0) return null;
+  return Math.round(qty / c.rollUnits);
 }

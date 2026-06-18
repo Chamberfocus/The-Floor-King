@@ -19,6 +19,7 @@ import {
   profileFor,
   areaSqft,
   companionQty,
+  companionRolls,
   type FlooringProfile,
 } from "@/lib/flooring-profiles";
 import type { Product } from "@/lib/types";
@@ -408,6 +409,11 @@ export function SmartBuilder({
                                 {st.on ? (
                                   <span className="ml-1 text-xs text-muted-foreground">
                                     {qty} {c.unit}
+                                    {c.rollUnits
+                                      ? ` · ${companionRolls(c, qty)} roll${
+                                          companionRolls(c, qty) === 1 ? "" : "s"
+                                        }`
+                                      : ""}
                                     {c.labor ? " · labor" : ""}
                                   </span>
                                 ) : c.hint ? (
