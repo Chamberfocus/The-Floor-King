@@ -95,23 +95,29 @@ export async function moveToAutoActionStage(
   if (!customerId) return;
   const supabase = engineDb();
   if (!supabase) return;
-  const { data: stage } = await supabase
+  const { data: stages } = await supabase
     .from("workflow_stages")
-    .select("id, name, position, sla_hours, default_owner")
-    .eq("auto_action", autoAction)
-    .order("position", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (!stage) return;
+    .select("id, name, position, sla_hours, default_owner, auto_action")
+    .order("position", { ascending: true });
+  const list = (stages ?? []) as (StageRow & { auto_action: string })[];
+  const target = list.find((s) => s.auto_action === autoAction);
+  if (!target) return;
   const cust = await loadCustomer(supabase, customerId);
-  if (!cust || cust.workflow_stage_id === stage.id) return;
-  await applyMove(supabase, customerId, cust, stage as StageRow);
+  if (!cust || cust.workflow_stage_id === target.id) return;
+  // Forward-only: never drag a customer back to an earlier stage.
+  const current = cust.workflow_stage_id
+    ? list.find((s) => s.id === cust.workflow_stage_id)
+    : null;
+  if (current && current.position >= target.position) return;
+  await applyMove(supabase, customerId, cust, target);
 }
 
 /**
- * Move to the stage right after the one with `fromAutoAction` — but ONLY if the
- * customer is currently sitting on that stage. Used when an event happens whose
- * "next" stage has no tool of its own (e.g. deposit recorded → order materials).
+ * An event happened (estimate booked, quote sent, deposit paid, install booked)
+ * that means the job is past the stage with `fromAutoAction`. Move the customer
+ * FORWARD to the stage right after it — from wherever they are now (including
+ * unstaged), but never backward. So booking an estimate for a brand-new lead
+ * jumps them straight to "Estimate Scheduled".
  */
 export async function advanceFromAutoAction(
   customerId: string,
@@ -121,7 +127,7 @@ export async function advanceFromAutoAction(
   const supabase = engineDb();
   if (!supabase) return;
   const cust = await loadCustomer(supabase, customerId);
-  if (!cust?.workflow_stage_id) return;
+  if (!cust) return;
 
   const { data: stages } = await supabase
     .from("workflow_stages")
@@ -129,9 +135,16 @@ export async function advanceFromAutoAction(
     .order("position", { ascending: true });
   const list = (stages ?? []) as (StageRow & { auto_action: string })[];
   const from = list.find((s) => s.auto_action === fromAutoAction);
-  if (!from || cust.workflow_stage_id !== from.id) return; // not on that stage
+  if (!from) return;
   const next = list.find((s) => s.position > from.position);
   if (!next) return;
+
+  // Where are they now? Unstaged = before everything.
+  const current = cust.workflow_stage_id
+    ? list.find((s) => s.id === cust.workflow_stage_id)
+    : null;
+  const currentPos = current ? current.position : -Infinity;
+  if (currentPos >= next.position) return; // already there or further along
   await applyMove(supabase, customerId, cust, next);
 }
 
