@@ -49,6 +49,7 @@ import {
   listWorkflowStages,
   listHandoffMembers,
 } from "@/lib/data/workflow";
+import { listQualifyingQuestions } from "@/lib/data/qualifying";
 import { createEstimate } from "@/app/(app)/estimates/actions";
 import { createInvoice } from "@/app/(app)/invoices/actions";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
@@ -108,6 +109,7 @@ export default async function CustomerPage({
   const documents = await listCustomerDocuments(id);
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
+  const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
@@ -231,6 +233,7 @@ export default async function CustomerPage({
             invoices={invoices}
             repOptions={repOptions}
             members={handoffMembers}
+            questions={qualifyingQuestions}
             ownerName={ownerName}
             nextActionDue={customer.next_action_due ?? null}
             money={money}
@@ -242,24 +245,24 @@ export default async function CustomerPage({
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left: stage automations + contact */}
         <div className="space-y-6">
-          <Card>
-            <CardContent className="flex items-center justify-between gap-3 py-4">
-              <div>
-                <div className="text-sm font-medium">Qualification</div>
-                <div className="text-xs text-muted-foreground">
-                  {customer.qualified
-                    ? "Qualified — view the answers on file"
-                    : "Not qualified yet"}
+          {customer.qualified ? (
+            <Card>
+              <CardContent className="flex items-center justify-between gap-3 py-4">
+                <div>
+                  <div className="text-sm font-medium">Qualification</div>
+                  <div className="text-xs text-muted-foreground">
+                    Qualified — view the answers on file
+                  </div>
                 </div>
-              </div>
-              <Link
-                href={`/customers/${customer.id}/qualify`}
-                className={buttonVariants({ size: "sm", variant: "outline" })}
-              >
-                {customer.qualified ? "View" : "Qualify"}
-              </Link>
-            </CardContent>
-          </Card>
+                <Link
+                  href={`/customers/${customer.id}/qualify`}
+                  className={buttonVariants({ size: "sm", variant: "outline" })}
+                >
+                  View
+                </Link>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <CustomerInfoCard customer={customer} />
 

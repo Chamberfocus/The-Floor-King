@@ -8,6 +8,7 @@ import {
   Hammer,
   Receipt,
   CheckCircle2,
+  ClipboardCheck,
   ArrowRight,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,7 +31,9 @@ import { bookInstall } from "@/app/(app)/jobs/actions";
 import { EstimateScheduler } from "./estimate-scheduler";
 import { JobMaterialsCard } from "@/app/(app)/jobs/[id]/job-materials-card";
 import { StageManage } from "./stage-manage";
+import { QualifyStep } from "./qualify-step";
 import type { HandoffMember } from "@/lib/data/workflow";
+import type { QualifyingQuestion } from "@/lib/types";
 
 type InstallPop = {
   jobId: string;
@@ -45,6 +48,7 @@ type InstallPop = {
 } | null;
 
 type Step =
+  | "qualify"
   | "contact"
   | "schedule_estimate"
   | "build_quote"
@@ -56,6 +60,7 @@ type Step =
   | "generic";
 
 const STEP_META: Record<Step, { icon: typeof Phone; title: string }> = {
+  qualify: { icon: ClipboardCheck, title: "Qualify & assign this lead" },
   contact: { icon: Phone, title: "Reach out & set the estimate" },
   schedule_estimate: { icon: CalendarClock, title: "Schedule the estimate" },
   build_quote: { icon: FileText, title: "Build & send the quote" },
@@ -131,6 +136,7 @@ export async function GuidedFlow({
   invoices,
   repOptions,
   members,
+  questions,
   ownerName,
   nextActionDue,
   money,
@@ -144,13 +150,28 @@ export async function GuidedFlow({
   invoices: Invoice[];
   repOptions: { id: string; name: string }[];
   members: HandoffMember[];
+  questions: QualifyingQuestion[];
   ownerName: string | null;
   nextActionDue: string | null;
   money: { invoiced: number; paid: number; balance: number };
   installPop: InstallPop;
 }) {
   const sorted = [...stages].sort((a, b) => a.position - b.position);
-  const step = resolveStep(currentStage, stages);
+  const currentIdxForGate = currentStage
+    ? sorted.findIndex((s) => s.id === currentStage.id)
+    : -1;
+  const scheduleIdx = sorted.findIndex(
+    (s) => s.auto_action === "schedule_estimate",
+  );
+  // Qualify is the very first thing: until the lead is qualified, the guided
+  // step is "qualify & assign" — no matter which early stage they're parked on.
+  const needsQualify =
+    !customer.qualified &&
+    (currentIdxForGate === -1 ||
+      (scheduleIdx >= 0
+        ? currentIdxForGate <= scheduleIdx
+        : currentIdxForGate === 0));
+  const step: Step = needsQualify ? "qualify" : resolveStep(currentStage, stages);
   const nextStage = nextStageOf(currentStage, stages);
   const owner = customer.workflow_owner_id ?? null;
   const Meta = STEP_META[step];
@@ -174,7 +195,16 @@ export async function GuidedFlow({
   // Step body
   let body: React.ReactNode = null;
 
-  if (step === "contact") {
+  if (step === "qualify") {
+    body = (
+      <QualifyStep
+        customerId={customer.id}
+        questions={questions}
+        members={members}
+        defaultOwner={customer.workflow_owner_id ?? null}
+      />
+    );
+  } else if (step === "contact") {
     body = (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
