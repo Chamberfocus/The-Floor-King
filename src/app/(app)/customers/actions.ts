@@ -5,9 +5,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
-import { advanceFromFirstStage } from "@/lib/workflow-engine";
+import { advanceFromFirstStage, deriveLeadStage } from "@/lib/workflow-engine";
 import {
-  LEAD_STAGE_LABELS,
   type ActivityType,
   type LeadSource,
   type LeadStage,
@@ -105,41 +104,6 @@ export async function updateCustomer(
 }
 
 /** Used as a form `action` from the stage dropdown — no return state needed. */
-export async function changeStage(formData: FormData): Promise<void> {
-  const id = str(formData.get("id"));
-  const stage = str(formData.get("stage")) as LeadStage;
-  if (!id || !stage) return;
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: current } = await supabase
-    .from("customers")
-    .select("stage")
-    .eq("id", id)
-    .maybeSingle();
-
-  const { error } = await supabase
-    .from("customers")
-    .update({ stage })
-    .eq("id", id);
-  if (error) return;
-
-  const previous = current?.stage as LeadStage | undefined;
-  if (previous && previous !== stage) {
-    await supabase.from("activities").insert({
-      customer_id: id,
-      user_id: user?.id ?? null,
-      type: "stage_change",
-      body: `Stage changed from ${LEAD_STAGE_LABELS[previous]} to ${LEAD_STAGE_LABELS[stage]}`,
-    });
-  }
-
-  refreshCustomerViews(id);
-}
-
 /** Create a customer portal login linked to this customer record. */
 export async function inviteCustomerToPortal(
   _prev: CustomerFormState,
@@ -248,9 +212,14 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
     .eq("id", id)
     .maybeSingle();
 
+  // Pull the target stage plus all anchors so we can keep the legacy
+  // lead_stage in lock-step with the workflow stage (one source of truth).
+  const { data: allStages } = await supabase
+    .from("workflow_stages")
+    .select("position, auto_action, name");
   const { data: stage } = await supabase
     .from("workflow_stages")
-    .select("name, sla_hours, next_action")
+    .select("name, position, sla_hours, next_action")
     .eq("id", toStageId)
     .maybeSingle();
 
@@ -259,12 +228,20 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
       ? new Date(Date.now() + stage.sla_hours * 3600 * 1000).toISOString()
       : null;
 
+  const leadStage = stage
+    ? deriveLeadStage(
+        { name: stage.name, position: stage.position },
+        allStages ?? [],
+      )
+    : undefined;
+
   const { error } = await supabase
     .from("customers")
     .update({
       workflow_stage_id: toStageId,
       workflow_owner_id: toUser,
       next_action_due: due,
+      ...(leadStage ? { stage: leadStage } : {}),
     })
     .eq("id", id);
   if (error) return;

@@ -3,7 +3,7 @@
 // approved estimate jumps them to the "collect deposit" stage. SERVER ONLY.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { StageAutoAction } from "@/lib/types";
+import type { StageAutoAction, LeadStage } from "@/lib/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = SupabaseClient<any, any, any>;
@@ -34,6 +34,42 @@ interface CustRow {
   workflow_owner_id: string | null;
 }
 
+interface AnchorRow {
+  position: number;
+  auto_action: string | null;
+  name: string | null;
+}
+
+/**
+ * Map an editable workflow stage to the coarse `lead_stage` so the legacy
+ * pipeline board, leads list, and dashboard counts stay in lock-step with the
+ * one source of truth. We anchor off the stable `auto_action` markers (not
+ * stage names, which the user can rename) plus position ordering.
+ */
+export function deriveLeadStage(
+  target: { name: string | null; position: number },
+  all: AnchorRow[],
+): LeadStage {
+  const name = (target.name ?? "").toLowerCase();
+  if (/lost|declin|dead|cancel/.test(name)) return "lost";
+
+  const posOf = (aa: string): number | null => {
+    const s = all.find((x) => x.auto_action === aa);
+    return s ? s.position : null;
+  };
+  const deposit = posOf("collect_deposit");
+  const quote = posOf("build_quote");
+  const estSched = posOf("schedule_estimate");
+
+  if (deposit != null && target.position >= deposit) return "won";
+  if (quote != null && target.position >= quote) return "quoted";
+  if (estSched != null && target.position >= estSched) return "estimate_scheduled";
+
+  const positions = all.map((s) => s.position);
+  const minPos = positions.length ? Math.min(...positions) : target.position;
+  return target.position <= minPos ? "new" : "contacted";
+}
+
 /** Apply a stage move: keep the owner (else stage default), set SLA due, log it. */
 async function applyMove(
   supabase: DB,
@@ -47,12 +83,19 @@ async function applyMove(
       ? new Date(Date.now() + stage.sla_hours * 3600 * 1000).toISOString()
       : null;
 
+  // Keep the legacy lead_stage in lock-step with the workflow stage.
+  const { data: anchors } = await supabase
+    .from("workflow_stages")
+    .select("position, auto_action, name");
+  const leadStage = deriveLeadStage(stage, (anchors as AnchorRow[]) ?? []);
+
   await supabase
     .from("customers")
     .update({
       workflow_stage_id: stage.id,
       workflow_owner_id: owner,
       next_action_due: due,
+      stage: leadStage,
     })
     .eq("id", customerId);
 

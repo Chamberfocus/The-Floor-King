@@ -54,10 +54,9 @@ import { createInvoice } from "@/app/(app)/invoices/actions";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { optionTotals } from "@/lib/estimate-calc";
 import { invoiceTotals } from "@/lib/invoice-calc";
-import { type ActivityType } from "@/lib/types";
+import { type ActivityType, STAGE_COLOR_BADGE } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
-import { StageSelect } from "./stage-select";
 import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
 import { InvitePortalForm } from "./invite-portal-form";
@@ -174,7 +173,18 @@ export default async function CustomerPage({
             <h1 className="text-2xl font-semibold tracking-tight">
               {customer.full_name}
             </h1>
-            <StageBadge stage={customer.stage} />
+            {currentStage ? (
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                  STAGE_COLOR_BADGE[currentStage.color] ?? STAGE_COLOR_BADGE.zinc,
+                )}
+              >
+                {currentStage.name}
+              </span>
+            ) : (
+              <StageBadge stage={customer.stage} />
+            )}
           </div>
           <p className="text-sm text-muted-foreground">
             Added {formatDate(customer.created_at)}
@@ -248,20 +258,6 @@ export default async function CustomerPage({
               >
                 {customer.qualified ? "View" : "Qualify"}
               </Link>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Pipeline stage</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <StageSelect id={customer.id} stage={customer.stage} />
-              {customer.assigned_to && names[customer.assigned_to] ? (
-                <p className="text-xs text-muted-foreground">
-                  Owner: {names[customer.assigned_to]}
-                </p>
-              ) : null}
             </CardContent>
           </Card>
 
