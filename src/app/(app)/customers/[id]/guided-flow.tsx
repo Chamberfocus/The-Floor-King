@@ -29,6 +29,8 @@ import { advanceWorkflow } from "../actions";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { EstimateScheduler } from "./estimate-scheduler";
 import { JobMaterialsCard } from "@/app/(app)/jobs/[id]/job-materials-card";
+import { StageManage } from "./stage-manage";
+import type { HandoffMember } from "@/lib/data/workflow";
 
 type InstallPop = {
   jobId: string;
@@ -128,6 +130,10 @@ export async function GuidedFlow({
   jobs,
   invoices,
   repOptions,
+  members,
+  ownerName,
+  nextActionDue,
+  money,
   installPop,
 }: {
   customer: Customer;
@@ -137,6 +143,10 @@ export async function GuidedFlow({
   jobs: Job[];
   invoices: Invoice[];
   repOptions: { id: string; name: string }[];
+  members: HandoffMember[];
+  ownerName: string | null;
+  nextActionDue: string | null;
+  money: { invoiced: number; paid: number; balance: number };
   installPop: InstallPop;
 }) {
   const sorted = [...stages].sort((a, b) => a.position - b.position);
@@ -416,6 +426,18 @@ export async function GuidedFlow({
           })}
         </div>
       </div>
+
+      {/* Owner · money · due, and the manual move/reassign (one stage control) */}
+      <StageManage
+        customerId={customer.id}
+        stages={stages}
+        members={members}
+        currentStageId={currentStage?.id ?? null}
+        currentOwnerId={customer.workflow_owner_id ?? null}
+        ownerName={ownerName}
+        nextActionDue={nextActionDue}
+        money={money}
+      />
 
       {/* Do this next */}
       <Card className="border-primary/40 ring-1 ring-primary/20">

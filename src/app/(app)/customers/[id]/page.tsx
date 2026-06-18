@@ -48,7 +48,6 @@ import { CustomerDocuments } from "./customer-documents";
 import {
   listWorkflowStages,
   listHandoffMembers,
-  listHandoffs,
 } from "@/lib/data/workflow";
 import { createEstimate } from "@/app/(app)/estimates/actions";
 import { createInvoice } from "@/app/(app)/invoices/actions";
@@ -63,7 +62,6 @@ import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
 import { InvitePortalForm } from "./invite-portal-form";
 import { CustomerChat } from "./customer-chat";
-import { CommandCenter } from "./command-center";
 import { OnTheWayButton } from "./on-the-way-button";
 import { GuidedFlow } from "./guided-flow";
 import { CancelCustomer } from "./cancel-customer";
@@ -111,7 +109,6 @@ export default async function CustomerPage({
   const documents = await listCustomerDocuments(id);
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
-  const handoffHistory = await listHandoffs(id);
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
@@ -211,34 +208,26 @@ export default async function CustomerPage({
         </div>
       ) : null}
 
-      {/* Guided flow — progress + the one next step, with its tool inline */}
+      {/* Guided flow — progress + owner/money + the one next step inline.
+          (This single hub replaces the old separate command-center.) */}
       {!customer.cancelled_at ? (
-        <GuidedFlow
-          customer={customer}
-          stages={stages}
-          currentStage={currentStage}
-          estimates={estimates}
-          jobs={jobs}
-          invoices={invoices}
-          repOptions={repOptions}
-          installPop={installPop}
-        />
+        <div className="mb-6">
+          <GuidedFlow
+            customer={customer}
+            stages={stages}
+            currentStage={currentStage}
+            estimates={estimates}
+            jobs={jobs}
+            invoices={invoices}
+            repOptions={repOptions}
+            members={handoffMembers}
+            ownerName={ownerName}
+            nextActionDue={customer.next_action_due ?? null}
+            money={money}
+            installPop={installPop}
+          />
+        </div>
       ) : null}
-
-      {/* Command center — the cockpit for this lead */}
-      <div className="mb-6">
-        <CommandCenter
-          customerId={customer.id}
-          stages={stages}
-          members={handoffMembers}
-          currentStageId={customer.workflow_stage_id}
-          currentOwnerId={customer.workflow_owner_id}
-          ownerName={ownerName}
-          nextActionDue={customer.next_action_due ?? null}
-          money={money}
-          handoffs={handoffHistory}
-        />
-      </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left: stage automations + contact */}
