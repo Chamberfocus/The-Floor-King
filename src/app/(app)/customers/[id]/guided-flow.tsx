@@ -27,7 +27,6 @@ import { amountPaid } from "@/lib/data/invoices";
 import { getJobMaterials } from "@/lib/data/job-materials";
 import { advanceWorkflow } from "../actions";
 import { bookInstall } from "@/app/(app)/jobs/actions";
-import { createEstimate } from "@/app/(app)/estimates/actions";
 import { EstimateScheduler } from "./estimate-scheduler";
 import { JobMaterialsCard } from "@/app/(app)/jobs/[id]/job-materials-card";
 
@@ -194,29 +193,24 @@ export async function GuidedFlow({
             >
               Open quote builder
             </Link>
-          ) : customer.source ? (
-            <>
-              <Link
-                href={`/estimates/new?customer=${customer.id}`}
-                className={buttonVariants({ size: "sm" })}
-              >
-                Start the quote (wizard)
-              </Link>
-              <form action={createEstimate}>
-                <input type="hidden" name="customer_id" value={customer.id} />
-                <button
-                  type="submit"
-                  className={buttonVariants({ size: "sm", variant: "outline" })}
-                >
-                  Blank quote
-                </button>
-              </form>
-            </>
-          ) : (
-            <span className="text-xs font-medium text-amber-600">
-              Set a lead source (Edit customer) to create a quote.
-            </span>
-          )}
+          ) : null}
+          <Link
+            href={`/estimates/smart?customer=${customer.id}`}
+            className={buttonVariants({
+              size: "sm",
+              variant: activeEstimate ? "outline" : "default",
+            })}
+          >
+            <FileText className="size-3.5" /> Smart builder (by floor type)
+          </Link>
+          {!activeEstimate && customer.source ? (
+            <Link
+              href={`/estimates/new?customer=${customer.id}`}
+              className={buttonVariants({ size: "sm", variant: "outline" })}
+            >
+              Wizard
+            </Link>
+          ) : null}
         </div>
       </div>
     );
