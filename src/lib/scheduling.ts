@@ -88,9 +88,22 @@ export function installDaysForJob(
       case "hardwood":
         add("Hardwood", sf, "sq ft", sf / num(s.cap_hardwood_sf));
         break;
+      case "tile":
+        // Tile setting is slow; use the tile (teardown) capacity as the rate.
+        add("Tile", sf, "sq ft", sf / num(s.cap_tile_teardown_sf));
+        break;
+      // Companion materials & labor lines are NOT flooring to install — they
+      // don't add install days (pad/underlayment/trim/thinset/grout/tear-out).
+      case "underlayment":
+      case "trim":
+      case "labor":
+      case "other":
+        break;
       default:
-        // Unknown flooring with an area: fall back to the LVT rate.
-        if (sf > 0) add("Flooring", sf, "sq ft", sf / num(s.cap_lvt_sf));
+        // Only a line with NO category and a real area is treated as flooring
+        // (legacy lines from the old builder); companions always set a category.
+        if (!l.category && sf > 0)
+          add("Flooring", sf, "sq ft", sf / num(s.cap_lvt_sf));
     }
   }
 
