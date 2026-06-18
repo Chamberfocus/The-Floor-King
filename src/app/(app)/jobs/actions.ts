@@ -198,9 +198,23 @@ export async function setJobStatus(formData: FormData): Promise<void> {
   const supabase = await createClient();
   await supabase.from("jobs").update({ status }).eq("id", id);
 
+  // Finishing the install advances the customer past the install stage, the
+  // same way every earlier event auto-advances the lifecycle.
+  if (status === "completed") {
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("customer_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (job?.customer_id) {
+      await advanceFromAutoAction(job.customer_id as string, "schedule_install");
+    }
+  }
+
   revalidatePath(`/jobs/${id}`);
   revalidatePath("/jobs");
   revalidatePath("/dashboard");
+  revalidatePath("/pipeline");
 }
 
 /** Email the customer their scheduled install date. */

@@ -55,7 +55,7 @@ const JOBS_ROLES: UserRole[] = [
 export const NAV_ITEMS: NavItem[] = [
   { label: "Business Pulse", href: "/pulse", icon: Activity, roles: ADMIN },
   { label: "Customers", href: "/customers", icon: Users, roles: SALES_VIEW },
-  { label: "Pipeline", href: "/pipeline", icon: Route, roles: SALES_VIEW },
+  { label: "Pipeline", href: "/pipeline", icon: Route, roles: OFFICE_PLUS },
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: OVERVIEW },
   { label: "Estimates", href: "/estimates", icon: FileText, roles: SALES_VIEW },
   { label: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, roles: OFFICE_PLUS },

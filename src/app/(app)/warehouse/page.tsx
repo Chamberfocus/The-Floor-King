@@ -119,7 +119,11 @@ export default async function WarehousePage() {
                               {m.description || "Material"}
                             </span>
                             <span className="text-muted-foreground">
-                              {m.sqft ? `${m.sqft} sq ft` : ""}
+                              {m.quantity && m.quantity > 0
+                                ? `${Math.round(m.quantity * 100) / 100} ${m.unit || ""}`.trim()
+                                : m.sqft
+                                  ? `${m.sqft} sq ft`
+                                  : ""}
                             </span>
                           </li>
                         ))}

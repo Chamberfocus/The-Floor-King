@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/supabase/paginate";
 import { listJobs } from "@/lib/data/jobs";
 import {
   lineTotal,
@@ -51,14 +52,16 @@ export async function getProductPerformance(): Promise<ProductPerf[]> {
       jobsPerOption.set(j.option_id, (jobsPerOption.get(j.option_id) ?? 0) + 1);
   }
 
-  const { data } = await supabase
-    .from("estimate_line_items")
-    .select(
-      "option_id, product_id, line_type, sqft, length_in, width_in, measure_unit, material_rate, labor_rate, installed_rate, flat_amount, waste_pct, material_cost, labor_cost, quantity, unit",
-    )
-    .in("option_id", optionIds)
-    .not("product_id", "is", null);
-  const rows = (data ?? []) as (PerfLine & { option_id: string })[];
+  const rows = await fetchAll<PerfLine & { option_id: string }>((from, to) =>
+    supabase
+      .from("estimate_line_items")
+      .select(
+        "option_id, product_id, line_type, sqft, length_in, width_in, measure_unit, material_rate, labor_rate, installed_rate, flat_amount, waste_pct, material_cost, labor_cost, quantity, unit",
+      )
+      .in("option_id", optionIds)
+      .not("product_id", "is", null)
+      .range(from, to),
+  );
   if (!rows.length) return [];
 
   const ids = [...new Set(rows.map((r) => r.product_id))].filter(

@@ -85,11 +85,15 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
   if (error || !po) return;
 
   const items = lines
-    .filter((l) => l.line_type !== "flat" && (l.sqft ?? 0) > 0)
+    // Include every quantity-bearing line — area-measured AND perimeter/each
+    // companions (tackstrip, transitions, trim) which have qty but no sqft.
+    .filter((l) => l.line_type !== "flat" && lineQty(l) > 0)
     .map((l, i) => {
+      // PO cost = our cost (saved material_cost), else the product's cost,
+      // never the customer sell rate.
       const unitCost =
-        l.line_type === "mat_labor"
-          ? (l.material_rate ?? 0)
+        (l.material_cost ?? 0) > 0
+          ? (l.material_cost ?? 0)
           : l.product_id
             ? (productCost.get(l.product_id) ?? 0)
             : 0;
@@ -104,7 +108,7 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
         product_id: l.product_id,
         description: desc,
         quantity: Math.round(lineQty(l) * 100) / 100,
-        unit: l.measure_unit === "sqyd" ? "sqyd" : "sqft",
+        unit: l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft"),
         unit_cost: unitCost,
       };
     });

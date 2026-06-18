@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { assertRole, getProfile } from "@/lib/auth";
 import { positionById } from "./positions";
 import type { UserRole } from "@/lib/types";
 
@@ -36,6 +37,10 @@ export async function inviteTeamMember(
   _prev: TeamFormState,
   formData: FormData,
 ): Promise<TeamFormState> {
+  const me = await getProfile();
+  if (me?.role !== "admin") {
+    return { error: "Only an administrator can manage the team." };
+  }
   const email = str(formData.get("email")).toLowerCase();
   const phone = normalizePhone(str(formData.get("phone")));
   const password = str(formData.get("password"));
@@ -106,6 +111,7 @@ export async function inviteTeamMember(
 
 /** Set or change an existing member's phone + PIN (enables phone login). */
 export async function setMemberPhonePin(formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
   const id = str(formData.get("id"));
   const phone = normalizePhone(str(formData.get("phone")));
   const pin = str(formData.get("pin"));
@@ -132,6 +138,7 @@ export async function setMemberPhonePin(formData: FormData): Promise<void> {
 }
 
 export async function setMemberHome(formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
   const id = str(formData.get("id"));
   if (!id) return;
   const home = str(formData.get("home_address"));
@@ -149,6 +156,7 @@ export async function setMemberHome(formData: FormData): Promise<void> {
 }
 
 export async function setMemberTitle(formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
   const id = str(formData.get("id"));
   if (!id) return;
   const title = str(formData.get("title"));
@@ -163,6 +171,7 @@ export async function setMemberTitle(formData: FormData): Promise<void> {
 }
 
 export async function setMemberRole(formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
   const id = str(formData.get("id"));
   const role = str(formData.get("role")) as UserRole;
   if (!id || !STAFF_ROLES.includes(role)) return;
@@ -172,11 +181,29 @@ export async function setMemberRole(formData: FormData): Promise<void> {
   } catch {
     return;
   }
+  // Don't let the last active admin be demoted — that would lock everyone out
+  // of Settings. Make someone else an admin first.
+  if (role !== "admin") {
+    const { data: target } = await admin
+      .from("profiles")
+      .select("role")
+      .eq("id", id)
+      .maybeSingle();
+    if (target?.role === "admin") {
+      const { count } = await admin
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "admin")
+        .eq("active", true);
+      if ((count ?? 0) <= 1) return; // refuse — keep at least one admin
+    }
+  }
   await admin.from("profiles").update({ role }).eq("id", id);
   revalidatePath("/settings/team");
 }
 
 export async function setMemberName(formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
   const id = str(formData.get("id"));
   if (!id) return;
   const fullName = str(formData.get("full_name"));
@@ -209,6 +236,8 @@ export async function setMemberActive(
   id: string,
   active: boolean,
 ): Promise<RemoveResult> {
+  const me = await getProfile();
+  if (me?.role !== "admin") return { error: "Only an administrator can do that." };
   if (!id) return { error: "Missing member." };
 
   let admin;
@@ -261,6 +290,8 @@ export async function setMemberActive(
  * yourself or the last administrator.
  */
 export async function removeTeamMember(id: string): Promise<RemoveResult> {
+  const me = await getProfile();
+  if (me?.role !== "admin") return { error: "Only an administrator can do that." };
   if (!id) return { error: "Missing member." };
 
   let admin;

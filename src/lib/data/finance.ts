@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/supabase/paginate";
 import { listInvoices, amountPaid } from "@/lib/data/invoices";
 import { invoiceTotals } from "@/lib/invoice-calc";
 import { listPurchaseOrders } from "@/lib/data/purchase-orders";
@@ -36,6 +37,16 @@ export async function getPeriodSummary(
   const supabase = await createClient();
   const cancelled = await cancelledCustomerIds(supabase);
 
+  // Jobs belonging to cancelled customers — their labor & expenses don't count.
+  const cancelledJobIds = new Set<string>();
+  if (cancelled.size) {
+    const { data: cjobs } = await supabase
+      .from("jobs")
+      .select("id, customer_id")
+      .in("customer_id", [...cancelled]);
+    for (const j of cjobs ?? []) cancelledJobIds.add(j.id as string);
+  }
+
   const invoices = await listInvoices();
   // Invoices belonging to cancelled customers don't count anywhere.
   const liveInvoices = invoices.filter((i) => !cancelled.has(i.customer_id));
@@ -43,30 +54,45 @@ export async function getPeriodSummary(
     invoices.filter((i) => cancelled.has(i.customer_id)).map((i) => i.id),
   );
 
-  const { data: pays } = await supabase
-    .from("payments")
-    .select("amount, paid_at, invoice_id")
-    .gte("paid_at", start)
-    .lte("paid_at", end);
-  const collected = (pays ?? [])
-    .filter((p) => !cancelledInvoiceIds.has(p.invoice_id as string))
+  const pays = await fetchAll<{ amount: number; invoice_id: string }>(
+    (from, to) =>
+      supabase
+        .from("payments")
+        .select("amount, paid_at, invoice_id")
+        .gte("paid_at", start)
+        .lte("paid_at", end)
+        .range(from, to),
+  );
+  const collected = pays
+    .filter((p) => !cancelledInvoiceIds.has(p.invoice_id))
     .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-  const { data: exps } = await supabase
-    .from("expenses")
-    .select("amount, date")
-    .gte("date", start)
-    .lte("date", end);
-  const expenses = (exps ?? []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const exps = await fetchAll<{ amount: number; job_id: string | null }>(
+    (from, to) =>
+      supabase
+        .from("expenses")
+        .select("amount, date, job_id")
+        .gte("date", start)
+        .lte("date", end)
+        .range(from, to),
+  );
+  const expenses = exps
+    .filter((e) => !cancelledJobIds.has(e.job_id as string))
+    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
   // Subcontractor payouts marked paid in the period (the real labor cost).
-  const { data: lab } = await supabase
-    .from("job_labor")
-    .select("amount, paid, paid_on")
-    .eq("paid", true)
-    .gte("paid_on", start)
-    .lte("paid_on", end);
-  const subLabor = (lab ?? []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const lab = await fetchAll<{ amount: number; job_id: string }>((from, to) =>
+    supabase
+      .from("job_labor")
+      .select("amount, paid, paid_on, job_id")
+      .eq("paid", true)
+      .gte("paid_on", start)
+      .lte("paid_on", end)
+      .range(from, to),
+  );
+  const subLabor = lab
+    .filter((r) => !cancelledJobIds.has(r.job_id))
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
 
   const billed = liveInvoices
     .filter((i) => i.issue_date && i.issue_date >= start && i.issue_date <= end)
@@ -163,13 +189,7 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   if (!jobs.length) return [];
 
   const optionIds = [...new Set(jobs.map((j) => j.option_id))] as string[];
-  const { data: lineData } = await supabase
-    .from("estimate_line_items")
-    .select(
-      "option_id, sqft, length_in, width_in, measure_unit, material_rate, labor_rate, installed_rate, flat_amount, line_type",
-    )
-    .in("option_id", optionIds);
-  const lines = (lineData ?? []) as {
+  const lines = await fetchAll<{
     option_id: string;
     sqft: number | null;
     length_in: number | null;
@@ -180,7 +200,15 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     installed_rate: number | null;
     flat_amount: number | null;
     line_type: LineType;
-  }[];
+  }>((from, to) =>
+    supabase
+      .from("estimate_line_items")
+      .select(
+        "option_id, sqft, length_in, width_in, measure_unit, material_rate, labor_rate, installed_rate, flat_amount, line_type",
+      )
+      .in("option_id", optionIds)
+      .range(from, to),
+  );
   const subtotalByOption = new Map<string, number>();
   const grouped = new Map<string, typeof lines>();
   for (const l of lines) {
@@ -203,12 +231,17 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     }
   }
 
-  const { data: expData } = await supabase
-    .from("expenses")
-    .select("job_id, amount")
-    .in("job_id", jobs.map((j) => j.id));
+  const jobIds = jobs.map((j) => j.id);
+  const expData = await fetchAll<{ job_id: string | null; amount: number }>(
+    (from, to) =>
+      supabase
+        .from("expenses")
+        .select("job_id, amount")
+        .in("job_id", jobIds)
+        .range(from, to),
+  );
   const expByJob = new Map<string, number>();
-  for (const e of expData ?? []) {
+  for (const e of expData) {
     if (e.job_id) {
       expByJob.set(
         e.job_id as string,
@@ -221,13 +254,20 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   const laborByJob = await laborCostByJob(jobs.map((j) => j.id));
 
   // Material pulled from our own stock — cost it to the job (was $0 before).
-  const { data: pullData } = await supabase
-    .from("stock_movements")
-    .select("job_id, qty, unit_cost")
-    .eq("kind", "pull")
-    .in("job_id", jobs.map((j) => j.id));
+  const pullData = await fetchAll<{
+    job_id: string | null;
+    qty: number;
+    unit_cost: number | null;
+  }>((from, to) =>
+    supabase
+      .from("stock_movements")
+      .select("job_id, qty, unit_cost")
+      .eq("kind", "pull")
+      .in("job_id", jobIds)
+      .range(from, to),
+  );
   const stockCostByJob = new Map<string, number>();
-  for (const m of pullData ?? []) {
+  for (const m of pullData) {
     if (!m.job_id) continue;
     const cost = Math.abs(Number(m.qty) || 0) * (Number(m.unit_cost) || 0);
     stockCostByJob.set(

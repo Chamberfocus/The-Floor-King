@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Profile } from "@/lib/types";
+import type { Profile, UserRole } from "@/lib/types";
 
 /** Returns the signed-in auth user, or null. Safe to call anywhere on the server. */
 export async function getUser() {
@@ -36,5 +36,29 @@ export async function getProfile(): Promise<Profile | null> {
 export async function requireProfile(): Promise<Profile> {
   const profile = await getProfile();
   if (!profile) redirect("/login");
+  return profile;
+}
+
+/**
+ * Page guard: require one of the given roles, else send home. Use at the top of
+ * a protected page so the wrong role never sees it.
+ */
+export async function requireRole(roles: UserRole[]): Promise<Profile> {
+  const profile = await requireProfile();
+  if (!roles.includes(profile.role)) redirect("/");
+  return profile;
+}
+
+/**
+ * Server-ACTION guard. Server actions can be POSTed directly regardless of the
+ * page, so privileged mutations must re-check the caller's role here — RLS does
+ * not protect actions that use the service-role (admin) client. Throws if the
+ * signed-in user isn't one of the allowed roles.
+ */
+export async function assertRole(roles: UserRole[]): Promise<Profile> {
+  const profile = await getProfile();
+  if (!profile || !roles.includes(profile.role)) {
+    throw new Error("Not authorized.");
+  }
   return profile;
 }

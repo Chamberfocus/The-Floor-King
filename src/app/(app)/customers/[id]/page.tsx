@@ -64,6 +64,7 @@ import { InvitePortalForm } from "./invite-portal-form";
 import { CustomerChat } from "./customer-chat";
 import { OnTheWayButton } from "./on-the-way-button";
 import { GuidedFlow } from "./guided-flow";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { CancelCustomer } from "./cancel-customer";
 import { DeleteCustomer } from "./delete-customer";
 import { AiFollowup } from "./ai-followup";
@@ -339,15 +340,14 @@ export default async function CustomerPage({
                   </Link>
                   <form action={createEstimate}>
                     <input type="hidden" name="customer_id" value={customer.id} />
-                    <button
-                      type="submit"
-                      className={buttonVariants({
-                        variant: "outline",
-                        size: "sm",
-                      })}
+                    <SubmitButton
+                      variant="outline"
+                      size="sm"
+                      pendingText="Creating…"
+                      confirm="Estimate created"
                     >
                       <Plus className="size-3.5" /> Blank
-                    </button>
+                    </SubmitButton>
                   </form>
                 </div>
               ) : (
@@ -406,9 +406,9 @@ export default async function CustomerPage({
               <CardTitle className="text-base">Jobs</CardTitle>
               <form action={createJob}>
                 <input type="hidden" name="customer_id" value={customer.id} />
-                <button type="submit" className={buttonVariants({ size: "sm" })}>
+                <SubmitButton size="sm" pendingText="Creating…" confirm="Job created">
                   <Wrench className="size-3.5" /> New job
-                </button>
+                </SubmitButton>
               </form>
             </CardHeader>
             <CardContent>
@@ -449,9 +449,9 @@ export default async function CustomerPage({
               <CardTitle className="text-base">Invoices</CardTitle>
               <form action={createInvoice}>
                 <input type="hidden" name="customer_id" value={customer.id} />
-                <button type="submit" className={buttonVariants({ size: "sm" })}>
+                <SubmitButton size="sm" pendingText="Creating…" confirm="Invoice created">
                   <Receipt className="size-3.5" /> New invoice
-                </button>
+                </SubmitButton>
               </form>
             </CardHeader>
             <CardContent>

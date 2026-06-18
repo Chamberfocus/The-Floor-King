@@ -21,6 +21,7 @@ export async function getLeadSourceReport(
   const { data } = await supabase
     .from("customers")
     .select("source, stage, created_at")
+    .is("cancelled_at", null)
     .gte("created_at", startISO)
     .lte("created_at", endISO);
   const customers = (data ?? []) as {

@@ -106,6 +106,7 @@ export async function getDashboardCounts(): Promise<DashboardCounts> {
     const { count } = await supabase
       .from("customers")
       .select("id", { count: "exact", head: true })
+      .is("cancelled_at", null)
       .in("stage", stages);
     return count ?? 0;
   };

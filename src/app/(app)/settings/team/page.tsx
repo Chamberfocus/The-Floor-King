@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
+import { redirect } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
 import { listTeamMembers } from "@/lib/data/team";
 import { InviteTeamForm } from "./invite-form";
@@ -23,10 +24,9 @@ import {
 export const metadata: Metadata = { title: "Team" };
 
 export default async function TeamPage() {
-  const [members, me] = await Promise.all([
-    listTeamMembers(),
-    requireProfile(),
-  ]);
+  const me = await requireProfile();
+  if (me.role !== "admin") redirect("/");
+  const members = await listTeamMembers();
   const adminCount = members.filter((m) => m.role === "admin").length;
 
   return (

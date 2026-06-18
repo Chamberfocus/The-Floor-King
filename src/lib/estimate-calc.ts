@@ -146,6 +146,7 @@ export interface SaveLineInput {
   length_in: string | number | null;
   width_in: string | number | null;
   measure_unit: MeasureUnit;
+  category?: string | null;
   material_rate: string | number | null;
   labor_rate: string | number | null;
   installed_rate: string | number | null;

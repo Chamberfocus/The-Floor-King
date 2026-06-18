@@ -208,6 +208,8 @@ export interface WarehouseMaterial {
   room: string | null;
   description: string;
   sqft: number | null;
+  quantity: number | null;
+  unit: string | null;
 }
 
 export interface WarehouseJob extends JobListRow {
@@ -234,7 +236,9 @@ export async function listWarehouseJobs(): Promise<WarehouseJob[]> {
   if (optionIds.length) {
     const { data: lineData } = await supabase
       .from("estimate_line_items")
-      .select("option_id, room, description, sqft, line_type, position")
+      .select(
+        "option_id, room, description, sqft, quantity, unit, line_type, position",
+      )
       .in("option_id", optionIds)
       .order("position", { ascending: true });
     const lines = (lineData ?? []) as {
@@ -242,13 +246,21 @@ export async function listWarehouseJobs(): Promise<WarehouseJob[]> {
       room: string | null;
       description: string;
       sqft: number | null;
+      quantity: number | null;
+      unit: string | null;
       line_type: string;
     }[];
     const byOption = new Map<string, WarehouseMaterial[]>();
     for (const l of lines) {
       if (l.line_type === "flat") continue;
       const arr = byOption.get(l.option_id) ?? [];
-      arr.push({ room: l.room, description: l.description, sqft: l.sqft });
+      arr.push({
+        room: l.room,
+        description: l.description,
+        sqft: l.sqft,
+        quantity: l.quantity,
+        unit: l.unit,
+      });
       byOption.set(l.option_id, arr);
     }
     for (const r of rows) {

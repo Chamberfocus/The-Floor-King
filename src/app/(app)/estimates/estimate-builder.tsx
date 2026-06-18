@@ -51,12 +51,14 @@ interface LineState {
   style: string;
   color: string;
   item_no: string;
-  // Our cost + explicit qty/unit — preserved so the smart builder's bill of
-  // materials & margin survive a round-trip through this editor.
+  // Our cost + explicit qty/unit + category — preserved so the smart builder's
+  // bill of materials, category (drives install scheduling) & margin survive a
+  // round-trip through this editor.
   material_cost: string;
   labor_cost: string;
   quantity: string;
   unit: string;
+  category: string;
 }
 
 // Typical material waste by category (%), used as a smart default on pick.
@@ -188,6 +190,7 @@ export function EstimateBuilder({
     labor_cost: "",
     quantity: "",
     unit: "",
+    category: "",
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -230,6 +233,7 @@ export function EstimateBuilder({
         labor_cost: l.labor_cost?.toString() ?? "",
         quantity: l.quantity?.toString() ?? "",
         unit: l.unit ?? "",
+        category: l.category ?? "",
       })),
     }));
     return initial.length
@@ -358,6 +362,7 @@ export function EstimateBuilder({
                   ? {
                       ...l,
                       product_id: p.id,
+                      category: p.category ?? l.category,
                       material_rate: round2(p.material_rate * factor),
                       labor_rate: round2(p.labor_rate * factor),
                       manufacturer: p.manufacturer ?? l.manufacturer,
@@ -417,6 +422,7 @@ export function EstimateBuilder({
         labor_cost: l.labor_cost || null,
         quantity: l.quantity || null,
         unit: l.unit || null,
+        category: l.category || null,
       })),
     })),
   });

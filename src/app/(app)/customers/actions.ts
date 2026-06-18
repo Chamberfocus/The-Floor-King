@@ -334,9 +334,27 @@ export async function reopenCustomer(formData: FormData): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Re-derive the pipeline stage from where they actually are in the workflow,
+  // so a reopened customer doesn't stay stuck showing "lost".
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("workflow_stage_id")
+    .eq("id", id)
+    .maybeSingle();
+  let stage: LeadStage = "new";
+  if (cust?.workflow_stage_id) {
+    const { data: all } = await supabase
+      .from("workflow_stages")
+      .select("id, position, auto_action, name");
+    const current = (all ?? []).find(
+      (s) => s.id === cust.workflow_stage_id,
+    ) as { name: string | null; position: number } | undefined;
+    if (current) stage = deriveLeadStage(current, all ?? []);
+  }
+
   await supabase
     .from("customers")
-    .update({ cancelled_at: null, cancel_reason: null })
+    .update({ cancelled_at: null, cancel_reason: null, stage })
     .eq("id", id);
 
   await supabase.from("activities").insert({

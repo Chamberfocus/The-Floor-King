@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/supabase/paginate";
 import type { Invoice, InvoiceItem, Payment } from "@/lib/types";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -10,19 +11,22 @@ async function attach(
   if (!invoices.length) return invoices;
   const ids = invoices.map((i) => i.id);
 
-  const { data: itemData } = await supabase
-    .from("invoice_items")
-    .select("*")
-    .in("invoice_id", ids)
-    .order("position", { ascending: true });
-  const { data: payData } = await supabase
-    .from("payments")
-    .select("*")
-    .in("invoice_id", ids)
-    .order("created_at", { ascending: true });
-
-  const items = (itemData ?? []) as InvoiceItem[];
-  const pays = (payData ?? []) as Payment[];
+  const items = await fetchAll<InvoiceItem>((from, to) =>
+    supabase
+      .from("invoice_items")
+      .select("*")
+      .in("invoice_id", ids)
+      .order("position", { ascending: true })
+      .range(from, to),
+  );
+  const pays = await fetchAll<Payment>((from, to) =>
+    supabase
+      .from("payments")
+      .select("*")
+      .in("invoice_id", ids)
+      .order("created_at", { ascending: true })
+      .range(from, to),
+  );
 
   const itemsBy = new Map<string, InvoiceItem[]>();
   for (const it of items) {

@@ -42,6 +42,7 @@ export interface BusinessPulse {
   losingJobs: JobProfit[]; // completed/in-progress jobs with negative profit
   belowTargetJobs: JobProfit[]; // profitable but under target margin
   jobsMissingLabor: JobProfit[]; // completed jobs with no subcontractor cost recorded
+  jobsMissingMaterial: JobProfit[]; // completed jobs with no material cost recorded
   avgJobMargin: number;
   // Products
   bestSeller: ProductPerf | null;
@@ -89,10 +90,22 @@ export async function getBusinessPulse(): Promise<BusinessPulse> {
         j.materialCost > 0,
     )
     .sort((a, b) => b.revenue - a.revenue);
+  // Completed jobs with revenue but NO material cost recorded — their margin
+  // reads ~100% and would inflate the average, so we surface + exclude them.
+  const jobsMissingMaterial = jobs
+    .filter(
+      (j) => j.status === "completed" && j.revenue > 0 && j.materialCost === 0,
+    )
+    .sort((a, b) => b.revenue - a.revenue);
 
+  // Average only over jobs that actually have a cost recorded, so a job with no
+  // cost entered yet doesn't masquerade as a 100%-margin win.
+  const costedRealized = realized.filter(
+    (j) => j.materialCost > 0 || j.laborCost > 0,
+  );
   const avgJobMargin =
-    realized.length > 0
-      ? realized.reduce((s, j) => s + j.margin, 0) / realized.length
+    costedRealized.length > 0
+      ? costedRealized.reduce((s, j) => s + j.margin, 0) / costedRealized.length
       : 0;
 
   const bestSeller = perf.length ? perf[0] : null; // perf is revenue-sorted
@@ -126,6 +139,7 @@ export async function getBusinessPulse(): Promise<BusinessPulse> {
     losingJobs,
     belowTargetJobs,
     jobsMissingLabor,
+    jobsMissingMaterial,
     avgJobMargin,
     bestSeller,
     worstMarginSeller,

@@ -126,6 +126,7 @@ export async function saveEstimate(
         room: line.room || null,
         description: line.description || "",
         line_type: line.line_type,
+        category: line.category || null,
         sqft: toNumOrNull(line.sqft),
         length_in: toNumOrNull(line.length_in),
         width_in: toNumOrNull(line.width_in),
@@ -400,7 +401,13 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
   const supabase = await createClient();
   await supabase.from("estimates").delete().eq("id", id);
 
+  // An estimate drives pipeline value & quoted-revenue forecasts — refresh the
+  // money views so they don't show a deleted estimate's numbers.
   revalidatePath("/estimates");
+  revalidatePath("/pulse");
+  revalidatePath("/financials");
+  revalidatePath("/reports");
+  revalidatePath("/dashboard");
   if (customerId) {
     revalidatePath(`/customers/${customerId}`);
     redirect(`/customers/${customerId}`);

@@ -101,6 +101,23 @@ export function buildInsights(p: BusinessPulse): Insight[] {
     });
   }
 
+  // 4b) Profit is overstated because material cost is missing.
+  if (p.jobsMissingMaterial.length > 0) {
+    const rev = p.jobsMissingMaterial.reduce((s, j) => s + j.revenue, 0);
+    out.push({
+      id: "missing-material",
+      tone: "warning",
+      title: `${p.jobsMissingMaterial.length} completed job${
+        p.jobsMissingMaterial.length === 1 ? "" : "s"
+      } missing material cost`,
+      detail:
+        "These jobs show no material cost (no PO or stock pull), so their margin looks near 100%. Record what the materials cost to see true profit.",
+      impact: rev * 0.4, // rough material share of revenue
+      href: `/jobs/${p.jobsMissingMaterial[0].jobId}`,
+      cta: "Add material cost",
+    });
+  }
+
   // 5) Month-over-month trend.
   if (p.lastMonth.net !== 0 || p.thisMonth.net !== 0) {
     if (p.netDelta < 0) {
