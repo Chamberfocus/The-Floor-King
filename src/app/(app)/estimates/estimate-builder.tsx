@@ -51,6 +51,12 @@ interface LineState {
   style: string;
   color: string;
   item_no: string;
+  // Our cost + explicit qty/unit — preserved so the smart builder's bill of
+  // materials & margin survive a round-trip through this editor.
+  material_cost: string;
+  labor_cost: string;
+  quantity: string;
+  unit: string;
 }
 
 // Typical material waste by category (%), used as a smart default on pick.
@@ -80,6 +86,23 @@ function dimsToSqft(
   const L = num(lenFt) * 12 + num(lenIn);
   const W = num(widFt) * 12 + num(widIn);
   return L > 0 && W > 0 ? (L / 12) * (W / 12) : null;
+}
+/** Our cost for a line (material × waste + labor), matching lineTotal's qty. */
+function lineOurCost(l: LineState): number {
+  if (l.line_type === "flat") return 0;
+  const qty = lineQty({
+    line_type: l.line_type,
+    sqft: l.sqft,
+    measure_unit: l.measure_unit,
+    material_rate: l.material_rate,
+    labor_rate: l.labor_rate,
+    installed_rate: l.installed_rate,
+    flat_amount: l.flat_amount,
+    waste_pct: l.waste_pct,
+    quantity: l.quantity,
+  });
+  const waste = 1 + (num(l.waste_pct) || 0) / 100;
+  return qty * num(l.material_cost) * waste + qty * num(l.labor_cost);
 }
 
 interface OptionState {
@@ -161,6 +184,10 @@ export function EstimateBuilder({
     style: "",
     color: "",
     item_no: "",
+    material_cost: "",
+    labor_cost: "",
+    quantity: "",
+    unit: "",
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -199,6 +226,10 @@ export function EstimateBuilder({
         style: l.style ?? "",
         color: l.color ?? "",
         item_no: l.item_no ?? "",
+        material_cost: l.material_cost?.toString() ?? "",
+        labor_cost: l.labor_cost?.toString() ?? "",
+        quantity: l.quantity?.toString() ?? "",
+        unit: l.unit ?? "",
       })),
     }));
     return initial.length
@@ -382,6 +413,10 @@ export function EstimateBuilder({
         style: l.style || null,
         color: l.color || null,
         item_no: l.item_no || null,
+        material_cost: l.material_cost || null,
+        labor_cost: l.labor_cost || null,
+        quantity: l.quantity || null,
+        unit: l.unit || null,
       })),
     })),
   });
@@ -461,19 +496,26 @@ export function EstimateBuilder({
       {/* Options */}
       <div className="space-y-6">
         {options.map((option, oi) => {
-          const totals = optionTotals(
-            option.lines.map((l) => ({
-              line_type: l.line_type,
-              sqft: l.sqft,
-              measure_unit: l.measure_unit,
-              material_rate: l.material_rate,
-              labor_rate: l.labor_rate,
-              installed_rate: l.installed_rate,
-              flat_amount: l.flat_amount,
-              waste_pct: l.waste_pct,
-            })),
-            taxRate,
+          const calcLines = option.lines.map((l) => ({
+            line_type: l.line_type,
+            sqft: l.sqft,
+            measure_unit: l.measure_unit,
+            material_rate: l.material_rate,
+            labor_rate: l.labor_rate,
+            installed_rate: l.installed_rate,
+            flat_amount: l.flat_amount,
+            waste_pct: l.waste_pct,
+            quantity: l.quantity,
+          }));
+          const totals = optionTotals(calcLines, taxRate);
+          // Our cost & margin for this option (internal confirmation).
+          const optionCost = option.lines.reduce(
+            (s, l) => s + lineOurCost(l),
+            0,
           );
+          const optionProfit = totals.subtotal - optionCost;
+          const optionMargin =
+            totals.subtotal > 0 ? (optionProfit / totals.subtotal) * 100 : 0;
 
           return (
             <Card key={option.key}>
@@ -683,6 +725,14 @@ export function EstimateBuilder({
                       {line.line_type === "mat_labor" ? (
                         <>
                           <LabeledNumber
+                            label={`Our cost /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`}
+                            prefix="$"
+                            value={line.material_cost}
+                            onChange={(v) =>
+                              updateLine(oi, li, { material_cost: v })
+                            }
+                          />
+                          <LabeledNumber
                             label={`Material /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`}
                             prefix="$"
                             value={line.material_rate}
@@ -734,21 +784,34 @@ export function EstimateBuilder({
                           installed_rate: line.installed_rate,
                           flat_amount: line.flat_amount,
                           waste_pct: line.waste_pct,
+                          quantity: line.quantity,
                         };
                         const qty = lineQty(calc);
-                        const unitLabel =
-                          line.measure_unit === "sqyd" ? "sq yd" : "sq ft";
+                        const unitLabel = line.unit
+                          ? line.unit
+                          : line.measure_unit === "sqyd"
+                            ? "sq yd"
+                            : "sq ft";
+                        const sell = lineTotal(calc);
+                        const ourCost = lineOurCost(line);
+                        const m =
+                          sell > 0 ? ((sell - ourCost) / sell) * 100 : 0;
                         return (
                           <div className="ml-auto text-right">
                             <div className="text-xs text-muted-foreground">
                               Line total
                             </div>
                             <div className="font-semibold">
-                              {formatMoney(lineTotal(calc))}
+                              {formatMoney(sell)}
                             </div>
                             {line.line_type !== "flat" && qty > 0 ? (
                               <div className="text-[11px] tabular-nums text-muted-foreground">
                                 {qty.toFixed(qty < 100 ? 1 : 0)} {unitLabel}
+                              </div>
+                            ) : null}
+                            {ourCost > 0 ? (
+                              <div className="text-[11px] tabular-nums text-muted-foreground">
+                                cost {formatMoney(ourCost)} · {Math.round(m)}%
                               </div>
                             ) : null}
                           </div>
@@ -800,6 +863,33 @@ export function EstimateBuilder({
                     <span>Total</span>
                     <span>{formatMoney(totals.total)}</span>
                   </div>
+                  {optionCost > 0 ? (
+                    <div className="mt-1 space-y-1 border-t border-dashed pt-2 text-xs">
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Our cost (internal)</span>
+                        <span className="tabular-nums">
+                          {formatMoney(optionCost)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Profit</span>
+                        <span className="tabular-nums">
+                          {formatMoney(optionProfit)}
+                        </span>
+                      </div>
+                      <div
+                        className={cn(
+                          "flex justify-between font-medium",
+                          optionMargin < 30 ? "text-amber-600" : "text-emerald-600",
+                        )}
+                      >
+                        <span>Margin</span>
+                        <span className="tabular-nums">
+                          {Math.round(optionMargin)}%
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </CardContent>
             </Card>

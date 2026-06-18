@@ -21,6 +21,7 @@ import {
   companionQty,
   companionRolls,
   type FlooringProfile,
+  type Companion,
 } from "@/lib/flooring-profiles";
 import type { Product } from "@/lib/types";
 import { ProductPicker } from "./product-picker";
@@ -31,9 +32,24 @@ const num = (v: string) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/** Convert a catalog product's per-unit rate into the companion's billing unit. */
+function compRate(
+  productUnit: string | null,
+  compUnit: string,
+  rate: number,
+): number {
+  const isYd = (productUnit || "").toLowerCase().includes("yd");
+  if (compUnit === "sqyd" && !isYd) return rate * 9; // per sq ft → per sq yd
+  if (compUnit === "sqft" && isYd) return rate / 9; // per sq yd → per sq ft
+  return rate; // same family, or lnft / each — use as-is
+}
+
 interface CompState {
   on: boolean;
-  rate: string;
+  rate: string; // sell per unit
+  cost: string; // our cost per unit
+  productId: string | null;
+  productLabel: string;
 }
 interface Room {
   id: string;
@@ -107,7 +123,7 @@ function roomLines(r: Room): SmartLine[] {
     const rate = num(st.rate);
     out.push({
       room: r.name || null,
-      description: c.label,
+      description: st.productLabel ? `${c.label} — ${st.productLabel}` : c.label,
       category: c.category,
       measure_unit: c.unit === "sqyd" ? "sqyd" : "sqft",
       sqft: c.sizeBy === "area" ? (sqft > 0 ? sqft : null) : null,
@@ -115,9 +131,9 @@ function roomLines(r: Room): SmartLine[] {
       unit: c.unit,
       material_rate: c.labor ? 0 : rate,
       labor_rate: c.labor ? rate : 0,
-      material_cost: 0,
+      material_cost: c.labor ? 0 : num(st.cost),
       waste_pct: 0,
-      product_id: null,
+      product_id: c.labor ? null : st.productId,
       manufacturer: null,
       style: null,
       color: null,
@@ -126,6 +142,13 @@ function roomLines(r: Room): SmartLine[] {
   return out;
 }
 
+function lineQty(l: SmartLine): number {
+  return l.quantity && l.quantity > 0
+    ? l.quantity
+    : l.measure_unit === "sqyd"
+      ? (l.sqft ?? 0) / 9
+      : (l.sqft ?? 0);
+}
 function lineSell(l: SmartLine): number {
   const qty =
     l.quantity && l.quantity > 0
@@ -166,8 +189,66 @@ export function SmartBuilder({
   const chooseType = (id: string, type: string) => {
     const p = profileFor(type)!;
     const comps: Record<string, CompState> = {};
-    for (const c of p.companions) comps[c.key] = { on: c.defaultOn, rate: "" };
+    for (const c of p.companions)
+      comps[c.key] = {
+        on: c.defaultOn,
+        rate: "",
+        cost: "",
+        productId: null,
+        productLabel: "",
+      };
     update(id, { type, waste: String(p.waste), comps });
+  };
+
+  // Pick a real catalog product for a companion (e.g. the actual pad), pulling
+  // its cost and computing a sell price from the target margin.
+  const pickCompProduct = (
+    roomId: string,
+    comp: Companion,
+    p: Product | null,
+  ) => {
+    setRooms((rs) =>
+      rs.map((r) => {
+        if (r.id !== roomId) return r;
+        const prev = r.comps[comp.key] ?? {
+          on: true,
+          rate: "",
+          cost: "",
+          productId: null,
+          productLabel: "",
+        };
+        if (!p) {
+          return {
+            ...r,
+            comps: {
+              ...r.comps,
+              [comp.key]: { ...prev, productId: null, productLabel: "" },
+            },
+          };
+        }
+        const cost =
+          Math.round(compRate(p.unit, comp.unit, p.material_rate || 0) * 100) /
+          100;
+        const sell =
+          cost > 0 ? Math.round(priceFromMargin(cost, targetMargin) * 100) / 100 : 0;
+        return {
+          ...r,
+          comps: {
+            ...r.comps,
+            [comp.key]: {
+              ...prev,
+              on: true,
+              productId: p.id,
+              productLabel:
+                [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") ||
+                p.name,
+              cost: String(cost),
+              rate: String(sell),
+            },
+          },
+        };
+      }),
+    );
   };
 
   const pickProduct = (id: string, p: Product | null, profile: FlooringProfile) => {
@@ -379,7 +460,18 @@ export function SmartBuilder({
                     </label>
                     <div className="space-y-1.5">
                       {profile.companions.map((c) => {
-                        const st = r.comps[c.key] ?? { on: false, rate: "" };
+                        const st: CompState =
+                          r.comps[c.key] ?? {
+                            on: false,
+                            rate: "",
+                            cost: "",
+                            productId: null,
+                            productLabel: "",
+                          };
+                        const setComp = (patch: Partial<CompState>) =>
+                          update(r.id, {
+                            comps: { ...r.comps, [c.key]: { ...st, ...patch } },
+                          });
                         const qty = companionQty(
                           c,
                           sqft,
@@ -388,59 +480,74 @@ export function SmartBuilder({
                         return (
                           <div
                             key={c.key}
-                            className="flex flex-wrap items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm"
+                            className="rounded-md border px-2.5 py-1.5 text-sm"
                           >
-                            <label className="flex flex-1 items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={st.on}
-                                onChange={(e) =>
-                                  update(r.id, {
-                                    comps: {
-                                      ...r.comps,
-                                      [c.key]: { ...st, on: e.target.checked },
-                                    },
-                                  })
-                                }
-                                className="size-4 rounded border-input"
-                              />
-                              <span className={cn(!st.on && "text-muted-foreground")}>
-                                {c.label}
-                                {st.on ? (
-                                  <span className="ml-1 text-xs text-muted-foreground">
-                                    {qty} {c.unit}
-                                    {c.rollUnits
-                                      ? ` · ${companionRolls(c, qty)} roll${
-                                          companionRolls(c, qty) === 1 ? "" : "s"
-                                        }`
-                                      : ""}
-                                    {c.labor ? " · labor" : ""}
-                                  </span>
-                                ) : c.hint ? (
-                                  <span className="ml-1 text-xs text-muted-foreground">
-                                    {c.hint}
-                                  </span>
-                                ) : null}
-                              </span>
-                            </label>
-                            {st.on ? (
-                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                $
-                                <Input
-                                  value={st.rate}
-                                  onChange={(e) =>
-                                    update(r.id, {
-                                      comps: {
-                                        ...r.comps,
-                                        [c.key]: { ...st, rate: e.target.value },
-                                      },
-                                    })
-                                  }
-                                  inputMode="decimal"
-                                  placeholder="0.00"
-                                  className="h-7 w-20"
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="flex flex-1 items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={st.on}
+                                  onChange={(e) => setComp({ on: e.target.checked })}
+                                  className="size-4 rounded border-input"
                                 />
-                                /{c.unit}
+                                <span className={cn(!st.on && "text-muted-foreground")}>
+                                  {c.label}
+                                  {st.on ? (
+                                    <span className="ml-1 text-xs text-muted-foreground">
+                                      {qty} {c.unit}
+                                      {c.rollUnits
+                                        ? ` · ${companionRolls(c, qty)} roll${
+                                            companionRolls(c, qty) === 1 ? "" : "s"
+                                          }`
+                                        : ""}
+                                      {c.labor ? " · labor" : ""}
+                                    </span>
+                                  ) : c.hint ? (
+                                    <span className="ml-1 text-xs text-muted-foreground">
+                                      {c.hint}
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </label>
+                              {st.on && c.labor ? (
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  $
+                                  <Input
+                                    value={st.rate}
+                                    onChange={(e) => setComp({ rate: e.target.value })}
+                                    inputMode="decimal"
+                                    placeholder="0.00"
+                                    className="h-7 w-20"
+                                  />
+                                  /{c.unit}
+                                </div>
+                              ) : null}
+                            </div>
+
+                            {/* Material companion: pick the exact product from the
+                                catalog (e.g. which pad), then confirm cost & sell. */}
+                            {st.on && !c.labor ? (
+                              <div className="mt-2 space-y-2 border-t pt-2">
+                                <ProductPicker
+                                  value={st.productId ?? ""}
+                                  initialLabel={st.productLabel}
+                                  label={`${c.label} — from catalog`}
+                                  defaultCategory={c.category}
+                                  onPick={(p) => pickCompProduct(r.id, c, p)}
+                                  onCreated={(p) => pickCompProduct(r.id, c, p)}
+                                />
+                                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                  <PriceField
+                                    label={`Our cost /${c.unit}`}
+                                    value={st.cost}
+                                    onChange={(v) => setComp({ cost: v })}
+                                  />
+                                  <PriceField
+                                    label={`Sell /${c.unit}`}
+                                    value={st.rate}
+                                    onChange={(v) => setComp({ rate: v })}
+                                  />
+                                </div>
                               </div>
                             ) : null}
                           </div>
@@ -474,6 +581,95 @@ export function SmartBuilder({
       >
         <Plus className="size-4" /> Add another room
       </Button>
+
+      {/* Internal cost check — your cost per line, never shown to the customer */}
+      {allLines.length > 0 ? (
+        <details className="rounded-xl border bg-card" open>
+          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
+            Cost check{" "}
+            <span className="font-normal text-muted-foreground">
+              — your cost per line (internal only, not on the customer&apos;s
+              quote)
+            </span>
+          </summary>
+          <div className="overflow-x-auto border-t">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-xs text-muted-foreground">
+                  <th className="px-4 py-2 text-left font-medium">Line</th>
+                  <th className="px-3 py-2 text-right font-medium">Qty</th>
+                  <th className="px-3 py-2 text-right font-medium">Cost</th>
+                  <th className="px-3 py-2 text-right font-medium">Sell</th>
+                  <th className="px-3 py-2 text-right font-medium">Profit</th>
+                  <th className="px-4 py-2 text-right font-medium">Margin</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allLines.map((l, i) => {
+                  const sell = lineSell(l);
+                  const c = lineCost(l);
+                  const profit = sell - c;
+                  const m = marginPct(sell, c);
+                  const qty = lineQty(l);
+                  return (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="px-4 py-1.5">
+                        {l.room ? (
+                          <span className="text-muted-foreground">
+                            {l.room} ·{" "}
+                          </span>
+                        ) : null}
+                        {l.description}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                        {qty > 0
+                          ? `${Math.round(qty * 100) / 100} ${l.unit}`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {c > 0 ? formatMoney(c) : "—"}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {formatMoney(sell)}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {formatMoney(profit)}
+                      </td>
+                      <td
+                        className={cn(
+                          "px-4 py-1.5 text-right tabular-nums",
+                          c > 0 && m < targetMargin && "text-amber-600",
+                        )}
+                      >
+                        {c > 0 ? `${Math.round(m)}%` : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 font-semibold">
+                  <td className="px-4 py-2" colSpan={2}>
+                    Totals
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {formatMoney(cost)}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {formatMoney(grand)}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {formatMoney(grand - cost)}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {Math.round(margin)}%
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </details>
+      ) : null}
 
       {/* Sticky summary */}
       <div className="sticky bottom-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 shadow-lg">

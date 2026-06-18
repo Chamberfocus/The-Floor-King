@@ -30,11 +30,15 @@ function productLabel(p: Product): string {
 export function ProductPicker({
   value,
   initialLabel = "",
+  label = "Material (from catalog)",
+  defaultCategory,
   onPick,
   onCreated,
 }: {
   value: string;
   initialLabel?: string;
+  label?: string;
+  defaultCategory?: string;
   onPick: (product: Product | null) => void;
   onCreated: (product: Product) => void;
 }) {
@@ -134,7 +138,7 @@ export function ProductPicker({
   return (
     <div ref={boxRef} className="relative">
       <label className="mb-1 block text-xs text-muted-foreground">
-        Material (from catalog)
+        {label}
       </label>
       <div className="relative w-72">
         <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -178,6 +182,7 @@ export function ProductPicker({
           {adding ? (
             <AddProductForm
               initialName={q}
+              initialCategory={defaultCategory}
               onCancel={() => setAdding(false)}
               onCreated={(p) => {
                 onCreated(p);
@@ -300,10 +305,12 @@ export function ProductPicker({
 
 function AddProductForm({
   initialName,
+  initialCategory,
   onCancel,
   onCreated,
 }: {
   initialName: string;
+  initialCategory?: string;
   onCancel: () => void;
   onCreated: (p: Product) => void;
 }) {
@@ -313,7 +320,7 @@ function AddProductForm({
     manufacturer: "",
     style: "",
     color: "",
-    category: "lvp",
+    category: initialCategory || "lvp",
     unit: "sqft",
     sku: "",
     material_rate: "",
