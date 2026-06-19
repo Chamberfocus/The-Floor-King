@@ -825,13 +825,12 @@ export function EstimateBuilder({
                       })()}
                       <Button
                         type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Duplicate line"
-                        title="Repeat this material"
+                        variant="outline"
+                        size="sm"
+                        title="Make a copy of this line below"
                         onClick={() => duplicateLine(oi, li)}
                       >
-                        <Copy className="size-3.5" />
+                        <Copy className="size-3.5" /> Duplicate
                       </Button>
                       <Button
                         type="button"
