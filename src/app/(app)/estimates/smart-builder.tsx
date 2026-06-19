@@ -26,6 +26,7 @@ import {
 import { PRODUCT_CATEGORY_LABELS, type Product } from "@/lib/types";
 import { ProductPicker } from "./product-picker";
 import { AreaCalculator } from "@/components/area-calculator";
+import { CarpetPlanner } from "@/components/carpet-planner";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
 const num = (v: string) => {
@@ -649,6 +650,21 @@ export function SmartBuilder({
                         >
                           use L×W
                         </button>
+                      ) : null}
+                      {/* Carpet seam plan + installer diagram. */}
+                      {profile.category === "carpet" ? (
+                        <CarpetPlanner
+                          roomName={r.name || "this room"}
+                          initialLengthFt={num(r.length) || undefined}
+                          initialWidthFt={num(r.width) || undefined}
+                          onApply={(purchasedSqft, perimeter) =>
+                            update(r.id, {
+                              areaOverride: String(purchasedSqft),
+                              perimeterOverride: String(Math.round(perimeter)),
+                              waste: "0",
+                            })
+                          }
+                        />
                       ) : null}
                     </div>
                     <div className="pb-1.5 text-sm">
