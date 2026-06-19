@@ -34,6 +34,7 @@ import { getJobCostAnalysis } from "@/lib/data/finance";
 import { listJobLabor } from "@/lib/data/job-labor";
 import { getJobMaterials } from "@/lib/data/job-materials";
 import { getMeasurementDocuments } from "@/lib/data/documents";
+import { JobMeasurementUpload } from "./measurement-upload";
 import {
   getSchedulingSettings,
   getInstallerSuggestions,
@@ -274,48 +275,58 @@ export default async function JobPage({
       </Card>
 
       {/* Measurements & diagrams — big & clear for the installers */}
-      {measureDocs.length > 0 ? (
+      {job.customer_id ? (
         <Card className="mb-6 border-primary/30">
-          <CardHeader>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
             <CardTitle className="flex items-center gap-2 text-base">
               <Ruler className="size-4 text-primary" /> Measurements &amp; diagrams
             </CardTitle>
+            <JobMeasurementUpload jobId={job.id} />
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {measureDocs.map((d) => {
-                const img = (d.mime ?? "").startsWith("image/");
-                return (
-                  <a
-                    key={d.id}
-                    href={d.url ?? "#"}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block overflow-hidden rounded-lg border transition-colors hover:border-primary"
-                  >
-                    {img && d.url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={d.url}
-                        alt={d.name}
-                        className="max-h-[28rem] w-full bg-muted object-contain"
-                      />
-                    ) : (
-                      <div className="flex items-center gap-2 p-6 text-sm">
-                        <FileText className="size-6 text-muted-foreground" />
-                        Open {d.name}
-                      </div>
-                    )}
-                    <div className="border-t px-3 py-2 text-xs font-medium">
-                      {d.name}
-                    </div>
-                  </a>
-                );
-              })}
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Tap a diagram to open it full-size.
-            </p>
+            {measureDocs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No measurement diagram yet. Snap a photo of the field measurements
+                or attach the salesperson&apos;s drawing so the crew can see it.
+              </p>
+            ) : (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {measureDocs.map((d) => {
+                    const img = (d.mime ?? "").startsWith("image/");
+                    return (
+                      <a
+                        key={d.id}
+                        href={d.url ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block overflow-hidden rounded-lg border transition-colors hover:border-primary"
+                      >
+                        {img && d.url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={d.url}
+                            alt={d.name}
+                            className="max-h-[28rem] w-full bg-muted object-contain"
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2 p-6 text-sm">
+                            <FileText className="size-6 text-muted-foreground" />
+                            Open {d.name}
+                          </div>
+                        )}
+                        <div className="border-t px-3 py-2 text-xs font-medium">
+                          {d.name}
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Tap a diagram to open it full-size.
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : null}
