@@ -25,7 +25,11 @@ import {
 import { PRODUCT_CATEGORY_LABELS, type Product } from "@/lib/types";
 import { ProductPicker } from "./product-picker";
 import { AreaCalculator } from "@/components/area-calculator";
-import { createSmartEstimate, type SmartLine } from "./smart-actions";
+import {
+  createSmartEstimate,
+  saveAddonDefault,
+  type SmartLine,
+} from "./smart-actions";
 
 const num = (v: string) => {
   const n = parseFloat(v);
@@ -454,16 +458,45 @@ export function SmartBuilder({
   customerId,
   customerName,
   targetMargin,
+  addonDefaults = {},
 }: {
   customerId: string;
   customerName: string;
   targetMargin: number;
+  addonDefaults?: Record<
+    string,
+    { unit: string | null; cost: number | null; sell: number | null; labor: boolean }
+  >;
 }) {
   const [title, setTitle] = useState("");
   const [rooms, setRooms] = useState<Room[]>([newRoom()]);
-  const [addons, setAddons] = useState<Addon[]>(initialAddons);
+  const [addons, setAddons] = useState<Addon[]>(() =>
+    initialAddons().map((a) => {
+      const d = addonDefaults[a.label];
+      return d
+        ? {
+            ...a,
+            unit: d.unit || a.unit,
+            cost: d.cost != null ? String(d.cost) : a.cost,
+            sell: d.sell != null ? String(d.sell) : a.sell,
+            labor: d.labor,
+          }
+        : a;
+    }),
+  );
   const setAddon = (id: string, patch: Partial<Addon>) =>
     setAddons((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const saveDefault = async (a: Addon) => {
+    const res = await saveAddonDefault({
+      label: a.label.trim(),
+      unit: a.unit,
+      cost: num(a.cost),
+      sell: num(a.sell),
+      labor: a.labor,
+    });
+    if (res?.error) toast.error(res.error);
+    else toast.success(`Saved “${a.label.trim()}” as a default`);
+  };
   const [marginGoal, setMarginGoal] = useState(String(targetMargin));
   const [saving, startSave] = useTransition();
   // Job-level roll goods (carpet pad): quantity is figured off the whole job.
@@ -822,6 +855,14 @@ export function SmartBuilder({
               />
               labor
             </label>
+            <button
+              type="button"
+              onClick={() => saveDefault(a)}
+              title="Save this unit, cost & price as the default for this item"
+              className="rounded border px-1.5 py-0.5 text-[11px] font-medium hover:bg-muted"
+            >
+              Set as default
+            </button>
           </div>
         ) : null}
         {a.custom ? (

@@ -5,6 +5,38 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { ProductCategory } from "@/lib/types";
 
+/** Save an add-on's unit/cost/price as the default, so it pre-fills next time. */
+export async function saveAddonDefault(input: {
+  label: string;
+  unit: string;
+  cost: number;
+  sell: number;
+  labor: boolean;
+}): Promise<{ error: string | null }> {
+  const label = input.label?.trim();
+  if (!label) return { error: "Name the item before saving a default." };
+  const supabase = await createClient();
+  const { error } = await supabase.from("addon_defaults").upsert(
+    {
+      label,
+      unit: input.unit || null,
+      cost: input.cost || null,
+      sell: input.sell || null,
+      labor: !!input.labor,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "label" },
+  );
+  if (error) {
+    return {
+      error: error.message.includes("addon_defaults")
+        ? "Run migration 0045 first (the defaults table is missing)."
+        : error.message,
+    };
+  }
+  return { error: null };
+}
+
 export interface SmartLine {
   room: string | null;
   description: string;
