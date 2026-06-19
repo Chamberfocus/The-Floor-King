@@ -71,6 +71,7 @@ interface Room {
   laborRate: string; // labor sell per unit
   laborCost: string; // our labor cost per unit (what we pay)
   waste: string;
+  marginInput: string; // per-room margin % to re-price from cost
   notes: string; // crew/work-order notes for this room
   comps: Record<string, CompState>;
 }
@@ -94,6 +95,7 @@ const newRoom = (): Room => ({
   laborRate: "",
   laborCost: "",
   waste: "",
+  marginInput: "",
   notes: "",
   comps: {},
 });
@@ -295,31 +297,63 @@ function rollGoodsLines(
 /** A job-wide extra you add after the rooms (stairs, prep, furniture, etc.). */
 interface Addon {
   id: string;
-  description: string;
-  qty: string;
+  label: string;
   unit: string;
+  labor: boolean;
+  on: boolean;
+  qty: string;
   cost: string;
   sell: string;
-  labor: boolean;
+  custom: boolean;
 }
+// The standard run-through checklist so nothing gets forgotten. Check what the
+// job needs, then drop in cost + price. Add your own at the bottom.
+const DEFAULT_ADDONS: { label: string; unit: string; labor: boolean }[] = [
+  { label: "Tear out & haul away old flooring", unit: "sqft", labor: true },
+  { label: "Floor prep / leveling", unit: "sqft", labor: true },
+  { label: "Subfloor repair / replace", unit: "sqft", labor: true },
+  { label: "Move furniture", unit: "room", labor: true },
+  { label: "Disconnect / move appliances", unit: "each", labor: true },
+  { label: "Pull & reset toilet", unit: "each", labor: true },
+  { label: "Carpet / cover stairs", unit: "step", labor: false },
+  { label: "Transition strips / thresholds", unit: "each", labor: false },
+  { label: "Quarter round / shoe molding", unit: "lnft", labor: false },
+  { label: "Baseboard remove & reinstall", unit: "lnft", labor: true },
+  { label: "Undercut / trim doors", unit: "each", labor: true },
+  { label: "Dumpster / disposal fee", unit: "each", labor: false },
+];
 let addonSeq = 0;
-const newAddon = (): Addon => ({
+const initialAddons = (): Addon[] =>
+  DEFAULT_ADDONS.map((d) => ({
+    id: `x${addonSeq++}`,
+    label: d.label,
+    unit: d.unit,
+    labor: d.labor,
+    on: false,
+    qty: "",
+    cost: "",
+    sell: "",
+    custom: false,
+  }));
+const newCustomAddon = (): Addon => ({
   id: `x${addonSeq++}`,
-  description: "",
-  qty: "",
+  label: "",
   unit: "each",
+  labor: false,
+  on: true,
+  qty: "",
   cost: "",
   sell: "",
-  labor: false,
+  custom: true,
 });
 function addonLines(addons: Addon[]): SmartLine[] {
   const out: SmartLine[] = [];
   for (const a of addons) {
-    if (!a.description.trim()) continue;
+    if (!a.on || !a.label.trim()) continue;
     const qty = num(a.qty) || 1;
     out.push({
       room: null,
-      description: a.description.trim(),
+      description: a.label.trim(),
       category: a.labor ? "labor" : "other",
       measure_unit: "sqft",
       sqft: null,
@@ -390,9 +424,10 @@ export function SmartBuilder({
 }) {
   const [title, setTitle] = useState("");
   const [rooms, setRooms] = useState<Room[]>([newRoom()]);
-  const [addons, setAddons] = useState<Addon[]>([]);
+  const [addons, setAddons] = useState<Addon[]>(initialAddons);
   const setAddon = (id: string, patch: Partial<Addon>) =>
     setAddons((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const [marginGoal, setMarginGoal] = useState(String(targetMargin));
   const [saving, startSave] = useTransition();
   // Job-level roll goods (carpet pad): quantity is figured off the whole job.
   const [rollComps, setRollComps] = useState<Record<string, CompState>>(() => {
@@ -411,6 +446,48 @@ export function SmartBuilder({
 
   const setRoll = (key: string, patch: Partial<CompState>) =>
     setRollComps((rc) => ({ ...rc, [key]: { ...rc[key], ...patch } }));
+
+  // Margin helpers: turn a cost into a sell price at margin m.
+  const sellAt = (cost: number, m: number) =>
+    cost > 0 ? Math.round(priceFromMargin(cost, m) * 100) / 100 : 0;
+  const repriceComps = (comps: Record<string, CompState>, m: number) =>
+    Object.fromEntries(
+      Object.entries(comps).map(([k, c]) => [
+        k,
+        num(c.cost) > 0 ? { ...c, rate: String(sellAt(num(c.cost), m)) } : c,
+      ]),
+    );
+  // Re-price one room's material + labor + companion sells from their costs.
+  const applyRoomMargin = (roomId: string, m: number) =>
+    setRooms((rs) =>
+      rs.map((r) =>
+        r.id === roomId
+          ? {
+              ...r,
+              materialRate: num(r.materialCost) > 0 ? String(sellAt(num(r.materialCost), m)) : r.materialRate,
+              laborRate: num(r.laborCost) > 0 ? String(sellAt(num(r.laborCost), m)) : r.laborRate,
+              comps: repriceComps(r.comps, m),
+            }
+          : r,
+      ),
+    );
+  // Re-price the WHOLE estimate (rooms, companions, pad, add-ons) at margin m.
+  const applyMarginToAll = (m: number) => {
+    setRooms((rs) =>
+      rs.map((r) => ({
+        ...r,
+        materialRate: num(r.materialCost) > 0 ? String(sellAt(num(r.materialCost), m)) : r.materialRate,
+        laborRate: num(r.laborCost) > 0 ? String(sellAt(num(r.laborCost), m)) : r.laborRate,
+        comps: repriceComps(r.comps, m),
+      })),
+    );
+    setRollComps((rc) => repriceComps(rc, m));
+    setAddons((xs) =>
+      xs.map((a) =>
+        num(a.cost) > 0 ? { ...a, sell: String(sellAt(num(a.cost), m)) } : a,
+      ),
+    );
+  };
 
   // Pick the catalog product for a job-level roll good (the actual pad).
   const pickRollProduct = (comp: Companion, p: Product | null) => {
@@ -628,8 +705,29 @@ export function SmartBuilder({
             className="max-w-md"
           />
         </div>
-        {/* Standalone quick calculator — just figure a number, no estimate. */}
-        <AreaCalculator triggerLabel="Quick calculator" triggerVariant="outline" />
+        {/* Whole-estimate margin + standalone quick calculator. */}
+        <div className="flex items-end gap-2">
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              Target margin %
+            </label>
+            <Input
+              value={marginGoal}
+              onChange={(e) => setMarginGoal(e.target.value)}
+              inputMode="decimal"
+              className="h-9 w-20"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => applyMarginToAll(num(marginGoal))}
+            title="Set every sell price from its cost at this margin"
+          >
+            Price all at {Math.round(num(marginGoal))}%
+          </Button>
+          <AreaCalculator triggerLabel="Quick calculator" triggerVariant="outline" />
+        </div>
       </div>
 
       {rooms.map((r, idx) => {
@@ -823,6 +921,28 @@ export function SmartBuilder({
                         value={r.waste}
                         onChange={(v) => update(r.id, { waste: v })}
                       />
+                    </div>
+                    {/* Per-room margin: set this room's sell prices from cost. */}
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>Set this room&apos;s margin:</span>
+                      <Input
+                        value={r.marginInput}
+                        onChange={(e) => update(r.id, { marginInput: e.target.value })}
+                        inputMode="decimal"
+                        placeholder={String(Math.round(num(marginGoal)))}
+                        className="h-7 w-16"
+                      />
+                      <span>%</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          applyRoomMargin(r.id, num(r.marginInput) || num(marginGoal))
+                        }
+                      >
+                        Apply
+                      </Button>
                     </div>
                   </div>
 
@@ -1054,82 +1174,99 @@ export function SmartBuilder({
         );
       })}
 
-      {/* Job add-ons / extras — added after all the rooms */}
+      {/* Add-ons checklist — run through it so nothing's forgotten. Check what
+          the job needs, then drop in cost + price. */}
       <Card className="border-dashed">
-        <CardContent className="space-y-2 pt-5">
+        <CardContent className="space-y-1.5 pt-5">
           <div className="text-sm font-semibold">
-            Add-ons &amp; extras{" "}
+            Add-ons checklist{" "}
             <span className="font-normal text-muted-foreground">
-              (stairs, floor prep, furniture moving, haul-away…)
+              — check everything this job needs ({addons.filter((a) => a.on).length} selected)
             </span>
           </div>
-          {addons.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Nothing extra yet. Add anything beyond the rooms above.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {addons.map((a) => (
-                <div
-                  key={a.id}
-                  className="flex flex-wrap items-end gap-2 rounded-md border p-2"
-                >
-                  <div className="min-w-[10rem] flex-1">
-                    <label className="mb-1 block text-[11px] text-muted-foreground">
-                      Description
-                    </label>
-                    <Input
-                      value={a.description}
-                      onChange={(e) => setAddon(a.id, { description: e.target.value })}
-                      placeholder="e.g. Carpet stairs (13)"
-                      className="h-8"
-                    />
-                  </div>
-                  <div className="w-16">
-                    <label className="mb-1 block text-[11px] text-muted-foreground">Qty</label>
-                    <Input value={a.qty} onChange={(e) => setAddon(a.id, { qty: e.target.value })} inputMode="decimal" placeholder="1" className="h-8" />
-                  </div>
-                  <div className="w-20">
-                    <label className="mb-1 block text-[11px] text-muted-foreground">Unit</label>
-                    <Input value={a.unit} onChange={(e) => setAddon(a.id, { unit: e.target.value })} placeholder="each" className="h-8" />
-                  </div>
-                  <div className="w-20">
-                    <label className="mb-1 block text-[11px] text-muted-foreground">Our cost</label>
-                    <Input value={a.cost} onChange={(e) => setAddon(a.id, { cost: e.target.value })} inputMode="decimal" placeholder="0" className="h-8" />
-                  </div>
-                  <div className="w-20">
-                    <label className="mb-1 block text-[11px] text-muted-foreground">Sell</label>
-                    <Input value={a.sell} onChange={(e) => setAddon(a.id, { sell: e.target.value })} inputMode="decimal" placeholder="0" className="h-8" />
-                  </div>
-                  <label className="flex items-center gap-1 pb-1.5 text-xs text-muted-foreground">
+          <div className="divide-y rounded-md border">
+            {addons.map((a) => (
+              <div key={a.id} className="px-2 py-1.5 text-sm">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <label className="flex flex-1 items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={a.labor}
-                      onChange={(e) => setAddon(a.id, { labor: e.target.checked })}
+                      checked={a.on}
+                      onChange={(e) => setAddon(a.id, { on: e.target.checked })}
                       className="size-4 rounded border-input"
                     />
-                    labor
+                    {a.custom ? (
+                      <Input
+                        value={a.label}
+                        onChange={(e) => setAddon(a.id, { label: e.target.value })}
+                        placeholder="Custom add-on name"
+                        className="h-7 max-w-xs"
+                      />
+                    ) : (
+                      <span className={cn(!a.on && "text-muted-foreground")}>
+                        {a.label}
+                      </span>
+                    )}
                   </label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="Remove add-on"
-                    onClick={() => setAddons((xs) => xs.filter((x) => x.id !== a.id))}
-                  >
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
+                  {a.on ? (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Input
+                        value={a.qty}
+                        onChange={(e) => setAddon(a.id, { qty: e.target.value })}
+                        inputMode="decimal"
+                        placeholder="qty"
+                        className="h-7 w-14"
+                      />
+                      <span className="w-10">{a.unit}</span>
+                      $
+                      <Input
+                        value={a.cost}
+                        onChange={(e) => setAddon(a.id, { cost: e.target.value })}
+                        inputMode="decimal"
+                        placeholder="cost"
+                        className="h-7 w-16"
+                      />
+                      $
+                      <Input
+                        value={a.sell}
+                        onChange={(e) => setAddon(a.id, { sell: e.target.value })}
+                        inputMode="decimal"
+                        placeholder="price"
+                        className="h-7 w-16"
+                      />
+                      <label className="flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={a.labor}
+                          onChange={(e) => setAddon(a.id, { labor: e.target.checked })}
+                          className="size-3.5 rounded border-input"
+                        />
+                        labor
+                      </label>
+                    </div>
+                  ) : null}
+                  {a.custom ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Remove add-on"
+                      onClick={() => setAddons((xs) => xs.filter((x) => x.id !== a.id))}
+                    >
+                      <Trash2 className="size-4 text-destructive" />
+                    </Button>
+                  ) : null}
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            ))}
+          </div>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setAddons((xs) => [...xs, newAddon()])}
+            onClick={() => setAddons((xs) => [...xs, newCustomAddon()])}
           >
-            <Plus className="size-3.5" /> Add an add-on
+            <Plus className="size-3.5" /> Add a custom item
           </Button>
         </CardContent>
       </Card>
