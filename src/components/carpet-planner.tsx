@@ -94,6 +94,7 @@ export function CarpetPlanner({
   const [repeat, setRepeat] = useState("");
   const [run, setRun] = useState<RunChoice>("auto");
   const [saving, setSaving] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   const set = (id: string, patch: Partial<Area>) =>
@@ -226,78 +227,97 @@ export function CarpetPlanner({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Carpet plan &amp; install diagram</DialogTitle>
+            <DialogTitle>Carpet calculator &amp; diagram</DialogTitle>
             <DialogDescription>
-              How much carpet to buy and how to run it — roll width, nap in one
-              direction, the seam, and the pattern repeat. Add a row per
-              rectangle (an L-shaped room is two).
+              Type each room&apos;s length and width. We add up the total area and
+              tell you exactly how much carpet to order, then draw the cut plan.
+              (An L-shaped room is just two rectangles — add a row for each.)
             </DialogDescription>
           </DialogHeader>
 
-          {/* Shared roll + pattern + run */}
-          <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">
-                Roll width
-              </label>
-              <div className="flex gap-1.5">
-                {ROLL_WIDTHS.map((rw) => (
-                  <button
-                    key={rw}
-                    type="button"
-                    onClick={() => setRoll(rw)}
-                    className={cn(
-                      "rounded-md border px-2.5 py-1.5 text-sm",
-                      roll === rw
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "hover:bg-muted",
-                    )}
-                  >
-                    {ftToFtIn(rw)}
-                  </button>
-                ))}
+          {/* Advanced options — hidden by default so a non-flooring person can
+              just enter room sizes. Sensible defaults: 12' roll, plain, auto. */}
+          <div className="rounded-lg border">
+            <button
+              type="button"
+              onClick={() => setShowOptions((v) => !v)}
+              className="flex w-full items-center justify-between px-3 py-2 text-xs text-muted-foreground"
+            >
+              <span>
+                Carpet options — roll {ftToFtIn(roll)}
+                {num(repeat) > 0 ? ` · ${num(repeat)}" pattern` : " · plain"} ·{" "}
+                {run === "auto" ? "least-waste direction" : `run the ${run}`}
+              </span>
+              <span className="font-medium text-foreground">
+                {showOptions ? "Hide" : "Change"}
+              </span>
+            </button>
+            {showOptions ? (
+              <div className="grid gap-3 border-t p-3 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    How wide is the carpet roll?
+                  </label>
+                  <div className="flex gap-1.5">
+                    {ROLL_WIDTHS.map((rw) => (
+                      <button
+                        key={rw}
+                        type="button"
+                        onClick={() => setRoll(rw)}
+                        className={cn(
+                          "rounded-md border px-2.5 py-1.5 text-sm",
+                          roll === rw
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "hover:bg-muted",
+                        )}
+                      >
+                        {ftToFtIn(rw)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Patterned carpet? Repeat size (inches)
+                  </label>
+                  <Input
+                    value={repeat}
+                    onChange={(e) => setRepeat(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="0 = no pattern"
+                    className="h-9 w-32"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Direction to run it
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(
+                      [
+                        ["auto", "Auto (least waste)"],
+                        ["length", "Length"],
+                        ["width", "Width"],
+                      ] as [RunChoice, string][]
+                    ).map(([val, label]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setRun(val)}
+                        className={cn(
+                          "rounded-md border px-2.5 py-1.5 text-sm",
+                          run === val
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "hover:bg-muted",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">
-                Pattern repeat (in)
-              </label>
-              <Input
-                value={repeat}
-                onChange={(e) => setRepeat(e.target.value)}
-                inputMode="decimal"
-                placeholder="0 = plain"
-                className="h-9 w-28"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">
-                Run direction
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {(
-                  [
-                    ["auto", "Auto"],
-                    ["length", "Length"],
-                    ["width", "Width"],
-                  ] as [RunChoice, string][]
-                ).map(([val, label]) => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => setRun(val)}
-                    className={cn(
-                      "rounded-md border px-2.5 py-1.5 text-sm",
-                      run === val
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "hover:bg-muted",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            ) : null}
           </div>
 
           {/* Areas */}
@@ -315,6 +335,11 @@ export function CarpetPlanner({
                     a={p.area}
                     onChange={(patch) => set(p.area.id, patch)}
                   />
+                  {p.L > 0 && p.W > 0 ? (
+                    <span className="text-xs font-medium tabular-nums text-foreground">
+                      = {Math.round(p.L * p.W * 10) / 10} sq ft
+                    </span>
+                  ) : null}
                   {areas.length > 1 ? (
                     <Button
                       type="button"
@@ -378,25 +403,44 @@ export function CarpetPlanner({
             </Button>
           </div>
 
-          {/* Totals */}
+          {/* Totals — plain language */}
           {valid.length > 0 ? (
-            <div className="rounded-lg border bg-muted/40 p-3">
-              <div className="flex flex-wrap items-end gap-x-6 gap-y-2">
-                <Stat label="Total carpet to buy" value={`${totalSqyd} sq yd`} primary />
-                <Stat label="Linear feet" value={`${Math.round(totals.linearFt * 10) / 10} ft`} />
-                <Stat label="Seams" value={String(totals.seams)} />
-                <Stat label="Waste" value={`${wastePct}%`} />
-                <Stat label="Actual floor" value={`${roomSqyd} sq yd`} />
+            <div className="space-y-2 rounded-lg border-2 border-primary/30 bg-primary/5 p-3">
+              <div className="text-sm">
+                <span className="text-muted-foreground">
+                  Total floor area ({areas.filter((a) => feet(a.lf, a.li) > 0 && feet(a.wf, a.wi) > 0).length} room
+                  {valid.length === 1 ? "" : "s"}):{" "}
+                </span>
+                <span className="font-semibold tabular-nums">
+                  {Math.round(totals.roomSqft * 10) / 10} sq ft
+                </span>{" "}
+                <span className="text-muted-foreground">({roomSqyd} sq yd)</span>
+              </div>
+              <div className="text-base">
+                <span className="text-muted-foreground">Carpet to order: </span>
+                <span className="text-2xl font-bold tabular-nums text-primary">
+                  {totalSqyd} sq&nbsp;yd
+                </span>{" "}
+                <span className="text-sm text-muted-foreground">
+                  ({Math.round(totals.linearFt * 10) / 10} linear ft off a{" "}
+                  {ftToFtIn(roll)} roll · {totals.seams} seam
+                  {totals.seams === 1 ? "" : "s"} · {wastePct}% waste)
+                </span>
               </div>
               {areas.length > 1 ? (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Each area is planned separately, so this never comes up short.
-                  For one continuous L-shaped space, the installer can run drops
-                  across both parts and reuse offcuts to cut the waste below this.
+                <p className="text-xs text-muted-foreground">
+                  Each room is figured on its own, so this order is never short.
+                  For one continuous L-shaped space the installer can run carpet
+                  across both parts and reuse offcuts to trim the waste.
                 </p>
               ) : null}
             </div>
-          ) : null}
+          ) : (
+            <p className="rounded-lg border bg-muted/30 p-3 text-center text-sm text-muted-foreground">
+              Enter a room&apos;s length and width above to see the total and the
+              carpet you need.
+            </p>
+          )}
 
           <DialogFooter className="gap-2">
             {valid.length > 0 ? (
@@ -455,30 +499,6 @@ function DimRow({
       <Input value={a.wf} onChange={(e) => onChange({ wf: e.target.value })} inputMode="decimal" placeholder="ft" className="h-9 w-14" />
       <span>'</span>
       <Input value={a.wi} onChange={(e) => onChange({ wi: e.target.value })} inputMode="decimal" placeholder="in" className="h-9 w-12" />
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  primary,
-}: {
-  label: string;
-  value: string;
-  primary?: boolean;
-}) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div
-        className={cn(
-          "font-semibold capitalize tabular-nums",
-          primary ? "text-lg text-primary" : "text-sm",
-        )}
-      >
-        {value}
-      </div>
     </div>
   );
 }
