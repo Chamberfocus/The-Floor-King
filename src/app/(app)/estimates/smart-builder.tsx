@@ -295,51 +295,72 @@ function rollGoodsLines(
 }
 
 /** A job-wide extra you add after the rooms (stairs, prep, furniture, etc.). */
+type AddonGroup = "carpet" | "hard" | "custom";
 interface Addon {
   id: string;
   label: string;
   unit: string;
   labor: boolean;
+  group: AddonGroup;
   on: boolean;
   qty: string;
   cost: string;
   sell: string;
   custom: boolean;
 }
-// The standard run-through checklist so nothing gets forgotten. Check what the
-// job needs, then drop in cost + price. Add your own at the bottom.
-const DEFAULT_ADDONS: { label: string; unit: string; labor: boolean }[] = [
-  { label: "Tear out & haul away old flooring", unit: "sqft", labor: true },
-  { label: "Floor prep / leveling", unit: "sqft", labor: true },
-  { label: "Subfloor repair / replace", unit: "sqft", labor: true },
+type AddonDef = { label: string; unit: string; labor: boolean };
+// Two run-through checklists so nothing's forgotten — the builder shows whichever
+// matches the flooring in the job (both for a mixed job).
+const CARPET_ADDONS: AddonDef[] = [
+  { label: "Tear out & haul away old carpet & pad", unit: "sqft", labor: true },
+  { label: "Carpet / cover stairs", unit: "step", labor: true },
   { label: "Move furniture", unit: "room", labor: true },
   { label: "Disconnect / move appliances", unit: "each", labor: true },
+  { label: "Floor prep / leveling", unit: "sqft", labor: true },
+  { label: "Subfloor repair / replace", unit: "sqft", labor: true },
+  { label: "Transition strips (carpet to hard)", unit: "each", labor: false },
+  { label: "Metal / carpet trim", unit: "lnft", labor: false },
+  { label: "Dumpster / disposal fee", unit: "each", labor: false },
+];
+const HARD_ADDONS: AddonDef[] = [
+  { label: "Tear out & haul away old flooring", unit: "sqft", labor: true },
+  { label: "Floor prep / self-leveling / skim coat", unit: "sqft", labor: true },
+  { label: "Subfloor repair / replace", unit: "sqft", labor: true },
+  { label: "Moisture barrier / underlayment", unit: "sqft", labor: false },
   { label: "Pull & reset toilet", unit: "each", labor: true },
-  { label: "Carpet / cover stairs", unit: "step", labor: false },
-  { label: "Transition strips / thresholds", unit: "each", labor: false },
-  { label: "Quarter round / shoe molding", unit: "lnft", labor: false },
+  { label: "Disconnect / move appliances", unit: "each", labor: true },
+  { label: "Move furniture", unit: "room", labor: true },
   { label: "Baseboard remove & reinstall", unit: "lnft", labor: true },
-  { label: "Undercut / trim doors", unit: "each", labor: true },
+  { label: "Quarter round / shoe molding", unit: "lnft", labor: false },
+  { label: "Transition strips / thresholds", unit: "each", labor: false },
+  { label: "Undercut / trim door jambs & doors", unit: "each", labor: true },
+  { label: "Stair nosing / cap stairs", unit: "step", labor: true },
+  { label: "Grout sealing (tile)", unit: "sqft", labor: true },
   { label: "Dumpster / disposal fee", unit: "each", labor: false },
 ];
 let addonSeq = 0;
-const initialAddons = (): Addon[] =>
-  DEFAULT_ADDONS.map((d) => ({
-    id: `x${addonSeq++}`,
-    label: d.label,
-    unit: d.unit,
-    labor: d.labor,
-    on: false,
-    qty: "",
-    cost: "",
-    sell: "",
-    custom: false,
-  }));
+const mkAddon = (d: AddonDef, group: AddonGroup): Addon => ({
+  id: `x${addonSeq++}`,
+  label: d.label,
+  unit: d.unit,
+  labor: d.labor,
+  group,
+  on: false,
+  qty: "",
+  cost: "",
+  sell: "",
+  custom: false,
+});
+const initialAddons = (): Addon[] => [
+  ...CARPET_ADDONS.map((d) => mkAddon(d, "carpet")),
+  ...HARD_ADDONS.map((d) => mkAddon(d, "hard")),
+];
 const newCustomAddon = (): Addon => ({
   id: `x${addonSeq++}`,
   label: "",
   unit: "each",
   labor: false,
+  group: "custom",
   on: true,
   qty: "",
   cost: "",
@@ -690,6 +711,87 @@ export function SmartBuilder({
       if (res?.error) toast.error(res.error);
       // success redirects
     });
+
+  // Which add-on checklists to show — the ones matching the flooring in the job.
+  const hasCarpet = rooms.some((r) => profileFor(r.type)?.category === "carpet");
+  const hasHard = rooms.some((r) => {
+    const c = profileFor(r.type)?.category;
+    return !!c && c !== "carpet";
+  });
+  const showCarpet = hasCarpet || (!hasCarpet && !hasHard);
+  const showHard = hasHard || (!hasCarpet && !hasHard);
+
+  const renderAddonRow = (a: Addon) => (
+    <div key={a.id} className="px-2 py-1.5 text-sm">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <label className="flex flex-1 items-center gap-2">
+          <input
+            type="checkbox"
+            checked={a.on}
+            onChange={(e) => setAddon(a.id, { on: e.target.checked })}
+            className="size-4 rounded border-input"
+          />
+          {a.custom ? (
+            <Input
+              value={a.label}
+              onChange={(e) => setAddon(a.id, { label: e.target.value })}
+              placeholder="Custom add-on name"
+              className="h-7 max-w-xs"
+            />
+          ) : (
+            <span className={cn(!a.on && "text-muted-foreground")}>{a.label}</span>
+          )}
+        </label>
+        {a.on ? (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Input
+              value={a.qty}
+              onChange={(e) => setAddon(a.id, { qty: e.target.value })}
+              inputMode="decimal"
+              placeholder="qty"
+              className="h-7 w-14"
+            />
+            <span className="w-10">{a.unit}</span>$
+            <Input
+              value={a.cost}
+              onChange={(e) => setAddon(a.id, { cost: e.target.value })}
+              inputMode="decimal"
+              placeholder="cost"
+              className="h-7 w-16"
+            />
+            $
+            <Input
+              value={a.sell}
+              onChange={(e) => setAddon(a.id, { sell: e.target.value })}
+              inputMode="decimal"
+              placeholder="price"
+              className="h-7 w-16"
+            />
+            <label className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={a.labor}
+                onChange={(e) => setAddon(a.id, { labor: e.target.checked })}
+                className="size-3.5 rounded border-input"
+              />
+              labor
+            </label>
+          </div>
+        ) : null}
+        {a.custom ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Remove add-on"
+            onClick={() => setAddons((xs) => xs.filter((x) => x.id !== a.id))}
+          >
+            <Trash2 className="size-4 text-destructive" />
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-3">
@@ -1174,92 +1276,51 @@ export function SmartBuilder({
         );
       })}
 
-      {/* Add-ons checklist — run through it so nothing's forgotten. Check what
-          the job needs, then drop in cost + price. */}
+      {/* Add-ons checklists — two lists, shown to match the job's flooring. */}
       <Card className="border-dashed">
-        <CardContent className="space-y-1.5 pt-5">
+        <CardContent className="space-y-3 pt-5">
           <div className="text-sm font-semibold">
             Add-ons checklist{" "}
             <span className="font-normal text-muted-foreground">
-              — check everything this job needs ({addons.filter((a) => a.on).length} selected)
+              — check what this job needs ({addons.filter((a) => a.on).length}{" "}
+              selected)
             </span>
           </div>
-          <div className="divide-y rounded-md border">
-            {addons.map((a) => (
-              <div key={a.id} className="px-2 py-1.5 text-sm">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <label className="flex flex-1 items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={a.on}
-                      onChange={(e) => setAddon(a.id, { on: e.target.checked })}
-                      className="size-4 rounded border-input"
-                    />
-                    {a.custom ? (
-                      <Input
-                        value={a.label}
-                        onChange={(e) => setAddon(a.id, { label: e.target.value })}
-                        placeholder="Custom add-on name"
-                        className="h-7 max-w-xs"
-                      />
-                    ) : (
-                      <span className={cn(!a.on && "text-muted-foreground")}>
-                        {a.label}
-                      </span>
-                    )}
-                  </label>
-                  {a.on ? (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Input
-                        value={a.qty}
-                        onChange={(e) => setAddon(a.id, { qty: e.target.value })}
-                        inputMode="decimal"
-                        placeholder="qty"
-                        className="h-7 w-14"
-                      />
-                      <span className="w-10">{a.unit}</span>
-                      $
-                      <Input
-                        value={a.cost}
-                        onChange={(e) => setAddon(a.id, { cost: e.target.value })}
-                        inputMode="decimal"
-                        placeholder="cost"
-                        className="h-7 w-16"
-                      />
-                      $
-                      <Input
-                        value={a.sell}
-                        onChange={(e) => setAddon(a.id, { sell: e.target.value })}
-                        inputMode="decimal"
-                        placeholder="price"
-                        className="h-7 w-16"
-                      />
-                      <label className="flex items-center gap-1">
-                        <input
-                          type="checkbox"
-                          checked={a.labor}
-                          onChange={(e) => setAddon(a.id, { labor: e.target.checked })}
-                          className="size-3.5 rounded border-input"
-                        />
-                        labor
-                      </label>
-                    </div>
-                  ) : null}
-                  {a.custom ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Remove add-on"
-                      onClick={() => setAddons((xs) => xs.filter((x) => x.id !== a.id))}
-                    >
-                      <Trash2 className="size-4 text-destructive" />
-                    </Button>
-                  ) : null}
-                </div>
+
+          {showCarpet ? (
+            <div>
+              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Carpet
               </div>
-            ))}
-          </div>
+              <div className="divide-y rounded-md border">
+                {addons.filter((a) => a.group === "carpet").map(renderAddonRow)}
+              </div>
+            </div>
+          ) : null}
+
+          {showHard ? (
+            <div>
+              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Hard surface
+              </div>
+              <div className="divide-y rounded-md border">
+                {addons.filter((a) => a.group === "hard").map(renderAddonRow)}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Custom items (always shown) */}
+          {addons.some((a) => a.group === "custom") ? (
+            <div>
+              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Custom
+              </div>
+              <div className="divide-y rounded-md border">
+                {addons.filter((a) => a.group === "custom").map(renderAddonRow)}
+              </div>
+            </div>
+          ) : null}
+
           <Button
             type="button"
             variant="outline"
