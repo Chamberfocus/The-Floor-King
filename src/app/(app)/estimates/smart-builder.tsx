@@ -25,7 +25,6 @@ import {
 import { PRODUCT_CATEGORY_LABELS, type Product } from "@/lib/types";
 import { ProductPicker } from "./product-picker";
 import { AreaCalculator } from "@/components/area-calculator";
-import { CarpetPlanner } from "@/components/carpet-planner";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
 const num = (v: string) => {
@@ -765,22 +764,6 @@ export function SmartBuilder({
                           use L×W
                         </button>
                       ) : null}
-                      {/* Carpet seam plan + installer diagram. */}
-                      {profile.category === "carpet" ? (
-                        <CarpetPlanner
-                          roomName={r.name || "this room"}
-                          customerId={customerId}
-                          initialLengthFt={num(r.length) || undefined}
-                          initialWidthFt={num(r.width) || undefined}
-                          onApply={(purchasedSqft, perimeter) =>
-                            update(r.id, {
-                              areaOverride: String(purchasedSqft),
-                              perimeterOverride: String(Math.round(perimeter)),
-                              waste: "0",
-                            })
-                          }
-                        />
-                      ) : null}
                     </div>
                     <div className="pb-1.5 text-sm">
                       <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
@@ -1150,38 +1133,6 @@ export function SmartBuilder({
           </Button>
         </CardContent>
       </Card>
-
-      {/* Whole-job carpet diagram from the rooms you measured */}
-      {(() => {
-        const carpetAreas = rooms
-          .filter(
-            (r) =>
-              profileFor(r.type)?.category === "carpet" &&
-              num(r.length) > 0 &&
-              num(r.width) > 0,
-          )
-          .map((r) => ({
-            name: r.name || "Room",
-            lengthFt: num(r.length),
-            widthFt: num(r.width),
-          }));
-        if (!carpetAreas.length) return null;
-        return (
-          <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3">
-            <CarpetPlanner
-              triggerLabel="Create job diagram (all carpet rooms)"
-              triggerVariant="default"
-              triggerSize="default"
-              roomName="Whole job"
-              customerId={customerId}
-              initialAreas={carpetAreas}
-            />
-            <span className="text-xs text-muted-foreground">
-              Builds the seam/cut diagram for every carpet room you measured.
-            </span>
-          </div>
-        );
-      })()}
 
       {/* Internal cost check — your cost per line, never shown to the customer */}
       {allLines.length > 0 ? (
