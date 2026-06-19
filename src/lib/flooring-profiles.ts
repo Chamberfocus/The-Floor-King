@@ -62,8 +62,7 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     measureHint: "Carpet is priced by the square yard. Enter room L × W; we convert.",
     companions: [
       { key: "pad", label: "Carpet pad", category: "underlayment", sizeBy: "area", unit: "sqyd", defaultOn: true, rollUnits: 30, hint: "Rounded up to full 30 sq yd rolls." },
-      { key: "tackstrip", label: "Tackstrip", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: true, info: true, choices: ["Wood subfloor", "Concrete"], hint: "Flags the install — concrete needs glue-down/concrete nails." },
-      tearout("Tear out old carpet & pad", "sqyd"),
+      // Tackstrip & tear-out live in the carpet add-ons checklist (job-level).
     ],
   },
   lvp: {

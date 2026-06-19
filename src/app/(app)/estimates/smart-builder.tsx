@@ -313,6 +313,8 @@ type AddonDef = { label: string; unit: string; labor: boolean };
 // matches the flooring in the job (both for a mixed job).
 const CARPET_ADDONS: AddonDef[] = [
   { label: "Tear out & haul away old carpet & pad", unit: "sqft", labor: true },
+  { label: "Tackstrip — wood subfloor", unit: "lnft", labor: true },
+  { label: "Tackstrip — concrete (glue / concrete nail)", unit: "lnft", labor: true },
   { label: "Carpet / cover stairs", unit: "step", labor: true },
   { label: "Move furniture", unit: "room", labor: true },
   { label: "Disconnect / move appliances", unit: "each", labor: true },
