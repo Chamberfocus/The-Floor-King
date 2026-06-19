@@ -1,8 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { LayoutGrid, Printer, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { LayoutGrid, Printer, Plus, Trash2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { saveMeasurementDiagram } from "@/app/(app)/customers/[id]/document-actions";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -67,6 +69,7 @@ export function CarpetPlanner({
   roomName,
   initialLengthFt,
   initialWidthFt,
+  customerId,
   onApply,
 }: {
   triggerLabel?: string;
@@ -76,6 +79,7 @@ export function CarpetPlanner({
   roomName?: string;
   initialLengthFt?: number;
   initialWidthFt?: number;
+  customerId?: string;
   onApply?: (purchasedSqft: number, perimeterFt: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -85,6 +89,7 @@ export function CarpetPlanner({
   const [roll, setRoll] = useState(12);
   const [repeat, setRepeat] = useState("");
   const [run, setRun] = useState<RunChoice>("auto");
+  const [saving, setSaving] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   const set = (id: string, patch: Partial<Area>) =>
@@ -166,6 +171,40 @@ export function CarpetPlanner({
     w.document.close();
     w.focus();
     setTimeout(() => w.print(), 300);
+  };
+
+  // Save each area's diagram (as an SVG file) to the job as a measurement
+  // document, so installers see it next to the salesperson's sketch.
+  const saveToJob = async () => {
+    if (!customerId) return;
+    const svgs = printRef.current?.querySelectorAll("svg");
+    if (!svgs || !svgs.length) return;
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("customer_id", customerId);
+      const base = (roomName || "carpet").replace(/[^a-z0-9]+/gi, "-");
+      Array.from(svgs).forEach((svg, i) => {
+        const nm = (valid[i]?.area.name || `area-${i + 1}`).replace(
+          /[^a-z0-9]+/gi,
+          "-",
+        );
+        const xml = new XMLSerializer().serializeToString(svg);
+        const file = new File(
+          [`<?xml version="1.0" encoding="UTF-8"?>\n${xml}`],
+          `carpet-diagram-${base}-${nm}.svg`,
+          { type: "image/svg+xml" },
+        );
+        fd.append("file", file);
+      });
+      const res = await saveMeasurementDiagram(fd);
+      if (res?.error) toast.error(res.error);
+      else toast.success("Diagram saved to the job for installers");
+    } catch {
+      toast.error("Couldn't save the diagram.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -361,6 +400,16 @@ export function CarpetPlanner({
                 <Printer className="size-4" /> Print diagram
               </Button>
             ) : null}
+            {customerId && valid.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={saveToJob}
+                disabled={saving}
+              >
+                <Save className="size-4" /> {saving ? "Saving…" : "Save to job"}
+              </Button>
+            ) : null}
             <div className="flex-1" />
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
               Close
@@ -474,6 +523,7 @@ function CarpetDiagram({
 
   return (
     <svg
+      xmlns="http://www.w3.org/2000/svg"
       viewBox={`0 0 ${W} ${H}`}
       width={W}
       height={H}

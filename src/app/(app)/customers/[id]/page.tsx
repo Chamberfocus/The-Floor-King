@@ -197,7 +197,11 @@ export default async function CustomerPage({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <AreaCalculator triggerLabel="Calculator" triggerVariant="outline" />
-          <CarpetPlanner triggerLabel="Carpet plan" triggerVariant="outline" />
+          <CarpetPlanner
+            triggerLabel="Carpet plan"
+            triggerVariant="outline"
+            customerId={customer.id}
+          />
           {!customer.cancelled_at ? (
             <OnTheWayButton customerId={customer.id} />
           ) : null}

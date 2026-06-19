@@ -11,6 +11,8 @@ import {
   Check,
   Send,
   Megaphone,
+  Ruler,
+  FileText,
 } from "lucide-react";
 import {
   Card,
@@ -31,6 +33,7 @@ import { getProfileNames } from "@/lib/data/customers";
 import { getJobCostAnalysis } from "@/lib/data/finance";
 import { listJobLabor } from "@/lib/data/job-labor";
 import { getJobMaterials } from "@/lib/data/job-materials";
+import { getMeasurementDocuments } from "@/lib/data/documents";
 import {
   getSchedulingSettings,
   getInstallerSuggestions,
@@ -95,6 +98,11 @@ export default async function JobPage({
   const jobLabor = isStaff ? await listJobLabor(id) : [];
   // Materials & sourcing (stock vs special-order) — staff only.
   const jobMaterials = isStaff ? await getJobMaterials(id) : null;
+  // Measurement diagrams (uploaded sketch + saved carpet plan) — everyone on
+  // the job, crew included, so installers can read them without digging.
+  const measureDocs = job.customer_id
+    ? await getMeasurementDocuments(job.customer_id)
+    : [];
 
   // Smart install scheduling (staff + scheduler).
   const canSchedule = isStaff || profile.role === "scheduler";
@@ -264,6 +272,53 @@ export default async function JobPage({
           ) : null}
         </CardContent>
       </Card>
+
+      {/* Measurements & diagrams — big & clear for the installers */}
+      {measureDocs.length > 0 ? (
+        <Card className="mb-6 border-primary/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Ruler className="size-4 text-primary" /> Measurements &amp; diagrams
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {measureDocs.map((d) => {
+                const img = (d.mime ?? "").startsWith("image/");
+                return (
+                  <a
+                    key={d.id}
+                    href={d.url ?? "#"}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block overflow-hidden rounded-lg border transition-colors hover:border-primary"
+                  >
+                    {img && d.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={d.url}
+                        alt={d.name}
+                        className="max-h-[28rem] w-full bg-muted object-contain"
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2 p-6 text-sm">
+                        <FileText className="size-6 text-muted-foreground" />
+                        Open {d.name}
+                      </div>
+                    )}
+                    <div className="border-t px-3 py-2 text-xs font-medium">
+                      {d.name}
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Tap a diagram to open it full-size.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Smart install scheduling */}
       {schedSettings && installEst ? (

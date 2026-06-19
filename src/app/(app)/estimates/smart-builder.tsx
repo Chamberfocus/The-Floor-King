@@ -655,6 +655,7 @@ export function SmartBuilder({
                       {profile.category === "carpet" ? (
                         <CarpetPlanner
                           roomName={r.name || "this room"}
+                          customerId={customerId}
                           initialLengthFt={num(r.length) || undefined}
                           initialWidthFt={num(r.width) || undefined}
                           onApply={(purchasedSqft, perimeter) =>
