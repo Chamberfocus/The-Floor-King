@@ -307,8 +307,11 @@ interface Addon {
   cost: string;
   sell: string;
   custom: boolean;
+  choices?: string[]; // e.g. metal color
+  choice: string;
 }
-type AddonDef = { label: string; unit: string; labor: boolean };
+type AddonDef = { label: string; unit: string; labor: boolean; choices?: string[] };
+const METAL_COLORS = ["Silver", "Titanium", "Gold"];
 // Two run-through checklists so nothing's forgotten — the builder shows whichever
 // matches the flooring in the job (both for a mixed job).
 const CARPET_ADDONS: AddonDef[] = [
@@ -318,10 +321,13 @@ const CARPET_ADDONS: AddonDef[] = [
   { label: "Carpet / cover stairs", unit: "step", labor: true },
   { label: "Move furniture", unit: "room", labor: true },
   { label: "Disconnect / move appliances", unit: "each", labor: true },
+  { label: "Door shaving", unit: "each", labor: true },
   { label: "Floor prep / leveling", unit: "sqft", labor: true },
   { label: "Subfloor repair / replace", unit: "sqft", labor: true },
+  { label: "Flat metal", unit: "each", labor: false, choices: METAL_COLORS },
+  { label: "Gripper metal", unit: "each", labor: false, choices: METAL_COLORS },
   { label: "Transition strips (carpet to hard)", unit: "each", labor: false },
-  { label: "Metal / carpet trim", unit: "lnft", labor: false },
+  { label: "Place on curb", unit: "each", labor: true },
   { label: "Dumpster / disposal fee", unit: "each", labor: false },
 ];
 const HARD_ADDONS: AddonDef[] = [
@@ -334,10 +340,13 @@ const HARD_ADDONS: AddonDef[] = [
   { label: "Move furniture", unit: "room", labor: true },
   { label: "Baseboard remove & reinstall", unit: "lnft", labor: true },
   { label: "Quarter round / shoe molding", unit: "lnft", labor: false },
+  { label: "Flat metal", unit: "each", labor: false, choices: METAL_COLORS },
+  { label: "Gripper metal", unit: "each", labor: false, choices: METAL_COLORS },
   { label: "Transition strips / thresholds", unit: "each", labor: false },
-  { label: "Undercut / trim door jambs & doors", unit: "each", labor: true },
+  { label: "Door shaving", unit: "each", labor: true },
   { label: "Stair nosing / cap stairs", unit: "step", labor: true },
   { label: "Grout sealing (tile)", unit: "sqft", labor: true },
+  { label: "Place on curb", unit: "each", labor: true },
   { label: "Dumpster / disposal fee", unit: "each", labor: false },
 ];
 let addonSeq = 0;
@@ -352,6 +361,8 @@ const mkAddon = (d: AddonDef, group: AddonGroup): Addon => ({
   cost: "",
   sell: "",
   custom: false,
+  choices: d.choices,
+  choice: d.choices?.[0] ?? "",
 });
 const initialAddons = (): Addon[] => [
   ...CARPET_ADDONS.map((d) => mkAddon(d, "carpet")),
@@ -368,15 +379,18 @@ const newCustomAddon = (): Addon => ({
   cost: "",
   sell: "",
   custom: true,
+  choice: "",
 });
 function addonLines(addons: Addon[]): SmartLine[] {
   const out: SmartLine[] = [];
   for (const a of addons) {
     if (!a.on || !a.label.trim()) continue;
     const qty = num(a.qty) || 1;
+    const desc =
+      a.choices && a.choice ? `${a.label.trim()} — ${a.choice}` : a.label.trim();
     out.push({
       room: null,
-      description: a.label.trim(),
+      description: desc,
       category: a.labor ? "labor" : "other",
       measure_unit: "sqft",
       sqft: null,
@@ -750,6 +764,20 @@ export function SmartBuilder({
         </label>
         {a.on ? (
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            {a.choices ? (
+              <select
+                value={a.choice}
+                onChange={(e) => setAddon(a.id, { choice: e.target.value })}
+                className="h-7 rounded-md border border-input bg-transparent px-1 text-xs"
+                title="Color"
+              >
+                {a.choices.map((ch) => (
+                  <option key={ch} value={ch}>
+                    {ch}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <Input
               value={a.qty}
               onChange={(e) => setAddon(a.id, { qty: e.target.value })}
