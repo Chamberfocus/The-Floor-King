@@ -25,7 +25,7 @@ import {
 } from "@/lib/flooring-profiles";
 import { PRODUCT_CATEGORY_LABELS, type Product } from "@/lib/types";
 import { ProductPicker } from "./product-picker";
-import { AreaCalculator } from "./area-calculator";
+import { AreaCalculator } from "@/components/area-calculator";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
 const num = (v: string) => {

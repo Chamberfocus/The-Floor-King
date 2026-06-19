@@ -65,6 +65,7 @@ import { CustomerChat } from "./customer-chat";
 import { OnTheWayButton } from "./on-the-way-button";
 import { GuidedFlow } from "./guided-flow";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { AreaCalculator } from "@/components/area-calculator";
 import { CancelCustomer } from "./cancel-customer";
 import { DeleteCustomer } from "./delete-customer";
 import { AiFollowup } from "./ai-followup";
@@ -194,6 +195,7 @@ export default async function CustomerPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <AreaCalculator triggerLabel="Calculator" triggerVariant="outline" />
           {!customer.cancelled_at ? (
             <OnTheWayButton customerId={customer.id} />
           ) : null}

@@ -14,6 +14,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { GlobalSearch } from "@/components/global-search";
 import { ImportJobsBanner } from "@/components/import-jobs-banner";
+import { AreaCalculator } from "@/components/area-calculator";
 import { cn } from "@/lib/utils";
 import { APP_NAME, COMPANY_NAME, navItemsForRole } from "@/lib/nav";
 import { ROLE_LABELS, type OrgSettings, type Profile } from "@/lib/types";
@@ -170,7 +171,16 @@ export function AppShell({
               </SheetContent>
             </Sheet>
           </div>
-          <GlobalSearch className="w-full max-w-xl" />
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <GlobalSearch className="w-full max-w-xl" />
+          </div>
+          {profile.role !== "customer" ? (
+            <AreaCalculator
+              triggerLabel="Calculator"
+              triggerVariant="outline"
+              triggerClassName="shrink-0"
+            />
+          ) : null}
         </header>
 
         {profile.role !== "customer" ? <ImportJobsBanner /> : null}
