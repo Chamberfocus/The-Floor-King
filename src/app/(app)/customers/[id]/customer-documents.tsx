@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { FileText, Upload, Trash2, Download } from "lucide-react";
+import { FileText, Upload, Trash2, Download, Ruler } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { CustomerDocument } from "@/lib/types";
 import {
   uploadCustomerDocument,
@@ -19,6 +20,7 @@ import {
 } from "./document-actions";
 
 const initial: DocState = { error: null };
+const isImage = (d: CustomerDocument) => (d.mime ?? "").startsWith("image/");
 
 export function CustomerDocuments({
   customerId,
@@ -31,53 +33,136 @@ export function CustomerDocuments({
     uploadCustomerDocument,
     initial,
   );
-  const formRef = useRef<HTMLFormElement>(null);
-  const inputId = `doc-upload-${customerId}`;
+  const docFormRef = useRef<HTMLFormElement>(null);
+  const measureFormRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     if (state.ok) {
-      toast.success("Document uploaded");
-      formRef.current?.reset();
+      toast.success("Uploaded");
+      docFormRef.current?.reset();
+      measureFormRef.current?.reset();
     } else if (state.error) {
       toast.error(state.error);
     }
   }, [state]);
 
+  // Measurement diagrams (the salesperson's sketch) lead, with image previews.
+  const measurements = documents.filter((d) => d.kind === "measurement");
+  const others = documents.filter((d) => d.kind !== "measurement");
+
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-base">Documents</CardTitle>
-        <form ref={formRef} action={action}>
-          <input type="hidden" name="customer_id" value={customerId} />
-          <input
-            id={inputId}
-            type="file"
-            name="file"
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files?.length) e.currentTarget.form?.requestSubmit();
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={pending}
-            onClick={() => document.getElementById(inputId)?.click()}
-          >
-            <Upload className="size-3.5" /> {pending ? "Uploading…" : "Upload"}
-          </Button>
-        </form>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+        <CardTitle className="text-base">Documents &amp; measurements</CardTitle>
+        <div className="flex items-center gap-2">
+          {/* Measurement diagram upload (salesperson's sketch) */}
+          <form ref={measureFormRef} action={action}>
+            <input type="hidden" name="customer_id" value={customerId} />
+            <input type="hidden" name="kind" value="measurement" />
+            <input
+              id={`measure-upload-${customerId}`}
+              type="file"
+              name="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.length) e.currentTarget.form?.requestSubmit();
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() =>
+                document.getElementById(`measure-upload-${customerId}`)?.click()
+              }
+            >
+              <Ruler className="size-3.5" /> Measurement diagram
+            </Button>
+          </form>
+          {/* Any other document */}
+          <form ref={docFormRef} action={action}>
+            <input type="hidden" name="customer_id" value={customerId} />
+            <input type="hidden" name="kind" value="other" />
+            <input
+              id={`doc-upload-${customerId}`}
+              type="file"
+              name="file"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.length) e.currentTarget.form?.requestSubmit();
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() =>
+                document.getElementById(`doc-upload-${customerId}`)?.click()
+              }
+            >
+              <Upload className="size-3.5" /> {pending ? "Uploading…" : "Upload"}
+            </Button>
+          </form>
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         {documents.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No documents yet. Upload contracts, measurements, photos, order
-            confirmations, or anything else for this customer.
+            No documents yet. Upload the salesperson&apos;s{" "}
+            <strong>measurement diagram</strong> so it guides the quote and the
+            installers — plus contracts, photos, or order confirmations.
           </p>
-        ) : (
+        ) : null}
+
+        {/* Measurement diagrams — shown big so they actually help */}
+        {measurements.length > 0 ? (
+          <div>
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Ruler className="size-3.5" /> Measurement diagrams
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {measurements.map((d) => (
+                <div key={d.id} className="overflow-hidden rounded-lg border">
+                  {isImage(d) && d.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <a href={d.url} target="_blank" rel="noreferrer">
+                      <img
+                        src={d.url}
+                        alt={d.name}
+                        className="max-h-72 w-full bg-muted object-contain"
+                      />
+                    </a>
+                  ) : (
+                    <a
+                      href={d.url ?? "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-2 p-4 text-sm hover:underline"
+                    >
+                      <FileText className="size-5 text-muted-foreground" />
+                      {d.name}
+                    </a>
+                  )}
+                  <div className="flex items-center justify-between gap-2 border-t px-3 py-1.5 text-xs text-muted-foreground">
+                    <span className="truncate">{d.name}</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span>{formatDate(d.created_at)}</span>
+                      <DeleteBtn doc={d} customerId={customerId} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Everything else */}
+        {others.length > 0 ? (
           <ul className="divide-y text-sm">
-            {documents.map((d) => (
+            {others.map((d) => (
               <li
                 key={d.id}
                 className="flex items-center justify-between gap-3 py-2"
@@ -94,33 +179,36 @@ export function CustomerDocuments({
                 <div className="flex shrink-0 items-center gap-3 text-muted-foreground">
                   <span>{formatDate(d.created_at)}</span>
                   {d.url ? (
-                    <a
-                      href={d.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label="Download"
-                    >
+                    <a href={d.url} target="_blank" rel="noreferrer" aria-label="Download">
                       <Download className="size-4" />
                     </a>
                   ) : null}
-                  <form action={deleteCustomerDocument}>
-                    <input type="hidden" name="id" value={d.id} />
-                    <input type="hidden" name="path" value={d.path} />
-                    <input
-                      type="hidden"
-                      name="customer_id"
-                      value={customerId}
-                    />
-                    <button type="submit" aria-label="Delete document">
-                      <Trash2 className="size-4 hover:text-destructive" />
-                    </button>
-                  </form>
+                  <DeleteBtn doc={d} customerId={customerId} />
                 </div>
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function DeleteBtn({
+  doc,
+  customerId,
+}: {
+  doc: CustomerDocument;
+  customerId: string;
+}) {
+  return (
+    <form action={deleteCustomerDocument}>
+      <input type="hidden" name="id" value={doc.id} />
+      <input type="hidden" name="path" value={doc.path} />
+      <input type="hidden" name="customer_id" value={customerId} />
+      <button type="submit" aria-label="Delete document">
+        <Trash2 className={cn("size-4 hover:text-destructive")} />
+      </button>
+    </form>
   );
 }

@@ -18,6 +18,7 @@ export async function uploadCustomerDocument(
 ): Promise<DocState> {
   const customerId = str(formData.get("customer_id"));
   const file = formData.get("file");
+  const kind = str(formData.get("kind")) === "measurement" ? "measurement" : "other";
   if (!customerId) return { error: "Missing customer." };
   if (!(file instanceof File) || file.size === 0) {
     return { error: "Choose a file to upload." };
@@ -44,7 +45,7 @@ export async function uploadCustomerDocument(
     name: file.name,
     path,
     mime: file.type || null,
-    kind: "other",
+    kind,
   });
   if (error) return { error: error.message };
 
