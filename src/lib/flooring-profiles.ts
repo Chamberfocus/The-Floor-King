@@ -57,7 +57,7 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     measureHint: "Carpet is priced by the square yard. Enter room L × W; we convert.",
     companions: [
       { key: "pad", label: "Carpet pad", category: "underlayment", sizeBy: "area", unit: "sqyd", defaultOn: true, rollUnits: 30, hint: "Rounded up to full 30 sq yd rolls." },
-      { key: "tackstrip", label: "Tackstrip", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: false },
+      { key: "tackstrip", label: "Tackstrip", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: true, hint: "Part of the job — leave cost at $0 if you don't pay for it." },
       tearout("Tear out old carpet & pad", "sqyd"),
     ],
   },

@@ -16,6 +16,7 @@ export interface SmartLine {
   material_rate: number;
   labor_rate: number;
   material_cost: number;
+  labor_cost: number;
   waste_pct: number;
   product_id: string | null;
   manufacturer: string | null;
@@ -83,6 +84,7 @@ export async function createSmartEstimate(
     material_rate: Number(l.material_rate) || 0,
     labor_rate: Number(l.labor_rate) || 0,
     material_cost: Number(l.material_cost) || 0,
+    labor_cost: Number(l.labor_cost) || 0,
     waste_pct: Number(l.waste_pct) || 0,
     product_id: l.product_id || null,
     manufacturer: l.manufacturer || null,

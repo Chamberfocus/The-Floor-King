@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Ruler, Layers, Sparkles } from "lucide-react";
+import { Plus, Trash2, Copy, Ruler, Layers, Sparkles } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -23,7 +23,7 @@ import {
   type FlooringProfile,
   type Companion,
 } from "@/lib/flooring-profiles";
-import type { Product } from "@/lib/types";
+import { PRODUCT_CATEGORY_LABELS, type Product } from "@/lib/types";
 import { ProductPicker } from "./product-picker";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
@@ -64,7 +64,8 @@ interface Room {
   color: string | null;
   materialRate: string; // sell per unit
   materialCost: string; // our cost per unit
-  laborRate: string;
+  laborRate: string; // labor sell per unit
+  laborCost: string; // our labor cost per unit (what we pay)
   waste: string;
   comps: Record<string, CompState>;
 }
@@ -84,6 +85,7 @@ const newRoom = (): Room => ({
   materialRate: "",
   materialCost: "",
   laborRate: "",
+  laborCost: "",
   waste: "",
   comps: {},
 });
@@ -108,6 +110,7 @@ function roomLines(r: Room): SmartLine[] {
     material_rate: num(r.materialRate),
     labor_rate: num(r.laborRate),
     material_cost: num(r.materialCost),
+    labor_cost: num(r.laborCost),
     waste_pct: num(r.waste) || profile.waste,
     product_id: r.productId,
     manufacturer: r.manufacturer,
@@ -135,6 +138,7 @@ function roomLines(r: Room): SmartLine[] {
       material_rate: c.labor ? 0 : rate,
       labor_rate: c.labor ? rate : 0,
       material_cost: c.labor ? 0 : num(st.cost),
+      labor_cost: c.labor ? num(st.cost) : 0,
       waste_pct: 0,
       product_id: c.labor ? null : st.productId,
       manufacturer: null,
@@ -208,6 +212,7 @@ function rollGoodsLines(
       material_rate: num(st.rate),
       labor_rate: 0,
       material_cost: num(st.cost),
+      labor_cost: 0,
       waste_pct: 0,
       product_id: st.productId,
       manufacturer: null,
@@ -237,13 +242,25 @@ function lineSell(l: SmartLine): number {
   return mat + lab;
 }
 function lineCost(l: SmartLine): number {
-  const qty =
-    l.quantity && l.quantity > 0
-      ? l.quantity
-      : l.measure_unit === "sqyd"
-        ? (l.sqft ?? 0) / 9
-        : (l.sqft ?? 0);
-  return qty * l.material_cost * (1 + l.waste_pct / 100);
+  const qty = lineQty(l);
+  // Material cost carries waste (you buy extra); labor cost is on actual area.
+  return qty * l.material_cost * (1 + l.waste_pct / 100) + qty * l.labor_cost;
+}
+/** Split a line into its material vs labor cost & sell (for the cost check). */
+function lineSplit(l: SmartLine): {
+  matCost: number;
+  matSell: number;
+  labCost: number;
+  labSell: number;
+} {
+  const qty = lineQty(l);
+  const w = 1 + l.waste_pct / 100;
+  return {
+    matCost: qty * l.material_cost * w,
+    matSell: qty * l.material_rate * w,
+    labCost: qty * l.labor_cost,
+    labSell: qty * l.labor_rate,
+  };
 }
 
 export function SmartBuilder({
@@ -297,6 +314,24 @@ export function SmartBuilder({
 
   const update = (id: string, patch: Partial<Room>) =>
     setRooms((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+
+  // Copy a room (type, product, prices, waste, companions) into a fresh one
+  // right below it — so a multi-room estimate is just "copy, change the size."
+  const duplicateRoom = (id: string) =>
+    setRooms((rs) => {
+      const i = rs.findIndex((r) => r.id === id);
+      if (i < 0) return rs;
+      const src = rs[i];
+      const copy: Room = {
+        ...src,
+        id: `r${seq++}`,
+        name: src.name ? `${src.name} (copy)` : "",
+        comps: Object.fromEntries(
+          Object.entries(src.comps).map(([k, v]) => [k, { ...v }]),
+        ),
+      };
+      return [...rs.slice(0, i + 1), copy, ...rs.slice(i + 1)];
+    });
 
   const chooseType = (id: string, type: string) => {
     const p = profileFor(type)!;
@@ -393,6 +428,39 @@ export function SmartBuilder({
   const cost = allLines.reduce((s, l) => s + lineCost(l), 0);
   const margin = marginPct(grand, cost);
 
+  // Cost check, summarized by category and split into material vs labor.
+  const breakdown = useMemo(() => {
+    const mat = new Map<string, { cost: number; sell: number }>();
+    const lab = new Map<string, { cost: number; sell: number }>();
+    for (const l of allLines) {
+      const s = lineSplit(l);
+      const cat = l.category || "other";
+      if (s.matSell > 0 || s.matCost > 0) {
+        const e = mat.get(cat) ?? { cost: 0, sell: 0 };
+        e.cost += s.matCost;
+        e.sell += s.matSell;
+        mat.set(cat, e);
+      }
+      if (s.labSell > 0 || s.labCost > 0) {
+        const e = lab.get(cat) ?? { cost: 0, sell: 0 };
+        e.cost += s.labCost;
+        e.sell += s.labSell;
+        lab.set(cat, e);
+      }
+    }
+    const sum = (m: Map<string, { cost: number; sell: number }>) =>
+      [...m.values()].reduce(
+        (a, v) => ({ cost: a.cost + v.cost, sell: a.sell + v.sell }),
+        { cost: 0, sell: 0 },
+      );
+    return {
+      mat: [...mat.entries()],
+      lab: [...lab.entries()],
+      matTotal: sum(mat),
+      labTotal: sum(lab),
+    };
+  }, [allLines]);
+
   const save = () =>
     startSave(async () => {
       const lines = [
@@ -449,16 +517,28 @@ export function SmartBuilder({
                   className="h-9 max-w-xs"
                 />
               </div>
-              {rooms.length > 1 ? (
+              <div className="flex items-center gap-1">
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setRooms((rs) => rs.filter((x) => x.id !== r.id))}
+                  size="sm"
+                  title="Copy this room to a new one"
+                  onClick={() => duplicateRoom(r.id)}
                 >
-                  <Trash2 className="size-4 text-destructive" />
+                  <Copy className="size-3.5" /> Copy
                 </Button>
-              ) : null}
+                {rooms.length > 1 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Remove room"
+                    onClick={() => setRooms((rs) => rs.filter((x) => x.id !== r.id))}
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Flooring type */}
@@ -547,19 +627,24 @@ export function SmartBuilder({
                       onPick={(p) => pickProduct(r.id, p, profile)}
                       onCreated={(p) => pickProduct(r.id, p, profile)}
                     />
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                       <PriceField
-                        label={`Our cost /${profile.unit === "sqyd" ? "yd" : "ft"}`}
+                        label={`Mat. cost /${profile.unit === "sqyd" ? "yd" : "ft"}`}
                         value={r.materialCost}
                         onChange={(v) => update(r.id, { materialCost: v })}
                       />
                       <PriceField
-                        label={`Sell /${profile.unit === "sqyd" ? "yd" : "ft"}`}
+                        label={`Mat. sell /${profile.unit === "sqyd" ? "yd" : "ft"}`}
                         value={r.materialRate}
                         onChange={(v) => update(r.id, { materialRate: v })}
                       />
                       <PriceField
-                        label={`Labor /${profile.unit === "sqyd" ? "yd" : "ft"}`}
+                        label={`Labor cost /${profile.unit === "sqyd" ? "yd" : "ft"}`}
+                        value={r.laborCost}
+                        onChange={(v) => update(r.id, { laborCost: v })}
+                      />
+                      <PriceField
+                        label={`Labor sell /${profile.unit === "sqyd" ? "yd" : "ft"}`}
                         value={r.laborRate}
                         onChange={(v) => update(r.id, { laborRate: v })}
                       />
@@ -629,20 +714,24 @@ export function SmartBuilder({
                                   ) : null}
                                 </span>
                               </label>
-                              {st.on && c.labor ? (
-                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  $
-                                  <Input
-                                    value={st.rate}
-                                    onChange={(e) => setComp({ rate: e.target.value })}
-                                    inputMode="decimal"
-                                    placeholder="0.00"
-                                    className="h-7 w-20"
-                                  />
-                                  /{c.unit}
-                                </div>
-                              ) : null}
                             </div>
+
+                            {/* Labor companion (tear-out, prep): capture both
+                                what we pay (cost) and what we charge (sell). */}
+                            {st.on && c.labor ? (
+                              <div className="mt-2 grid grid-cols-2 gap-2 border-t pt-2 sm:grid-cols-3">
+                                <PriceField
+                                  label={`Our cost /${c.unit}`}
+                                  value={st.cost}
+                                  onChange={(v) => setComp({ cost: v })}
+                                />
+                                <PriceField
+                                  label={`Sell /${c.unit}`}
+                                  value={st.rate}
+                                  onChange={(v) => setComp({ rate: v })}
+                                />
+                              </div>
+                            ) : null}
 
                             {/* Material companion: pick the exact product from the
                                 catalog (e.g. which pad), then confirm cost & sell. */}
@@ -778,62 +867,80 @@ export function SmartBuilder({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-xs text-muted-foreground">
-                  <th className="px-4 py-2 text-left font-medium">Line</th>
-                  <th className="px-3 py-2 text-right font-medium">Qty</th>
+                  <th className="px-4 py-2 text-left font-medium">Category</th>
                   <th className="px-3 py-2 text-right font-medium">Cost</th>
                   <th className="px-3 py-2 text-right font-medium">Sell</th>
                   <th className="px-3 py-2 text-right font-medium">Profit</th>
                   <th className="px-4 py-2 text-right font-medium">Margin</th>
                 </tr>
               </thead>
+              {/* Materials, summarized by category */}
               <tbody>
-                {allLines.map((l, i) => {
-                  const sell = lineSell(l);
-                  const c = lineCost(l);
-                  const profit = sell - c;
-                  const m = marginPct(sell, c);
-                  const qty = lineQty(l);
-                  return (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className="px-4 py-1.5">
-                        {l.room ? (
-                          <span className="text-muted-foreground">
-                            {l.room} ·{" "}
-                          </span>
-                        ) : null}
-                        {l.description}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                        {qty > 0
-                          ? `${Math.round(qty * 100) / 100} ${l.unit}`
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">
-                        {c > 0 ? formatMoney(c) : "—"}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">
-                        {formatMoney(sell)}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">
-                        {formatMoney(profit)}
-                      </td>
-                      <td
-                        className={cn(
-                          "px-4 py-1.5 text-right tabular-nums",
-                          c > 0 && m < targetMargin && "text-amber-600",
-                        )}
-                      >
-                        {c > 0 ? `${Math.round(m)}%` : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
+                <tr className="bg-muted/40 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <td className="px-4 py-1.5" colSpan={5}>
+                    Materials
+                  </td>
+                </tr>
+                {breakdown.mat.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-1.5 text-muted-foreground" colSpan={5}>
+                      —
+                    </td>
+                  </tr>
+                ) : (
+                  breakdown.mat.map(([cat, v]) => (
+                    <CostRow
+                      key={`m-${cat}`}
+                      label={PRODUCT_CATEGORY_LABELS[cat as never] ?? cat}
+                      cost={v.cost}
+                      sell={v.sell}
+                      target={targetMargin}
+                    />
+                  ))
+                )}
+                <CostRow
+                  label="Material subtotal"
+                  cost={breakdown.matTotal.cost}
+                  sell={breakdown.matTotal.sell}
+                  target={targetMargin}
+                  bold
+                />
+              </tbody>
+              {/* Labor, summarized by category */}
+              <tbody>
+                <tr className="bg-muted/40 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <td className="px-4 py-1.5" colSpan={5}>
+                    Labor
+                  </td>
+                </tr>
+                {breakdown.lab.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-1.5 text-muted-foreground" colSpan={5}>
+                      —
+                    </td>
+                  </tr>
+                ) : (
+                  breakdown.lab.map(([cat, v]) => (
+                    <CostRow
+                      key={`l-${cat}`}
+                      label={PRODUCT_CATEGORY_LABELS[cat as never] ?? cat}
+                      cost={v.cost}
+                      sell={v.sell}
+                      target={targetMargin}
+                    />
+                  ))
+                )}
+                <CostRow
+                  label="Labor subtotal"
+                  cost={breakdown.labTotal.cost}
+                  sell={breakdown.labTotal.sell}
+                  target={targetMargin}
+                  bold
+                />
               </tbody>
               <tfoot>
-                <tr className="border-t-2 font-semibold">
-                  <td className="px-4 py-2" colSpan={2}>
-                    Totals
-                  </td>
+                <tr className="border-t-2 text-base font-semibold">
+                  <td className="px-4 py-2">Job total</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {formatMoney(cost)}
                   </td>
@@ -843,7 +950,12 @@ export function SmartBuilder({
                   <td className="px-3 py-2 text-right tabular-nums">
                     {formatMoney(grand - cost)}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
+                  <td
+                    className={cn(
+                      "px-4 py-2 text-right tabular-nums",
+                      margin < targetMargin && grand > 0 && "text-amber-600",
+                    )}
+                  >
                     {Math.round(margin)}%
                   </td>
                 </tr>
@@ -877,6 +989,42 @@ export function SmartBuilder({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** One summarized row in the cost check. */
+function CostRow({
+  label,
+  cost,
+  sell,
+  target,
+  bold,
+}: {
+  label: string;
+  cost: number;
+  sell: number;
+  target: number;
+  bold?: boolean;
+}) {
+  const profit = sell - cost;
+  const m = marginPct(sell, cost);
+  return (
+    <tr className={cn("border-b last:border-0", bold && "font-semibold")}>
+      <td className="px-4 py-1.5">{label}</td>
+      <td className="px-3 py-1.5 text-right tabular-nums">
+        {cost > 0 ? formatMoney(cost) : "—"}
+      </td>
+      <td className="px-3 py-1.5 text-right tabular-nums">{formatMoney(sell)}</td>
+      <td className="px-3 py-1.5 text-right tabular-nums">{formatMoney(profit)}</td>
+      <td
+        className={cn(
+          "px-4 py-1.5 text-right tabular-nums",
+          cost > 0 && m < target && "text-amber-600",
+        )}
+      >
+        {cost > 0 ? `${Math.round(m)}%` : "—"}
+      </td>
+    </tr>
   );
 }
 
