@@ -69,6 +69,7 @@ export function CarpetPlanner({
   roomName,
   initialLengthFt,
   initialWidthFt,
+  initialAreas,
   customerId,
   onApply,
 }: {
@@ -79,13 +80,16 @@ export function CarpetPlanner({
   roomName?: string;
   initialLengthFt?: number;
   initialWidthFt?: number;
+  initialAreas?: { name: string; lengthFt: number; widthFt: number }[];
   customerId?: string;
   onApply?: (purchasedSqft: number, perimeterFt: number) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [areas, setAreas] = useState<Area[]>([
-    newArea(roomName ?? "Main area", initialLengthFt, initialWidthFt),
-  ]);
+  const [areas, setAreas] = useState<Area[]>(
+    initialAreas && initialAreas.length
+      ? initialAreas.map((a) => newArea(a.name, a.lengthFt, a.widthFt))
+      : [newArea(roomName ?? "Main area", initialLengthFt, initialWidthFt)],
+  );
   const [roll, setRoll] = useState(12);
   const [repeat, setRepeat] = useState("");
   const [run, setRun] = useState<RunChoice>("auto");

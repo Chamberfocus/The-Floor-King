@@ -68,6 +68,7 @@ export async function getJobMaterials(jobId: string): Promise<JobMaterials> {
     .select("*")
     .eq("option_id", job.option_id as string)
     .neq("line_type", "flat")
+    .neq("category", "labor") // labor (install, tear-out, prep) isn't material
     .order("position", { ascending: true });
   const lines = (lineData ?? []) as RawLine[];
   if (!lines.length) return empty;

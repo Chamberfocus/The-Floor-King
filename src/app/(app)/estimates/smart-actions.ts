@@ -29,6 +29,7 @@ export interface SmartEstimateInput {
   title: string;
   taxRate: number;
   lines: SmartLine[];
+  jobDescription?: string;
 }
 
 export interface SmartResult {
@@ -57,6 +58,7 @@ export async function createSmartEstimate(
       status: "draft",
       tax_rate: Number(taxRate) || 0,
       presentation: "detailed",
+      job_description: input.jobDescription?.trim() || null,
       created_by: user?.id ?? null,
     })
     .select("id")

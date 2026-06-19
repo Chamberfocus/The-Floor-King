@@ -70,7 +70,7 @@ export async function createJobFromEstimate(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const { data: est } = await supabase
     .from("estimates")
-    .select("id, customer_id, title, accepted_option_id")
+    .select("id, customer_id, title, accepted_option_id, job_description")
     .eq("id", estimateId)
     .maybeSingle();
   if (!est) return;
@@ -103,6 +103,7 @@ export async function createJobFromEstimate(formData: FormData): Promise<void> {
       estimate_id: estimateId,
       option_id: optionId,
       title: (est.title as string) || "Job",
+      notes: (est.job_description as string | null) || null,
       created_by: user?.id ?? null,
       site_street: cust?.street ?? null,
       site_city: cust?.city ?? null,

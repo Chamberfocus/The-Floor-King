@@ -72,6 +72,7 @@ interface Room {
   laborRate: string; // labor sell per unit
   laborCost: string; // our labor cost per unit (what we pay)
   waste: string;
+  notes: string; // crew/work-order notes for this room
   comps: Record<string, CompState>;
 }
 
@@ -94,6 +95,7 @@ const newRoom = (): Room => ({
   laborRate: "",
   laborCost: "",
   waste: "",
+  notes: "",
   comps: {},
 });
 
@@ -118,7 +120,8 @@ function roomLines(r: Room): SmartLine[] {
   const perimeter = roomPerimeter(r);
   const out: SmartLine[] = [];
 
-  // Main material line
+  const unit = profile.unit === "sqyd" ? "sq yd" : "sq ft";
+  // Material line (the carpet/flooring itself) — no labor on it.
   out.push({
     room: r.name || null,
     description: r.productLabel || profile.label,
@@ -126,17 +129,39 @@ function roomLines(r: Room): SmartLine[] {
     measure_unit: profile.unit,
     sqft: sqft > 0 ? sqft : null,
     quantity: null,
-    unit: profile.unit === "sqyd" ? "sq yd" : "sq ft",
+    unit,
     material_rate: num(r.materialRate),
-    labor_rate: num(r.laborRate),
+    labor_rate: 0,
     material_cost: num(r.materialCost),
-    labor_cost: num(r.laborCost),
+    labor_cost: 0,
     waste_pct: num(r.waste) || profile.waste,
     product_id: r.productId,
     manufacturer: r.manufacturer,
     style: r.style,
     color: r.color,
   });
+
+  // Installation labor as its OWN line, separate from the cost of the material.
+  if (num(r.laborRate) > 0 || num(r.laborCost) > 0) {
+    out.push({
+      room: r.name || null,
+      description: `${profile.label} installation`,
+      category: "labor",
+      measure_unit: profile.unit,
+      sqft: sqft > 0 ? sqft : null,
+      quantity: null,
+      unit,
+      material_rate: 0,
+      labor_rate: num(r.laborRate),
+      material_cost: 0,
+      labor_cost: num(r.laborCost),
+      waste_pct: 0,
+      product_id: null,
+      manufacturer: null,
+      style: null,
+      color: null,
+    });
+  }
 
   // Companion lines (the ones turned on). Roll goods (carpet pad) are handled
   // at the JOB level — see rollGoodsLines — so the quantity is figured off the
@@ -243,6 +268,53 @@ function rollGoodsLines(
   return out;
 }
 
+/** A job-wide extra you add after the rooms (stairs, prep, furniture, etc.). */
+interface Addon {
+  id: string;
+  description: string;
+  qty: string;
+  unit: string;
+  cost: string;
+  sell: string;
+  labor: boolean;
+}
+let addonSeq = 0;
+const newAddon = (): Addon => ({
+  id: `x${addonSeq++}`,
+  description: "",
+  qty: "",
+  unit: "each",
+  cost: "",
+  sell: "",
+  labor: false,
+});
+function addonLines(addons: Addon[]): SmartLine[] {
+  const out: SmartLine[] = [];
+  for (const a of addons) {
+    if (!a.description.trim()) continue;
+    const qty = num(a.qty) || 1;
+    out.push({
+      room: null,
+      description: a.description.trim(),
+      category: a.labor ? "labor" : "other",
+      measure_unit: "sqft",
+      sqft: null,
+      quantity: qty,
+      unit: a.unit || "each",
+      material_rate: a.labor ? 0 : num(a.sell),
+      labor_rate: a.labor ? num(a.sell) : 0,
+      material_cost: a.labor ? 0 : num(a.cost),
+      labor_cost: a.labor ? num(a.cost) : 0,
+      waste_pct: 0,
+      product_id: null,
+      manufacturer: null,
+      style: null,
+      color: null,
+    });
+  }
+  return out;
+}
+
 function lineQty(l: SmartLine): number {
   return l.quantity && l.quantity > 0
     ? l.quantity
@@ -294,6 +366,9 @@ export function SmartBuilder({
 }) {
   const [title, setTitle] = useState("");
   const [rooms, setRooms] = useState<Room[]>([newRoom()]);
+  const [addons, setAddons] = useState<Addon[]>([]);
+  const setAddon = (id: string, patch: Partial<Addon>) =>
+    setAddons((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const [saving, startSave] = useTransition();
   // Job-level roll goods (carpet pad): quantity is figured off the whole job.
   const [rollComps, setRollComps] = useState<Record<string, CompState>>(() => {
@@ -441,8 +516,12 @@ export function SmartBuilder({
   };
 
   const allLines = useMemo(
-    () => [...rooms.flatMap(roomLines), ...rollGoodsLines(rooms, rollComps)],
-    [rooms, rollComps],
+    () => [
+      ...rooms.flatMap(roomLines),
+      ...rollGoodsLines(rooms, rollComps),
+      ...addonLines(addons),
+    ],
+    [rooms, rollComps, addons],
   );
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
   const cost = allLines.reduce((s, l) => s + lineCost(l), 0);
@@ -486,23 +565,30 @@ export function SmartBuilder({
       const lines = [
         ...rooms.flatMap(roomLines),
         ...rollGoodsLines(rooms, rollComps),
+        ...addonLines(addons),
       ].filter((l) => l.description.trim());
       if (!lines.length) {
         toast.error("Pick a flooring type and add a room first.");
         return;
       }
+      // Per-room notes → the estimate's job description (shown on the work order).
+      const jobDescription = rooms
+        .filter((r) => r.notes.trim())
+        .map((r) => `${r.name || "Room"}: ${r.notes.trim()}`)
+        .join("\n");
       const res = await createSmartEstimate({
         customerId,
         title,
         taxRate: 8,
         lines,
+        jobDescription: jobDescription || undefined,
       });
       if (res?.error) toast.error(res.error);
       // success redirects
     });
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex-1">
           <label className="mb-1 block text-xs text-muted-foreground">
@@ -528,7 +614,7 @@ export function SmartBuilder({
         const roomTotal = lines.reduce((s, l) => s + lineSell(l), 0);
         return (
           <Card key={r.id} className="border-primary/20">
-            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 px-4 py-3">
               <div className="flex flex-1 items-center gap-2">
                 <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                   {idx + 1}
@@ -563,7 +649,7 @@ export function SmartBuilder({
                 ) : null}
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-2.5 px-4 pb-3">
               {/* Flooring type */}
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
@@ -578,7 +664,7 @@ export function SmartBuilder({
                         type="button"
                         onClick={() => chooseType(r.id, t)}
                         className={cn(
-                          "rounded-lg border px-3 py-1.5 text-sm transition-colors",
+                          "rounded-md border px-2.5 py-1 text-xs transition-colors",
                           r.type === t
                             ? "border-primary bg-primary text-primary-foreground"
                             : "hover:bg-muted",
@@ -838,6 +924,20 @@ export function SmartBuilder({
                     </div>
                   </div>
 
+                  {/* Notes for this room (work order / crew) */}
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                      Room notes (optional — shown on the work order)
+                    </label>
+                    <textarea
+                      value={r.notes}
+                      onChange={(e) => update(r.id, { notes: e.target.value })}
+                      rows={2}
+                      placeholder="e.g. move couch, tricky transition at the hall, stairs separate"
+                      className="w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                  </div>
+
                   <div className="flex justify-end border-t pt-2 text-sm">
                     Room total:{" "}
                     <span className="ml-1 font-semibold">
@@ -925,6 +1025,118 @@ export function SmartBuilder({
           </Card>
         );
       })}
+
+      {/* Job add-ons / extras — added after all the rooms */}
+      <Card className="border-dashed">
+        <CardContent className="space-y-2 pt-5">
+          <div className="text-sm font-semibold">
+            Add-ons &amp; extras{" "}
+            <span className="font-normal text-muted-foreground">
+              (stairs, floor prep, furniture moving, haul-away…)
+            </span>
+          </div>
+          {addons.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Nothing extra yet. Add anything beyond the rooms above.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {addons.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex flex-wrap items-end gap-2 rounded-md border p-2"
+                >
+                  <div className="min-w-[10rem] flex-1">
+                    <label className="mb-1 block text-[11px] text-muted-foreground">
+                      Description
+                    </label>
+                    <Input
+                      value={a.description}
+                      onChange={(e) => setAddon(a.id, { description: e.target.value })}
+                      placeholder="e.g. Carpet stairs (13)"
+                      className="h-8"
+                    />
+                  </div>
+                  <div className="w-16">
+                    <label className="mb-1 block text-[11px] text-muted-foreground">Qty</label>
+                    <Input value={a.qty} onChange={(e) => setAddon(a.id, { qty: e.target.value })} inputMode="decimal" placeholder="1" className="h-8" />
+                  </div>
+                  <div className="w-20">
+                    <label className="mb-1 block text-[11px] text-muted-foreground">Unit</label>
+                    <Input value={a.unit} onChange={(e) => setAddon(a.id, { unit: e.target.value })} placeholder="each" className="h-8" />
+                  </div>
+                  <div className="w-20">
+                    <label className="mb-1 block text-[11px] text-muted-foreground">Our cost</label>
+                    <Input value={a.cost} onChange={(e) => setAddon(a.id, { cost: e.target.value })} inputMode="decimal" placeholder="0" className="h-8" />
+                  </div>
+                  <div className="w-20">
+                    <label className="mb-1 block text-[11px] text-muted-foreground">Sell</label>
+                    <Input value={a.sell} onChange={(e) => setAddon(a.id, { sell: e.target.value })} inputMode="decimal" placeholder="0" className="h-8" />
+                  </div>
+                  <label className="flex items-center gap-1 pb-1.5 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={a.labor}
+                      onChange={(e) => setAddon(a.id, { labor: e.target.checked })}
+                      className="size-4 rounded border-input"
+                    />
+                    labor
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Remove add-on"
+                    onClick={() => setAddons((xs) => xs.filter((x) => x.id !== a.id))}
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setAddons((xs) => [...xs, newAddon()])}
+          >
+            <Plus className="size-3.5" /> Add an add-on
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Whole-job carpet diagram from the rooms you measured */}
+      {(() => {
+        const carpetAreas = rooms
+          .filter(
+            (r) =>
+              profileFor(r.type)?.category === "carpet" &&
+              num(r.length) > 0 &&
+              num(r.width) > 0,
+          )
+          .map((r) => ({
+            name: r.name || "Room",
+            lengthFt: num(r.length),
+            widthFt: num(r.width),
+          }));
+        if (!carpetAreas.length) return null;
+        return (
+          <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3">
+            <CarpetPlanner
+              triggerLabel="Create job diagram (all carpet rooms)"
+              triggerVariant="default"
+              triggerSize="default"
+              roomName="Whole job"
+              customerId={customerId}
+              initialAreas={carpetAreas}
+            />
+            <span className="text-xs text-muted-foreground">
+              Builds the seam/cut diagram for every carpet room you measured.
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Internal cost check — your cost per line, never shown to the customer */}
       {allLines.length > 0 ? (
@@ -1112,13 +1324,15 @@ function PriceField({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
+      <label className="mb-0.5 block text-[11px] text-muted-foreground">
+        {label}
+      </label>
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         inputMode="decimal"
         placeholder="0"
-        className="h-9"
+        className="h-8"
       />
     </div>
   );

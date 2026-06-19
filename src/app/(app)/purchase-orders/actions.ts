@@ -85,9 +85,12 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
   if (error || !po) return;
 
   const items = lines
-    // Include every quantity-bearing line — area-measured AND perimeter/each
-    // companions (tackstrip, transitions, trim) which have qty but no sqft.
-    .filter((l) => l.line_type !== "flat" && lineQty(l) > 0)
+    // Include every quantity-bearing MATERIAL line — area-measured AND
+    // perimeter/each companions (tackstrip, transitions, trim). Labor lines
+    // (install, tear-out, prep) are never ordered as material.
+    .filter(
+      (l) => l.line_type !== "flat" && l.category !== "labor" && lineQty(l) > 0,
+    )
     .map((l, i) => {
       // PO cost = our cost (saved material_cost), else the product's cost,
       // never the customer sell rate.
