@@ -712,6 +712,10 @@ export function SmartBuilder({
       // success redirects
     });
 
+  // Total job area (so add-on quantities like floor prep are easy to fill in).
+  const jobSqft = Math.round(rooms.reduce((s, r) => s + roomSqft(r), 0) * 10) / 10;
+  const jobSqyd = Math.round((jobSqft / 9) * 10) / 10;
+
   // Which add-on checklists to show — the ones matching the flooring in the job.
   const hasCarpet = rooms.some((r) => profileFor(r.type)?.category === "carpet");
   const hasHard = rooms.some((r) => {
@@ -751,7 +755,19 @@ export function SmartBuilder({
               placeholder="qty"
               className="h-7 w-14"
             />
-            <span className="w-10">{a.unit}</span>$
+            <select
+              value={a.unit}
+              onChange={(e) => setAddon(a.id, { unit: e.target.value })}
+              className="h-7 rounded-md border border-input bg-transparent px-1 text-xs"
+            >
+              <option value="each">each</option>
+              <option value="sqft">sq ft</option>
+              <option value="sqyd">sq yd</option>
+              <option value="lnft">ln ft</option>
+              <option value="step">step</option>
+              <option value="room">room</option>
+            </select>
+            $
             <Input
               value={a.cost}
               onChange={(e) => setAddon(a.id, { cost: e.target.value })}
@@ -1279,12 +1295,19 @@ export function SmartBuilder({
       {/* Add-ons checklists — two lists, shown to match the job's flooring. */}
       <Card className="border-dashed">
         <CardContent className="space-y-3 pt-5">
-          <div className="text-sm font-semibold">
-            Add-ons checklist{" "}
-            <span className="font-normal text-muted-foreground">
-              — check what this job needs ({addons.filter((a) => a.on).length}{" "}
-              selected)
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-semibold">
+              Add-ons checklist{" "}
+              <span className="font-normal text-muted-foreground">
+                — check what this job needs ({addons.filter((a) => a.on).length}{" "}
+                selected)
+              </span>
+            </div>
+            {jobSqft > 0 ? (
+              <div className="rounded-md bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                Job total: {jobSqft} sq ft · {jobSqyd} sq yd
+              </div>
+            ) : null}
           </div>
 
           {showCarpet ? (
