@@ -5,6 +5,39 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { ProductCategory } from "@/lib/types";
 
+/** Save a flooring type's material/labor rates + waste as the default. */
+export async function saveRoomDefault(input: {
+  category: string;
+  materialCost: number;
+  materialSell: number;
+  laborCost: number;
+  laborSell: number;
+  waste: number;
+}): Promise<{ error: string | null }> {
+  if (!input.category) return { error: "Pick a flooring type first." };
+  const supabase = await createClient();
+  const { error } = await supabase.from("room_defaults").upsert(
+    {
+      category: input.category,
+      material_cost: input.materialCost || null,
+      material_sell: input.materialSell || null,
+      labor_cost: input.laborCost || null,
+      labor_sell: input.laborSell || null,
+      waste: input.waste || null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "category" },
+  );
+  if (error) {
+    return {
+      error: error.message.includes("room_defaults")
+        ? "Run migration 0046 first (the defaults table is missing)."
+        : error.message,
+    };
+  }
+  return { error: null };
+}
+
 /** Save an add-on's unit/cost/price as the default, so it pre-fills next time. */
 export async function saveAddonDefault(input: {
   label: string;

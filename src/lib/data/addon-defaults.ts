@@ -33,3 +33,36 @@ export async function getAddonDefaults(): Promise<Record<string, AddonDefault>> 
     return {};
   }
 }
+
+export interface RoomDefault {
+  materialCost: number | null;
+  materialSell: number | null;
+  laborCost: number | null;
+  laborSell: number | null;
+  waste: number | null;
+}
+
+/** Saved default pricing per flooring category. Resilient (returns {} if absent). */
+export async function getRoomDefaults(): Promise<Record<string, RoomDefault>> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("room_defaults")
+      .select("category, material_cost, material_sell, labor_cost, labor_sell, waste");
+    if (error || !data) return {};
+    const num = (v: unknown) => (v == null ? null : Number(v));
+    const out: Record<string, RoomDefault> = {};
+    for (const r of data) {
+      out[r.category as string] = {
+        materialCost: num(r.material_cost),
+        materialSell: num(r.material_sell),
+        laborCost: num(r.labor_cost),
+        laborSell: num(r.labor_sell),
+        waste: num(r.waste),
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}

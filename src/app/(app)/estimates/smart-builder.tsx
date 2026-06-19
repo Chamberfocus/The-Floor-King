@@ -28,6 +28,7 @@ import { AreaCalculator } from "@/components/area-calculator";
 import {
   createSmartEstimate,
   saveAddonDefault,
+  saveRoomDefault,
   type SmartLine,
 } from "./smart-actions";
 
@@ -459,6 +460,7 @@ export function SmartBuilder({
   customerName,
   targetMargin,
   addonDefaults = {},
+  roomDefaults = {},
 }: {
   customerId: string;
   customerName: string;
@@ -466,6 +468,16 @@ export function SmartBuilder({
   addonDefaults?: Record<
     string,
     { unit: string | null; cost: number | null; sell: number | null; labor: boolean }
+  >;
+  roomDefaults?: Record<
+    string,
+    {
+      materialCost: number | null;
+      materialSell: number | null;
+      laborCost: number | null;
+      laborSell: number | null;
+      waste: number | null;
+    }
   >;
 }) {
   const [title, setTitle] = useState("");
@@ -502,17 +514,32 @@ export function SmartBuilder({
   // Job-level roll goods (carpet pad): quantity is figured off the whole job.
   const [rollComps, setRollComps] = useState<Record<string, CompState>>(() => {
     const init: Record<string, CompState> = {};
-    for (const c of ROLL_COMPANIONS)
+    for (const c of ROLL_COMPANIONS) {
+      const d = addonDefaults[c.label]; // pad pre-fills from its saved default
       init[c.key] = {
         on: c.defaultOn,
-        rate: "",
-        cost: "",
+        rate: d?.sell != null ? String(d.sell) : "",
+        cost: d?.cost != null ? String(d.cost) : "",
         productId: null,
         productLabel: "",
         choice: "",
       };
+    }
     return init;
   });
+
+  const savePadDefault = async (comp: Companion) => {
+    const st = rollComps[comp.key];
+    const res = await saveAddonDefault({
+      label: comp.label,
+      unit: comp.unit,
+      cost: num(st.cost),
+      sell: num(st.rate),
+      labor: false,
+    });
+    if (res?.error) toast.error(res.error);
+    else toast.success(`Saved default ${comp.label} rate`);
+  };
 
   const setRoll = (key: string, patch: Partial<CompState>) =>
     setRollComps((rc) => ({ ...rc, [key]: { ...rc[key], ...patch } }));
@@ -612,7 +639,35 @@ export function SmartBuilder({
         productLabel: "",
         choice: c.choices?.[0] ?? "",
       };
-    update(id, { type, waste: String(p.waste), comps });
+    // Pre-fill the rates from this flooring type's saved defaults (if any).
+    const d = roomDefaults[p.category];
+    update(id, {
+      type,
+      waste: d?.waste != null ? String(d.waste) : String(p.waste),
+      materialCost: d?.materialCost != null ? String(d.materialCost) : "",
+      materialRate: d?.materialSell != null ? String(d.materialSell) : "",
+      laborCost: d?.laborCost != null ? String(d.laborCost) : "",
+      laborRate: d?.laborSell != null ? String(d.laborSell) : "",
+      comps,
+    });
+  };
+
+  const saveRoomDef = async (r: Room) => {
+    const cat = profileFor(r.type)?.category;
+    if (!cat) {
+      toast.error("Pick a flooring type first.");
+      return;
+    }
+    const res = await saveRoomDefault({
+      category: cat,
+      materialCost: num(r.materialCost),
+      materialSell: num(r.materialRate),
+      laborCost: num(r.laborCost),
+      laborSell: num(r.laborRate),
+      waste: num(r.waste),
+    });
+    if (res?.error) toast.error(res.error);
+    else toast.success(`Saved default ${cat} rates`);
   };
 
   // Pick a real catalog product for a companion (e.g. the actual pad), pulling
@@ -1132,6 +1187,14 @@ export function SmartBuilder({
                       >
                         Apply
                       </Button>
+                      <button
+                        type="button"
+                        onClick={() => saveRoomDef(r)}
+                        title={`Save these ${profile.label} rates as the default`}
+                        className="ml-auto rounded border px-1.5 py-0.5 text-[11px] font-medium hover:bg-muted"
+                      >
+                        Set as default
+                      </button>
                     </div>
                   </div>
 
@@ -1356,6 +1419,14 @@ export function SmartBuilder({
                       onChange={(v) => setRoll(c.key, { rate: v })}
                     />
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => savePadDefault(c)}
+                    title={`Save this ${c.label} rate as the default`}
+                    className="rounded border px-1.5 py-0.5 text-[11px] font-medium hover:bg-muted"
+                  >
+                    Set as default
+                  </button>
                 </>
               ) : null}
             </CardContent>
