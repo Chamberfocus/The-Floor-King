@@ -23,6 +23,12 @@ import {
   type Companion,
 } from "@/lib/flooring-profiles";
 import { PRODUCT_CATEGORY_LABELS, type Product } from "@/lib/types";
+import {
+  CARPET_ADDONS,
+  HARD_ADDONS,
+  type AddonDef,
+  type AddonGroup,
+} from "@/lib/addons";
 import { ProductPicker } from "./product-picker";
 import { AreaCalculator } from "@/components/area-calculator";
 import {
@@ -300,7 +306,6 @@ function rollGoodsLines(
 }
 
 /** A job-wide extra you add after the rooms (stairs, prep, furniture, etc.). */
-type AddonGroup = "carpet" | "hard" | "custom";
 interface Addon {
   id: string;
   label: string;
@@ -315,45 +320,6 @@ interface Addon {
   choices?: string[]; // e.g. metal color
   choice: string;
 }
-type AddonDef = { label: string; unit: string; labor: boolean; choices?: string[] };
-const METAL_COLORS = ["Silver", "Titanium", "Gold"];
-// Two run-through checklists so nothing's forgotten — the builder shows whichever
-// matches the flooring in the job (both for a mixed job).
-const CARPET_ADDONS: AddonDef[] = [
-  { label: "Tear out & haul away old carpet & pad", unit: "sqft", labor: true },
-  { label: "Tackstrip — wood subfloor", unit: "lnft", labor: true },
-  { label: "Tackstrip — concrete (glue / concrete nail)", unit: "lnft", labor: true },
-  { label: "Carpet / cover stairs", unit: "step", labor: true },
-  { label: "Move furniture", unit: "room", labor: true },
-  { label: "Disconnect / move appliances", unit: "each", labor: true },
-  { label: "Door shaving", unit: "each", labor: true },
-  { label: "Floor prep / leveling", unit: "sqft", labor: true },
-  { label: "Subfloor repair / replace", unit: "sqft", labor: true },
-  { label: "Flat metal", unit: "each", labor: false, choices: METAL_COLORS },
-  { label: "Gripper metal", unit: "each", labor: false, choices: METAL_COLORS },
-  { label: "Transition strips (carpet to hard)", unit: "each", labor: false },
-  { label: "Place on curb", unit: "each", labor: true },
-  { label: "Dumpster / disposal fee", unit: "each", labor: false },
-];
-const HARD_ADDONS: AddonDef[] = [
-  { label: "Tear out & haul away old flooring", unit: "sqft", labor: true },
-  { label: "Floor prep / self-leveling / skim coat", unit: "sqft", labor: true },
-  { label: "Subfloor repair / replace", unit: "sqft", labor: true },
-  { label: "Moisture barrier / underlayment", unit: "sqft", labor: false },
-  { label: "Pull & reset toilet", unit: "each", labor: true },
-  { label: "Disconnect / move appliances", unit: "each", labor: true },
-  { label: "Move furniture", unit: "room", labor: true },
-  { label: "Baseboard remove & reinstall", unit: "lnft", labor: true },
-  { label: "Quarter round / shoe molding", unit: "lnft", labor: false },
-  { label: "Flat metal", unit: "each", labor: false, choices: METAL_COLORS },
-  { label: "Gripper metal", unit: "each", labor: false, choices: METAL_COLORS },
-  { label: "Transition strips / thresholds", unit: "each", labor: false },
-  { label: "Door shaving", unit: "each", labor: true },
-  { label: "Stair nosing / cap stairs", unit: "step", labor: true },
-  { label: "Grout sealing (tile)", unit: "sqft", labor: true },
-  { label: "Place on curb", unit: "each", labor: true },
-  { label: "Dumpster / disposal fee", unit: "each", labor: false },
-];
 let addonSeq = 0;
 const mkAddon = (d: AddonDef, group: AddonGroup): Addon => ({
   id: `x${addonSeq++}`,

@@ -11,6 +11,7 @@ import {
   Truck,
   Target,
   CalendarRange,
+  DollarSign,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -48,6 +49,12 @@ const SECTIONS = [
     icon: ListChecks,
     title: "Qualifying questionnaire",
     desc: "The intake questions your team asks new leads.",
+  },
+  {
+    href: "/settings/pricing",
+    icon: DollarSign,
+    title: "Default pricing",
+    desc: "Your usual rates by flooring type, plus add-on & pad prices that pre-fill in the estimate builder.",
   },
   {
     href: "/settings/wizard",

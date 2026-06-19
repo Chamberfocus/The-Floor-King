@@ -5,6 +5,20 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { ProductCategory } from "@/lib/types";
 
+/** Clear a saved flooring-type default. */
+export async function deleteRoomDefault(category: string): Promise<void> {
+  if (!category) return;
+  const supabase = await createClient();
+  await supabase.from("room_defaults").delete().eq("category", category);
+}
+
+/** Clear a saved add-on default. */
+export async function deleteAddonDefault(label: string): Promise<void> {
+  if (!label) return;
+  const supabase = await createClient();
+  await supabase.from("addon_defaults").delete().eq("label", label);
+}
+
 /** Save a flooring type's material/labor rates + waste as the default. */
 export async function saveRoomDefault(input: {
   category: string;
