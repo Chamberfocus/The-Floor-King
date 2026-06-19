@@ -25,6 +25,7 @@ import {
 } from "@/lib/flooring-profiles";
 import { PRODUCT_CATEGORY_LABELS, type Product } from "@/lib/types";
 import { ProductPicker } from "./product-picker";
+import { AreaCalculator } from "./area-calculator";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
 const num = (v: string) => {
@@ -57,6 +58,9 @@ interface Room {
   type: string; // category
   length: string;
   width: string;
+  // Set by the area calculator (multi-area rooms); overrides L×W when present.
+  areaOverride: string;
+  perimeterOverride: string;
   productId: string | null;
   productLabel: string;
   manufacturer: string | null;
@@ -77,6 +81,8 @@ const newRoom = (): Room => ({
   type: "",
   length: "",
   width: "",
+  areaOverride: "",
+  perimeterOverride: "",
   productId: null,
   productLabel: "",
   manufacturer: null,
@@ -90,12 +96,25 @@ const newRoom = (): Room => ({
   comps: {},
 });
 
+/** A room's square footage — from the area calculator if used, else L×W. */
+function roomSqft(r: Room): number {
+  return num(r.areaOverride) > 0
+    ? num(r.areaOverride)
+    : areaSqft(num(r.length), num(r.width));
+}
+/** A room's perimeter (lnft) — from the calculator if used, else L×W. */
+function roomPerimeter(r: Room): number {
+  return num(r.perimeterOverride) > 0
+    ? num(r.perimeterOverride)
+    : 2 * (num(r.length) + num(r.width));
+}
+
 /** Build the line items a room produces (main + companions) — preview & save. */
 function roomLines(r: Room): SmartLine[] {
   const profile = profileFor(r.type);
   if (!profile) return [];
-  const sqft = areaSqft(num(r.length), num(r.width));
-  const perimeter = 2 * (num(r.length) + num(r.width));
+  const sqft = roomSqft(r);
+  const perimeter = roomPerimeter(r);
   const out: SmartLine[] = [];
 
   // Main material line
@@ -172,7 +191,7 @@ function rollGoodsArea(rooms: Room[], comp: Companion): number {
   for (const r of rooms) {
     const p = profileFor(r.type);
     if (!p || !p.companions.some((c) => c.key === comp.key)) continue;
-    const sqft = areaSqft(num(r.length), num(r.width));
+    const sqft = roomSqft(r);
     if (sqft <= 0) continue;
     total += comp.unit === "sqyd" ? sqft / 9 : sqft;
   }
@@ -495,12 +514,15 @@ export function SmartBuilder({
             className="max-w-md"
           />
         </div>
+        {/* Standalone quick calculator — just figure a number, no estimate. */}
+        <AreaCalculator triggerLabel="Quick calculator" triggerVariant="outline" />
       </div>
 
       {rooms.map((r, idx) => {
         const profile = profileFor(r.type);
-        const sqft = areaSqft(num(r.length), num(r.width));
+        const sqft = roomSqft(r);
         const sqyd = Math.round((sqft / 9) * 100) / 100;
+        const usingCalc = num(r.areaOverride) > 0;
         const lines = roomLines(r);
         const roomTotal = lines.reduce((s, l) => s + lineSell(l), 0);
         return (
@@ -585,6 +607,7 @@ export function SmartBuilder({
                         value={r.length}
                         onChange={(e) => update(r.id, { length: e.target.value })}
                         inputMode="decimal"
+                        disabled={usingCalc}
                         className="h-9 w-24"
                       />
                     </div>
@@ -597,8 +620,36 @@ export function SmartBuilder({
                         value={r.width}
                         onChange={(e) => update(r.id, { width: e.target.value })}
                         inputMode="decimal"
+                        disabled={usingCalc}
                         className="h-9 w-24"
                       />
+                    </div>
+                    <div className="pb-1 flex items-center gap-2">
+                      <AreaCalculator
+                        triggerLabel={usingCalc ? "Edit areas" : "Calculator"}
+                        title={`Square footage — ${r.name || "this room"}`}
+                        initialLabel={r.name}
+                        onApply={(area, perimeter) =>
+                          update(r.id, {
+                            areaOverride: String(area),
+                            perimeterOverride: String(perimeter),
+                          })
+                        }
+                      />
+                      {usingCalc ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            update(r.id, {
+                              areaOverride: "",
+                              perimeterOverride: "",
+                            })
+                          }
+                          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                        >
+                          use L×W
+                        </button>
+                      ) : null}
                     </div>
                     <div className="pb-1.5 text-sm">
                       <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
@@ -613,6 +664,11 @@ export function SmartBuilder({
                         {" "}
                         · {r.waste || profile.waste}% waste
                       </span>
+                      {usingCalc ? (
+                        <span className="ml-1 text-xs text-primary">
+                          · from calculator
+                        </span>
+                      ) : null}
                     </div>
                   </div>
 
