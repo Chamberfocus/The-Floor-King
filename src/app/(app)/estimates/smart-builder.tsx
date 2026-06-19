@@ -19,7 +19,6 @@ import {
   profileFor,
   areaSqft,
   companionQty,
-  companionRolls,
   type FlooringProfile,
   type Companion,
 } from "@/lib/flooring-profiles";
@@ -52,6 +51,7 @@ interface CompState {
   cost: string; // our cost per unit
   productId: string | null;
   productLabel: string;
+  choice: string; // for info companions (e.g. tackstrip subfloor: wood/concrete)
 }
 interface Room {
   id: string;
@@ -171,6 +171,31 @@ function roomLines(r: Room): SmartLine[] {
     const st = r.comps[c.key];
     if (!st?.on) continue;
     const qty = companionQty(c, sqft, perimeter);
+
+    // Info companion (tackstrip): no price — just flags the need + subfloor type
+    // for the installers.
+    if (c.info) {
+      out.push({
+        room: r.name || null,
+        description: st.choice ? `${c.label} — ${st.choice}` : c.label,
+        category: c.category,
+        measure_unit: c.unit === "sqyd" ? "sqyd" : "sqft",
+        sqft: null,
+        quantity: qty > 0 ? qty : null,
+        unit: c.unit,
+        material_rate: 0,
+        labor_rate: 0,
+        material_cost: 0,
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+      });
+      continue;
+    }
+
     const rate = num(st.rate);
     out.push({
       room: r.name || null,
@@ -380,6 +405,7 @@ export function SmartBuilder({
         cost: "",
         productId: null,
         productLabel: "",
+        choice: "",
       };
     return init;
   });
@@ -438,6 +464,7 @@ export function SmartBuilder({
         cost: "",
         productId: null,
         productLabel: "",
+        choice: c.choices?.[0] ?? "",
       };
     update(id, { type, waste: String(p.waste), comps });
   };
@@ -458,6 +485,7 @@ export function SmartBuilder({
           cost: "",
           productId: null,
           productLabel: "",
+          choice: "",
         };
         if (!p) {
           return {
@@ -815,98 +843,116 @@ export function SmartBuilder({
                     </div>
                   </div>
 
-                  {/* Companions */}
+                  {/* Companions — compact: one row each, details inline */}
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      This {profile.label.toLowerCase()} job also needs:
+                    <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      This {profile.label.toLowerCase()} job also needs
                     </label>
-                    <div className="space-y-1.5">
+                    <div className="divide-y rounded-md border">
                       {profile.companions
                         .filter((c) => !(c.rollUnits && c.rollUnits > 0))
                         .map((c) => {
-                        const st: CompState =
-                          r.comps[c.key] ?? {
-                            on: false,
-                            rate: "",
-                            cost: "",
-                            productId: null,
-                            productLabel: "",
-                          };
-                        const setComp = (patch: Partial<CompState>) =>
-                          update(r.id, {
-                            comps: { ...r.comps, [c.key]: { ...st, ...patch } },
-                          });
-                        const qty = companionQty(
-                          c,
-                          sqft,
-                          2 * (num(r.length) + num(r.width)),
-                        );
-                        return (
-                          <div
-                            key={c.key}
-                            className="rounded-md border px-2.5 py-1.5 text-sm"
-                          >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <label className="flex flex-1 items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={st.on}
-                                  onChange={(e) => setComp({ on: e.target.checked })}
-                                  className="size-4 rounded border-input"
-                                />
-                                <span className={cn(!st.on && "text-muted-foreground")}>
-                                  {c.label}
-                                  {st.on ? (
-                                    <span className="ml-1 text-xs text-muted-foreground">
-                                      {qty} {c.unit}
-                                      {c.rollUnits
-                                        ? ` · ${companionRolls(c, qty)} roll${
-                                            companionRolls(c, qty) === 1 ? "" : "s"
-                                          }`
-                                        : ""}
-                                      {c.labor ? " · labor" : ""}
-                                    </span>
-                                  ) : c.hint ? (
-                                    <span className="ml-1 text-xs text-muted-foreground">
-                                      {c.hint}
-                                    </span>
-                                  ) : null}
-                                </span>
-                              </label>
-                            </div>
+                          const st: CompState =
+                            r.comps[c.key] ?? {
+                              on: false,
+                              rate: "",
+                              cost: "",
+                              productId: null,
+                              productLabel: "",
+                              choice: c.choices?.[0] ?? "",
+                            };
+                          const setComp = (patch: Partial<CompState>) =>
+                            update(r.id, {
+                              comps: { ...r.comps, [c.key]: { ...st, ...patch } },
+                            });
+                          const qty = companionQty(
+                            c,
+                            sqft,
+                            2 * (num(r.length) + num(r.width)),
+                          );
+                          return (
+                            <div key={c.key} className="px-2 py-1.5 text-sm">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <label className="flex items-center gap-1.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={st.on}
+                                    onChange={(e) => setComp({ on: e.target.checked })}
+                                    className="size-4 rounded border-input"
+                                  />
+                                  <span className={cn(!st.on && "text-muted-foreground")}>
+                                    {c.label}
+                                  </span>
+                                </label>
+                                {st.on ? (
+                                  <span className="text-xs text-muted-foreground">
+                                    {qty} {c.unit}
+                                    {c.info ? "" : c.labor ? " · labor" : ""}
+                                  </span>
+                                ) : c.hint ? (
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {c.hint}
+                                  </span>
+                                ) : null}
 
-                            {/* Labor companion (tear-out, prep): capture both
-                                what we pay (cost) and what we charge (sell). */}
-                            {st.on && c.labor ? (
-                              <div className="mt-2 grid grid-cols-2 gap-2 border-t pt-2 sm:grid-cols-3">
-                                <PriceField
-                                  label={`Our cost /${c.unit}`}
-                                  value={st.cost}
-                                  onChange={(v) => setComp({ cost: v })}
-                                />
-                                <PriceField
-                                  label={`Sell /${c.unit}`}
-                                  value={st.rate}
-                                  onChange={(v) => setComp({ rate: v })}
-                                />
+                                {/* Info companion (tackstrip): subfloor chips, no price */}
+                                {st.on && c.info && c.choices ? (
+                                  <div className="ml-auto flex gap-1">
+                                    {c.choices.map((ch) => (
+                                      <button
+                                        key={ch}
+                                        type="button"
+                                        onClick={() => setComp({ choice: ch })}
+                                        className={cn(
+                                          "rounded border px-2 py-0.5 text-xs",
+                                          st.choice === ch
+                                            ? "border-primary bg-primary text-primary-foreground"
+                                            : "hover:bg-muted",
+                                        )}
+                                      >
+                                        {ch}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+
+                                {/* Labor companion: cost + sell inline */}
+                                {st.on && c.labor ? (
+                                  <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+                                    $
+                                    <Input
+                                      value={st.cost}
+                                      onChange={(e) => setComp({ cost: e.target.value })}
+                                      inputMode="decimal"
+                                      placeholder="cost"
+                                      className="h-8 w-16"
+                                    />
+                                    $
+                                    <Input
+                                      value={st.rate}
+                                      onChange={(e) => setComp({ rate: e.target.value })}
+                                      inputMode="decimal"
+                                      placeholder="sell"
+                                      className="h-8 w-16"
+                                    />
+                                    /{c.unit}
+                                  </div>
+                                ) : null}
                               </div>
-                            ) : null}
 
-                            {/* Material companion: pick the exact product from the
-                                catalog (e.g. which pad), then confirm cost & sell. */}
-                            {st.on && !c.labor ? (
-                              <div className="mt-2 space-y-2 border-t pt-2">
-                                <ProductPicker
-                                  value={st.productId ?? ""}
-                                  initialLabel={st.productLabel}
-                                  label={`${c.label} — from catalog`}
-                                  defaultCategory={c.category}
-                                  onPick={(p) => pickCompProduct(r.id, c, p)}
-                                  onCreated={(p) => pickCompProduct(r.id, c, p)}
-                                />
-                                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                              {/* Material companion: catalog product + cost/sell */}
+                              {st.on && !c.labor && !c.info ? (
+                                <div className="mt-1.5 flex flex-wrap items-end gap-2">
+                                  <ProductPicker
+                                    value={st.productId ?? ""}
+                                    initialLabel={st.productLabel}
+                                    label={`${c.label} — from catalog`}
+                                    defaultCategory={c.category}
+                                    onPick={(p) => pickCompProduct(r.id, c, p)}
+                                    onCreated={(p) => pickCompProduct(r.id, c, p)}
+                                  />
                                   <PriceField
-                                    label={`Our cost /${c.unit}`}
+                                    label={`Cost /${c.unit}`}
                                     value={st.cost}
                                     onChange={(v) => setComp({ cost: v })}
                                   />
@@ -916,11 +962,10 @@ export function SmartBuilder({
                                     onChange={(v) => setComp({ rate: v })}
                                   />
                                 </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
+                              ) : null}
+                            </div>
+                          );
+                        })}
                     </div>
                   </div>
 

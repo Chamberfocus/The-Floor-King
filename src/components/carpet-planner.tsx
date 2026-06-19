@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LayoutGrid, Printer, Plus, Trash2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -491,6 +491,7 @@ function CarpetDiagram({
   plan: CarpetPlan;
   roomName?: string;
 }) {
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const runLen = plan.drops[0]?.coverLengthFt ?? 0;
   const across = plan.drops.reduce((a, d) => a + d.widthFt, 0);
   const roomWidthFt = plan.runDirection === "length" ? across : runLen;
@@ -534,20 +535,33 @@ function CarpetDiagram({
       style={{ maxWidth: "100%", height: "auto" }}
     >
       <rect x={0} y={0} width={W} height={H} fill="white" />
-      {rects.map((r, i) => (
-        <g key={i}>
-          <rect x={r.x} y={r.y} width={r.w} height={r.h} fill={r.fill} stroke="#94a3b8" strokeWidth={1} />
-          <text x={r.x + r.w / 2} y={r.y + r.h / 2} textAnchor="middle" dominantBaseline="middle" fontSize={12} fill="#0f172a">
-            <tspan x={r.x + r.w / 2} dy="-0.6em" fontWeight="600">
-              Drop {r.d.index}
-              {r.d.isFill ? " (fill)" : ""}
-            </tspan>
-            <tspan x={r.x + r.w / 2} dy="1.2em">
-              {ftToFtIn(r.d.widthFt)} × {ftToFtIn(r.d.cutLengthFt)}
-            </tspan>
-          </text>
-        </g>
-      ))}
+      {rects.map((r, i) => {
+        // Label runs along the drop's LONG axis; font is clamped to its short
+        // axis so it never overflows a narrow fill strip.
+        const vertical = plan.runDirection === "length"; // tall strips
+        const shortPx = vertical ? r.w : r.h;
+        const cx = r.x + r.w / 2;
+        const cy = r.y + r.h / 2;
+        const fs = Math.max(8, Math.min(13, shortPx * 0.42));
+        const label = `Drop ${r.d.index}${r.d.isFill ? " (fill)" : ""} · ${ftToFtIn(r.d.widthFt)}×${ftToFtIn(r.d.cutLengthFt)}`;
+        return (
+          <g key={i}>
+            <rect x={r.x} y={r.y} width={r.w} height={r.h} fill={r.fill} stroke="#94a3b8" strokeWidth={1} />
+            <text
+              x={cx}
+              y={cy}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize={fs}
+              fontWeight="600"
+              fill="#0f172a"
+              transform={vertical ? `rotate(-90 ${cx} ${cy})` : undefined}
+            >
+              {label}
+            </text>
+          </g>
+        );
+      })}
 
       {plan.seams.map((s, i) =>
         plan.runDirection === "length" ? (
@@ -559,7 +573,7 @@ function CarpetDiagram({
 
       <rect x={M} y={M} width={rw} height={rh} fill="none" stroke="#0f172a" strokeWidth={2} />
 
-      <NapArrow dir={plan.runDirection} cx={M + rw / 2} cy={M + rh / 2} rw={rw} rh={rh} />
+      <NapArrow markerId={`nap-${uid}`} dir={plan.runDirection} cx={M + rw / 2} cy={M + rh / 2} rw={rw} rh={rh} />
 
       <text x={M + rw / 2} y={M - 16} textAnchor="middle" fontSize={13} fontWeight="600" fill="#0f172a">
         {ftToFtIn(roomWidthFt)} wide
@@ -581,12 +595,14 @@ function CarpetDiagram({
 }
 
 function NapArrow({
+  markerId,
   dir,
   cx,
   cy,
   rw,
   rh,
 }: {
+  markerId: string;
   dir: "length" | "width";
   cx: number;
   cy: number;
@@ -601,11 +617,11 @@ function NapArrow({
   return (
     <g opacity={0.7}>
       <defs>
-        <marker id="nap" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
+        <marker id={markerId} markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto">
           <path d="M0,0 L6,3 L0,6 Z" fill="#2563eb" />
         </marker>
       </defs>
-      <line {...a} stroke="#2563eb" strokeWidth={3} markerEnd="url(#nap)" />
+      <line {...a} stroke="#2563eb" strokeWidth={3} markerEnd={`url(#${markerId})`} />
       <text
         x={dir === "length" ? cx + 10 : cx}
         y={dir === "length" ? cy : cy - 10}

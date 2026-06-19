@@ -22,6 +22,11 @@ export interface Companion {
   labor?: boolean;
   /** Comes in full rolls of this many units — round the quantity UP to whole rolls. */
   rollUnits?: number;
+  /** Info-only: no price — just flags a job need for the installers (e.g.
+   * tackstrip), optionally with a choice like the subfloor type. */
+  info?: boolean;
+  /** Choices for an info companion (e.g. ["Concrete", "Wood"]). */
+  choices?: string[];
   hint?: string;
 }
 
@@ -57,7 +62,7 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     measureHint: "Carpet is priced by the square yard. Enter room L × W; we convert.",
     companions: [
       { key: "pad", label: "Carpet pad", category: "underlayment", sizeBy: "area", unit: "sqyd", defaultOn: true, rollUnits: 30, hint: "Rounded up to full 30 sq yd rolls." },
-      { key: "tackstrip", label: "Tackstrip", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: true, hint: "Part of the job — leave cost at $0 if you don't pay for it." },
+      { key: "tackstrip", label: "Tackstrip", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: true, info: true, choices: ["Wood subfloor", "Concrete"], hint: "Flags the install — concrete needs glue-down/concrete nails." },
       tearout("Tear out old carpet & pad", "sqyd"),
     ],
   },
