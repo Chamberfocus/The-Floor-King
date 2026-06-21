@@ -153,27 +153,8 @@ function roomLines(r: Room): SmartLine[] {
     color: r.color,
   });
 
-  // Installation labor as its OWN line, separate from the cost of the material.
-  if (num(r.laborRate) > 0 || num(r.laborCost) > 0) {
-    out.push({
-      room: r.name || null,
-      description: `${profile.label} installation`,
-      category: "labor",
-      measure_unit: profile.unit,
-      sqft: sqft > 0 ? sqft : null,
-      quantity: null,
-      unit,
-      material_rate: 0,
-      labor_rate: num(r.laborRate),
-      material_cost: 0,
-      labor_cost: num(r.laborCost),
-      waste_pct: 0,
-      product_id: null,
-      manufacturer: null,
-      style: null,
-      color: null,
-    });
-  }
+  // Install labor lives in the add-ons checklist (entered with cost + price
+  // together), not in the room — so the room is just the material.
 
   // Companion lines (the ones turned on). Roll goods (carpet pad) are handled
   // at the JOB level — see rollGoodsLines — so the quantity is figured off the
@@ -1105,7 +1086,7 @@ export function SmartBuilder({
                       onPick={(p) => pickProduct(r.id, p, profile)}
                       onCreated={(p) => pickProduct(r.id, p, profile)}
                     />
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                    <div className="grid grid-cols-3 gap-2">
                       <PriceField
                         label={`Mat. cost /${profile.unit === "sqyd" ? "yd" : "ft"}`}
                         value={r.materialCost}
@@ -1117,21 +1098,15 @@ export function SmartBuilder({
                         onChange={(v) => update(r.id, { materialRate: v })}
                       />
                       <PriceField
-                        label={`Labor cost /${profile.unit === "sqyd" ? "yd" : "ft"}`}
-                        value={r.laborCost}
-                        onChange={(v) => update(r.id, { laborCost: v })}
-                      />
-                      <PriceField
-                        label={`Labor sell /${profile.unit === "sqyd" ? "yd" : "ft"}`}
-                        value={r.laborRate}
-                        onChange={(v) => update(r.id, { laborRate: v })}
-                      />
-                      <PriceField
                         label="Waste %"
                         value={r.waste}
                         onChange={(v) => update(r.id, { waste: v })}
                       />
                     </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Install labor goes in the add-ons checklist below (cost &amp;
+                      price together).
+                    </p>
                     {/* Per-room margin: set this room's sell prices from cost. */}
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span>Set this room&apos;s margin:</span>

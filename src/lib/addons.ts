@@ -12,6 +12,7 @@ export interface AddonDef {
 export const METAL_COLORS = ["Silver", "Titanium", "Gold"];
 
 export const CARPET_ADDONS: AddonDef[] = [
+  { label: "Carpet installation (labor)", unit: "sqyd", labor: true },
   { label: "Tear out & haul away old carpet & pad", unit: "sqft", labor: true },
   { label: "Tackstrip — wood subfloor", unit: "lnft", labor: true },
   { label: "Tackstrip — concrete (glue / concrete nail)", unit: "lnft", labor: true },
@@ -29,6 +30,7 @@ export const CARPET_ADDONS: AddonDef[] = [
 ];
 
 export const HARD_ADDONS: AddonDef[] = [
+  { label: "Flooring installation (labor)", unit: "sqft", labor: true },
   { label: "Tear out & haul away old flooring", unit: "sqft", labor: true },
   { label: "Floor prep / self-leveling / skim coat", unit: "sqft", labor: true },
   { label: "Subfloor repair / replace", unit: "sqft", labor: true },

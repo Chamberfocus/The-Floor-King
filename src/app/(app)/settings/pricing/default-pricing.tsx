@@ -58,8 +58,6 @@ export function DefaultPricing({
                 <th className="px-2 py-2 text-left font-medium">Type</th>
                 <th className="px-2 py-2 text-left font-medium">Mat. cost</th>
                 <th className="px-2 py-2 text-left font-medium">Mat. sell</th>
-                <th className="px-2 py-2 text-left font-medium">Labor cost</th>
-                <th className="px-2 py-2 text-left font-medium">Labor sell</th>
                 <th className="px-2 py-2 text-left font-medium">Waste %</th>
                 <th className="px-2 py-2"></th>
               </tr>
@@ -137,8 +135,6 @@ function RoomRow({
 }) {
   const [mc, setMc] = useState(s(def?.materialCost ?? null));
   const [ms, setMs] = useState(s(def?.materialSell ?? null));
-  const [lc, setLc] = useState(s(def?.laborCost ?? null));
-  const [ls, setLs] = useState(s(def?.laborSell ?? null));
   const [w, setW] = useState(s(def?.waste ?? null));
   const [busy, setBusy] = useState(false);
 
@@ -148,8 +144,8 @@ function RoomRow({
       category,
       materialCost: n(mc),
       materialSell: n(ms),
-      laborCost: n(lc),
-      laborSell: n(ls),
+      laborCost: 0,
+      laborSell: 0,
       waste: n(w),
     });
     setBusy(false);
@@ -160,8 +156,6 @@ function RoomRow({
     await deleteRoomDefault(category);
     setMc("");
     setMs("");
-    setLc("");
-    setLs("");
     setW("");
     toast.success("Cleared");
   };
@@ -171,8 +165,6 @@ function RoomRow({
       <td className="px-2 py-1.5 font-medium">{label}</td>
       <td className="px-2 py-1.5"><Cell value={mc} onChange={setMc} /></td>
       <td className="px-2 py-1.5"><Cell value={ms} onChange={setMs} /></td>
-      <td className="px-2 py-1.5"><Cell value={lc} onChange={setLc} /></td>
-      <td className="px-2 py-1.5"><Cell value={ls} onChange={setLs} /></td>
       <td className="px-2 py-1.5"><Cell value={w} onChange={setW} w="w-14" /></td>
       <td className="px-2 py-1.5 text-right">
         <div className="flex justify-end gap-1">
