@@ -835,7 +835,15 @@ export function SmartBuilder({
             $
             <Input
               value={a.cost}
-              onChange={(e) => setAddon(a.id, { cost: e.target.value })}
+              onChange={(e) => {
+                const v = e.target.value;
+                setAddon(a.id, {
+                  cost: v,
+                  ...(num(v) > 0
+                    ? { sell: String(sellAt(num(v), num(marginGoal))) }
+                    : {}),
+                });
+              }}
               inputMode="decimal"
               placeholder="cost"
               className="h-7 w-16"
@@ -1090,7 +1098,14 @@ export function SmartBuilder({
                       <PriceField
                         label={`Mat. cost /${profile.unit === "sqyd" ? "yd" : "ft"}`}
                         value={r.materialCost}
-                        onChange={(v) => update(r.id, { materialCost: v })}
+                        onChange={(v) =>
+                          update(r.id, {
+                            materialCost: v,
+                            ...(num(v) > 0
+                              ? { materialRate: String(sellAt(num(v), num(marginGoal))) }
+                              : {}),
+                          })
+                        }
                       />
                       <PriceField
                         label={`Mat. sell /${profile.unit === "sqyd" ? "yd" : "ft"}`}
@@ -1218,7 +1233,15 @@ export function SmartBuilder({
                                     $
                                     <Input
                                       value={st.cost}
-                                      onChange={(e) => setComp({ cost: e.target.value })}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        setComp({
+                                          cost: v,
+                                          ...(num(v) > 0
+                                            ? { rate: String(sellAt(num(v), num(marginGoal))) }
+                                            : {}),
+                                        });
+                                      }}
                                       inputMode="decimal"
                                       placeholder="cost"
                                       className="h-8 w-16"
@@ -1250,7 +1273,14 @@ export function SmartBuilder({
                                   <PriceField
                                     label={`Cost /${c.unit}`}
                                     value={st.cost}
-                                    onChange={(v) => setComp({ cost: v })}
+                                    onChange={(v) =>
+                                      setComp({
+                                        cost: v,
+                                        ...(num(v) > 0
+                                          ? { rate: String(sellAt(num(v), num(marginGoal))) }
+                                          : {}),
+                                      })
+                                    }
                                   />
                                   <PriceField
                                     label={`Sell /${c.unit}`}
@@ -1352,7 +1382,14 @@ export function SmartBuilder({
                     <PriceField
                       label={`Our cost /${c.unit}`}
                       value={st.cost}
-                      onChange={(v) => setRoll(c.key, { cost: v })}
+                      onChange={(v) =>
+                        setRoll(c.key, {
+                          cost: v,
+                          ...(num(v) > 0
+                            ? { rate: String(sellAt(num(v), num(marginGoal))) }
+                            : {}),
+                        })
+                      }
                     />
                     <PriceField
                       label={`Sell /${c.unit}`}
