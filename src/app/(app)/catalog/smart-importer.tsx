@@ -90,6 +90,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   const [defCategory, setDefCategory] = useState("other");
   const [defUnit, setDefUnit] = useState("sqft");
   const [defSupplier, setDefSupplier] = useState("");
+  const [defManufacturer, setDefManufacturer] = useState("");
   const [rows, setRows] = useState<PriceRow[] | null>(null);
 
   // import
@@ -341,11 +342,21 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
     return out;
   };
 
-  const finalRows = grid ? buildFromGrid() : (rows ?? []);
+  // One vendor + one manufacturer for the whole download — fill any row that
+  // doesn't already carry its own, so the user never types it line by line.
+  const applyDefaults = (list: PriceRow[]): PriceRow[] => {
+    const mfr = defManufacturer.trim();
+    if (!mfr) return list;
+    return list.map((r) =>
+      r.manufacturer && r.manufacturer.trim() ? r : { ...r, manufacturer: mfr },
+    );
+  };
+
+  const finalRows = applyDefaults(grid ? buildFromGrid() : (rows ?? []));
 
   const doImport = () =>
     startImport(async () => {
-      const built = grid ? buildFromGrid() : rows ?? [];
+      const built = applyDefaults(grid ? buildFromGrid() : rows ?? []);
       if (!built.length) {
         toast.error("Nothing to import yet.");
         return;
@@ -477,6 +488,41 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
             </Button>
           </div>
 
+          {/* Applies to the whole download — a price list is usually one vendor
+              and one brand, so set them once instead of row by row. */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border bg-muted/30 p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                Order from (vendor):
+              </span>
+              <Input
+                value={defSupplier}
+                onChange={(e) => setDefSupplier(e.target.value)}
+                placeholder="e.g. local distributor"
+                list="importer-supplier-options"
+                className="h-8 w-48"
+              />
+              {suppliers.length ? (
+                <datalist id="importer-supplier-options">
+                  {suppliers.map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                Manufacturer / brand:
+              </span>
+              <Input
+                value={defManufacturer}
+                onChange={(e) => setDefManufacturer(e.target.value)}
+                placeholder="e.g. Shaw — fills the whole list"
+                className="h-8 w-56"
+              />
+            </div>
+          </div>
+
           {/* Spreadsheet column mapping */}
           {grid ? (
             <details className="rounded-lg border bg-muted/30 p-3" open={map.name === undefined || map.name < 0}>
@@ -511,25 +557,6 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">Default unit:</span>
                   <Input value={defUnit} onChange={(e) => setDefUnit(e.target.value)} className="h-8 w-20" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    Order from (supplier):
-                  </span>
-                  <Input
-                    value={defSupplier}
-                    onChange={(e) => setDefSupplier(e.target.value)}
-                    placeholder="e.g. Shaw, local distributor"
-                    list="importer-supplier-options"
-                    className="h-8 w-48"
-                  />
-                  {suppliers.length ? (
-                    <datalist id="importer-supplier-options">
-                      {suppliers.map((s) => (
-                        <option key={s} value={s} />
-                      ))}
-                    </datalist>
-                  ) : null}
                 </div>
               </div>
             </details>
@@ -583,7 +610,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                             <input value={r.sku ?? ""} onChange={(e) => updateRow(i, { sku: e.target.value })} className={cn(inputSm, "w-24")} />
                           </td>
                           <td className="px-2 py-1">
-                            <input value={r.manufacturer ?? ""} onChange={(e) => updateRow(i, { manufacturer: e.target.value })} className={cn(inputSm, "w-24")} />
+                            <input value={r.manufacturer ?? ""} onChange={(e) => updateRow(i, { manufacturer: e.target.value })} placeholder={defManufacturer || ""} className={cn(inputSm, "w-24")} />
                           </td>
                           <td className="px-2 py-1">
                             <input type="number" step="0.01" value={r.material_rate ?? ""} onChange={(e) => updateRow(i, { material_rate: e.target.value ? Number(e.target.value) : null })} className={cn(inputSm, "w-20 text-right")} />
