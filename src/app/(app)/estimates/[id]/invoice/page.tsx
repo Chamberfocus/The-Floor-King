@@ -1,19 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Receipt } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { getEstimate } from "@/lib/data/estimates";
 import { lineTotal } from "@/lib/estimate-calc";
-import { formatMoney } from "@/lib/format";
-import { createInvoiceFromSelection } from "../../../invoices/actions";
+import { InvoiceLinePicker } from "./invoice-line-picker";
 
 export const metadata: Metadata = { title: "Build invoice" };
 
@@ -33,6 +26,26 @@ export default async function BuildInvoicePage({
     opts[0];
   const lines = opt?.line_items ?? [];
 
+  // Compartmentalize the lines by room (job-level items → "Whole job").
+  const groupMap = new Map<
+    string,
+    { id: string; label: string; amount: number }[]
+  >();
+  for (const l of lines) {
+    const room = l.room?.trim() || "Whole job";
+    const arr = groupMap.get(room) ?? [];
+    arr.push({
+      id: l.id,
+      label: l.description || "Line item",
+      amount: lineTotal(l),
+    });
+    groupMap.set(room, arr);
+  }
+  const groups = [...groupMap.entries()].map(([room, items]) => ({
+    room,
+    items,
+  }));
+
   return (
     <div className="mx-auto max-w-2xl">
       <Link
@@ -46,47 +59,17 @@ export default async function BuildInvoicePage({
         description="Pick the items to put on this invoice (e.g. a deposit, or the full job)."
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {opt?.name ?? "Estimate"} items
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {lines.length === 0 ? (
+      {lines.length === 0 ? (
+        <Card>
+          <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">
               This estimate has no line items to invoice.
             </p>
-          ) : (
-            <form action={createInvoiceFromSelection} className="space-y-3">
-              <input type="hidden" name="estimate_id" value={estimate.id} />
-              <ul className="divide-y">
-                {lines.map((l) => (
-                  <li key={l.id} className="flex items-center gap-3 py-2">
-                    <input
-                      type="checkbox"
-                      name="line"
-                      value={l.id}
-                      defaultChecked
-                      className="size-4 rounded border-input"
-                    />
-                    <span className="flex-1 text-sm">
-                      {l.room ? `${l.room} — ` : ""}
-                      {l.description || "Line item"}
-                    </span>
-                    <span className="text-sm font-medium">
-                      {formatMoney(lineTotal(l))}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <Button type="submit">
-                <Receipt className="size-4" /> Create invoice from selected
-              </Button>
-            </form>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : (
+        <InvoiceLinePicker estimateId={estimate.id} groups={groups} />
+      )}
     </div>
   );
 }
