@@ -10,6 +10,7 @@ export async function aiText(opts: {
   prompt: string;
   system?: string;
   maxTokens?: number;
+  temperature?: number;
 }): Promise<{ text: string; error: string | null }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { text: "", error: "AI isn't set up (ANTHROPIC_API_KEY)." };
@@ -26,6 +27,7 @@ export async function aiText(opts: {
       body: JSON.stringify({
         model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
         max_tokens: opts.maxTokens ?? 700,
+        ...(opts.temperature != null ? { temperature: opts.temperature } : {}),
         ...(opts.system ? { system: opts.system } : {}),
         messages: [{ role: "user", content: opts.prompt }],
       }),

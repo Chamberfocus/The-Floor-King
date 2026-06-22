@@ -73,11 +73,15 @@ export function lineTotal(line: CalcLine): number {
   }
 }
 
-/** OUR cost for a line (material + labor), quantity-aware. */
+/** OUR cost for a line (material + labor), quantity-aware. Waste raises the
+ *  material you buy (you pay for the extra ordered), not labor — matching
+ *  lineTotal's sell side and optionCostTotals, so margins stay consistent. */
 export function lineCost(line: CalcLine): number {
-  const unitCost = num(line.material_cost) + num(line.labor_cost);
-  if (line.line_type === "flat") return unitCost; // flat = a single lump cost
-  return lineQty(line) * unitCost;
+  if (line.line_type === "flat") {
+    return num(line.material_cost) + num(line.labor_cost); // flat = a single lump cost
+  }
+  const qty = lineQty(line);
+  return qty * num(line.material_cost) * wasteMult(line) + qty * num(line.labor_cost);
 }
 
 export function lineProfit(line: CalcLine): number {
