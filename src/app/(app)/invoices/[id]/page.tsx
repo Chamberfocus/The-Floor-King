@@ -13,6 +13,7 @@ import { SegmentedField } from "@/components/ui/segmented-field";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { getInvoice, amountPaid } from "@/lib/data/invoices";
 import { getCustomer } from "@/lib/data/customers";
+import { getOrgSettings } from "@/lib/data/org";
 import { invoiceTotals } from "@/lib/invoice-calc";
 import { formatDate, formatMoney } from "@/lib/format";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/types";
@@ -39,6 +40,7 @@ export default async function InvoicePage({
   if (!invoice) notFound();
 
   const customer = await getCustomer(invoice.customer_id);
+  const org = await getOrgSettings();
   const paid = amountPaid(invoice);
   const totals = invoiceTotals(invoice.items ?? [], invoice.tax_rate, paid);
 
@@ -46,12 +48,12 @@ export default async function InvoicePage({
     <div className="mx-auto max-w-4xl">
       <Link
         href="/invoices"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground print:hidden"
       >
         <ArrowLeft className="size-4" /> Back to invoices
       </Link>
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">
@@ -79,10 +81,15 @@ export default async function InvoicePage({
         </form>
       </div>
 
-      <InvoiceBuilder invoice={invoice} amountPaid={paid} />
+      <InvoiceBuilder
+        invoice={invoice}
+        amountPaid={paid}
+        customer={customer}
+        org={org}
+      />
 
       {/* Payments */}
-      <Card className="mt-2">
+      <Card className="mt-2 print:hidden">
         <CardHeader>
           <CardTitle className="text-base">Payments</CardTitle>
         </CardHeader>
@@ -192,7 +199,7 @@ export default async function InvoicePage({
         </CardContent>
       </Card>
 
-      <form action={deleteInvoice} className="mt-4 flex justify-end">
+      <form action={deleteInvoice} className="mt-4 flex justify-end print:hidden">
         <input type="hidden" name="id" value={invoice.id} />
         <input type="hidden" name="customer_id" value={invoice.customer_id} />
         <Button type="submit" variant="destructive" size="sm">

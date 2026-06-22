@@ -138,7 +138,7 @@ export function AppShell({
   return (
     <div className="flex min-h-svh flex-1">
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex print:!hidden">
         <Brand org={org} />
         <div className="flex-1 overflow-y-auto py-2">
           <NavLinks role={profile.role} />
@@ -148,7 +148,7 @@ export function AppShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar: mobile menu (mobile only) + global search (always) */}
-        <header className="flex items-center gap-3 border-b bg-background px-4 py-3">
+        <header className="flex items-center gap-3 border-b bg-background px-4 py-3 print:hidden">
           <div className="md:hidden">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger

@@ -271,6 +271,7 @@ export async function saveInvoice(
     .update({
       number: input.number || null,
       status: input.status,
+      presentation: input.presentation || "detailed",
       issue_date: input.issue_date || null,
       due_date: input.due_date || null,
       tax_rate:

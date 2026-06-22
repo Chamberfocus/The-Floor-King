@@ -1,4 +1,4 @@
-import type { InvoiceStatus } from "@/lib/types";
+import type { InvoiceStatus, EstimatePresentation } from "@/lib/types";
 
 function n(v: number | string | null | undefined): number {
   if (v === null || v === undefined || v === "") return 0;
@@ -45,6 +45,7 @@ export interface SaveInvoiceItemInput {
 export interface SaveInvoiceInput {
   number: string;
   status: InvoiceStatus;
+  presentation: EstimatePresentation;
   issue_date: string | null;
   due_date: string | null;
   tax_rate: string | number;

@@ -656,6 +656,7 @@ export interface Invoice {
   estimate_id: string | null;
   number: string | null;
   status: InvoiceStatus;
+  presentation: EstimatePresentation;
   issue_date: string | null;
   due_date: string | null;
   tax_rate: number;

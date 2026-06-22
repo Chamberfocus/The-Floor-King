@@ -19,9 +19,14 @@ import {
 import {
   INVOICE_STATUS_LABELS,
   INVOICE_STATUS_ORDER,
+  ESTIMATE_PRESENTATION_LABELS,
   type Invoice,
   type InvoiceStatus,
+  type EstimatePresentation,
+  type Customer,
+  type OrgSettings,
 } from "@/lib/types";
+import { formatDate } from "@/lib/format";
 import { saveInvoice } from "./actions";
 import { writeScopeDescription } from "@/app/(app)/estimates/ai-actions";
 
@@ -39,9 +44,13 @@ const inputSm =
 export function InvoiceBuilder({
   invoice,
   amountPaid,
+  customer,
+  org,
 }: {
   invoice: Invoice;
   amountPaid: number;
+  customer: Customer | null;
+  org: OrgSettings;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -58,6 +67,9 @@ export function InvoiceBuilder({
 
   const [number, setNumber] = useState(invoice.number ?? "");
   const [status, setStatus] = useState<InvoiceStatus>(invoice.status);
+  const [presentation, setPresentation] = useState<EstimatePresentation>(
+    invoice.presentation ?? "detailed",
+  );
   const [issueDate, setIssueDate] = useState(invoice.issue_date ?? "");
   const [dueDate, setDueDate] = useState(invoice.due_date ?? "");
   const [taxRate, setTaxRate] = useState(String(invoice.tax_rate ?? 0));
@@ -114,6 +126,7 @@ export function InvoiceBuilder({
       const input: SaveInvoiceInput = {
         number,
         status,
+        presentation,
         issue_date: issueDate || null,
         due_date: dueDate || null,
         tax_rate: taxRate,
@@ -136,7 +149,20 @@ export function InvoiceBuilder({
     });
 
   return (
-    <div className="pb-24">
+    <>
+    <InvoicePrintDoc
+      org={org}
+      customer={customer}
+      number={number}
+      issueDate={issueDate}
+      dueDate={dueDate}
+      presentation={presentation}
+      notes={notes}
+      terms={terms}
+      items={items}
+      totals={totals}
+    />
+    <div className="pb-24 print:hidden">
       <Card className="mb-6">
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-3">
           <div className="space-y-2">
@@ -168,6 +194,20 @@ export function InvoiceBuilder({
               value={taxRate}
               onChange={(e) => setTaxRate(e.target.value)}
             />
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Customer sees</Label>
+            <SegmentedField
+              value={presentation}
+              onChange={(v) => setPresentation(v as EstimatePresentation)}
+              options={(Object.keys(ESTIMATE_PRESENTATION_LABELS) as EstimatePresentation[]).map(
+                (p) => ({ value: p, label: ESTIMATE_PRESENTATION_LABELS[p] }),
+              )}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Lump sum prints one total (a “ball of wax”); Itemized prints the
+              lines. You always keep the line items for your records.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="issue">Issue date</Label>
@@ -342,6 +382,145 @@ export function InvoiceBuilder({
           </Button>
         </div>
       </div>
+    </div>
+    </>
+  );
+}
+
+/** Clean, print-only invoice document (itemized or lump sum). Save before
+ * printing so it reflects the latest edits. */
+function InvoicePrintDoc({
+  org,
+  customer,
+  number,
+  issueDate,
+  dueDate,
+  presentation,
+  notes,
+  terms,
+  items,
+  totals,
+}: {
+  org: OrgSettings;
+  customer: Customer | null;
+  number: string;
+  issueDate: string;
+  dueDate: string;
+  presentation: EstimatePresentation;
+  notes: string;
+  terms: string;
+  items: ItemState[];
+  totals: { subtotal: number; tax: number; total: number; paid: number; balance: number };
+}) {
+  const addr = customer
+    ? [customer.street, [customer.city, customer.state].filter(Boolean).join(", "), customer.zip]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+  return (
+    <div className="hidden text-black print:block">
+      <div className="flex items-start justify-between gap-6 border-b pb-4">
+        <div>
+          <div className="text-xl font-bold">{org.company_name}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-lg font-semibold">INVOICE</div>
+          {number ? <div className="text-sm">{number}</div> : null}
+          {issueDate ? <div className="text-xs">Issued {formatDate(issueDate)}</div> : null}
+          {dueDate ? <div className="text-xs">Due {formatDate(dueDate)}</div> : null}
+        </div>
+      </div>
+
+      {customer ? (
+        <div className="py-4 text-sm">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Bill to</div>
+          <div className="font-medium">{customer.full_name}</div>
+          {addr ? <div className="text-xs text-gray-600">{addr}</div> : null}
+        </div>
+      ) : null}
+
+      {presentation === "summary" ? (
+        <div className="py-2 text-sm">
+          {notes ? (
+            <p className="mb-4 whitespace-pre-wrap">{notes}</p>
+          ) : (
+            <p className="mb-4">Complete flooring project as quoted.</p>
+          )}
+        </div>
+      ) : (
+        <table className="w-full border-collapse py-2 text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs text-gray-500">
+              <th className="py-1 pr-2 font-medium">Description</th>
+              <th className="py-1 px-2 text-right font-medium">Qty</th>
+              <th className="py-1 px-2 text-right font-medium">Rate</th>
+              <th className="py-1 pl-2 text-right font-medium">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items
+              .filter((it) => it.description.trim() || it.rate)
+              .map((it, i) => (
+                <tr key={i} className="border-b align-top">
+                  <td className="py-1 pr-2">{it.description}</td>
+                  <td className="py-1 px-2 text-right tabular-nums">
+                    {it.quantity ? `${it.quantity} ${it.unit}` : ""}
+                  </td>
+                  <td className="py-1 px-2 text-right tabular-nums">
+                    {it.rate ? formatMoney(Number(it.rate)) : ""}
+                  </td>
+                  <td className="py-1 pl-2 text-right tabular-nums">
+                    {formatMoney(itemAmount({ quantity: it.quantity, rate: it.rate }))}
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      )}
+
+      <div className="ml-auto mt-3 w-64 text-sm">
+        {presentation === "detailed" ? (
+          <>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Subtotal</span>
+              <span>{formatMoney(totals.subtotal)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Tax</span>
+              <span>{formatMoney(totals.tax)}</span>
+            </div>
+          </>
+        ) : null}
+        <div className="flex justify-between border-t pt-1 text-base font-bold">
+          <span>Total</span>
+          <span>{formatMoney(totals.total)}</span>
+        </div>
+        {totals.paid > 0 ? (
+          <>
+            <div className="flex justify-between">
+              <span className="text-gray-600">Paid</span>
+              <span>{formatMoney(totals.paid)}</span>
+            </div>
+            <div className="flex justify-between font-semibold">
+              <span>Balance due</span>
+              <span>{formatMoney(totals.balance)}</span>
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {presentation === "detailed" && notes ? (
+        <div className="mt-6 text-sm">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Notes</div>
+          <p className="whitespace-pre-wrap">{notes}</p>
+        </div>
+      ) : null}
+      {terms ? (
+        <div className="mt-4 text-xs text-gray-600">
+          <div className="uppercase tracking-wide text-gray-500">Terms</div>
+          <p className="whitespace-pre-wrap">{terms}</p>
+        </div>
+      ) : null}
     </div>
   );
 }
