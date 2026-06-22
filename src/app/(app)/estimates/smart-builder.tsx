@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Copy, Ruler, Layers, Sparkles } from "lucide-react";
+import { Plus, Trash2, Copy, Ruler, Layers, Sparkles, Printer } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -457,6 +457,9 @@ export function SmartBuilder({
     else toast.success(`Saved “${a.label.trim()}” as a default`);
   };
   const [marginGoal, setMarginGoal] = useState(String(targetMargin));
+  const [presentation, setPresentation] = useState<"detailed" | "summary">(
+    "detailed",
+  );
   const [saving, startSave] = useTransition();
   // Job-level roll goods (carpet pad): quantity is figured off the whole job.
   const [rollComps, setRollComps] = useState<Record<string, CompState>>(() => {
@@ -736,7 +739,7 @@ export function SmartBuilder({
     };
   }, [allLines]);
 
-  const save = () =>
+  const save = (print = false) =>
     startSave(async () => {
       const lines = [
         ...rooms.flatMap(roomLines),
@@ -758,9 +761,11 @@ export function SmartBuilder({
         taxRate: 8,
         lines,
         jobDescription: jobDescription || undefined,
+        presentation,
+        print,
       });
       if (res?.error) toast.error(res.error);
-      // success redirects
+      // success redirects (to the editor, opening print if requested)
     });
 
   // Total job area (so add-on quantities like floor prep are easy to fill in).
@@ -1605,10 +1610,48 @@ export function SmartBuilder({
               {Math.round(margin)}%
             </div>
           </div>
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">
+              Customer sees
+            </div>
+            <div className="flex gap-1">
+              {(
+                [
+                  ["detailed", "Itemized"],
+                  ["summary", "Lump sum"],
+                ] as ["detailed" | "summary", string][]
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setPresentation(v)}
+                  className={cn(
+                    "rounded-md border px-2.5 py-1 text-xs",
+                    presentation === v
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "hover:bg-muted",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <Button type="button" size="lg" onClick={save} disabled={saving}>
-          {saving ? "Creating…" : "Create estimate"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            onClick={() => save(true)}
+            disabled={saving}
+          >
+            <Printer className="size-4" /> Create &amp; print
+          </Button>
+          <Button type="button" size="lg" onClick={() => save(false)} disabled={saving}>
+            {saving ? "Creating…" : "Create estimate"}
+          </Button>
+        </div>
       </div>
     </div>
   );

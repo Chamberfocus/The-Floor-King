@@ -109,6 +109,8 @@ export interface SmartEstimateInput {
   taxRate: number;
   lines: SmartLine[];
   jobDescription?: string;
+  presentation?: "detailed" | "summary";
+  print?: boolean;
 }
 
 export interface SmartResult {
@@ -136,7 +138,7 @@ export async function createSmartEstimate(
       title: title?.trim() || "Flooring estimate",
       status: "draft",
       tax_rate: Number(taxRate) || 0,
-      presentation: "detailed",
+      presentation: input.presentation || "detailed",
       job_description: input.jobDescription?.trim() || null,
       created_by: user?.id ?? null,
     })
@@ -179,5 +181,5 @@ export async function createSmartEstimate(
 
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/estimates");
-  redirect(`/estimates/${est.id}/edit`);
+  redirect(`/estimates/${est.id}/edit${input.print ? "?print=1" : ""}`);
 }

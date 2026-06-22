@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -161,11 +161,13 @@ export function EstimateBuilder({
   customerName,
   customer = null,
   org,
+  autoPrint = false,
 }: {
   estimate: Estimate;
   customerName: string;
   customer?: Customer | null;
   org?: OrgSettings;
+  autoPrint?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -444,6 +446,14 @@ export function EstimateBuilder({
       toast.success("Estimate saved");
       if (thenView) router.push(`/estimates/${estimate.id}`);
     });
+
+  // Came from the smart builder's "Create & print" — open the print dialog once.
+  useEffect(() => {
+    if (autoPrint) {
+      const t = setTimeout(() => window.print(), 600);
+      return () => clearTimeout(t);
+    }
+  }, [autoPrint]);
 
   // Save first so the record matches the printout, then open print.
   const saveThenPrint = () =>

@@ -9,8 +9,10 @@ export const metadata: Metadata = { title: "Edit estimate" };
 
 export default async function EditEstimatePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ print?: string }>;
 }) {
   const { id } = await params;
   const estimate = await getEstimate(id);
@@ -18,6 +20,7 @@ export default async function EditEstimatePage({
 
   const customer = await getCustomer(estimate.customer_id);
   const org = await getOrgSettings();
+  const autoPrint = (await searchParams).print === "1";
 
   return (
     <EstimateBuilder
@@ -25,6 +28,7 @@ export default async function EditEstimatePage({
       customerName={customer?.full_name ?? "customer"}
       customer={customer}
       org={org}
+      autoPrint={autoPrint}
     />
   );
 }
