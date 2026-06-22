@@ -121,31 +121,43 @@ export function InvoiceBuilder({
     amountPaid,
   );
 
+  const buildInput = (): SaveInvoiceInput => ({
+    number,
+    status,
+    presentation,
+    issue_date: issueDate || null,
+    due_date: dueDate || null,
+    tax_rate: taxRate,
+    notes,
+    terms,
+    items: items.map((it) => ({
+      description: it.description,
+      quantity: it.quantity || null,
+      unit: it.unit,
+      rate: it.rate || null,
+    })),
+  });
+
   const save = () =>
     startTransition(async () => {
-      const input: SaveInvoiceInput = {
-        number,
-        status,
-        presentation,
-        issue_date: issueDate || null,
-        due_date: dueDate || null,
-        tax_rate: taxRate,
-        notes,
-        terms,
-        items: items.map((it) => ({
-          description: it.description,
-          quantity: it.quantity || null,
-          unit: it.unit,
-          rate: it.rate || null,
-        })),
-      };
-      const res = await saveInvoice(invoice.id, input);
+      const res = await saveInvoice(invoice.id, buildInput());
       if (res.error) {
         toast.error(res.error);
         return;
       }
       toast.success("Invoice saved");
       router.refresh();
+    });
+
+  // Save first so the record matches the printout, then open the print dialog.
+  const saveThenPrint = () =>
+    startTransition(async () => {
+      const res = await saveInvoice(invoice.id, buildInput());
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      window.print();
     });
 
   return (
@@ -373,9 +385,10 @@ export function InvoiceBuilder({
           <Button
             type="button"
             variant="outline"
-            onClick={() => window.print()}
+            disabled={isPending}
+            onClick={saveThenPrint}
           >
-            <Printer className="size-4" /> Print
+            <Printer className="size-4" /> Save &amp; print
           </Button>
           <Button type="button" disabled={isPending} onClick={save}>
             <Save className="size-4" /> {isPending ? "Saving…" : "Save invoice"}

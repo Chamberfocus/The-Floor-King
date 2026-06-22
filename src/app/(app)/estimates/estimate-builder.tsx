@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Plus, Copy, Trash2, ArrowLeft, Save, Eye, Sparkles } from "lucide-react";
+import { Plus, Copy, Trash2, ArrowLeft, Save, Eye, Sparkles, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,8 @@ import {
   type LineType,
   type MeasureUnit,
   type Product,
+  type Customer,
+  type OrgSettings,
 } from "@/lib/types";
 import { saveEstimate } from "./actions";
 import { writeScopeDescription } from "./ai-actions";
@@ -157,9 +159,13 @@ function LabeledNumber({
 export function EstimateBuilder({
   estimate,
   customerName,
+  customer = null,
+  org,
 }: {
   estimate: Estimate;
   customerName: string;
+  customer?: Customer | null;
+  org?: OrgSettings;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -439,6 +445,17 @@ export function EstimateBuilder({
       if (thenView) router.push(`/estimates/${estimate.id}`);
     });
 
+  // Save first so the record matches the printout, then open print.
+  const saveThenPrint = () =>
+    startTransition(async () => {
+      const res = await saveEstimate(estimate.id, buildInput());
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      window.print();
+    });
+
   const [aiBusy, setAiBusy] = useState(false);
   const aiDescribe = async () => {
     const lines = options
@@ -465,7 +482,8 @@ export function EstimateBuilder({
   };
 
   return (
-    <div className="mx-auto max-w-5xl pb-24">
+    <>
+    <div className="mx-auto max-w-5xl pb-24 print:hidden">
       <Link
         href={`/customers/${estimate.customer_id}`}
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -955,6 +973,14 @@ export function EstimateBuilder({
             type="button"
             variant="outline"
             disabled={isPending}
+            onClick={saveThenPrint}
+          >
+            <Printer className="size-4" /> Save &amp; print
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isPending}
             onClick={() => save(true)}
           >
             <Eye className="size-4" /> Save &amp; view
@@ -964,6 +990,142 @@ export function EstimateBuilder({
           </Button>
         </div>
       </div>
+    </div>
+    {org ? (
+      <EstimatePrintDoc
+        org={org}
+        customer={customer}
+        title={title}
+        presentation={presentation}
+        jobDescription={jobDescription}
+        notes={notes}
+        taxRate={taxRate}
+        options={options}
+      />
+    ) : null}
+    </>
+  );
+}
+
+/** Clean, print-only estimate document (itemized or lump sum, per option). */
+function EstimatePrintDoc({
+  org,
+  customer,
+  title,
+  presentation,
+  jobDescription,
+  notes,
+  taxRate,
+  options,
+}: {
+  org: OrgSettings;
+  customer: Customer | null;
+  title: string;
+  presentation: EstimatePresentation;
+  jobDescription: string;
+  notes: string;
+  taxRate: string;
+  options: OptionState[];
+}) {
+  const detailed = presentation === "detailed";
+  const calc = (l: LineState) => ({
+    line_type: l.line_type,
+    sqft: l.sqft,
+    measure_unit: l.measure_unit,
+    material_rate: l.material_rate,
+    labor_rate: l.labor_rate,
+    installed_rate: l.installed_rate,
+    flat_amount: l.flat_amount,
+    waste_pct: l.waste_pct,
+    quantity: l.quantity,
+  });
+  const addr = customer
+    ? [customer.street, [customer.city, customer.state].filter(Boolean).join(", "), customer.zip]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+
+  return (
+    <div className="hidden text-black print:block">
+      <div className="flex items-start justify-between gap-6 border-b pb-4">
+        <div className="text-xl font-bold">{org.company_name}</div>
+        <div className="text-right">
+          <div className="text-lg font-semibold">ESTIMATE</div>
+          {title ? <div className="text-sm">{title}</div> : null}
+        </div>
+      </div>
+
+      {customer ? (
+        <div className="py-4 text-sm">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Prepared for</div>
+          <div className="font-medium">{customer.full_name}</div>
+          {addr ? <div className="text-xs text-gray-600">{addr}</div> : null}
+        </div>
+      ) : null}
+
+      {jobDescription ? (
+        <p className="mb-4 whitespace-pre-wrap text-sm">{jobDescription}</p>
+      ) : null}
+
+      {options.map((o, oi) => {
+        const totals = optionTotals(o.lines.map(calc), taxRate);
+        return (
+          <div key={oi} className="mb-5">
+            {options.length > 1 ? (
+              <div className="mb-1 text-sm font-semibold">{o.name}</div>
+            ) : null}
+            {detailed ? (
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-gray-500">
+                    <th className="py-1 pr-2 font-medium">Description</th>
+                    <th className="py-1 pl-2 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {o.lines
+                    .filter((l) => l.description.trim() || lineTotal(calc(l)) > 0)
+                    .map((l, li) => (
+                      <tr key={li} className="border-b align-top">
+                        <td className="py-1 pr-2">
+                          {l.room ? `${l.room} — ` : ""}
+                          {l.description}
+                        </td>
+                        <td className="py-1 pl-2 text-right tabular-nums">
+                          {formatMoney(lineTotal(calc(l)))}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            ) : null}
+            <div className="ml-auto mt-2 w-64 text-sm">
+              {detailed ? (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span>{formatMoney(totals.subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Tax</span>
+                    <span>{formatMoney(totals.tax)}</span>
+                  </div>
+                </>
+              ) : null}
+              <div className="flex justify-between border-t pt-1 text-base font-bold">
+                <span>{options.length > 1 ? `${o.name} total` : "Total"}</span>
+                <span>{formatMoney(totals.total)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {notes ? (
+        <div className="mt-4 text-xs text-gray-600">
+          <p className="whitespace-pre-wrap">{notes}</p>
+        </div>
+      ) : null}
     </div>
   );
 }
