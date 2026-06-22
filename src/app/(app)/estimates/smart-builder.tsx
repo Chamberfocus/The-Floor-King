@@ -67,8 +67,11 @@ interface Room {
   id: string;
   name: string;
   type: string; // category
-  length: string;
-  width: string;
+  // Measured in feet + inches (e.g. 12 ft 6 in). Decimal feet are derived.
+  lengthFt: string;
+  lengthIn: string;
+  widthFt: string;
+  widthIn: string;
   // Set by the area calculator (multi-area rooms); overrides L×W when present.
   areaOverride: string;
   perimeterOverride: string;
@@ -92,8 +95,10 @@ const newRoom = (): Room => ({
   id: `r${seq++}`,
   name: "",
   type: "",
-  length: "",
-  width: "",
+  lengthFt: "",
+  lengthIn: "",
+  widthFt: "",
+  widthIn: "",
   areaOverride: "",
   perimeterOverride: "",
   productId: null,
@@ -111,17 +116,23 @@ const newRoom = (): Room => ({
   comps: {},
 });
 
+/** Feet + inches → decimal feet (12 ft 6 in → 12.5). */
+const feet = (ft: string, inch: string) => num(ft) + num(inch) / 12;
+/** A room's length / width in decimal feet (from the ft + in inputs). */
+const roomLen = (r: Room) => feet(r.lengthFt, r.lengthIn);
+const roomWid = (r: Room) => feet(r.widthFt, r.widthIn);
+
 /** A room's square footage — from the area calculator if used, else L×W. */
 function roomSqft(r: Room): number {
   return num(r.areaOverride) > 0
     ? num(r.areaOverride)
-    : areaSqft(num(r.length), num(r.width));
+    : areaSqft(roomLen(r), roomWid(r));
 }
 /** A room's perimeter (lnft) — from the calculator if used, else L×W. */
 function roomPerimeter(r: Room): number {
   return num(r.perimeterOverride) > 0
     ? num(r.perimeterOverride)
-    : 2 * (num(r.length) + num(r.width));
+    : 2 * (roomLen(r) + roomWid(r));
 }
 
 /** Build the line items a room produces (main + companions) — preview & save. */
@@ -142,8 +153,8 @@ function roomLines(r: Room): SmartLine[] {
     sqft: sqft > 0 ? sqft : null,
     quantity: null,
     // Room L×W in inches → the cut measurements to order (carpet especially).
-    length_in: num(r.length) > 0 ? num(r.length) * 12 : null,
-    width_in: num(r.width) > 0 ? num(r.width) * 12 : null,
+    length_in: roomLen(r) > 0 ? Math.round(roomLen(r) * 12) : null,
+    width_in: roomWid(r) > 0 ? Math.round(roomWid(r) * 12) : null,
     unit,
     material_rate: num(r.materialRate),
     labor_rate: 0,
@@ -556,7 +567,7 @@ export function SmartBuilder({
     const cost =
       Math.round(compRate(p.unit, comp.unit, p.material_rate || 0) * 100) / 100;
     const sell =
-      cost > 0 ? Math.round(priceFromMargin(cost, targetMargin) * 100) / 100 : 0;
+      cost > 0 ? Math.round(priceFromMargin(cost, num(marginGoal)) * 100) / 100 : 0;
     setRoll(comp.key, {
       on: true,
       productId: p.id,
@@ -662,7 +673,7 @@ export function SmartBuilder({
           Math.round(compRate(p.unit, comp.unit, p.material_rate || 0) * 100) /
           100;
         const sell =
-          cost > 0 ? Math.round(priceFromMargin(cost, targetMargin) * 100) / 100 : 0;
+          cost > 0 ? Math.round(priceFromMargin(cost, num(marginGoal)) * 100) / 100 : 0;
         return {
           ...r,
           comps: {
@@ -692,7 +703,7 @@ export function SmartBuilder({
     const factor =
       profile.unit === catalogUnit ? 1 : profile.unit === "sqyd" ? 9 : 1 / 9;
     const cost = Math.round((p.material_rate || 0) * factor * 100) / 100;
-    const sell = cost > 0 ? Math.round(priceFromMargin(cost, targetMargin) * 100) / 100 : 0;
+    const sell = cost > 0 ? Math.round(priceFromMargin(cost, num(marginGoal)) * 100) / 100 : 0;
     update(id, {
       productId: p.id,
       productLabel: [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name,
@@ -716,6 +727,11 @@ export function SmartBuilder({
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
   const cost = allLines.reduce((s, l) => s + lineCost(l), 0);
   const margin = marginPct(grand, cost);
+  // The whole app prices off the live calculator value, not the saved default —
+  // so the cost check flags against the SAME margin you're working to. A small
+  // tolerance keeps cent-level rounding from painting an on-target job amber.
+  const goal = num(marginGoal);
+  const belowGoal = (m: number) => m < goal - 0.5;
 
   // Cost check, summarized by category and split into material vs labor.
   const breakdown = useMemo(() => {
@@ -1028,28 +1044,54 @@ export function SmartBuilder({
                   <div className="flex flex-wrap items-end gap-3">
                     <div>
                       <label className="mb-1 block text-xs text-muted-foreground">
-                        Length (ft)
+                        Length
                       </label>
-                      <Input
-                        value={r.length}
-                        onChange={(e) => update(r.id, { length: e.target.value })}
-                        inputMode="decimal"
-                        disabled={usingCalc}
-                        className="h-9 w-24"
-                      />
+                      <div className="flex items-end gap-1">
+                        <Input
+                          value={r.lengthFt}
+                          onChange={(e) => update(r.id, { lengthFt: e.target.value })}
+                          inputMode="decimal"
+                          disabled={usingCalc}
+                          placeholder="ft"
+                          className="h-9 w-16"
+                        />
+                        <span className="pb-2 text-xs text-muted-foreground">ft</span>
+                        <Input
+                          value={r.lengthIn}
+                          onChange={(e) => update(r.id, { lengthIn: e.target.value })}
+                          inputMode="decimal"
+                          disabled={usingCalc}
+                          placeholder="in"
+                          className="h-9 w-14"
+                        />
+                        <span className="pb-2 text-xs text-muted-foreground">in</span>
+                      </div>
                     </div>
                     <span className="pb-2 text-muted-foreground">×</span>
                     <div>
                       <label className="mb-1 block text-xs text-muted-foreground">
-                        Width (ft)
+                        Width
                       </label>
-                      <Input
-                        value={r.width}
-                        onChange={(e) => update(r.id, { width: e.target.value })}
-                        inputMode="decimal"
-                        disabled={usingCalc}
-                        className="h-9 w-24"
-                      />
+                      <div className="flex items-end gap-1">
+                        <Input
+                          value={r.widthFt}
+                          onChange={(e) => update(r.id, { widthFt: e.target.value })}
+                          inputMode="decimal"
+                          disabled={usingCalc}
+                          placeholder="ft"
+                          className="h-9 w-16"
+                        />
+                        <span className="pb-2 text-xs text-muted-foreground">ft</span>
+                        <Input
+                          value={r.widthIn}
+                          onChange={(e) => update(r.id, { widthIn: e.target.value })}
+                          inputMode="decimal"
+                          disabled={usingCalc}
+                          placeholder="in"
+                          className="h-9 w-14"
+                        />
+                        <span className="pb-2 text-xs text-muted-foreground">in</span>
+                      </div>
                     </div>
                     <div className="pb-1 flex items-center gap-2">
                       <AreaCalculator
@@ -1195,7 +1237,7 @@ export function SmartBuilder({
                           const qty = companionQty(
                             c,
                             sqft,
-                            2 * (num(r.length) + num(r.width)),
+                            2 * (roomLen(r) + roomWid(r)),
                           );
                           return (
                             <div key={c.key} className="px-2 py-1.5 text-sm">
@@ -1532,7 +1574,7 @@ export function SmartBuilder({
                       label={PRODUCT_CATEGORY_LABELS[cat as never] ?? cat}
                       cost={v.cost}
                       sell={v.sell}
-                      target={targetMargin}
+                      target={goal}
                     />
                   ))
                 )}
@@ -1540,7 +1582,7 @@ export function SmartBuilder({
                   label="Material subtotal"
                   cost={breakdown.matTotal.cost}
                   sell={breakdown.matTotal.sell}
-                  target={targetMargin}
+                  target={goal}
                   bold
                 />
               </tbody>
@@ -1564,7 +1606,7 @@ export function SmartBuilder({
                       label={PRODUCT_CATEGORY_LABELS[cat as never] ?? cat}
                       cost={v.cost}
                       sell={v.sell}
-                      target={targetMargin}
+                      target={goal}
                     />
                   ))
                 )}
@@ -1572,7 +1614,7 @@ export function SmartBuilder({
                   label="Labor subtotal"
                   cost={breakdown.labTotal.cost}
                   sell={breakdown.labTotal.sell}
-                  target={targetMargin}
+                  target={goal}
                   bold
                 />
               </tbody>
@@ -1591,7 +1633,7 @@ export function SmartBuilder({
                   <td
                     className={cn(
                       "px-4 py-2 text-right tabular-nums",
-                      margin < targetMargin && grand > 0 && "text-amber-600",
+                      belowGoal(margin) && grand > 0 && "text-amber-600",
                     )}
                   >
                     {Math.round(margin)}%
@@ -1615,7 +1657,7 @@ export function SmartBuilder({
             <div
               className={cn(
                 "text-lg font-semibold",
-                margin < targetMargin && grand > 0 && "text-amber-600",
+                belowGoal(margin) && grand > 0 && "text-amber-600",
               )}
             >
               {Math.round(margin)}%
@@ -1695,7 +1737,7 @@ function CostRow({
       <td
         className={cn(
           "px-4 py-1.5 text-right tabular-nums",
-          cost > 0 && m < target && "text-amber-600",
+          cost > 0 && m < target - 0.5 && "text-amber-600",
         )}
       >
         {cost > 0 ? `${Math.round(m)}%` : "—"}
