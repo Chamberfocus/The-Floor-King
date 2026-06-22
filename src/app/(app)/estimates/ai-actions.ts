@@ -25,6 +25,41 @@ export interface DraftQuoteResult {
   error: string | null;
 }
 
+export interface ScopeLine {
+  room?: string | null;
+  description: string;
+  quantity?: number | null;
+  unit?: string | null;
+}
+
+/**
+ * Write a detailed, customer-facing scope-of-work description from the line
+ * items on an estimate or invoice. Returns the text for the builder to drop into
+ * the description/notes field (nothing is saved here).
+ */
+export async function writeScopeDescription(input: {
+  kind: "estimate" | "invoice";
+  lines: ScopeLine[];
+}): Promise<{ text: string; error: string | null }> {
+  const items = (input.lines ?? [])
+    .filter((l) => l.description?.trim())
+    .map((l) => {
+      const qty =
+        l.quantity && l.quantity > 0
+          ? ` (${Math.round(l.quantity * 100) / 100} ${l.unit || ""})`.trimEnd()
+          : "";
+      return `- ${l.room ? `${l.room}: ` : ""}${l.description.trim()}${qty}`;
+    })
+    .join("\n");
+  if (!items) return { text: "", error: "Add some line items first." };
+
+  return aiText({
+    system: `You write the customer-facing scope-of-work description for a flooring company's ${input.kind} (Cleveland Floor King). Based ONLY on the line items given, write a clear, professional, DETAILED description of the work — grouped by room — that a homeowner easily understands. Cover the materials, the rooms/areas, and what's included (tear-out & haul-away, floor prep, installation, transitions/trim, pad, etc.) wherever the items imply it. Be specific and thorough but do NOT invent prices, brands, or details the items don't support. No greeting, no signature, no pricing. Return only the description text.`,
+    maxTokens: 900,
+    prompt: `Line items:\n${items}`,
+  });
+}
+
 /**
  * Turn a plain-English job description into a draft estimate: AI parses the
  * rooms/materials/areas, we match each to a catalog product and price it to the

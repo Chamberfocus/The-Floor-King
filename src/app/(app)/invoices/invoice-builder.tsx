@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Printer } from "lucide-react";
+import { Plus, Trash2, Save, Printer, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +23,7 @@ import {
   type InvoiceStatus,
 } from "@/lib/types";
 import { saveInvoice } from "./actions";
+import { writeScopeDescription } from "@/app/(app)/estimates/ai-actions";
 
 interface ItemState {
   key: string;
@@ -72,6 +73,29 @@ export function InvoiceBuilder({
     }));
     return initial.length ? initial : [emptyItem()];
   });
+
+  const [aiBusy, setAiBusy] = useState(false);
+  const aiDescribe = async () => {
+    const lines = items
+      .filter((it) => it.description.trim())
+      .map((it) => ({
+        description: it.description,
+        quantity: Number(it.quantity) || null,
+        unit: it.unit,
+      }));
+    if (!lines.length) {
+      toast.error("Add line items first.");
+      return;
+    }
+    setAiBusy(true);
+    const res = await writeScopeDescription({ kind: "invoice", lines });
+    setAiBusy(false);
+    if (res.error) toast.error(res.error);
+    else {
+      setNotes(res.text.trim());
+      toast.success("Description written — review & edit as needed");
+    }
+  };
 
   const updateItem = (i: number, patch: Partial<ItemState>) =>
     setItems((prev) => prev.map((it, j) => (j === i ? { ...it, ...patch } : it)));
@@ -270,7 +294,18 @@ export function InvoiceBuilder({
       <Card>
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="notes">Notes (shown to customer)</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="notes">Notes (shown to customer)</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={aiDescribe}
+                disabled={aiBusy}
+              >
+                <Sparkles className="size-3.5" /> {aiBusy ? "Writing…" : "AI describe"}
+              </Button>
+            </div>
             <textarea
               id="notes"
               value={notes}

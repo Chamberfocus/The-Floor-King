@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Plus, Copy, Trash2, ArrowLeft, Save, Eye } from "lucide-react";
+import { Plus, Copy, Trash2, ArrowLeft, Save, Eye, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +27,7 @@ import {
   type Product,
 } from "@/lib/types";
 import { saveEstimate } from "./actions";
+import { writeScopeDescription } from "./ai-actions";
 import { ProductPicker } from "./product-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
 
@@ -438,6 +439,31 @@ export function EstimateBuilder({
       if (thenView) router.push(`/estimates/${estimate.id}`);
     });
 
+  const [aiBusy, setAiBusy] = useState(false);
+  const aiDescribe = async () => {
+    const lines = options
+      .flatMap((o) => o.lines)
+      .filter((l) => l.description.trim())
+      .map((l) => ({
+        room: l.room || null,
+        description: l.description,
+        quantity: Number(l.quantity) || Number(l.sqft) || null,
+        unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+      }));
+    if (!lines.length) {
+      toast.error("Add line items first.");
+      return;
+    }
+    setAiBusy(true);
+    const res = await writeScopeDescription({ kind: "estimate", lines });
+    setAiBusy(false);
+    if (res.error) toast.error(res.error);
+    else {
+      setJobDescription(res.text.trim());
+      toast.success("Description written — review & edit as needed");
+    }
+  };
+
   return (
     <div className="mx-auto max-w-5xl pb-24">
       <Link
@@ -486,7 +512,18 @@ export function EstimateBuilder({
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="job_description">Job description (shown to customer)</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="job_description">Job description (shown to customer)</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={aiDescribe}
+                disabled={aiBusy}
+              >
+                <Sparkles className="size-3.5" /> {aiBusy ? "Writing…" : "AI describe"}
+              </Button>
+            </div>
             <textarea
               id="job_description"
               value={jobDescription}
