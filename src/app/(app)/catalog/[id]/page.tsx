@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { getProduct } from "@/lib/data/products";
+import { listSuppliers } from "@/lib/data/suppliers";
 import { ProductForm } from "../product-form";
 import { deleteProduct } from "../actions";
 
@@ -27,6 +28,7 @@ export default async function EditProductPage({
   const { id } = await params;
   const product = await getProduct(id);
   if (!product) notFound();
+  const suppliers = (await listSuppliers()).map((s) => s.name);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -39,7 +41,7 @@ export default async function EditProductPage({
       <PageHeader title="Edit product" />
       <Card>
         <CardContent className="pt-6">
-          <ProductForm product={product} />
+          <ProductForm product={product} suppliers={suppliers} />
         </CardContent>
       </Card>
 

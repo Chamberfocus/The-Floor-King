@@ -336,7 +336,7 @@ export interface ImportResult {
 
 export async function importProducts(
   rows: PriceRow[],
-  opts: { update?: boolean } = {},
+  opts: { update?: boolean; supplier?: string } = {},
 ): Promise<ImportResult> {
   const valid = (rows ?? []).filter((r) => r.name?.trim());
   if (!valid.length) return { error: "Nothing to import." };
@@ -405,6 +405,20 @@ export async function importProducts(
       const { error } = await supabase.from("products").insert(batch);
       if (error) return { error: error.message, count };
       count += batch.length;
+    }
+  }
+
+  // Stamp the supplier on the imported products (a price list is one vendor).
+  // Set only where it's blank, so we don't overwrite a product already tagged.
+  const supplier = opts.supplier?.trim();
+  if (supplier) {
+    const names = [...new Set(items.map((it) => it.name))];
+    for (let i = 0; i < names.length; i += 200) {
+      await supabase
+        .from("products")
+        .update({ supplier })
+        .in("name", names.slice(i, i + 200))
+        .or("supplier.is.null,supplier.eq.");
     }
   }
 

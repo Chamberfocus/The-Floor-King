@@ -19,7 +19,13 @@ import {
 
 const initialState: ProductFormState = { error: null };
 
-export function ProductForm({ product }: { product?: Product }) {
+export function ProductForm({
+  product,
+  suppliers = [],
+}: {
+  product?: Product;
+  suppliers?: string[];
+}) {
   const isEdit = Boolean(product);
   const [state, formAction, pending] = useActionState(
     isEdit ? updateProduct : createProduct,
@@ -123,6 +129,23 @@ export function ProductForm({ product }: { product?: Product }) {
             defaultValue={product?.color ?? ""}
             placeholder="e.g. Honey Oak"
           />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="supplier">Supplier / vendor</Label>
+          <Input
+            id="supplier"
+            name="supplier"
+            list="supplier-options"
+            defaultValue={product?.supplier ?? ""}
+            placeholder="Where you order it from"
+          />
+          {suppliers.length ? (
+            <datalist id="supplier-options">
+              {suppliers.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+          ) : null}
         </div>
         {isEdit ? (
           <div className="flex items-end">

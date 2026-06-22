@@ -9,6 +9,10 @@ export interface JobMaterialLine {
   description: string;
   productId: string | null;
   productName: string | null;
+  supplier: string | null; // vendor we order it from (for the PO)
+  category: string | null;
+  lengthIn: number | null; // cut measurements to order (carpet especially)
+  widthIn: number | null;
   qty: number; // quantity needed for the job
   unit: string;
   trackStock: boolean;
@@ -43,6 +47,10 @@ type RawLine = CalcLine & {
   product_id: string | null;
   source: string | null;
   unit: string | null;
+  category: string | null;
+  length_in: number | null;
+  width_in: number | null;
+  manufacturer: string | null;
 };
 
 export async function getJobMaterials(jobId: string): Promise<JobMaterials> {
@@ -78,12 +86,12 @@ export async function getJobMaterials(jobId: string): Promise<JobMaterials> {
   ] as string[];
   const prodById = new Map<
     string,
-    { name: string; track_stock: boolean; on_hand: number; reserved: number; material_rate: number }
+    { name: string; track_stock: boolean; on_hand: number; reserved: number; material_rate: number; supplier: string | null }
   >();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, track_stock, on_hand, reserved, material_rate")
+      .select("id, name, track_stock, on_hand, reserved, material_rate, supplier")
       .in("id", productIds);
     for (const p of prods ?? []) {
       prodById.set(p.id as string, {
@@ -92,6 +100,7 @@ export async function getJobMaterials(jobId: string): Promise<JobMaterials> {
         on_hand: Number(p.on_hand) || 0,
         reserved: Number(p.reserved) || 0,
         material_rate: Number(p.material_rate) || 0,
+        supplier: (p.supplier as string) || null,
       });
     }
   }
@@ -158,6 +167,10 @@ export async function getJobMaterials(jobId: string): Promise<JobMaterials> {
       description: l.description,
       productId: l.product_id,
       productName: p?.name ?? null,
+      supplier: p?.supplier ?? l.manufacturer ?? null,
+      category: l.category ?? null,
+      lengthIn: l.length_in ?? null,
+      widthIn: l.width_in ?? null,
       qty,
       unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
       trackStock: canStock,

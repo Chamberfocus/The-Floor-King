@@ -16,6 +16,14 @@ import {
   pullAllStock,
 } from "../material-actions";
 
+/** Inches → feet'inches" (e.g. 150 → 12'6"). */
+function ftIn(inches: number): string {
+  if (!Number.isFinite(inches) || inches <= 0) return "";
+  const ft = Math.floor(inches / 12);
+  const inch = Math.round(inches % 12);
+  return inch > 0 ? `${ft}'${inch}"` : `${ft}'`;
+}
+
 function StatusBadge({ line }: { line: JobMaterialLine }) {
   const map: Record<JobMaterialLine["status"], { label: string; cls: string }> = {
     order: { label: "Special order", cls: "bg-sky-500/10 text-sky-600" },
@@ -82,12 +90,20 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                 <div className="text-xs text-muted-foreground">
                   {l.room ? `${l.room} · ` : ""}
                   {l.qty} {l.unit}
+                  {l.widthIn && l.lengthIn
+                    ? ` · cut ${ftIn(l.widthIn)} × ${ftIn(l.lengthIn)}`
+                    : ""}
                   {l.trackStock
                     ? ` · ${l.onHand} on hand${
                         l.available !== l.onHand ? ` (${l.available} free)` : ""
                       }`
                     : " · not stocked"}
                 </div>
+                {l.resolvedSource === "order" && l.supplier ? (
+                  <div className="text-xs font-medium text-sky-600">
+                    Order from {l.supplier}
+                  </div>
+                ) : null}
               </div>
 
               <StatusBadge line={l} />

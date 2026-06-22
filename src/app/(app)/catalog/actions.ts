@@ -35,6 +35,7 @@ function readFields(formData: FormData) {
     manufacturer: str(formData.get("manufacturer")) || null,
     style: str(formData.get("style")) || null,
     color: str(formData.get("color")) || null,
+    supplier: str(formData.get("supplier")) || null,
     notes: str(formData.get("notes")) || null,
   };
 }

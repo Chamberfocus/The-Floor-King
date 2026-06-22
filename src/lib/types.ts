@@ -257,6 +257,7 @@ export interface Product {
   manufacturer: string | null;
   style: string | null;
   color: string | null;
+  supplier: string | null;
   notes: string | null;
   active: boolean;
   track_stock: boolean;

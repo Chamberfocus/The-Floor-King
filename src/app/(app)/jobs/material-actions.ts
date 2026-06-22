@@ -133,50 +133,80 @@ async function createPOForLines(
   ];
   const cost = new Map<string, number>();
   const pname = new Map<string, string>();
+  const psupplier = new Map<string, string | null>();
   if (productIds.length) {
     const { data: prods } = await db
       .from("products")
-      .select("id, name, material_rate")
+      .select("id, name, material_rate, supplier")
       .in("id", productIds);
     for (const p of prods ?? []) {
       cost.set(p.id as string, Number(p.material_rate) || 0);
       pname.set(p.id as string, p.name as string);
+      psupplier.set(p.id as string, (p.supplier as string) || null);
     }
   }
 
-  const supplier =
-    lines.map((l) => l.manufacturer).find(Boolean) || "Special order";
+  // One PO per supplier so each shows the vendor we order from.
+  const supplierOf = (l: (typeof lines)[number]) =>
+    (l.product_id ? psupplier.get(l.product_id) : null) ||
+    l.manufacturer ||
+    "Special order";
+  const groups = new Map<string, typeof lines>();
+  for (const l of lines) {
+    const sup = supplierOf(l);
+    const arr = groups.get(sup) ?? [];
+    arr.push(l);
+    groups.set(sup, arr);
+  }
 
-  const { data: po, error } = await db
-    .from("purchase_orders")
-    .insert({
-      customer_id: est?.customer_id ?? null,
-      estimate_id: estimateId,
-      job_id: jobId,
-      supplier,
-      created_by: uid,
-    })
-    .select("id")
-    .single();
-  if (error || !po) return;
+  for (const [supplier, glines] of groups) {
+    const { data: po, error } = await db
+      .from("purchase_orders")
+      .insert({
+        customer_id: est?.customer_id ?? null,
+        estimate_id: estimateId,
+        job_id: jobId,
+        supplier,
+        created_by: uid,
+      })
+      .select("id")
+      .single();
+    if (error || !po) continue;
 
-  const items = lines.map((l, i) => ({
-    po_id: po.id,
-    product_id: l.product_id,
-    position: i,
-    description:
-      l.description || (l.product_id ? pname.get(l.product_id) : "") || "Item",
-    quantity: round(lineQty(l)),
-    unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
-    unit_cost:
-      (l.product_id ? cost.get(l.product_id) : undefined) ??
-      (Number(l.material_cost) || Number(l.material_rate) || 0),
-    manufacturer: l.manufacturer ?? null,
-    style: l.style ?? null,
-    color: l.color ?? null,
-    item_no: l.item_no ?? null,
-  }));
-  await db.from("po_items").insert(items);
+    const items = glines.map((l, i) => {
+      const base =
+        l.description || (l.product_id ? pname.get(l.product_id) : "") || "Item";
+      // Carpet & any measured line: show the cut size to order, not just yards.
+      const dims =
+        l.length_in && l.width_in
+          ? ` — ${ftIn(Number(l.width_in))} × ${ftIn(Number(l.length_in))}`
+          : "";
+      return {
+        po_id: po.id,
+        product_id: l.product_id,
+        position: i,
+        description: `${base}${dims}`,
+        quantity: round(lineQty(l)),
+        unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+        unit_cost:
+          (l.product_id ? cost.get(l.product_id) : undefined) ??
+          (Number(l.material_cost) || Number(l.material_rate) || 0),
+        manufacturer: l.manufacturer ?? null,
+        style: l.style ?? null,
+        color: l.color ?? null,
+        item_no: l.item_no ?? null,
+      };
+    });
+    await db.from("po_items").insert(items);
+  }
+}
+
+/** Inches → feet'inches" (e.g. 150 → 12'6"). */
+function ftIn(inches: number): string {
+  if (!Number.isFinite(inches) || inches <= 0) return "";
+  const ft = Math.floor(inches / 12);
+  const inch = Math.round(inches % 12);
+  return inch > 0 ? `${ft}'${inch}"` : `${ft}'`;
 }
 
 /** Flip a single line between sell-from-stock and special-order. */

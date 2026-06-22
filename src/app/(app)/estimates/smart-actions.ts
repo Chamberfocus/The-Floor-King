@@ -91,6 +91,8 @@ export interface SmartLine {
   measure_unit: "sqft" | "sqyd";
   sqft: number | null;
   quantity: number | null;
+  length_in: number | null;
+  width_in: number | null;
   unit: string;
   material_rate: number;
   labor_rate: number;
@@ -163,6 +165,8 @@ export async function createSmartEstimate(
     measure_unit: l.measure_unit,
     sqft: l.sqft && l.sqft > 0 ? l.sqft : null,
     quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
+    length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
+    width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
     unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
     material_rate: Number(l.material_rate) || 0,
     labor_rate: Number(l.labor_rate) || 0,

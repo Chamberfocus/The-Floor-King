@@ -53,45 +53,79 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
     lines = (data ?? []) as EstimateLineItem[];
   }
 
-  // Product material rates for installed lines linked to a product.
+  // Product material rates + supplier for installed lines linked to a product.
   const productIds = [
     ...new Set(lines.map((l) => l.product_id).filter(Boolean) as string[]),
   ];
   const productCost = new Map<string, number>();
   const productName = new Map<string, string>();
+  const productSupplier = new Map<string, string | null>();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, material_rate")
+      .select("id, name, material_rate, supplier")
       .in("id", productIds);
     for (const p of prods ?? []) {
       productCost.set(p.id as string, Number(p.material_rate) || 0);
       productName.set(p.id as string, p.name as string);
+      productSupplier.set(p.id as string, (p.supplier as string) || null);
     }
   }
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const { data: po, error } = await supabase
-    .from("purchase_orders")
-    .insert({
-      customer_id: est.customer_id,
-      estimate_id: estimateId,
-      created_by: user?.id ?? null,
-    })
-    .select("id")
-    .single();
-  if (error || !po) return;
 
-  const items = lines
-    // Include every quantity-bearing MATERIAL line — area-measured AND
-    // perimeter/each companions (tackstrip, transitions, trim). Labor lines
-    // (install, tear-out, prep) are never ordered as material.
-    .filter(
-      (l) => l.line_type !== "flat" && l.category !== "labor" && lineQty(l) > 0,
-    )
-    .map((l, i) => {
+  // Only quantity-bearing MATERIAL lines. Labor (install, tear-out, prep) is
+  // never ordered as material.
+  const orderable = lines.filter(
+    (l) => l.line_type !== "flat" && l.category !== "labor" && lineQty(l) > 0,
+  );
+  if (!orderable.length) {
+    // Still create an empty PO so the user lands somewhere sensible.
+    const { data: po } = await supabase
+      .from("purchase_orders")
+      .insert({
+        customer_id: est.customer_id,
+        estimate_id: estimateId,
+        created_by: user?.id ?? null,
+      })
+      .select("id")
+      .single();
+    revalidatePath("/purchase-orders");
+    if (po) redirect(`/purchase-orders/${po.id}`);
+    return;
+  }
+
+  // Group lines by the vendor we order them from → one PO per supplier.
+  const supplierOf = (l: EstimateLineItem) =>
+    (l.product_id ? productSupplier.get(l.product_id) : null) ||
+    l.manufacturer ||
+    "Special order";
+  const groups = new Map<string, EstimateLineItem[]>();
+  for (const l of orderable) {
+    const sup = supplierOf(l);
+    const arr = groups.get(sup) ?? [];
+    arr.push(l);
+    groups.set(sup, arr);
+  }
+
+  let firstPoId: string | null = null;
+  for (const [supplier, glines] of groups) {
+    const { data: po, error } = await supabase
+      .from("purchase_orders")
+      .insert({
+        customer_id: est.customer_id,
+        estimate_id: estimateId,
+        supplier,
+        created_by: user?.id ?? null,
+      })
+      .select("id")
+      .single();
+    if (error || !po) continue;
+    if (!firstPoId) firstPoId = po.id as string;
+
+    const items = glines.map((l, i) => {
       // PO cost = our cost (saved material_cost), else the product's cost,
       // never the customer sell rate.
       const unitCost =
@@ -100,25 +134,44 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
           : l.product_id
             ? (productCost.get(l.product_id) ?? 0)
             : 0;
-      const desc =
+      const base =
         l.description ||
         (l.product_id ? productName.get(l.product_id) : null) ||
         l.room ||
         "Material";
+      // Carpet & any measured line: show the cut size to order, not just yards.
+      const dims =
+        l.length_in && l.width_in
+          ? ` — ${ftIn(Number(l.width_in))} × ${ftIn(Number(l.length_in))}`
+          : "";
       return {
         po_id: po.id,
         position: i,
         product_id: l.product_id,
-        description: desc,
+        description: `${base}${dims}`,
         quantity: Math.round(lineQty(l) * 100) / 100,
         unit: l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft"),
         unit_cost: unitCost,
+        manufacturer: l.manufacturer ?? null,
+        style: l.style ?? null,
+        color: l.color ?? null,
+        item_no: l.item_no ?? null,
       };
     });
-  if (items.length) await supabase.from("po_items").insert(items);
+    await supabase.from("po_items").insert(items);
+  }
 
   revalidatePath("/purchase-orders");
-  redirect(`/purchase-orders/${po.id}`);
+  if (firstPoId) redirect(`/purchase-orders/${firstPoId}`);
+  redirect("/purchase-orders");
+}
+
+/** Inches → feet'inches" (e.g. 150 → 12'6"). */
+function ftIn(inches: number): string {
+  if (!Number.isFinite(inches) || inches <= 0) return "";
+  const ft = Math.floor(inches / 12);
+  const inch = Math.round(inches % 12);
+  return inch > 0 ? `${ft}'${inch}"` : `${ft}'`;
 }
 
 export async function savePurchaseOrder(

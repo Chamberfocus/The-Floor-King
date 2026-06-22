@@ -73,7 +73,7 @@ const toNum = (v: string): number | null => {
 
 type Source = { name: string; how: "spreadsheet" | "pdf" | "image" | "text" };
 
-export function SmartImporter() {
+export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   // input
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -89,6 +89,7 @@ export function SmartImporter() {
   const [map, setMap] = useState<Record<string, number>>({});
   const [defCategory, setDefCategory] = useState("other");
   const [defUnit, setDefUnit] = useState("sqft");
+  const [defSupplier, setDefSupplier] = useState("");
   const [rows, setRows] = useState<PriceRow[] | null>(null);
 
   // import
@@ -349,7 +350,10 @@ export function SmartImporter() {
         toast.error("Nothing to import yet.");
         return;
       }
-      const res = await importProducts(built, { update: updateMode });
+      const res = await importProducts(built, {
+        update: updateMode,
+        supplier: defSupplier.trim() || undefined,
+      });
       if (res.error) {
         toast.error(res.error);
         return;
@@ -507,6 +511,25 @@ export function SmartImporter() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">Default unit:</span>
                   <Input value={defUnit} onChange={(e) => setDefUnit(e.target.value)} className="h-8 w-20" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    Order from (supplier):
+                  </span>
+                  <Input
+                    value={defSupplier}
+                    onChange={(e) => setDefSupplier(e.target.value)}
+                    placeholder="e.g. Shaw, local distributor"
+                    list="importer-supplier-options"
+                    className="h-8 w-48"
+                  />
+                  {suppliers.length ? (
+                    <datalist id="importer-supplier-options">
+                      {suppliers.map((s) => (
+                        <option key={s} value={s} />
+                      ))}
+                    </datalist>
+                  ) : null}
                 </div>
               </div>
             </details>

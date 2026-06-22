@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
+import { listSuppliers } from "@/lib/data/suppliers";
 import { SmartImporter } from "../smart-importer";
 
 export const metadata: Metadata = { title: "Import price list" };
@@ -15,6 +16,7 @@ export const maxDuration = 300;
 export default async function ImportPriceListPage() {
   const profile = await requireProfile();
   if (!["admin", "office", "sales_manager"].includes(profile.role)) redirect("/");
+  const suppliers = (await listSuppliers()).map((s) => s.name);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -31,7 +33,7 @@ export default async function ImportPriceListPage() {
 
       <Card>
         <CardContent className="pt-6">
-          <SmartImporter />
+          <SmartImporter suppliers={suppliers} />
         </CardContent>
       </Card>
     </div>
