@@ -29,8 +29,9 @@ export function CatalogCleanup({ total }: { total: number }) {
       }
       toast.success(
         res.removed
-          ? `Removed ${res.removed} duplicate${res.removed === 1 ? "" : "s"}`
-          : "No duplicates found",
+          ? `Removed ${res.removed} duplicate${res.removed === 1 ? "" : "s"}` +
+              (res.groups ? ` across ${res.groups} product${res.groups === 1 ? "" : "s"}` : "")
+          : "No duplicates found — your catalog is clean",
       );
       router.refresh();
     });

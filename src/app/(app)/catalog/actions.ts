@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { assertRole } from "@/lib/auth";
 import { searchCatalog } from "@/lib/data/products";
 import type { Product, ProductCategory } from "@/lib/types";
 
@@ -120,74 +122,162 @@ export async function updateProduct(
   return { error: null, ok: true };
 }
 
+type DedupeRow = {
+  id: string;
+  name: string | null;
+  sku: string | null;
+  manufacturer: string | null;
+  style: string | null;
+  color: string | null;
+  on_hand: number | null;
+  reserved: number | null;
+  notes: string | null;
+  supplier: string | null;
+  created_at: string;
+};
+
+const dedupeNorm = (v: string | null) =>
+  (v ?? "").toString().normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const dedupeTight = (v: string | null) => dedupeNorm(v).replace(/\s+/g, "");
+/** A SKU we trust as an identity: ≥3 chars, alphanumeric, not all one char. */
+function trustySku(sku: string | null): string {
+  const s = dedupeTight(sku);
+  return s.length >= 3 && /[a-z0-9]/.test(s) && !/^(.)\1*$/.test(s) ? s : "";
+}
+/** The duplicate signature: same SKU = same product; else same normalized name. */
+function dedupeSignature(r: DedupeRow): string | null {
+  const sku = trustySku(r.sku);
+  if (sku) return `s:${sku}`;
+  const name = dedupeNorm(r.name);
+  return name ? `n:${name}` : null;
+}
+/** How "complete" a record is — the keeper should be the richest one. */
+function dedupeScore(r: DedupeRow): number {
+  return [r.sku, r.manufacturer, r.style, r.color, r.notes, r.supplier].filter(
+    (v) => (v ?? "").toString().trim(),
+  ).length;
+}
+
 /**
- * Remove duplicate products, keeping the oldest of each set. Duplicates are
- * matched on name + SKU + manufacturer + color (case-insensitive).
+ * Intelligently merge duplicate products. Two products are the same item when
+ * they share a trustworthy SKU, or (failing that) the same normalized name —
+ * so re-imported lists collapse even if a manufacturer/color was entered
+ * differently. For each set we keep ONE record (the one with stock, then the
+ * most complete, then the oldest), fold the others' inventory into it, re-point
+ * any estimate/PO lines at the keeper so nothing loses its link, then delete
+ * the extras. Runs with the service-role client and reports the REAL number
+ * removed (the old tool counted attempts, so it claimed success even when RLS
+ * silently blocked the delete).
  */
 export async function dedupeProducts(): Promise<{
   error: string | null;
   removed?: number;
+  groups?: number;
 }> {
-  const supabase = await createClient();
+  try {
+    await assertRole(["admin", "office", "sales_manager"]);
+  } catch {
+    return { error: "You don't have permission to clean up the catalog." };
+  }
+  const admin = createAdminClient();
 
-  // Supabase caps a single select at 1000 rows — page through the WHOLE catalog
-  // so we actually see every product. (A 6,000-row catalog was only ever
-  // deduping its first 1,000 rows, which is why duplicates kept surviving.)
-  type Row = {
-    id: string;
-    name: string | null;
-    sku: string | null;
-    manufacturer: string | null;
-    color: string | null;
-  };
-  const all: Row[] = [];
+  // Page through the WHOLE catalog (Supabase caps a select at 1000 rows).
+  const all: DedupeRow[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase
+    const { data, error } = await admin
       .from("products")
-      .select("id, name, sku, manufacturer, color")
+      .select(
+        "id, name, sku, manufacturer, style, color, on_hand, reserved, notes, supplier, created_at",
+      )
       .order("created_at", { ascending: true })
       .range(from, from + 999);
     if (error) return { error: error.message };
-    const batch = (data ?? []) as Row[];
+    const batch = (data ?? []) as DedupeRow[];
     all.push(...batch);
     if (batch.length < 1000) break;
   }
 
-  const norm = (v: string | null) => (v ?? "").trim().toLowerCase();
-  const seen = new Set<string>();
-  const seenBySku = new Set<string>();
-  const toDelete: string[] = [];
-  for (const p of all) {
-    const name = norm(p.name);
-    const sku = norm(p.sku);
-    // A matching name+SKU is the strongest duplicate signal (same item from a
-    // re-imported list), even if manufacturer/color got entered differently.
-    if (sku) {
-      const skuKey = `${name}|${sku}`;
-      if (seenBySku.has(skuKey)) {
-        toDelete.push(p.id);
-        continue;
-      }
-      seenBySku.add(skuKey);
-    }
-    const key = [name, sku, norm(p.manufacturer), norm(p.color)].join("|");
-    if (seen.has(key)) toDelete.push(p.id);
-    else seen.add(key);
+  // Group by signature (rows already oldest-first, so the first seen is oldest).
+  const groups = new Map<string, DedupeRow[]>();
+  for (const r of all) {
+    const key = dedupeSignature(r);
+    if (!key) continue;
+    const arr = groups.get(key);
+    if (arr) arr.push(r);
+    else groups.set(key, [r]);
   }
-  if (!toDelete.length) return { error: null, removed: 0 };
 
+  // For each duplicate set: pick the keeper, fold stock, re-point references.
+  const dupIds: string[] = [];
+  let mergedGroups = 0;
+  for (const rows of groups.values()) {
+    if (rows.length < 2) continue;
+    mergedGroups += 1;
+
+    const keeper = rows.reduce((best, r) => {
+      const bStock = (Number(best.on_hand) || 0) + (Number(best.reserved) || 0);
+      const rStock = (Number(r.on_hand) || 0) + (Number(r.reserved) || 0);
+      if (rStock !== bStock) return rStock > bStock ? r : best;
+      const bs = dedupeScore(best);
+      const rs = dedupeScore(r);
+      if (rs !== bs) return rs > bs ? r : best;
+      return best; // tie → keep the earlier (oldest) record
+    });
+
+    const groupDupIds: string[] = [];
+    let foldOnHand = 0;
+    let foldReserved = 0;
+    for (const r of rows) {
+      if (r.id === keeper.id) continue;
+      groupDupIds.push(r.id);
+      foldOnHand += Number(r.on_hand) || 0;
+      foldReserved += Number(r.reserved) || 0;
+    }
+    if (!groupDupIds.length) continue;
+
+    // Preserve inventory: roll the duplicates' stock into the keeper.
+    if (foldOnHand || foldReserved) {
+      await admin
+        .from("products")
+        .update({
+          on_hand: (Number(keeper.on_hand) || 0) + foldOnHand,
+          reserved: (Number(keeper.reserved) || 0) + foldReserved,
+        })
+        .eq("id", keeper.id);
+    }
+
+    // Keep estimates & POs linked: move their lines to the keeper before delete
+    // (the FK is ON DELETE SET NULL, so without this they'd lose the product).
+    await admin
+      .from("estimate_line_items")
+      .update({ product_id: keeper.id })
+      .in("product_id", groupDupIds);
+    await admin
+      .from("po_items")
+      .update({ product_id: keeper.id })
+      .in("product_id", groupDupIds);
+
+    dupIds.push(...groupDupIds);
+  }
+
+  if (!dupIds.length) return { error: null, removed: 0, groups: 0 };
+
+  // Delete the extras and COUNT WHAT ACTUALLY WENT (via .select()).
   let removed = 0;
-  for (let i = 0; i < toDelete.length; i += 200) {
-    const batch = toDelete.slice(i, i + 200);
-    const { error: delErr } = await supabase
+  for (let i = 0; i < dupIds.length; i += 200) {
+    const batch = dupIds.slice(i, i + 200);
+    const { data, error } = await admin
       .from("products")
       .delete()
-      .in("id", batch);
-    if (delErr) return { error: delErr.message, removed };
-    removed += batch.length;
+      .in("id", batch)
+      .select("id");
+    if (error) return { error: error.message, removed };
+    removed += data?.length ?? 0;
   }
+
   revalidatePath("/catalog");
-  return { error: null, removed };
+  revalidatePath("/inventory");
+  return { error: null, removed, groups: mergedGroups };
 }
 
 /** Delete every product (estimate lines keep their copied prices). */
@@ -195,17 +285,35 @@ export async function clearCatalog(): Promise<{
   error: string | null;
   removed?: number;
 }> {
-  const supabase = await createClient();
-  const { count } = await supabase
-    .from("products")
-    .select("*", { count: "exact", head: true });
-  const { error } = await supabase
-    .from("products")
-    .delete()
-    .not("id", "is", null);
-  if (error) return { error: error.message };
+  try {
+    await assertRole(["admin", "office", "sales_manager"]);
+  } catch {
+    return { error: "You don't have permission to clear the catalog." };
+  }
+  const admin = createAdminClient();
+  // Delete in batches and count what actually went, so the result is truthful
+  // even on a large catalog.
+  let removed = 0;
+  for (;;) {
+    const { data: ids, error: selErr } = await admin
+      .from("products")
+      .select("id")
+      .limit(1000);
+    if (selErr) return { error: selErr.message, removed };
+    const batch = (ids ?? []).map((r) => r.id as string);
+    if (!batch.length) break;
+    const { data, error } = await admin
+      .from("products")
+      .delete()
+      .in("id", batch)
+      .select("id");
+    if (error) return { error: error.message, removed };
+    removed += data?.length ?? 0;
+    if ((data?.length ?? 0) < batch.length) break; // nothing more deletable
+  }
   revalidatePath("/catalog");
-  return { error: null, removed: count ?? 0 };
+  revalidatePath("/inventory");
+  return { error: null, removed };
 }
 
 export async function deleteProduct(formData: FormData): Promise<void> {
