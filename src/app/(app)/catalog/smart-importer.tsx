@@ -108,6 +108,9 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   // Row indices selected for a bulk change (editable / AI-rows path).
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkCat, setBulkCat] = useState("carpet");
+  // "Change all X → Y" pickers.
+  const [fromCat, setFromCat] = useState("lvp");
+  const [toCat, setToCat] = useState("laminate");
   // How many rows to render at once (the rest still import — this is just the view).
   const [shown, setShown] = useState(60);
 
@@ -410,6 +413,30 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
 
   // ---- Bulk editing: select rows, then change their flooring type at once ----
   const allRows = rows ?? [];
+  // A row's effective category (unknown values count as "other").
+  const catOf = (r: PriceRow) =>
+    PRODUCT_CATEGORY_ORDER.includes(r.category as never) ? r.category : "other";
+  // How many rows sit in each category right now — drives the "change all" picker.
+  const catCounts = new Map<string, number>();
+  for (const r of allRows) catCounts.set(catOf(r), (catCounts.get(catOf(r)) ?? 0) + 1);
+  const presentCats = PRODUCT_CATEGORY_ORDER.filter((c) => catCounts.has(c));
+  // Reclassify EVERY row of one type into another, in a single move.
+  const bulkRecategorize = () => {
+    const from = catCounts.has(fromCat) ? fromCat : presentCats[0];
+    if (!from || from === toCat) return;
+    const count = allRows.filter((r) => catOf(r) === from).length;
+    if (!count) {
+      toast.error(`No ${PRODUCT_CATEGORY_LABELS[from as never] ?? from} items to change.`);
+      return;
+    }
+    setRows((prev) =>
+      prev ? prev.map((r) => (catOf(r) === from ? { ...r, category: toCat } : r)) : prev,
+    );
+    setSelected(new Set());
+    toast.success(
+      `Changed ${count} ${PRODUCT_CATEGORY_LABELS[from as never] ?? from} → ${PRODUCT_CATEGORY_LABELS[toCat as never] ?? toCat}`,
+    );
+  };
   const toggleRow = (i: number) =>
     setSelected((s) => {
       const next = new Set(s);
@@ -437,16 +464,15 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   };
   // One click: re-file every row that looks like trim/pad/accessory (by name).
   const autoSortKinds = () => {
-    let changed = 0;
+    const changed = allRows.filter((r) => {
+      const kind = guessKind(r.name);
+      return kind && kind !== catOf(r);
+    }).length;
     setRows((prev) =>
       prev
         ? prev.map((r) => {
             const kind = guessKind(r.name);
-            if (kind && kind !== r.category) {
-              changed++;
-              return { ...r, category: kind };
-            }
-            return r;
+            return kind && kind !== catOf(r) ? { ...r, category: kind } : r;
           })
         : prev,
     );
@@ -643,7 +669,8 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
           {/* Bulk tools — change the flooring type for many rows at once, and
               auto-sort trim/pad pieces out of the flooring. */}
           {!grid && rows && rows.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2 text-sm">
+            <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -695,6 +722,35 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                   once.
                 </span>
               )}
+              </div>
+              {/* Change EVERY row of one type into another, in a single move. */}
+              {presentCats.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+                  <span className="text-xs text-muted-foreground">Change all</span>
+                  <SearchPicker
+                    className="w-44"
+                    value={catCounts.has(fromCat) ? fromCat : presentCats[0]}
+                    onChange={setFromCat}
+                    options={presentCats.map((c) => ({
+                      value: c,
+                      label: `${PRODUCT_CATEGORY_LABELS[c]} (${catCounts.get(c)})`,
+                    }))}
+                  />
+                  <span className="text-xs text-muted-foreground">→</span>
+                  <SearchPicker
+                    className="w-36"
+                    value={toCat}
+                    onChange={setToCat}
+                    options={PRODUCT_CATEGORY_ORDER.map((c) => ({
+                      value: c,
+                      label: PRODUCT_CATEGORY_LABELS[c],
+                    }))}
+                  />
+                  <Button type="button" size="sm" onClick={bulkRecategorize}>
+                    Change all
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ) : null}
           {grid && finalRows.length > 0 ? (
