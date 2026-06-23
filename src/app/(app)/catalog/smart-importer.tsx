@@ -71,6 +71,19 @@ const toNum = (v: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+// Tell trim/accessory pieces apart from actual flooring, by product name.
+const TRIM_RE =
+  /(t-?mold|transition|reducer|quarter[\s-]?round|stair[\s-]?nose|stairnose|\bnosing\b|thresh|end[\s-]?cap|bull?nose|base\s?board|baseboard|base\s?shoe|shoe\s?mold|\bmolding\b|\bmoulding\b|\briser\b|cove\s?base|wall\s?base|\btrim\b|edge\s?(strip|guard)|seam\s?bind)/i;
+const PAD_RE =
+  /(carpet\s?pad|\bcushion\b|underlay(ment)?|moisture\s?barrier|vapor\s?barrier|\bunderpad\b)/i;
+/** Guess that a row is a trim/accessory rather than flooring, from its name. */
+function guessKind(name: string | null | undefined): "trim" | "underlayment" | null {
+  const n = name ?? "";
+  if (TRIM_RE.test(n)) return "trim";
+  if (PAD_RE.test(n)) return "underlayment";
+  return null;
+}
+
 type Source = { name: string; how: "spreadsheet" | "pdf" | "image" | "text" };
 
 export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
@@ -92,6 +105,9 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   const [defSupplier, setDefSupplier] = useState("");
   const [defManufacturer, setDefManufacturer] = useState("");
   const [rows, setRows] = useState<PriceRow[] | null>(null);
+  // Row indices selected for a bulk change (editable / AI-rows path).
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkCat, setBulkCat] = useState("carpet");
 
   // import
   const [updateMode, setUpdateMode] = useState(false);
@@ -103,6 +119,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
     setGrid(null);
     setMap({});
     setRows(null);
+    setSelected(new Set());
     setStatus(null);
     if (fileRef.current) fileRef.current.value = "";
     if (textRef.current) textRef.current.value = "";
@@ -383,8 +400,65 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   // editable rows (AI path)
   const updateRow = (i: number, patch: Partial<PriceRow>) =>
     setRows((prev) => (prev ? prev.map((r, j) => (j === i ? { ...r, ...patch } : r)) : prev));
-  const removeRow = (i: number) =>
+  const removeRow = (i: number) => {
     setRows((prev) => (prev ? prev.filter((_, j) => j !== i) : prev));
+    setSelected(new Set());
+  };
+
+  // ---- Bulk editing: select rows, then change their flooring type at once ----
+  const allRows = rows ?? [];
+  const toggleRow = (i: number) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  const toggleAll = () =>
+    setSelected((s) =>
+      s.size >= allRows.length && allRows.length > 0
+        ? new Set()
+        : new Set(allRows.map((_, i) => i)),
+    );
+  const bulkSetCategory = (cat: string) => {
+    if (!selected.size) return;
+    setRows((prev) =>
+      prev ? prev.map((r, j) => (selected.has(j) ? { ...r, category: cat } : r)) : prev,
+    );
+    setSelected(new Set());
+  };
+  const bulkDelete = () => {
+    if (!selected.size) return;
+    setRows((prev) => (prev ? prev.filter((_, j) => !selected.has(j)) : prev));
+    setSelected(new Set());
+  };
+  // One click: re-file every row that looks like trim/pad/accessory (by name).
+  const autoSortKinds = () => {
+    let changed = 0;
+    setRows((prev) =>
+      prev
+        ? prev.map((r) => {
+            const kind = guessKind(r.name);
+            if (kind && kind !== r.category) {
+              changed++;
+              return { ...r, category: kind };
+            }
+            return r;
+          })
+        : prev,
+    );
+    toast.success(
+      changed
+        ? `Re-filed ${changed} trim/accessory ${changed === 1 ? "item" : "items"}`
+        : "No trim or accessory pieces found to re-file",
+    );
+  };
+  // Turn a mapped spreadsheet into the editable table so bulk tools apply to it.
+  const editGridRows = () => {
+    setRows(buildFromGrid());
+    setGrid(null);
+    setSelected(new Set());
+  };
 
   const hasResult = Boolean(grid) || (rows && rows.length >= 0 && source);
 
@@ -563,6 +637,75 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
             </details>
           ) : null}
 
+          {/* Bulk tools — change the flooring type for many rows at once, and
+              auto-sort trim/pad pieces out of the flooring. */}
+          {!grid && rows && rows.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2 text-sm">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={autoSortKinds}
+                title="Scan names and re-file transitions, molding, pad, etc. as trim/underlayment"
+              >
+                <Sparkles className="size-3.5" /> Auto-sort trim &amp; pad
+              </Button>
+              <span className="text-muted-foreground">·</span>
+              {selected.size > 0 ? (
+                <>
+                  <span className="text-xs font-medium">
+                    {selected.size} selected →
+                  </span>
+                  <span className="text-xs text-muted-foreground">set type</span>
+                  <SearchPicker
+                    className="w-36"
+                    value={bulkCat}
+                    onChange={setBulkCat}
+                    options={PRODUCT_CATEGORY_ORDER.map((c) => ({
+                      value: c,
+                      label: PRODUCT_CATEGORY_LABELS[c],
+                    }))}
+                  />
+                  <Button type="button" size="sm" onClick={() => bulkSetCategory(bulkCat)}>
+                    Apply
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={bulkDelete}
+                    className="text-destructive"
+                  >
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set())}
+                    className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  >
+                    Clear
+                  </button>
+                </>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  Tip: check rows on the left to change their flooring type all at
+                  once.
+                </span>
+              )}
+            </div>
+          ) : null}
+          {grid && finalRows.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Button type="button" variant="outline" size="sm" onClick={editGridRows}>
+                Edit rows &amp; fix types
+              </Button>
+              <span>
+                — switch to the editable list to bulk-change flooring types or
+                auto-sort trim.
+              </span>
+            </div>
+          ) : null}
+
           {/* Preview table */}
           {finalRows.length === 0 ? (
             <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -573,6 +716,19 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
               <table className="w-full text-sm">
                 <thead className="bg-muted/60 text-xs text-muted-foreground">
                   <tr>
+                    {!grid ? (
+                      <th className="px-2 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all"
+                          checked={
+                            allRows.length > 0 && selected.size >= allRows.length
+                          }
+                          onChange={toggleAll}
+                          className="size-4 rounded border-input"
+                        />
+                      </th>
+                    ) : null}
                     <th className="px-2 py-2 text-left">Name</th>
                     <th className="px-2 py-2 text-left">Category</th>
                     <th className="px-2 py-2 text-left">SKU</th>
@@ -596,6 +752,15 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                         </>
                       ) : (
                         <>
+                          <td className="px-2 py-1 align-middle">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${r.name || "row"}`}
+                              checked={selected.has(i)}
+                              onChange={() => toggleRow(i)}
+                              className="size-4 rounded border-input"
+                            />
+                          </td>
                           <td className="px-2 py-1">
                             <input value={r.name} onChange={(e) => updateRow(i, { name: e.target.value })} className={cn(inputSm, "min-w-40")} />
                           </td>

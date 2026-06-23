@@ -102,8 +102,8 @@ export function mapCategory(v: string): string {
   if (/laminate/.test(n)) return "laminate";
   if (/(tile|ceramic|porcelain)/.test(n)) return "tile";
   if (/vinyl/.test(n)) return "vinyl";
-  if (/(underlayment|pad|cushion)/.test(n)) return "underlayment";
-  if (/(trim|molding|moulding|transition|baseboard)/.test(n)) return "trim";
+  if (/(underlayment|underlay|underpad|carpetpad|^pad$|cushion|moisturebarrier|vaporbarrier)/.test(n)) return "underlayment";
+  if (/(trim|molding|moulding|transition|reducer|tmold|quarterround|stairnose|nosing|threshold|endcap|bullnose|baseboard|baseshoe|shoemold|riser|covebase|wallbase)/.test(n)) return "trim";
   if (/(labor|labour|install)/.test(n)) return "labor";
   return "other";
 }
