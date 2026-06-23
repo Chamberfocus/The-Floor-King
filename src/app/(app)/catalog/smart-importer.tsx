@@ -108,6 +108,8 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   // Row indices selected for a bulk change (editable / AI-rows path).
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkCat, setBulkCat] = useState("carpet");
+  // How many rows to render at once (the rest still import — this is just the view).
+  const [shown, setShown] = useState(60);
 
   // import
   const [updateMode, setUpdateMode] = useState(false);
@@ -120,6 +122,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
     setMap({});
     setRows(null);
     setSelected(new Set());
+    setShown(60);
     setStatus(null);
     if (fileRef.current) fileRef.current.value = "";
     if (textRef.current) textRef.current.value = "";
@@ -739,7 +742,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {(grid ? finalRows.slice(0, 12) : (rows ?? []).slice(0, 60)).map((r, i) => (
+                  {(grid ? finalRows : (rows ?? [])).slice(0, shown).map((r, i) => (
                     <tr key={i}>
                       {grid ? (
                         <>
@@ -795,10 +798,34 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                   ))}
                 </tbody>
               </table>
-              {finalRows.length > (grid ? 12 : 60) ? (
-                <p className="border-t bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
-                  + {finalRows.length - (grid ? 12 : 60)} more will import
-                </p>
+              {finalRows.length > shown ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  <span>
+                    Showing {Math.min(shown, finalRows.length)} of{" "}
+                    {finalRows.length}.{" "}
+                    {grid
+                      ? "All will import."
+                      : "Use Show all to see, select, and edit every row."}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShown((n) => n + 100)}
+                    >
+                      Show 100 more
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShown(finalRows.length)}
+                    >
+                      Show all {finalRows.length}
+                    </Button>
+                  </div>
+                </div>
               ) : null}
             </div>
           )}
