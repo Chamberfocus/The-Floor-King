@@ -143,7 +143,14 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
   const iMfg = col("sellingcompanyname", "manufacturer", "mfg", "mfr", "brand", "vendor", "supplier", "make", "mill");
   const iCat = col("category", "prodtype", "producttype", "type", "flooringtype", "productcategory");
   const iUnit = col("unitofmeasure", "unit", "uom", "priceper", "sellunit");
-  const iPrice = col("unitprice", "materialrate", "material", "materialprice", "materialcost", "cost", "price", "yourcost", "msrp", "unitcost", "dealerprice", "netprice");
+  // Prefer OUR cost over retail when several price columns exist: dealer / net /
+  // your-cost win; a generic "price", "list", or "msrp" is the last resort.
+  const iPrice = col(
+    "yourcost", "yourprice", "dealerprice", "dealernet", "dealercost", "dealer",
+    "netprice", "net", "unitcost", "materialcost", "cost", "materialrate",
+    "materialprice", "material", "unitprice", "price", "list", "listprice",
+    "msrp", "retail", "retailprice",
+  );
   const iLabor = col("laborrate", "labor", "labour", "laborprice", "laborcost", "install", "installrate", "installprice");
   const iSize = col("size", "dimensions", "sqftperbox");
   const iNotes = col("notes", "note", "comments", "comment", "remarks");
