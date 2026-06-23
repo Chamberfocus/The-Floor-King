@@ -342,14 +342,14 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
     return out;
   };
 
-  // One vendor + one manufacturer for the whole download — fill any row that
-  // doesn't already carry its own, so the user never types it line by line.
+  // One manufacturer for the whole download. When set, it OVERRIDES every row —
+  // a price list is usually a single brand, so "set it once" means force it on
+  // all of them (not just fill the blanks). Clear the field to keep each row's
+  // own manufacturer.
   const applyDefaults = (list: PriceRow[]): PriceRow[] => {
     const mfr = defManufacturer.trim();
     if (!mfr) return list;
-    return list.map((r) =>
-      r.manufacturer && r.manufacturer.trim() ? r : { ...r, manufacturer: mfr },
-    );
+    return list.map((r) => ({ ...r, manufacturer: mfr }));
   };
 
   const finalRows = applyDefaults(grid ? buildFromGrid() : (rows ?? []));
@@ -517,7 +517,8 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
               <Input
                 value={defManufacturer}
                 onChange={(e) => setDefManufacturer(e.target.value)}
-                placeholder="e.g. Shaw — fills the whole list"
+                placeholder="e.g. Shaw — sets every row"
+                title="Sets this manufacturer on every product in the list. Leave blank to keep each row's own."
                 className="h-8 w-56"
               />
             </div>
@@ -610,7 +611,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                             <input value={r.sku ?? ""} onChange={(e) => updateRow(i, { sku: e.target.value })} className={cn(inputSm, "w-24")} />
                           </td>
                           <td className="px-2 py-1">
-                            <input value={r.manufacturer ?? ""} onChange={(e) => updateRow(i, { manufacturer: e.target.value })} placeholder={defManufacturer || ""} className={cn(inputSm, "w-24")} />
+                            <input value={defManufacturer.trim() ? defManufacturer.trim() : (r.manufacturer ?? "")} onChange={(e) => updateRow(i, { manufacturer: e.target.value })} disabled={!!defManufacturer.trim()} title={defManufacturer.trim() ? "Set by the whole-list manufacturer above — clear it to edit rows individually" : undefined} className={cn(inputSm, "w-24", defManufacturer.trim() && "opacity-70")} />
                           </td>
                           <td className="px-2 py-1">
                             <input type="number" step="0.01" value={r.material_rate ?? ""} onChange={(e) => updateRow(i, { material_rate: e.target.value ? Number(e.target.value) : null })} className={cn(inputSm, "w-20 text-right")} />
