@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Copy, Ruler, Sparkles, Printer } from "lucide-react";
+import { Plus, Trash2, Copy, Ruler, Sparkles, Printer, Send } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -767,7 +767,7 @@ export function SmartBuilder({
     };
   }, [allLines]);
 
-  const save = (print = false) =>
+  const save = (opts: { print?: boolean; send?: boolean } = {}) =>
     startSave(async () => {
       const lines = [
         ...rooms.flatMap(roomLines),
@@ -790,10 +790,11 @@ export function SmartBuilder({
         lines,
         jobDescription: jobDescription || undefined,
         presentation,
-        print,
+        print: opts.print,
+        send: opts.send,
       });
       if (res?.error) toast.error(res.error);
-      // success redirects (to the editor, opening print if requested)
+      // success redirects (editor, or the dashboard after Save & send)
     });
 
   // Total job area (so add-on quantities like floor prep are easy to fill in).
@@ -1702,18 +1703,21 @@ export function SmartBuilder({
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="lg"
-            onClick={() => save(true)}
+            onClick={() => save({ print: true })}
             disabled={saving}
           >
-            <Printer className="size-4" /> Create &amp; print
+            <Printer className="size-4" /> Print
           </Button>
-          <Button type="button" size="lg" onClick={() => save(false)} disabled={saving}>
-            {saving ? "Creating…" : "Create estimate"}
+          <Button type="button" variant="outline" size="lg" onClick={() => save()} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+          <Button type="button" size="lg" onClick={() => save({ send: true })} disabled={saving}>
+            <Send className="size-4" /> Save &amp; send
           </Button>
         </div>
       </div>

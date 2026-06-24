@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { ProductCategory } from "@/lib/types";
+import { sendEstimateById } from "./actions";
 
 /** Clear a saved flooring-type default. */
 export async function deleteRoomDefault(category: string): Promise<void> {
@@ -113,6 +114,7 @@ export interface SmartEstimateInput {
   jobDescription?: string;
   presentation?: "detailed" | "summary";
   print?: boolean;
+  send?: boolean;
 }
 
 export interface SmartResult {
@@ -185,5 +187,12 @@ export async function createSmartEstimate(
 
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/estimates");
+
+  // Save & send: email the customer, advance their stage, then land on the
+  // dashboard. Otherwise open the editor (optionally straight to print).
+  if (input.send) {
+    await sendEstimateById(est.id as string);
+    redirect("/dashboard");
+  }
   redirect(`/estimates/${est.id}/edit${input.print ? "?print=1" : ""}`);
 }

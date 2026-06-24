@@ -9,6 +9,9 @@ import {
   Wrench,
   ShoppingCart,
   Receipt,
+  LayoutDashboard,
+  Copy,
+  Send,
 } from "lucide-react";
 import {
   Card,
@@ -24,9 +27,10 @@ import { getCustomer } from "@/lib/data/customers";
 import { optionTotals, lineTotal, lineQty } from "@/lib/estimate-calc";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
-import { setEstimateStatus, deleteEstimate } from "../actions";
+import { setEstimateStatus, deleteEstimate, duplicateOption } from "../actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
+import { CopyEstimate } from "./copy-estimate";
 
 export async function generateMetadata({
   params,
@@ -68,12 +72,20 @@ export default async function EstimatePage({
 
   return (
     <div className="mx-auto max-w-4xl">
-      <Link
-        href={`/customers/${estimate.customer_id}`}
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" /> Back to {customer?.full_name ?? "customer"}
-      </Link>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <Link
+          href={`/customers/${estimate.customer_id}`}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" /> Back to {customer?.full_name ?? "customer"}
+        </Link>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <LayoutDashboard className="size-4" /> Dashboard
+        </Link>
+      </div>
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -95,6 +107,7 @@ export default async function EstimatePage({
           >
             <Pencil className="size-4" /> Edit
           </Link>
+          <CopyEstimate estimateId={estimate.id} />
           {estimate.status === "approved" ? (
             <>
               <form action={createJobFromEstimate}>
@@ -166,6 +179,13 @@ export default async function EstimatePage({
                       </span>
                     ) : null}
                   </CardTitle>
+                  <form action={duplicateOption}>
+                    <input type="hidden" name="estimate_id" value={estimate.id} />
+                    <input type="hidden" name="option_id" value={option.id} />
+                    <Button type="submit" variant="ghost" size="sm" title="Duplicate this option (good / better / best)">
+                      <Copy className="size-3.5" /> Copy to option
+                    </Button>
+                  </form>
                 </CardHeader>
                 <CardContent>
                   {detailed ? (
@@ -235,7 +255,9 @@ export default async function EstimatePage({
               <form action={setEstimateStatus}>
                 <input type="hidden" name="id" value={estimate.id} />
                 <input type="hidden" name="status" value="sent" />
-                <Button type="submit">Mark as sent</Button>
+                <Button type="submit">
+                  <Send className="size-4" /> Send to customer
+                </Button>
               </form>
             ) : null}
 
