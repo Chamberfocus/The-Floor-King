@@ -7,7 +7,7 @@ import { requireProfile } from "@/lib/auth";
 import { getCustomer } from "@/lib/data/customers";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getAddonDefaults, getRoomDefaults } from "@/lib/data/addon-defaults";
-import { SmartBuilder } from "../smart-builder";
+import { BuilderSwitch } from "../builder-switch";
 
 export const metadata: Metadata = { title: "Smart estimate" };
 export const dynamic = "force-dynamic";
@@ -35,10 +35,10 @@ export default async function SmartEstimatePage({
         <ArrowLeft className="size-4" /> Back to {customer.full_name}
       </Link>
       <PageHeader
-        title="Smart estimate builder"
-        description="Pick a flooring type per room — it sets the right measurement, waste, and the materials that job needs (pad, underlayment, thinset, trim…). Everything flows to the PO and warehouse."
+        title="Estimate builder"
+        description="Quick mode for fast, clean pricing — or the full builder for every option. Either way it flows straight to the invoice, PO, and work order."
       />
-      <SmartBuilder
+      <BuilderSwitch
         customerId={customer.id}
         customerName={customer.full_name}
         targetMargin={settings.target_gross_margin_pct || 40}
