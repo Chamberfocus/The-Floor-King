@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { aiText } from "@/lib/ai";
-import { listJobs } from "@/lib/data/jobs";
+import { listJobs, getJob } from "@/lib/data/jobs";
 import { listCustomers } from "@/lib/data/customers";
 import { ROLE_LABELS } from "@/lib/types";
 import { setJobStatus } from "@/app/(app)/jobs/actions";
@@ -20,11 +20,21 @@ const fmtDate = (d: string | null) => {
     : t.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 };
 
+/** Inches → feet'inches" for reading measurements back to the crew. */
+function ftIn(inches: number | null): string {
+  const n = Number(inches) || 0;
+  if (n <= 0) return "";
+  const ft = Math.floor(n / 12);
+  const inch = Math.round(n % 12);
+  return inch > 0 ? `${ft}'${inch}"` : `${ft}'`;
+}
+
 // --- Action contract the assistant can propose (executed only on confirm) ----
 
 export type AssistantAction =
   | { type: "complete_job"; jobId: string; label: string }
   | { type: "set_job_status"; jobId: string; status: string; label: string }
+  | { type: "reschedule_job"; jobId: string; date: string; label: string }
   | { type: "add_note"; customerId: string; note: string; label: string }
   | { type: "set_followup"; customerId: string; date: string; label: string }
   | { type: "on_my_way"; customerId: string; label: string }
@@ -74,6 +84,10 @@ function sanitizeAction(raw: unknown): AssistantAction | null {
     case "set_job_status":
       return str(o.jobId) && (JOB_STATUSES as readonly string[]).includes(str(o.status))
         ? { type: "set_job_status", jobId: str(o.jobId), status: str(o.status), label }
+        : null;
+    case "reschedule_job":
+      return str(o.jobId) && /^\d{4}-\d{2}-\d{2}$/.test(str(o.date))
+        ? { type: "reschedule_job", jobId: str(o.jobId), date: str(o.date), label }
         : null;
     case "add_note":
       return str(o.customerId) && str(o.note)
@@ -144,6 +158,40 @@ export async function askAssistant(question: string): Promise<AssistantReply> {
           `- jobId=${j.id} customerId=${j.customer_id} | ${j.customer_name ?? "Customer"}${j.title ? ` (${j.title})` : ""} — ${j.status}, ${fmtDate(j.scheduled_date)}${where ? `, ${where}` : ""}`,
         );
       }
+
+      // Full work order for the next couple of jobs, so the crew can have it
+      // read back to them on site (rooms, measurements, materials, notes).
+      for (const j of top.slice(0, 2)) {
+        try {
+          const d = await getJob(j.id);
+          if (!d) continue;
+          const addr = [d.site_street, d.site_city, d.site_state, d.site_zip]
+            .filter(Boolean)
+            .join(", ");
+          const wo: string[] = [
+            `\nWork order (jobId=${j.id}) — ${d.customer?.full_name ?? "Customer"}${d.customer?.phone ? `, ${d.customer.phone}` : ""}`,
+          ];
+          if (addr) wo.push(`  Address: ${addr}`);
+          wo.push(`  Scheduled: ${fmtDate(d.scheduled_date)}, status ${d.status}`);
+          for (const li of d.line_items.slice(0, 30)) {
+            const meas =
+              li.length_in && li.width_in
+                ? `${ftIn(li.length_in)} x ${ftIn(li.width_in)}`
+                : li.sqft
+                  ? `${li.sqft} sq ft`
+                  : li.quantity
+                    ? `${li.quantity} ${li.unit ?? ""}`.trim()
+                    : "";
+            wo.push(
+              `  - ${li.room ? `${li.room}: ` : ""}${li.description ?? "Item"}${meas ? ` (${meas})` : ""}`,
+            );
+          }
+          if (d.notes) wo.push(`  Notes: ${d.notes}`);
+          lines.push(wo.join("\n"));
+        } catch {
+          /* skip a job we can't fully load */
+        }
+      }
     }
   } catch {
     /* no job access for this role */
@@ -166,14 +214,14 @@ export async function askAssistant(question: string): Promise<AssistantReply> {
   }
 
   let context = lines.join("\n");
-  if (context.length > 8000) context = context.slice(0, 8000) + "\n…";
+  if (context.length > 11000) context = context.slice(0, 11000) + "\n…";
 
   const { text, error } = await aiText({
     temperature: 0.3,
     maxTokens: 800,
     system: `You are the field assistant for Cleveland Floor King's CRM, used on phones by the crew and sales team out in the field. Be sharp and practical — phone-sized answers.
 
-You can SEE the user's jobs and customers in CONTEXT (each carries a jobId / customerId). Use them to answer questions AND, when the user clearly asks to DO something, to propose ONE action for them to confirm.
+You can SEE the user's jobs and customers in CONTEXT (each carries a jobId / customerId), including full WORK ORDERS for the next couple of jobs (address, rooms, measurements, materials, notes) — read those back clearly when the crew asks "what's on the next job" or for measurements/materials. Use the context to answer questions AND, when the user clearly asks to DO something, to propose ONE action for them to confirm.
 
 Reply with ONLY this JSON (no prose, no code fences):
 { "reply": string, "action": null | { "type": ..., ...params, "label": "<plain-English confirmation>" } }
@@ -181,6 +229,7 @@ Reply with ONLY this JSON (no prose, no code fences):
 Action types:
 - complete_job    { "jobId", "label" }                          — mark a job done
 - set_job_status  { "jobId", "status", "label" }                — status ∈ unscheduled|scheduled|in_progress|completed|cancelled
+- reschedule_job  { "jobId", "date" (YYYY-MM-DD), "label" }      — move a job to a new date (resolve "Friday"/"next week" from Today)
 - add_note        { "customerId", "note", "label" }             — log a note on a customer
 - set_followup    { "customerId", "date" (YYYY-MM-DD), "label" } — set a follow-up date (resolve "tomorrow"/"Friday" to an absolute date from Today)
 - on_my_way       { "customerId", "label" }                     — text + email the customer "we're on our way" with a live ETA (use the job's customerId)
@@ -238,6 +287,32 @@ export async function runAssistantAction(
       const who =
         (job.customer as unknown as { full_name?: string } | null)?.full_name ?? "the job";
       return { ok: true, message: `Marked ${who}'s job ${status.replace("_", " ")}.`, url: `/jobs/${safe.jobId}` };
+    }
+    case "reschedule_job": {
+      const { data: job } = await supabase
+        .from("jobs")
+        .select("id, status, customer:customers(full_name)")
+        .eq("id", safe.jobId)
+        .maybeSingle();
+      if (!job) return { ok: false, message: "I couldn't find that job (or you don't have access)." };
+      const patch: Record<string, unknown> = {
+        scheduled_date: safe.date,
+        scheduled_end: safe.date,
+      };
+      if (job.status === "unscheduled") patch.status = "scheduled";
+      const { error } = await supabase.from("jobs").update(patch).eq("id", safe.jobId);
+      if (error) return { ok: false, message: error.message };
+      revalidatePath(`/jobs/${safe.jobId}`);
+      revalidatePath("/jobs");
+      revalidatePath("/calendar");
+      revalidatePath("/pipeline");
+      revalidatePath("/dashboard");
+      const when = new Date(safe.date + "T00:00:00").toLocaleDateString("en-US", {
+        weekday: "short", month: "short", day: "numeric",
+      });
+      const who =
+        (job.customer as unknown as { full_name?: string } | null)?.full_name ?? "the job";
+      return { ok: true, message: `Moved ${who}'s job to ${when}.`, url: `/jobs/${safe.jobId}` };
     }
     case "add_note": {
       const { data: c } = await supabase
