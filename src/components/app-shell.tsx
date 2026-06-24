@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, LogOut } from "lucide-react";
+import { Menu, LogOut, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -15,6 +15,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { GlobalSearch } from "@/components/global-search";
 import { ImportJobsBanner } from "@/components/import-jobs-banner";
 import { AreaCalculator } from "@/components/area-calculator";
+import { FieldAssistant } from "@/components/field-assistant";
 import { cn } from "@/lib/utils";
 import { APP_NAME, COMPANY_NAME, navItemsForRole } from "@/lib/nav";
 import { ROLE_LABELS, type OrgSettings, type Profile } from "@/lib/types";
@@ -124,6 +125,52 @@ function UserCard({ profile }: { profile: Profile }) {
   );
 }
 
+/**
+ * Thumb-reachable bottom tab bar for phones. Shows the role's top destinations
+ * plus a "More" button that opens the full menu — so the field crew and sales
+ * team navigate with one hand. Hidden on desktop and when printing.
+ */
+function MobileBottomNav({
+  role,
+  onMore,
+}: {
+  role: Profile["role"];
+  onMore: () => void;
+}) {
+  const pathname = usePathname();
+  const items = navItemsForRole(role).slice(0, 4);
+  if (!items.length) return null;
+
+  const cell =
+    "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium min-w-0";
+  return (
+    <nav
+      className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 pb-[env(safe-area-inset-bottom)] md:hidden print:hidden"
+      aria-label="Primary"
+    >
+      {items.map((item) => {
+        const active =
+          pathname === item.href || pathname.startsWith(`${item.href}/`);
+        const Icon = item.icon;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={cn(cell, active ? "text-primary" : "text-muted-foreground")}
+          >
+            <Icon className="size-5 shrink-0" />
+            <span className="max-w-full truncate">{item.label}</span>
+          </Link>
+        );
+      })}
+      <button type="button" onClick={onMore} className={cn(cell, "text-muted-foreground")}>
+        <MoreHorizontal className="size-5 shrink-0" />
+        <span>More</span>
+      </button>
+    </nav>
+  );
+}
+
 export function AppShell({
   profile,
   org,
@@ -185,8 +232,14 @@ export function AppShell({
 
         {profile.role !== "customer" ? <ImportJobsBanner /> : null}
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-8">{children}</main>
+        {/* Extra bottom padding on phones so content clears the tab bar. */}
+        <main className="flex-1 overflow-y-auto p-4 pb-24 md:p-8 md:pb-8">
+          {children}
+        </main>
       </div>
+
+      <MobileBottomNav role={profile.role} onMore={() => setMobileOpen(true)} />
+      {profile.role !== "customer" ? <FieldAssistant /> : null}
     </div>
   );
 }

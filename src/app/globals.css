@@ -126,5 +126,15 @@
   }
   html {
     @apply font-sans;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* On phones, text inputs must be ≥16px or iOS auto-zooms on focus — jarring
+     in the field. Bumps just the controls, not the surrounding UI. */
+  @media (max-width: 767px) {
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+      font-size: 16px;
+    }
   }
 }
