@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Copy, Ruler, Layers, Sparkles, Printer } from "lucide-react";
+import { Plus, Trash2, Copy, Ruler, Sparkles, Printer } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -970,17 +970,23 @@ export function SmartBuilder({
         const roomTotal = lines.reduce((s, l) => s + lineSell(l), 0);
         return (
           <Card key={r.id} className="border-primary/20">
-            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 px-4 py-3">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 px-3 py-2">
               <div className="flex flex-1 items-center gap-2">
-                <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                   {idx + 1}
                 </span>
                 <Input
                   value={r.name}
                   onChange={(e) => update(r.id, { name: e.target.value })}
                   placeholder="Room (e.g. Living room)"
-                  className="h-9 max-w-xs"
+                  className="h-8 max-w-xs"
                 />
+                {profile ? (
+                  <span className="hidden text-xs text-muted-foreground sm:inline">
+                    {profile.label} · {sqft} sf
+                    {profile.unit === "sqyd" ? ` · ${sqyd} sy` : ""}
+                  </span>
+                ) : null}
               </div>
               <div className="flex items-center gap-1">
                 <Button
@@ -1005,13 +1011,9 @@ export function SmartBuilder({
                 ) : null}
               </div>
             </CardHeader>
-            <CardContent className="space-y-2.5 px-4 pb-3">
+            <CardContent className="space-y-2 px-3 pb-3">
               {/* Flooring type */}
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  <Layers className="mr-1 inline size-3.5" /> Flooring type
-                </label>
-                <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-1.5">
                   {FLOORING_TYPES.map((t) => {
                     const p = profileFor(t)!;
                     return (
@@ -1030,16 +1032,10 @@ export function SmartBuilder({
                       </button>
                     );
                   })}
-                </div>
               </div>
 
               {profile ? (
                 <>
-                  <p className="flex items-center gap-1.5 rounded-md bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
-                    <Sparkles className="size-3.5 text-primary" />
-                    {profile.measureHint}
-                  </p>
-
                   {/* Measurement */}
                   <div className="flex flex-wrap items-end gap-3">
                     <div>
@@ -1143,9 +1139,6 @@ export function SmartBuilder({
 
                   {/* Material */}
                   <div className="space-y-2">
-                    <label className="block text-xs font-medium text-muted-foreground">
-                      Material (search your catalog)
-                    </label>
                     <ProductPicker
                       value={r.productId ?? ""}
                       initialLabel={r.productLabel}
@@ -1176,10 +1169,6 @@ export function SmartBuilder({
                         onChange={(v) => update(r.id, { waste: v })}
                       />
                     </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Install labor goes in the add-ons checklist below (cost &amp;
-                      price together).
-                    </p>
                     {/* Per-room margin: set this room's sell prices from cost. */}
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span>Set this room&apos;s margin:</span>
@@ -1212,12 +1201,24 @@ export function SmartBuilder({
                     </div>
                   </div>
 
-                  {/* Companions — compact: one row each, details inline */}
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      This {profile.label.toLowerCase()} job also needs
-                    </label>
-                    <div className="divide-y rounded-md border">
+                  {/* Companions — collapsed to save space; the count keeps them
+                      visible so none get missed. */}
+                  <details className="rounded-md border">
+                    <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      This {profile.label.toLowerCase()} also needs
+                      {(() => {
+                        const n = profile.companions.filter(
+                          (c) =>
+                            !(c.rollUnits && c.rollUnits > 0) && r.comps[c.key]?.on,
+                        ).length;
+                        return n ? (
+                          <span className="rounded-full bg-primary/10 px-1.5 font-semibold text-primary">
+                            {n} on
+                          </span>
+                        ) : null;
+                      })()}
+                    </summary>
+                    <div className="divide-y border-t">
                       {profile.companions
                         .filter((c) => !(c.rollUnits && c.rollUnits > 0))
                         .map((c) => {
@@ -1351,26 +1352,25 @@ export function SmartBuilder({
                           );
                         })}
                     </div>
-                  </div>
+                  </details>
 
-                  {/* Notes for this room (work order / crew) */}
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      Room notes (optional — shown on the work order)
-                    </label>
-                    <textarea
-                      value={r.notes}
-                      onChange={(e) => update(r.id, { notes: e.target.value })}
-                      rows={2}
-                      placeholder="e.g. move couch, tricky transition at the hall, stairs separate"
-                      className="w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                  </div>
-
-                  <div className="flex justify-end border-t pt-2 text-sm">
-                    Room total:{" "}
-                    <span className="ml-1 font-semibold">
-                      {formatMoney(roomTotal)}
+                  {/* Room total + collapsed notes on one line. */}
+                  <div className="flex items-center justify-between gap-3 border-t pt-2 text-sm">
+                    <details className="min-w-0">
+                      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                        Notes {r.notes.trim() ? "✓" : "(optional)"}
+                      </summary>
+                      <textarea
+                        value={r.notes}
+                        onChange={(e) => update(r.id, { notes: e.target.value })}
+                        rows={2}
+                        placeholder="e.g. move couch, tricky transition at the hall, stairs separate"
+                        className="mt-1 w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      />
+                    </details>
+                    <span className="shrink-0">
+                      Room total:{" "}
+                      <span className="font-semibold">{formatMoney(roomTotal)}</span>
                     </span>
                   </div>
                 </>
