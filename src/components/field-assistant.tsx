@@ -1,24 +1,24 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { Sparkles, Send, X, Mic } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Sparkles, Send, X, Mic, Check, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { askAssistant } from "@/app/(app)/assistant/actions";
+import {
+  askAssistant,
+  runAssistantAction,
+  type AssistantAction,
+} from "@/app/(app)/assistant/actions";
 
 const SUGGESTIONS = [
   "What's my next job?",
-  "Who do I need to follow up with?",
-  "How do I record a deposit?",
-  "Carpet for 12'6\" x 14' room — how many yards with 10% waste?",
+  "Mark my next job complete",
+  "Follow up with my newest lead tomorrow",
+  "Carpet for 12'6\" x 14' with 10% waste — how many yards?",
 ];
 
-// Minimal typing for the browser speech-recognition API (not in TS lib DOM).
 type SpeechRec = {
   lang: string;
   interimResults: boolean;
@@ -30,38 +30,71 @@ type SpeechRec = {
 };
 
 export function FieldAssistant() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  const [answer, setAnswer] = useState<string | null>(null);
+  const [reply, setReply] = useState<string | null>(null);
+  const [action, setAction] = useState<AssistantAction | null>(null);
+  const [done, setDone] = useState<{ message: string; url?: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const [running, runStart] = useTransition();
   const [listening, setListening] = useState(false);
   const recRef = useRef<SpeechRec | null>(null);
+
+  const clearOut = () => {
+    setReply(null);
+    setAction(null);
+    setDone(null);
+    setErr(null);
+  };
 
   const ask = (text?: string) => {
     const question = (text ?? q).trim();
     if (!question || pending) return;
     setQ(question);
-    setAnswer(null);
-    setErr(null);
+    clearOut();
     start(async () => {
       const res = await askAssistant(question);
       if (res.error) setErr(res.error);
-      else setAnswer(res.text);
+      else {
+        setReply(res.reply);
+        setAction(res.action);
+      }
     });
   };
 
-  // Hands-free: dictate the question with the device mic (where supported).
+  const confirmAction = () => {
+    if (!action || running) return;
+    const a = action;
+    runStart(async () => {
+      const res = await runAssistantAction(a);
+      if (!res.ok) {
+        setErr(res.message);
+        return;
+      }
+      if (a.type === "navigate" && res.url) {
+        setOpen(false);
+        router.push(res.url);
+        return;
+      }
+      setAction(null);
+      setReply(null);
+      setDone({ message: res.message, url: res.url });
+      router.refresh();
+    });
+  };
+
   const toggleMic = () => {
     if (listening) {
       recRef.current?.stop();
       return;
     }
-    const Ctor =
-      (window as unknown as { SpeechRecognition?: new () => SpeechRec; webkitSpeechRecognition?: new () => SpeechRec })
-        .SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: new () => SpeechRec })
-        .webkitSpeechRecognition;
+    const w = window as unknown as {
+      SpeechRecognition?: new () => SpeechRec;
+      webkitSpeechRecognition?: new () => SpeechRec;
+    };
+    const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!Ctor) return;
     const rec = new Ctor();
     rec.lang = "en-US";
@@ -79,7 +112,6 @@ export function FieldAssistant() {
 
   return (
     <>
-      {/* Floating button — sits above the mobile tab bar, respects the notch. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -104,11 +136,11 @@ export function FieldAssistant() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-3">
-            {!answer && !err && !pending ? (
+            {!reply && !err && !pending && !done ? (
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground">
-                  Ask about your jobs, customers, or how to do something — I know
-                  your schedule and the trade math.
+                  Ask about your jobs and customers, get things done, or work out
+                  the trade math — I know your schedule.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-1">
                   {SUGGESTIONS.map((s) => (
@@ -131,8 +163,45 @@ export function FieldAssistant() {
               </p>
             ) : null}
             {err ? <p className="text-sm text-destructive">{err}</p> : null}
-            {answer ? (
-              <div className="whitespace-pre-wrap text-sm leading-relaxed">{answer}</div>
+
+            {reply ? (
+              <div className="whitespace-pre-wrap text-sm leading-relaxed">{reply}</div>
+            ) : null}
+
+            {/* Proposed action — confirm before anything happens */}
+            {action ? (
+              <div className="mt-3 rounded-lg border border-primary/40 bg-primary/5 p-3">
+                <div className="mb-2 text-sm font-medium">{action.label}</div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={confirmAction} disabled={running}>
+                    <Check className="size-4" /> {running ? "Working…" : "Do it"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setAction(null)} disabled={running}>
+                    Not now
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Result of a completed action */}
+            {done ? (
+              <div className="mt-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
+                <div className="flex items-center gap-2 font-medium text-emerald-700">
+                  <Check className="size-4" /> {done.message}
+                </div>
+                {done.url ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      router.push(done.url!);
+                    }}
+                    className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  >
+                    View <ArrowRight className="size-3" />
+                  </button>
+                ) : null}
+              </div>
             ) : null}
           </div>
 
@@ -147,7 +216,7 @@ export function FieldAssistant() {
                 }
               }}
               rows={1}
-              placeholder="Ask anything…"
+              placeholder="Ask or tell me to do something…"
               className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-lg border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             <Button

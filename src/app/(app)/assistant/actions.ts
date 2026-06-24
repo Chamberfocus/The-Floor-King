@@ -1,10 +1,14 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { getProfile } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 import { aiText } from "@/lib/ai";
 import { listJobs } from "@/lib/data/jobs";
 import { listCustomers } from "@/lib/data/customers";
 import { ROLE_LABELS } from "@/lib/types";
+import { setJobStatus } from "@/app/(app)/jobs/actions";
+import { addActivity } from "@/app/(app)/customers/actions";
 
 const fmtDate = (d: string | null) => {
   if (!d) return "unscheduled";
@@ -14,38 +18,104 @@ const fmtDate = (d: string | null) => {
     : t.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 };
 
+// --- Action contract the assistant can propose (executed only on confirm) ----
+
+export type AssistantAction =
+  | { type: "complete_job"; jobId: string; label: string }
+  | { type: "set_job_status"; jobId: string; status: string; label: string }
+  | { type: "add_note"; customerId: string; note: string; label: string }
+  | { type: "set_followup"; customerId: string; date: string; label: string }
+  | { type: "navigate"; url: string; label: string };
+
+export interface AssistantReply {
+  reply: string;
+  action: AssistantAction | null;
+  error: string | null;
+}
+
+const JOB_STATUSES = [
+  "unscheduled",
+  "scheduled",
+  "in_progress",
+  "completed",
+  "cancelled",
+] as const;
+const NAV_PREFIXES = [
+  "/customers", "/jobs", "/estimates", "/calendar", "/schedule", "/catalog",
+  "/purchase-orders", "/invoices", "/board", "/inventory", "/pulse",
+  "/dashboard", "/reports", "/warehouse", "/pipeline",
+];
+
+/** Pull the first JSON object out of the model's reply, tolerantly. */
+function parseObj(text: string): Record<string, unknown> | null {
+  const s = text.indexOf("{");
+  const e = text.lastIndexOf("}");
+  if (s < 0 || e <= s) return null;
+  try {
+    return JSON.parse(text.slice(s, e + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Validate a model-proposed action — never trust it blind. */
+function sanitizeAction(raw: unknown): AssistantAction | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const label = typeof o.label === "string" ? o.label : "";
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  switch (o.type) {
+    case "complete_job":
+      return str(o.jobId) ? { type: "complete_job", jobId: str(o.jobId), label } : null;
+    case "set_job_status":
+      return str(o.jobId) && (JOB_STATUSES as readonly string[]).includes(str(o.status))
+        ? { type: "set_job_status", jobId: str(o.jobId), status: str(o.status), label }
+        : null;
+    case "add_note":
+      return str(o.customerId) && str(o.note)
+        ? { type: "add_note", customerId: str(o.customerId), note: str(o.note), label }
+        : null;
+    case "set_followup":
+      return str(o.customerId) && /^\d{4}-\d{2}-\d{2}$/.test(str(o.date))
+        ? { type: "set_followup", customerId: str(o.customerId), date: str(o.date), label }
+        : null;
+    case "navigate": {
+      const url = str(o.url);
+      return url.startsWith("/") && NAV_PREFIXES.some((p) => url.startsWith(p))
+        ? { type: "navigate", url, label }
+        : null;
+    }
+    default:
+      return null;
+  }
+}
+
 /**
- * Field assistant: answers a team member's question using their OWN jobs and
- * customers (everything is fetched with the RLS-scoped client, so they only
- * ever see what they're allowed to). Read-only — it never changes data.
+ * Field assistant: answers from the user's OWN jobs/customers (RLS-scoped) and
+ * may PROPOSE one action. Nothing is executed here — the action is returned for
+ * the user to confirm, then run via runAssistantAction.
  */
-export async function askAssistant(
-  question: string,
-): Promise<{ text: string; error: string | null }> {
+export async function askAssistant(question: string): Promise<AssistantReply> {
   const q = (question ?? "").trim();
-  if (q.length < 2) return { text: "", error: "Ask a question first." };
+  if (q.length < 2) return { reply: "", action: null, error: "Ask a question first." };
 
   const profile = await getProfile();
-  if (!profile) return { text: "", error: "Please sign in." };
+  if (!profile || profile.role === "customer")
+    return { reply: "", action: null, error: "Not available for this account." };
 
   const today = new Date();
   const todayStr = today.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
   });
+  const todayISO = today.toISOString().slice(0, 10);
 
-  // Gather context — each source is independent and never throws the request.
   const lines: string[] = [];
-  lines.push(`Today: ${todayStr}.`);
+  lines.push(`Today: ${todayStr} (${todayISO}).`);
   lines.push(`User: ${profile.full_name || profile.email}, role ${ROLE_LABELS[profile.role]}.`);
 
   try {
-    // The user's own jobs first; office/admin see the shop's via RLS.
     const mine = await listJobs({ assignedTo: profile.id });
     const jobs = (mine.length ? mine : await listJobs()).slice(0, 40);
-    // Upcoming/active first: sort by scheduled date, unscheduled last.
     jobs.sort((a, b) => {
       const ax = a.scheduled_date ? Date.parse(a.scheduled_date) : Infinity;
       const bx = b.scheduled_date ? Date.parse(b.scheduled_date) : Infinity;
@@ -55,45 +125,141 @@ export async function askAssistant(
       .filter((j) => j.status !== "completed" && j.status !== "cancelled")
       .slice(0, 12);
     if (top.length) {
-      lines.push("\nJobs:");
+      lines.push("\nJobs (use jobId for job actions):");
       for (const j of top) {
         const where = [j.site_city, j.site_state].filter(Boolean).join(", ");
         lines.push(
-          `- ${j.customer_name ?? "Customer"}${j.title ? ` (${j.title})` : ""} — ${j.status}, ${fmtDate(j.scheduled_date)}${where ? `, ${where}` : ""}`,
+          `- jobId=${j.id} | ${j.customer_name ?? "Customer"}${j.title ? ` (${j.title})` : ""} — ${j.status}, ${fmtDate(j.scheduled_date)}${where ? `, ${where}` : ""}`,
         );
       }
     }
   } catch {
-    /* role may not have job access — skip */
+    /* no job access for this role */
   }
 
   try {
-    const customers = (await listCustomers()).slice(0, 15);
+    const customers = (await listCustomers()).slice(0, 20);
     if (customers.length) {
-      lines.push("\nRecent customers:");
+      lines.push("\nCustomers (use customerId for customer actions):");
       for (const c of customers) {
         const due = c.next_action_due ? `, follow-up ${fmtDate(c.next_action_due)}` : "";
         const where = [c.city, c.state].filter(Boolean).join(", ");
         lines.push(
-          `- ${c.full_name}${c.phone ? ` ${c.phone}` : ""} — ${c.stage}${where ? `, ${where}` : ""}${due}`,
+          `- customerId=${c.id} | ${c.full_name}${c.phone ? ` ${c.phone}` : ""} — ${c.stage}${where ? `, ${where}` : ""}${due}`,
         );
       }
     }
   } catch {
-    /* role may not have customer access — skip */
+    /* no customer access for this role */
   }
 
   let context = lines.join("\n");
-  if (context.length > 7000) context = context.slice(0, 7000) + "\n…";
+  if (context.length > 8000) context = context.slice(0, 8000) + "\n…";
 
-  return aiText({
-    temperature: 0.4,
-    maxTokens: 700,
-    system: `You are the field assistant for Cleveland Floor King's CRM — used on phones by the crew and sales team while they're out working. Be the sharp, practical right-hand: answer in a few tight sentences or a short list a person can read at a glance on a phone.
+  const { text, error } = await aiText({
+    temperature: 0.3,
+    maxTokens: 800,
+    system: `You are the field assistant for Cleveland Floor King's CRM, used on phones by the crew and sales team out in the field. Be sharp and practical — phone-sized answers.
 
-You can see the user's current jobs and customers in CONTEXT below — use them to answer real questions ("what's my next job", "who do I need to follow up with", "where am I headed today"). If they ask how to do something in the system (record a deposit, build an estimate, make a PO, capture a signature), give the quick steps. You also know flooring trade math (waste %, sq yd, transitions, pad) — help with that too.
+You can SEE the user's jobs and customers in CONTEXT (each carries a jobId / customerId). Use them to answer questions AND, when the user clearly asks to DO something, to propose ONE action for them to confirm.
 
-Rules: rely only on the CONTEXT for customer/job facts — never invent names, addresses, prices, or dates that aren't there. If the answer isn't in the context, say what you'd need or where to look. No fluff, no sign-off.`,
+Reply with ONLY this JSON (no prose, no code fences):
+{ "reply": string, "action": null | { "type": ..., ...params, "label": "<plain-English confirmation>" } }
+
+Action types:
+- complete_job   { "jobId", "label" }                         — mark a job done
+- set_job_status { "jobId", "status", "label" }               — status ∈ unscheduled|scheduled|in_progress|completed|cancelled
+- add_note       { "customerId", "note", "label" }            — log a note on a customer
+- set_followup   { "customerId", "date" (YYYY-MM-DD), "label" } — set a follow-up date (resolve "tomorrow"/"Friday" to an absolute date from Today)
+- navigate       { "url", "label" }                           — open a page, e.g. "/customers/<id>" to start an estimate, "/jobs/<id>"
+
+Rules:
+- Only include an action when the user is clearly asking to perform it; otherwise "action": null and just answer in "reply".
+- Use EXACT ids from CONTEXT. If you can't find the person/job they mean, set action null and ask which one in "reply".
+- "label" is a short confirmation the user will see on a button, e.g. "Mark the Johnson job complete" or "Follow up with Maria on Jun 25".
+- Keep "reply" to a sentence or two. Never invent customer facts not in CONTEXT.
+- For trade math or how-to questions, just answer in "reply" with action null.`,
     prompt: `CONTEXT\n${context}\n\nQUESTION\n${q}`,
   });
+
+  if (error) return { reply: "", action: null, error };
+  const obj = parseObj(text);
+  if (!obj) return { reply: text || "Sorry, try that again.", action: null, error: null };
+  const reply = typeof obj.reply === "string" ? obj.reply : "";
+  const action = sanitizeAction(obj.action);
+  return { reply: reply || (action ? action.label : "Done."), action, error: null };
+}
+
+/**
+ * Execute a confirmed action. Re-validates everything and runs through the
+ * existing, tested server actions / RLS-scoped client — so the assistant can
+ * never do more than the signed-in user could do by hand.
+ */
+export async function runAssistantAction(
+  action: AssistantAction,
+): Promise<{ ok: boolean; message: string; url?: string }> {
+  const profile = await getProfile();
+  if (!profile || profile.role === "customer")
+    return { ok: false, message: "Not allowed." };
+
+  const safe = sanitizeAction(action);
+  if (!safe) return { ok: false, message: "That action wasn't understood." };
+
+  const supabase = await createClient();
+
+  switch (safe.type) {
+    case "complete_job":
+    case "set_job_status": {
+      const status = safe.type === "complete_job" ? "completed" : safe.status;
+      const { data: job } = await supabase
+        .from("jobs")
+        .select("id, customer:customers(full_name)")
+        .eq("id", safe.jobId)
+        .maybeSingle();
+      if (!job) return { ok: false, message: "I couldn't find that job (or you don't have access)." };
+      const fd = new FormData();
+      fd.set("id", safe.jobId);
+      fd.set("status", status);
+      await setJobStatus(fd); // reuses the workflow-advance + revalidation
+      const who =
+        (job.customer as unknown as { full_name?: string } | null)?.full_name ?? "the job";
+      return { ok: true, message: `Marked ${who}'s job ${status.replace("_", " ")}.`, url: `/jobs/${safe.jobId}` };
+    }
+    case "add_note": {
+      const { data: c } = await supabase
+        .from("customers")
+        .select("id, full_name")
+        .eq("id", safe.customerId)
+        .maybeSingle();
+      if (!c) return { ok: false, message: "I couldn't find that customer (or you don't have access)." };
+      const fd = new FormData();
+      fd.set("customer_id", safe.customerId);
+      fd.set("body", safe.note);
+      fd.set("type", "note");
+      const res = await addActivity({ error: null }, fd);
+      if (res.error) return { ok: false, message: res.error };
+      return { ok: true, message: `Logged a note on ${c.full_name}.`, url: `/customers/${safe.customerId}` };
+    }
+    case "set_followup": {
+      const { data: c } = await supabase
+        .from("customers")
+        .select("id, full_name")
+        .eq("id", safe.customerId)
+        .maybeSingle();
+      if (!c) return { ok: false, message: "I couldn't find that customer (or you don't have access)." };
+      const { error } = await supabase
+        .from("customers")
+        .update({ next_action_due: safe.date })
+        .eq("id", safe.customerId);
+      if (error) return { ok: false, message: error.message };
+      revalidatePath(`/customers/${safe.customerId}`);
+      revalidatePath("/pipeline");
+      const when = new Date(safe.date + "T00:00:00").toLocaleDateString("en-US", {
+        weekday: "short", month: "short", day: "numeric",
+      });
+      return { ok: true, message: `Set a follow-up with ${c.full_name} for ${when}.`, url: `/customers/${safe.customerId}` };
+    }
+    case "navigate":
+      return { ok: true, message: "Opening…", url: safe.url };
+  }
 }
