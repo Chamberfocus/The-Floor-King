@@ -15,7 +15,9 @@ import {
 const SUGGESTIONS = [
   "What's my next job?",
   "Mark my next job complete",
+  "Text my next customer I'm on my way",
   "Follow up with my newest lead tomorrow",
+  "Draft an estimate: 220 sq ft LVP in the living room",
   "Carpet for 12'6\" x 14' with 10% waste — how many yards?",
 ];
 

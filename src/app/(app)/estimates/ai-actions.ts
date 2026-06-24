@@ -74,10 +74,10 @@ Hard rules: base everything ONLY on the line items given — never invent prices
  * rooms/materials/areas, we match each to a catalog product and price it to the
  * target margin, then open the quote builder to review.
  */
-export async function draftEstimateFromText(
+export async function createDraftEstimateFromText(
   customerId: string,
   description: string,
-): Promise<DraftQuoteResult> {
+): Promise<{ error: string | null; estimateId?: string }> {
   const desc = (description ?? "").trim();
   if (!customerId || desc.length < 4)
     return { error: "Describe the job first." };
@@ -183,5 +183,19 @@ Rules: one line per room/material. "material" is a short product term to search 
   await supabase.from("estimate_line_items").insert(rows);
 
   revalidatePath(`/customers/${customerId}`);
-  redirect(`/estimates/${est.id}/edit`);
+  return { error: null, estimateId: est.id as string };
+}
+
+/**
+ * UI entry point: build the draft from text, then open the builder. Thin
+ * wrapper over createDraftEstimateFromText so other callers (e.g. the field
+ * assistant) can get the new estimate's id without a redirect.
+ */
+export async function draftEstimateFromText(
+  customerId: string,
+  description: string,
+): Promise<DraftQuoteResult> {
+  const res = await createDraftEstimateFromText(customerId, description);
+  if (res.error) return { error: res.error };
+  redirect(`/estimates/${res.estimateId}/edit`);
 }

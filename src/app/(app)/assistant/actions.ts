@@ -9,6 +9,8 @@ import { listCustomers } from "@/lib/data/customers";
 import { ROLE_LABELS } from "@/lib/types";
 import { setJobStatus } from "@/app/(app)/jobs/actions";
 import { addActivity } from "@/app/(app)/customers/actions";
+import { notifyOnTheWay } from "@/app/(app)/customers/[id]/onway-actions";
+import { createDraftEstimateFromText } from "@/app/(app)/estimates/ai-actions";
 
 const fmtDate = (d: string | null) => {
   if (!d) return "unscheduled";
@@ -25,6 +27,8 @@ export type AssistantAction =
   | { type: "set_job_status"; jobId: string; status: string; label: string }
   | { type: "add_note"; customerId: string; note: string; label: string }
   | { type: "set_followup"; customerId: string; date: string; label: string }
+  | { type: "on_my_way"; customerId: string; label: string }
+  | { type: "create_estimate"; customerId: string; description: string; label: string }
   | { type: "navigate"; url: string; label: string };
 
 export interface AssistantReply {
@@ -79,6 +83,14 @@ function sanitizeAction(raw: unknown): AssistantAction | null {
       return str(o.customerId) && /^\d{4}-\d{2}-\d{2}$/.test(str(o.date))
         ? { type: "set_followup", customerId: str(o.customerId), date: str(o.date), label }
         : null;
+    case "on_my_way":
+      return str(o.customerId)
+        ? { type: "on_my_way", customerId: str(o.customerId), label }
+        : null;
+    case "create_estimate":
+      return str(o.customerId) && str(o.description).length >= 4
+        ? { type: "create_estimate", customerId: str(o.customerId), description: str(o.description), label }
+        : null;
     case "navigate": {
       const url = str(o.url);
       return url.startsWith("/") && NAV_PREFIXES.some((p) => url.startsWith(p))
@@ -125,11 +137,11 @@ export async function askAssistant(question: string): Promise<AssistantReply> {
       .filter((j) => j.status !== "completed" && j.status !== "cancelled")
       .slice(0, 12);
     if (top.length) {
-      lines.push("\nJobs (use jobId for job actions):");
+      lines.push("\nJobs (use jobId for job actions, customerId for messaging):");
       for (const j of top) {
         const where = [j.site_city, j.site_state].filter(Boolean).join(", ");
         lines.push(
-          `- jobId=${j.id} | ${j.customer_name ?? "Customer"}${j.title ? ` (${j.title})` : ""} — ${j.status}, ${fmtDate(j.scheduled_date)}${where ? `, ${where}` : ""}`,
+          `- jobId=${j.id} customerId=${j.customer_id} | ${j.customer_name ?? "Customer"}${j.title ? ` (${j.title})` : ""} — ${j.status}, ${fmtDate(j.scheduled_date)}${where ? `, ${where}` : ""}`,
         );
       }
     }
@@ -167,11 +179,13 @@ Reply with ONLY this JSON (no prose, no code fences):
 { "reply": string, "action": null | { "type": ..., ...params, "label": "<plain-English confirmation>" } }
 
 Action types:
-- complete_job   { "jobId", "label" }                         — mark a job done
-- set_job_status { "jobId", "status", "label" }               — status ∈ unscheduled|scheduled|in_progress|completed|cancelled
-- add_note       { "customerId", "note", "label" }            — log a note on a customer
-- set_followup   { "customerId", "date" (YYYY-MM-DD), "label" } — set a follow-up date (resolve "tomorrow"/"Friday" to an absolute date from Today)
-- navigate       { "url", "label" }                           — open a page, e.g. "/customers/<id>" to start an estimate, "/jobs/<id>"
+- complete_job    { "jobId", "label" }                          — mark a job done
+- set_job_status  { "jobId", "status", "label" }                — status ∈ unscheduled|scheduled|in_progress|completed|cancelled
+- add_note        { "customerId", "note", "label" }             — log a note on a customer
+- set_followup    { "customerId", "date" (YYYY-MM-DD), "label" } — set a follow-up date (resolve "tomorrow"/"Friday" to an absolute date from Today)
+- on_my_way       { "customerId", "label" }                     — text + email the customer "we're on our way" with a live ETA (use the job's customerId)
+- create_estimate { "customerId", "description", "label" }      — build a draft estimate from a plain-English job description (put the full description in "description")
+- navigate        { "url", "label" }                            — open a page, e.g. "/customers/<id>", "/jobs/<id>"
 
 Rules:
 - Only include an action when the user is clearly asking to perform it; otherwise "action": null and just answer in "reply".
@@ -258,6 +272,38 @@ export async function runAssistantAction(
         weekday: "short", month: "short", day: "numeric",
       });
       return { ok: true, message: `Set a follow-up with ${c.full_name} for ${when}.`, url: `/customers/${safe.customerId}` };
+    }
+    case "on_my_way": {
+      const { data: c } = await supabase
+        .from("customers")
+        .select("id, full_name, phone, email")
+        .eq("id", safe.customerId)
+        .maybeSingle();
+      if (!c) return { ok: false, message: "I couldn't find that customer (or you don't have access)." };
+      const res = await notifyOnTheWay(safe.customerId);
+      if (res.error) return { ok: false, message: res.error };
+      const how = c.phone ? "texted" : c.email ? "emailed" : "notified";
+      return {
+        ok: true,
+        message: `On-my-way ${how} to ${c.full_name}${res.eta && res.eta !== "sent" ? ` — ETA about ${res.eta}` : ""}.`,
+        url: `/customers/${safe.customerId}`,
+      };
+    }
+    case "create_estimate": {
+      const { data: c } = await supabase
+        .from("customers")
+        .select("id, full_name")
+        .eq("id", safe.customerId)
+        .maybeSingle();
+      if (!c) return { ok: false, message: "I couldn't find that customer (or you don't have access)." };
+      const res = await createDraftEstimateFromText(safe.customerId, safe.description);
+      if (res.error || !res.estimateId)
+        return { ok: false, message: res.error || "Couldn't build the estimate." };
+      return {
+        ok: true,
+        message: `Drafted an estimate for ${c.full_name} — open it to review the pricing.`,
+        url: `/estimates/${res.estimateId}/edit`,
+      };
     }
     case "navigate":
       return { ok: true, message: "Opening…", url: safe.url };
