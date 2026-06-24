@@ -87,6 +87,7 @@ interface Room {
   waste: string;
   marginInput: string; // per-room margin % to re-price from cost
   notes: string; // crew/work-order notes for this room
+  compsOpen?: boolean; // UI: companions expander open (defaults to "any selected")
   comps: Record<string, CompState>;
 }
 
@@ -809,7 +810,7 @@ export function SmartBuilder({
   const showHard = hasHard || (!hasCarpet && !hasHard);
 
   const renderAddonRow = (a: Addon) => (
-    <div key={a.id} className="px-2 py-1.5 text-sm">
+    <div key={a.id} className="rounded-md border px-2 py-1.5 text-sm">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <label className="flex flex-1 items-center gap-2">
           <input
@@ -1201,22 +1202,30 @@ export function SmartBuilder({
                     </div>
                   </div>
 
-                  {/* Companions — collapsed to save space; the count keeps them
-                      visible so none get missed. */}
-                  <details className="rounded-md border">
+                  {/* Companions — open when any are on (so you see them), still
+                      collapsible; the count keeps them visible either way. */}
+                  {(() => {
+                    const onCount = profile.companions.filter(
+                      (c) =>
+                        !(c.rollUnits && c.rollUnits > 0) && r.comps[c.key]?.on,
+                    ).length;
+                    return (
+                  <details
+                    className="rounded-md border"
+                    open={r.compsOpen ?? onCount > 0}
+                    onToggle={(e) =>
+                      update(r.id, {
+                        compsOpen: (e.currentTarget as HTMLDetailsElement).open,
+                      })
+                    }
+                  >
                     <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                       This {profile.label.toLowerCase()} also needs
-                      {(() => {
-                        const n = profile.companions.filter(
-                          (c) =>
-                            !(c.rollUnits && c.rollUnits > 0) && r.comps[c.key]?.on,
-                        ).length;
-                        return n ? (
-                          <span className="rounded-full bg-primary/10 px-1.5 font-semibold text-primary">
-                            {n} on
-                          </span>
-                        ) : null;
-                      })()}
+                      {onCount ? (
+                        <span className="rounded-full bg-primary/10 px-1.5 font-semibold text-primary">
+                          {onCount} on
+                        </span>
+                      ) : null}
                     </summary>
                     <div className="divide-y border-t">
                       {profile.companions
@@ -1353,6 +1362,8 @@ export function SmartBuilder({
                         })}
                     </div>
                   </details>
+                    );
+                  })()}
 
                   {/* Room total + collapsed notes on one line. */}
                   <div className="flex items-center justify-between gap-3 border-t pt-2 text-sm">
@@ -1493,7 +1504,7 @@ export function SmartBuilder({
               <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 Carpet
               </div>
-              <div className="divide-y rounded-md border">
+              <div className="grid gap-1.5 sm:grid-cols-2">
                 {addons.filter((a) => a.group === "carpet").map(renderAddonRow)}
               </div>
             </div>
@@ -1504,7 +1515,7 @@ export function SmartBuilder({
               <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 Hard surface
               </div>
-              <div className="divide-y rounded-md border">
+              <div className="grid gap-1.5 sm:grid-cols-2">
                 {addons.filter((a) => a.group === "hard").map(renderAddonRow)}
               </div>
             </div>
@@ -1516,7 +1527,7 @@ export function SmartBuilder({
               <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 Custom
               </div>
-              <div className="divide-y rounded-md border">
+              <div className="grid gap-1.5 sm:grid-cols-2">
                 {addons.filter((a) => a.group === "custom").map(renderAddonRow)}
               </div>
             </div>
