@@ -4,9 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { aiText } from "@/lib/ai";
+import { extractJobFromNotes } from "@/lib/extract";
 import { searchCatalog } from "@/lib/data/products";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { priceFromMargin } from "@/lib/estimate-calc";
+import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
+import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
 const CATEGORIES = [
   "carpet", "lvp", "hardwood", "laminate", "tile", "vinyl",
@@ -23,6 +26,210 @@ interface AiLine {
 
 export interface DraftQuoteResult {
   error: string | null;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Map a free-text flooring type onto one of the builder's profile keys. */
+function mapFloorType(t: string): string {
+  const s = (t || "").toLowerCase();
+  if ((FLOORING_TYPES as readonly string[]).includes(s)) return s;
+  if (/carpet|broadloom/.test(s)) return "carpet";
+  if (/lvp|lvt|spc|wpc|luxury|plank|rigid/.test(s)) return "lvp";
+  if (/laminate/.test(s)) return "laminate";
+  if (/tile|ceramic|porcelain/.test(s)) return "tile";
+  if (/sheet|vinyl/.test(s)) return "vinyl";
+  if (/wood|oak|maple|hickory|engineered|solid/.test(s)) return "hardwood";
+  return "lvp";
+}
+
+/**
+ * Turn job notes — typed OR a photo of handwriting — into a real estimate,
+ * built EXACTLY the way the smart builder builds it (rooms with ft+in
+ * measurements, material priced to the target margin off the catalog, install
+ * labor, carpet pad, and the extra add-ons), then open it to continue.
+ */
+export async function createEstimateFromNotes(
+  customerId: string,
+  input: { text?: string; storagePath?: string; mime?: string },
+): Promise<{ error: string | null }> {
+  if (!customerId) return { error: "Missing customer." };
+
+  let opts: Parameters<typeof extractJobFromNotes>[0];
+  if (input.storagePath) {
+    const supabase = await createClient();
+    const { data: signed } = await supabase.storage
+      .from("documents")
+      .createSignedUrl(input.storagePath, 600);
+    if (!signed?.signedUrl) return { error: "Couldn't open that photo." };
+    opts = { url: signed.signedUrl, mediaType: input.mime || "image/jpeg" };
+  } else if (input.text?.trim()) {
+    opts = { text: input.text.trim() };
+  } else {
+    return { error: "Type the job details or add a photo first." };
+  }
+
+  const job = await extractJobFromNotes(opts);
+  if (!job || !job.rooms.length) {
+    return {
+      error:
+        "I couldn't read any rooms from that. Add a little more detail (room, size, flooring type) or a clearer photo.",
+    };
+  }
+
+  const settings = await getBusinessSettings();
+  const margin = settings.target_gross_margin_pct || 40;
+  const sellAt = (cost: number) => (cost > 0 ? round2(priceFromMargin(cost, margin)) : 0);
+
+  const lines: SmartLine[] = [];
+  for (const room of job.rooms) {
+    const type = mapFloorType(room.type);
+    const profile = profileFor(type);
+    if (!profile) continue;
+
+    const lenIn = Math.round(room.length_ft * 12 + room.length_in);
+    const widIn = Math.round(room.width_ft * 12 + room.width_in);
+    const sqft =
+      room.sqft && room.sqft > 0
+        ? room.sqft
+        : lenIn > 0 && widIn > 0
+          ? areaSqft(lenIn / 12, widIn / 12)
+          : 0;
+    const isYd = profile.unit === "sqyd";
+    const qty = round2(isYd ? sqft / 9 : sqft);
+    const unit = isYd ? "sq yd" : "sq ft";
+
+    // Material cost: from the notes if written, else matched off the catalog.
+    let cost = Number(room.material_cost) || 0;
+    let productId: string | null = null;
+    let manufacturer: string | null = null;
+    let style: string | null = null;
+    let color: string | null = null;
+    let laborRate = 0;
+    if (room.material) {
+      try {
+        const hits = await searchCatalog(room.material, { activeOnly: true, limit: 5 });
+        const match = hits.find((p) => p.category === profile.category) ?? hits[0] ?? null;
+        if (match) {
+          productId = match.id;
+          if (!cost) cost = Number(match.material_rate) || 0;
+          laborRate = Number(match.labor_rate) || 0;
+          manufacturer = match.manufacturer;
+          style = match.style;
+          color = match.color;
+        }
+      } catch {
+        /* no catalog match — price it in the builder */
+      }
+    }
+
+    lines.push({
+      room: room.name || null,
+      description:
+        [manufacturer, room.material].filter(Boolean).join(" ").trim() || profile.label,
+      category: profile.category,
+      measure_unit: profile.unit,
+      sqft: sqft > 0 ? sqft : null,
+      quantity: null,
+      length_in: lenIn > 0 ? lenIn : null,
+      width_in: widIn > 0 ? widIn : null,
+      unit,
+      material_rate: sellAt(cost),
+      labor_rate: 0,
+      material_cost: cost,
+      labor_cost: 0,
+      waste_pct: profile.waste,
+      product_id: productId,
+      manufacturer,
+      style,
+      color,
+    });
+
+    if (room.install) {
+      lines.push({
+        room: room.name || null,
+        description: `Install — ${profile.label.toLowerCase()}`,
+        category: "labor",
+        measure_unit: profile.unit,
+        sqft: null,
+        quantity: qty > 0 ? qty : null,
+        length_in: null,
+        width_in: null,
+        unit,
+        material_rate: 0,
+        labor_rate: sellAt(laborRate),
+        material_cost: 0,
+        labor_cost: laborRate,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+      });
+    }
+
+    if (profile.category === "carpet" && room.pad) {
+      const padYd = round2(sqft / 9);
+      lines.push({
+        room: room.name || null,
+        description: "Carpet pad",
+        category: "underlayment",
+        measure_unit: "sqyd",
+        sqft: null,
+        quantity: padYd > 0 ? padYd : null,
+        length_in: null,
+        width_in: null,
+        unit: "sq yd",
+        material_rate: 0,
+        labor_rate: 0,
+        material_cost: 0,
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+      });
+    }
+  }
+
+  // Job-wide extras (tear-out, transitions, stairs, metals…).
+  for (const a of job.addons ?? []) {
+    if (!a.label) continue;
+    const cost = Number(a.cost) || 0;
+    lines.push({
+      room: null,
+      description: a.label,
+      category: a.labor ? "labor" : "other",
+      measure_unit: "sqft",
+      sqft: null,
+      quantity: a.qty && a.qty > 0 ? a.qty : 1,
+      length_in: null,
+      width_in: null,
+      unit: a.unit || "each",
+      material_rate: a.labor ? 0 : sellAt(cost),
+      labor_rate: a.labor ? sellAt(cost) : 0,
+      material_cost: a.labor ? 0 : cost,
+      labor_cost: a.labor ? cost : 0,
+      waste_pct: 0,
+      product_id: null,
+      manufacturer: null,
+      style: null,
+      color: null,
+    });
+  }
+
+  if (!lines.length) return { error: "Couldn't build any lines from that." };
+
+  // Saves through the SAME pipeline as the smart builder, then opens the editor
+  // to review and continue (createSmartEstimate redirects on success).
+  return createSmartEstimate({
+    customerId,
+    title: job.title || "Flooring estimate",
+    taxRate: 8,
+    lines,
+    presentation: "detailed",
+  });
 }
 
 export interface ScopeLine {

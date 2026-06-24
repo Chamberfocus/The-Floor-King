@@ -429,6 +429,134 @@ export async function extractOrderDocument(opts: {
 }
 
 // ===========================================================================
+// JOB NOTES → STRUCTURED ESTIMATE  (typed text OR a photo of handwritten notes)
+// ===========================================================================
+
+export interface NotesRoom {
+  name: string | null;
+  type: string; // carpet | lvp | hardwood | laminate | tile | vinyl
+  length_ft: number;
+  length_in: number;
+  width_ft: number;
+  width_in: number;
+  sqft: number | null; // if an area was written directly instead of L×W
+  material: string | null; // product/term to match the catalog
+  material_cost: number | null; // our cost if written on the notes
+  install: boolean;
+  pad: boolean;
+  notes: string | null;
+}
+export interface NotesAddon {
+  label: string;
+  labor: boolean;
+  qty: number | null;
+  unit: string | null;
+  cost: number | null;
+}
+export interface NotesJob {
+  title: string | null;
+  rooms: NotesRoom[];
+  addons: NotesAddon[];
+}
+
+const NOTES_SYSTEM = `You are an expert flooring estimator for Cleveland Floor King. You read a salesperson's rough job notes — typed, or a PHOTO of handwriting on a measure sheet — and turn them into a clean structured estimate. Measurements are messy and abbreviated (e.g. "LR 15'6 x 12", "MBR 12x14 carpet", "hall 3x12 LVP", "tearout + haul", "13 steps", "T-mold x2"). Read them like a flooring pro.`;
+
+const NOTES_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
+{
+  "title": string|null,
+  "rooms": [ {
+    "name": string|null,            // room name ("Living room", "MBR", "Hall")
+    "type": "carpet"|"lvp"|"hardwood"|"laminate"|"tile"|"vinyl",
+    "length_ft": number, "length_in": number,   // split feet & inches (15'6" → 15 and 6)
+    "width_ft": number,  "width_in": number,
+    "sqft": number|null,            // only if an area is written directly (no L×W)
+    "material": string|null,        // product/brand/style if noted (to match the catalog)
+    "material_cost": number|null,   // OUR cost per unit if a number is written; else null
+    "install": boolean,             // true unless the notes say material-only
+    "pad": boolean,                 // carpet pad — true for carpet unless noted otherwise
+    "notes": string|null
+  } ],
+  "addons": [ { "label": string, "labor": boolean, "qty": number|null, "unit": string|null, "cost": number|null } ]
+}
+Rules:
+- One entry per room. Split every measurement into feet + inches. If only an area is given, use sqft and leave L×W at 0.
+- "type": infer from the notes (broadloom→carpet, plank/LVP/LVT/SPC→lvp, engineered/solid/wood→hardwood, ceramic/porcelain→tile, sheet→vinyl).
+- "addons": the extra work mentioned for the WHOLE job — tear-out & haul-away, floor prep, stairs, transitions/T-mold/metals, furniture, toilet pull, etc. Mark labor:true for work, labor:false for materials/metals. Only include what the notes mention.
+- Never invent prices. Use null for anything not written.`;
+
+/** Read job notes (typed text OR a photo) into a structured estimate. */
+export async function extractJobFromNotes(opts: {
+  text?: string;
+  base64?: string;
+  url?: string;
+  mediaType?: string;
+}): Promise<NotesJob | null> {
+  lastExtractError = null;
+  if (!process.env.ANTHROPIC_API_KEY) {
+    lastExtractError = "No AI key set (ANTHROPIC_API_KEY).";
+    return null;
+  }
+
+  const content: unknown[] = [];
+  const block = fileBlock(opts);
+  if (block) {
+    content.push(block);
+    content.push({ type: "text", text: `Read these job notes. ${NOTES_SCHEMA}` });
+  } else if (opts.text) {
+    content.push({ type: "text", text: `${NOTES_SCHEMA}\n\nJOB NOTES:\n${opts.text}` });
+  } else {
+    return null;
+  }
+
+  const text = await callModel({ system: NOTES_SYSTEM, content, maxTokens: 4000 });
+  if (!text) return null;
+  const whole = parseWholeObject(text);
+
+  const numv = (v: unknown) => coerceNum(v) ?? 0;
+  const rawRooms = whole && Array.isArray(whole.rooms)
+    ? (whole.rooms as unknown[])
+    : salvageArray(text, "rooms");
+  const rooms: NotesRoom[] = rawRooms
+    .map((it) => {
+      const o = (it ?? {}) as Record<string, unknown>;
+      return {
+        name: coerceStr(o.name),
+        type: (coerceStr(o.type) ?? "lvp").toLowerCase(),
+        length_ft: numv(o.length_ft),
+        length_in: numv(o.length_in),
+        width_ft: numv(o.width_ft),
+        width_in: numv(o.width_in),
+        sqft: coerceNum(o.sqft),
+        material: coerceStr(o.material),
+        material_cost: coerceNum(o.material_cost),
+        install: o.install !== false,
+        pad: o.pad !== false,
+        notes: coerceStr(o.notes),
+      } satisfies NotesRoom;
+    })
+    .filter((r) => r.length_ft || r.width_ft || (r.sqft ?? 0) > 0 || r.material);
+
+  const rawAddons = whole && Array.isArray(whole.addons)
+    ? (whole.addons as unknown[])
+    : salvageArray(text, "addons");
+  const addons: NotesAddon[] = rawAddons
+    .map((it) => {
+      const o = (it ?? {}) as Record<string, unknown>;
+      return {
+        label: coerceStr(o.label) ?? "",
+        labor: o.labor !== false,
+        qty: coerceNum(o.qty),
+        unit: coerceStr(o.unit),
+        cost: coerceNum(o.cost),
+      } satisfies NotesAddon;
+    })
+    .filter((a) => a.label);
+
+  if (!rooms.length && !addons.length) return null;
+  return { title: coerceStr(whole?.title), rooms, addons };
+}
+
+// ===========================================================================
 // CUSTOMER LISTS
 // ===========================================================================
 
