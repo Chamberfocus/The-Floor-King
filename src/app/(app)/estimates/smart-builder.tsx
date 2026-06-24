@@ -23,12 +23,11 @@ import {
   type Companion,
 } from "@/lib/flooring-profiles";
 import { PRODUCT_CATEGORY_LABELS, type Product } from "@/lib/types";
-import {
-  CARPET_ADDONS,
-  HARD_ADDONS,
-  type AddonDef,
-  type AddonGroup,
-} from "@/lib/addons";
+import { STANDARD_ADDONS, type AddonDef } from "@/lib/addons";
+
+// Add-ons are grouped by what they ARE, not by flooring type — so material and
+// labor are never confused, and shared items show once.
+type AddonGroup = "labor" | "material" | "custom";
 import { ProductPicker } from "./product-picker";
 import { AreaCalculator } from "@/components/area-calculator";
 import {
@@ -323,12 +322,12 @@ interface Addon {
   choice: string;
 }
 let addonSeq = 0;
-const mkAddon = (d: AddonDef, group: AddonGroup): Addon => ({
+const mkAddon = (d: AddonDef): Addon => ({
   id: `x${addonSeq++}`,
   label: d.label,
   unit: d.unit,
   labor: d.labor,
-  group,
+  group: d.labor ? "labor" : "material",
   on: false,
   qty: "",
   cost: "",
@@ -337,10 +336,8 @@ const mkAddon = (d: AddonDef, group: AddonGroup): Addon => ({
   choices: d.choices,
   choice: d.choices?.[0] ?? "",
 });
-const initialAddons = (): Addon[] => [
-  ...CARPET_ADDONS.map((d) => mkAddon(d, "carpet")),
-  ...HARD_ADDONS.map((d) => mkAddon(d, "hard")),
-];
+// One deduped checklist, split into Labor vs Materials by the labor flag.
+const initialAddons = (): Addon[] => STANDARD_ADDONS.map((d) => mkAddon(d));
 const newCustomAddon = (): Addon => ({
   id: `x${addonSeq++}`,
   label: "",
@@ -801,14 +798,6 @@ export function SmartBuilder({
   const jobSqft = Math.round(rooms.reduce((s, r) => s + roomSqft(r), 0) * 10) / 10;
   const jobSqyd = Math.round((jobSqft / 9) * 10) / 10;
 
-  // Which add-on checklists to show — the ones matching the flooring in the job.
-  const hasCarpet = rooms.some((r) => profileFor(r.type)?.category === "carpet");
-  const hasHard = rooms.some((r) => {
-    const c = profileFor(r.type)?.category;
-    return !!c && c !== "carpet";
-  });
-  const showCarpet = hasCarpet || (!hasCarpet && !hasHard);
-  const showHard = hasHard || (!hasCarpet && !hasHard);
 
   const renderAddonRow = (a: Addon) => (
     <div key={a.id} className="rounded-md border px-2 py-1.5 text-sm">
@@ -894,7 +883,15 @@ export function SmartBuilder({
               <input
                 type="checkbox"
                 checked={a.labor}
-                onChange={(e) => setAddon(a.id, { labor: e.target.checked })}
+                onChange={(e) =>
+                  setAddon(a.id, {
+                    labor: e.target.checked,
+                    // Keep it in the right section (unless it's a custom item).
+                    ...(a.custom
+                      ? {}
+                      : { group: e.target.checked ? "labor" : "material" }),
+                  })
+                }
                 className="size-3.5 rounded border-input"
               />
               labor
@@ -1500,27 +1497,23 @@ export function SmartBuilder({
             ) : null}
           </div>
 
-          {showCarpet ? (
-            <div>
-              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Carpet
-              </div>
-              <div className="grid gap-1.5 sm:grid-cols-2">
-                {addons.filter((a) => a.group === "carpet").map(renderAddonRow)}
-              </div>
+          <div>
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Labor
             </div>
-          ) : null}
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {addons.filter((a) => a.group === "labor").map(renderAddonRow)}
+            </div>
+          </div>
 
-          {showHard ? (
-            <div>
-              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Hard surface
-              </div>
-              <div className="grid gap-1.5 sm:grid-cols-2">
-                {addons.filter((a) => a.group === "hard").map(renderAddonRow)}
-              </div>
+          <div>
+            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Materials &amp; metals
             </div>
-          ) : null}
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {addons.filter((a) => a.group === "material").map(renderAddonRow)}
+            </div>
+          </div>
 
           {/* Custom items (always shown) */}
           {addons.some((a) => a.group === "custom") ? (

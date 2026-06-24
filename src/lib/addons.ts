@@ -50,6 +50,24 @@ export const HARD_ADDONS: AddonDef[] = [
   { label: "Dumpster / disposal fee", unit: "each", labor: false },
 ];
 
+/**
+ * The full add-on checklist, deduped by label across carpet + hard surface, so
+ * shared items (floor prep, move furniture, metals, dumpster…) appear ONCE.
+ * The builder splits these into Labor vs Materials by the `labor` flag. Pad is
+ * excluded — it's a roll good handled separately.
+ */
+export const STANDARD_ADDONS: AddonDef[] = (() => {
+  const seen = new Set<string>();
+  const out: AddonDef[] = [];
+  for (const d of [...CARPET_ADDONS, ...HARD_ADDONS]) {
+    if (!seen.has(d.label)) {
+      seen.add(d.label);
+      out.push(d);
+    }
+  }
+  return out;
+})();
+
 /** Pad is a roll good but its default price lives with the add-on defaults. */
 export const PAD_ADDON: AddonDef = {
   label: "Carpet pad",
