@@ -332,13 +332,7 @@ export default async function CustomerPage({
                     href={`/estimates/smart?customer=${customer.id}`}
                     className={buttonVariants({ size: "sm" })}
                   >
-                    <Sparkles className="size-3.5" /> Smart builder
-                  </Link>
-                  <Link
-                    href={`/estimates/new?customer=${customer.id}`}
-                    className={buttonVariants({ variant: "outline", size: "sm" })}
-                  >
-                    Wizard
+                    <Sparkles className="size-3.5" /> Build estimate
                   </Link>
                   <form action={createEstimate}>
                     <input type="hidden" name="customer_id" value={customer.id} />

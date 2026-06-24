@@ -35,8 +35,8 @@ export default async function SmartEstimatePage({
         <ArrowLeft className="size-4" /> Back to {customer.full_name}
       </Link>
       <PageHeader
-        title="Estimate builder"
-        description="Quick mode for fast, clean pricing — or the full builder for every option. Either way it flows straight to the invoice, PO, and work order."
+        title="Build an estimate"
+        description="Three ways: from your notes (type or photo), a guided step-by-step, or the full manual builder. All three price to your margin and flow straight to the invoice, PO, and work order."
       />
       <BuilderSwitch
         customerId={customer.id}
