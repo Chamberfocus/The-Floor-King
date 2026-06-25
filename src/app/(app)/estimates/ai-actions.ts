@@ -82,6 +82,12 @@ export async function createEstimateFromNotes(
   const sellAt = (cost: number) => (cost > 0 ? round2(priceFromMargin(cost, margin)) : 0);
 
   const lines: SmartLine[] = [];
+  // Labor is consolidated into ONE installation line per flooring type — never
+  // combined with material. Accumulate area + cost across rooms here.
+  const laborByCat = new Map<
+    string,
+    { label: string; unit: string; measureUnit: "sqft" | "sqyd"; area: number; costSum: number }
+  >();
   for (const room of job.rooms) {
     const type = mapFloorType(room.type);
     const profile = profileFor(type);
@@ -123,14 +129,20 @@ export async function createEstimateFromNotes(
       }
     }
 
+    // MATERIAL line — the quantity is what you actually order: area + waste,
+    // rounded up to whole units. No hidden waste % (it's in the quantity).
+    const matQty = isYd
+      ? Math.ceil((sqft / 9) * (1 + profile.waste / 100))
+      : Math.ceil(sqft * (1 + profile.waste / 100));
     lines.push({
       room: room.name || null,
       description:
         [manufacturer, room.material].filter(Boolean).join(" ").trim() || profile.label,
       category: profile.category,
       measure_unit: profile.unit,
-      sqft: sqft > 0 ? sqft : null,
-      quantity: null,
+      sqft: null,
+      quantity: matQty > 0 ? matQty : null,
+      // Keep the room cut size for the PO, even though the line bills by quantity.
       length_in: lenIn > 0 ? lenIn : null,
       width_in: widIn > 0 ? widIn : null,
       unit,
@@ -138,38 +150,16 @@ export async function createEstimateFromNotes(
       labor_rate: 0,
       material_cost: cost,
       labor_cost: 0,
-      waste_pct: profile.waste,
+      waste_pct: 0,
       product_id: productId,
       manufacturer,
       style,
       color,
     });
 
-    if (room.install) {
-      lines.push({
-        room: room.name || null,
-        description: `Install — ${profile.label.toLowerCase()}`,
-        category: "labor",
-        measure_unit: profile.unit,
-        sqft: null,
-        quantity: qty > 0 ? qty : null,
-        length_in: null,
-        width_in: null,
-        unit,
-        material_rate: 0,
-        labor_rate: sellAt(laborRate),
-        material_cost: 0,
-        labor_cost: laborRate,
-        waste_pct: 0,
-        product_id: null,
-        manufacturer: null,
-        style: null,
-        color: null,
-      });
-    }
-
+    // PAD — its own line, in square yards (rounded up).
     if (profile.category === "carpet" && room.pad) {
-      const padYd = round2(sqft / 9);
+      const padYd = Math.ceil(sqft / 9);
       lines.push({
         room: room.name || null,
         description: "Carpet pad",
@@ -191,6 +181,48 @@ export async function createEstimateFromNotes(
         color: null,
       });
     }
+
+    // LABOR — accumulate (actual area, no material waste) into one line per type.
+    if (room.install && qty > 0) {
+      const e =
+        laborByCat.get(profile.category) ?? {
+          label: profile.label,
+          unit,
+          measureUnit: profile.unit,
+          area: 0,
+          costSum: 0,
+        };
+      e.area += qty;
+      e.costSum += qty * laborRate;
+      laborByCat.set(profile.category, e);
+    }
+  }
+
+  // One installation/labor line per flooring type (material & labor never mixed).
+  for (const e of laborByCat.values()) {
+    const area = round2(e.area);
+    if (area <= 0) continue;
+    const unitCost = e.area > 0 ? round2(e.costSum / e.area) : 0;
+    lines.push({
+      room: null,
+      description: `Installation — ${e.label.toLowerCase()}`,
+      category: "labor",
+      measure_unit: e.measureUnit,
+      sqft: null,
+      quantity: area,
+      length_in: null,
+      width_in: null,
+      unit: e.unit,
+      material_rate: 0,
+      labor_rate: sellAt(unitCost),
+      material_cost: 0,
+      labor_cost: unitCost,
+      waste_pct: 0,
+      product_id: null,
+      manufacturer: null,
+      style: null,
+      color: null,
+    });
   }
 
   // Job-wide extras (tear-out, transitions, stairs, metals…).
