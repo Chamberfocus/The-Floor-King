@@ -52,38 +52,30 @@ interface WAddon {
   qty: string; cost: string; sell: string;
 }
 
-function roomLines(r: WRoom): SmartLine[] {
+/** Material + pad for a room — never any labor on these (order quantity, waste rolled in). */
+function roomMatPad(r: WRoom): SmartLine[] {
   const profile = profileFor(r.type);
   if (!profile) return [];
   const sqft = roomSqft(r);
   const isYd = profile.unit === "sqyd";
-  const qty = isYd ? r2(sqft / 9) : r2(sqft);
   const unit = isYd ? "sq yd" : "sq ft";
   const lenIn = feet(r.lengthFt, r.lengthIn) * 12;
   const widIn = feet(r.widthFt, r.widthIn) * 12;
+  const area = isYd ? sqft / 9 : sqft;
+  const matQty = Math.ceil(area * (1 + profile.waste / 100));
   const out: SmartLine[] = [];
   out.push({
     room: r.name || null, description: r.productLabel || profile.label,
     category: profile.category, measure_unit: profile.unit,
-    sqft: sqft > 0 ? sqft : null, quantity: null,
+    sqft: null, quantity: matQty > 0 ? matQty : null,
     length_in: lenIn > 0 ? Math.round(lenIn) : null,
     width_in: widIn > 0 ? Math.round(widIn) : null,
     unit, material_rate: num(r.matSell), labor_rate: 0,
-    material_cost: num(r.matCost), labor_cost: 0, waste_pct: profile.waste,
+    material_cost: num(r.matCost), labor_cost: 0, waste_pct: 0,
     product_id: r.productId, manufacturer: r.manufacturer, style: r.style, color: r.color,
   });
-  if (r.install && (num(r.instCost) > 0 || num(r.instSell) > 0)) {
-    out.push({
-      room: r.name || null, description: `Install — ${profile.label.toLowerCase()}`,
-      category: "labor", measure_unit: profile.unit, sqft: null,
-      quantity: qty > 0 ? qty : null, length_in: null, width_in: null, unit,
-      material_rate: 0, labor_rate: num(r.instSell), material_cost: 0,
-      labor_cost: num(r.instCost), waste_pct: 0,
-      product_id: null, manufacturer: null, style: null, color: null,
-    });
-  }
   if (r.pad && profile.category === "carpet" && (num(r.padCost) > 0 || num(r.padSell) > 0)) {
-    const padYd = r2(sqft / 9);
+    const padYd = Math.ceil(sqft / 9);
     out.push({
       room: r.name || null, description: "Carpet pad", category: "underlayment",
       measure_unit: "sqyd", sqft: null, quantity: padYd > 0 ? padYd : null,
@@ -93,6 +85,48 @@ function roomLines(r: WRoom): SmartLine[] {
       product_id: null, manufacturer: null, style: null, color: null,
     });
   }
+  return out;
+}
+
+/** All estimate lines: materials/pad per room + ONE labor line per flooring type + add-ons. */
+function jobLines(rooms: WRoom[], addons: WAddon[]): SmartLine[] {
+  const out: SmartLine[] = [];
+  const laborByCat = new Map<
+    string,
+    { label: string; unit: string; measureUnit: "sqft" | "sqyd"; area: number; costSum: number; sellSum: number }
+  >();
+  for (const r of rooms) {
+    out.push(...roomMatPad(r));
+    const profile = profileFor(r.type);
+    if (!profile || !r.install) continue;
+    if (num(r.instCost) <= 0 && num(r.instSell) <= 0) continue;
+    const isYd = profile.unit === "sqyd";
+    const qty = isYd ? roomSqft(r) / 9 : roomSqft(r);
+    if (qty <= 0) continue;
+    const e =
+      laborByCat.get(profile.category) ?? {
+        label: profile.label, unit: isYd ? "sq yd" : "sq ft",
+        measureUnit: profile.unit, area: 0, costSum: 0, sellSum: 0,
+      };
+    e.area += qty;
+    e.costSum += qty * num(r.instCost);
+    e.sellSum += qty * num(r.instSell);
+    laborByCat.set(profile.category, e);
+  }
+  // One installation/labor line per flooring type.
+  for (const e of laborByCat.values()) {
+    const area = r2(e.area);
+    if (area <= 0) continue;
+    out.push({
+      room: null, description: `Installation — ${e.label.toLowerCase()}`,
+      category: "labor", measure_unit: e.measureUnit, sqft: null, quantity: area,
+      length_in: null, width_in: null, unit: e.unit,
+      material_rate: 0, labor_rate: r2(e.sellSum / e.area),
+      material_cost: 0, labor_cost: r2(e.costSum / e.area), waste_pct: 0,
+      product_id: null, manufacturer: null, style: null, color: null,
+    });
+  }
+  out.push(...addonLines(addons));
   return out;
 }
 function addonLines(addons: WAddon[]): SmartLine[] {
@@ -158,10 +192,7 @@ export function GuidedWizard({
     });
   };
 
-  const allLines = useMemo(
-    () => [...rooms.flatMap(roomLines), ...addonLines(addons)],
-    [rooms, addons],
-  );
+  const allLines = useMemo(() => jobLines(rooms, addons), [rooms, addons]);
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
   const cost = allLines.reduce((s, l) => s + lineCost(l), 0);
   const margin = marginPct(grand, cost);
@@ -187,7 +218,7 @@ export function GuidedWizard({
 
   const save = (opts: { print?: boolean; send?: boolean } = {}) =>
     startSave(async () => {
-      const lines = [...rooms.flatMap(roomLines), ...addonLines(addons)].filter((l) => l.description.trim());
+      const lines = jobLines(rooms, addons).filter((l) => l.description.trim());
       if (!lines.length) {
         toast.error("Add at least one room with a size first.");
         return;

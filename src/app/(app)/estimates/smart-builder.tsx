@@ -144,14 +144,18 @@ function roomLines(r: Room): SmartLine[] {
   const out: SmartLine[] = [];
 
   const unit = profile.unit === "sqyd" ? "sq yd" : "sq ft";
-  // Material line (the carpet/flooring itself) — no labor on it.
+  const waste = num(r.waste) || profile.waste;
+  // Material line — bills the quantity you actually ORDER: area + waste, rounded
+  // up to whole units (no hidden waste %). Labor is never on this line.
+  const area = profile.unit === "sqyd" ? sqft / 9 : sqft;
+  const matQty = Math.ceil(area * (1 + waste / 100));
   out.push({
     room: r.name || null,
     description: r.productLabel || profile.label,
     category: profile.category,
     measure_unit: profile.unit,
-    sqft: sqft > 0 ? sqft : null,
-    quantity: null,
+    sqft: null,
+    quantity: matQty > 0 ? matQty : null,
     // Room L×W in inches → the cut measurements to order (carpet especially).
     length_in: roomLen(r) > 0 ? Math.round(roomLen(r) * 12) : null,
     width_in: roomWid(r) > 0 ? Math.round(roomWid(r) * 12) : null,
@@ -160,7 +164,7 @@ function roomLines(r: Room): SmartLine[] {
     labor_rate: 0,
     material_cost: num(r.materialCost),
     labor_cost: 0,
-    waste_pct: num(r.waste) || profile.waste,
+    waste_pct: 0,
     product_id: r.productId,
     manufacturer: r.manufacturer,
     style: r.style,
