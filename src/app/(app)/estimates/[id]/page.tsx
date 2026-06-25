@@ -24,6 +24,7 @@ import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate } from "@/lib/data/estimates";
 import { getCustomer } from "@/lib/data/customers";
+import { getOrgSettings } from "@/lib/data/org";
 import { optionTotals, lineTotal, lineQty } from "@/lib/estimate-calc";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
@@ -31,6 +32,11 @@ import { setEstimateStatus, deleteEstimate, duplicateOption } from "../actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
 import { CopyEstimate } from "./copy-estimate";
+import {
+  EstimatePrintDoc,
+  PrintEstimateButton,
+  EstimateNotesEditor,
+} from "./estimate-print";
 
 export async function generateMetadata({
   params,
@@ -64,6 +70,7 @@ export default async function EstimatePage({
   if (!estimate) notFound();
 
   const customer = await getCustomer(estimate.customer_id);
+  const org = await getOrgSettings();
   const options = estimate.options ?? [];
   const detailed = estimate.presentation === "detailed";
 
@@ -71,7 +78,9 @@ export default async function EstimatePage({
     optionTotals(o.line_items ?? [], estimate.tax_rate);
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <>
+      <EstimatePrintDoc org={org} customer={customer} estimate={estimate} />
+      <div className="mx-auto max-w-4xl print:hidden">
       <div className="mb-4 flex items-center justify-between gap-3">
         <Link
           href={`/customers/${estimate.customer_id}`}
@@ -107,6 +116,7 @@ export default async function EstimatePage({
           >
             <Pencil className="size-4" /> Edit
           </Link>
+          <PrintEstimateButton />
           <CopyEstimate estimateId={estimate.id} />
           {estimate.status === "approved" ? (
             <>
@@ -145,6 +155,16 @@ export default async function EstimatePage({
           </CardContent>
         </Card>
       ) : null}
+
+      {/* Notes — shown to the customer on the estimate & the printed/PDF copy */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">Notes on the estimate</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EstimateNotesEditor estimateId={estimate.id} notes={estimate.notes} />
+        </CardContent>
+      </Card>
 
       {/* Options */}
       <div className="space-y-4">
@@ -346,6 +366,7 @@ export default async function EstimatePage({
           <Trash2 className="size-3.5" /> Delete estimate
         </Button>
       </form>
-    </div>
+      </div>
+    </>
   );
 }

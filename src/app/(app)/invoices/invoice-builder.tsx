@@ -27,6 +27,7 @@ import {
   type OrgSettings,
 } from "@/lib/types";
 import { formatDate } from "@/lib/format";
+import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
 import { saveInvoice } from "./actions";
 import { writeScopeDescription } from "@/app/(app)/estimates/ai-actions";
 
@@ -425,31 +426,31 @@ function InvoicePrintDoc({
   items: ItemState[];
   totals: { subtotal: number; tax: number; total: number; paid: number; balance: number };
 }) {
-  const addr = customer
-    ? [customer.street, [customer.city, customer.state].filter(Boolean).join(", "), customer.zip]
-        .filter(Boolean)
-        .join(" · ")
-    : "";
   return (
     <div className="hidden text-black print:block">
-      <div className="flex items-start justify-between gap-6 border-b pb-4">
-        <div>
-          <div className="text-xl font-bold">{org.company_name}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-lg font-semibold">INVOICE</div>
-          {number ? <div className="text-sm">{number}</div> : null}
-          {issueDate ? <div className="text-xs">Issued {formatDate(issueDate)}</div> : null}
-          {dueDate ? <div className="text-xs">Due {formatDate(dueDate)}</div> : null}
-        </div>
-      </div>
+      <PrintLetterhead
+        org={org}
+        docTitle="INVOICE"
+        meta={
+          <>
+            {number ? <div className="text-sm font-medium">{number}</div> : null}
+            {issueDate ? <div className="text-xs">Issued {formatDate(issueDate)}</div> : null}
+            {dueDate ? <div className="text-xs">Due {formatDate(dueDate)}</div> : null}
+          </>
+        }
+      />
 
       {customer ? (
-        <div className="py-4 text-sm">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Bill to</div>
-          <div className="font-medium">{customer.full_name}</div>
-          {addr ? <div className="text-xs text-gray-600">{addr}</div> : null}
-        </div>
+        <PrintBillTo
+          label="Bill to"
+          name={customer.full_name}
+          street={customer.street}
+          city={customer.city}
+          state={customer.state}
+          zip={customer.zip}
+          phone={customer.phone}
+          email={customer.email}
+        />
       ) : null}
 
       {presentation === "summary" ? (

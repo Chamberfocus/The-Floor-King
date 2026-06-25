@@ -415,6 +415,16 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
   redirect("/estimates");
 }
 
+/** Save the notes shown on the estimate (and its printed / PDF copy). */
+export async function saveEstimateNotes(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const notes = str(formData.get("notes"));
+  const supabase = await createClient();
+  await supabase.from("estimates").update({ notes: notes || null }).eq("id", id);
+  revalidatePath(`/estimates/${id}`);
+}
+
 /**
  * Mark an estimate sent: email the customer their portal link and advance the
  * customer's workflow stage. No redirect — callers decide where to go next
