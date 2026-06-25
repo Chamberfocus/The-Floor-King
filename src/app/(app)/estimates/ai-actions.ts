@@ -7,6 +7,7 @@ import { aiText } from "@/lib/ai";
 import { extractJobFromNotes } from "@/lib/extract";
 import { searchCatalog } from "@/lib/data/products";
 import { getBusinessSettings } from "@/lib/data/business-settings";
+import { getRoomDefaults, getAddonDefaults } from "@/lib/data/addon-defaults";
 import { priceFromMargin } from "@/lib/estimate-calc";
 import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
@@ -82,6 +83,33 @@ export async function createEstimateFromNotes(
   const margin = settings.target_gross_margin_pct || 40;
   const sellAt = (cost: number) => (cost > 0 ? round2(priceFromMargin(cost, margin)) : 0);
 
+  // Pull costs from the catalog & saved defaults so a bare "carpet" is priced.
+  let roomDefaults: Awaited<ReturnType<typeof getRoomDefaults>> = {};
+  let addonDefaults: Awaited<ReturnType<typeof getAddonDefaults>> = {};
+  try { roomDefaults = await getRoomDefaults(); } catch { /* table may be missing */ }
+  try { addonDefaults = await getAddonDefaults(); } catch { /* table may be missing */ }
+  // A representative active product per flooring category (first by name).
+  const catProduct: Record<
+    string,
+    { id: string; material_rate: number; labor_rate: number; manufacturer: string | null; style: string | null; color: string | null }
+  > = {};
+  try {
+    const all = await searchCatalog("", { activeOnly: true, limit: 1000 });
+    for (const p of all) {
+      const c = p.category as string;
+      if (!catProduct[c]) {
+        catProduct[c] = {
+          id: p.id,
+          material_rate: Number(p.material_rate) || 0,
+          labor_rate: Number(p.labor_rate) || 0,
+          manufacturer: p.manufacturer,
+          style: p.style,
+          color: p.color,
+        };
+      }
+    }
+  } catch { /* no catalog */ }
+
   const lines: SmartLine[] = [];
   // Labor is consolidated into ONE installation line per flooring type — never
   // combined with material. Accumulate area + cost across rooms here.
@@ -129,7 +157,24 @@ export async function createEstimateFromNotes(
           color = match.color;
         }
       } catch {
-        /* no catalog match — price it in the builder */
+        /* no catalog match — fall back below */
+      }
+    }
+
+    // Fall back so a bare "carpet" still gets priced: the type's saved default
+    // cost, then a representative active product in that category.
+    const rd = roomDefaults[profile.category];
+    if (!cost && rd?.materialCost) cost = rd.materialCost;
+    if (!laborRate && rd?.laborCost) laborRate = rd.laborCost;
+    const cp = catProduct[profile.category];
+    if (cp) {
+      if (!cost) cost = cp.material_rate;
+      if (!laborRate) laborRate = cp.labor_rate;
+      if (!productId && cp.material_rate > 0) {
+        productId = cp.id;
+        manufacturer = manufacturer ?? cp.manufacturer;
+        style = style ?? cp.style;
+        color = color ?? cp.color;
       }
     }
 
@@ -162,9 +207,13 @@ export async function createEstimateFromNotes(
     });
 
     // PAD — accumulate across all carpet rooms; bundled into ONE line below.
+    // Cost: written → saved "Carpet pad" default → an underlayment in the catalog.
     if (profile.category === "carpet" && room.pad) {
+      let padCost = Number(room.pad_cost) || 0;
+      if (!padCost) padCost = addonDefaults["Carpet pad"]?.cost ?? 0;
+      if (!padCost) padCost = catProduct["underlayment"]?.material_rate ?? 0;
       padSqft += sqft;
-      padCostSum += (sqft / 9) * (Number(room.pad_cost) || 0);
+      padCostSum += (sqft / 9) * padCost;
     }
 
     // LABOR — accumulate (actual area, no material waste) into one line per type.
