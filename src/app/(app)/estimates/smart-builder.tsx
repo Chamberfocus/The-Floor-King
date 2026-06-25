@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Copy, Ruler, Sparkles, Printer, Send } from "lucide-react";
+import { Plus, Trash2, Copy, Ruler, Sparkles, Printer, Send, RotateCcw } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -447,9 +447,9 @@ export function SmartBuilder({
     }
   >;
 }) {
-  const [title, setTitle] = useState("");
-  const [rooms, setRooms] = useState<Room[]>([newRoom()]);
-  const [addons, setAddons] = useState<Addon[]>(() =>
+  // Fresh add-ons / roll goods, pre-filled with any saved defaults — reused by
+  // initial state and by "Start over".
+  const buildAddons = (): Addon[] =>
     initialAddons().map((a) => {
       const d = addonDefaults[a.label];
       return d
@@ -461,8 +461,26 @@ export function SmartBuilder({
             labor: d.labor,
           }
         : a;
-    }),
-  );
+    });
+  const buildRolls = (): Record<string, CompState> => {
+    const init: Record<string, CompState> = {};
+    for (const c of ROLL_COMPANIONS) {
+      const d = addonDefaults[c.label];
+      init[c.key] = {
+        on: c.defaultOn,
+        rate: d?.sell != null ? String(d.sell) : "",
+        cost: d?.cost != null ? String(d.cost) : "",
+        productId: null,
+        productLabel: "",
+        choice: "",
+      };
+    }
+    return init;
+  };
+
+  const [title, setTitle] = useState("");
+  const [rooms, setRooms] = useState<Room[]>([newRoom()]);
+  const [addons, setAddons] = useState<Addon[]>(buildAddons);
   const setAddon = (id: string, patch: Partial<Addon>) =>
     setAddons((xs) => xs.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const saveDefault = async (a: Addon) => {
@@ -482,21 +500,24 @@ export function SmartBuilder({
   );
   const [saving, startSave] = useTransition();
   // Job-level roll goods (carpet pad): quantity is figured off the whole job.
-  const [rollComps, setRollComps] = useState<Record<string, CompState>>(() => {
-    const init: Record<string, CompState> = {};
-    for (const c of ROLL_COMPANIONS) {
-      const d = addonDefaults[c.label]; // pad pre-fills from its saved default
-      init[c.key] = {
-        on: c.defaultOn,
-        rate: d?.sell != null ? String(d.sell) : "",
-        cost: d?.cost != null ? String(d.cost) : "",
-        productId: null,
-        productLabel: "",
-        choice: "",
-      };
-    }
-    return init;
-  });
+  const [rollComps, setRollComps] = useState<Record<string, CompState>>(buildRolls);
+
+  /** Clear everything back to a blank estimate. */
+  const startOver = () => {
+    if (
+      !window.confirm(
+        "Clear this estimate and start over? Everything entered here will be removed.",
+      )
+    )
+      return;
+    setTitle("");
+    setMarginGoal(String(targetMargin));
+    setPresentation("detailed");
+    setRooms([newRoom()]);
+    setAddons(buildAddons());
+    setRollComps(buildRolls());
+    toast.success("Cleared — fresh estimate");
+  };
 
   const savePadDefault = async (comp: Companion) => {
     const st = rollComps[comp.key];
@@ -820,6 +841,25 @@ export function SmartBuilder({
             <span className={cn(!a.on && "text-muted-foreground")}>{a.label}</span>
           )}
         </label>
+        {/* Labor vs material — shows what it is, and tap to switch it. */}
+        <button
+          type="button"
+          onClick={() =>
+            setAddon(a.id, {
+              labor: !a.labor,
+              ...(a.custom ? {} : { group: !a.labor ? "labor" : "material" }),
+            })
+          }
+          title="Switch between labor and material"
+          className={cn(
+            "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+            a.labor
+              ? "bg-violet-500/10 text-violet-600"
+              : "bg-sky-500/10 text-sky-600",
+          )}
+        >
+          {a.labor ? "Labor" : "Material"}
+        </button>
         {a.on ? (
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             {a.choices ? (
@@ -879,23 +919,6 @@ export function SmartBuilder({
               placeholder="price"
               className="h-7 w-16"
             />
-            <label className="flex items-center gap-1">
-              <input
-                type="checkbox"
-                checked={a.labor}
-                onChange={(e) =>
-                  setAddon(a.id, {
-                    labor: e.target.checked,
-                    // Keep it in the right section (unless it's a custom item).
-                    ...(a.custom
-                      ? {}
-                      : { group: e.target.checked ? "labor" : "material" }),
-                  })
-                }
-                className="size-3.5 rounded border-input"
-              />
-              labor
-            </label>
             <button
               type="button"
               onClick={() => saveDefault(a)}
@@ -957,6 +980,15 @@ export function SmartBuilder({
             Price all at {Math.round(num(marginGoal))}%
           </Button>
           <AreaCalculator triggerLabel="Quick calculator" triggerVariant="outline" />
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={startOver}
+            title="Clear everything and start a fresh estimate"
+            className="text-muted-foreground"
+          >
+            <RotateCcw className="size-4" /> Start over
+          </Button>
         </div>
       </div>
 

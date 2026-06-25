@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
-  Plus, Trash2, ArrowLeft, ArrowRight, Check, Printer, Send, Ruler,
+  Plus, Trash2, ArrowLeft, ArrowRight, Check, Printer, Send, Ruler, RotateCcw,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -169,6 +169,21 @@ export function GuidedWizard({
   const readyRooms = rooms.filter((r) => profileFor(r.type) && roomSqft(r) > 0);
   const canNext =
     step === 0 ? readyRooms.length > 0 : true;
+
+  const startOver = () => {
+    if (!window.confirm("Clear this estimate and start over?")) return;
+    setTitle("");
+    setMarginGoal(String(targetMargin));
+    setPresentation("detailed");
+    setRooms([newRoom()]);
+    setAddons(
+      STANDARD_ADDONS.map((d) => ({
+        label: d.label, unit: d.unit, labor: d.labor, on: false, qty: "", cost: "", sell: "",
+      })),
+    );
+    setStep(0);
+    toast.success("Cleared — fresh estimate");
+  };
 
   const save = (opts: { print?: boolean; send?: boolean } = {}) =>
     startSave(async () => {
@@ -373,11 +388,16 @@ export function GuidedWizard({
         <Button type="button" variant="ghost" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>
           <ArrowLeft className="size-4" /> Back
         </Button>
-        {step < STEPS.length - 1 ? (
-          <Button type="button" onClick={() => setStep((s) => s + 1)} disabled={!canNext}>
-            Next: {STEPS[step + 1]} <ArrowRight className="size-4" />
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="ghost" onClick={startOver} className="text-muted-foreground">
+            <RotateCcw className="size-4" /> Start over
           </Button>
-        ) : null}
+          {step < STEPS.length - 1 ? (
+            <Button type="button" onClick={() => setStep((s) => s + 1)} disabled={!canNext}>
+              Next: {STEPS[step + 1]} <ArrowRight className="size-4" />
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
