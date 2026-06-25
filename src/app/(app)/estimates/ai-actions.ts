@@ -52,8 +52,9 @@ function mapFloorType(t: string): string {
 export async function createEstimateFromNotes(
   customerId: string,
   input: { text?: string; storagePath?: string; mime?: string },
+  appendToEstimateId?: string,
 ): Promise<{ error: string | null }> {
-  if (!customerId) return { error: "Missing customer." };
+  if (!customerId && !appendToEstimateId) return { error: "Missing customer." };
 
   let opts: Parameters<typeof extractJobFromNotes>[0];
   if (input.storagePath) {
@@ -88,6 +89,9 @@ export async function createEstimateFromNotes(
     string,
     { label: string; unit: string; measureUnit: "sqft" | "sqyd"; area: number; costSum: number }
   >();
+  // Pad is bundled into ONE line for the whole job too — accumulate here.
+  let padSqft = 0;
+  let padCostSum = 0;
   for (const room of job.rooms) {
     const type = mapFloorType(room.type);
     const profile = profileFor(type);
@@ -157,31 +161,10 @@ export async function createEstimateFromNotes(
       color,
     });
 
-    // PAD — its own line, in square yards (rounded up), priced if a pad price
-    // was written.
+    // PAD — accumulate across all carpet rooms; bundled into ONE line below.
     if (profile.category === "carpet" && room.pad) {
-      const padYd = Math.ceil(sqft / 9);
-      const padCost = Number(room.pad_cost) || 0;
-      lines.push({
-        room: room.name || null,
-        description: "Carpet pad",
-        category: "underlayment",
-        measure_unit: "sqyd",
-        sqft: null,
-        quantity: padYd > 0 ? padYd : null,
-        length_in: null,
-        width_in: null,
-        unit: "sq yd",
-        material_rate: sellAt(padCost),
-        labor_rate: 0,
-        material_cost: padCost,
-        labor_cost: 0,
-        waste_pct: 0,
-        product_id: null,
-        manufacturer: null,
-        style: null,
-        color: null,
-      });
+      padSqft += sqft;
+      padCostSum += (sqft / 9) * (Number(room.pad_cost) || 0);
     }
 
     // LABOR — accumulate (actual area, no material waste) into one line per type.
@@ -200,6 +183,32 @@ export async function createEstimateFromNotes(
       e.costSum += qty * roomLaborCost;
       laborByCat.set(profile.category, e);
     }
+  }
+
+  // ONE carpet-pad line — total square yards across the whole job, rounded up.
+  if (padSqft > 0) {
+    const padYdArea = padSqft / 9;
+    const unitCost = round2(padCostSum / padYdArea);
+    lines.push({
+      room: null,
+      description: "Carpet pad",
+      category: "underlayment",
+      measure_unit: "sqyd",
+      sqft: null,
+      quantity: Math.ceil(padYdArea),
+      length_in: null,
+      width_in: null,
+      unit: "sq yd",
+      material_rate: sellAt(unitCost),
+      labor_rate: 0,
+      material_cost: unitCost,
+      labor_cost: 0,
+      waste_pct: 0,
+      product_id: null,
+      manufacturer: null,
+      style: null,
+      color: null,
+    });
   }
 
   // One installation/labor line per flooring type (material & labor never mixed).
@@ -257,8 +266,74 @@ export async function createEstimateFromNotes(
 
   if (!lines.length) return { error: "Couldn't build any lines from that." };
 
-  // Saves through the SAME pipeline as the smart builder, then opens the editor
-  // to review and continue (createSmartEstimate redirects on success).
+  // "Add more from notes": append to the existing estimate's option instead of
+  // creating a new estimate (same builder logic).
+  if (appendToEstimateId) {
+    const supabase = await createClient();
+    const { data: est } = await supabase
+      .from("estimates")
+      .select("accepted_option_id")
+      .eq("id", appendToEstimateId)
+      .maybeSingle();
+    let optionId = (est?.accepted_option_id as string | null) ?? null;
+    if (!optionId) {
+      const { data: opt } = await supabase
+        .from("estimate_options")
+        .select("id")
+        .eq("estimate_id", appendToEstimateId)
+        .order("position", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      optionId = (opt?.id as string) ?? null;
+    }
+    if (!optionId) {
+      const { data: opt } = await supabase
+        .from("estimate_options")
+        .insert({ estimate_id: appendToEstimateId, name: "Option A", position: 0 })
+        .select("id")
+        .single();
+      optionId = (opt?.id as string) ?? null;
+    }
+    if (!optionId) return { error: "Couldn't find the estimate to add to." };
+
+    const { data: last } = await supabase
+      .from("estimate_line_items")
+      .select("position")
+      .eq("option_id", optionId)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const startPos = ((last?.position as number) ?? -1) + 1;
+    const rows = lines.map((l, i) => ({
+      option_id: optionId,
+      position: startPos + i,
+      room: l.room || null,
+      description: l.description,
+      line_type: "mat_labor",
+      category: l.category || "other",
+      measure_unit: l.measure_unit,
+      sqft: l.sqft && l.sqft > 0 ? l.sqft : null,
+      quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
+      length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
+      width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
+      unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+      material_rate: Number(l.material_rate) || 0,
+      labor_rate: Number(l.labor_rate) || 0,
+      material_cost: Number(l.material_cost) || 0,
+      labor_cost: Number(l.labor_cost) || 0,
+      waste_pct: Number(l.waste_pct) || 0,
+      product_id: l.product_id || null,
+      manufacturer: l.manufacturer || null,
+      style: l.style || null,
+      color: l.color || null,
+    }));
+    const { error } = await supabase.from("estimate_line_items").insert(rows);
+    if (error) return { error: error.message };
+    revalidatePath(`/estimates/${appendToEstimateId}`);
+    return { error: null };
+  }
+
+  // Otherwise create a new estimate and open the professional view.
   return createSmartEstimate({
     customerId,
     title: job.title || "Flooring estimate",

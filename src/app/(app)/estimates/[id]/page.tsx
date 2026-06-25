@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Copy,
   Send,
+  Sparkles,
 } from "lucide-react";
 import {
   Card,
@@ -32,6 +33,7 @@ import { setEstimateStatus, deleteEstimate, duplicateOption } from "../actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
 import { CopyEstimate } from "./copy-estimate";
+import { AddFromNotes } from "./add-from-notes";
 import {
   EstimatePrintDoc,
   PrintEstimateButton,
@@ -160,6 +162,18 @@ export default async function EstimatePage({
           </CardContent>
         </Card>
       ) : null}
+
+      {/* Keep building from notes — append more rooms / add-ons */}
+      <Card className="mb-6 border-primary/30">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Sparkles className="size-4 text-primary" /> Add more from notes
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AddFromNotes estimateId={estimate.id} customerId={estimate.customer_id} />
+        </CardContent>
+      </Card>
 
       {/* Notes — shown to the customer on the estimate & the printed/PDF copy */}
       <Card className="mb-6">
