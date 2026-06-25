@@ -393,6 +393,16 @@ export async function createEstimateFromWizard(
   return { error: null, id: estimate.id };
 }
 
+/** Delete every DRAFT estimate (fast cleanup of test/unsent quotes). */
+export async function deleteAllDraftEstimates(): Promise<void> {
+  const supabase = await createClient();
+  await supabase.from("estimates").delete().eq("status", "draft");
+  revalidatePath("/estimates");
+  revalidatePath("/dashboard");
+  revalidatePath("/pulse");
+  redirect("/estimates");
+}
+
 export async function deleteEstimate(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   const customerId = str(formData.get("customer_id"));

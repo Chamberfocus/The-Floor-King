@@ -15,6 +15,7 @@ import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { listAllEstimates, type EstimateListRow } from "@/lib/data/estimates";
 import { optionTotals } from "@/lib/estimate-calc";
 import { formatMoney, formatDate } from "@/lib/format";
+import { DeleteEstimateButton, ClearDraftsButton } from "./estimate-list-actions";
 
 export const metadata: Metadata = { title: "Estimates" };
 
@@ -36,9 +37,12 @@ export default async function EstimatesPage() {
         title="Estimates"
         description="Every quote across all customers."
       >
-        <Link href="/estimates/start" className={buttonVariants({ size: "lg" })}>
-          <Plus className="size-4" /> New estimate
-        </Link>
+        <div className="flex items-center gap-2">
+          <ClearDraftsButton />
+          <Link href="/estimates/start" className={buttonVariants({ size: "lg" })}>
+            <Plus className="size-4" /> New estimate
+          </Link>
+        </div>
       </PageHeader>
 
       {estimates.length === 0 ? (
@@ -59,6 +63,7 @@ export default async function EstimatesPage() {
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Created</TableHead>
+                <TableHead className="w-10"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -89,6 +94,9 @@ export default async function EstimatesPage() {
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
                     {formatDate(e.created_at)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DeleteEstimateButton id={e.id} />
                   </TableCell>
                 </TableRow>
               ))}
