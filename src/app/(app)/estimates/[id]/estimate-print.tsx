@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Printer, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,15 @@ import type {
   OrgSettings,
 } from "@/lib/types";
 import { saveEstimateNotes } from "../actions";
+
+/** Opens the print dialog automatically (used after "Create & print"). */
+export function AutoPrint() {
+  useEffect(() => {
+    const t = setTimeout(() => window.print(), 400);
+    return () => clearTimeout(t);
+  }, []);
+  return null;
+}
 
 /** Print / save-as-PDF button (opens the browser print dialog). */
 export function PrintEstimateButton() {

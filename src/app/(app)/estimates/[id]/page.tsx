@@ -36,6 +36,7 @@ import {
   EstimatePrintDoc,
   PrintEstimateButton,
   EstimateNotesEditor,
+  AutoPrint,
 } from "./estimate-print";
 
 export async function generateMetadata({
@@ -62,10 +63,13 @@ function lineMath(l: EstimateLineItem): string {
 
 export default async function EstimatePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ print?: string }>;
 }) {
   const { id } = await params;
+  const { print } = await searchParams;
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
 
@@ -79,6 +83,7 @@ export default async function EstimatePage({
 
   return (
     <>
+      {print ? <AutoPrint /> : null}
       <EstimatePrintDoc org={org} customer={customer} estimate={estimate} />
       <div className="mx-auto max-w-4xl print:hidden">
       <div className="mb-4 flex items-center justify-between gap-3">

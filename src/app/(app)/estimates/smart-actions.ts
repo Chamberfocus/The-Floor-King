@@ -194,5 +194,7 @@ export async function createSmartEstimate(
     await sendEstimateById(est.id as string);
     redirect("/dashboard");
   }
-  redirect(`/estimates/${est.id}/edit${input.print ? "?print=1" : ""}`);
+  // Land on the clean, professional estimate (priced, printable) — not the raw
+  // editor. "Create & print" opens the print dialog automatically.
+  redirect(`/estimates/${est.id}${input.print ? "?print=1" : ""}`);
 }
