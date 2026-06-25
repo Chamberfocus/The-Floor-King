@@ -44,14 +44,14 @@ export async function generateMetadata({
 
 function lineMath(l: EstimateLineItem): string {
   if (l.line_type === "flat") return "Flat amount";
-  const unit = l.measure_unit === "sqyd" ? "sq yd" : "sq ft";
   const qty = lineQty(l);
-  if (l.line_type === "installed") {
-    return `${qty.toFixed(2)} ${unit} × ${formatMoney(l.installed_rate ?? 0)}`;
-  }
-  return `${qty.toFixed(2)} ${unit} × ${formatMoney(
-    (l.material_rate ?? 0) + (l.labor_rate ?? 0),
-  )} (mat + labor)`;
+  const unit =
+    (l.unit && l.unit.trim()) || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+  const rate =
+    l.line_type === "installed"
+      ? (l.installed_rate ?? 0)
+      : (l.material_rate ?? 0) + (l.labor_rate ?? 0);
+  return `${qty.toFixed(2)} ${unit} × ${formatMoney(rate)}`;
 }
 
 export default async function EstimatePage({
