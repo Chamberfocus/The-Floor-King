@@ -157,9 +157,11 @@ export async function createEstimateFromNotes(
       color,
     });
 
-    // PAD — its own line, in square yards (rounded up).
+    // PAD — its own line, in square yards (rounded up), priced if a pad price
+    // was written.
     if (profile.category === "carpet" && room.pad) {
       const padYd = Math.ceil(sqft / 9);
+      const padCost = Number(room.pad_cost) || 0;
       lines.push({
         room: room.name || null,
         description: "Carpet pad",
@@ -170,9 +172,9 @@ export async function createEstimateFromNotes(
         length_in: null,
         width_in: null,
         unit: "sq yd",
-        material_rate: 0,
+        material_rate: sellAt(padCost),
         labor_rate: 0,
-        material_cost: 0,
+        material_cost: padCost,
         labor_cost: 0,
         waste_pct: 0,
         product_id: null,
@@ -183,7 +185,9 @@ export async function createEstimateFromNotes(
     }
 
     // LABOR — accumulate (actual area, no material waste) into one line per type.
+    // Use a written install price if there is one, else the catalog labor rate.
     if (room.install && qty > 0) {
+      const roomLaborCost = Number(room.labor_cost) > 0 ? Number(room.labor_cost) : laborRate;
       const e =
         laborByCat.get(profile.category) ?? {
           label: profile.label,
@@ -193,7 +197,7 @@ export async function createEstimateFromNotes(
           costSum: 0,
         };
       e.area += qty;
-      e.costSum += qty * laborRate;
+      e.costSum += qty * roomLaborCost;
       laborByCat.set(profile.category, e);
     }
   }

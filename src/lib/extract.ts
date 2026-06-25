@@ -441,7 +441,9 @@ export interface NotesRoom {
   width_in: number;
   sqft: number | null; // if an area was written directly instead of L×W
   material: string | null; // product/term to match the catalog
-  material_cost: number | null; // our cost if written on the notes
+  material_cost: number | null; // any per-unit material price written on the notes
+  labor_cost: number | null; // any per-unit install/labor price written on the notes
+  pad_cost: number | null; // any per-unit pad price written on the notes
   install: boolean;
   pad: boolean;
   notes: string | null;
@@ -471,7 +473,9 @@ const NOTES_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
     "width_ft": number,  "width_in": number,
     "sqft": number|null,            // only if an area is written directly (no L×W)
     "material": string|null,        // product/brand/style if noted (to match the catalog)
-    "material_cost": number|null,   // OUR cost per unit if a number is written; else null
+    "material_cost": number|null,   // ANY per-unit material price written for this room (see PRICES rule)
+    "labor_cost": number|null,      // ANY per-unit install/labor price written for this room
+    "pad_cost": number|null,        // ANY per-unit pad price written for this room
     "install": boolean,             // true unless the notes say material-only
     "pad": boolean,                 // carpet pad — true for carpet unless noted otherwise
     "notes": string|null
@@ -481,6 +485,7 @@ const NOTES_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
 Rules:
 - One entry per room. Split every measurement into feet + inches. If only an area is given, use sqft and leave L×W at 0.
 - "type": infer from the notes (broadloom→carpet, plank/LVP/LVT/SPC→lvp, engineered/solid/wood→hardwood, ceramic/porcelain→tile, sheet→vinyl).
+- PRICES — capture EVERY price the notes show: a number next to a material ("$3.50", "3.50/sf", "$18 yd", "carpet 22") → material_cost; an install/labor price ("install $2", "lab 1.50") → labor_cost; a pad price ("pad $4") → pad_cost; an add-on price → that add-on's cost. Strip $ and units to a plain number. Don't guess prices that aren't written, but never skip a price that IS written.
 - "addons": the extra work mentioned for the WHOLE job — tear-out & haul-away, floor prep, stairs, transitions/T-mold/metals, furniture, toilet pull, etc. Mark labor:true for work, labor:false for materials/metals. Only include what the notes mention.
 - Never invent prices. Use null for anything not written.`;
 
@@ -529,6 +534,8 @@ export async function extractJobFromNotes(opts: {
         sqft: coerceNum(o.sqft),
         material: coerceStr(o.material),
         material_cost: coerceNum(o.material_cost),
+        labor_cost: coerceNum(o.labor_cost),
+        pad_cost: coerceNum(o.pad_cost),
         install: o.install !== false,
         pad: o.pad !== false,
         notes: coerceStr(o.notes),
