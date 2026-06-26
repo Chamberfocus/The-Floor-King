@@ -37,6 +37,9 @@ interface WRoom {
   matCost: string; matSell: string;
   install: boolean; instCost: string; instSell: string;
   pad: boolean; padCost: string; padSell: string;
+  demo: boolean; demoCost: string; demoSell: string;
+  prep: boolean; prepCost: string; prepSell: string;
+  trans: boolean; transQty: string; transCost: string; transSell: string;
 }
 let seq = 0;
 const newRoom = (): WRoom => ({
@@ -45,6 +48,9 @@ const newRoom = (): WRoom => ({
   productId: null, productLabel: "", manufacturer: null, style: null, color: null,
   matCost: "", matSell: "", install: true, instCost: "", instSell: "",
   pad: true, padCost: "", padSell: "",
+  demo: false, demoCost: "", demoSell: "",
+  prep: false, prepCost: "", prepSell: "",
+  trans: false, transQty: "", transCost: "", transSell: "",
 });
 const roomSqft = (r: WRoom) =>
   num(r.areaOverride) > 0
@@ -94,44 +100,82 @@ function roomMatPad(r: WRoom): SmartLine[] {
   return out;
 }
 
-/** All estimate lines: materials/pad per room + ONE labor line per flooring type + add-ons. */
+/** A bundled line (whole job) for a per-room extra. */
+function bundledLine(
+  description: string,
+  kind: "labor" | "trim",
+  unit: string,
+  measureUnit: "sqft" | "sqyd",
+  qty: number,
+  costSum: number,
+  sellSum: number,
+): SmartLine {
+  const unitCost = qty > 0 ? r2(costSum / qty) : 0;
+  const unitSell = qty > 0 ? r2(sellSum / qty) : 0;
+  const isLabor = kind === "labor";
+  return {
+    room: null, description, category: kind, measure_unit: measureUnit,
+    sqft: null, quantity: r2(qty), length_in: null, width_in: null, unit,
+    material_rate: isLabor ? 0 : unitSell, labor_rate: isLabor ? unitSell : 0,
+    material_cost: isLabor ? 0 : unitCost, labor_cost: isLabor ? unitCost : 0,
+    waste_pct: 0, product_id: null, manufacturer: null, style: null, color: null,
+  };
+}
+
+/** All estimate lines: materials/pad per room + bundled labor / demo / prep /
+ *  transitions (one line each, totals across rooms) + add-ons. */
 function jobLines(rooms: WRoom[], addons: WAddon[]): SmartLine[] {
   const out: SmartLine[] = [];
   const laborByCat = new Map<
     string,
     { label: string; unit: string; measureUnit: "sqft" | "sqyd"; area: number; costSum: number; sellSum: number }
   >();
+  let demoSqft = 0, demoCost = 0, demoSell = 0;
+  let prepSqft = 0, prepCost = 0, prepSell = 0;
+  let transQty = 0, transCost = 0, transSell = 0;
+
   for (const r of rooms) {
     out.push(...roomMatPad(r));
     const profile = profileFor(r.type);
-    if (!profile || !r.install) continue;
-    if (num(r.instCost) <= 0 && num(r.instSell) <= 0) continue;
+    if (!profile) continue;
+    const sqft = roomSqft(r);
     const isYd = profile.unit === "sqyd";
-    const qty = isYd ? roomSqft(r) / 9 : roomSqft(r);
-    if (qty <= 0) continue;
-    const e =
-      laborByCat.get(profile.category) ?? {
-        label: profile.label, unit: isYd ? "sq yd" : "sq ft",
-        measureUnit: profile.unit, area: 0, costSum: 0, sellSum: 0,
-      };
-    e.area += qty;
-    e.costSum += qty * num(r.instCost);
-    e.sellSum += qty * num(r.instSell);
-    laborByCat.set(profile.category, e);
+    const areaQty = isYd ? sqft / 9 : sqft;
+
+    // Install — bundled per flooring type.
+    if (r.install && (num(r.instCost) > 0 || num(r.instSell) > 0) && areaQty > 0) {
+      const e =
+        laborByCat.get(profile.category) ?? {
+          label: profile.label, unit: isYd ? "sq yd" : "sq ft",
+          measureUnit: profile.unit, area: 0, costSum: 0, sellSum: 0,
+        };
+      e.area += areaQty;
+      e.costSum += areaQty * num(r.instCost);
+      e.sellSum += areaQty * num(r.instSell);
+      laborByCat.set(profile.category, e);
+    }
+    // Demo (tear-out) & prep — by square foot, bundled across rooms.
+    if (r.demo && (num(r.demoCost) > 0 || num(r.demoSell) > 0) && sqft > 0) {
+      demoSqft += sqft; demoCost += sqft * num(r.demoCost); demoSell += sqft * num(r.demoSell);
+    }
+    if (r.prep && (num(r.prepCost) > 0 || num(r.prepSell) > 0) && sqft > 0) {
+      prepSqft += sqft; prepCost += sqft * num(r.prepCost); prepSell += sqft * num(r.prepSell);
+    }
+    // Transitions — by the each, bundled.
+    if (r.trans && num(r.transQty) > 0) {
+      const q = num(r.transQty);
+      transQty += q; transCost += q * num(r.transCost); transSell += q * num(r.transSell);
+    }
   }
-  // One installation/labor line per flooring type.
+
   for (const e of laborByCat.values()) {
-    const area = r2(e.area);
-    if (area <= 0) continue;
-    out.push({
-      room: null, description: `Installation — ${e.label.toLowerCase()}`,
-      category: "labor", measure_unit: e.measureUnit, sqft: null, quantity: area,
-      length_in: null, width_in: null, unit: e.unit,
-      material_rate: 0, labor_rate: r2(e.sellSum / e.area),
-      material_cost: 0, labor_cost: r2(e.costSum / e.area), waste_pct: 0,
-      product_id: null, manufacturer: null, style: null, color: null,
-    });
+    if (e.area <= 0) continue;
+    out.push(bundledLine(`Installation — ${e.label.toLowerCase()}`, "labor", e.unit, e.measureUnit, e.area, e.costSum, e.sellSum));
   }
+  if (demoSqft > 0) out.push(bundledLine("Tear-out & haul-away", "labor", "sq ft", "sqft", demoSqft, demoCost, demoSell));
+  if (prepSqft > 0) out.push(bundledLine("Floor prep / leveling", "labor", "sq ft", "sqft", prepSqft, prepCost, prepSell));
+  if (transQty > 0) out.push(bundledLine("Transitions", "trim", "each", "sqft", transQty, transCost, transSell));
+
   out.push(...addonLines(addons));
   return out;
 }
@@ -216,11 +260,12 @@ export function GuidedWizard({
     const hasCarpet = readyRooms.some((r) => profileFor(r.type)?.category === "carpet");
     const has = (re: RegExp) => allLines.some((l) => re.test(l.description));
     const onAddon = (re: RegExp) => addons.some((a) => a.on && re.test(a.label));
+    const covered = (re: RegExp) => has(re) || onAddon(re);
     if (hasCarpet && !has(/pad/i)) out.push("No carpet pad on a carpet job — add it or confirm none is needed.");
     if (!has(/install/i)) out.push("No installation labor — did you add the install price?");
-    if (!onAddon(/tear\s?out|haul/i)) out.push("No tear-out / haul-away — is the old floor staying?");
-    if (!onAddon(/prep|level|subfloor/i)) out.push("No floor prep / subfloor work — checked the subfloor?");
-    if (readyRooms.length > 1 && !onAddon(/transition|t-?mold|reducer|threshold|metal/i))
+    if (!covered(/tear\s?out|haul|demo/i)) out.push("No tear-out / demo — is the old floor staying?");
+    if (!covered(/prep|level|subfloor/i)) out.push("No floor prep / subfloor work — checked the subfloor?");
+    if (readyRooms.length > 1 && !covered(/transition|t-?mold|reducer|threshold|metal/i))
       out.push("No transitions/thresholds between rooms.");
     if (hasCarpet && !onAddon(/stair/i)) out.push("Any stairs? No stair labor added.");
     if (!onAddon(/furniture|appliance/i)) out.push("Furniture or appliances to move?");
@@ -381,6 +426,29 @@ export function GuidedWizard({
                         onSell={(v) => up(r.id, { padSell: v })} />
                     </Toggle>
                   ) : null}
+
+                  {/* Per-room prompts so nothing's missed for THIS room */}
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    This room also
+                  </div>
+                  <Toggle on={r.demo} onToggle={() => up(r.id, { demo: !r.demo })} label="Tear out / demo (existing floor)">
+                    <CostSell compact label="Demo /sf" cost={r.demoCost} sell={r.demoSell}
+                      onCost={(v) => up(r.id, { demoCost: v, ...(num(v) > 0 ? { demoSell: String(sellAt(num(v))) } : {}) })}
+                      onSell={(v) => up(r.id, { demoSell: v })} />
+                  </Toggle>
+                  <Toggle on={r.prep} onToggle={() => up(r.id, { prep: !r.prep })} label="Floor prep / leveling">
+                    <CostSell compact label="Prep /sf" cost={r.prepCost} sell={r.prepSell}
+                      onCost={(v) => up(r.id, { prepCost: v, ...(num(v) > 0 ? { prepSell: String(sellAt(num(v))) } : {}) })}
+                      onSell={(v) => up(r.id, { prepSell: v })} />
+                  </Toggle>
+                  <Toggle on={r.trans} onToggle={() => up(r.id, { trans: !r.trans })} label="Transitions / thresholds">
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Input value={r.transQty} onChange={(e) => up(r.id, { transQty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-7 w-14" />
+                      <span>each</span>
+                      $<Input value={r.transCost} onChange={(e) => up(r.id, { transCost: e.target.value, ...(num(e.target.value) > 0 ? { transSell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-7 w-16" />
+                      →$<Input value={r.transSell} onChange={(e) => up(r.id, { transSell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-7 w-16" />
+                    </div>
+                  </Toggle>
                 </CardContent>
               </Card>
             );
