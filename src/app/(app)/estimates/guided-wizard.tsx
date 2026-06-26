@@ -167,6 +167,7 @@ export function GuidedWizard({
   const [title, setTitle] = useState("");
   const [marginGoal, setMarginGoal] = useState(String(targetMargin));
   const [presentation, setPresentation] = useState<"detailed" | "summary">("detailed");
+  const [notes, setNotes] = useState("");
   const [rooms, setRooms] = useState<WRoom[]>([newRoom()]);
   const [addons, setAddons] = useState<WAddon[]>(() =>
     STANDARD_ADDONS.map((d) => ({ label: d.label, unit: d.unit, labor: d.labor, on: false, qty: "", cost: "", sell: "" })),
@@ -207,11 +208,32 @@ export function GuidedWizard({
   const canNext =
     step === 0 ? readyRooms.length > 0 : true;
 
+  // Smart "don't miss anything" checks — flag the things estimators forget,
+  // based on the actual job. Nudges only; the estimator decides.
+  const reminders: string[] = (() => {
+    const out: string[] = [];
+    if (!readyRooms.length) return out;
+    const hasCarpet = readyRooms.some((r) => profileFor(r.type)?.category === "carpet");
+    const has = (re: RegExp) => allLines.some((l) => re.test(l.description));
+    const onAddon = (re: RegExp) => addons.some((a) => a.on && re.test(a.label));
+    if (hasCarpet && !has(/pad/i)) out.push("No carpet pad on a carpet job — add it or confirm none is needed.");
+    if (!has(/install/i)) out.push("No installation labor — did you add the install price?");
+    if (!onAddon(/tear\s?out|haul/i)) out.push("No tear-out / haul-away — is the old floor staying?");
+    if (!onAddon(/prep|level|subfloor/i)) out.push("No floor prep / subfloor work — checked the subfloor?");
+    if (readyRooms.length > 1 && !onAddon(/transition|t-?mold|reducer|threshold|metal/i))
+      out.push("No transitions/thresholds between rooms.");
+    if (hasCarpet && !onAddon(/stair/i)) out.push("Any stairs? No stair labor added.");
+    if (!onAddon(/furniture|appliance/i)) out.push("Furniture or appliances to move?");
+    if (!onAddon(/baseboard|quarter|shoe/i)) out.push("Baseboard / quarter round?");
+    return out;
+  })();
+
   const startOver = () => {
     if (!window.confirm("Clear this estimate and start over?")) return;
     setTitle("");
     setMarginGoal(String(targetMargin));
     setPresentation("detailed");
+    setNotes("");
     setRooms([newRoom()]);
     setAddons(
       STANDARD_ADDONS.map((d) => ({
@@ -231,6 +253,7 @@ export function GuidedWizard({
       }
       const res = await createSmartEstimate({
         customerId, title, taxRate: 8, lines, presentation,
+        jobDescription: notes.trim() || undefined,
         print: opts.print, send: opts.send,
       });
       if (res?.error) toast.error(res.error);
@@ -402,7 +425,46 @@ export function GuidedWizard({
       {/* STEP 4 — Review */}
       {step === 3 ? (
         <div className="space-y-3">
+          {/* Don't-miss checklist — smart nudges from the actual job */}
+          {reminders.length ? (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+              <div className="mb-1 text-sm font-semibold text-amber-700">
+                Before you finish — did you cover these?
+              </div>
+              <ul className="list-disc space-y-0.5 pl-5 text-sm text-amber-800">
+                {reminders.map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                className="mt-2 text-xs font-medium text-amber-700 underline-offset-2 hover:underline"
+              >
+                ← Back to add-ons to handle these
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-2 text-sm font-medium text-emerald-700">
+              ✓ Looks complete — pad, install, tear-out, prep and transitions are accounted for.
+            </div>
+          )}
+
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`Flooring for ${customerName}`} className="max-w-md" />
+
+          {/* Job conditions / notes — goes on the work order so nothing's lost */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Job notes / conditions (shown on the work order)
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="e.g. existing floor is glue-down VCT · 2 steps to front door · pets (dog) · move fridge & stove · customer prefers weekday start · parking in rear"
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </div>
           <Card>
             <CardContent className="divide-y p-0 text-sm">
               {allLines.map((l, i) => (
