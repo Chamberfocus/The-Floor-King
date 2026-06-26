@@ -189,12 +189,12 @@ export async function createSmartEstimate(
   revalidatePath("/estimates");
 
   // Save & send: email the customer, advance their stage, then land on the
-  // dashboard. Otherwise open the editor (optionally straight to print).
+  // dashboard. Otherwise land on the finished quote.
   if (input.send) {
     await sendEstimateById(est.id as string);
     redirect("/dashboard");
   }
-  // Open the EDITOR so every price shows in an editable field and you can adjust
-  // anything before it goes out. ("Create & print" opens the print dialog.)
-  redirect(`/estimates/${est.id}/edit${input.print ? "?print=1" : ""}`);
+  // Land on the finished, printable quote — totals, Print, Send, and an Edit
+  // button if anything needs adjusting. ("Print" opens the print dialog.)
+  redirect(`/estimates/${est.id}${input.print ? "?print=1" : ""}`);
 }

@@ -227,33 +227,33 @@ export default async function EstimatePage({
                   </form>
                 </CardHeader>
                 <CardContent>
-                  {detailed ? (
-                    <div className="divide-y text-sm">
-                      {(option.line_items ?? []).map((l) => (
-                        <div
-                          key={l.id}
-                          className="flex items-start justify-between gap-4 py-2"
-                        >
-                          <div className="min-w-0">
-                            <div className="font-medium">
-                              {l.room ? `${l.room} — ` : ""}
-                              {l.description || "Line item"}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {lineMath(l)}
-                            </div>
+                  {!detailed ? (
+                    <p className="mb-2 rounded-md bg-muted px-3 py-1.5 text-xs text-muted-foreground">
+                      You see every line here. The customer&apos;s copy shows a
+                      single lump-sum total.
+                    </p>
+                  ) : null}
+                  <div className="divide-y text-sm">
+                    {(option.line_items ?? []).map((l) => (
+                      <div
+                        key={l.id}
+                        className="flex items-start justify-between gap-4 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-medium">
+                            {l.room ? `${l.room} — ` : ""}
+                            {l.description || "Line item"}
                           </div>
-                          <div className="shrink-0 font-medium">
-                            {formatMoney(lineTotal(l))}
+                          <div className="text-xs text-muted-foreground">
+                            {lineMath(l)}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Itemized breakdown hidden — customer sees a single total.
-                    </p>
-                  )}
+                        <div className="shrink-0 font-medium">
+                          {formatMoney(lineTotal(l))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
 
                   <div className="ml-auto mt-3 w-full max-w-xs space-y-1 border-t pt-3 text-sm">
                     <div className="flex justify-between text-muted-foreground">
