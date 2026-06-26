@@ -15,6 +15,7 @@ import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
 import { STANDARD_ADDONS } from "@/lib/addons";
 import type { Product } from "@/lib/types";
 import { ProductPicker } from "./product-picker";
+import { AreaCalculator } from "@/components/area-calculator";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
 const num = (v: string) => {
@@ -30,6 +31,7 @@ interface WRoom {
   type: string;
   lengthFt: string; lengthIn: string;
   widthFt: string; widthIn: string;
+  areaOverride: string; // total sq ft from the multi-area calculator (wins over L×W)
   productId: string | null; productLabel: string;
   manufacturer: string | null; style: string | null; color: string | null;
   matCost: string; matSell: string;
@@ -39,13 +41,15 @@ interface WRoom {
 let seq = 0;
 const newRoom = (): WRoom => ({
   id: `w${seq++}`, name: "", type: "",
-  lengthFt: "", lengthIn: "", widthFt: "", widthIn: "",
+  lengthFt: "", lengthIn: "", widthFt: "", widthIn: "", areaOverride: "",
   productId: null, productLabel: "", manufacturer: null, style: null, color: null,
   matCost: "", matSell: "", install: true, instCost: "", instSell: "",
   pad: true, padCost: "", padSell: "",
 });
 const roomSqft = (r: WRoom) =>
-  areaSqft(feet(r.lengthFt, r.lengthIn), feet(r.widthFt, r.widthIn));
+  num(r.areaOverride) > 0
+    ? num(r.areaOverride)
+    : areaSqft(feet(r.lengthFt, r.lengthIn), feet(r.widthFt, r.widthIn));
 
 interface WAddon {
   label: string; unit: string; labor: boolean; on: boolean;
@@ -59,8 +63,10 @@ function roomMatPad(r: WRoom): SmartLine[] {
   const sqft = roomSqft(r);
   const isYd = profile.unit === "sqyd";
   const unit = isYd ? "sq yd" : "sq ft";
-  const lenIn = feet(r.lengthFt, r.lengthIn) * 12;
-  const widIn = feet(r.widthFt, r.widthIn) * 12;
+  // A calculator total has no single cut size; only carry L×W when used directly.
+  const usingCalc = num(r.areaOverride) > 0;
+  const lenIn = usingCalc ? 0 : feet(r.lengthFt, r.lengthIn) * 12;
+  const widIn = usingCalc ? 0 : feet(r.widthFt, r.widthIn) * 12;
   const area = isYd ? sqft / 9 : sqft;
   const matQty = Math.ceil(area * (1 + profile.waste / 100));
   const out: SmartLine[] = [];
@@ -286,10 +292,27 @@ export function GuidedWizard({
                   </div>
                   {profile ? (
                     <div className="flex flex-wrap items-end gap-2">
-                      <FtIn label="Length" ft={r.lengthFt} inch={r.lengthIn} onFt={(v) => up(r.id, { lengthFt: v })} onIn={(v) => up(r.id, { lengthIn: v })} />
+                      <FtIn label="Length" ft={r.lengthFt} inch={r.lengthIn} onFt={(v) => up(r.id, { lengthFt: v })} onIn={(v) => up(r.id, { lengthIn: v })} disabled={num(r.areaOverride) > 0} />
                       <span className="pb-2 text-muted-foreground">×</span>
-                      <FtIn label="Width" ft={r.widthFt} inch={r.widthIn} onFt={(v) => up(r.id, { widthFt: v })} onIn={(v) => up(r.id, { widthIn: v })} />
-                      <span className="pb-1.5 text-sm"><Ruler className="mr-1 inline size-3.5 text-muted-foreground" /><span className="font-medium">{sqft}</span> sq ft</span>
+                      <FtIn label="Width" ft={r.widthFt} inch={r.widthIn} onFt={(v) => up(r.id, { widthFt: v })} onIn={(v) => up(r.id, { widthIn: v })} disabled={num(r.areaOverride) > 0} />
+                      <div className="pb-1 flex items-center gap-2">
+                        <AreaCalculator
+                          triggerLabel={num(r.areaOverride) > 0 ? "Edit areas" : "Add up areas"}
+                          title={`Square footage — ${r.name || "this room"}`}
+                          initialLabel={r.name}
+                          onApply={(area) => up(r.id, { areaOverride: String(area) })}
+                        />
+                        {num(r.areaOverride) > 0 ? (
+                          <button type="button" onClick={() => up(r.id, { areaOverride: "" })} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+                            use L×W
+                          </button>
+                        ) : null}
+                      </div>
+                      <span className="pb-1.5 text-sm">
+                        <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
+                        <span className="font-medium">{sqft}</span> sq ft
+                        {num(r.areaOverride) > 0 ? <span className="ml-1 text-xs text-primary">· added up</span> : null}
+                      </span>
                     </div>
                   ) : null}
                 </CardContent>
@@ -434,13 +457,13 @@ export function GuidedWizard({
   );
 }
 
-function FtIn({ label, ft, inch, onFt, onIn }: { label: string; ft: string; inch: string; onFt: (v: string) => void; onIn: (v: string) => void }) {
+function FtIn({ label, ft, inch, onFt, onIn, disabled }: { label: string; ft: string; inch: string; onFt: (v: string) => void; onIn: (v: string) => void; disabled?: boolean }) {
   return (
     <div>
       <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
       <div className="flex items-end gap-1">
-        <Input value={ft} onChange={(e) => onFt(e.target.value)} inputMode="decimal" placeholder="ft" className="h-9 w-14" /><span className="pb-2 text-xs text-muted-foreground">ft</span>
-        <Input value={inch} onChange={(e) => onIn(e.target.value)} inputMode="decimal" placeholder="in" className="h-9 w-12" /><span className="pb-2 text-xs text-muted-foreground">in</span>
+        <Input value={ft} onChange={(e) => onFt(e.target.value)} inputMode="decimal" placeholder="ft" disabled={disabled} className="h-9 w-14" /><span className="pb-2 text-xs text-muted-foreground">ft</span>
+        <Input value={inch} onChange={(e) => onIn(e.target.value)} inputMode="decimal" placeholder="in" disabled={disabled} className="h-9 w-12" /><span className="pb-2 text-xs text-muted-foreground">in</span>
       </div>
     </div>
   );
