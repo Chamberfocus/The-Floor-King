@@ -9,7 +9,6 @@ import {
   Mail,
   ArrowLeftRight,
   Info,
-  Plus,
   FileText,
   Wrench,
   Receipt,
@@ -50,7 +49,6 @@ import {
   listHandoffMembers,
 } from "@/lib/data/workflow";
 import { listQualifyingQuestions } from "@/lib/data/qualifying";
-import { createEstimate } from "@/app/(app)/estimates/actions";
 import { createInvoice } from "@/app/(app)/invoices/actions";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { optionTotals } from "@/lib/estimate-calc";
@@ -323,25 +321,12 @@ export default async function CustomerPage({
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
               {customer.source ? (
-                <div className="flex items-center gap-2">
-                  <Link
-                    href={`/estimates/smart?customer=${customer.id}`}
-                    className={buttonVariants({ size: "sm" })}
-                  >
-                    <Sparkles className="size-3.5" /> Build estimate
-                  </Link>
-                  <form action={createEstimate}>
-                    <input type="hidden" name="customer_id" value={customer.id} />
-                    <SubmitButton
-                      variant="outline"
-                      size="sm"
-                      pendingText="Creating…"
-                      confirm="Estimate created"
-                    >
-                      <Plus className="size-3.5" /> Blank
-                    </SubmitButton>
-                  </form>
-                </div>
+                <Link
+                  href={`/estimates/smart?customer=${customer.id}`}
+                  className={buttonVariants({ size: "sm" })}
+                >
+                  <Sparkles className="size-3.5" /> Build estimate
+                </Link>
               ) : (
                 <span className="text-xs font-medium text-amber-600">
                   Set a lead source (Edit) to create estimates
@@ -351,7 +336,7 @@ export default async function CustomerPage({
             <CardContent>
               {estimates.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No estimates yet. Click &ldquo;New estimate&rdquo; to build a quote.
+                  No estimates yet. Click &ldquo;Build estimate&rdquo; to build a quote.
                 </p>
               ) : (
                 <ul className="divide-y text-sm">

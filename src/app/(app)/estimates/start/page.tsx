@@ -21,7 +21,7 @@ export default async function StartEstimatePage() {
       </Link>
       <PageHeader
         title="New estimate"
-        description="Pick the customer, then build it with the Wizard or start blank."
+        description="Pick the customer, then build it with the Wizard or a Quick estimate."
       />
       <Card>
         <CardContent className="pt-6">

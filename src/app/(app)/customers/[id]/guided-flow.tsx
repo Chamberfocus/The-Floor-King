@@ -241,16 +241,8 @@ export async function GuidedFlow({
               variant: activeEstimate ? "outline" : "default",
             })}
           >
-            <FileText className="size-3.5" /> Smart builder (by floor type)
+            <FileText className="size-3.5" /> Build estimate
           </Link>
-          {!activeEstimate && customer.source ? (
-            <Link
-              href={`/estimates/new?customer=${customer.id}`}
-              className={buttonVariants({ size: "sm", variant: "outline" })}
-            >
-              Wizard
-            </Link>
-          ) : null}
         </div>
       </div>
     );

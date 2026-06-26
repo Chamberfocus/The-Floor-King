@@ -2,11 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Sparkles, Plus } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Sparkles } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { SearchPicker } from "@/components/ui/search-picker";
-import { createEstimate } from "./actions";
 
 export function StartEstimate({
   customers,
@@ -39,23 +38,16 @@ export function StartEstimate({
         />
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Link
-          href={`/estimates/new?customer=${id}`}
-          className={buttonVariants({ size: "lg" })}
-        >
-          <Sparkles className="size-4" /> Continue with Wizard
-        </Link>
-        <form action={createEstimate}>
-          <input type="hidden" name="customer_id" value={id} />
-          <Button type="submit" variant="outline" size="lg">
-            <Plus className="size-4" /> Blank estimate
-          </Button>
-        </form>
-      </div>
+      <Link
+        href={`/estimates/smart?customer=${id}`}
+        className={buttonVariants({ size: "lg" })}
+      >
+        <Sparkles className="size-4" /> Build estimate
+      </Link>
 
       <p className="text-sm text-muted-foreground">
-        or{" "}
+        You&apos;ll pick the Wizard (step-by-step) or Quick estimate on the next
+        screen. Or{" "}
         <Link href="/customers/new" className="underline">
           add a new customer
         </Link>{" "}
