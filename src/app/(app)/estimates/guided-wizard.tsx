@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
-  Plus, Trash2, ArrowLeft, ArrowRight, Check, Printer, Send, Ruler, RotateCcw,
+  Plus, Trash2, ArrowLeft, ArrowRight, Check, Printer, Send, Ruler, RotateCcw, Camera,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,9 +14,11 @@ import { priceFromMargin, marginPct } from "@/lib/estimate-calc";
 import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
 import { STANDARD_ADDONS } from "@/lib/addons";
 import type { Product } from "@/lib/types";
+import { createClient } from "@/lib/supabase/client";
 import { ProductPicker } from "./product-picker";
 import { AreaCalculator } from "@/components/area-calculator";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
+import { analyzeJobDrawing, type DrawingFindings } from "./ai-actions";
 
 const num = (v: string) => {
   const n = parseFloat(v);
@@ -217,9 +219,66 @@ export function GuidedWizard({
     STANDARD_ADDONS.map((d) => ({ label: d.label, unit: d.unit, labor: d.labor, on: false, qty: "", cost: "", sell: "" })),
   );
   const [saving, startSave] = useTransition();
+  const [findings, setFindings] = useState<DrawingFindings | null>(null);
+  const [analyzing, startAnalyze] = useTransition();
+  const drawingRef = useRef<HTMLInputElement>(null);
 
   const goal = num(marginGoal);
   const sellAt = (c: number) => (c > 0 ? r2(priceFromMargin(c, goal)) : 0);
+
+  // Read a job drawing/measure sheet → prefill the rooms + keep findings for the
+  // "did you forget?" cross-check.
+  const applyFindings = (f: DrawingFindings) => {
+    setFindings(f);
+    if (f.rooms.length) {
+      setRooms(
+        f.rooms.map((d) => {
+          const room = newRoom();
+          room.name = d.name || "";
+          room.type = d.type;
+          if (d.sqft && d.sqft > 0 && !(d.lengthFt || d.widthFt)) {
+            room.areaOverride = String(d.sqft);
+          } else {
+            room.lengthFt = d.lengthFt ? String(d.lengthFt) : "";
+            room.lengthIn = d.lengthIn ? String(d.lengthIn) : "";
+            room.widthFt = d.widthFt ? String(d.widthFt) : "";
+            room.widthIn = d.widthIn ? String(d.widthIn) : "";
+          }
+          if (d.materialCost && d.materialCost > 0) {
+            room.matCost = String(d.materialCost);
+            room.matSell = String(sellAt(d.materialCost));
+          }
+          room.install = d.install;
+          room.pad = d.pad;
+          return room;
+        }),
+      );
+    }
+    toast.success(`Read ${f.rooms.length} room${f.rooms.length === 1 ? "" : "s"} from the drawing — review them`);
+  };
+
+  const onDrawing = (file: File) =>
+    startAnalyze(async () => {
+      if (file.size > 20 * 1024 * 1024) {
+        toast.error("That photo is too large (max 20 MB).");
+        return;
+      }
+      const supabase = createClient();
+      const path = `notes/${crypto.randomUUID()}-${file.name}`;
+      const { error } = await supabase.storage
+        .from("documents")
+        .upload(path, file, { contentType: file.type || "image/jpeg" });
+      if (error) {
+        toast.error(`Upload failed: ${error.message}`);
+        return;
+      }
+      const f = await analyzeJobDrawing({ storagePath: path, mime: file.type || "image/jpeg" });
+      if (f.error) {
+        toast.error(f.error);
+        return;
+      }
+      applyFindings(f);
+    });
   const up = (id: string, patch: Partial<WRoom>) =>
     setRooms((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const setAddon = (i: number, patch: Partial<WAddon>) =>
@@ -270,6 +329,19 @@ export function GuidedWizard({
     if (hasCarpet && !onAddon(/stair/i)) out.push("Any stairs? No stair labor added.");
     if (!onAddon(/furniture|appliance/i)) out.push("Furniture or appliances to move?");
     if (!onAddon(/baseboard|quarter|shoe/i)) out.push("Baseboard / quarter round?");
+
+    // Cross-check the DRAWING: anything it mentioned that isn't in the estimate.
+    for (const a of findings?.addons ?? []) {
+      const words = a.label.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+      if (!words.length) continue;
+      const inLines = allLines.some((l) =>
+        words.some((w) => l.description.toLowerCase().includes(w)),
+      );
+      const inAddons = addons.some(
+        (ad) => ad.on && words.some((w) => ad.label.toLowerCase().includes(w)),
+      );
+      if (!inLines && !inAddons) out.push(`The drawing shows "${a.label}" — did you add it?`);
+    }
     return out;
   })();
 
@@ -279,6 +351,7 @@ export function GuidedWizard({
     setMarginGoal(String(targetMargin));
     setPresentation("detailed");
     setNotes("");
+    setFindings(null);
     setRooms([newRoom()]);
     setAddons(
       STANDARD_ADDONS.map((d) => ({
@@ -329,6 +402,34 @@ export function GuidedWizard({
       {/* STEP 1 — Rooms */}
       {step === 0 ? (
         <div className="space-y-3">
+          {/* Start from a photo of the measure sheet / drawing */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <div className="min-w-0 text-sm">
+              <div className="flex items-center gap-1.5 font-medium">
+                <Camera className="size-4 text-primary" /> Start from your drawing
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Snap your measure sheet — it reads the rooms &amp; sizes, then flags
+                anything on the drawing you might miss.
+              </div>
+            </div>
+            <Button type="button" variant="outline" onClick={() => drawingRef.current?.click()} disabled={analyzing}>
+              <Camera className="size-4" /> {analyzing ? "Reading…" : "Upload drawing"}
+            </Button>
+            <input
+              ref={drawingRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onDrawing(f);
+                e.target.value = "";
+              }}
+            />
+          </div>
+
           <p className="text-sm text-muted-foreground">
             Add each room and its size — we&apos;ll price them next.
           </p>

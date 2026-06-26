@@ -392,6 +392,71 @@ export async function createEstimateFromNotes(
   });
 }
 
+// --- Read a job drawing / measure sheet for the wizard --------------------
+
+export interface DrawingRoom {
+  name: string | null;
+  type: string; // mapped flooring-profile key
+  lengthFt: number; lengthIn: number; widthFt: number; widthIn: number;
+  sqft: number | null;
+  material: string | null;
+  materialCost: number | null;
+  install: boolean;
+  pad: boolean;
+}
+export interface DrawingFindings {
+  rooms: DrawingRoom[];
+  addons: { label: string; labor: boolean }[];
+  error: string | null;
+}
+
+/**
+ * Read a photo of the job drawing / measure sheet (or typed notes) into
+ * structured findings — so the wizard can prefill the rooms AND cross-check
+ * "did you forget?" against what the drawing shows. Creates nothing.
+ */
+export async function analyzeJobDrawing(input: {
+  text?: string;
+  storagePath?: string;
+  mime?: string;
+}): Promise<DrawingFindings> {
+  let opts: Parameters<typeof extractJobFromNotes>[0];
+  if (input.storagePath) {
+    const supabase = await createClient();
+    const { data: signed } = await supabase.storage
+      .from("documents")
+      .createSignedUrl(input.storagePath, 600);
+    if (!signed?.signedUrl) return { rooms: [], addons: [], error: "Couldn't open that photo." };
+    opts = { url: signed.signedUrl, mediaType: input.mime || "image/jpeg" };
+  } else if (input.text?.trim()) {
+    opts = { text: input.text.trim() };
+  } else {
+    return { rooms: [], addons: [], error: "Add a photo or some notes first." };
+  }
+
+  const job = await extractJobFromNotes(opts);
+  if (!job) {
+    return { rooms: [], addons: [], error: "Couldn't read that drawing — try a clearer photo." };
+  }
+  return {
+    rooms: job.rooms.map((r) => ({
+      name: r.name,
+      type: mapFloorType(r.type),
+      lengthFt: r.length_ft,
+      lengthIn: r.length_in,
+      widthFt: r.width_ft,
+      widthIn: r.width_in,
+      sqft: r.sqft,
+      material: r.material,
+      materialCost: r.material_cost,
+      install: r.install,
+      pad: r.pad,
+    })),
+    addons: (job.addons ?? []).map((a) => ({ label: a.label, labor: a.labor })),
+    error: null,
+  };
+}
+
 export interface ScopeLine {
   room?: string | null;
   description: string;
