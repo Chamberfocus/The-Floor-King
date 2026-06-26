@@ -24,7 +24,7 @@ export function BuilderSwitch(props: {
   addonDefaults?: React.ComponentProps<typeof SmartBuilder>["addonDefaults"];
   roomDefaults?: React.ComponentProps<typeof SmartBuilder>["roomDefaults"];
 }) {
-  const [mode, setMode] = useState<Mode>("notes");
+  const [mode, setMode] = useState<Mode>("wizard");
 
   const Tab = ({
     value, icon: Icon, label, hint,
@@ -49,8 +49,8 @@ export function BuilderSwitch(props: {
   return (
     <div className="space-y-4">
       <div className="grid gap-2 sm:grid-cols-3">
+        <Tab value="wizard" icon={ListChecks} label="Step-by-step" hint="The main way — guided, covers every base" />
         <Tab value="notes" icon={Wand2} label="From notes" hint="Type it or photo your notes — AI builds it" />
-        <Tab value="wizard" icon={ListChecks} label="Step-by-step" hint="Guided — covers every base" />
         <Tab value="manual" icon={SlidersHorizontal} label="Manual" hint="Full control, every option" />
       </div>
 

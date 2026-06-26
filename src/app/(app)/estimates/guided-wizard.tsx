@@ -27,6 +27,34 @@ const num = (v: string) => {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const feet = (ft: string, inch: string) => num(ft) + num(inch) / 12;
 
+/** A per-room add-on (underlayment, quarter round, baseboard, custom…). */
+interface WExtra {
+  id: string;
+  label: string;
+  unit: string;
+  labor: boolean;
+  qty: string;
+  cost: string;
+  sell: string;
+}
+let exid = 0;
+const mkExtra = (label = "", unit = "sqft", labor = false): WExtra => ({
+  id: `e${exid++}`, label, unit, labor, qty: "", cost: "", sell: "",
+});
+// Quick-add per-room add-ons by flooring type.
+const HARD_EXTRAS: { label: string; unit: string; labor: boolean }[] = [
+  { label: "Underlayment / moisture barrier", unit: "sqft", labor: false },
+  { label: "Quarter round / shoe molding", unit: "lnft", labor: false },
+  { label: "Baseboard remove & reinstall", unit: "lnft", labor: true },
+  { label: "Reducer / T-mold", unit: "each", labor: false },
+  { label: "Stair nosing", unit: "step", labor: true },
+  { label: "Pull & reset toilet", unit: "each", labor: true },
+];
+const CARPET_EXTRAS: { label: string; unit: string; labor: boolean }[] = [
+  { label: "Tackstrip", unit: "lnft", labor: true },
+  { label: "Cover / carpet stairs", unit: "step", labor: true },
+];
+
 interface WRoom {
   id: string;
   name: string;
@@ -34,6 +62,8 @@ interface WRoom {
   lengthFt: string; lengthIn: string;
   widthFt: string; widthIn: string;
   areaOverride: string; // total sq ft from the multi-area calculator (wins over L×W)
+  waste: string; // per-room waste % (blank = the flooring type's default)
+  boxSqft: string; // sq ft per carton (hard surface) — drives the carton count
   productId: string | null; productLabel: string;
   manufacturer: string | null; style: string | null; color: string | null;
   matCost: string; matSell: string;
@@ -42,18 +72,22 @@ interface WRoom {
   demo: boolean; demoCost: string; demoSell: string;
   prep: boolean; prepCost: string; prepSell: string;
   trans: boolean; transQty: string; transCost: string; transSell: string;
+  extras: WExtra[];
 }
 let seq = 0;
 const newRoom = (): WRoom => ({
   id: `w${seq++}`, name: "", type: "",
   lengthFt: "", lengthIn: "", widthFt: "", widthIn: "", areaOverride: "",
+  waste: "", boxSqft: "",
   productId: null, productLabel: "", manufacturer: null, style: null, color: null,
   matCost: "", matSell: "", install: true, instCost: "", instSell: "",
   pad: true, padCost: "", padSell: "",
   demo: false, demoCost: "", demoSell: "",
   prep: false, prepCost: "", prepSell: "",
   trans: false, transQty: "", transCost: "", transSell: "",
+  extras: [],
 });
+const roomWaste = (r: WRoom, fallback: number) => (num(r.waste) > 0 ? num(r.waste) : fallback);
 const roomSqft = (r: WRoom) =>
   num(r.areaOverride) > 0
     ? num(r.areaOverride)
@@ -76,10 +110,22 @@ function roomMatPad(r: WRoom): SmartLine[] {
   const lenIn = usingCalc ? 0 : feet(r.lengthFt, r.lengthIn) * 12;
   const widIn = usingCalc ? 0 : feet(r.widthFt, r.widthIn) * 12;
   const area = isYd ? sqft / 9 : sqft;
-  const matQty = Math.ceil(area * (1 + profile.waste / 100));
+  const waste = roomWaste(r, profile.waste);
+  const needed = area * (1 + waste / 100);
+  // Hard surface sold by the box: order whole cartons, and note how many.
+  const boxSqft = num(r.boxSqft);
+  let matQty: number;
+  let cartonNote = "";
+  if (!isYd && boxSqft > 0 && sqft > 0) {
+    const cartons = Math.ceil(needed / boxSqft);
+    matQty = Math.round(cartons * boxSqft);
+    cartonNote = ` (${cartons} cartons @ ${r2(boxSqft)} sf/box)`;
+  } else {
+    matQty = Math.ceil(needed);
+  }
   const out: SmartLine[] = [];
   out.push({
-    room: r.name || null, description: r.productLabel || profile.label,
+    room: r.name || null, description: (r.productLabel || profile.label) + cartonNote,
     category: profile.category, measure_unit: profile.unit,
     sqft: null, quantity: matQty > 0 ? matQty : null,
     length_in: lenIn > 0 ? Math.round(lenIn) : null,
@@ -102,21 +148,20 @@ function roomMatPad(r: WRoom): SmartLine[] {
   return out;
 }
 
-/** A bundled line (whole job) for a per-room extra. */
+/** A bundled line (whole job) totaling a per-room item. */
 function bundledLine(
   description: string,
-  kind: "labor" | "trim",
+  isLabor: boolean,
+  category: string,
   unit: string,
-  measureUnit: "sqft" | "sqyd",
   qty: number,
   costSum: number,
   sellSum: number,
 ): SmartLine {
   const unitCost = qty > 0 ? r2(costSum / qty) : 0;
   const unitSell = qty > 0 ? r2(sellSum / qty) : 0;
-  const isLabor = kind === "labor";
   return {
-    room: null, description, category: kind, measure_unit: measureUnit,
+    room: null, description, category, measure_unit: "sqft",
     sqft: null, quantity: r2(qty), length_in: null, width_in: null, unit,
     material_rate: isLabor ? 0 : unitSell, labor_rate: isLabor ? unitSell : 0,
     material_cost: isLabor ? 0 : unitCost, labor_cost: isLabor ? unitCost : 0,
@@ -135,6 +180,11 @@ function jobLines(rooms: WRoom[], addons: WAddon[]): SmartLine[] {
   let demoSqft = 0, demoCost = 0, demoSell = 0;
   let prepSqft = 0, prepCost = 0, prepSell = 0;
   let transQty = 0, transCost = 0, transSell = 0;
+  // Per-room add-ons, bundled by their label (so "Underlayment" across rooms = 1 line).
+  const extraBy = new Map<
+    string,
+    { label: string; unit: string; labor: boolean; qty: number; costSum: number; sellSum: number }
+  >();
 
   for (const r of rooms) {
     out.push(...roomMatPad(r));
@@ -143,6 +193,16 @@ function jobLines(rooms: WRoom[], addons: WAddon[]): SmartLine[] {
     const sqft = roomSqft(r);
     const isYd = profile.unit === "sqyd";
     const areaQty = isYd ? sqft / 9 : sqft;
+
+    // Per-room add-ons → bundle by label across rooms.
+    for (const x of r.extras) {
+      if (!x.label.trim() || num(x.qty) <= 0) continue;
+      const q = num(x.qty);
+      const key = `${x.label}|${x.unit}|${x.labor}`;
+      const e = extraBy.get(key) ?? { label: x.label, unit: x.unit, labor: x.labor, qty: 0, costSum: 0, sellSum: 0 };
+      e.qty += q; e.costSum += q * num(x.cost); e.sellSum += q * num(x.sell);
+      extraBy.set(key, e);
+    }
 
     // Install — bundled per flooring type.
     if (r.install && (num(r.instCost) > 0 || num(r.instSell) > 0) && areaQty > 0) {
@@ -172,11 +232,15 @@ function jobLines(rooms: WRoom[], addons: WAddon[]): SmartLine[] {
 
   for (const e of laborByCat.values()) {
     if (e.area <= 0) continue;
-    out.push(bundledLine(`Installation — ${e.label.toLowerCase()}`, "labor", e.unit, e.measureUnit, e.area, e.costSum, e.sellSum));
+    out.push(bundledLine(`Installation — ${e.label.toLowerCase()}`, true, "labor", e.unit, e.area, e.costSum, e.sellSum));
   }
-  if (demoSqft > 0) out.push(bundledLine("Tear-out & haul-away", "labor", "sq ft", "sqft", demoSqft, demoCost, demoSell));
-  if (prepSqft > 0) out.push(bundledLine("Floor prep / leveling", "labor", "sq ft", "sqft", prepSqft, prepCost, prepSell));
-  if (transQty > 0) out.push(bundledLine("Transitions", "trim", "each", "sqft", transQty, transCost, transSell));
+  if (demoSqft > 0) out.push(bundledLine("Tear-out & haul-away", true, "labor", "sq ft", demoSqft, demoCost, demoSell));
+  if (prepSqft > 0) out.push(bundledLine("Floor prep / leveling", true, "labor", "sq ft", prepSqft, prepCost, prepSell));
+  if (transQty > 0) out.push(bundledLine("Transitions", false, "trim", "each", transQty, transCost, transSell));
+  for (const e of extraBy.values()) {
+    if (e.qty <= 0) continue;
+    out.push(bundledLine(e.label, e.labor, e.labor ? "labor" : "other", e.unit, e.qty, e.costSum, e.sellSum));
+  }
 
   out.push(...addonLines(addons));
   return out;
@@ -281,6 +345,26 @@ export function GuidedWizard({
     });
   const up = (id: string, patch: Partial<WRoom>) =>
     setRooms((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const addExtra = (roomId: string, preset?: { label: string; unit: string; labor: boolean }) =>
+    setRooms((rs) =>
+      rs.map((r) => {
+        if (r.id !== roomId) return r;
+        const ex = preset ? mkExtra(preset.label, preset.unit, preset.labor) : mkExtra();
+        // Sq-ft add-ons cover the room — prefill the quantity with its area.
+        if (ex.unit === "sqft" && roomSqft(r) > 0) ex.qty = String(r2(roomSqft(r)));
+        return { ...r, extras: [...r.extras, ex] };
+      }),
+    );
+  const updExtra = (roomId: string, exId: string, patch: Partial<WExtra>) =>
+    setRooms((rs) =>
+      rs.map((r) =>
+        r.id === roomId ? { ...r, extras: r.extras.map((x) => (x.id === exId ? { ...x, ...patch } : x)) } : r,
+      ),
+    );
+  const delExtra = (roomId: string, exId: string) =>
+    setRooms((rs) =>
+      rs.map((r) => (r.id === roomId ? { ...r, extras: r.extras.filter((x) => x.id !== exId) } : r)),
+    );
   const setAddon = (i: number, patch: Partial<WAddon>) =>
     setAddons((xs) => xs.map((a, j) => (j === i ? { ...a, ...patch } : a)));
 
@@ -515,6 +599,22 @@ export function GuidedWizard({
                   <CostSell label={`Material /${unitLabel}`} cost={r.matCost} sell={r.matSell}
                     onCost={(v) => up(r.id, { matCost: v, ...(num(v) > 0 ? { matSell: String(sellAt(num(v))) } : {}) })}
                     onSell={(v) => up(r.id, { matSell: v })} />
+                  {/* Waste % and (hard surface) cartons from sq ft per box */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span>Waste</span>
+                    <Input value={r.waste} onChange={(e) => up(r.id, { waste: e.target.value })} inputMode="decimal" placeholder={String(profile.waste)} className="h-7 w-14" />%
+                    {profile.unit !== "sqyd" ? (
+                      <>
+                        <span>· Sq ft / box</span>
+                        <Input value={r.boxSqft} onChange={(e) => up(r.id, { boxSqft: e.target.value })} inputMode="decimal" placeholder="e.g. 23.8" className="h-7 w-16" />
+                        {num(r.boxSqft) > 0 && roomSqft(r) > 0 ? (
+                          <span className="font-semibold text-primary">
+                            = {Math.ceil((roomSqft(r) * (1 + roomWaste(r, profile.waste) / 100)) / num(r.boxSqft))} cartons
+                          </span>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
                   <Toggle on={r.install} onToggle={() => up(r.id, { install: !r.install })} label="Install labor">
                     <CostSell compact label="Install" cost={r.instCost} sell={r.instSell}
                       onCost={(v) => up(r.id, { instCost: v, ...(num(v) > 0 ? { instSell: String(sellAt(num(v))) } : {}) })}
@@ -550,6 +650,39 @@ export function GuidedWizard({
                       →$<Input value={r.transSell} onChange={(e) => up(r.id, { transSell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-7 w-16" />
                     </div>
                   </Toggle>
+
+                  {/* Any other add-on for THIS room — quick-add the common ones */}
+                  <div className="rounded-md border p-2">
+                    <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                      <span className="font-medium uppercase tracking-wide text-muted-foreground">Add-ons</span>
+                      {(profile.category === "carpet" ? CARPET_EXTRAS : HARD_EXTRAS).map((p) => (
+                        <button key={p.label} type="button" onClick={() => addExtra(r.id, p)}
+                          className="rounded-full border px-2 py-0.5 hover:bg-muted">
+                          + {p.label.split(" / ")[0]}
+                        </button>
+                      ))}
+                      <button type="button" onClick={() => addExtra(r.id)} className="rounded-full border px-2 py-0.5 hover:bg-muted">+ Custom</button>
+                    </div>
+                    {r.extras.map((x) => (
+                      <div key={x.id} className="mt-1.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                        <Input value={x.label} onChange={(e) => updExtra(r.id, x.id, { label: e.target.value })} placeholder="Add-on name" className="h-7 min-w-32 flex-1" />
+                        <Input value={x.qty} onChange={(e) => updExtra(r.id, x.id, { qty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-7 w-14" />
+                        <select value={x.unit} onChange={(e) => updExtra(r.id, x.id, { unit: e.target.value })} className="h-7 rounded-md border border-input bg-transparent px-1 text-xs">
+                          <option value="sqft">sq ft</option>
+                          <option value="sqyd">sq yd</option>
+                          <option value="lnft">ln ft</option>
+                          <option value="each">each</option>
+                          <option value="step">step</option>
+                        </select>
+                        $<Input value={x.cost} onChange={(e) => updExtra(r.id, x.id, { cost: e.target.value, ...(num(e.target.value) > 0 ? { sell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-7 w-14" />
+                        →$<Input value={x.sell} onChange={(e) => updExtra(r.id, x.id, { sell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-7 w-14" />
+                        <label className="flex items-center gap-1"><input type="checkbox" checked={x.labor} onChange={(e) => updExtra(r.id, x.id, { labor: e.target.checked })} className="size-3.5 rounded border-input" />labor</label>
+                        <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove add-on" onClick={() => delExtra(r.id, x.id)}>
+                          <Trash2 className="size-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             );
