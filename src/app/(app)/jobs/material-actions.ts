@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getJobMaterials } from "@/lib/data/job-materials";
 import { lineQty, type CalcLine } from "@/lib/estimate-calc";
 import type { EstimateLineItem } from "@/lib/types";
@@ -61,11 +62,16 @@ export async function prepareJobMaterials(formData: FormData): Promise<void> {
   await prepareJobMaterialsFor(jobId);
 }
 
-/** Core prep, callable from other server code (e.g. on job creation). */
-export async function prepareJobMaterialsFor(jobId: string): Promise<void> {
+/** Core prep, callable from other server code (e.g. on job creation). Pass
+ *  `admin` to run elevated — needed when triggered by a customer's portal
+ *  approval, where the RLS session can't read products or write stock/POs. */
+export async function prepareJobMaterialsFor(
+  jobId: string,
+  opts?: { admin?: boolean },
+): Promise<void> {
   if (!jobId) return;
-  const db = await createClient();
-  const mats = await getJobMaterials(jobId);
+  const db = (opts?.admin ? createAdminClient() : await createClient()) as DB;
+  const mats = await getJobMaterials(jobId, db);
   const uid = await userId(db);
 
   const orderLineIds: string[] = [];

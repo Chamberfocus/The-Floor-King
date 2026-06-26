@@ -13,6 +13,7 @@ import {
   moveToAutoActionStage,
   advanceFromAutoAction,
 } from "@/lib/workflow-engine";
+import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import type { EstimateStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -194,8 +195,16 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
         await moveToAutoActionStage(ec.customer_id as string, "collect_deposit");
       else await advanceFromAutoAction(ec.customer_id as string, "build_quote");
     }
+    // Approval auto-creates the job (idempotent) so the win never stalls.
+    if (status === "approved") {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      await ensureJobForEstimate(id, user?.id ?? null);
+    }
     revalidatePath("/pipeline");
     revalidatePath("/dashboard");
+    revalidatePath("/jobs");
   }
 
   if (status === "sent") {

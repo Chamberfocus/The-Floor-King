@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { moveToAutoActionStage } from "@/lib/workflow-engine";
+import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -91,6 +92,10 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
     .maybeSingle();
   if (e?.customer_id)
     await moveToAutoActionStage(e.customer_id as string, "collect_deposit");
+
+  // Auto-create the job so the win doesn't stall in the portal (the customer's
+  // RLS session can't insert a job, so this runs elevated inside the helper).
+  await ensureJobForEstimate(id, null);
 
   await notifyOwner(
     supabase,

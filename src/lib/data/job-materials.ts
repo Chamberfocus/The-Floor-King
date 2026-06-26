@@ -53,8 +53,12 @@ type RawLine = CalcLine & {
   manufacturer: string | null;
 };
 
-export async function getJobMaterials(jobId: string): Promise<JobMaterials> {
-  const supabase = await createClient();
+export async function getJobMaterials(
+  jobId: string,
+  dbArg?: Awaited<ReturnType<typeof createClient>>,
+): Promise<JobMaterials> {
+  // Accept an elevated client so prep can run from a customer's portal-approval.
+  const supabase = dbArg ?? (await createClient());
   const { data: job } = await supabase
     .from("jobs")
     .select("option_id, estimate_id")

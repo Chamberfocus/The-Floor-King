@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import {
   moveToAutoActionStage,
@@ -63,73 +64,94 @@ export async function bookInstall(formData: FormData): Promise<void> {
 }
 
 /** Create a job from an estimate (uses the accepted option, or the first one). */
+/**
+ * Create the job for an approved estimate — idempotent and reusable. Runs with
+ * the service-role client so it works from ANY trigger: a staff "Create job"
+ * click OR a customer approving in the portal (whose RLS session can't insert
+ * jobs). Returns the job id (existing or new), or null on failure. Never throws
+ * into the caller, so an approval is never blocked by a job-creation hiccup.
+ */
+export async function ensureJobForEstimate(
+  estimateId: string,
+  createdBy: string | null = null,
+): Promise<string | null> {
+  if (!estimateId) return null;
+  try {
+    const admin = createAdminClient();
+    const { data: est } = await admin
+      .from("estimates")
+      .select("id, customer_id, title, accepted_option_id, job_description")
+      .eq("id", estimateId)
+      .maybeSingle();
+    if (!est) return null;
+
+    // Idempotent: one job per estimate (covers double-clicks AND a staff click
+    // racing the portal approval).
+    const { data: existing } = await admin
+      .from("jobs")
+      .select("id")
+      .eq("estimate_id", estimateId)
+      .limit(1)
+      .maybeSingle();
+    if (existing) return existing.id as string;
+
+    let optionId = (est.accepted_option_id as string | null) ?? null;
+    if (!optionId) {
+      const { data: opt } = await admin
+        .from("estimate_options")
+        .select("id")
+        .eq("estimate_id", estimateId)
+        .order("position", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      optionId = (opt?.id as string) ?? null;
+    }
+
+    const { data: cust } = await admin
+      .from("customers")
+      .select("street, city, state, zip")
+      .eq("id", est.customer_id as string)
+      .maybeSingle();
+
+    const { data: job, error } = await admin
+      .from("jobs")
+      .insert({
+        customer_id: est.customer_id,
+        estimate_id: estimateId,
+        option_id: optionId,
+        title: (est.title as string) || "Job",
+        notes: (est.job_description as string | null) || null,
+        created_by: createdBy,
+        site_street: cust?.street ?? null,
+        site_city: cust?.city ?? null,
+        site_state: cust?.state ?? null,
+        site_zip: cust?.zip ?? null,
+      })
+      .select("id")
+      .single();
+    if (error || !job) return null;
+
+    // Reserve stock + build POs for special-order items right after the win.
+    // Elevated, since the trigger may be a customer's portal session.
+    after(() => prepareJobMaterialsFor(job.id as string, { admin: true }));
+
+    revalidatePath("/jobs");
+    if (est.customer_id) revalidatePath(`/customers/${est.customer_id}`);
+    return job.id as string;
+  } catch {
+    return null;
+  }
+}
+
 export async function createJobFromEstimate(formData: FormData): Promise<void> {
   const estimateId = str(formData.get("estimate_id"));
   if (!estimateId) return;
-
   const supabase = await createClient();
-  const { data: est } = await supabase
-    .from("estimates")
-    .select("id, customer_id, title, accepted_option_id, job_description")
-    .eq("id", estimateId)
-    .maybeSingle();
-  if (!est) return;
-
-  // Guard against double-clicks / re-submits creating a second job (and a
-  // second round of stock reservations + POs) for the same estimate.
-  const { data: existingJob } = await supabase
-    .from("jobs")
-    .select("id")
-    .eq("estimate_id", estimateId)
-    .limit(1)
-    .maybeSingle();
-  if (existingJob) redirect(`/jobs/${existingJob.id}`);
-
-  let optionId = (est.accepted_option_id as string | null) ?? null;
-  if (!optionId) {
-    const { data: opt } = await supabase
-      .from("estimate_options")
-      .select("id")
-      .eq("estimate_id", estimateId)
-      .order("position", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    optionId = (opt?.id as string) ?? null;
-  }
-
-  const { data: cust } = await supabase
-    .from("customers")
-    .select("street, city, state, zip")
-    .eq("id", est.customer_id as string)
-    .maybeSingle();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { data: job, error } = await supabase
-    .from("jobs")
-    .insert({
-      customer_id: est.customer_id,
-      estimate_id: estimateId,
-      option_id: optionId,
-      title: (est.title as string) || "Job",
-      notes: (est.job_description as string | null) || null,
-      created_by: user?.id ?? null,
-      site_street: cust?.street ?? null,
-      site_city: cust?.city ?? null,
-      site_state: cust?.state ?? null,
-      site_zip: cust?.zip ?? null,
-    })
-    .select("id")
-    .single();
-  if (error || !job) return;
-
-  // Reserve stock + build POs for special-order items right after the win.
-  after(() => prepareJobMaterialsFor(job.id as string));
-
-  revalidatePath("/jobs");
-  revalidatePath(`/customers/${est.customer_id}`);
-  redirect(`/jobs/${job.id}`);
+  const jobId = await ensureJobForEstimate(estimateId, user?.id ?? null);
+  if (jobId) redirect(`/jobs/${jobId}`);
 }
 
 /** Create a blank job tied to a customer. */
