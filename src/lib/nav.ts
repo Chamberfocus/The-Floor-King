@@ -1,7 +1,6 @@
 import {
   LayoutDashboard,
   Users,
-  FileText,
   CalendarDays,
   Receipt,
   Package,
@@ -57,7 +56,6 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Customers", href: "/customers", icon: Users, roles: SALES_VIEW },
   { label: "Pipeline", href: "/pipeline", icon: Route, roles: OFFICE_PLUS },
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: OVERVIEW },
-  { label: "Estimates", href: "/estimates", icon: FileText, roles: SALES_VIEW },
   { label: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, roles: OFFICE_PLUS },
   { label: "Calendar", href: "/calendar", icon: CalendarRange, roles: SALES_VIEW },
   { label: "Estimate Schedule", href: "/schedule", icon: CalendarClock, roles: SALES_VIEW },
