@@ -69,9 +69,9 @@ interface WRoom {
   matCost: string; matSell: string;
   install: boolean; instCost: string; instSell: string;
   pad: boolean; padCost: string; padSell: string;
-  demo: boolean; demoCost: string; demoSell: string;
-  prep: boolean; prepCost: string; prepSell: string;
-  trans: boolean; transQty: string; transCost: string; transSell: string;
+  demo: boolean; demoCost: string; demoSell: string; demoNote: string;
+  prep: boolean; prepCost: string; prepSell: string; prepNote: string;
+  trans: boolean; transQty: string; transCost: string; transSell: string; transNote: string;
   extras: WExtra[];
 }
 let seq = 0;
@@ -82,9 +82,9 @@ const newRoom = (): WRoom => ({
   productId: null, productLabel: "", manufacturer: null, style: null, color: null,
   matCost: "", matSell: "", install: true, instCost: "", instSell: "",
   pad: true, padCost: "", padSell: "",
-  demo: false, demoCost: "", demoSell: "",
-  prep: false, prepCost: "", prepSell: "",
-  trans: false, transQty: "", transCost: "", transSell: "",
+  demo: false, demoCost: "", demoSell: "", demoNote: "",
+  prep: false, prepCost: "", prepSell: "", prepNote: "",
+  trans: false, transQty: "", transCost: "", transSell: "", transNote: "",
   extras: [],
 });
 const roomWaste = (r: WRoom, fallback: number) => (num(r.waste) > 0 ? num(r.waste) : fallback);
@@ -180,6 +180,7 @@ function jobLines(rooms: WRoom[], addons: WAddon[]): SmartLine[] {
   let demoSqft = 0, demoCost = 0, demoSell = 0;
   let prepSqft = 0, prepCost = 0, prepSell = 0;
   let transQty = 0, transCost = 0, transSell = 0;
+  const demoNotes = new Set<string>(), prepNotes = new Set<string>(), transNotes = new Set<string>();
   // Per-room add-ons, bundled by their label (so "Underlayment" across rooms = 1 line).
   const extraBy = new Map<
     string,
@@ -219,14 +220,17 @@ function jobLines(rooms: WRoom[], addons: WAddon[]): SmartLine[] {
     // Demo (tear-out) & prep — by square foot, bundled across rooms.
     if (r.demo && (num(r.demoCost) > 0 || num(r.demoSell) > 0) && sqft > 0) {
       demoSqft += sqft; demoCost += sqft * num(r.demoCost); demoSell += sqft * num(r.demoSell);
+      if (r.demoNote.trim()) demoNotes.add(r.demoNote.trim());
     }
     if (r.prep && (num(r.prepCost) > 0 || num(r.prepSell) > 0) && sqft > 0) {
       prepSqft += sqft; prepCost += sqft * num(r.prepCost); prepSell += sqft * num(r.prepSell);
+      if (r.prepNote.trim()) prepNotes.add(r.prepNote.trim());
     }
     // Transitions — by the each, bundled.
     if (r.trans && num(r.transQty) > 0) {
       const q = num(r.transQty);
       transQty += q; transCost += q * num(r.transCost); transSell += q * num(r.transSell);
+      if (r.transNote.trim()) transNotes.add(r.transNote.trim());
     }
   }
 
@@ -234,9 +238,11 @@ function jobLines(rooms: WRoom[], addons: WAddon[]): SmartLine[] {
     if (e.area <= 0) continue;
     out.push(bundledLine(`Installation — ${e.label.toLowerCase()}`, true, "labor", e.unit, e.area, e.costSum, e.sellSum));
   }
-  if (demoSqft > 0) out.push(bundledLine("Tear-out & haul-away", true, "labor", "sq ft", demoSqft, demoCost, demoSell));
-  if (prepSqft > 0) out.push(bundledLine("Floor prep / leveling", true, "labor", "sq ft", prepSqft, prepCost, prepSell));
-  if (transQty > 0) out.push(bundledLine("Transitions", false, "trim", "each", transQty, transCost, transSell));
+  const withNote = (base: string, notes: Set<string>) =>
+    notes.size ? `${base} — ${[...notes].join(", ")}` : base;
+  if (demoSqft > 0) out.push(bundledLine(withNote("Tear-out & haul-away", demoNotes), true, "labor", "sq ft", demoSqft, demoCost, demoSell));
+  if (prepSqft > 0) out.push(bundledLine(withNote("Floor prep / leveling", prepNotes), true, "labor", "sq ft", prepSqft, prepCost, prepSell));
+  if (transQty > 0) out.push(bundledLine(withNote("Transitions", transNotes), false, "trim", "each", transQty, transCost, transSell));
   for (const e of extraBy.values()) {
     if (e.qty <= 0) continue;
     out.push(bundledLine(e.label, e.labor, e.labor ? "labor" : "other", e.unit, e.qty, e.costSum, e.sellSum));
@@ -636,11 +642,15 @@ export function GuidedWizard({
                     <CostSell compact label="Demo /sf" cost={r.demoCost} sell={r.demoSell}
                       onCost={(v) => up(r.id, { demoCost: v, ...(num(v) > 0 ? { demoSell: String(sellAt(num(v))) } : {}) })}
                       onSell={(v) => up(r.id, { demoSell: v })} />
+                    <Input value={r.demoNote} onChange={(e) => up(r.id, { demoNote: e.target.value })}
+                      placeholder="Type of demo (e.g. glue-down VCT, carpet & pad) — shows on the work order" className="mt-1 h-7 text-xs" />
                   </Toggle>
                   <Toggle on={r.prep} onToggle={() => up(r.id, { prep: !r.prep })} label="Floor prep / leveling">
                     <CostSell compact label="Prep /sf" cost={r.prepCost} sell={r.prepSell}
                       onCost={(v) => up(r.id, { prepCost: v, ...(num(v) > 0 ? { prepSell: String(sellAt(num(v))) } : {}) })}
                       onSell={(v) => up(r.id, { prepSell: v })} />
+                    <Input value={r.prepNote} onChange={(e) => up(r.id, { prepNote: e.target.value })}
+                      placeholder="Prep notes (e.g. skim coat, patch low spots) — shows on the work order" className="mt-1 h-7 text-xs" />
                   </Toggle>
                   <Toggle on={r.trans} onToggle={() => up(r.id, { trans: !r.trans })} label="Transitions / thresholds">
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -649,6 +659,8 @@ export function GuidedWizard({
                       $<Input value={r.transCost} onChange={(e) => up(r.id, { transCost: e.target.value, ...(num(e.target.value) > 0 ? { transSell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-7 w-16" />
                       →$<Input value={r.transSell} onChange={(e) => up(r.id, { transSell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-7 w-16" />
                     </div>
+                    <Input value={r.transNote} onChange={(e) => up(r.id, { transNote: e.target.value })}
+                      placeholder="Type (e.g. carpet→tile T-mold, flush threshold) — shows on the work order" className="mt-1 h-7 text-xs" />
                   </Toggle>
 
                   {/* Any other add-on for THIS room — quick-add the common ones */}
