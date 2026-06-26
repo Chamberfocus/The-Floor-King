@@ -75,6 +75,16 @@ export async function createJobFromEstimate(formData: FormData): Promise<void> {
     .maybeSingle();
   if (!est) return;
 
+  // Guard against double-clicks / re-submits creating a second job (and a
+  // second round of stock reservations + POs) for the same estimate.
+  const { data: existingJob } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("estimate_id", estimateId)
+    .limit(1)
+    .maybeSingle();
+  if (existingJob) redirect(`/jobs/${existingJob.id}`);
+
   let optionId = (est.accepted_option_id as string | null) ?? null;
   if (!optionId) {
     const { data: opt } = await supabase

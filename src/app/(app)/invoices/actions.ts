@@ -146,10 +146,14 @@ export async function createInvoiceFromEstimate(
         rate: l.flat_amount,
       };
     }
+    // Match the estimate's lineTotal: waste raises the material you ordered, so
+    // it must ride in the invoice rate too — otherwise the invoice undercharges
+    // vs. the quote the customer approved.
+    const wasteMult = 1 + (Number(l.waste_pct) || 0) / 100;
     const rate =
       l.line_type === "mat_labor"
-        ? (l.material_rate ?? 0) + (l.labor_rate ?? 0)
-        : (l.installed_rate ?? 0);
+        ? (l.material_rate ?? 0) * wasteMult + (l.labor_rate ?? 0)
+        : (l.installed_rate ?? 0) * wasteMult;
     return {
       invoice_id: invoice.id,
       position: i,
@@ -219,10 +223,14 @@ export async function createInvoiceFromSelection(
         rate: l.flat_amount,
       };
     }
+    // Match the estimate's lineTotal: waste raises the material you ordered, so
+    // it must ride in the invoice rate too — otherwise the invoice undercharges
+    // vs. the quote the customer approved.
+    const wasteMult = 1 + (Number(l.waste_pct) || 0) / 100;
     const rate =
       l.line_type === "mat_labor"
-        ? (l.material_rate ?? 0) + (l.labor_rate ?? 0)
-        : (l.installed_rate ?? 0);
+        ? (l.material_rate ?? 0) * wasteMult + (l.labor_rate ?? 0)
+        : (l.installed_rate ?? 0) * wasteMult;
     return {
       invoice_id: invoice.id,
       position: i,

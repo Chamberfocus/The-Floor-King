@@ -131,6 +131,25 @@ export async function createSmartEstimate(
   if (!lines.length) return { error: "Add at least one room/material." };
 
   const supabase = await createClient();
+
+  // Match the other estimate-creation paths: require a lead source first, and
+  // stamp a quote expiry from org settings (default 30 days).
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("source")
+    .eq("id", customerId)
+    .maybeSingle();
+  if (!cust?.source) {
+    return { error: "Set a lead source on the customer before creating an estimate." };
+  }
+  const { data: org } = await supabase
+    .from("org_settings")
+    .select("quote_valid_days")
+    .eq("id", "default")
+    .maybeSingle();
+  const validUntil = new Date();
+  validUntil.setDate(validUntil.getDate() + (Number(org?.quote_valid_days) || 30));
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -144,6 +163,7 @@ export async function createSmartEstimate(
       tax_rate: Number(taxRate) || 0,
       presentation: input.presentation || "detailed",
       job_description: input.jobDescription?.trim() || null,
+      valid_until: validUntil.toISOString().slice(0, 10),
       created_by: user?.id ?? null,
     })
     .select("id")
