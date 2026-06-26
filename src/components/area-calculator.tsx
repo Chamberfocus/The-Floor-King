@@ -22,6 +22,7 @@ const n = (v: string) => {
 interface Seg {
   id: string;
   label: string;
+  op: "add" | "subtract"; // add an area (L-shape piece) or subtract a cutout
   lf: string; // length feet
   li: string; // length inches
   wf: string; // width feet
@@ -32,6 +33,7 @@ let sid = 0;
 const newSeg = (label = ""): Seg => ({
   id: `s${sid++}`,
   label,
+  op: "add",
   lf: "",
   li: "",
   wf: "",
@@ -41,6 +43,8 @@ const newSeg = (label = ""): Seg => ({
 /** Feet from a feet+inches pair. */
 const feet = (ft: string, inch: string) => n(ft) + n(inch) / 12;
 const segSqft = (s: Seg) => feet(s.lf, s.li) * feet(s.wf, s.wi);
+/** Signed contribution: cutouts subtract from the total. */
+const segSigned = (s: Seg) => (s.op === "subtract" ? -segSqft(s) : segSqft(s));
 const segPerim = (s: Seg) => 2 * (feet(s.lf, s.li) + feet(s.wf, s.wi));
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
@@ -73,9 +77,10 @@ export function AreaCalculator({
   const set = (id: string, patch: Partial<Seg>) =>
     setSegs((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
-  const totalSqft = segs.reduce((a, s) => a + segSqft(s), 0);
+  const totalSqft = Math.max(0, segs.reduce((a, s) => a + segSigned(s), 0));
   const totalSqyd = totalSqft / 9;
-  const totalPerim = segs.reduce((a, s) => a + segPerim(s), 0);
+  // Cutouts don't add room perimeter — only count the added areas.
+  const totalPerim = segs.reduce((a, s) => a + (s.op === "add" ? segPerim(s) : 0), 0);
 
   const reset = () => setSegs([newSeg(initialLabel)]);
 
@@ -96,14 +101,17 @@ export function AreaCalculator({
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription>
-              Add a row for each area — room, closet, hallway. Enter length ×
-              width in feet and inches; it totals the square footage (and square
-              yards for carpet).
+              Add a row for each area — room, closet, hallway. For an irregular
+              room, add each rectangle; tap <strong>+</strong> to switch a row to
+              <strong> − cut out</strong> to subtract an island, hearth, or other
+              area that isn&apos;t getting floor. It totals the square footage
+              (and square yards for carpet).
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
-            <div className="hidden grid-cols-[1fr_auto_auto_auto] gap-2 px-1 text-[11px] text-muted-foreground sm:grid">
+            <div className="hidden grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-1 text-[11px] text-muted-foreground sm:grid">
+              <span className="w-9" />
               <span>Area</span>
               <span className="text-center">Length (ft / in)</span>
               <span className="text-center">Width (ft / in)</span>
@@ -113,12 +121,31 @@ export function AreaCalculator({
             {segs.map((s, i) => (
               <div
                 key={s.id}
-                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2"
+                className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-2"
               >
+                <button
+                  type="button"
+                  onClick={() => set(s.id, { op: s.op === "add" ? "subtract" : "add" })}
+                  title={s.op === "subtract" ? "Cutout — subtracts from the total" : "Adds to the total"}
+                  className={cn(
+                    "flex size-9 shrink-0 items-center justify-center rounded-md border text-lg font-bold",
+                    s.op === "subtract"
+                      ? "border-destructive/50 bg-destructive/10 text-destructive"
+                      : "border-input text-primary",
+                  )}
+                >
+                  {s.op === "subtract" ? "−" : "+"}
+                </button>
                 <Input
                   value={s.label}
                   onChange={(e) => set(s.id, { label: e.target.value })}
-                  placeholder={i === 0 ? "e.g. Living room" : "Area / closet"}
+                  placeholder={
+                    s.op === "subtract"
+                      ? "Cutout (island, hearth…)"
+                      : i === 0
+                        ? "e.g. Living room"
+                        : "Area / closet"
+                  }
                   className="h-9"
                 />
                 <div className="flex gap-1">
@@ -154,8 +181,15 @@ export function AreaCalculator({
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <span className="w-14 text-right text-sm tabular-nums">
-                    {segSqft(s) > 0 ? r2(segSqft(s)) : "—"}
+                  <span
+                    className={cn(
+                      "w-14 text-right text-sm tabular-nums",
+                      s.op === "subtract" && "text-destructive",
+                    )}
+                  >
+                    {segSqft(s) > 0
+                      ? `${s.op === "subtract" ? "−" : ""}${r2(segSqft(s))}`
+                      : "—"}
                   </span>
                   <Button
                     type="button"
