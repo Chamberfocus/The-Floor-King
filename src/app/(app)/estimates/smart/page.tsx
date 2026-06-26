@@ -6,7 +6,6 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getCustomer } from "@/lib/data/customers";
 import { getBusinessSettings } from "@/lib/data/business-settings";
-import { getAddonDefaults, getRoomDefaults } from "@/lib/data/addon-defaults";
 import { BuilderSwitch } from "../builder-switch";
 
 export const metadata: Metadata = { title: "Smart estimate" };
@@ -23,8 +22,6 @@ export default async function SmartEstimatePage({
   const customer = await getCustomer(customerId);
   if (!customer) redirect("/customers");
   const settings = await getBusinessSettings();
-  const addonDefaults = await getAddonDefaults();
-  const roomDefaults = await getRoomDefaults();
 
   return (
     <div className="mx-auto max-w-3xl pb-20">
@@ -36,14 +33,12 @@ export default async function SmartEstimatePage({
       </Link>
       <PageHeader
         title="Build an estimate"
-        description="Three ways: from your notes (type or photo), a guided step-by-step, or the full manual builder. All three price to your margin and flow straight to the invoice, PO, and work order."
+        description="The step-by-step builder covers every base; Quick estimate is a one-screen fast quote. Both price to your margin and flow straight to the invoice, PO, and work order."
       />
       <BuilderSwitch
         customerId={customer.id}
         customerName={customer.full_name}
         targetMargin={settings.target_gross_margin_pct || 40}
-        addonDefaults={addonDefaults}
-        roomDefaults={roomDefaults}
       />
     </div>
   );

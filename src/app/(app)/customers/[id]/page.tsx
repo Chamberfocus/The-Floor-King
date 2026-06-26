@@ -69,7 +69,6 @@ import { AreaCalculator } from "@/components/area-calculator";
 import { CancelCustomer } from "./cancel-customer";
 import { DeleteCustomer } from "./delete-customer";
 import { AiFollowup } from "./ai-followup";
-import { NotesToEstimate } from "./notes-to-estimate";
 import { requireProfile } from "@/lib/auth";
 
 export async function generateMetadata({
@@ -318,9 +317,6 @@ export default async function CustomerPage({
 
           {/* Chat */}
           <CustomerChat customerId={customer.id} messages={messages} />
-
-          {/* AI quote drafter */}
-          {!customer.cancelled_at ? <NotesToEstimate customerId={customer.id} /> : null}
 
           {/* Estimates */}
           <Card>

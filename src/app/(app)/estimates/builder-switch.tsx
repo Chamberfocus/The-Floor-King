@@ -1,35 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { Wand2, ListChecks, SlidersHorizontal } from "lucide-react";
+import { ListChecks, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NotesToEstimate } from "@/app/(app)/customers/[id]/notes-to-estimate";
 import { GuidedWizard } from "./guided-wizard";
-import { SmartBuilder } from "./smart-builder";
+import { QuickEstimate } from "./quick-estimate";
 
-type Mode = "notes" | "wizard" | "manual";
+type Mode = "wizard" | "quick";
 
 /**
- * Three ways to build an estimate — pick whichever fits the job:
- *  - From notes  : type the job or snap a photo; AI builds it.
- *  - Step-by-step: a guided wizard that covers every base.
- *  - Manual      : the full builder with every option (the original).
- * All three save the identical estimate and flow on to invoice / PO / job.
+ * Two ways to build an estimate:
+ *  - Wizard : the guided, step-by-step builder that covers every base.
+ *  - Quick  : one screen for a fast quote.
+ * Both save the identical estimate and flow on to invoice / PO / job.
  * Each stays mounted, so switching never loses what you entered.
  */
 export function BuilderSwitch(props: {
   customerId: string;
   customerName: string;
   targetMargin: number;
-  addonDefaults?: React.ComponentProps<typeof SmartBuilder>["addonDefaults"];
-  roomDefaults?: React.ComponentProps<typeof SmartBuilder>["roomDefaults"];
 }) {
   const [mode, setMode] = useState<Mode>("wizard");
 
   const Tab = ({
     value, icon: Icon, label, hint,
   }: {
-    value: Mode; icon: typeof Wand2; label: string; hint: string;
+    value: Mode; icon: typeof Zap; label: string; hint: string;
   }) => (
     <button
       type="button"
@@ -48,15 +44,11 @@ export function BuilderSwitch(props: {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-2 sm:grid-cols-3">
-        <Tab value="wizard" icon={ListChecks} label="Step-by-step" hint="The main way — guided, covers every base" />
-        <Tab value="notes" icon={Wand2} label="From notes" hint="Type it or photo your notes — AI builds it" />
-        <Tab value="manual" icon={SlidersHorizontal} label="Manual" hint="Full control, every option" />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Tab value="wizard" icon={ListChecks} label="Estimate builder" hint="Step-by-step — covers every base" />
+        <Tab value="quick" icon={Zap} label="Quick estimate" hint="One screen — fast quote" />
       </div>
 
-      <div className={mode === "notes" ? "" : "hidden"}>
-        <NotesToEstimate customerId={props.customerId} />
-      </div>
       <div className={mode === "wizard" ? "" : "hidden"}>
         <GuidedWizard
           customerId={props.customerId}
@@ -64,13 +56,11 @@ export function BuilderSwitch(props: {
           targetMargin={props.targetMargin}
         />
       </div>
-      <div className={mode === "manual" ? "" : "hidden"}>
-        <SmartBuilder
+      <div className={mode === "quick" ? "" : "hidden"}>
+        <QuickEstimate
           customerId={props.customerId}
           customerName={props.customerName}
           targetMargin={props.targetMargin}
-          addonDefaults={props.addonDefaults}
-          roomDefaults={props.roomDefaults}
         />
       </div>
     </div>
