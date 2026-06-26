@@ -30,6 +30,8 @@ import { STANDARD_ADDONS, type AddonDef } from "@/lib/addons";
 type AddonGroup = "labor" | "material" | "custom";
 import { ProductPicker } from "./product-picker";
 import { AreaCalculator } from "@/components/area-calculator";
+import { PriceBookPicker } from "@/components/price-book-picker";
+import type { PriceItem } from "@/lib/price-book";
 import {
   createSmartEstimate,
   saveAddonDefault,
@@ -542,6 +544,28 @@ export function SmartBuilder({
   // Margin helpers: turn a cost into a sell price at margin m.
   const sellAt = (cost: number, m: number) =>
     cost > 0 ? Math.round(priceFromMargin(cost, m) * 100) / 100 : 0;
+  // Drop a price-book item onto the add-on list, on & priced at the job margin.
+  const addPricedAddon = (it: PriceItem) =>
+    setAddons((xs) => {
+      const sell = String(sellAt(it.cost, num(marginGoal)));
+      const i = xs.findIndex((a) => a.label === it.label);
+      if (i >= 0) {
+        return xs.map((a, j) =>
+          j === i
+            ? { ...a, on: true, unit: it.unit, labor: it.labor, group: it.labor ? "labor" : "material", cost: String(it.cost), sell }
+            : a,
+        );
+      }
+      return [
+        ...xs,
+        {
+          id: `x${addonSeq++}`,
+          label: it.label, unit: it.unit, labor: it.labor,
+          group: it.labor ? "labor" : "material", on: true,
+          qty: "", cost: String(it.cost), sell, custom: false, choice: "",
+        },
+      ];
+    });
   const repriceComps = (comps: Record<string, CompState>, m: number) =>
     Object.fromEntries(
       Object.entries(comps).map(([k, c]) => [
@@ -1563,14 +1587,17 @@ export function SmartBuilder({
             </div>
           ) : null}
 
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setAddons((xs) => [...xs, newCustomAddon()])}
-          >
-            <Plus className="size-3.5" /> Add a custom item
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setAddons((xs) => [...xs, newCustomAddon()])}
+            >
+              <Plus className="size-3.5" /> Add a custom item
+            </Button>
+            <PriceBookPicker triggerLabel="Add from price list" onPick={addPricedAddon} />
+          </div>
         </CardContent>
       </Card>
 

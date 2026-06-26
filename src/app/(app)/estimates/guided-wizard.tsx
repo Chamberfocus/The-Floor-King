@@ -17,6 +17,8 @@ import type { Product } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { ProductPicker } from "./product-picker";
 import { AreaCalculator } from "@/components/area-calculator";
+import { PriceBookPicker } from "@/components/price-book-picker";
+import type { PriceItem } from "@/lib/price-book";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 import { analyzeJobDrawing, type DrawingFindings } from "./ai-actions";
 
@@ -38,8 +40,8 @@ interface WExtra {
   sell: string;
 }
 let exid = 0;
-const mkExtra = (label = "", unit = "sqft", labor = false): WExtra => ({
-  id: `e${exid++}`, label, unit, labor, qty: "", cost: "", sell: "",
+const mkExtra = (label = "", unit = "sqft", labor = false, cost = ""): WExtra => ({
+  id: `e${exid++}`, label, unit, labor, qty: "", cost, sell: "",
 });
 // Quick-add per-room add-ons by flooring type.
 const HARD_EXTRAS: { label: string; unit: string; labor: boolean }[] = [
@@ -351,13 +353,19 @@ export function GuidedWizard({
     });
   const up = (id: string, patch: Partial<WRoom>) =>
     setRooms((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-  const addExtra = (roomId: string, preset?: { label: string; unit: string; labor: boolean }) =>
+  const addExtra = (roomId: string, preset?: { label: string; unit: string; labor: boolean; cost?: number }) =>
     setRooms((rs) =>
       rs.map((r) => {
         if (r.id !== roomId) return r;
         const ex = preset ? mkExtra(preset.label, preset.unit, preset.labor) : mkExtra();
-        // Sq-ft add-ons cover the room — prefill the quantity with its area.
+        // A price-book item brings its cost — mark it up to the job's margin.
+        if (preset?.cost && preset.cost > 0) {
+          ex.cost = String(preset.cost);
+          ex.sell = String(sellAt(preset.cost));
+        }
+        // Area add-ons cover the room — prefill the quantity with its area.
         if (ex.unit === "sqft" && roomSqft(r) > 0) ex.qty = String(r2(roomSqft(r)));
+        else if (ex.unit === "sqyd" && roomSqft(r) > 0) ex.qty = String(r2(roomSqft(r) / 9));
         return { ...r, extras: [...r.extras, ex] };
       }),
     );
@@ -373,6 +381,20 @@ export function GuidedWizard({
     );
   const setAddon = (i: number, patch: Partial<WAddon>) =>
     setAddons((xs) => xs.map((a, j) => (j === i ? { ...a, ...patch } : a)));
+  // Drop a price-book item onto the job-level add-on list, on & priced.
+  const addPricedAddon = (it: PriceItem) =>
+    setAddons((xs) => {
+      const i = xs.findIndex((a) => a.label === it.label);
+      if (i >= 0) {
+        return xs.map((a, j) =>
+          j === i ? { ...a, on: true, unit: it.unit, labor: it.labor, cost: String(it.cost), sell: String(sellAt(it.cost)) } : a,
+        );
+      }
+      return [
+        ...xs,
+        { label: it.label, unit: it.unit, labor: it.labor, on: true, qty: "", cost: String(it.cost), sell: String(sellAt(it.cost)) },
+      ];
+    });
 
   const pickProduct = (id: string, p: Product | null) => {
     if (!p) return up(id, { productId: null, productLabel: "" });
@@ -674,6 +696,7 @@ export function GuidedWizard({
                         </button>
                       ))}
                       <button type="button" onClick={() => addExtra(r.id)} className="rounded-full border px-2 py-0.5 hover:bg-muted">+ Custom</button>
+                      <PriceBookPicker triggerSize="sm" triggerVariant="ghost" triggerClassName="h-6 px-2 text-[11px]" onPick={(it) => addExtra(r.id, it)} />
                     </div>
                     {r.extras.map((x) => (
                       <div key={x.id} className="mt-1.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
@@ -705,9 +728,12 @@ export function GuidedWizard({
       {/* STEP 3 — Add-ons checklist */}
       {step === 2 ? (
         <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Check everything this job needs so nothing&apos;s missed — tear-out, prep, stairs, transitions, metals…
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              Check everything this job needs so nothing&apos;s missed — tear-out, prep, stairs, transitions, metals…
+            </p>
+            <PriceBookPicker triggerLabel="Add from price list" onPick={addPricedAddon} />
+          </div>
           {(["labor", "material"] as const).map((kind) => (
             <div key={kind}>
               <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
