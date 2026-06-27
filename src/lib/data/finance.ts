@@ -104,6 +104,12 @@ export async function getPeriodSummary(
   const pos = await listPurchaseOrders();
   const poSpend = pos
     .filter((p) => {
+      // Only real spend: a PO that's actually been ordered or received. Drafts
+      // (incl. the ones auto-generated when an estimate is approved) and
+      // cancelled POs are NOT money out yet.
+      if (p.status !== "ordered" && p.status !== "received") return false;
+      // Skip POs for cancelled customers (same as collected / expenses / labor).
+      if (p.customer_id && cancelled.has(p.customer_id)) return false;
       const d = p.created_at.slice(0, 10);
       return d >= start && d <= end;
     })
@@ -223,6 +229,9 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   const pos = await listPurchaseOrders();
   const poByEstimate = new Map<string, number>();
   for (const p of pos) {
+    // Only count committed POs (ordered/received) as real material cost — not
+    // drafts auto-generated on approval, and not cancelled ones.
+    if (p.status !== "ordered" && p.status !== "received") continue;
     if (p.estimate_id) {
       poByEstimate.set(
         p.estimate_id,

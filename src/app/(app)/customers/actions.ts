@@ -389,6 +389,23 @@ export async function deleteCustomer(formData: FormData): Promise<void> {
     .maybeSingle();
   if (!me || !["admin", "office"].includes(me.role as string)) return;
 
+  // Purchase orders are set-null (not cascade) on customer delete, so they'd be
+  // left behind and keep counting as "spend" in Business Pulse. Remove them
+  // first — by customer, and by the customer's estimates/jobs — so deleting a
+  // customer truly wipes their financial footprint. (Jobs, estimates, invoices,
+  // payments, expenses, labor all cascade-delete on their own.)
+  const [{ data: ests }, { data: jbs }] = await Promise.all([
+    supabase.from("estimates").select("id").eq("customer_id", id),
+    supabase.from("jobs").select("id").eq("customer_id", id),
+  ]);
+  const estIds = (ests ?? []).map((e) => e.id as string);
+  const jobIds = (jbs ?? []).map((j) => j.id as string);
+  await supabase.from("purchase_orders").delete().eq("customer_id", id);
+  if (estIds.length)
+    await supabase.from("purchase_orders").delete().in("estimate_id", estIds);
+  if (jobIds.length)
+    await supabase.from("purchase_orders").delete().in("job_id", jobIds);
+
   await supabase.from("customers").delete().eq("id", id);
 
   refreshCustomerViews();
