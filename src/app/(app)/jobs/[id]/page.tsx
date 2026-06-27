@@ -52,7 +52,9 @@ import {
   postJobToBoard,
   unpostJobFromBoard,
   assignInstaller,
+  setJobCrew,
 } from "../actions";
+import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
 import { deleteJobFile } from "../file-actions";
 import { JobPhotoUpload } from "../job-photo-upload";
 import { SignaturePad } from "../signature-pad";
@@ -116,6 +118,10 @@ export default async function JobPage({
     schedSettings && installEst && installEst.days > 0
       ? await getInstallerSuggestions(job.line_items, schedSettings)
       : [];
+
+  // Install crews (your managed list — subcontractors + employees).
+  const installCrews = isStaff ? await listInstallCrews({ activeOnly: true }) : [];
+  const jobCrew = isStaff ? await getJobCrew(job.id) : null;
 
   const siteParts = [
     job.site_street,
@@ -452,6 +458,62 @@ export default async function JobPage({
                   </form>
                 </details>
               </>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Install crew — assign from your managed crew list (subs + employees) */}
+      {isStaff ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Install crew</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {jobCrew ? (
+              <p className="mb-2 text-sm">
+                Assigned to <span className="font-semibold">{jobCrew.name}</span>
+                <span className="text-muted-foreground">
+                  {" "}· {jobCrew.kind === "employee" ? "Employee" : "Subcontractor"}
+                  {jobCrew.phone ? ` · ${jobCrew.phone}` : ""}
+                </span>
+              </p>
+            ) : null}
+            {installCrews.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No crews yet.{" "}
+                <Link href="/settings/install-crews" className="text-primary underline">
+                  Add your install crews
+                </Link>{" "}
+                to assign one here.
+              </p>
+            ) : (
+              <form action={setJobCrew} className="flex flex-wrap items-end gap-2">
+                <input type="hidden" name="job_id" value={job.id} />
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Assign a crew
+                  </label>
+                  <SearchPicker
+                    name="crew_id"
+                    defaultValue={jobCrew?.id ?? ""}
+                    placeholder="— Choose a crew —"
+                    options={installCrews.map((c) => ({
+                      value: c.id,
+                      label: `${c.name}${c.kind === "subcontractor" ? " (sub)" : ""}`,
+                    }))}
+                  />
+                </div>
+                <Button type="submit" size="sm">
+                  {jobCrew ? "Update crew" : "Assign crew"}
+                </Button>
+                <Link
+                  href="/settings/install-crews"
+                  className="pb-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
+                >
+                  Manage crews
+                </Link>
+              </form>
             )}
           </CardContent>
         </Card>

@@ -12,6 +12,7 @@ import {
   Target,
   CalendarRange,
   DollarSign,
+  HardHat,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -79,6 +80,12 @@ const SECTIONS = [
     icon: UserCog,
     title: "Team",
     desc: "Logins, roles, job titles, and home bases.",
+  },
+  {
+    href: "/settings/install-crews",
+    icon: HardHat,
+    title: "Install Crews",
+    desc: "Your subcontractor and employee install crews — assignable on jobs, even without an app login.",
   },
 ];
 

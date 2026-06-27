@@ -222,6 +222,17 @@ export async function updateJob(
   return { error: null, ok: true };
 }
 
+/** Assign (or clear) the install crew on a job — from your managed crew list. */
+export async function setJobCrew(formData: FormData): Promise<void> {
+  const id = str(formData.get("job_id"));
+  if (!id) return;
+  const crewId = str(formData.get("crew_id")) || null;
+  const supabase = await createClient();
+  await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+  revalidatePath("/jobs");
+}
+
 /** Quick status change (also usable by assigned crew from the field). */
 export async function setJobStatus(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
