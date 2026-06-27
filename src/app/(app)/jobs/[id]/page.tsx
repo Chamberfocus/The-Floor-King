@@ -523,7 +523,7 @@ export default async function JobPage({
       {jobMaterials ? <JobMaterialsCard data={jobMaterials} /> : null}
 
       {/* Crew pay (real subcontractor labor cost) — staff only */}
-      {isStaff ? <JobLaborCard jobId={id} rows={jobLabor} /> : null}
+      {isStaff ? <JobLaborCard jobId={id} rows={jobLabor} crew={jobCrew} /> : null}
 
       {/* Profitability — estimated vs actual (owner/admin only) */}
       {costAnalysis ? (

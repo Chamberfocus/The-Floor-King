@@ -18,12 +18,26 @@ import { addJobLabor, toggleJobLaborPaid, deleteJobLabor } from "../actions";
 export function JobLaborCard({
   jobId,
   rows,
+  crew,
 }: {
   jobId: string;
   rows: JobLabor[];
+  crew?: {
+    id: string;
+    name: string;
+    pay_basis: string | null;
+    pay_rate: number | null;
+  } | null;
 }) {
-  const [basis, setBasis] = useState<LaborBasis>("flat");
-  const [rate, setRate] = useState("");
+  // Pre-fill from the assigned crew's defaults (still fully editable).
+  const crewBasis: LaborBasis =
+    crew?.pay_basis === "per_sqft" || crew?.pay_basis === "per_sqyd" || crew?.pay_basis === "flat"
+      ? crew.pay_basis
+      : "flat";
+  const [basis, setBasis] = useState<LaborBasis>(crewBasis);
+  const [rate, setRate] = useState(
+    crew?.pay_rate != null && crewBasis !== "flat" ? String(crew.pay_rate) : "",
+  );
   const [area, setArea] = useState("");
 
   const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
@@ -114,12 +128,19 @@ export function JobLaborCard({
         {/* Add a payout */}
         <form action={addJobLabor} className="space-y-3 border-t pt-4">
           <input type="hidden" name="job_id" value={jobId} />
+          {crew ? <input type="hidden" name="crew_id" value={crew.id} /> : null}
+          {crew ? (
+            <p className="rounded-md bg-primary/5 px-3 py-1.5 text-xs text-muted-foreground">
+              Pre-filled from the assigned crew{" "}
+              <span className="font-medium text-foreground">{crew.name}</span> — adjust if needed.
+            </p>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">
                 Crew / installer
               </label>
-              <Input name="payee" placeholder="e.g. Mike's crew" />
+              <Input name="payee" defaultValue={crew?.name ?? ""} placeholder="e.g. Mike's crew" />
             </div>
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">How paid</label>
@@ -143,6 +164,9 @@ export function JobLaborCard({
                 name="amount"
                 inputMode="decimal"
                 placeholder="0.00"
+                defaultValue={
+                  crew?.pay_rate != null && crewBasis === "flat" ? String(crew.pay_rate) : ""
+                }
                 className="max-w-40"
               />
             </div>

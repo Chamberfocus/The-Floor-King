@@ -532,7 +532,7 @@ export async function addJobLabor(formData: FormData): Promise<void> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  await supabase.from("job_labor").insert({
+  const row = {
     job_id: jobId,
     payee: nullable(formData.get("payee")),
     basis,
@@ -543,7 +543,12 @@ export async function addJobLabor(formData: FormData): Promise<void> {
     paid_on: str(formData.get("paid")) === "on" ? nullable(formData.get("paid_on")) : null,
     note: nullable(formData.get("note")),
     created_by: user?.id ?? null,
-  });
+  };
+  const crewId = nullable(formData.get("crew_id"));
+  // Tie the payout to the assigned crew. If the crew_id column isn't there yet
+  // (migration 0049 not run), fall back to recording without it.
+  const res = await supabase.from("job_labor").insert({ ...row, crew_id: crewId });
+  if (res.error) await supabase.from("job_labor").insert(row);
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/pulse");
   revalidatePath("/financials");

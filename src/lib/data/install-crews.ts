@@ -38,9 +38,12 @@ export async function listInstallCrews(
 
 /** The crew currently assigned to a job (or null). Defensive against the
  *  column/table not existing yet. */
-export async function getJobCrew(
-  jobId: string,
-): Promise<Pick<InstallCrew, "id" | "name" | "kind" | "phone"> | null> {
+export type JobCrew = Pick<
+  InstallCrew,
+  "id" | "name" | "kind" | "phone" | "pay_basis" | "pay_rate"
+>;
+
+export async function getJobCrew(jobId: string): Promise<JobCrew | null> {
   try {
     const supabase = await createClient();
     const { data: job, error } = await supabase
@@ -51,10 +54,10 @@ export async function getJobCrew(
     if (error || !job?.assigned_crew_id) return null;
     const { data: crew } = await supabase
       .from("install_crews")
-      .select("id, name, kind, phone")
+      .select("id, name, kind, phone, pay_basis, pay_rate")
       .eq("id", job.assigned_crew_id as string)
       .maybeSingle();
-    return (crew as Pick<InstallCrew, "id" | "name" | "kind" | "phone"> | null) ?? null;
+    return (crew as JobCrew | null) ?? null;
   } catch {
     return null;
   }
