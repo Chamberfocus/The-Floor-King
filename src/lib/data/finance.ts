@@ -184,6 +184,7 @@ export interface JobProfit {
   cost: number;
   profit: number;
   margin: number; // gross margin % of revenue
+  completedAt: string | null; // when the job was marked complete (for by-job profit)
 }
 
 export async function getJobProfitability(): Promise<JobProfit[]> {
@@ -331,6 +332,8 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
       cost,
       profit,
       margin: marginPct(revenue, cost),
+      completedAt:
+        (j as { completed_at?: string | null }).completed_at ?? null,
     };
   });
 }

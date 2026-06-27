@@ -33,6 +33,11 @@ export interface BusinessPulse {
   monthLabel: string;
   // Derived headline numbers
   netDelta: number; // this month net − last month net
+  // Profit by completed job — each job's revenue matched to its own costs,
+  // counted in the month the job was completed (the accrual lens).
+  jobProfitThisMonth: number;
+  jobProfitDelta: number; // this month − last month (by completed job)
+  completedJobsThisMonth: number;
   marginThisMonth: number; // net margin % of collected
   goalProgressPct: number | null; // collected vs monthly_revenue_goal
   // Receivables
@@ -108,6 +113,21 @@ export async function getBusinessPulse(): Promise<BusinessPulse> {
       ? costedRealized.reduce((s, j) => s + j.margin, 0) / costedRealized.length
       : 0;
 
+  // Profit by completed job, grouped by the month each job was completed.
+  const inMonth = (iso: string | null, r: { start: string; end: string }) => {
+    if (!iso) return false;
+    const d = iso.slice(0, 10);
+    return d >= r.start && d <= r.end;
+  };
+  const completedThis = jobs.filter(
+    (j) => j.status === "completed" && inMonth(j.completedAt, thisR),
+  );
+  const completedLast = jobs.filter(
+    (j) => j.status === "completed" && inMonth(j.completedAt, lastR),
+  );
+  const jobProfitThisMonth = completedThis.reduce((s, j) => s + j.profit, 0);
+  const jobProfitLastMonth = completedLast.reduce((s, j) => s + j.profit, 0);
+
   const bestSeller = perf.length ? perf[0] : null; // perf is revenue-sorted
   const worstMarginSeller =
     perf.filter((p) => p.revenue > 0).sort((a, b) => a.margin - b.margin)[0] ??
@@ -126,6 +146,9 @@ export async function getBusinessPulse(): Promise<BusinessPulse> {
     lastMonth,
     monthLabel,
     netDelta: thisMonth.net - lastMonth.net,
+    jobProfitThisMonth,
+    jobProfitDelta: jobProfitThisMonth - jobProfitLastMonth,
+    completedJobsThisMonth: completedThis.length,
     marginThisMonth: marginPct(
       thisMonth.collected,
       thisMonth.collected - thisMonth.net,

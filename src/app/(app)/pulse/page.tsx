@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
-  TrendingUp,
-  TrendingDown,
   AlertTriangle,
   AlertOctagon,
   Lightbulb,
@@ -26,6 +24,7 @@ import { getPipelineForecast } from "@/lib/data/finance";
 import { buildInsights, type InsightTone } from "@/lib/insights";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { ProfitLensCard } from "./profit-lens-card";
 
 export const metadata: Metadata = { title: "Business Pulse" };
 export const dynamic = "force-dynamic";
@@ -67,8 +66,6 @@ export default async function PulsePage() {
   const insights = buildInsights(pulse);
   const target = pulse.settings.target_gross_margin_pct;
 
-  const netUp = pulse.netDelta >= 0;
-
   return (
     <div>
       <PageHeader
@@ -93,36 +90,13 @@ export default async function PulsePage() {
 
       {/* Headline numbers */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Net profit this month
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div
-              className={cn(
-                "text-2xl font-semibold",
-                pulse.thisMonth.net < 0 && "text-destructive",
-              )}
-            >
-              {formatMoney(pulse.thisMonth.net)}
-            </div>
-            <p
-              className={cn(
-                "mt-1 inline-flex items-center gap-1 text-xs",
-                netUp ? "text-emerald-600" : "text-destructive",
-              )}
-            >
-              {netUp ? (
-                <TrendingUp className="size-3" />
-              ) : (
-                <TrendingDown className="size-3" />
-              )}
-              {formatMoney(Math.abs(pulse.netDelta))} vs last month
-            </p>
-          </CardContent>
-        </Card>
+        <ProfitLensCard
+          cashNet={pulse.thisMonth.net}
+          cashDelta={pulse.netDelta}
+          jobProfit={pulse.jobProfitThisMonth}
+          jobDelta={pulse.jobProfitDelta}
+          completedJobs={pulse.completedJobsThisMonth}
+        />
 
         <Card>
           <CardHeader className="pb-2">
