@@ -5,6 +5,7 @@ import { invoiceTotals } from "@/lib/invoice-calc";
 import { listPurchaseOrders } from "@/lib/data/purchase-orders";
 import { poTotal } from "@/lib/po-calc";
 import { listJobs } from "@/lib/data/jobs";
+import { getProfileNames } from "@/lib/data/customers";
 import { laborCostByJob } from "@/lib/data/job-labor";
 import { optionTotals, optionCostTotals, marginPct } from "@/lib/estimate-calc";
 import type { CalcLine } from "@/lib/estimate-calc";
@@ -185,6 +186,13 @@ export interface JobProfit {
   profit: number;
   margin: number; // gross margin % of revenue
   completedAt: string | null; // when the job was marked complete (for by-job profit)
+  // Estimated (quoted) side — for estimated-vs-actual scorecards.
+  estimateId: string | null;
+  estCost: number; // cost the estimate priced in (material + labor at quote time)
+  estProfit: number; // quotedRevenue − estCost
+  estMargin: number;
+  salesmanId: string | null; // who authored the estimate
+  salesman: string | null;
 }
 
 export async function getJobProfitability(): Promise<JobProfit[]> {
@@ -207,16 +215,21 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     installed_rate: number | null;
     flat_amount: number | null;
     line_type: LineType;
+    material_cost: number | null;
+    labor_cost: number | null;
+    waste_pct: number | null;
+    quantity: number | null;
   }>((from, to) =>
     supabase
       .from("estimate_line_items")
       .select(
-        "option_id, sqft, length_in, width_in, measure_unit, material_rate, labor_rate, installed_rate, flat_amount, line_type",
+        "option_id, sqft, length_in, width_in, measure_unit, material_rate, labor_rate, installed_rate, flat_amount, line_type, material_cost, labor_cost, waste_pct, quantity",
       )
       .in("option_id", optionIds)
       .range(from, to),
   );
   const subtotalByOption = new Map<string, number>();
+  const estCostByOption = new Map<string, number>();
   const grouped = new Map<string, typeof lines>();
   for (const l of lines) {
     const arr = grouped.get(l.option_id) ?? [];
@@ -225,7 +238,27 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   }
   for (const [oid, ls] of grouped) {
     subtotalByOption.set(oid, optionTotals(ls, 0).subtotal);
+    estCostByOption.set(oid, optionCostTotals(ls).cost);
   }
+
+  // Who quoted each job — the estimate's author (the "salesman" on the hook).
+  const estimateIds = [
+    ...new Set(
+      jobs.map((j) => (j as { estimate_id?: string | null }).estimate_id).filter(Boolean),
+    ),
+  ] as string[];
+  const authorByEstimate = new Map<string, string | null>();
+  if (estimateIds.length) {
+    const { data: estRows } = await supabase
+      .from("estimates")
+      .select("id, created_by")
+      .in("id", estimateIds);
+    for (const e of estRows ?? [])
+      authorByEstimate.set(e.id as string, (e.created_by as string | null) ?? null);
+  }
+  const salesNames = await getProfileNames(
+    [...authorByEstimate.values()].filter(Boolean) as string[],
+  );
 
   const pos = await listPurchaseOrders();
   const poByEstimate = new Map<string, number>();
@@ -316,6 +349,11 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     const otherCost = expByJob.get(j.id) ?? 0;
     const cost = materialCost + laborCost + otherCost;
     const profit = revenue - cost;
+    const estCost = j.option_id ? (estCostByOption.get(j.option_id) ?? 0) : 0;
+    const estProfit = quotedRevenue - estCost;
+    const salesmanId = j.estimate_id
+      ? (authorByEstimate.get(j.estimate_id) ?? null)
+      : null;
     return {
       jobId: j.id,
       title: j.title ?? "Job",
@@ -332,10 +370,89 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
       cost,
       profit,
       margin: marginPct(revenue, cost),
+      estimateId: j.estimate_id ?? null,
+      estCost,
+      estProfit,
+      estMargin: marginPct(quotedRevenue, estCost),
+      salesmanId,
+      salesman: salesmanId ? (salesNames[salesmanId] ?? null) : null,
       completedAt:
         (j as { completed_at?: string | null }).completed_at ?? null,
     };
   });
+}
+
+export interface SalesmanScore {
+  salesmanId: string | null;
+  salesman: string;
+  jobs: number;
+  quotedProfit: number;
+  actualProfit: number;
+  variance: number; // actual − quoted (negative = the quote cost us)
+  beat: number; // jobs that came in at/above the quoted profit
+  missed: number; // jobs that came in below
+  avgActualMargin: number; // revenue-weighted
+}
+export interface CompletedJobScorecard {
+  jobs: JobProfit[]; // completed jobs, with both estimated & actual
+  bySalesman: SalesmanScore[];
+  totals: Omit<SalesmanScore, "salesmanId" | "salesman">;
+}
+
+/**
+ * Estimated-vs-actual tally across FINISHED jobs, attributed to the salesperson
+ * who quoted each one — so you can see whose estimates beat or missed, and what
+ * the misses cost. Optional date range filters by completion date.
+ */
+export async function getCompletedJobScorecard(
+  start?: string,
+  end?: string,
+): Promise<CompletedJobScorecard> {
+  const all = await getJobProfitability();
+  const inRange = (iso: string | null) => {
+    if (!start && !end) return true;
+    if (!iso) return false;
+    const d = iso.slice(0, 10);
+    return (!start || d >= start) && (!end || d <= end);
+  };
+  const jobs = all
+    .filter((j) => j.status === "completed" && inRange(j.completedAt))
+    .sort((a, b) => a.profit - a.estProfit - (b.profit - b.estProfit)); // worst miss first
+
+  const groups = new Map<string, JobProfit[]>();
+  for (const j of jobs) {
+    const key = j.salesmanId ?? "__none__";
+    const arr = groups.get(key) ?? [];
+    arr.push(j);
+    groups.set(key, arr);
+  }
+
+  const score = (list: JobProfit[]): Omit<SalesmanScore, "salesmanId" | "salesman"> => {
+    const quotedProfit = list.reduce((s, j) => s + j.estProfit, 0);
+    const actualProfit = list.reduce((s, j) => s + j.profit, 0);
+    const rev = list.reduce((s, j) => s + j.revenue, 0);
+    const cost = list.reduce((s, j) => s + j.cost, 0);
+    const beat = list.filter((j) => j.profit >= j.estProfit - 0.5).length;
+    return {
+      jobs: list.length,
+      quotedProfit,
+      actualProfit,
+      variance: actualProfit - quotedProfit,
+      beat,
+      missed: list.length - beat,
+      avgActualMargin: marginPct(rev, cost),
+    };
+  };
+
+  const bySalesman: SalesmanScore[] = [...groups.entries()]
+    .map(([key, list]) => ({
+      salesmanId: key === "__none__" ? null : key,
+      salesman: key === "__none__" ? "Unattributed" : (list[0].salesman ?? "Unknown"),
+      ...score(list),
+    }))
+    .sort((a, b) => a.variance - b.variance); // biggest cost to us first
+
+  return { jobs, bySalesman, totals: score(jobs) };
 }
 
 export interface JobCostAnalysis {

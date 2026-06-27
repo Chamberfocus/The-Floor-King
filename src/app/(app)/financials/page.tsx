@@ -158,8 +158,14 @@ export default async function FinancialsPage({
 
       {/* Job profitability */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-base">Job profitability</CardTitle>
+          <Link
+            href="/financials/scorecard"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Estimated vs actual scorecard →
+          </Link>
         </CardHeader>
         <CardContent>
           {jobs.length === 0 ? (
