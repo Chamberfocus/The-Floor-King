@@ -110,6 +110,27 @@ function lineOurCost(l: LineState): number {
   return qty * num(l.material_cost) * waste + qty * num(l.labor_cost);
 }
 
+/** Our cost for a line, split into material vs labor (matches lineOurCost). */
+function lineCostSplit(l: LineState): { mat: number; labor: number } {
+  if (l.line_type === "flat") return { mat: 0, labor: 0 };
+  const qty = lineQty({
+    line_type: l.line_type,
+    sqft: l.sqft,
+    measure_unit: l.measure_unit,
+    material_rate: l.material_rate,
+    labor_rate: l.labor_rate,
+    installed_rate: l.installed_rate,
+    flat_amount: l.flat_amount,
+    waste_pct: l.waste_pct,
+    quantity: l.quantity,
+  });
+  const waste = 1 + (num(l.waste_pct) || 0) / 100;
+  return {
+    mat: qty * num(l.material_cost) * waste,
+    labor: qty * num(l.labor_cost),
+  };
+}
+
 interface OptionState {
   key: string;
   name: string;
@@ -332,8 +353,11 @@ export function EstimateBuilder({
                   merged.wid_ft,
                   merged.wid_in,
                 );
+                // Editing dimensions means area drives the line again — drop any
+                // frozen quantity (e.g. carried over from a copied estimate) so
+                // the total recalculates from the new size.
                 return s !== null
-                  ? { ...merged, sqft: (Math.round(s * 100) / 100).toString() }
+                  ? { ...merged, sqft: (Math.round(s * 100) / 100).toString(), quantity: "" }
                   : merged;
               }),
             }
@@ -584,6 +608,14 @@ export function EstimateBuilder({
             (s, l) => s + lineOurCost(l),
             0,
           );
+          // Material vs labor split — so you can see (and decide) where the cost is.
+          const costSplit = option.lines.reduce(
+            (a, l) => {
+              const s = lineCostSplit(l);
+              return { mat: a.mat + s.mat, labor: a.labor + s.labor };
+            },
+            { mat: 0, labor: 0 },
+          );
           const optionProfit = totals.subtotal - optionCost;
           const optionMargin =
             totals.subtotal > 0 ? (optionProfit / totals.subtotal) * 100 : 0;
@@ -750,11 +782,17 @@ export function EstimateBuilder({
                           <LabeledNumber
                             label="Sq ft"
                             value={line.sqft}
-                            onChange={(v) => updateLine(oi, li, { sqft: v })}
+                            onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
                           />
                           <div className="pb-2 text-xs text-muted-foreground">
                             {(num(line.sqft) / 9).toFixed(1)} sq yd
                           </div>
+                          <LabeledNumber
+                            label={`Qty${line.unit ? ` (${line.unit})` : ""}`}
+                            value={line.quantity}
+                            width="w-20"
+                            onChange={(v) => updateLine(oi, li, { quantity: v })}
+                          />
                           <div>
                             <label className="mb-1 block text-xs text-muted-foreground">
                               Price per
@@ -941,6 +979,14 @@ export function EstimateBuilder({
                           {formatMoney(optionCost)}
                         </span>
                       </div>
+                      {costSplit.mat > 0 || costSplit.labor > 0 ? (
+                        <div className="flex justify-between pl-3 text-[11px] text-muted-foreground/80">
+                          <span>
+                            ↳ Material {formatMoney(costSplit.mat)} · Labor{" "}
+                            {formatMoney(costSplit.labor)}
+                          </span>
+                        </div>
+                      ) : null}
                       <div className="flex justify-between text-muted-foreground">
                         <span>Profit</span>
                         <span className="tabular-nums">
