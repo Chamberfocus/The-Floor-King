@@ -675,11 +675,11 @@ export function GuidedWizard({
                       onPick={(p) => p && pickTransition(r.id, p)}
                       onCreated={(p) => pickTransition(r.id, p)}
                     />
-                    <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                      <Input value={r.transQty} onChange={(e) => up(r.id, { transQty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-7 w-14" />
+                    <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                      <Input value={r.transQty} onChange={(e) => up(r.id, { transQty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-8 w-16" />
                       <span>each</span>
-                      $<Input value={r.transCost} onChange={(e) => up(r.id, { transCost: e.target.value, ...(num(e.target.value) > 0 ? { transSell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-7 w-16" />
-                      →$<Input value={r.transSell} onChange={(e) => up(r.id, { transSell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-7 w-16" />
+                      $<Input value={r.transCost} onChange={(e) => up(r.id, { transCost: e.target.value, ...(num(e.target.value) > 0 ? { transSell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
+                      →$<Input value={r.transSell} onChange={(e) => up(r.id, { transSell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
                     </div>
                     <Input value={r.transNote} onChange={(e) => up(r.id, { transNote: e.target.value })}
                       placeholder="Type (e.g. carpet→tile T-mold, flush threshold) — shows on the work order" className="mt-1 h-7 text-xs" />
@@ -710,22 +710,26 @@ export function GuidedWizard({
                       />
                     </div>
                     {r.extras.map((x) => (
-                      <div key={x.id} className="mt-1.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-                        <Input value={x.label} onChange={(e) => updExtra(r.id, x.id, { label: e.target.value })} placeholder="Add-on name" className="h-7 min-w-32 flex-1" />
-                        <Input value={x.qty} onChange={(e) => updExtra(r.id, x.id, { qty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-7 w-14" />
-                        <select value={x.unit} onChange={(e) => updExtra(r.id, x.id, { unit: e.target.value })} className="h-7 rounded-md border border-input bg-transparent px-1 text-xs">
-                          <option value="sqft">sq ft</option>
-                          <option value="sqyd">sq yd</option>
-                          <option value="lnft">ln ft</option>
-                          <option value="each">each</option>
-                          <option value="step">step</option>
-                        </select>
-                        $<Input value={x.cost} onChange={(e) => updExtra(r.id, x.id, { cost: e.target.value, ...(num(e.target.value) > 0 ? { sell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-7 w-14" />
-                        →$<Input value={x.sell} onChange={(e) => updExtra(r.id, x.id, { sell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-7 w-14" />
-                        <label className="flex items-center gap-1"><input type="checkbox" checked={x.labor} onChange={(e) => updExtra(r.id, x.id, { labor: e.target.checked })} className="size-3.5 rounded border-input" />labor</label>
-                        <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove add-on" onClick={() => delExtra(r.id, x.id)}>
-                          <Trash2 className="size-3.5 text-destructive" />
-                        </Button>
+                      <div key={x.id} className="mt-1.5 space-y-1.5 rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Input value={x.label} onChange={(e) => updExtra(r.id, x.id, { label: e.target.value })} placeholder="Add-on name" className="h-8 flex-1" />
+                          <Button type="button" variant="ghost" size="icon" aria-label="Remove add-on" onClick={() => delExtra(r.id, x.id)}>
+                            <Trash2 className="size-4 text-destructive" />
+                          </Button>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Input value={x.qty} onChange={(e) => updExtra(r.id, x.id, { qty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-8 w-16" />
+                          <select value={x.unit} onChange={(e) => updExtra(r.id, x.id, { unit: e.target.value })} className="h-8 rounded-md border border-input bg-transparent px-1.5 text-xs">
+                            <option value="sqft">sq ft</option>
+                            <option value="sqyd">sq yd</option>
+                            <option value="lnft">ln ft</option>
+                            <option value="each">each</option>
+                            <option value="step">step</option>
+                          </select>
+                          $<Input value={x.cost} onChange={(e) => updExtra(r.id, x.id, { cost: e.target.value, ...(num(e.target.value) > 0 ? { sell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
+                          →$<Input value={x.sell} onChange={(e) => updExtra(r.id, x.id, { sell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
+                          <label className="flex items-center gap-1.5 pl-1"><input type="checkbox" checked={x.labor} onChange={(e) => updExtra(r.id, x.id, { labor: e.target.checked })} className="size-4 rounded border-input" />labor</label>
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -269,22 +269,26 @@ export function QuickEstimate({
           </div>
           {lines.length ? (
             lines.map((l) => (
-              <div key={l.id} className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-                <Input value={l.label} onChange={(e) => setLine(l.id, { label: e.target.value })} placeholder="Item name" className="h-8 min-w-32 flex-1" />
-                <Input value={l.qty} onChange={(e) => setLine(l.id, { qty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-8 w-14" />
-                <select value={l.unit} onChange={(e) => setLine(l.id, { unit: e.target.value })} className="h-8 rounded-md border border-input bg-transparent px-1 text-xs">
-                  <option value="sqft">sq ft</option>
-                  <option value="sqyd">sq yd</option>
-                  <option value="lnft">ln ft</option>
-                  <option value="each">each</option>
-                  <option value="step">step</option>
-                </select>
-                $<Input value={l.cost} onChange={(e) => setLine(l.id, { cost: e.target.value, ...(num(e.target.value) > 0 ? { sell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
-                →$<Input value={l.sell} onChange={(e) => setLine(l.id, { sell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
-                <label className="flex items-center gap-1"><input type="checkbox" checked={l.labor} onChange={(e) => setLine(l.id, { labor: e.target.checked })} className="size-3.5 rounded border-input" />labor</label>
-                <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove line" onClick={() => setLines((xs) => xs.filter((x) => x.id !== l.id))}>
-                  <Trash2 className="size-3.5 text-destructive" />
-                </Button>
+              <div key={l.id} className="space-y-1.5 rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1">
+                  <Input value={l.label} onChange={(e) => setLine(l.id, { label: e.target.value })} placeholder="Item name" className="h-8 flex-1" />
+                  <Button type="button" variant="ghost" size="icon" aria-label="Remove line" onClick={() => setLines((xs) => xs.filter((x) => x.id !== l.id))}>
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  <Input value={l.qty} onChange={(e) => setLine(l.id, { qty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-8 w-16" />
+                  <select value={l.unit} onChange={(e) => setLine(l.id, { unit: e.target.value })} className="h-8 rounded-md border border-input bg-transparent px-1.5 text-xs">
+                    <option value="sqft">sq ft</option>
+                    <option value="sqyd">sq yd</option>
+                    <option value="lnft">ln ft</option>
+                    <option value="each">each</option>
+                    <option value="step">step</option>
+                  </select>
+                  $<Input value={l.cost} onChange={(e) => setLine(l.id, { cost: e.target.value, ...(num(e.target.value) > 0 ? { sell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
+                  →$<Input value={l.sell} onChange={(e) => setLine(l.id, { sell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
+                  <label className="flex items-center gap-1.5 pl-1"><input type="checkbox" checked={l.labor} onChange={(e) => setLine(l.id, { labor: e.target.checked })} className="size-4 rounded border-input" />labor</label>
+                </div>
               </div>
             ))
           ) : (

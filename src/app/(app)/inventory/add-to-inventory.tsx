@@ -38,7 +38,7 @@ export function AddToInventoryForm() {
       <div ref={boxRef} className="relative">
         <label className="mb-1 block text-xs text-muted-foreground">Product</label>
         <input type="hidden" name="product_id" value={picked?.id ?? ""} required />
-        <div className="relative w-72">
+        <div className="relative w-full sm:w-72">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
             value={picked ? productLabel(picked) : q}
@@ -52,11 +52,11 @@ export function AddToInventoryForm() {
               e.currentTarget.select();
             }}
             placeholder="Search a product to track…"
-            className="h-9 w-72 rounded-md border border-input bg-transparent pl-8 pr-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-9 w-full rounded-md border border-input bg-transparent pl-8 pr-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
         {open ? (
-          <div className="absolute z-30 mt-1 max-h-64 w-80 overflow-y-auto rounded-md border bg-popover py-1 shadow-lg">
+          <div className="absolute z-30 mt-1 max-h-64 w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-md border bg-popover py-1 shadow-lg">
             {results.length === 0 ? (
               <p className="px-3 py-2 text-sm text-muted-foreground">
                 No untracked products match.

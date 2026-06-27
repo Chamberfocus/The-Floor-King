@@ -121,7 +121,7 @@ export function AreaCalculator({
             {segs.map((s, i) => (
               <div
                 key={s.id}
-                className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-2"
+                className="flex flex-wrap items-center gap-2 sm:grid sm:grid-cols-[auto_1fr_auto_auto_auto]"
               >
                 <button
                   type="button"
@@ -146,7 +146,7 @@ export function AreaCalculator({
                         ? "e.g. Living room"
                         : "Area / closet"
                   }
-                  className="h-9"
+                  className="h-9 min-w-[7rem] flex-1 sm:flex-none"
                 />
                 <div className="flex gap-1">
                   <Input
