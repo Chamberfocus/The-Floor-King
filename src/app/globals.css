@@ -127,6 +127,16 @@
   html {
     @apply font-sans;
     -webkit-tap-highlight-color: transparent;
+    /* App-like: no rubber-band bounce revealing a white gap when overscrolling. */
+    overscroll-behavior-y: none;
+  }
+  /* App-like: don't show the iOS long-press callout on UI chrome (nav, buttons,
+     badges). Real content — phone numbers, addresses, notes — stays selectable. */
+  button,
+  a,
+  [role="button"],
+  [data-slot="badge"] {
+    -webkit-touch-callout: none;
   }
   /* On phones, text inputs must be ≥16px or iOS auto-zooms on focus — jarring
      in the field. Bumps just the controls, not the surrounding UI. */
