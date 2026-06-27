@@ -12,13 +12,11 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { priceFromMargin, marginPct } from "@/lib/estimate-calc";
 import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
-import { STANDARD_ADDONS } from "@/lib/addons";
 import type { Product } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { ProductPicker } from "./product-picker";
 import { AreaCalculator } from "@/components/area-calculator";
 import { PriceBookPicker } from "@/components/price-book-picker";
-import type { PriceItem } from "@/lib/price-book";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 import { analyzeJobDrawing, type DrawingFindings } from "./ai-actions";
 
@@ -95,11 +93,6 @@ const roomSqft = (r: WRoom) =>
     ? num(r.areaOverride)
     : areaSqft(feet(r.lengthFt, r.lengthIn), feet(r.widthFt, r.widthIn));
 
-interface WAddon {
-  label: string; unit: string; labor: boolean; on: boolean;
-  qty: string; cost: string; sell: string;
-}
-
 /** Material + pad for a room — never any labor on these (order quantity, waste rolled in). */
 function roomMatPad(r: WRoom): SmartLine[] {
   const profile = profileFor(r.type);
@@ -172,8 +165,8 @@ function bundledLine(
 }
 
 /** All estimate lines: materials/pad per room + bundled labor / demo / prep /
- *  transitions (one line each, totals across rooms) + add-ons. */
-function jobLines(rooms: WRoom[], addons: WAddon[]): SmartLine[] {
+ *  transitions (one line each, totals across rooms) + per-room add-ons. */
+function jobLines(rooms: WRoom[]): SmartLine[] {
   const out: SmartLine[] = [];
   const laborByCat = new Map<
     string,
@@ -250,20 +243,7 @@ function jobLines(rooms: WRoom[], addons: WAddon[]): SmartLine[] {
     out.push(bundledLine(e.label, e.labor, e.labor ? "labor" : "other", e.unit, e.qty, e.costSum, e.sellSum));
   }
 
-  out.push(...addonLines(addons));
   return out;
-}
-function addonLines(addons: WAddon[]): SmartLine[] {
-  return addons
-    .filter((a) => a.on && a.label.trim())
-    .map((a) => ({
-      room: null, description: a.label, category: a.labor ? "labor" : "other",
-      measure_unit: "sqft", sqft: null, quantity: num(a.qty) > 0 ? num(a.qty) : 1,
-      length_in: null, width_in: null, unit: a.unit || "each",
-      material_rate: a.labor ? 0 : num(a.sell), labor_rate: a.labor ? num(a.sell) : 0,
-      material_cost: a.labor ? 0 : num(a.cost), labor_cost: a.labor ? num(a.cost) : 0,
-      waste_pct: 0, product_id: null, manufacturer: null, style: null, color: null,
-    }));
 }
 function lineSell(l: SmartLine): number {
   const q = l.quantity && l.quantity > 0 ? l.quantity : l.measure_unit === "sqyd" ? (l.sqft ?? 0) / 9 : (l.sqft ?? 0);
@@ -274,7 +254,7 @@ function lineCost(l: SmartLine): number {
   return q * l.material_cost * (1 + l.waste_pct / 100) + q * l.labor_cost;
 }
 
-const STEPS = ["Rooms", "Pricing", "Add-ons", "Review"] as const;
+const STEPS = ["Rooms", "Pricing", "Review"] as const;
 
 export function GuidedWizard({
   customerId, customerName, targetMargin,
@@ -287,9 +267,8 @@ export function GuidedWizard({
   const [presentation, setPresentation] = useState<"detailed" | "summary">("detailed");
   const [notes, setNotes] = useState("");
   const [rooms, setRooms] = useState<WRoom[]>([newRoom()]);
-  const [addons, setAddons] = useState<WAddon[]>(() =>
-    STANDARD_ADDONS.map((d) => ({ label: d.label, unit: d.unit, labor: d.labor, on: false, qty: "", cost: "", sell: "" })),
-  );
+  // Bumped after a catalog pick so the picker fields reset for the next add.
+  const [catalogKey, setCatalogKey] = useState(0);
   const [saving, startSave] = useTransition();
   const [findings, setFindings] = useState<DrawingFindings | null>(null);
   const [analyzing, startAnalyze] = useTransition();
@@ -379,22 +358,43 @@ export function GuidedWizard({
     setRooms((rs) =>
       rs.map((r) => (r.id === roomId ? { ...r, extras: r.extras.filter((x) => x.id !== exId) } : r)),
     );
-  const setAddon = (i: number, patch: Partial<WAddon>) =>
-    setAddons((xs) => xs.map((a, j) => (j === i ? { ...a, ...patch } : a)));
-  // Drop a price-book item onto the job-level add-on list, on & priced.
-  const addPricedAddon = (it: PriceItem) =>
-    setAddons((xs) => {
-      const i = xs.findIndex((a) => a.label === it.label);
-      if (i >= 0) {
-        return xs.map((a, j) =>
-          j === i ? { ...a, on: true, unit: it.unit, labor: it.labor, cost: String(it.cost), sell: String(sellAt(it.cost)) } : a,
-        );
-      }
-      return [
-        ...xs,
-        { label: it.label, unit: it.unit, labor: it.labor, on: true, qty: "", cost: String(it.cost), sell: String(sellAt(it.cost)) },
-      ];
-    });
+  const prodLabel = (p: Product) =>
+    [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name;
+  // Add a per-room add-on straight from the catalog (trim, stair nose, etc.) —
+  // installed cost prefilled and marked up. New product? The picker creates it.
+  const addCatalogExtra = (roomId: string, p: Product) => {
+    const cost = r2((Number(p.material_rate) || 0) + (Number(p.labor_rate) || 0));
+    setRooms((rs) =>
+      rs.map((r) => {
+        if (r.id !== roomId) return r;
+        const ex = mkExtra(prodLabel(p), p.unit || "each", false);
+        ex.qty = "1";
+        if (cost > 0) { ex.cost = String(cost); ex.sell = String(sellAt(cost)); }
+        return { ...r, extras: [...r.extras, ex] };
+      }),
+    );
+    setCatalogKey((k) => k + 1);
+  };
+  // Pick a transition product from the catalog → fills the transition cost/sell
+  // and labels it (so it carries to the work order).
+  const pickTransition = (roomId: string, p: Product) => {
+    const cost = r2((Number(p.material_rate) || 0) + (Number(p.labor_rate) || 0));
+    setRooms((rs) =>
+      rs.map((r) =>
+        r.id === roomId
+          ? {
+              ...r,
+              trans: true,
+              transQty: num(r.transQty) > 0 ? r.transQty : "1",
+              transCost: cost > 0 ? String(cost) : r.transCost,
+              transSell: cost > 0 ? String(sellAt(cost)) : r.transSell,
+              transNote: r.transNote.trim() || prodLabel(p),
+            }
+          : r,
+      ),
+    );
+    setCatalogKey((k) => k + 1);
+  };
 
   const pickProduct = (id: string, p: Product | null) => {
     if (!p) return up(id, { productId: null, productLabel: "" });
@@ -414,7 +414,7 @@ export function GuidedWizard({
     });
   };
 
-  const allLines = useMemo(() => jobLines(rooms, addons), [rooms, addons]);
+  const allLines = useMemo(() => jobLines(rooms), [rooms]);
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
   const cost = allLines.reduce((s, l) => s + lineCost(l), 0);
   const margin = marginPct(grand, cost);
@@ -429,18 +429,17 @@ export function GuidedWizard({
     const out: string[] = [];
     if (!readyRooms.length) return out;
     const hasCarpet = readyRooms.some((r) => profileFor(r.type)?.category === "carpet");
+    // Add-ons now produce real lines, so we just check the actual estimate.
     const has = (re: RegExp) => allLines.some((l) => re.test(l.description));
-    const onAddon = (re: RegExp) => addons.some((a) => a.on && re.test(a.label));
-    const covered = (re: RegExp) => has(re) || onAddon(re);
     if (hasCarpet && !has(/pad/i)) out.push("No carpet pad on a carpet job — add it or confirm none is needed.");
     if (!has(/install/i)) out.push("No installation labor — did you add the install price?");
-    if (!covered(/tear\s?out|haul|demo/i)) out.push("No tear-out / demo — is the old floor staying?");
-    if (!covered(/prep|level|subfloor/i)) out.push("No floor prep / subfloor work — checked the subfloor?");
-    if (readyRooms.length > 1 && !covered(/transition|t-?mold|reducer|threshold|metal/i))
+    if (!has(/tear\s?out|haul|demo/i)) out.push("No tear-out / demo — is the old floor staying?");
+    if (!has(/prep|level|subfloor/i)) out.push("No floor prep / subfloor work — checked the subfloor?");
+    if (readyRooms.length > 1 && !has(/transition|t-?mold|reducer|threshold|metal/i))
       out.push("No transitions/thresholds between rooms.");
-    if (hasCarpet && !onAddon(/stair/i)) out.push("Any stairs? No stair labor added.");
-    if (!onAddon(/furniture|appliance/i)) out.push("Furniture or appliances to move?");
-    if (!onAddon(/baseboard|quarter|shoe/i)) out.push("Baseboard / quarter round?");
+    if (hasCarpet && !has(/stair/i)) out.push("Any stairs? No stair labor added.");
+    if (!has(/furniture|appliance/i)) out.push("Furniture or appliances to move?");
+    if (!has(/baseboard|quarter|shoe/i)) out.push("Baseboard / quarter round?");
 
     // Cross-check the DRAWING: anything it mentioned that isn't in the estimate.
     for (const a of findings?.addons ?? []) {
@@ -449,10 +448,7 @@ export function GuidedWizard({
       const inLines = allLines.some((l) =>
         words.some((w) => l.description.toLowerCase().includes(w)),
       );
-      const inAddons = addons.some(
-        (ad) => ad.on && words.some((w) => ad.label.toLowerCase().includes(w)),
-      );
-      if (!inLines && !inAddons) out.push(`The drawing shows "${a.label}" — did you add it?`);
+      if (!inLines) out.push(`The drawing shows "${a.label}" — did you add it?`);
     }
     return out;
   })();
@@ -465,18 +461,13 @@ export function GuidedWizard({
     setNotes("");
     setFindings(null);
     setRooms([newRoom()]);
-    setAddons(
-      STANDARD_ADDONS.map((d) => ({
-        label: d.label, unit: d.unit, labor: d.labor, on: false, qty: "", cost: "", sell: "",
-      })),
-    );
     setStep(0);
     toast.success("Cleared — fresh estimate");
   };
 
   const save = (opts: { print?: boolean; send?: boolean } = {}) =>
     startSave(async () => {
-      const lines = jobLines(rooms, addons).filter((l) => l.description.trim());
+      const lines = jobLines(rooms).filter((l) => l.description.trim());
       if (!lines.length) {
         toast.error("Add at least one room with a size first.");
         return;
@@ -675,7 +666,16 @@ export function GuidedWizard({
                       placeholder="Prep notes (e.g. skim coat, patch low spots) — shows on the work order" className="mt-1 h-7 text-xs" />
                   </Toggle>
                   <Toggle on={r.trans} onToggle={() => up(r.id, { trans: !r.trans })} label="Transitions / thresholds">
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    {/* Pull the transition from the catalog — fills the cost; not there? add it inline. */}
+                    <ProductPicker
+                      key={`trans-${r.id}-${catalogKey}`}
+                      value=""
+                      label="Pick from catalog (T-mold, reducer, stair nose…)"
+                      defaultCategory="trim"
+                      onPick={(p) => p && pickTransition(r.id, p)}
+                      onCreated={(p) => pickTransition(r.id, p)}
+                    />
+                    <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                       <Input value={r.transQty} onChange={(e) => up(r.id, { transQty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-7 w-14" />
                       <span>each</span>
                       $<Input value={r.transCost} onChange={(e) => up(r.id, { transCost: e.target.value, ...(num(e.target.value) > 0 ? { transSell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-7 w-16" />
@@ -697,6 +697,17 @@ export function GuidedWizard({
                       ))}
                       <button type="button" onClick={() => addExtra(r.id)} className="rounded-full border px-2 py-0.5 hover:bg-muted">+ Custom</button>
                       <PriceBookPicker triggerSize="sm" triggerVariant="ghost" triggerClassName="h-6 px-2 text-[11px]" onPick={(it) => addExtra(r.id, it)} />
+                    </div>
+                    {/* Pull any add-on straight from the catalog (trim, stair nose, metals…). */}
+                    <div className="mt-1.5">
+                      <ProductPicker
+                        key={`extra-${r.id}-${catalogKey}`}
+                        value=""
+                        label="Add from catalog"
+                        defaultCategory="trim"
+                        onPick={(p) => p && addCatalogExtra(r.id, p)}
+                        onCreated={(p) => addCatalogExtra(r.id, p)}
+                      />
                     </div>
                     {r.extras.map((x) => (
                       <div key={x.id} className="mt-1.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
@@ -725,45 +736,8 @@ export function GuidedWizard({
         </div>
       ) : null}
 
-      {/* STEP 3 — Add-ons checklist */}
+      {/* STEP 3 — Review */}
       {step === 2 ? (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-muted-foreground">
-              Check everything this job needs so nothing&apos;s missed — tear-out, prep, stairs, transitions, metals…
-            </p>
-            <PriceBookPicker triggerLabel="Add from price list" onPick={addPricedAddon} />
-          </div>
-          {(["labor", "material"] as const).map((kind) => (
-            <div key={kind}>
-              <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {kind === "labor" ? "Labor" : "Materials & metals"}
-              </div>
-              <div className="grid gap-1.5 sm:grid-cols-2">
-                {addons.map((a, i) => (a.labor === (kind === "labor") ? (
-                  <div key={a.label} className="rounded-md border px-2 py-1.5 text-sm">
-                    <label className="flex items-center gap-2">
-                      <input type="checkbox" checked={a.on} onChange={(e) => setAddon(i, { on: e.target.checked })} className="size-4 rounded border-input" />
-                      <span className={cn(!a.on && "text-muted-foreground")}>{a.label}</span>
-                    </label>
-                    {a.on ? (
-                      <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-                        <Input value={a.qty} onChange={(e) => setAddon(i, { qty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-7 w-14" />
-                        <span>{a.unit}</span>
-                        $<Input value={a.cost} onChange={(e) => setAddon(i, { cost: e.target.value, ...(num(e.target.value) > 0 ? { sell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-7 w-16" />
-                        →$<Input value={a.sell} onChange={(e) => setAddon(i, { sell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-7 w-16" />
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null))}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {/* STEP 4 — Review */}
-      {step === 3 ? (
         <div className="space-y-3">
           {/* Don't-miss checklist — smart nudges from the actual job */}
           {reminders.length ? (
@@ -778,10 +752,10 @@ export function GuidedWizard({
               </ul>
               <button
                 type="button"
-                onClick={() => setStep(2)}
+                onClick={() => setStep(1)}
                 className="mt-2 text-xs font-medium text-amber-700 underline-offset-2 hover:underline"
               >
-                ← Back to add-ons to handle these
+                ← Back to pricing &amp; add-ons to handle these
               </button>
             </div>
           ) : (
