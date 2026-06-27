@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Clock, AlertTriangle, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
@@ -38,6 +39,18 @@ export function StageManage({
   const [open, setOpen] = useState(false);
   const [toStage, setToStage] = useState(currentStageId ?? ordered[0]?.id ?? "");
   const [toUser, setToUser] = useState(currentOwnerId ?? "");
+  const [reason, setReason] = useState("");
+
+  // Moving to a Lost/Dead/Cancelled-type stage = a lost deal → ask why.
+  const targetName = ordered.find((s) => s.id === toStage)?.name ?? "";
+  const isLost = /lost|declin|dead|cancel/i.test(targetName);
+  const LOST_REASONS = [
+    "Price too high",
+    "Went with competitor",
+    "Changed their mind",
+    "Couldn't reach them",
+    "Bad timing",
+  ];
 
   const due = nextActionDue ? new Date(nextActionDue) : null;
   const overdue = due ? due.getTime() < Date.now() : false;
@@ -112,6 +125,7 @@ export function StageManage({
           <input type="hidden" name="id" value={customerId} />
           <input type="hidden" name="to_stage" value={toStage} />
           <input type="hidden" name="to_user" value={toUser} />
+          <input type="hidden" name="note" value={isLost ? reason : ""} />
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">Stage</label>
             <SearchPicker
@@ -138,6 +152,34 @@ export function StageManage({
               }))}
             />
           </div>
+          {isLost ? (
+            <div className="w-full space-y-1.5">
+              <label className="block text-xs font-medium text-destructive">
+                Why was this lost? (shows in the Win/Loss report)
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {LOST_REASONS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setReason(r)}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1 text-xs",
+                      reason === r ? "border-primary bg-primary/5" : "hover:bg-muted",
+                    )}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <Input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Reason (or pick one above)"
+                className="h-8"
+              />
+            </div>
+          ) : null}
           <div className="flex gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
               Cancel

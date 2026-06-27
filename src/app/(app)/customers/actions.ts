@@ -240,8 +240,19 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
     .update({
       workflow_stage_id: toStageId,
       workflow_owner_id: toUser,
-      next_action_due: due,
+      next_action_due: leadStage === "lost" ? null : due,
       ...(leadStage ? { stage: leadStage } : {}),
+      // Moving to a Lost-type stage = the deal fell through: capture the reason
+      // (so it shows in Win/Loss) and pull it out of the active pipeline. Moving
+      // to any other stage reopens it.
+      ...(leadStage === "lost"
+        ? {
+            cancelled_at: new Date().toISOString(),
+            cancel_reason: note || null,
+          }
+        : leadStage
+          ? { cancelled_at: null, cancel_reason: null }
+          : {}),
     })
     .eq("id", id);
   if (error) return;

@@ -101,15 +101,21 @@ export async function getWinLossReport(
 
   const custIds = [...new Set(estimates.map((e) => e.customer_id))];
   const sourceById = new Map<string, LeadSource | null>();
-  const cancelled = new Set<string>();
+  // Cancelled/"lost" customers ARE losses here (with the reason captured on
+  // cancel) — unlike the financial reports, which exclude them.
+  const cancelledInfo = new Map<string, { at: string | null; reason: string | null }>();
   if (custIds.length) {
     const { data } = await supabase
       .from("customers")
-      .select("id, source, cancelled_at")
+      .select("id, source, cancelled_at, cancel_reason")
       .in("id", custIds);
     for (const c of data ?? []) {
       sourceById.set(c.id as string, (c.source as LeadSource | null) ?? null);
-      if (c.cancelled_at) cancelled.add(c.id as string);
+      if (c.cancelled_at)
+        cancelledInfo.set(c.id as string, {
+          at: c.cancelled_at as string,
+          reason: (c.cancel_reason as string | null) ?? null,
+        });
     }
   }
   const names = await getProfileNames(
@@ -150,13 +156,37 @@ export async function getWinLossReport(
     map.set(key, g);
   };
 
+  const seenCancelled = new Set<string>();
   for (const e of estimates) {
-    if (cancelled.has(e.customer_id)) continue;
     const v = dealValue(e);
     const salesId = e.created_by ?? null;
     const salesman = salesId ? (names[salesId] ?? null) : null;
     const src = sourceById.get(e.customer_id) ?? null;
     const sourceLabel = src ? LEAD_SOURCE_LABELS[src] : "Unknown";
+
+    // Lead was marked lost / cancelled — count it as one loss (with its reason),
+    // dated when it was cancelled. The whole deal fell through.
+    const cInfo = cancelledInfo.get(e.customer_id);
+    if (cInfo) {
+      if (seenCancelled.has(e.customer_id)) continue;
+      seenCancelled.add(e.customer_id);
+      if (!inRange(cInfo.at)) continue;
+      lost += 1;
+      lostValue += v;
+      lostDeals.push({
+        estimateId: e.id,
+        title: e.title ?? "Estimate",
+        customer: e.customer_name,
+        salesman,
+        source: sourceLabel,
+        value: v,
+        decidedAt: cInfo.at,
+        reason: cInfo.reason,
+      });
+      bump(bySalesman, salesId ?? "none", salesman ?? "Unattributed", "lost", v);
+      bump(bySource, sourceLabel, sourceLabel, "lost", v);
+      continue;
+    }
 
     if (e.status === "approved" || e.status === "declined") {
       if (!inRange(e.updated_at)) continue;
