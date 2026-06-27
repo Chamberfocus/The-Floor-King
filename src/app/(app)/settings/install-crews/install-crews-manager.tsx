@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
-import type { InstallCrew } from "@/lib/data/install-crews";
+import type { InstallCrew, CrewPayout } from "@/lib/data/install-crews";
 import { saveInstallCrew, setInstallCrewActive } from "./actions";
 
 const BASIS_LABEL: Record<string, string> = {
@@ -18,9 +18,17 @@ const BASIS_LABEL: Record<string, string> = {
   percent: "% of labor",
 };
 
-export function InstallCrewsManager({ initial }: { initial: InstallCrew[] }) {
+export function InstallCrewsManager({
+  initial,
+  payouts = {},
+}: {
+  initial: InstallCrew[];
+  payouts?: Record<string, CrewPayout>;
+}) {
   const [editing, setEditing] = useState<InstallCrew | "new" | null>(null);
   const [pending, start] = useTransition();
+
+  const totalUnpaid = initial.reduce((s, c) => s + (payouts[c.id]?.unpaid ?? 0), 0);
 
   const onSave = (form: FormData) =>
     start(async () => {
@@ -43,6 +51,15 @@ export function InstallCrewsManager({ initial }: { initial: InstallCrew[] }) {
 
   return (
     <div className="space-y-4">
+      {totalUnpaid > 0 ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <span className="font-semibold text-amber-700">
+            {formatMoney(totalUnpaid)} outstanding
+          </span>
+          <span className="text-amber-800"> to your crews — unpaid recorded payouts across all jobs.</span>
+        </div>
+      ) : null}
+
       {editing ? (
         <CrewForm
           crew={editing === "new" ? null : editing}
@@ -94,6 +111,25 @@ export function InstallCrewsManager({ initial }: { initial: InstallCrew[] }) {
                     </span>
                   ) : null}
                 </div>
+                {payouts[c.id] && payouts[c.id].total > 0 ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">
+                      Paid {formatMoney(payouts[c.id].paid)}
+                    </span>
+                    {payouts[c.id].unpaid > 0 ? (
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-amber-600">
+                        {formatMoney(payouts[c.id].unpaid)} unpaid
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600">
+                        all paid
+                      </span>
+                    )}
+                    <span className="text-muted-foreground">
+                      · {payouts[c.id].jobs} job{payouts[c.id].jobs === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                ) : null}
               </div>
               <div className="flex items-center gap-1.5">
                 <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(c)}>

@@ -38,6 +38,46 @@ export async function listInstallCrews(
 
 /** The crew currently assigned to a job (or null). Defensive against the
  *  column/table not existing yet. */
+export interface CrewPayout {
+  paid: number;
+  unpaid: number;
+  total: number;
+  jobs: number;
+}
+
+/**
+ * What you've paid / still owe each crew, summed across all jobs (only payouts
+ * tied to a crew). Defensive: returns {} if the crew_id column isn't there yet.
+ */
+export async function getCrewPayoutTotals(): Promise<Record<string, CrewPayout>> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("job_labor")
+      .select("crew_id, amount, paid, job_id")
+      .not("crew_id", "is", null)
+      .limit(5000);
+    if (error || !data) return {};
+    const out: Record<string, CrewPayout> = {};
+    const jobsByCrew: Record<string, Set<string>> = {};
+    for (const r of data as { crew_id: string | null; amount: number; paid: boolean; job_id: string }[]) {
+      const cid = r.crew_id;
+      if (!cid) continue;
+      const amt = Number(r.amount) || 0;
+      const e = out[cid] ?? { paid: 0, unpaid: 0, total: 0, jobs: 0 };
+      e.total += amt;
+      if (r.paid) e.paid += amt;
+      else e.unpaid += amt;
+      out[cid] = e;
+      (jobsByCrew[cid] ??= new Set()).add(r.job_id);
+    }
+    for (const cid of Object.keys(out)) out[cid].jobs = jobsByCrew[cid].size;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 export type JobCrew = Pick<
   InstallCrew,
   "id" | "name" | "kind" | "phone" | "pay_basis" | "pay_rate"
