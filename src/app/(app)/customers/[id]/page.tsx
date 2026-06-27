@@ -9,6 +9,7 @@ import {
   Mail,
   ArrowLeftRight,
   Info,
+  ChevronRight,
   FileText,
   Wrench,
   Receipt,
@@ -266,43 +267,39 @@ export default async function CustomerPage({
 
           <CustomerInfoCard customer={customer} />
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Customer portal</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {portalUser ? (
-                <p className="text-sm text-muted-foreground">
-                  Portal access enabled for{" "}
-                  <span className="font-medium text-foreground">
-                    {portalUser.email}
-                  </span>
-                  .
-                </p>
-              ) : (
-                <InvitePortalForm
-                  customerId={customer.id}
-                  defaultEmail={customer.email ?? ""}
-                />
-              )}
-            </CardContent>
-          </Card>
-
-          {canDelete ? (
-            <Card className="border-destructive/30">
-              <CardHeader>
-                <CardTitle className="text-base text-destructive">
-                  Danger zone
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Cancel keeps the record. Delete erases the customer and
-                  everything attached, for good.
-                </p>
-                <DeleteCustomer customerId={customer.id} name={customer.full_name} />
+          <Collapse title="Customer portal">
+            <Card>
+              <CardContent className="pt-6">
+                {portalUser ? (
+                  <p className="text-sm text-muted-foreground">
+                    Portal access enabled for{" "}
+                    <span className="font-medium text-foreground">
+                      {portalUser.email}
+                    </span>
+                    .
+                  </p>
+                ) : (
+                  <InvitePortalForm
+                    customerId={customer.id}
+                    defaultEmail={customer.email ?? ""}
+                  />
+                )}
               </CardContent>
             </Card>
+          </Collapse>
+
+          {canDelete ? (
+            <Collapse title="Danger zone">
+              <Card className="border-destructive/30">
+                <CardContent className="space-y-2 pt-6">
+                  <p className="text-xs text-muted-foreground">
+                    Cancel keeps the record. Delete erases the customer and
+                    everything attached, for good.
+                  </p>
+                  <DeleteCustomer customerId={customer.id} name={customer.full_name} />
+                </CardContent>
+              </Card>
+            </Collapse>
           ) : null}
         </div>
 
@@ -310,11 +307,15 @@ export default async function CustomerPage({
         <div className="space-y-6 lg:col-span-2">
           {/* AI follow-up drafting */}
           {!customer.cancelled_at ? (
-            <AiFollowup customerId={customer.id} />
+            <Collapse title="AI follow-up draft">
+              <AiFollowup customerId={customer.id} />
+            </Collapse>
           ) : null}
 
           {/* Chat */}
-          <CustomerChat customerId={customer.id} messages={messages} />
+          <Collapse title={`Messages${messages.length ? ` (${messages.length})` : ""}`}>
+            <CustomerChat customerId={customer.id} messages={messages} />
+          </Collapse>
 
           {/* Estimates */}
           <Card>
@@ -471,9 +472,12 @@ export default async function CustomerPage({
           </Card>
 
           {/* Documents */}
-          <CustomerDocuments customerId={customer.id} documents={documents} />
+          <Collapse title={`Documents${documents.length ? ` (${documents.length})` : ""}`}>
+            <CustomerDocuments customerId={customer.id} documents={documents} />
+          </Collapse>
 
           {/* Activity */}
+          <Collapse title="Activity history">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Activity</CardTitle>
@@ -509,8 +513,33 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
+          </Collapse>
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Tuck a secondary section behind a one-line, click-to-expand header so the
+ * customer page leads with what matters. Native <details> — no client JS.
+ */
+function Collapse({
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details open={defaultOpen} className="group">
+      <summary className="mb-2 flex cursor-pointer list-none items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="size-4 transition-transform group-open:rotate-90" />
+        {title}
+      </summary>
+      {children}
+    </details>
   );
 }
