@@ -32,7 +32,34 @@ export default async function PurchaseOrdersPage() {
           <span className="font-medium">Create PO</span>.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <>
+        {/* Phone: tappable cards */}
+        <div className="space-y-2 md:hidden">
+          {pos.map((po) => (
+            <Link
+              key={po.id}
+              href={`/purchase-orders/${po.id}`}
+              className="block rounded-lg border p-3 active:bg-muted/50"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{po.supplier || "Purchase order"}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {(po.items ?? []).length} item{(po.items ?? []).length === 1 ? "" : "s"}
+                    {po.customer_name ? ` · ${po.customer_name}` : ""}
+                  </div>
+                </div>
+                <PoStatusBadge status={po.status} />
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{formatMoney(poTotal(po.items ?? []))}</span>
+                <span className="ml-auto">{formatDate(po.created_at)}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+        {/* Larger screens: table */}
+        <div className="hidden overflow-x-auto rounded-lg border md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -75,6 +102,7 @@ export default async function PurchaseOrdersPage() {
             </TableBody>
           </Table>
         </div>
+        </>
       )}
     </div>
   );

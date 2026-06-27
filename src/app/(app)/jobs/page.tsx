@@ -51,7 +51,39 @@ export default async function JobsPage() {
             : "No jobs assigned to you yet."}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <>
+        {/* Phone: tappable cards */}
+        <div className="space-y-2 md:hidden">
+          {jobs.map((j) => (
+            <Link
+              key={j.id}
+              href={`/jobs/${j.id}`}
+              className="block rounded-lg border p-3 active:bg-muted/50"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{j.title || "Job"}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {j.customer_name ?? "—"}
+                  </div>
+                </div>
+                <JobStatusBadge status={j.status} />
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                <span>
+                  {j.scheduled_date ? formatDate(j.scheduled_date) : "Not scheduled"}
+                </span>
+                {isStaff && j.assigned_to ? (
+                  <span className="ml-auto">
+                    {nameById.get(j.assigned_to) ?? "Assigned"}
+                  </span>
+                ) : null}
+              </div>
+            </Link>
+          ))}
+        </div>
+        {/* Larger screens: table */}
+        <div className="hidden overflow-x-auto rounded-lg border md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -91,6 +123,7 @@ export default async function JobsPage() {
             </TableBody>
           </Table>
         </div>
+        </>
       )}
     </div>
   );

@@ -54,7 +54,31 @@ export default async function EstimatesPage() {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <>
+        {/* Phone: tappable cards (delete sits outside the link) */}
+        <div className="space-y-2 md:hidden">
+          {estimates.map((e) => (
+            <div key={e.id} className="rounded-lg border p-3">
+              <div className="flex items-start justify-between gap-2">
+                <Link href={`/estimates/${e.id}`} className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{e.title || "Estimate"}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {e.customer_name ?? "—"} · {(e.options ?? []).length} option
+                    {(e.options ?? []).length === 1 ? "" : "s"}
+                  </div>
+                </Link>
+                <EstimateStatusBadge status={e.status} />
+                <DeleteEstimateButton id={e.id} />
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">{formatMoney(headlineTotal(e))}</span>
+                <span className="ml-auto">{formatDate(e.created_at)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Larger screens: table */}
+        <div className="hidden overflow-x-auto rounded-lg border md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -103,6 +127,7 @@ export default async function EstimatesPage() {
             </TableBody>
           </Table>
         </div>
+        </>
       )}
     </div>
   );

@@ -111,7 +111,35 @@ export default async function CustomersPage({
           ) : null}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <>
+        {/* Phone: tappable cards */}
+        <div className="space-y-2 md:hidden">
+          {customers.map((c) => (
+            <Link
+              key={c.id}
+              href={`/customers/${c.id}`}
+              className="block rounded-lg border p-3 active:bg-muted/50"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{c.full_name}</div>
+                  {c.company ? (
+                    <div className="truncate text-xs text-muted-foreground">{c.company}</div>
+                  ) : null}
+                </div>
+                <StageBadge stage={c.stage} />
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                {c.phone ? <span>{c.phone}</span> : null}
+                {c.city ? <span>{c.city}</span> : null}
+                {c.source ? <span>{LEAD_SOURCE_LABELS[c.source]}</span> : null}
+                <span className="ml-auto">{formatDate(c.updated_at)}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+        {/* Larger screens: table */}
+        <div className="hidden overflow-x-auto rounded-lg border md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -159,6 +187,7 @@ export default async function CustomersPage({
             </TableBody>
           </Table>
         </div>
+        </>
       )}
     </div>
   );

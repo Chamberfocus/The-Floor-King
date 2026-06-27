@@ -32,7 +32,39 @@ export default async function InvoicesPage() {
           profile.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <>
+        {/* Phone: tappable cards */}
+        <div className="space-y-2 md:hidden">
+          {invoices.map((inv) => {
+            const t = invoiceTotals(inv.items ?? [], inv.tax_rate, amountPaid(inv));
+            return (
+              <Link
+                key={inv.id}
+                href={`/invoices/${inv.id}`}
+                className="block rounded-lg border p-3 active:bg-muted/50"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{inv.number || "Invoice"}</div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {inv.customer_name ?? "—"}
+                    </div>
+                  </div>
+                  <InvoiceStatusBadge status={inv.status} />
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground">
+                  <span>Total {formatMoney(t.total)}</span>
+                  <span className="font-medium text-foreground">
+                    Balance {formatMoney(t.balance)}
+                  </span>
+                  {inv.due_date ? <span className="ml-auto">Due {formatDate(inv.due_date)}</span> : null}
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+        {/* Larger screens: table */}
+        <div className="hidden overflow-x-auto rounded-lg border md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -82,6 +114,7 @@ export default async function InvoicesPage() {
             </TableBody>
           </Table>
         </div>
+        </>
       )}
     </div>
   );
