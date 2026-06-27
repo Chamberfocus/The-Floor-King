@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Contact, Wallet, Package, Activity } from "lucide-react";
+import { Contact, Wallet, Package, Activity, Trophy } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
@@ -19,6 +19,12 @@ export default async function ReportsPage() {
       icon: Contact,
       title: "Lead Sources",
       desc: "Where your leads come from, for any date range.",
+    },
+    {
+      href: "/reports/win-loss",
+      icon: Trophy,
+      title: "Win / Loss",
+      desc: "Quotes won vs lost, win rate by salesperson & source, and why you lost.",
     },
     // Profit / expenses / P&L are owner & admin only.
     ...(profile.role === "admin"
