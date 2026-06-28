@@ -3,6 +3,7 @@ import { requireProfile } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { COMPANY_NAME } from "@/lib/nav";
 import { signout } from "@/app/(app)/actions";
+import { LiveSync } from "@/components/live-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default async function PortalLayout({
 
   return (
     <div className="flex min-h-svh flex-col bg-muted/30">
+      <LiveSync />
       <header className="border-b bg-background">
         <div className="mx-auto flex max-w-4xl items-center justify-between p-4">
           <div className="flex items-center gap-2">

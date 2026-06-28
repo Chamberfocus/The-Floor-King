@@ -16,6 +16,7 @@ import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer } from "@/lib/data/jobs";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
 import { listClientThread } from "@/lib/data/messages";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { portalSendMessage } from "./actions";
 import { optionTotals } from "@/lib/estimate-calc";
 import { invoiceTotals } from "@/lib/invoice-calc";
@@ -47,6 +48,10 @@ export default async function PortalHome() {
 
   return (
     <div className="space-y-6">
+      <RealtimeRefresh
+        table="messages"
+        filter={`customer_id=eq.${profile.customer_id}`}
+      />
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
           Welcome, {firstName}

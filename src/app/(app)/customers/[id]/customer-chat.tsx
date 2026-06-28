@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Lock, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { formatDateTime } from "@/lib/format";
 import type { MessageChannel, MessageWithAuthor } from "@/lib/types";
 import { postMessage, type MessageFormState } from "./message-actions";
@@ -31,6 +32,8 @@ export function CustomerChat({
   const isInternal = channel === "internal";
 
   return (
+    <>
+    <RealtimeRefresh table="messages" filter={`customer_id=eq.${customerId}`} />
     <div
       className={cn(
         "overflow-hidden rounded-lg border-2",
@@ -143,5 +146,6 @@ export function CustomerChat({
         </Button>
       </form>
     </div>
+    </>
   );
 }

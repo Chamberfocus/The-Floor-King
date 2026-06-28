@@ -9,6 +9,7 @@ import { listOpenJobs, getMyApplicationJobIds } from "@/lib/data/jobs";
 import { JOB_DELIVERY_LABELS } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { applyToJob, withdrawApplication } from "../jobs/actions";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 
 export const metadata: Metadata = { title: "Job Board" };
 
@@ -24,6 +25,8 @@ export default async function JobBoardPage() {
 
   return (
     <div>
+      <RealtimeRefresh table="jobs" />
+      <RealtimeRefresh table="job_applications" />
       <PageHeader
         title="Job Board"
         description={
