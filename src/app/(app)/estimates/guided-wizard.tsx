@@ -305,7 +305,10 @@ export function GuidedWizard({
         }),
       );
     }
-    toast.success(`Read ${f.rooms.length} room${f.rooms.length === 1 ? "" : "s"} from the drawing — review them`);
+    toast.success(
+      `Read ${f.rooms.length} room${f.rooms.length === 1 ? "" : "s"} from the drawing — review them` +
+        (f.totalNote ? ` · sheet total: ${f.totalNote}` : ""),
+    );
   };
 
   const onDrawing = (file: File) =>
@@ -450,6 +453,11 @@ export function GuidedWizard({
       );
       if (!inLines) out.push(`The drawing shows "${a.label}" — did you add it?`);
     }
+    // The sheet's grand total is a sum to verify against — not a room.
+    if (findings?.totalNote)
+      out.push(
+        `The drawing's total reads ${findings.totalNote} — confirm your rooms add up to it (that total isn't a room).`,
+      );
     return out;
   })();
 

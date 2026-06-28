@@ -407,6 +407,7 @@ export interface DrawingRoom {
 export interface DrawingFindings {
   rooms: DrawingRoom[];
   addons: { label: string; labor: boolean }[];
+  totalNote: string | null; // a written grand total on the sheet, for cross-check
   error: string | null;
 }
 
@@ -426,17 +427,17 @@ export async function analyzeJobDrawing(input: {
     const { data: signed } = await supabase.storage
       .from("documents")
       .createSignedUrl(input.storagePath, 600);
-    if (!signed?.signedUrl) return { rooms: [], addons: [], error: "Couldn't open that photo." };
+    if (!signed?.signedUrl) return { rooms: [], addons: [], totalNote: null, error: "Couldn't open that photo." };
     opts = { url: signed.signedUrl, mediaType: input.mime || "image/jpeg" };
   } else if (input.text?.trim()) {
     opts = { text: input.text.trim() };
   } else {
-    return { rooms: [], addons: [], error: "Add a photo or some notes first." };
+    return { rooms: [], addons: [], totalNote: null, error: "Add a photo or some notes first." };
   }
 
   const job = await extractJobFromNotes(opts);
   if (!job) {
-    return { rooms: [], addons: [], error: "Couldn't read that drawing — try a clearer photo." };
+    return { rooms: [], addons: [], totalNote: null, error: "Couldn't read that drawing — try a clearer photo." };
   }
   return {
     rooms: job.rooms.map((r) => ({
@@ -453,6 +454,11 @@ export async function analyzeJobDrawing(input: {
       pad: r.pad,
     })),
     addons: (job.addons ?? []).map((a) => ({ label: a.label, labor: a.labor })),
+    totalNote: job.sheetTotal
+      ? `${job.sheetTotal.value} ${
+          job.sheetTotal.unit === "sqft" ? "sq ft" : "linear ft"
+        }`
+      : null,
     error: null,
   };
 }

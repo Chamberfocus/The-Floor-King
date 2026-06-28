@@ -459,9 +459,12 @@ export interface NotesJob {
   title: string | null;
   rooms: NotesRoom[];
   addons: NotesAddon[];
+  sheetTotal: { value: number; unit: string } | null; // a written grand total (cross-check)
 }
 
-const NOTES_SYSTEM = `You are an expert flooring estimator for Cleveland Floor King. You read a salesperson's rough job notes — typed, or a PHOTO of handwriting on a measure sheet — and turn them into a clean structured estimate. Measurements are messy and abbreviated (e.g. "LR 15'6 x 12", "MBR 12x14 carpet", "hall 3x12 LVP", "tearout + haul", "13 steps", "T-mold x2"). Read them like a flooring pro.`;
+const NOTES_SYSTEM = `You are an expert flooring estimator for Cleveland Floor King. You read a salesperson's rough job notes — typed, or a PHOTO of handwriting on a measure sheet — and turn them into a clean structured estimate. Measurements are messy and abbreviated (e.g. "LR 15'6 x 12", "MBR 12x14 carpet", "hall 3x12 LVP", "tearout + haul", "13 steps", "T-mold x2"). Read them like a flooring pro.
+INCHES: measurements are feet AND inches, written many ways — 15'6", 15' 6, 15-6, 15 6, 15ft6, or a small raised "6". The part after the foot mark / dash / space is INCHES (0–11). A decimal foot (15.5) means 15 ft 6 in. Always read the inches — do not drop them.
+TOTALS: measure sheets usually have a TOTAL at the bottom of a column (total linear feet or total square feet). That is a SUM of the rooms above — it is NOT a room and NOT a measurement. Never turn a total into a room.`;
 
 const NOTES_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
 {
@@ -480,10 +483,12 @@ const NOTES_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
     "pad": boolean,                 // carpet pad — true for carpet unless noted otherwise
     "notes": string|null
   } ],
-  "addons": [ { "label": string, "labor": boolean, "qty": number|null, "unit": string|null, "cost": number|null } ]
+  "addons": [ { "label": string, "labor": boolean, "qty": number|null, "unit": string|null, "cost": number|null } ],
+  "sheet_total": { "value": number, "unit": "lnft"|"sqft" } | null   // a written GRAND TOTAL at the bottom (sum of the rooms) — for cross-check, NOT a room
 }
 Rules:
-- One entry per room. Split every measurement into feet + inches. If only an area is given, use sqft and leave L×W at 0.
+- One entry per room. Measurements are FEET + INCHES, written many ways — 15'6", 15' 6, 15-6, 15 6, 15ft6, or a small raised number. The part after the foot mark / dash / space is INCHES (0–11). A decimal foot (15.5) = 15 ft 6 in. ALWAYS fill length_in / width_in (use 0 only when there genuinely are no inches). If only an area is given, use sqft and leave L×W at 0.
+- TOTALS: a line like "Total", "Total LF", "Total SF", "Grand total", or a lone sum under a column is the SUM of the rooms above — NOT a room and NOT a measurement. Never create a room from it. If such a grand total is written, put it in "sheet_total"; otherwise sheet_total is null.
 - "type": infer from the notes (broadloom→carpet, plank/LVP/LVT/SPC→lvp, engineered/solid/wood→hardwood, ceramic/porcelain→tile, sheet→vinyl).
 - PRICES — capture EVERY price the notes show: a number next to a material ("$3.50", "3.50/sf", "$18 yd", "carpet 22") → material_cost; an install/labor price ("install $2", "lab 1.50") → labor_cost; a pad price ("pad $4") → pad_cost; an add-on price → that add-on's cost. Strip $ and units to a plain number. Don't guess prices that aren't written, but never skip a price that IS written.
 - "addons": the extra work mentioned for the WHOLE job — tear-out & haul-away, floor prep, stairs, transitions/T-mold/metals, furniture, toilet pull, etc. Mark labor:true for work, labor:false for materials/metals. Only include what the notes mention.
@@ -560,7 +565,16 @@ export async function extractJobFromNotes(opts: {
     .filter((a) => a.label);
 
   if (!rooms.length && !addons.length) return null;
-  return { title: coerceStr(whole?.title), rooms, addons };
+
+  // A written grand total (sum of the rooms) — kept separate for cross-check.
+  const st = (whole?.sheet_total ?? null) as Record<string, unknown> | null;
+  const stValue = st ? coerceNum(st.value) : null;
+  const sheetTotal =
+    stValue && stValue > 0
+      ? { value: stValue, unit: (coerceStr(st?.unit) ?? "lnft").toLowerCase() }
+      : null;
+
+  return { title: coerceStr(whole?.title), rooms, addons, sheetTotal };
 }
 
 // ===========================================================================
