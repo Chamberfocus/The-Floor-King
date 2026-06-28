@@ -11,14 +11,23 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { Input } from "@/components/ui/input";
-import { SearchPicker } from "@/components/ui/search-picker";
 import { formatDate } from "@/lib/format";
 import {
   suggestEstimateTimes,
   bookEstimateAppointment,
 } from "./schedule-actions";
 import type { EstimateSlot } from "@/lib/data/scheduling";
+
+// Arrival windows (instead of an exact minute) — what customers actually get told.
+const WINDOWS = [
+  { label: "Morning · 8–10 AM", start: "08:00", end: "10:00" },
+  { label: "Late morning · 10 AM–12 PM", start: "10:00", end: "12:00" },
+  { label: "Early afternoon · 12–2 PM", start: "12:00", end: "14:00" },
+  { label: "Afternoon · 2–4 PM", start: "14:00", end: "16:00" },
+  { label: "Late afternoon · 4–6 PM", start: "16:00", end: "18:00" },
+];
+const fieldCls =
+  "h-11 w-full rounded-md border border-input bg-transparent px-3 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function EstimateScheduler({
   customerId,
@@ -33,6 +42,8 @@ export function EstimateScheduler({
   const [mode, setMode] = useState<"assigned" | "closest">("assigned");
   const [pending, startTransition] = useTransition();
   const [showManual, setShowManual] = useState(false);
+  const [win, setWin] = useState(0);
+  const [rep, setRep] = useState("");
   const auto = useRef(false);
 
   const find = (m: "assigned" | "closest") =>
@@ -162,42 +173,66 @@ export function EstimateScheduler({
             {showManual ? "− Hide manual" : "+ Schedule manually"}
           </button>
           {showManual ? (
-            <form
-              action={bookEstimateAppointment}
-              className="mt-2 grid grid-cols-2 gap-2"
-            >
+            <form action={bookEstimateAppointment} className="mt-3 space-y-3">
               <input type="hidden" name="customer_id" value={customerId} />
+              <input type="hidden" name="time" value={WINDOWS[win].start} />
+              <input type="hidden" name="end_time" value={WINDOWS[win].end} />
+
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
                   Date
                 </label>
-                <Input type="date" name="date" required className="h-9" />
+                <input type="date" name="date" required className={fieldCls} />
               </div>
+
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  Time
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Arrival window
                 </label>
-                <Input type="time" name="time" required className="h-9" />
+                <select
+                  value={win}
+                  onChange={(e) => setWin(Number(e.target.value))}
+                  className={fieldCls}
+                >
+                  {WINDOWS.map((w, i) => (
+                    <option key={i} value={i}>
+                      {w.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <div className="col-span-2">
-                <label className="mb-1 block text-xs text-muted-foreground">
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
                   Salesperson
                 </label>
-                <SearchPicker
+                <select
                   name="salesperson_id"
-                  placeholder="— Choose —"
-                  options={reps.map((r) => ({ value: r.id, label: r.name }))}
-                />
-              </div>
-              <div className="col-span-2 flex justify-end">
-                <SubmitButton
-                  size="sm"
-                  pendingText="Booking…"
-                  confirm="Appointment booked"
+                  value={rep}
+                  onChange={(e) => setRep(e.target.value)}
+                  className={fieldCls}
                 >
-                  Book appointment
-                </SubmitButton>
+                  <option value="">— Choose —</option>
+                  {reps.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+                {reps.length === 0 ? (
+                  <p className="mt-1 text-xs text-amber-600">
+                    No team members yet — add them in Settings → Team.
+                  </p>
+                ) : null}
               </div>
+
+              <SubmitButton
+                className="w-full"
+                pendingText="Booking…"
+                confirm="Appointment booked"
+              >
+                Book appointment
+              </SubmitButton>
             </form>
           ) : null}
         </div>

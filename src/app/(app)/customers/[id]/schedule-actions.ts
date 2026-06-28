@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getEstimateSuggestions, type EstimateSlot } from "@/lib/data/scheduling";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
@@ -63,7 +64,7 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     .maybeSingle();
   if (existing) {
     revalidatePath(`/customers/${customerId}`);
-    return;
+    redirect(`/customers/${customerId}`);
   }
 
   await supabase.from("appointments").insert({
@@ -135,4 +136,6 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/pipeline");
   revalidatePath("/dashboard");
+  // Booked → close the scheduler out to the customer's dashboard.
+  redirect(`/customers/${customerId}`);
 }
