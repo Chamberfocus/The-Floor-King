@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
+import { getBusinessSettings } from "@/lib/data/business-settings";
 
 type Result = { error: string | null };
 
@@ -39,6 +40,36 @@ export async function checkoutSamples(input: {
   if (!input.dueDate) return { error: "Set a return-by date." };
 
   const supabase = await createClient();
+
+  // Enforce the per-customer "max samples out" limit (0 = no limit).
+  const settings = await getBusinessSettings();
+  const maxOut = Number(settings.sample_max_out) || 0;
+  const adding = items.reduce(
+    (s, i) => s + Math.max(1, Math.round(Number(i.qty) || 1)),
+    0,
+  );
+  if (maxOut > 0) {
+    const { data: openCos } = await supabase
+      .from("sample_checkouts")
+      .select("items:sample_checkout_items(qty)")
+      .eq("customer_id", input.customerId)
+      .eq("status", "out");
+    const currentOut = (openCos ?? []).reduce(
+      (s, c) =>
+        s +
+        ((c as { items?: { qty: number }[] }).items ?? []).reduce(
+          (t, i) => t + (Number(i.qty) || 0),
+          0,
+        ),
+      0,
+    );
+    if (currentOut + adding > maxOut) {
+      return {
+        error: `That would put ${currentOut + adding} samples out — the limit is ${maxOut}. Return some first, or raise the limit in Settings → Samples.`,
+      };
+    }
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();

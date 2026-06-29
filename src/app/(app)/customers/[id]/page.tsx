@@ -394,6 +394,8 @@ export default async function CustomerPage({
             customerId={customer.id}
             checkouts={sampleCheckouts}
             loanDays={bizSettings.sample_loan_days}
+            defaultDeposit={bizSettings.sample_default_deposit}
+            maxOut={bizSettings.sample_max_out}
           />
 
           {/* Jobs */}

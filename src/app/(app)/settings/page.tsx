@@ -13,6 +13,7 @@ import {
   CalendarRange,
   DollarSign,
   HardHat,
+  Layers,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -86,6 +87,12 @@ const SECTIONS = [
     icon: HardHat,
     title: "Install Crews",
     desc: "Your subcontractor and employee install crews — assignable on jobs, even without an app login.",
+  },
+  {
+    href: "/settings/samples",
+    icon: Layers,
+    title: "Samples",
+    desc: "Loan period, return reminders, default deposit, and how many samples a customer can have out.",
   },
 ];
 

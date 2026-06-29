@@ -45,20 +45,32 @@ export function SamplesCard({
   customerId,
   checkouts,
   loanDays,
+  defaultDeposit = 0,
+  maxOut = 0,
 }: {
   customerId: string;
   checkouts: SampleCheckout[];
   loanDays: number;
+  defaultDeposit?: number;
+  maxOut?: number;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<DraftItem[]>([]);
   const [due, setDue] = useState(todayPlus(loanDays));
+  const [deposit, setDeposit] = useState(defaultDeposit ? String(defaultDeposit) : "");
   const [resetKey, setResetKey] = useState(0);
 
   const active = checkouts.filter((c) => c.status === "out");
   const history = checkouts.filter((c) => c.status !== "out");
+  // How many samples this customer currently has out (for the limit).
+  const currentOut = active.reduce(
+    (s, c) => s + c.items.reduce((t, i) => t + (Number(i.qty) || 0), 0),
+    0,
+  );
+  const addingQty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+  const overLimit = maxOut > 0 && currentOut + addingQty > maxOut;
 
   const run = (fn: () => Promise<{ error: string | null }>) =>
     start(async () => {
@@ -87,7 +99,18 @@ export function SamplesCard({
         toast.error("Add at least one sample.");
         return;
       }
-      const res = await checkoutSamples({ customerId, items: payload, dueDate: due });
+      if (overLimit) {
+        toast.error(
+          `Limit is ${maxOut} samples out — they already have ${currentOut}.`,
+        );
+        return;
+      }
+      const res = await checkoutSamples({
+        customerId,
+        items: payload,
+        dueDate: due,
+        deposit: Number(deposit) > 0 ? Number(deposit) : null,
+      });
       if (res.error) {
         toast.error(res.error);
         return;
@@ -95,6 +118,7 @@ export function SamplesCard({
       toast.success("Samples checked out — customer notified");
       setItems([]);
       setDue(todayPlus(loanDays));
+      setDeposit(defaultDeposit ? String(defaultDeposit) : "");
       setOpen(false);
       router.refresh();
     });
@@ -103,7 +127,12 @@ export function SamplesCard({
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <CardTitle className="text-base">
-          Samples{active.length ? ` · ${active.length} out` : ""}
+          Samples
+          {currentOut
+            ? ` · ${currentOut}${maxOut ? `/${maxOut}` : ""} out`
+            : maxOut
+              ? ` · limit ${maxOut}`
+              : ""}
         </CardTitle>
         <Button type="button" size="sm" onClick={() => setOpen((v) => !v)}>
           <Plus className="size-3.5" /> Check out samples
@@ -174,13 +203,32 @@ export function SamplesCard({
                   className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
                 />
               </div>
-              <Button type="button" onClick={submit} disabled={pending}>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Deposit / hold</label>
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-muted-foreground">$</span>
+                  <Input
+                    value={deposit}
+                    onChange={(e) => setDeposit(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="0"
+                    className="h-9 w-24"
+                  />
+                </div>
+              </div>
+              <Button type="button" onClick={submit} disabled={pending || overLimit}>
                 {pending ? "Saving…" : "Check out & notify"}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
             </div>
+            {overLimit ? (
+              <p className="text-xs font-medium text-destructive">
+                Over the limit — {currentOut + addingQty} would be out, max is{" "}
+                {maxOut}. Return some first or raise the limit in Settings → Samples.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -247,7 +295,13 @@ export function SamplesCard({
                   </li>
                 ))}
               </ul>
-              {c.notes ? <p className="mt-1.5 text-xs text-muted-foreground">{c.notes}</p> : null}
+              {c.deposit || c.notes ? (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {c.deposit ? <span className="font-medium text-foreground">${c.deposit} hold</span> : null}
+                  {c.deposit && c.notes ? " · " : ""}
+                  {c.notes ?? ""}
+                </p>
+              ) : null}
             </div>
           );
         })}

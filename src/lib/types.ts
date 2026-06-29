@@ -831,6 +831,8 @@ export interface BusinessSettings {
   monthly_revenue_goal: number;
   sample_loan_days: number;
   sample_reminder_lead_days: number;
+  sample_default_deposit: number;
+  sample_max_out: number; // 0 = no limit
   updated_at: string;
 }
 

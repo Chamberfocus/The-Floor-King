@@ -7,6 +7,8 @@ const DEFAULTS: BusinessSettings = {
   monthly_revenue_goal: 0,
   sample_loan_days: 14,
   sample_reminder_lead_days: 2,
+  sample_default_deposit: 0,
+  sample_max_out: 0,
   updated_at: "",
 };
 
