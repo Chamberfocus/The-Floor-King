@@ -5,6 +5,8 @@ const DEFAULTS: BusinessSettings = {
   id: "default",
   target_gross_margin_pct: 40,
   monthly_revenue_goal: 0,
+  sample_loan_days: 14,
+  sample_reminder_lead_days: 2,
   updated_at: "",
 };
 
@@ -15,5 +17,5 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
     .select("*")
     .eq("id", "default")
     .maybeSingle();
-  return (data as BusinessSettings) ?? DEFAULTS;
+  return { ...DEFAULTS, ...((data as Partial<BusinessSettings>) ?? {}) };
 }

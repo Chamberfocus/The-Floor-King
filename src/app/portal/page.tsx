@@ -15,6 +15,7 @@ import { requireProfile } from "@/lib/auth";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer } from "@/lib/data/jobs";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
+import { listCustomerCheckouts } from "@/lib/data/samples";
 import { listClientThread } from "@/lib/data/messages";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { portalSendMessage } from "./actions";
@@ -39,12 +40,14 @@ export default async function PortalHome() {
     );
   }
 
-  const [estimates, jobs, invoices, thread] = await Promise.all([
+  const [estimates, jobs, invoices, thread, sampleCheckouts] = await Promise.all([
     listEstimatesForCustomer(profile.customer_id),
     listJobsForCustomer(profile.customer_id),
     listInvoicesForCustomer(profile.customer_id),
     listClientThread(profile.customer_id),
+    listCustomerCheckouts(profile.customer_id),
   ]);
+  const samplesOut = sampleCheckouts.filter((c) => c.status === "out");
 
   return (
     <div className="space-y-6">
@@ -60,6 +63,37 @@ export default async function PortalHome() {
           Your estimates, project schedule, and invoices in one place.
         </p>
       </div>
+
+      {/* Samples you have out */}
+      {samplesOut.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Samples to return</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {samplesOut.map((c) => (
+              <div key={c.id} className="rounded-md border p-3 text-sm">
+                <div className="font-medium">
+                  Please return by{" "}
+                  {new Date(`${c.due_date}T12:00:00`).toLocaleDateString("en-US", {
+                    weekday: "long",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </div>
+                <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                  {c.items.map((i) => (
+                    <li key={i.id}>
+                      {i.qty > 1 ? `${i.qty}× ` : ""}
+                      {i.label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Messages */}
       <Card>

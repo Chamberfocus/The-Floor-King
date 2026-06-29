@@ -829,7 +829,37 @@ export interface BusinessSettings {
   id: string;
   target_gross_margin_pct: number;
   monthly_revenue_goal: number;
+  sample_loan_days: number;
+  sample_reminder_lead_days: number;
   updated_at: string;
+}
+
+// --- Sample checkout / return ----------------------------------------------
+
+export type SampleStatus = "out" | "returned" | "lost";
+
+export interface SampleCheckoutItem {
+  id: string;
+  checkout_id: string;
+  product_id: string | null;
+  label: string;
+  qty: number;
+  returned: boolean;
+  created_at: string;
+}
+export interface SampleCheckout {
+  id: string;
+  customer_id: string;
+  status: SampleStatus;
+  checked_out_at: string;
+  due_date: string;
+  returned_at: string | null;
+  deposit: number | null;
+  notes: string | null;
+  last_reminder_on: string | null;
+  created_at: string;
+  items: SampleCheckoutItem[];
+  customer_name?: string | null;
 }
 
 // --- Booking calendar -------------------------------------------------------

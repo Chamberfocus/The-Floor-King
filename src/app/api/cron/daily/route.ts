@@ -241,6 +241,79 @@ export async function GET(request: NextRequest) {
     resumed += 1;
   }
 
+  // --- Sample return reminders (text + email) ---
+  let sampleReminders = 0;
+  try {
+    const { data: s } = await admin
+      .from("business_settings")
+      .select("sample_reminder_lead_days")
+      .eq("id", "default")
+      .maybeSingle();
+    const lead = Number(s?.sample_reminder_lead_days) || 2;
+    const startOfToday = new Date(new Date(now).toDateString()).getTime();
+    const todayYmd = new Date(now).toISOString().slice(0, 10);
+    const twoDaysAgo = new Date(now - 2 * 86400000).toISOString().slice(0, 10);
+
+    const { data: cos } = await admin
+      .from("sample_checkouts")
+      .select(
+        "id, due_date, last_reminder_on, customer:customers(full_name, email, phone), items:sample_checkout_items(label, qty)",
+      )
+      .eq("status", "out");
+
+    for (const c of cos ?? []) {
+      const due = c.due_date as string;
+      const daysUntil = Math.round(
+        (new Date(`${due}T00:00:00`).getTime() - startOfToday) / 86400000,
+      );
+      const last = (c.last_reminder_on as string | null) ?? null;
+      // Only when due is within the lead window (or overdue), at most every 2 days.
+      if (daysUntil > lead) continue;
+      if (last && last > twoDaysAgo) continue;
+
+      const cust = (
+        Array.isArray(c.customer) ? c.customer[0] : c.customer
+      ) as { full_name: string | null; email: string | null; phone: string | null } | null;
+      const items = (c.items ?? []) as { label: string; qty: number }[];
+      const list = items
+        .map((i) => `${i.qty > 1 ? `${i.qty}× ` : ""}${i.label}`)
+        .join(", ");
+      const when =
+        daysUntil < 0
+          ? `${Math.abs(daysUntil)} day${Math.abs(daysUntil) === 1 ? "" : "s"} overdue`
+          : daysUntil === 0
+            ? "due today"
+            : `due in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`;
+
+      if (cust?.email) {
+        await sendEmail({
+          to: cust.email,
+          subject: `Reminder: your flooring samples are ${when}`,
+          html: emailLayout(
+            "Sample return reminder",
+            `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
+             <p>A friendly reminder to return the samples you borrowed (${list}) — they're <strong>${when}</strong>.</p>
+             <p>Drop them by the showroom anytime, or reply if you need more time.</p>`,
+            { label: "View my project", url: `${siteUrl()}/portal` },
+          ),
+        });
+      }
+      if (cust?.phone) {
+        await sendSms(
+          cust.phone,
+          `Cleveland Floor King: your samples (${list}) are ${when}. Please return them, or reply if you need more time. Thanks!`,
+        );
+      }
+      await admin
+        .from("sample_checkouts")
+        .update({ last_reminder_on: todayYmd })
+        .eq("id", c.id as string);
+      sampleReminders += 1;
+    }
+  } catch {
+    /* sample_checkouts may not exist yet (migration 0052 not run) */
+  }
+
   return NextResponse.json({
     ok: true,
     thankyou,
@@ -248,5 +321,6 @@ export async function GET(request: NextRequest) {
     reviews,
     nudges,
     resumed,
+    sampleReminders,
   });
 }

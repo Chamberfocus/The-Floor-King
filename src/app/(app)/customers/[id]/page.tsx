@@ -38,6 +38,9 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
 import { listCustomerMessages } from "@/lib/data/messages";
 import { listCustomerDocuments } from "@/lib/data/documents";
+import { listCustomerCheckouts } from "@/lib/data/samples";
+import { getBusinessSettings } from "@/lib/data/business-settings";
+import { SamplesCard } from "./samples-card";
 import { getJob } from "@/lib/data/jobs";
 import {
   getSchedulingSettings,
@@ -107,6 +110,10 @@ export default async function CustomerPage({
   const portalUser = await getPortalUser(id);
   const messages = await listCustomerMessages(id);
   const documents = await listCustomerDocuments(id);
+  const [sampleCheckouts, bizSettings] = await Promise.all([
+    listCustomerCheckouts(id),
+    getBusinessSettings(),
+  ]);
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
   const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
@@ -381,6 +388,13 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
+
+          {/* Samples */}
+          <SamplesCard
+            customerId={customer.id}
+            checkouts={sampleCheckouts}
+            loanDays={bizSettings.sample_loan_days}
+          />
 
           {/* Jobs */}
           <Card>
