@@ -520,18 +520,18 @@ export function GuidedWizard({
                 <Camera className="size-4 text-primary" /> Start from your drawing
               </div>
               <div className="text-xs text-muted-foreground">
-                Snap your measure sheet — it reads the rooms &amp; sizes, then flags
-                anything on the drawing you might miss.
+                Take a photo of your measure sheet or pick a saved one — it reads
+                the rooms &amp; sizes, then flags anything you might miss.
               </div>
             </div>
             <Button type="button" variant="outline" onClick={() => drawingRef.current?.click()} disabled={analyzing}>
-              <Camera className="size-4" /> {analyzing ? "Reading…" : "Upload drawing"}
+              <Camera className="size-4" /> {analyzing ? "Reading…" : "Photo or upload"}
             </Button>
+            {/* No `capture` → the phone offers Photo Library / Take Photo / Browse. */}
             <input
               ref={drawingRef}
               type="file"
               accept="image/*"
-              capture="environment"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
