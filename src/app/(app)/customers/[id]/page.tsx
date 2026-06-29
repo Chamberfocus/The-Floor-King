@@ -54,7 +54,7 @@ import { createInvoice } from "@/app/(app)/invoices/actions";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { optionTotals } from "@/lib/estimate-calc";
 import { invoiceTotals } from "@/lib/invoice-calc";
-import { type ActivityType, STAGE_COLOR_BADGE } from "@/lib/types";
+import { type ActivityType, STAGE_COLOR_BADGE, SALES_ROLES } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { AddActivityForm } from "./add-activity-form";
@@ -138,7 +138,11 @@ export default async function CustomerPage({
 
   // When the stage auto-action is "schedule install", pop install suggestions
   // for the customer's latest job right here on the file.
-  const repOptions = handoffMembers.map((m) => ({ id: m.id, name: m.name }));
+  // Only salespeople are offered when picking the rep for an estimate — crew,
+  // warehouse, schedulers etc. do other duties and shouldn't clutter the list.
+  const repOptions = handoffMembers
+    .filter((m) => (SALES_ROLES as string[]).includes(m.role))
+    .map((m) => ({ id: m.id, name: m.name }));
   let installPop: {
     jobId: string;
     days: number;

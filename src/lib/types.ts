@@ -88,6 +88,20 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   customer: "Customer",
 };
 
+/**
+ * Job-duty pools — which roles do which work. Used to scope people-pickers so a
+ * search only offers people whose duty fits the task (e.g. only salespeople
+ * appear when picking the rep for an estimate, not crew/warehouse).
+ */
+export const SALES_ROLES: UserRole[] = [
+  "admin",
+  "office",
+  "sales_manager",
+  "salesman",
+];
+export const INSTALL_ROLES: UserRole[] = ["admin", "crew"];
+export const SCHEDULER_ROLES: UserRole[] = ["admin", "office", "scheduler"];
+
 // --- Leads & Customers ------------------------------------------------------
 
 export type LeadStage =
