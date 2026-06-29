@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { FileText, Upload, Trash2, Download, Ruler } from "lucide-react";
+import { FileText, Upload, Trash2, Download, Ruler, ImagePlus } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -46,15 +46,45 @@ export function CustomerDocuments({
     }
   }, [state]);
 
-  // Measurement diagrams (the salesperson's sketch) lead, with image previews.
+  // Measurement diagrams lead; photos get their own thumbnail grid; the rest
+  // are file attachments.
   const measurements = documents.filter((d) => d.kind === "measurement");
-  const others = documents.filter((d) => d.kind !== "measurement");
+  const photos = documents.filter((d) => d.kind === "photo" && isImage(d));
+  const others = documents.filter(
+    (d) => d.kind !== "measurement" && !(d.kind === "photo" && isImage(d)),
+  );
 
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
-        <CardTitle className="text-base">Documents &amp; measurements</CardTitle>
-        <div className="flex items-center gap-2">
+        <CardTitle className="text-base">Photos, measurements &amp; files</CardTitle>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Photo upload — phone offers Library / Take Photo / Browse */}
+          <form action={action}>
+            <input type="hidden" name="customer_id" value={customerId} />
+            <input type="hidden" name="kind" value="photo" />
+            <input
+              id={`photo-upload-${customerId}`}
+              type="file"
+              name="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.length) e.currentTarget.form?.requestSubmit();
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() =>
+                document.getElementById(`photo-upload-${customerId}`)?.click()
+              }
+            >
+              <ImagePlus className="size-3.5" /> Add photo
+            </Button>
+          </form>
           {/* Measurement diagram upload (salesperson's sketch) */}
           <form ref={measureFormRef} action={action}>
             <input type="hidden" name="customer_id" value={customerId} />
@@ -152,6 +182,32 @@ export function CustomerDocuments({
                       <span>{formatDate(d.created_at)}</span>
                       <DeleteBtn doc={d} customerId={customerId} />
                     </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Photos — thumbnail grid */}
+        {photos.length > 0 ? (
+          <div>
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <ImagePlus className="size-3.5" /> Photos
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {photos.map((d) => (
+                <div key={d.id} className="group relative overflow-hidden rounded-lg border">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <a href={d.url ?? "#"} target="_blank" rel="noreferrer">
+                    <img
+                      src={d.url ?? ""}
+                      alt={d.name}
+                      className="aspect-square w-full bg-muted object-cover"
+                    />
+                  </a>
+                  <div className="absolute right-1 top-1 rounded-md bg-background/80 opacity-0 transition-opacity group-hover:opacity-100">
+                    <DeleteBtn doc={d} customerId={customerId} />
                   </div>
                 </div>
               ))}

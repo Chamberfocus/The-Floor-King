@@ -475,8 +475,11 @@ export default async function CustomerPage({
             </CardContent>
           </Card>
 
-          {/* Documents */}
-          <Collapse title={`Documents${documents.length ? ` (${documents.length})` : ""}`}>
+          {/* Photos & files */}
+          <Collapse
+            title={`Photos & files${documents.length ? ` (${documents.length})` : ""}`}
+            defaultOpen={documents.length > 0}
+          >
             <CustomerDocuments customerId={customer.id} documents={documents} />
           </Collapse>
 
