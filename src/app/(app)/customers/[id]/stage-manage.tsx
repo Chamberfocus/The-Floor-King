@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
-import type { WorkflowStage } from "@/lib/types";
+import { DUTY_ROLES, DUTY_LABELS, type WorkflowStage } from "@/lib/types";
 import type { HandoffMember } from "@/lib/data/workflow";
 import { advanceWorkflow } from "../actions";
 
@@ -41,9 +41,17 @@ export function StageManage({
   const [toUser, setToUser] = useState(currentOwnerId ?? "");
   const [reason, setReason] = useState("");
 
+  const targetStage = ordered.find((s) => s.id === toStage);
   // Moving to a Lost/Dead/Cancelled-type stage = a lost deal → ask why.
-  const targetName = ordered.find((s) => s.id === toStage)?.name ?? "";
+  const targetName = targetStage?.name ?? "";
   const isLost = /lost|declin|dead|cancel/i.test(targetName);
+  // If the stage declares a duty, only offer people with that duty as owner
+  // (plus whoever is already assigned, so it still shows).
+  const duty = targetStage?.owner_duty ?? null;
+  const dutyRoles = duty ? DUTY_ROLES[duty] : null;
+  const ownerOptions = dutyRoles
+    ? members.filter((m) => (dutyRoles as string[]).includes(m.role) || m.id === toUser)
+    : members;
   const LOST_REASONS = [
     "Price too high",
     "Went with competitor",
@@ -138,6 +146,9 @@ export function StageManage({
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">
               Assign to
+              {dutyRoles ? (
+                <span className="ml-1 text-primary">· {DUTY_LABELS[duty!]} only</span>
+              ) : null}
             </label>
             <SearchPicker
               className="w-48"
@@ -145,7 +156,7 @@ export function StageManage({
               onChange={setToUser}
               placeholder="— Unassigned —"
               allowClear
-              options={members.map((m) => ({
+              options={ownerOptions.map((m) => ({
                 value: m.id,
                 label: m.name,
                 hint: m.title ?? undefined,

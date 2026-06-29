@@ -38,7 +38,7 @@ export async function createStage(
     .limit(1)
     .maybeSingle();
   const position = ((data?.position as number) ?? 0) + 10;
-  const { error } = await supabase.from("workflow_stages").insert({
+  const row = {
     name,
     color: str(formData.get("color")) || "zinc",
     default_owner: str(formData.get("default_owner")) || null,
@@ -46,7 +46,10 @@ export async function createStage(
     next_action: str(formData.get("next_action")) || null,
     sla_hours: slaHours(formData),
     position,
-  });
+  };
+  const owner_duty = str(formData.get("owner_duty")) || null;
+  let { error } = await supabase.from("workflow_stages").insert({ ...row, owner_duty });
+  if (error) ({ error } = await supabase.from("workflow_stages").insert(row));
   if (error) return { error: error.message };
   refresh();
   return { error: null, ok: true };
@@ -61,17 +64,21 @@ export async function updateStage(
   if (!id) return { error: "Missing stage." };
   if (!name) return { error: "Stage name is required." };
   const supabase = await createClient();
-  const { error } = await supabase
+  const row = {
+    name,
+    color: str(formData.get("color")) || "zinc",
+    default_owner: str(formData.get("default_owner")) || null,
+    auto_action: str(formData.get("auto_action")) || "none",
+    next_action: str(formData.get("next_action")) || null,
+    sla_hours: slaHours(formData),
+  };
+  const owner_duty = str(formData.get("owner_duty")) || null;
+  let { error } = await supabase
     .from("workflow_stages")
-    .update({
-      name,
-      color: str(formData.get("color")) || "zinc",
-      default_owner: str(formData.get("default_owner")) || null,
-      auto_action: str(formData.get("auto_action")) || "none",
-      next_action: str(formData.get("next_action")) || null,
-      sla_hours: slaHours(formData),
-    })
+    .update({ ...row, owner_duty })
     .eq("id", id);
+  if (error)
+    ({ error } = await supabase.from("workflow_stages").update(row).eq("id", id));
   if (error) return { error: error.message };
   refresh();
   return { error: null, ok: true };

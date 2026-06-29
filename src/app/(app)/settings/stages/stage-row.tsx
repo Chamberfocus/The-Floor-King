@@ -10,6 +10,7 @@ import {
   STAGE_COLORS,
   STAGE_COLOR_BADGE,
   STAGE_AUTO_ACTION_LABELS,
+  DUTY_LABELS,
   type StageAutoAction,
   type WorkflowStage,
 } from "@/lib/types";
@@ -141,6 +142,17 @@ export function StageRow({
             value: m.id,
             label: m.name,
             hint: m.title ?? undefined,
+          }))}
+        />
+        <SearchPicker
+          className="w-40"
+          name="owner_duty"
+          defaultValue={stage.owner_duty ?? ""}
+          placeholder="Owned by: Anyone"
+          allowClear
+          options={Object.keys(DUTY_LABELS).map((d) => ({
+            value: d,
+            label: `Owner: ${DUTY_LABELS[d]}`,
           }))}
         />
         <SearchPicker

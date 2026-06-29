@@ -102,6 +102,23 @@ export const SALES_ROLES: UserRole[] = [
 export const INSTALL_ROLES: UserRole[] = ["admin", "crew"];
 export const SCHEDULER_ROLES: UserRole[] = ["admin", "office", "scheduler"];
 
+/** A workflow stage can declare which DUTY owns it; the owner-picker for that
+ *  stage then only offers people with that duty. Empty = anyone. */
+export const DUTY_ROLES: Record<string, UserRole[]> = {
+  sales: SALES_ROLES,
+  install: INSTALL_ROLES,
+  schedule: SCHEDULER_ROLES,
+  office: ["admin", "office"],
+  warehouse: ["admin", "warehouse"],
+};
+export const DUTY_LABELS: Record<string, string> = {
+  sales: "Salesperson",
+  install: "Installer / crew",
+  schedule: "Scheduler",
+  office: "Office",
+  warehouse: "Warehouse",
+};
+
 // --- Leads & Customers ------------------------------------------------------
 
 export type LeadStage =
@@ -961,6 +978,7 @@ export interface WorkflowStage {
   position: number;
   color: string;
   default_owner: string | null;
+  owner_duty: string | null; // which duty owns this stage (scopes the owner picker); null = anyone
   auto_action: StageAutoAction;
   next_action: string | null;
   sla_hours: number;
