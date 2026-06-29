@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AddressFields } from "./address-fields";
 import {
   LEAD_SOURCE_LABELS,
   LEAD_STAGE_LABELS,
@@ -84,34 +85,14 @@ export function CustomerForm({
           />
         </div>
 
-        <div className="space-y-2 sm:col-span-2">
-          <Label htmlFor="street">Job address</Label>
-          <Input
-            id="street"
-            name="street"
-            defaultValue={customer?.street ?? ""}
-            placeholder="Street address"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="city">City</Label>
-          <Input id="city" name="city" defaultValue={customer?.city ?? ""} />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="state">State</Label>
-            <Input
-              id="state"
-              name="state"
-              defaultValue={customer?.state ?? "OH"}
-              maxLength={2}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="zip">ZIP</Label>
-            <Input id="zip" name="zip" defaultValue={customer?.zip ?? ""} />
-          </div>
-        </div>
+        <AddressFields
+          defaults={{
+            street: customer?.street,
+            city: customer?.city,
+            state: customer?.state,
+            zip: customer?.zip,
+          }}
+        />
 
         <div className="space-y-2">
           <Label>Lead source * (where did they come from?)</Label>

@@ -167,6 +167,16 @@ export interface Customer {
   qualified: boolean | null;
   cancelled_at: string | null;
   cancel_reason: string | null;
+  // Geocode + cached property data (house value & details).
+  latitude?: number | null;
+  longitude?: number | null;
+  property_value?: number | null;
+  property_beds?: number | null;
+  property_baths?: number | null;
+  property_sqft?: number | null;
+  property_year?: number | null;
+  property_type?: string | null;
+  property_checked_at?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

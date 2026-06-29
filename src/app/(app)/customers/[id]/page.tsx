@@ -41,6 +41,7 @@ import { listCustomerDocuments } from "@/lib/data/documents";
 import { listCustomerCheckouts } from "@/lib/data/samples";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { SamplesCard } from "./samples-card";
+import { PropertyCard } from "./property-card";
 import { getJob } from "@/lib/data/jobs";
 import {
   getSchedulingSettings,
@@ -277,6 +278,12 @@ export default async function CustomerPage({
           ) : null}
 
           <CustomerInfoCard customer={customer} />
+
+          <PropertyCard
+            customer={customer}
+            hasMaps={!!process.env.GOOGLE_MAPS_API_KEY}
+            hasPropertyApi={!!process.env.RENTCAST_API_KEY}
+          />
 
           <Collapse title="Customer portal">
             <Card>
