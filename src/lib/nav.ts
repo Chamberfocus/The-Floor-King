@@ -15,6 +15,7 @@ import {
   CalendarClock,
   CalendarRange,
   Activity,
+  ArrowRightLeft,
   type LucideIcon,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types";
@@ -68,6 +69,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Inventory", href: "/inventory", icon: Boxes, roles: ["admin", "office", "warehouse", "sales_manager"] },
   { label: "Reports", href: "/reports", icon: BarChart3, roles: OVERVIEW },
   { label: "Warehouse", href: "/warehouse", icon: Warehouse, roles: ["admin", "office", "warehouse"] },
+  { label: "Carry over work", href: "/carry-over", icon: ArrowRightLeft, roles: OFFICE_PLUS },
   { label: "Settings", href: "/settings", icon: Settings, roles: ADMIN },
 ];
 
