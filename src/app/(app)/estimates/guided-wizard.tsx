@@ -249,17 +249,18 @@ function lineSell(l: SmartLine): number {
   const q = l.quantity && l.quantity > 0 ? l.quantity : l.measure_unit === "sqyd" ? (l.sqft ?? 0) / 9 : (l.sqft ?? 0);
   return q * l.material_rate * (1 + l.waste_pct / 100) + q * l.labor_rate;
 }
-function lineCost(l: SmartLine): number {
+function lineCost(l: SmartLine, fMult = 1): number {
   const q = l.quantity && l.quantity > 0 ? l.quantity : l.measure_unit === "sqyd" ? (l.sqft ?? 0) / 9 : (l.sqft ?? 0);
-  return q * l.material_cost * (1 + l.waste_pct / 100) + q * l.labor_cost;
+  // Freight & fees markup lands on material only, never labor.
+  return q * l.material_cost * (1 + l.waste_pct / 100) * fMult + q * l.labor_cost;
 }
 
 const STEPS = ["Rooms", "Pricing", "Review"] as const;
 
 export function GuidedWizard({
-  customerId, customerName, targetMargin,
+  customerId, customerName, targetMargin, freightPct,
 }: {
-  customerId: string; customerName: string; targetMargin: number;
+  customerId: string; customerName: string; targetMargin: number; freightPct: number;
 }) {
   const [step, setStep] = useState(0);
   const [title, setTitle] = useState("");
@@ -418,8 +419,9 @@ export function GuidedWizard({
   };
 
   const allLines = useMemo(() => jobLines(rooms), [rooms]);
+  const fMult = 1 + (freightPct || 0) / 100;
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
-  const cost = allLines.reduce((s, l) => s + lineCost(l), 0);
+  const cost = allLines.reduce((s, l) => s + lineCost(l, fMult), 0);
   const margin = marginPct(grand, cost);
 
   const readyRooms = rooms.filter((r) => profileFor(r.type) && roomSqft(r) > 0);

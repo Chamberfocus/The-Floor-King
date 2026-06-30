@@ -19,6 +19,7 @@ export function BuilderSwitch(props: {
   customerId: string;
   customerName: string;
   targetMargin: number;
+  freightPct: number;
 }) {
   const [mode, setMode] = useState<Mode>("wizard");
 
@@ -54,6 +55,7 @@ export function BuilderSwitch(props: {
           customerId={props.customerId}
           customerName={props.customerName}
           targetMargin={props.targetMargin}
+          freightPct={props.freightPct}
         />
       </div>
       <div className={mode === "quick" ? "" : "hidden"}>
@@ -61,6 +63,7 @@ export function BuilderSwitch(props: {
           customerId={props.customerId}
           customerName={props.customerName}
           targetMargin={props.targetMargin}
+          freightPct={props.freightPct}
         />
       </div>
     </div>

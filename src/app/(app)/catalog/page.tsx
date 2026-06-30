@@ -5,6 +5,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
 import { searchCatalog, productCount } from "@/lib/data/products";
+import { getOrgSettings } from "@/lib/data/org";
 import { requireProfile } from "@/lib/auth";
 import { CatalogTable } from "./catalog-table";
 import { CatalogCleanup } from "./catalog-cleanup";
@@ -19,10 +20,11 @@ export default async function CatalogPage({
   searchParams: Promise<{ q?: string }>;
 }) {
   const q = (await searchParams).q?.trim() ?? "";
-  const [products, total, profile] = await Promise.all([
+  const [products, total, profile, org] = await Promise.all([
     searchCatalog(q, { limit: LIMIT }),
     productCount(),
     requireProfile(),
+    getOrgSettings(),
   ]);
 
   return (
@@ -94,6 +96,7 @@ export default async function CatalogPage({
           total={total}
           capped={products.length >= LIMIT}
           query={q}
+          freightPct={org.freight_markup_pct ?? 0}
         />
       )}
     </div>

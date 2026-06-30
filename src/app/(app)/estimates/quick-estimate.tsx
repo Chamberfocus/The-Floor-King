@@ -40,9 +40,10 @@ function lineSell(l: SmartLine): number {
   const q = l.quantity && l.quantity > 0 ? l.quantity : 0;
   return q * l.material_rate + q * l.labor_rate;
 }
-function lineCost(l: SmartLine): number {
+function lineCost(l: SmartLine, fMult = 1): number {
   const q = l.quantity && l.quantity > 0 ? l.quantity : 0;
-  return q * l.material_cost + q * l.labor_cost;
+  // Freight & fees markup lands on material only, never labor.
+  return q * l.material_cost * fMult + q * l.labor_cost;
 }
 
 /**
@@ -53,9 +54,9 @@ function lineCost(l: SmartLine): number {
  * room-by-room walkthrough.
  */
 export function QuickEstimate({
-  customerId, customerName, targetMargin,
+  customerId, customerName, targetMargin, freightPct,
 }: {
-  customerId: string; customerName: string; targetMargin: number;
+  customerId: string; customerName: string; targetMargin: number; freightPct: number;
 }) {
   const [title, setTitle] = useState("");
   const [marginGoal, setMarginGoal] = useState(String(targetMargin));
@@ -148,8 +149,9 @@ export function QuickEstimate({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [type, area, waste, matCost, matSell, instCost, instSell, pad, padCost, padSell, lines],
   );
+  const fMult = 1 + (freightPct || 0) / 100;
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
-  const cost = allLines.reduce((s, l) => s + lineCost(l), 0);
+  const cost = allLines.reduce((s, l) => s + lineCost(l, fMult), 0);
   const margin = marginPct(grand, cost);
 
   const startOver = () => {

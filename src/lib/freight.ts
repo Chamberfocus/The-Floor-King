@@ -2,6 +2,25 @@
 import type { Supplier } from "@/lib/types";
 
 /**
+ * The single global "Freight & fees" model: catalog prices are bare material
+ * cost; one markup % covers freight, fuel, drop fees and handling on average.
+ * Applied to MATERIAL cost only (never labor) wherever a true/landed cost is
+ * needed — margins, job profit, Business Pulse, the catalog display.
+ */
+export function freightMultiplier(pct: number | null | undefined): number {
+  const p = Number(pct) || 0;
+  return 1 + p / 100;
+}
+
+/** Base material cost → landed material cost (base × freight multiplier). */
+export function landedMaterialCost(
+  baseCost: number,
+  pct: number | null | undefined,
+): number {
+  return Math.round(baseCost * freightMultiplier(pct) * 100) / 100;
+}
+
+/**
  * Freight % for a product's manufacturer. Matches the supplier whose name is
  * contained in (or equals) the manufacturer text — longest match wins, so
  * "Shaw Resilient T&P" still maps to the "Shaw" supplier.

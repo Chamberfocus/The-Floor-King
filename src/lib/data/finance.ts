@@ -8,6 +8,8 @@ import { listJobs } from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
 import { laborCostByJob } from "@/lib/data/job-labor";
 import { optionTotals, optionCostTotals, marginPct } from "@/lib/estimate-calc";
+import { getOrgSettings } from "@/lib/data/org";
+import { freightMultiplier } from "@/lib/freight";
 import type { CalcLine } from "@/lib/estimate-calc";
 import type { Expense, LineType } from "@/lib/types";
 
@@ -109,18 +111,21 @@ export async function getPeriodSummary(
     );
 
   const pos = await listPurchaseOrders();
-  const poSpend = pos
-    .filter((p) => {
-      // Only real spend: a PO that's actually been ordered or received. Drafts
-      // (incl. the ones auto-generated when an estimate is approved) and
-      // cancelled POs are NOT money out yet.
-      if (p.status !== "ordered" && p.status !== "received") return false;
-      // Skip POs for cancelled customers (same as collected / expenses / labor).
-      if (p.customer_id && cancelled.has(p.customer_id)) return false;
-      const d = p.created_at.slice(0, 10);
-      return d >= start && d <= end;
-    })
-    .reduce((s, p) => s + poTotal(p.items ?? []), 0);
+  // Freight & fees markup lands on material spend (PO costs are bare prices).
+  const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
+  const poSpend =
+    pos
+      .filter((p) => {
+        // Only real spend: a PO that's actually been ordered or received. Drafts
+        // (incl. the ones auto-generated when an estimate is approved) and
+        // cancelled POs are NOT money out yet.
+        if (p.status !== "ordered" && p.status !== "received") return false;
+        // Skip POs for cancelled customers (same as collected / expenses / labor).
+        if (p.customer_id && cancelled.has(p.customer_id)) return false;
+        const d = p.created_at.slice(0, 10);
+        return d >= start && d <= end;
+      })
+      .reduce((s, p) => s + poTotal(p.items ?? []), 0) * freightMult;
 
   return {
     collected,
@@ -203,6 +208,7 @@ export interface JobProfit {
 
 export async function getJobProfitability(): Promise<JobProfit[]> {
   const supabase = await createClient();
+  const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
   const cancelled = await cancelledCustomerIds(supabase);
   const jobs = (await listJobs()).filter(
     (j) => j.option_id && !cancelled.has(j.customer_id),
@@ -244,7 +250,9 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   }
   for (const [oid, ls] of grouped) {
     subtotalByOption.set(oid, optionTotals(ls, 0).subtotal);
-    estCostByOption.set(oid, optionCostTotals(ls).cost);
+    // Freight lands on material only, never labor.
+    const ct = optionCostTotals(ls);
+    estCostByOption.set(oid, ct.material * freightMult + ct.labor);
   }
 
   // Who quoted each job — the estimate's author (the "salesman" on the hook).
@@ -349,8 +357,9 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     const revenue = revenueIsActual ? billed : quotedRevenue;
 
     const materialCost =
-      (j.estimate_id ? (poByEstimate.get(j.estimate_id) ?? 0) : 0) +
-      (stockCostByJob.get(j.id) ?? 0);
+      ((j.estimate_id ? (poByEstimate.get(j.estimate_id) ?? 0) : 0) +
+        (stockCostByJob.get(j.id) ?? 0)) *
+      freightMult;
     const laborCost = laborByJob.get(j.id) ?? 0;
     const otherCost = expByJob.get(j.id) ?? 0;
     const cost = materialCost + laborCost + otherCost;
@@ -499,9 +508,13 @@ export async function getJobCostAnalysis(
     : { data: [] };
   const lines = (lineData ?? []) as CalcLine[];
 
+  // Freight & fees markup lands on material cost only (never labor).
+  const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
+
   const estRevenue = optionTotals(lines, 0).subtotal;
   const ct = optionCostTotals(lines);
-  const estCost = ct.cost;
+  const estMaterial = ct.material * freightMult;
+  const estCost = estMaterial + ct.labor;
   const estProfit = estRevenue - estCost;
 
   const pos = await listPurchaseOrders();
@@ -518,7 +531,7 @@ export async function getJobCostAnalysis(
     (s, m) => s + Math.abs(Number(m.qty) || 0) * (Number(m.unit_cost) || 0),
     0,
   );
-  const actualMaterial = poMaterial + stockMaterial;
+  const actualMaterial = (poMaterial + stockMaterial) * freightMult;
 
   const { data: expData } = await supabase
     .from("expenses")
@@ -544,7 +557,7 @@ export async function getJobCostAnalysis(
 
   return {
     estRevenue,
-    estMaterial: ct.material,
+    estMaterial,
     estLabor: ct.labor,
     estCost,
     estProfit,

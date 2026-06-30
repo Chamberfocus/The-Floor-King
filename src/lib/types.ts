@@ -31,6 +31,7 @@ export interface OrgSettings {
   financing_url: string | null;
   google_review_url: string | null;
   fuel_surcharge_pct: number;
+  freight_markup_pct: number; // single all-in freight & fees markup on material cost
   quote_valid_days: number;
   freight_disclaimer: string | null;
   updated_at: string;

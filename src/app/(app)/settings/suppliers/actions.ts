@@ -25,7 +25,7 @@ export async function savePricingSettings(
   const { error } = await supabase
     .from("org_settings")
     .update({
-      fuel_surcharge_pct: numv(formData.get("fuel_surcharge_pct")),
+      freight_markup_pct: numv(formData.get("freight_markup_pct")),
       quote_valid_days: Math.max(0, Math.round(numv(formData.get("quote_valid_days")))),
       freight_disclaimer: str(formData.get("freight_disclaimer")) || null,
       updated_at: new Date().toISOString(),

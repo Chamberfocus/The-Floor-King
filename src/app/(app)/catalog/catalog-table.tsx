@@ -10,19 +10,23 @@ import {
 import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
 import type { Product } from "@/lib/types";
 import { formatMoney } from "@/lib/format";
+import { landedMaterialCost } from "@/lib/freight";
 
 export function CatalogTable({
   products,
   total,
   capped,
   query,
+  freightPct,
 }: {
   products: Product[];
   total: number;
   capped: boolean;
   query: string;
+  freightPct: number;
 }) {
   const shown = products;
+  const showLanded = freightPct > 0;
 
   return (
     <div className="space-y-3">
@@ -35,6 +39,14 @@ export function CatalogTable({
                 <TableHead>Category</TableHead>
                 <TableHead>SKU</TableHead>
                 <TableHead className="text-right">Material</TableHead>
+                {showLanded ? (
+                  <TableHead className="text-right">
+                    Landed
+                    <span className="block text-[10px] font-normal text-muted-foreground">
+                      +{freightPct}% freight
+                    </span>
+                  </TableHead>
+                ) : null}
                 <TableHead className="text-right">Labor</TableHead>
                 <TableHead className="text-right">Installed</TableHead>
                 <TableHead>Unit</TableHead>
@@ -63,6 +75,11 @@ export function CatalogTable({
                   <TableCell className="text-right">
                     {formatMoney(p.material_rate)}
                   </TableCell>
+                  {showLanded ? (
+                    <TableCell className="text-right font-medium">
+                      {formatMoney(landedMaterialCost(p.material_rate, freightPct))}
+                    </TableCell>
+                  ) : null}
                   <TableCell className="text-right">
                     {formatMoney(p.labor_rate)}
                   </TableCell>

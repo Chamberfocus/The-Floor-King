@@ -30,26 +30,38 @@ export function PricingForm({ org }: { org: OrgSettings }) {
     <form action={action}>
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Fuel surcharge & quote terms</CardTitle>
+          <CardTitle className="text-base">Freight &amp; fees markup</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="fuel_surcharge_pct">Global fuel surcharge %</Label>
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+            <Label htmlFor="freight_markup_pct" className="text-sm font-semibold">
+              Freight &amp; fees markup %
+            </Label>
+            <div className="mt-1.5 flex max-w-xs items-center gap-2">
               <Input
-                id="fuel_surcharge_pct"
-                name="fuel_surcharge_pct"
+                id="freight_markup_pct"
+                name="freight_markup_pct"
                 type="number"
                 step="0.1"
                 min="0"
-                defaultValue={org.fuel_surcharge_pct ?? 0}
+                defaultValue={org.freight_markup_pct ?? 0}
+                className="text-lg font-semibold"
               />
-              <p className="text-xs text-muted-foreground">
-                Added to every material cost. Bump this when fuel spikes — all
-                new quotes update instantly.
-              </p>
+              <span className="text-lg font-semibold text-muted-foreground">%</span>
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Catalog prices are the <strong>bare material cost</strong>. This one
+              number covers freight, fuel surcharges, drop fees and handling on
+              average — set it to whatever your real landed cost runs above the
+              price list. It&apos;s added to every material cost automatically, so
+              your margins and job profit reflect the <strong>true</strong> cost.
+              Example: 10% turns a $1.80/sf price into a $1.98/sf cost. Labor is
+              never marked up.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
+              <Label htmlFor="quote_valid_days">Quotes valid for (days)</Label>
               <Label htmlFor="quote_valid_days">Quotes valid for (days)</Label>
               <Input
                 id="quote_valid_days"
