@@ -14,13 +14,19 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
+  PO_SOURCE_BADGE,
+  PO_SOURCE_LABELS,
   PO_STATUS_LABELS,
   PO_STATUS_ORDER,
+  type PoSourceType,
   type Product,
   type PurchaseOrder,
   type PoStatus,
+  type Supplier,
 } from "@/lib/types";
 import { savePurchaseOrder, extractPoDocument } from "./actions";
+
+const MANUAL = "__manual__";
 
 interface ItemState {
   key: string;
@@ -41,9 +47,11 @@ const inputSm =
 export function PoBuilder({
   po,
   products,
+  suppliers,
 }: {
   po: PurchaseOrder;
   products: Product[];
+  suppliers: Supplier[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -64,6 +72,10 @@ export function PoBuilder({
   });
 
   const [supplier, setSupplier] = useState(po.supplier ?? "");
+  const [supplierId, setSupplierId] = useState(po.supplier_id ?? "");
+  const [sourceType, setSourceType] = useState<PoSourceType>(
+    po.source_type ?? "distributor",
+  );
   const [status, setStatus] = useState<PoStatus>(po.status);
   const [notes, setNotes] = useState(po.notes ?? "");
   const [backordered, setBackordered] = useState(po.backordered ?? false);
@@ -164,6 +176,8 @@ export function PoBuilder({
     startTransition(async () => {
       const input: SavePoInput = {
         supplier,
+        supplier_id: supplierId || null,
+        source_type: sourceType,
         status,
         notes,
         eta_date: etaDate || null,
@@ -194,13 +208,79 @@ export function PoBuilder({
       <Card className="mb-6">
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-3">
           <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="supplier">Supplier</Label>
-            <Input
-              id="supplier"
-              value={supplier}
-              onChange={(e) => setSupplier(e.target.value)}
-              placeholder="e.g. Shaw, Mohawk, local distributor"
-            />
+            <Label htmlFor="supplier">Order from</Label>
+            <select
+              id="supplier-pick"
+              value={supplierId || MANUAL}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === MANUAL) {
+                  setSupplierId("");
+                  return;
+                }
+                const s = suppliers.find((x) => x.id === v);
+                if (s) {
+                  setSupplierId(s.id);
+                  setSupplier(s.name);
+                  setSourceType(s.kind ?? "distributor");
+                }
+              }}
+              className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {suppliers.some((s) => s.kind === "manufacturer") ? (
+                <optgroup label="Manufacturers">
+                  {suppliers
+                    .filter((s) => s.kind === "manufacturer")
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                </optgroup>
+              ) : null}
+              {suppliers.some((s) => s.kind !== "manufacturer") ? (
+                <optgroup label="Distributors">
+                  {suppliers
+                    .filter((s) => s.kind !== "manufacturer")
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                </optgroup>
+              ) : null}
+              <option value={MANUAL}>➕ One-off vendor (type below)…</option>
+            </select>
+            {supplierId ? (
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                  PO_SOURCE_BADGE[sourceType],
+                )}
+              >
+                {PO_SOURCE_LABELS[sourceType]}
+              </span>
+            ) : (
+              <div className="space-y-2 pt-1">
+                <Input
+                  value={supplier}
+                  onChange={(e) => setSupplier(e.target.value)}
+                  placeholder="Vendor name (e.g. local distributor)"
+                />
+                <SegmentedField
+                  value={sourceType}
+                  onChange={(v) => setSourceType(v as PoSourceType)}
+                  options={(["manufacturer", "distributor", "stock"] as const).map(
+                    (s) => ({ value: s, label: PO_SOURCE_LABELS[s] }),
+                  )}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Tip: add vendors once under{" "}
+                  <span className="font-medium">Settings → Suppliers</span> to
+                  pick them here every time.
+                </p>
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label>Status</Label>

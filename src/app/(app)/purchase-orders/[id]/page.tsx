@@ -7,6 +7,9 @@ import { PoStatusBadge } from "@/components/po-status-badge";
 import { getPurchaseOrder } from "@/lib/data/purchase-orders";
 import { getCustomer } from "@/lib/data/customers";
 import { listProducts } from "@/lib/data/products";
+import { listSuppliers } from "@/lib/data/suppliers";
+import { PO_SOURCE_BADGE, PO_SOURCE_LABELS } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import { PoBuilder } from "../po-builder";
 import { deletePurchaseOrder } from "../actions";
@@ -23,9 +26,10 @@ export default async function PurchaseOrderPage({
   const po = await getPurchaseOrder(id);
   if (!po) notFound();
 
-  const [products, customer] = await Promise.all([
+  const [products, customer, suppliers] = await Promise.all([
     listProducts({ activeOnly: true }),
     po.customer_id ? getCustomer(po.customer_id) : Promise.resolve(null),
+    listSuppliers(),
   ]);
 
   return (
@@ -44,6 +48,16 @@ export default async function PurchaseOrderPage({
               Purchase Order
             </h1>
             <PoStatusBadge status={po.status} />
+            {po.source_type ? (
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                  PO_SOURCE_BADGE[po.source_type],
+                )}
+              >
+                {PO_SOURCE_LABELS[po.source_type]}
+              </span>
+            ) : null}
           </div>
           <p className="text-sm text-muted-foreground">
             {customer ? `${customer.full_name} · ` : ""}
@@ -63,7 +77,7 @@ export default async function PurchaseOrderPage({
         </div>
       </div>
 
-      <PoBuilder po={po} products={products} />
+      <PoBuilder po={po} products={products} suppliers={suppliers} />
 
       <form action={deletePurchaseOrder} className="mt-4 flex justify-end">
         <input type="hidden" name="id" value={po.id} />

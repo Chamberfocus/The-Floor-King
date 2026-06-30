@@ -7,7 +7,9 @@ import type { SavePoInput } from "@/lib/po-calc";
 import { lineQty } from "@/lib/estimate-calc";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { extractOrderDocument, type ExtractedDoc } from "@/lib/extract";
-import type { EstimateLineItem, PoStatus } from "@/lib/types";
+import { reconcilePoStock, reverseReceivedPOs } from "@/lib/po-stock";
+import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
+import type { EstimateLineItem, PoSourceType, PoStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -60,17 +62,21 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
   const productCost = new Map<string, number>();
   const productName = new Map<string, string>();
   const productSupplier = new Map<string, string | null>();
+  const productSupplierId = new Map<string, string | null>();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, material_rate, supplier")
+      .select("id, name, material_rate, supplier, supplier_id")
       .in("id", productIds);
     for (const p of prods ?? []) {
       productCost.set(p.id as string, Number(p.material_rate) || 0);
       productName.set(p.id as string, p.name as string);
       productSupplier.set(p.id as string, (p.supplier as string) || null);
+      productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
     }
   }
+
+  const lookup = await buildSupplierLookup(supabase);
 
   const {
     data: { user },
@@ -98,26 +104,46 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
   }
 
   // Group lines by the vendor we order them from → one PO per supplier.
-  const supplierOf = (l: EstimateLineItem) =>
-    (l.product_id ? productSupplier.get(l.product_id) : null) ||
-    l.manufacturer ||
-    "Special order";
-  const groups = new Map<string, EstimateLineItem[]>();
+  const groups = new Map<
+    string,
+    {
+      name: string;
+      supplierId: string | null;
+      sourceType: PoSourceType;
+      lines: EstimateLineItem[];
+    }
+  >();
   for (const l of orderable) {
-    const sup = supplierOf(l);
-    const arr = groups.get(sup) ?? [];
-    arr.push(l);
-    groups.set(sup, arr);
+    const resolved = resolveLineSupplier(lookup, {
+      productSupplierId: l.product_id
+        ? productSupplierId.get(l.product_id)
+        : null,
+      supplierName:
+        (l.product_id ? productSupplier.get(l.product_id) : null) ||
+        l.manufacturer ||
+        null,
+    });
+    const g = groups.get(resolved.key) ?? {
+      name: resolved.name,
+      supplierId: resolved.ref?.id ?? null,
+      sourceType: (resolved.ref?.kind ?? "distributor") as PoSourceType,
+      lines: [],
+    };
+    g.lines.push(l);
+    groups.set(resolved.key, g);
   }
 
   let firstPoId: string | null = null;
-  for (const [supplier, glines] of groups) {
+  for (const [, group] of groups) {
+    const glines = group.lines;
     const { data: po, error } = await supabase
       .from("purchase_orders")
       .insert({
         customer_id: est.customer_id,
         estimate_id: estimateId,
-        supplier,
+        supplier: group.name,
+        supplier_id: group.supplierId,
+        source_type: group.sourceType,
         created_by: user?.id ?? null,
       })
       .select("id")
@@ -185,11 +211,14 @@ export async function savePurchaseOrder(
     .select("status, customer_id, backordered")
     .eq("id", poId)
     .maybeSingle();
+  const prevStatus = (before?.status as PoStatus | undefined) ?? undefined;
 
   const { error: updateError } = await supabase
     .from("purchase_orders")
     .update({
       supplier: input.supplier || null,
+      supplier_id: input.supplier_id || null,
+      source_type: input.source_type || null,
       status: input.status,
       notes: input.notes || null,
       eta_date: input.eta_date || null,
@@ -339,8 +368,15 @@ export async function savePurchaseOrder(
     await supabase.from("po_items").delete().in("id", oldIds);
   }
 
+  // Reconcile inventory AFTER items are saved, so a received PO restocks the
+  // current quantities. Same single reconciler the status buttons use — editing
+  // status in the builder can no longer skip it.
+  await reconcilePoStock(supabase, poId, prevStatus, input.status);
+
   revalidatePath(`/purchase-orders/${poId}`);
   revalidatePath("/purchase-orders");
+  revalidatePath("/inventory");
+  revalidatePath("/warehouse");
   return { error: null };
 }
 
@@ -362,12 +398,7 @@ export async function setPurchaseOrderStatus(
   const prev = cur?.status as PoStatus | undefined;
 
   await supabase.from("purchase_orders").update({ status }).eq("id", id);
-
-  const becameReceived = prev !== "received" && status === "received";
-  const unreceived = prev === "received" && status !== "received";
-  if (becameReceived || unreceived) {
-    await applyReceiptToStock(supabase, id, becameReceived ? 1 : -1);
-  }
+  await reconcilePoStock(supabase, id, prev, status);
 
   revalidatePath(`/purchase-orders/${id}`);
   revalidatePath("/purchase-orders");
@@ -375,84 +406,38 @@ export async function setPurchaseOrderStatus(
   revalidatePath("/warehouse");
 }
 
-/**
- * Receiving a PO adds its items to on-hand stock — but only for products we
- * actually TRACK. Special-order items (untracked) flow straight to the job and
- * never enter inventory, so they're left alone. `sign` is +1 to receive,
- * -1 to reverse if a PO is moved back out of "received".
- */
-async function applyReceiptToStock(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  poId: string,
-  sign: 1 | -1,
-): Promise<void> {
-  const { data: items } = await supabase
-    .from("po_items")
-    .select("product_id, quantity, unit_cost")
-    .eq("po_id", poId);
-  const rows = (items ?? []).filter(
-    (it) => it.product_id && (Number(it.quantity) || 0) > 0,
-  );
-  if (!rows.length) return;
-
-  const productIds = [...new Set(rows.map((it) => it.product_id as string))];
-  const { data: prods } = await supabase
-    .from("products")
-    .select("id, on_hand, track_stock")
-    .in("id", productIds);
-  const prodMap = new Map(
-    (prods ?? []).map((p) => [
-      p.id as string,
-      { on_hand: Number(p.on_hand) || 0, track_stock: !!p.track_stock },
-    ]),
-  );
-
-  // Aggregate quantity + cost per tracked product (a PO can list a product on
-  // more than one line).
-  const byProduct = new Map<string, { qty: number; unitCost: number | null }>();
-  for (const it of rows) {
-    const pid = it.product_id as string;
-    const p = prodMap.get(pid);
-    if (!p || !p.track_stock) continue; // untracked special order — skip
-    const agg = byProduct.get(pid) ?? { qty: 0, unitCost: null };
-    agg.qty += Number(it.quantity) || 0;
-    if (agg.unitCost == null && it.unit_cost != null)
-      agg.unitCost = Number(it.unit_cost);
-    byProduct.set(pid, agg);
-  }
-  if (!byProduct.size) return;
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  for (const [pid, { qty, unitCost }] of byProduct) {
-    const delta = Math.round(sign * qty * 100) / 100;
-    const p = prodMap.get(pid)!;
-    await supabase.from("stock_movements").insert({
-      product_id: pid,
-      qty: delta,
-      kind: sign > 0 ? "receive" : "adjust",
-      unit_cost: unitCost,
-      note: sign > 0 ? "Received from PO" : "PO marked not received",
-      created_by: user?.id ?? null,
-    });
-    await supabase
-      .from("products")
-      .update({
-        on_hand: Math.round((p.on_hand + delta) * 100) / 100,
-        last_movement_at: new Date().toISOString(),
-      })
-      .eq("id", pid);
-  }
-}
-
 export async function deletePurchaseOrder(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   if (!id) return;
   const supabase = await createClient();
+  // If this PO was received, undo the stock it added before deleting — no
+  // phantom on-hand left behind.
+  await reverseReceivedPOs(supabase, [id]);
   await supabase.from("purchase_orders").delete().eq("id", id);
   revalidatePath("/purchase-orders");
+  revalidatePath("/inventory");
+  revalidatePath("/warehouse");
+  redirect("/purchase-orders");
+}
+
+/** Start a blank PO straight from a customer's file (PO follows the customer). */
+export async function createBlankPO(formData: FormData): Promise<void> {
+  const customerId = str(formData.get("customer_id")) || null;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: po } = await supabase
+    .from("purchase_orders")
+    .insert({
+      customer_id: customerId,
+      created_by: user?.id ?? null,
+    })
+    .select("id")
+    .single();
+  revalidatePath("/purchase-orders");
+  if (customerId) revalidatePath(`/customers/${customerId}`);
+  if (po) redirect(`/purchase-orders/${po.id}`);
   redirect("/purchase-orders");
 }
 

@@ -36,9 +36,17 @@ export interface OrgSettings {
   updated_at: string;
 }
 
+export type SupplierKind = "manufacturer" | "distributor";
+
+export const SUPPLIER_KIND_LABELS: Record<SupplierKind, string> = {
+  manufacturer: "Manufacturer",
+  distributor: "Distributor",
+};
+
 export interface Supplier {
   id: string;
   name: string;
+  kind: SupplierKind;
   freight_pct: number;
   freight_per_unit: number;
   notes: string | null;
@@ -299,6 +307,7 @@ export interface Product {
   style: string | null;
   color: string | null;
   supplier: string | null;
+  supplier_id: string | null;
   notes: string | null;
   active: boolean;
   track_stock: boolean;
@@ -619,12 +628,30 @@ export interface PoItem {
   item_no: string | null;
 }
 
+// Where a PO's materials come from. Manufacturer/Distributor = an outside order;
+// "stock" = pulled from our own inventory.
+export type PoSourceType = "manufacturer" | "distributor" | "stock";
+
+export const PO_SOURCE_LABELS: Record<PoSourceType, string> = {
+  manufacturer: "Manufacturer",
+  distributor: "Distributor",
+  stock: "From stock",
+};
+
+export const PO_SOURCE_BADGE: Record<PoSourceType, string> = {
+  manufacturer: "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
+  distributor: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  stock: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+};
+
 export interface PurchaseOrder {
   id: string;
   customer_id: string | null;
   estimate_id: string | null;
   job_id: string | null;
   supplier: string | null;
+  supplier_id: string | null;
+  source_type: PoSourceType | null;
   status: PoStatus;
   notes: string | null;
   eta_date: string | null;

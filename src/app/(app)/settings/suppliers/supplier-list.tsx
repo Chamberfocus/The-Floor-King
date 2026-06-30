@@ -23,9 +23,10 @@ export function SupplierList({ suppliers }: { suppliers: Supplier[] }) {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Set each manufacturer/distributor&apos;s freight %. When you pick a
-          product, its supplier&apos;s freight (matched by name) plus the global
-          fuel surcharge are added to your cost automatically.
+          Mark each vendor as a <strong>Manufacturer</strong> or{" "}
+          <strong>Distributor</strong> — purchase orders use this to show where
+          materials come from. Freight % (plus the global fuel surcharge) is
+          added to your cost automatically when you pick the product.
         </p>
 
         {suppliers.length > 0 ? (
@@ -34,15 +35,24 @@ export function SupplierList({ suppliers }: { suppliers: Supplier[] }) {
               <form
                 key={s.id}
                 action={updateSupplier}
-                className="flex items-center gap-2"
+                className="flex flex-wrap items-center gap-2"
               >
                 <input type="hidden" name="id" value={s.id} />
                 <Input
                   name="name"
                   defaultValue={s.name}
-                  className="h-9 flex-1"
+                  className="h-9 min-w-40 flex-1"
                   placeholder="Supplier name"
                 />
+                <select
+                  name="kind"
+                  defaultValue={s.kind ?? "distributor"}
+                  className={cell}
+                  aria-label="Supplier type"
+                >
+                  <option value="manufacturer">Manufacturer</option>
+                  <option value="distributor">Distributor</option>
+                </select>
                 <div className="flex items-center gap-1">
                   <Input
                     name="freight_pct"
@@ -71,13 +81,17 @@ export function SupplierList({ suppliers }: { suppliers: Supplier[] }) {
           </div>
         ) : null}
 
-        <form action={addSupplier} className="flex items-center gap-2 border-t pt-3">
+        <form action={addSupplier} className="flex flex-wrap items-center gap-2 border-t pt-3">
           <input
             name="name"
-            className={`${cell} flex-1`}
+            className={`${cell} min-w-40 flex-1`}
             placeholder="Add supplier (e.g. Shaw, Mohawk)"
             required
           />
+          <select name="kind" defaultValue="distributor" className={cell} aria-label="Supplier type">
+            <option value="manufacturer">Manufacturer</option>
+            <option value="distributor">Distributor</option>
+          </select>
           <div className="flex items-center gap-1">
             <input
               name="freight_pct"

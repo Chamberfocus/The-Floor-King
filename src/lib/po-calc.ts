@@ -1,4 +1,4 @@
-import type { PoStatus } from "@/lib/types";
+import type { PoSourceType, PoStatus } from "@/lib/types";
 
 export interface CalcPoItem {
   quantity?: number | string | null;
@@ -33,6 +33,8 @@ export interface SavePoItemInput {
 
 export interface SavePoInput {
   supplier: string;
+  supplier_id: string | null;
+  source_type: PoSourceType | null;
   status: PoStatus;
   notes: string;
   eta_date: string | null;

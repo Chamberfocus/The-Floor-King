@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { advanceFromFirstStage, deriveLeadStage } from "@/lib/workflow-engine";
+import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
 import {
   type ActivityType,
   type LeadSource,
@@ -411,11 +412,41 @@ export async function deleteCustomer(formData: FormData): Promise<void> {
   ]);
   const estIds = (ests ?? []).map((e) => e.id as string);
   const jobIds = (jbs ?? []).map((j) => j.id as string);
-  await supabase.from("purchase_orders").delete().eq("customer_id", id);
+
+  // Before wiping anything, put inventory back so the left hand knows what the
+  // right did: (1) free any stock this customer's jobs had reserved, and
+  // (2) undo the on-hand a received PO added. Both read records we're about to
+  // delete, so they must run FIRST.
+  if (jobIds.length) await releaseJobReservations(supabase, jobIds);
+
+  const poIdSet = new Set<string>();
+  const collectPoIds = (rows: { id: unknown }[] | null) => {
+    for (const r of rows ?? []) if (r.id) poIdSet.add(r.id as string);
+  };
+  collectPoIds(
+    (await supabase.from("purchase_orders").select("id").eq("customer_id", id))
+      .data,
+  );
   if (estIds.length)
-    await supabase.from("purchase_orders").delete().in("estimate_id", estIds);
+    collectPoIds(
+      (
+        await supabase
+          .from("purchase_orders")
+          .select("id")
+          .in("estimate_id", estIds)
+      ).data,
+    );
+  if (jobIds.length)
+    collectPoIds(
+      (await supabase.from("purchase_orders").select("id").in("job_id", jobIds))
+        .data,
+    );
+  const poIds = [...poIdSet];
+  if (poIds.length) {
+    await reverseReceivedPOs(supabase, poIds);
+    await supabase.from("purchase_orders").delete().in("id", poIds);
+  }
   if (jobIds.length) {
-    await supabase.from("purchase_orders").delete().in("job_id", jobIds);
     await supabase.from("expenses").delete().in("job_id", jobIds);
     await supabase.from("stock_movements").delete().in("job_id", jobIds);
   }

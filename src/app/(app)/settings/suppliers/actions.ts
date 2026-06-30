@@ -36,15 +36,21 @@ export async function savePricingSettings(
   return { error: null, ok: true };
 }
 
+function supplierKind(v: FormDataEntryValue | null): "manufacturer" | "distributor" {
+  return str(v) === "manufacturer" ? "manufacturer" : "distributor";
+}
+
 export async function addSupplier(formData: FormData): Promise<void> {
   const name = str(formData.get("name"));
   if (!name) return;
   const supabase = await createClient();
   await supabase.from("suppliers").insert({
     name,
+    kind: supplierKind(formData.get("kind")),
     freight_pct: numv(formData.get("freight_pct")),
   });
   revalidatePath("/settings/suppliers");
+  revalidatePath("/purchase-orders");
 }
 
 export async function updateSupplier(formData: FormData): Promise<void> {
@@ -55,11 +61,13 @@ export async function updateSupplier(formData: FormData): Promise<void> {
     .from("suppliers")
     .update({
       name: str(formData.get("name")),
+      kind: supplierKind(formData.get("kind")),
       freight_pct: numv(formData.get("freight_pct")),
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
   revalidatePath("/settings/suppliers");
+  revalidatePath("/purchase-orders");
 }
 
 export async function deleteSupplier(formData: FormData): Promise<void> {

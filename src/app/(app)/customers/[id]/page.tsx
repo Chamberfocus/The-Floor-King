@@ -42,6 +42,11 @@ import { listCustomerCheckouts } from "@/lib/data/samples";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { SamplesCard } from "./samples-card";
 import { PropertyCard } from "./property-card";
+import { CustomerOrdersCard } from "./customer-orders-card";
+import {
+  listPurchaseOrdersForCustomer,
+  getCustomerStockPulls,
+} from "@/lib/data/purchase-orders";
 import { getJob } from "@/lib/data/jobs";
 import {
   getSchedulingSettings,
@@ -111,10 +116,13 @@ export default async function CustomerPage({
   const portalUser = await getPortalUser(id);
   const messages = await listCustomerMessages(id);
   const documents = await listCustomerDocuments(id);
-  const [sampleCheckouts, bizSettings] = await Promise.all([
-    listCustomerCheckouts(id),
-    getBusinessSettings(),
-  ]);
+  const [sampleCheckouts, bizSettings, customerPOs, stockPulls] =
+    await Promise.all([
+      listCustomerCheckouts(id),
+      getBusinessSettings(),
+      listPurchaseOrdersForCustomer(id),
+      getCustomerStockPulls(id),
+    ]);
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
   const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
@@ -447,6 +455,13 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
+
+          {/* Materials & Orders — POs + stock for this customer */}
+          <CustomerOrdersCard
+            customerId={customer.id}
+            pos={customerPOs}
+            stockPulls={stockPulls}
+          />
 
           {/* Invoices */}
           <Card>

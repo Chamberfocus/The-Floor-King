@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getJobMaterials } from "@/lib/data/job-materials";
+import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
 import { lineQty, type CalcLine } from "@/lib/estimate-calc";
-import type { EstimateLineItem } from "@/lib/types";
+import type { EstimateLineItem, PoSourceType } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -140,39 +141,62 @@ async function createPOForLines(
   const cost = new Map<string, number>();
   const pname = new Map<string, string>();
   const psupplier = new Map<string, string | null>();
+  const psupplierId = new Map<string, string | null>();
   if (productIds.length) {
     const { data: prods } = await db
       .from("products")
-      .select("id, name, material_rate, supplier")
+      .select("id, name, material_rate, supplier, supplier_id")
       .in("id", productIds);
     for (const p of prods ?? []) {
       cost.set(p.id as string, Number(p.material_rate) || 0);
       pname.set(p.id as string, p.name as string);
       psupplier.set(p.id as string, (p.supplier as string) || null);
+      psupplierId.set(p.id as string, (p.supplier_id as string) || null);
     }
   }
 
-  // One PO per supplier so each shows the vendor we order from.
-  const supplierOf = (l: (typeof lines)[number]) =>
-    (l.product_id ? psupplier.get(l.product_id) : null) ||
-    l.manufacturer ||
-    "Special order";
-  const groups = new Map<string, typeof lines>();
+  const lookup = await buildSupplierLookup(db);
+
+  // One PO per supplier so each shows the vendor we order from, with the right
+  // Manufacturer/Distributor source type.
+  const groups = new Map<
+    string,
+    {
+      name: string;
+      supplierId: string | null;
+      sourceType: PoSourceType;
+      lines: typeof lines;
+    }
+  >();
   for (const l of lines) {
-    const sup = supplierOf(l);
-    const arr = groups.get(sup) ?? [];
-    arr.push(l);
-    groups.set(sup, arr);
+    const resolved = resolveLineSupplier(lookup, {
+      productSupplierId: l.product_id ? psupplierId.get(l.product_id) : null,
+      supplierName:
+        (l.product_id ? psupplier.get(l.product_id) : null) ||
+        l.manufacturer ||
+        null,
+    });
+    const g = groups.get(resolved.key) ?? {
+      name: resolved.name,
+      supplierId: resolved.ref?.id ?? null,
+      sourceType: (resolved.ref?.kind ?? "distributor") as PoSourceType,
+      lines: [],
+    };
+    g.lines.push(l);
+    groups.set(resolved.key, g);
   }
 
-  for (const [supplier, glines] of groups) {
+  for (const [, group] of groups) {
+    const glines = group.lines;
     const { data: po, error } = await db
       .from("purchase_orders")
       .insert({
         customer_id: est?.customer_id ?? null,
         estimate_id: estimateId,
         job_id: jobId,
-        supplier,
+        supplier: group.name,
+        supplier_id: group.supplierId,
+        source_type: group.sourceType,
         created_by: uid,
       })
       .select("id")
