@@ -69,7 +69,9 @@ export function SamplesCard({
     (s, c) => s + c.items.reduce((t, i) => t + (Number(i.qty) || 0), 0),
     0,
   );
-  const addingQty = items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
+  const addingQty = items
+    .filter((i) => i.label.trim())
+    .reduce((s, i) => s + Math.max(1, Math.round(Number(i.qty) || 1)), 0);
   const overLimit = maxOut > 0 && currentOut + addingQty > maxOut;
 
   const run = (fn: () => Promise<{ error: string | null }>) =>

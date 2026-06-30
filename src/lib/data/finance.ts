@@ -96,7 +96,13 @@ export async function getPeriodSummary(
     .reduce((s, r) => s + (Number(r.amount) || 0), 0);
 
   const billed = liveInvoices
-    .filter((i) => i.issue_date && i.issue_date >= start && i.issue_date <= end)
+    .filter(
+      (i) =>
+        i.status !== "void" &&
+        i.issue_date &&
+        i.issue_date >= start &&
+        i.issue_date <= end,
+    )
     .reduce(
       (s, i) => s + invoiceTotals(i.items ?? [], i.tax_rate, 0).total,
       0,
