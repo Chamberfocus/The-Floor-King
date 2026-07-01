@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { formatDateTime } from "@/lib/format";
 import { approveOrder, declineOrder } from "./actions";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
+import { OrderLinkCard } from "./order-link-card";
+import { COMPANY_NAME } from "@/lib/nav";
 
 export const metadata: Metadata = { title: "Orders" };
 export const dynamic = "force-dynamic";
@@ -119,6 +121,7 @@ export default async function OrdersPage() {
         title="Orders"
         description="Carpet orders submitted by clients. Approve to send them to the warehouse for cutting & pickup."
       />
+      <OrderLinkCard companyName={COMPANY_NAME} />
       {orders.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
           <Package className="mx-auto mb-2 size-6 opacity-50" />
