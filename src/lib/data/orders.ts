@@ -1,5 +1,51 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { priceFromMargin } from "@/lib/estimate-calc";
 import type { Order, OrderItem } from "@/lib/types";
+
+export interface OrderProductRetail {
+  id: string;
+  name: string;
+  unit: string;
+  price: number; // retail: clearance price, else cost priced to target margin
+}
+
+/**
+ * Active products with a RETAIL unit price for the order form. Retail = the
+ * clearance price if on clearance, else the cost priced to the shop's target
+ * gross margin — never the raw cost. Read elevated so the public order page
+ * (no login) can use it too.
+ */
+export async function listOrderProducts(): Promise<OrderProductRetail[]> {
+  const admin = createAdminClient();
+  const { data: settings } = await admin
+    .from("business_settings")
+    .select("target_gross_margin_pct")
+    .eq("id", "default")
+    .maybeSingle();
+  const margin = Number(settings?.target_gross_margin_pct) || 40;
+  const { data } = await admin
+    .from("products")
+    .select("id, name, unit, material_rate, clearance, clearance_price")
+    .eq("active", true)
+    .order("name", { ascending: true })
+    .limit(2000);
+  return (data ?? []).map((p) => {
+    const cost = Number(p.material_rate) || 0;
+    const retail =
+      p.clearance && p.clearance_price
+        ? Number(p.clearance_price)
+        : cost > 0
+          ? priceFromMargin(cost, margin)
+          : 0;
+    return {
+      id: p.id as string,
+      name: p.name as string,
+      unit: (p.unit as string) || "sq yd",
+      price: Math.round(retail * 100) / 100,
+    };
+  });
+}
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 

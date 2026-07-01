@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { COMPANY_NAME } from "@/lib/nav";
+import { listOrderProducts } from "@/lib/data/orders";
 import { OrderForm } from "@/components/order-form";
 import { submitPublicOrder } from "./actions";
 
@@ -8,18 +8,7 @@ export const metadata: Metadata = { title: "Place an order" };
 export const dynamic = "force-dynamic";
 
 export default async function PublicOrderPage() {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("products")
-    .select("id, name, unit")
-    .eq("active", true)
-    .order("name", { ascending: true })
-    .limit(1000);
-  const products = (data ?? []).map((p) => ({
-    id: p.id as string,
-    name: p.name as string,
-    unit: (p.unit as string) || "sq yd",
-  }));
+  const products = await listOrderProducts();
 
   return (
     <div className="mx-auto min-h-screen max-w-2xl px-4 py-8">

@@ -756,6 +756,8 @@ export interface OrderItem {
   quantity: number | null;
   unit: string;
   cut_notes: string | null;
+  retail_price: number | null; // unit retail the customer was shown
+  requested_price: number | null; // unit price the customer asked to pay
 }
 
 export type OrderStockStatus =

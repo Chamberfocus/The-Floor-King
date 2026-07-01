@@ -258,19 +258,6 @@ export async function createInvoiceFromOrder(
     .order("position", { ascending: true });
   const items = (itemData ?? []) as OrderItem[];
 
-  const pids = [
-    ...new Set(items.map((i) => i.product_id).filter(Boolean) as string[]),
-  ];
-  const rate = new Map<string, number>();
-  if (pids.length) {
-    const { data: prods } = await supabase
-      .from("products")
-      .select("id, material_rate")
-      .in("id", pids);
-    for (const p of prods ?? [])
-      rate.set(p.id as string, Number(p.material_rate) || 0);
-  }
-
   const { data: inv } = await supabase
     .from("invoices")
     .insert({
@@ -293,7 +280,9 @@ export async function createInvoiceFromOrder(
       (it.cut_notes ? ` (cuts: ${it.cut_notes})` : ""),
     quantity: it.quantity ?? 1,
     unit: it.unit || "each",
-    rate: it.product_id ? (rate.get(it.product_id) ?? 0) : 0,
+    // Sell price: the customer's requested price if any, else the retail they
+    // saw. You still edit it in the invoice builder before sending.
+    rate: it.requested_price ?? it.retail_price ?? 0,
   }));
   if (rows.length) await supabase.from("invoice_items").insert(rows);
 

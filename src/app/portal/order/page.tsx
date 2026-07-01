@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { requireProfile } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { listOrderProducts } from "@/lib/data/orders";
 import { OrderForm } from "@/components/order-form";
 import { submitPortalOrder } from "@/app/order/actions";
 
@@ -9,18 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function PortalOrderPage() {
   await requireProfile();
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("products")
-    .select("id, name, unit")
-    .eq("active", true)
-    .order("name", { ascending: true })
-    .limit(1000);
-  const products = (data ?? []).map((p) => ({
-    id: p.id as string,
-    name: p.name as string,
-    unit: (p.unit as string) || "sq yd",
-  }));
+  const products = await listOrderProducts();
 
   return (
     <div className="space-y-6">

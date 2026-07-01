@@ -13,6 +13,8 @@ export interface OrderSubmissionItem {
   quantity: number;
   unit: string;
   cutNotes: string;
+  retailPrice: number; // 0 if not a catalog item
+  requestedPrice: number; // 0 if the customer didn't request a different price
 }
 export interface OrderSubmission {
   contactName: string;
@@ -42,6 +44,12 @@ function cleanItems(items: OrderSubmissionItem[]) {
       quantity: Number.isFinite(i.quantity) && i.quantity > 0 ? i.quantity : null,
       unit: i.unit?.trim() || "sq yd",
       cut_notes: i.cutNotes?.trim() || null,
+      retail_price:
+        Number.isFinite(i.retailPrice) && i.retailPrice > 0 ? i.retailPrice : null,
+      requested_price:
+        Number.isFinite(i.requestedPrice) && i.requestedPrice > 0
+          ? i.requestedPrice
+          : null,
     }));
 }
 
@@ -57,9 +65,16 @@ async function insertOrder(
     .single();
   if (error || !data) return null;
   if (items.length) {
-    await db
-      .from("order_items")
-      .insert(items.map((it) => ({ ...it, order_id: data.id })));
+    const rows = items.map((it) => ({ ...it, order_id: data.id }));
+    const { error: itErr } = await db.from("order_items").insert(rows);
+    if (itErr) {
+      // Retry without the price columns in case migration 0064 isn't applied
+      // yet — so order submission never breaks.
+      const stripped = rows.map(
+        ({ retail_price, requested_price, ...rest }) => rest,
+      );
+      await db.from("order_items").insert(stripped);
+    }
   }
   return { id: data.id as string };
 }

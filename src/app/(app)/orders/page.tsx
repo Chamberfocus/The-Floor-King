@@ -14,7 +14,7 @@ import {
   ORDER_STOCK_LABELS,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatMoney } from "@/lib/format";
 import {
   approveOrder,
   declineOrder,
@@ -77,6 +77,11 @@ export default async function OrdersPage() {
             <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", ORDER_STOCK_BADGE[o.stock_status])}>
               {ORDER_STOCK_LABELS[o.stock_status]}
             </span>
+            {(o.items ?? []).some((i) => i.requested_price) ? (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                Price requested
+              </span>
+            ) : null}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -90,6 +95,20 @@ export default async function OrdersPage() {
                   ) : null}
                   <StockLine productId={it.product_id} />
                 </div>
+                {it.retail_price || it.requested_price ? (
+                  <div className="text-xs">
+                    {it.retail_price ? (
+                      <span className="text-muted-foreground">
+                        Retail {formatMoney(it.retail_price)}/{it.unit}
+                      </span>
+                    ) : null}
+                    {it.requested_price ? (
+                      <span className="ml-1 font-medium text-amber-700 dark:text-amber-400">
+                        · Requested {formatMoney(it.requested_price)}/{it.unit}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 {it.cut_notes ? (
                   <div className="text-xs text-muted-foreground">
                     Cuts: {it.cut_notes.split(" | ").join(", ")}
