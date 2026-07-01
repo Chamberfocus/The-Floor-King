@@ -204,7 +204,7 @@ export function PoBuilder({
     });
 
   return (
-    <div className="pb-24">
+    <div className="pb-44 md:pb-24">
       <Card className="mb-6">
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-3">
           <div className="space-y-2 sm:col-span-2">
@@ -488,7 +488,7 @@ export function PoBuilder({
         </CardContent>
       </Card>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-3 backdrop-blur md:pl-64">
+      <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 border-t bg-background/95 p-3 backdrop-blur md:bottom-0 md:pl-64">
         <div className="mx-auto flex max-w-4xl items-center justify-end gap-2 px-1">
           <Button
             type="button"

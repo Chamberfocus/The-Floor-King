@@ -517,7 +517,7 @@ export function EstimateBuilder({
 
   return (
     <>
-    <div className="mx-auto max-w-5xl pb-24 print:hidden">
+    <div className="mx-auto max-w-5xl pb-44 md:pb-24 print:hidden">
       <Link
         href={`/customers/${estimate.customer_id}`}
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -1023,7 +1023,7 @@ export function EstimateBuilder({
       </Button>
 
       {/* Sticky save bar */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 p-3 backdrop-blur md:pl-64">
+      <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 border-t bg-background/95 p-3 backdrop-blur md:bottom-0 md:pl-64">
         <div className="mx-auto flex max-w-5xl items-center justify-end gap-2 px-1">
           <Button
             type="button"
