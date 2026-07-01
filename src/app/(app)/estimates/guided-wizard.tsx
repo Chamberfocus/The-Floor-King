@@ -258,9 +258,9 @@ function lineCost(l: SmartLine, fMult = 1): number {
 const STEPS = ["Rooms", "Pricing", "Review"] as const;
 
 export function GuidedWizard({
-  customerId, customerName, targetMargin, freightPct,
+  customerId, customerName, targetMargin, freightPct, serviceAddressId,
 }: {
-  customerId: string; customerName: string; targetMargin: number; freightPct: number;
+  customerId: string; customerName: string; targetMargin: number; freightPct: number; serviceAddressId: string;
 }) {
   const [step, setStep] = useState(0);
   const [title, setTitle] = useState("");
@@ -485,6 +485,7 @@ export function GuidedWizard({
       const res = await createSmartEstimate({
         customerId, title, taxRate: 8, lines, presentation,
         jobDescription: notes.trim() || undefined,
+        serviceAddressId: serviceAddressId || null,
         print: opts.print, send: opts.send,
       });
       if (res?.error) toast.error(res.error);

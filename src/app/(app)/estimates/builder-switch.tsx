@@ -20,8 +20,10 @@ export function BuilderSwitch(props: {
   customerName: string;
   targetMargin: number;
   freightPct: number;
+  serviceAddresses: { id: string; label: string }[];
 }) {
   const [mode, setMode] = useState<Mode>("wizard");
+  const [serviceAddressId, setServiceAddressId] = useState("");
 
   const Tab = ({
     value, icon: Icon, label, hint,
@@ -45,6 +47,26 @@ export function BuilderSwitch(props: {
 
   return (
     <div className="space-y-4">
+      {props.serviceAddresses.length > 0 ? (
+        <div className="rounded-lg border bg-muted/30 p-3">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            Job site (this account has multiple properties)
+          </label>
+          <select
+            value={serviceAddressId}
+            onChange={(e) => setServiceAddressId(e.target.value)}
+            className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+          >
+            <option value="">Primary address</option>
+            {props.serviceAddresses.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       <div className="grid gap-2 sm:grid-cols-2">
         <Tab value="wizard" icon={ListChecks} label="Estimate builder" hint="Step-by-step — covers every base" />
         <Tab value="quick" icon={Zap} label="Quick estimate" hint="One screen — fast quote" />
@@ -56,6 +78,7 @@ export function BuilderSwitch(props: {
           customerName={props.customerName}
           targetMargin={props.targetMargin}
           freightPct={props.freightPct}
+          serviceAddressId={serviceAddressId}
         />
       </div>
       <div className={mode === "quick" ? "" : "hidden"}>
@@ -64,6 +87,7 @@ export function BuilderSwitch(props: {
           customerName={props.customerName}
           targetMargin={props.targetMargin}
           freightPct={props.freightPct}
+          serviceAddressId={serviceAddressId}
         />
       </div>
     </div>

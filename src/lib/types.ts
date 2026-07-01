@@ -512,11 +512,41 @@ export type JobStatus =
   | "completed"
   | "cancelled";
 
+export interface ServiceAddress {
+  id: string;
+  customer_id: string;
+  label: string | null;
+  street: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One line: "Label — 123 Main St, City ST 00000" (label optional). */
+export function formatServiceAddress(a: {
+  label?: string | null;
+  street?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+}): string {
+  const line = [a.street, [a.city, a.state].filter(Boolean).join(", "), a.zip]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (a.label && line) return `${a.label} — ${line}`;
+  return a.label || line || "Address";
+}
+
 export interface Job {
   id: string;
   customer_id: string;
   estimate_id: string | null;
   option_id: string | null;
+  service_address_id?: string | null;
   title: string | null;
   migrated?: boolean; // carried over from prior system at go-live
   status: JobStatus;

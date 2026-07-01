@@ -43,6 +43,8 @@ import { getBusinessSettings } from "@/lib/data/business-settings";
 import { SamplesCard } from "./samples-card";
 import { PropertyCard } from "./property-card";
 import { CustomerOrdersCard } from "./customer-orders-card";
+import { ServiceAddressesCard } from "./service-addresses-card";
+import { listServiceAddresses } from "@/lib/data/service-addresses";
 import {
   listPurchaseOrdersForCustomer,
   getCustomerStockPulls,
@@ -63,7 +65,12 @@ import { createInvoice } from "@/app/(app)/invoices/actions";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { optionTotals } from "@/lib/estimate-calc";
 import { invoiceTotals } from "@/lib/invoice-calc";
-import { type ActivityType, STAGE_COLOR_BADGE, SALES_ROLES } from "@/lib/types";
+import {
+  type ActivityType,
+  STAGE_COLOR_BADGE,
+  SALES_ROLES,
+  formatServiceAddress,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { AddActivityForm } from "./add-activity-form";
@@ -117,12 +124,13 @@ export default async function CustomerPage({
   const portalUser = await getPortalUser(id);
   const messages = await listCustomerMessages(id);
   const documents = await listCustomerDocuments(id);
-  const [sampleCheckouts, bizSettings, customerPOs, stockPulls] =
+  const [sampleCheckouts, bizSettings, customerPOs, stockPulls, serviceAddresses] =
     await Promise.all([
       listCustomerCheckouts(id),
       getBusinessSettings(),
       listPurchaseOrdersForCustomer(id),
       getCustomerStockPulls(id),
+      listServiceAddresses(id),
     ]);
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
@@ -296,6 +304,11 @@ export default async function CustomerPage({
             hasPropertyApi={!!process.env.RENTCAST_API_KEY}
           />
 
+          <ServiceAddressesCard
+            customerId={customer.id}
+            addresses={serviceAddresses}
+          />
+
           <Collapse title="Customer portal">
             <Card>
               <CardContent className="pt-6">
@@ -420,8 +433,22 @@ export default async function CustomerPage({
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Jobs</CardTitle>
-              <form action={createJob}>
+              <form action={createJob} className="flex items-center gap-2">
                 <input type="hidden" name="customer_id" value={customer.id} />
+                {serviceAddresses.length > 0 ? (
+                  <select
+                    name="service_address_id"
+                    className="h-9 max-w-[10rem] rounded-md border border-input bg-transparent px-2 text-xs"
+                    aria-label="Job site address"
+                  >
+                    <option value="">Primary address</option>
+                    {serviceAddresses.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label || formatServiceAddress(a)}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
                 <SubmitButton size="sm" pendingText="Creating…" confirm="Job created">
                   <Wrench className="size-3.5" /> New job
                 </SubmitButton>

@@ -7,6 +7,8 @@ import { requireProfile } from "@/lib/auth";
 import { getCustomer } from "@/lib/data/customers";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getOrgSettings } from "@/lib/data/org";
+import { listServiceAddresses } from "@/lib/data/service-addresses";
+import { formatServiceAddress } from "@/lib/types";
 import { BuilderSwitch } from "../builder-switch";
 
 export const metadata: Metadata = { title: "Smart estimate" };
@@ -24,6 +26,10 @@ export default async function SmartEstimatePage({
   if (!customer) redirect("/customers");
   const settings = await getBusinessSettings();
   const org = await getOrgSettings();
+  const serviceAddresses = (await listServiceAddresses(customer.id)).map((a) => ({
+    id: a.id,
+    label: a.label || formatServiceAddress(a),
+  }));
 
   return (
     <div className="mx-auto max-w-3xl pb-20">
@@ -42,6 +48,7 @@ export default async function SmartEstimatePage({
         customerName={customer.full_name}
         targetMargin={settings.target_gross_margin_pct || 40}
         freightPct={org.freight_markup_pct ?? 0}
+        serviceAddresses={serviceAddresses}
       />
     </div>
   );

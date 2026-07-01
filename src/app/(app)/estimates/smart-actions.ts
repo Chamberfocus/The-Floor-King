@@ -113,6 +113,7 @@ export interface SmartEstimateInput {
   lines: SmartLine[];
   jobDescription?: string;
   presentation?: "detailed" | "summary";
+  serviceAddressId?: string | null;
   print?: boolean;
   send?: boolean;
 }
@@ -164,6 +165,7 @@ export async function createSmartEstimate(
       presentation: input.presentation || "detailed",
       job_description: input.jobDescription?.trim() || null,
       valid_until: validUntil.toISOString().slice(0, 10),
+      service_address_id: input.serviceAddressId || null,
       created_by: user?.id ?? null,
     })
     .select("id")

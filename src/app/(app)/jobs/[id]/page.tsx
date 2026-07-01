@@ -53,8 +53,11 @@ import {
   unpostJobFromBoard,
   assignInstaller,
   setJobCrew,
+  setJobAddress,
 } from "../actions";
 import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
+import { listServiceAddresses } from "@/lib/data/service-addresses";
+import { formatServiceAddress } from "@/lib/types";
 import { deleteJobFile } from "../file-actions";
 import { JobPhotoUpload } from "../job-photo-upload";
 import { SignaturePad } from "../signature-pad";
@@ -121,6 +124,9 @@ export default async function JobPage({
 
   // Install crews (your managed list — subcontractors + employees).
   const installCrews = isStaff ? await listInstallCrews({ activeOnly: true }) : [];
+  const serviceAddresses = isStaff
+    ? await listServiceAddresses(job.customer_id)
+    : [];
   const jobCrew = isStaff ? await getJobCrew(job.id) : null;
 
   // Cohesion: your Team installers are assignable as crews right here — no need
@@ -478,6 +484,43 @@ export default async function JobPage({
                 </details>
               </>
             )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Site address — for accounts with multiple properties */}
+      {isStaff && serviceAddresses.length > 0 ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Site address</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-2 text-sm">
+              {siteParts.length ? siteParts.join(" · ") : "No site address set."}
+            </p>
+            <form action={setJobAddress} className="flex flex-wrap items-end gap-2">
+              <input type="hidden" name="job_id" value={job.id} />
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  Which property?
+                </label>
+                <select
+                  name="service_address_id"
+                  defaultValue={job.service_address_id ?? ""}
+                  className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                >
+                  <option value="">Primary address</option>
+                  {serviceAddresses.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label || formatServiceAddress(a)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button type="submit" size="sm" variant="outline">
+                Update site
+              </Button>
+            </form>
           </CardContent>
         </Card>
       ) : null}

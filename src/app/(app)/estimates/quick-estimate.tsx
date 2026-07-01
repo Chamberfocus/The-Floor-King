@@ -54,9 +54,9 @@ function lineCost(l: SmartLine, fMult = 1): number {
  * room-by-room walkthrough.
  */
 export function QuickEstimate({
-  customerId, customerName, targetMargin, freightPct,
+  customerId, customerName, targetMargin, freightPct, serviceAddressId,
 }: {
-  customerId: string; customerName: string; targetMargin: number; freightPct: number;
+  customerId: string; customerName: string; targetMargin: number; freightPct: number; serviceAddressId: string;
 }) {
   const [title, setTitle] = useState("");
   const [marginGoal, setMarginGoal] = useState(String(targetMargin));
@@ -174,6 +174,7 @@ export function QuickEstimate({
       const res = await createSmartEstimate({
         customerId, title, taxRate: 8, lines: built, presentation,
         jobDescription: notes.trim() || undefined,
+        serviceAddressId: serviceAddressId || null,
         print: opts.print, send: opts.send,
       });
       if (res?.error) toast.error(res.error);

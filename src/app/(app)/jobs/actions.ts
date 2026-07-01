@@ -80,7 +80,9 @@ export async function ensureJobForEstimate(
     const admin = createAdminClient();
     const { data: est } = await admin
       .from("estimates")
-      .select("id, customer_id, title, accepted_option_id, job_description")
+      .select(
+        "id, customer_id, title, accepted_option_id, job_description, service_address_id",
+      )
       .eq("id", estimateId)
       .maybeSingle();
     if (!est) return null;
@@ -113,19 +115,44 @@ export async function ensureJobForEstimate(
       .eq("id", est.customer_id as string)
       .maybeSingle();
 
+    // Site address: the estimate's chosen service address if set, else the
+    // account's primary address.
+    const svcId = (est.service_address_id as string | null) ?? null;
+    let site = {
+      street: cust?.street ?? null,
+      city: cust?.city ?? null,
+      state: cust?.state ?? null,
+      zip: cust?.zip ?? null,
+    };
+    if (svcId) {
+      const { data: sa } = await admin
+        .from("service_addresses")
+        .select("street, city, state, zip")
+        .eq("id", svcId)
+        .maybeSingle();
+      if (sa)
+        site = {
+          street: (sa.street as string) ?? null,
+          city: (sa.city as string) ?? null,
+          state: (sa.state as string) ?? null,
+          zip: (sa.zip as string) ?? null,
+        };
+    }
+
     const { data: job, error } = await admin
       .from("jobs")
       .insert({
         customer_id: est.customer_id,
         estimate_id: estimateId,
         option_id: optionId,
+        service_address_id: svcId,
         title: (est.title as string) || "Job",
         notes: (est.job_description as string | null) || null,
         created_by: createdBy,
-        site_street: cust?.street ?? null,
-        site_city: cust?.city ?? null,
-        site_state: cust?.state ?? null,
-        site_zip: cust?.zip ?? null,
+        site_street: site.street,
+        site_city: site.city,
+        site_state: site.state,
+        site_zip: site.zip,
       })
       .select("id")
       .single();
@@ -154,10 +181,11 @@ export async function createJobFromEstimate(formData: FormData): Promise<void> {
   if (jobId) redirect(`/jobs/${jobId}`);
 }
 
-/** Create a blank job tied to a customer. */
+/** Create a blank job tied to a customer (optionally at a service address). */
 export async function createJob(formData: FormData): Promise<void> {
   const customerId = str(formData.get("customer_id"));
   if (!customerId) return;
+  const serviceAddressId = str(formData.get("service_address_id")) || null;
 
   const supabase = await createClient();
   const { data: cust } = await supabase
@@ -165,6 +193,29 @@ export async function createJob(formData: FormData): Promise<void> {
     .select("street, city, state, zip")
     .eq("id", customerId)
     .maybeSingle();
+
+  // Site address: chosen service address, else the account's primary.
+  let site = {
+    street: cust?.street ?? null,
+    city: cust?.city ?? null,
+    state: cust?.state ?? null,
+    zip: cust?.zip ?? null,
+  };
+  if (serviceAddressId) {
+    const { data: sa } = await supabase
+      .from("service_addresses")
+      .select("street, city, state, zip")
+      .eq("id", serviceAddressId)
+      .maybeSingle();
+    if (sa)
+      site = {
+        street: (sa.street as string) ?? null,
+        city: (sa.city as string) ?? null,
+        state: (sa.state as string) ?? null,
+        zip: (sa.zip as string) ?? null,
+      };
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -175,10 +226,11 @@ export async function createJob(formData: FormData): Promise<void> {
       customer_id: customerId,
       title: "Job",
       created_by: user?.id ?? null,
-      site_street: cust?.street ?? null,
-      site_city: cust?.city ?? null,
-      site_state: cust?.state ?? null,
-      site_zip: cust?.zip ?? null,
+      service_address_id: serviceAddressId,
+      site_street: site.street,
+      site_city: site.city,
+      site_state: site.state,
+      site_zip: site.zip,
     })
     .select("id")
     .single();
@@ -187,6 +239,66 @@ export async function createJob(formData: FormData): Promise<void> {
   revalidatePath("/jobs");
   revalidatePath(`/customers/${customerId}`);
   redirect(`/jobs/${job.id}`);
+}
+
+/** Change which address a job is for — refills its site_* fields to match. */
+export async function setJobAddress(formData: FormData): Promise<void> {
+  const id = str(formData.get("job_id"));
+  if (!id) return;
+  const serviceAddressId = str(formData.get("service_address_id")) || null;
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!job) return;
+
+  let site = { street: null, city: null, state: null, zip: null } as {
+    street: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+  };
+  if (serviceAddressId) {
+    const { data: sa } = await supabase
+      .from("service_addresses")
+      .select("street, city, state, zip")
+      .eq("id", serviceAddressId)
+      .maybeSingle();
+    site = {
+      street: (sa?.street as string) ?? null,
+      city: (sa?.city as string) ?? null,
+      state: (sa?.state as string) ?? null,
+      zip: (sa?.zip as string) ?? null,
+    };
+  } else {
+    const { data: cust } = await supabase
+      .from("customers")
+      .select("street, city, state, zip")
+      .eq("id", job.customer_id as string)
+      .maybeSingle();
+    site = {
+      street: (cust?.street as string) ?? null,
+      city: (cust?.city as string) ?? null,
+      state: (cust?.state as string) ?? null,
+      zip: (cust?.zip as string) ?? null,
+    };
+  }
+
+  await supabase
+    .from("jobs")
+    .update({
+      service_address_id: serviceAddressId,
+      site_street: site.street,
+      site_city: site.city,
+      site_state: site.state,
+      site_zip: site.zip,
+    })
+    .eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+  revalidatePath("/jobs");
+  revalidatePath("/warehouse");
 }
 
 export async function updateJob(
