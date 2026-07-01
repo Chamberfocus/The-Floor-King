@@ -11,6 +11,8 @@ import {
   advanceFromAutoAction,
 } from "@/lib/workflow-engine";
 import { prepareJobMaterialsFor } from "./material-actions";
+import { getBusinessSettings } from "@/lib/data/business-settings";
+import { getJobOpenBalance } from "@/lib/data/invoices";
 import type {
   JobDeliveryType,
   JobStatus,
@@ -801,6 +803,119 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
   revalidatePath("/warehouse");
   revalidatePath(`/jobs/${id}`);
   if (job?.customer_id) revalidatePath(`/customers/${job.customer_id}`);
+}
+
+/**
+ * Installer collects the on-site balance (opt-in via business settings). Cash/
+ * check record the full-balance payment and mark the invoice paid; "link" just
+ * flags the office to collect online (no money recorded). Runs elevated (crews
+ * can't touch invoices/payments under RLS) but is GUARDED: the setting must be
+ * on and the caller must be the job's assigned installer (or staff).
+ */
+export async function collectJobBalance(formData: FormData): Promise<void> {
+  const jobId = str(formData.get("job_id"));
+  const method = str(formData.get("method")); // 'cash' | 'check' | 'link'
+  const reference = str(formData.get("reference")) || null;
+  if (!jobId || !["cash", "check", "link"].includes(method)) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const settings = await getBusinessSettings();
+  if (!settings.installer_collects_balance) return;
+
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role, full_name")
+    .eq("id", user.id)
+    .maybeSingle();
+  const role = me?.role as string | undefined;
+  const isStaff = role === "admin" || role === "office";
+
+  const admin = createAdminClient() as unknown as WhDb;
+  const { data: job } = await admin
+    .from("jobs")
+    .select(
+      "assigned_to, customer_id, title, customer:customers(full_name, assigned_to, workflow_owner_id)",
+    )
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job) return;
+  // Guard: only the assigned installer (or staff) may collect.
+  if (!isStaff && job.assigned_to !== user.id) return;
+
+  const coll = await getJobOpenBalance(jobId);
+  if (!coll.invoiceId || coll.balance <= 0) return;
+
+  const installerName = (me?.full_name as string) || "Installer";
+  const cust = job.customer as unknown as {
+    full_name: string | null;
+    assigned_to: string | null;
+    workflow_owner_id: string | null;
+  } | null;
+  const custName = cust?.full_name ?? "Customer";
+  const amt = coll.balance.toFixed(2);
+
+  // Notify the office (owner + the customer's rep).
+  const notifyOffice = async (subject: string, bodyHtml: string) => {
+    const ids = [cust?.assigned_to ?? null, cust?.workflow_owner_id ?? null].filter(
+      Boolean,
+    ) as string[];
+    const recipients = new Set<string>([ownerEmail()]);
+    if (ids.length) {
+      const { data: profs } = await admin
+        .from("profiles")
+        .select("email")
+        .in("id", [...new Set(ids)]);
+      for (const p of profs ?? [])
+        if (p.email) recipients.add(p.email as string);
+    }
+    for (const to of recipients) {
+      await sendEmail({
+        to,
+        subject,
+        html: emailLayout(subject, bodyHtml, {
+          label: "Open job",
+          url: `${siteUrl()}/jobs/${jobId}`,
+        }),
+      });
+    }
+  };
+
+  if (method === "link") {
+    await notifyOffice(
+      `💳 Online payment requested — ${custName}`,
+      `<p>${installerName} asked <strong>${custName}</strong> to pay the remaining balance of <strong>$${amt}</strong> online. Send them a payment link to close it out.</p>`,
+    );
+    revalidatePath(`/jobs/${jobId}`);
+    return;
+  }
+
+  // cash / check → record the full balance and mark the invoice paid.
+  await admin.from("payments").insert({
+    invoice_id: coll.invoiceId,
+    amount: coll.balance,
+    method,
+    reference,
+    paid_at: new Date().toISOString().slice(0, 10),
+    notes: `Collected on site by ${installerName}`,
+    created_by: user.id,
+  });
+  await admin.from("invoices").update({ status: "paid" }).eq("id", coll.invoiceId);
+
+  await notifyOffice(
+    `💵 Balance collected — ${custName}`,
+    `<p>${installerName} collected <strong>$${amt}</strong> by <strong>${method}</strong> on site for <strong>${custName}</strong>${
+      reference ? ` · ref ${reference}` : ""
+    }. The invoice is marked paid.</p>`,
+  );
+
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/invoices");
+  if (job.customer_id) revalidatePath(`/customers/${job.customer_id}`);
 }
 
 export async function setWarehouseStatus(formData: FormData): Promise<void> {

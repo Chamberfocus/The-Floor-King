@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/page-header";
 import { redirect } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
 import { listTeamMembers } from "@/lib/data/team";
+import { getBusinessSettings } from "@/lib/data/business-settings";
 import { InviteTeamForm } from "./invite-form";
 import { RoleSelect } from "./role-select";
 import { RemoveMember } from "./remove-member";
@@ -19,6 +20,7 @@ import {
   setMemberHome,
   setMemberPhonePin,
   setMemberName,
+  setInstallerCollects,
 } from "./actions";
 
 export const metadata: Metadata = { title: "Team" };
@@ -28,6 +30,8 @@ export default async function TeamPage() {
   if (me.role !== "admin") redirect("/");
   const members = await listTeamMembers();
   const adminCount = members.filter((m) => m.role === "admin").length;
+  const settings = await getBusinessSettings();
+  const installerCollects = settings.installer_collects_balance;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -35,6 +39,33 @@ export default async function TeamPage() {
         title="Team"
         description="Create logins for your office staff, installers, and warehouse crew."
       />
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">Installer collections</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-md text-sm text-muted-foreground">
+            Let the <strong>assigned installer</strong> collect the remaining
+            balance on site (cash, check, or request an online payment). When off,
+            only the office collects and crews never see the money.
+          </p>
+          <form action={setInstallerCollects}>
+            <input
+              type="hidden"
+              name="on"
+              value={installerCollects ? "false" : "true"}
+            />
+            <Button
+              type="submit"
+              size="sm"
+              variant={installerCollects ? "default" : "outline"}
+            >
+              {installerCollects ? "On — installers can collect" : "Off — turn on"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <Card className="mb-6">
         <CardHeader>

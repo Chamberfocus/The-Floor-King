@@ -915,6 +915,7 @@ export interface BusinessSettings {
   sample_reminder_lead_days: number;
   sample_default_deposit: number;
   sample_max_out: number; // 0 = no limit
+  installer_collects_balance: boolean; // installers can collect the balance on site
   updated_at: string;
 }
 

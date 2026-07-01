@@ -12,6 +12,18 @@ export interface TeamFormState {
   ok?: boolean;
 }
 
+/** Toggle whether installers may collect the on-site balance. Admin only. */
+export async function setInstallerCollects(formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
+  const on = formData.get("on") === "true";
+  const supabase = await createClient();
+  await supabase
+    .from("business_settings")
+    .update({ installer_collects_balance: on })
+    .eq("id", "default");
+  revalidatePath("/settings/team");
+}
+
 const STAFF_ROLES: UserRole[] = [
   "admin",
   "office",

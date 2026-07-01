@@ -32,6 +32,9 @@ import {
 } from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
 import { getJobCostAnalysis } from "@/lib/data/finance";
+import { getBusinessSettings } from "@/lib/data/business-settings";
+import { getJobOpenBalance } from "@/lib/data/invoices";
+import { InstallerCollect } from "./installer-collect";
 import { listJobLabor } from "@/lib/data/job-labor";
 import { getJobMaterials } from "@/lib/data/job-materials";
 import { getMeasurementDocuments } from "@/lib/data/documents";
@@ -131,6 +134,12 @@ export default async function JobPage({
     : [];
   const canAssignWarehouse = profile.role === "admin" || profile.role === "office";
   const warehouseUsers = canAssignWarehouse ? await listWarehouseUsers() : [];
+
+  // Optional: the assigned installer can collect the balance on site.
+  const bizSettings = await getBusinessSettings();
+  const showInstallerCollect =
+    bizSettings.installer_collects_balance && isAssignedToMe && !isStaff;
+  const collectible = showInstallerCollect ? await getJobOpenBalance(id) : null;
   const jobCrew = isStaff ? await getJobCrew(job.id) : null;
 
   // Cohesion: your Team installers are assignable as crews right here — no need
@@ -308,6 +317,15 @@ export default async function JobPage({
           ) : null}
         </CardContent>
       </Card>
+
+      {/* Installer on-site collection (opt-in) */}
+      {showInstallerCollect && collectible ? (
+        <InstallerCollect
+          jobId={id}
+          hasInvoice={collectible.hasInvoice}
+          balance={collectible.balance}
+        />
+      ) : null}
 
       {/* Measurements & diagrams — big & clear for the installers */}
       {job.customer_id ? (

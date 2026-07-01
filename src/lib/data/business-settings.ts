@@ -9,6 +9,7 @@ const DEFAULTS: BusinessSettings = {
   sample_reminder_lead_days: 2,
   sample_default_deposit: 0,
   sample_max_out: 0,
+  installer_collects_balance: false,
   updated_at: "",
 };
 
