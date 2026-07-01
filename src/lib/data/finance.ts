@@ -57,17 +57,24 @@ export async function getPeriodSummary(
     invoices.filter((i) => cancelled.has(i.customer_id)).map((i) => i.id),
   );
 
-  const pays = await fetchAll<{ amount: number; invoice_id: string }>(
-    (from, to) =>
-      supabase
-        .from("payments")
-        .select("amount, paid_at, invoice_id")
-        .gte("paid_at", start)
-        .lte("paid_at", end)
-        .range(from, to),
+  const pays = await fetchAll<{
+    amount: number;
+    invoice_id: string;
+    migrated?: boolean | null;
+  }>((from, to) =>
+    // select("*") (not a named column) so this degrades gracefully if the
+    // `migrated` column isn't there yet — before the flag exists nothing is
+    // migrated, so everything counts, exactly as before.
+    supabase
+      .from("payments")
+      .select("*")
+      .gte("paid_at", start)
+      .lte("paid_at", end)
+      .range(from, to),
   );
   const collected = pays
-    .filter((p) => !cancelledInvoiceIds.has(p.invoice_id))
+    // Carry-over deposits (pre-go-live money) don't count as new collections.
+    .filter((p) => !p.migrated && !cancelledInvoiceIds.has(p.invoice_id))
     .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
   const exps = await fetchAll<{ amount: number; job_id: string | null }>(
@@ -101,6 +108,7 @@ export async function getPeriodSummary(
     .filter(
       (i) =>
         i.status !== "void" &&
+        !i.migrated && // carry-over contracts were billed in the old system
         i.issue_date &&
         i.issue_date >= start &&
         i.issue_date <= end,
@@ -211,7 +219,10 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
   const cancelled = await cancelledCustomerIds(supabase);
   const jobs = (await listJobs()).filter(
-    (j) => j.option_id && !cancelled.has(j.customer_id),
+    // Carry-over jobs are excluded from profit analytics — their costs live in
+    // the old system, so any "profit" would be fiction. They still show on the
+    // job board and their balances still show in AR.
+    (j) => j.option_id && !cancelled.has(j.customer_id) && !j.migrated,
   );
   if (!jobs.length) return [];
 

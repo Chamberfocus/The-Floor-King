@@ -518,6 +518,7 @@ export interface Job {
   estimate_id: string | null;
   option_id: string | null;
   title: string | null;
+  migrated?: boolean; // carried over from prior system at go-live
   status: JobStatus;
   scheduled_date: string | null;
   scheduled_end: string | null;
@@ -725,6 +726,7 @@ export interface Invoice {
   job_id: string | null;
   estimate_id: string | null;
   number: string | null;
+  migrated?: boolean; // carried over from prior system at go-live
   status: InvoiceStatus;
   presentation: EstimatePresentation;
   issue_date: string | null;

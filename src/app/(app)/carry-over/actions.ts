@@ -187,6 +187,7 @@ export async function carryOverDeal(
       presentation: "summary",
       job_description: STAMP,
       valid_until: validUntil.toISOString().slice(0, 10),
+      migrated: true,
       created_by: uid,
     })
     .select("id")
@@ -258,6 +259,7 @@ export async function carryOverDeal(
         status: jobStatus,
         scheduled_date: input.scheduledDate || null,
         notes: jobNote,
+        migrated: true,
         site_street: cust?.street ?? null,
         site_city: cust?.city ?? null,
         site_state: cust?.state ?? null,
@@ -287,6 +289,7 @@ export async function carryOverDeal(
       status,
       tax_rate: n(input.taxRate),
       notes: STAMP,
+      migrated: true,
       created_by: uid,
     })
     .select("id")
@@ -307,6 +310,7 @@ export async function carryOverDeal(
         method: (input.method || "other") as PaymentMethod,
         paid_at: input.collectedDate || input.soldDate || today(),
         notes: STAMP,
+        migrated: true,
         created_by: uid,
       });
     }
