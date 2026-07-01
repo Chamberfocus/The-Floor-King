@@ -139,12 +139,23 @@
     -webkit-touch-callout: none;
   }
   /* On phones, text inputs must be ≥16px or iOS auto-zooms on focus — jarring
-     in the field. Bumps just the controls, not the surrounding UI. */
+     in the field. And give every field a comfortable tap/type height so they're
+     easy to hit with a thumb. Bumps just the controls, not the surrounding UI. */
   @media (max-width: 767px) {
     input:not([type="checkbox"]):not([type="radio"]),
     select,
     textarea {
       font-size: 16px;
+    }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+    select {
+      min-height: 2.6rem; /* ~42px — comfortable touch target */
+    }
+    /* Bigger, easier checkboxes for on-site confirmations (warehouse ack, etc.) */
+    input[type="checkbox"],
+    input[type="radio"] {
+      width: 1.15rem;
+      height: 1.15rem;
     }
   }
 }
