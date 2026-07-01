@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { MapPin, CalendarDays } from "lucide-react";
+import { MapPin, CalendarDays, HardHat } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -72,6 +72,11 @@ export default async function WarehousePage() {
             const site = [j.site_street, j.site_city, j.site_state]
               .filter(Boolean)
               .join(", ");
+            const timeframe = j.scheduled_date
+              ? j.scheduled_end && j.scheduled_end !== j.scheduled_date
+                ? `${formatDate(j.scheduled_date)} – ${formatDate(j.scheduled_end)}`
+                : formatDate(j.scheduled_date)
+              : "Not scheduled";
             return (
               <Card key={j.id}>
                 <CardHeader className="space-y-2">
@@ -92,9 +97,11 @@ export default async function WarehousePage() {
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1.5">
                       <CalendarDays className="size-4" />
-                      {j.scheduled_date
-                        ? formatDate(j.scheduled_date)
-                        : "Not scheduled"}
+                      {timeframe}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <HardHat className="size-4" />
+                      {j.crew_name ?? "Installer not assigned"}
                     </span>
                     {site ? (
                       <span className="flex items-center gap-1.5">

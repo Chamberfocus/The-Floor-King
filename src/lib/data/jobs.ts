@@ -214,6 +214,7 @@ export interface WarehouseMaterial {
 
 export interface WarehouseJob extends JobListRow {
   materials: WarehouseMaterial[];
+  crew_name: string | null; // who's doing the install (crew or assigned installer)
 }
 
 export async function listWarehouseJobs(): Promise<WarehouseJob[]> {
@@ -225,12 +226,53 @@ export async function listWarehouseJobs(): Promise<WarehouseJob[]> {
     .order("scheduled_date", { ascending: true });
   const jobs = (data ?? []) as (Job & {
     customer?: { full_name: string | null } | null;
+    assigned_to?: string | null;
+    assigned_crew_id?: string | null;
   })[];
   const rows: WarehouseJob[] = jobs.map((j) => ({
     ...j,
     customer_name: j.customer?.full_name ?? null,
     materials: [],
+    crew_name: null,
   }));
+
+  // Resolve who's doing each job so the warehouse can see the installer/crew:
+  // prefer the assigned install crew, else the assigned individual installer.
+  const crewIds = [
+    ...new Set(jobs.map((j) => j.assigned_crew_id).filter(Boolean) as string[]),
+  ];
+  const installerIds = [
+    ...new Set(jobs.map((j) => j.assigned_to).filter(Boolean) as string[]),
+  ];
+  const crewName = new Map<string, string>();
+  if (crewIds.length) {
+    const { data: crews } = await supabase
+      .from("install_crews")
+      .select("id, name")
+      .in("id", crewIds);
+    for (const c of crews ?? [])
+      crewName.set(c.id as string, (c.name as string) ?? "Crew");
+  }
+  const installerName = new Map<string, string>();
+  if (installerIds.length) {
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", installerIds);
+    for (const p of profs ?? [])
+      installerName.set(
+        p.id as string,
+        (p.full_name as string) || (p.email as string) || "Installer",
+      );
+  }
+  for (const r of rows) {
+    const cid = (r as { assigned_crew_id?: string | null }).assigned_crew_id;
+    const iid = (r as { assigned_to?: string | null }).assigned_to;
+    r.crew_name =
+      (cid ? crewName.get(cid) : null) ??
+      (iid ? installerName.get(iid) : null) ??
+      null;
+  }
 
   const optionIds = rows.map((r) => r.option_id).filter(Boolean) as string[];
   if (optionIds.length) {
