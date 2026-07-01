@@ -727,6 +727,56 @@ export const PO_STATUS_BADGE: Record<PoStatus, string> = {
   cancelled: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
 };
 
+// --- Client orders (cash-and-carry / pickup) --------------------------------
+
+export type OrderStatus = "submitted" | "approved" | "declined" | "cancelled";
+
+export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  submitted: "Needs review",
+  approved: "Approved",
+  declined: "Declined",
+  cancelled: "Cancelled",
+};
+
+export const ORDER_STATUS_BADGE: Record<OrderStatus, string> = {
+  submitted: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  approved: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  declined: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+  cancelled: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+};
+
+export interface OrderItem {
+  id: string;
+  order_id: string;
+  product_id: string | null;
+  position: number;
+  description: string;
+  color: string | null;
+  style: string | null;
+  quantity: number | null;
+  unit: string;
+  cut_notes: string | null;
+}
+
+export interface Order {
+  id: string;
+  customer_id: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+  status: OrderStatus;
+  source: "portal" | "public";
+  notes: string | null;
+  decline_reason: string | null;
+  job_id: string | null;
+  created_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  items?: OrderItem[];
+}
+
 // --- Invoicing & Payments ---------------------------------------------------
 
 export type InvoiceStatus = "draft" | "sent" | "partial" | "paid" | "void";

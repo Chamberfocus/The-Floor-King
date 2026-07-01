@@ -16,6 +16,7 @@ import {
   CalendarRange,
   Activity,
   ArrowRightLeft,
+  ShoppingBag,
   type LucideIcon,
 } from "lucide-react";
 import type { UserRole } from "@/lib/types";
@@ -58,6 +59,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Customers", href: "/customers", icon: Users, roles: SALES_VIEW },
   { label: "Pipeline", href: "/pipeline", icon: Route, roles: OFFICE_PLUS },
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: OVERVIEW },
+  { label: "Orders", href: "/orders", icon: ShoppingBag, roles: OFFICE_PLUS },
   { label: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, roles: OFFICE_PLUS },
   { label: "Samples", href: "/samples", icon: Layers, roles: SALES_VIEW },
   { label: "Calendar", href: "/calendar", icon: CalendarRange, roles: SALES_VIEW },

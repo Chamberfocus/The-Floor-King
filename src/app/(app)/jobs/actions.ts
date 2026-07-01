@@ -598,7 +598,10 @@ async function warehouseUsers(
  * matter which role scheduled the install (warehouse/customers/profiles reads
  * are otherwise RLS-restricted).
  */
-async function ensureWarehouseSubmitted(jobId: string): Promise<void> {
+async function ensureWarehouseSubmitted(
+  jobId: string,
+  opts?: { force?: boolean },
+): Promise<void> {
   const db = createAdminClient() as unknown as WhDb;
   const { data: job } = await db
     .from("jobs")
@@ -607,7 +610,10 @@ async function ensureWarehouseSubmitted(jobId: string): Promise<void> {
     )
     .eq("id", jobId)
     .maybeSingle();
-  if (!job || !job.scheduled_date || job.warehouse_submitted_at) return;
+  if (!job || job.warehouse_submitted_at) return;
+  // Installs go to the warehouse once scheduled; cash-and-carry / pickup orders
+  // go when explicitly sent (force), since they have no install date.
+  if (!job.scheduled_date && !opts?.force) return;
 
   const whu = await warehouseUsers(db);
   let assignee = (job.warehouse_assigned_to as string | null) ?? null;
@@ -635,12 +641,27 @@ async function ensureWarehouseSubmitted(jobId: string): Promise<void> {
       html: emailLayout(
         "New job to stage",
         `<p><strong>${custName}</strong>${job.title ? ` — ${job.title}` : ""}</p>
-         <p>Install: <strong>${fmtDay(job.scheduled_date as string)}</strong>${site ? ` · ${site}` : ""}</p>
+         <p>${job.scheduled_date ? `Install: <strong>${fmtDay(job.scheduled_date as string)}</strong>` : "<strong>Cash &amp; carry — cut for pickup</strong>"}${site ? ` · ${site}` : ""}</p>
          <p>Open it in the warehouse and <strong>accept</strong> it to get started.</p>`,
         { label: "Open warehouse", url: `${siteUrl()}/warehouse` },
       ),
     });
   }
+}
+
+/** Send a job to the warehouse now (cash-and-carry / pickup — no install date).
+ *  Callable directly (e.g. from order approval) or via the form wrapper. */
+export async function sendJobToWarehouse(jobId: string): Promise<void> {
+  if (!jobId) return;
+  await ensureWarehouseSubmitted(jobId, { force: true });
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/warehouse");
+}
+
+export async function submitJobToWarehouse(formData: FormData): Promise<void> {
+  const id = str(formData.get("job_id"));
+  if (!id) return;
+  await sendJobToWarehouse(id);
 }
 
 /** Office/admin: assign (or change) which warehouse person preps a job. */
@@ -745,10 +766,13 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
   const { data: job } = await admin
     .from("jobs")
     .select(
-      "title, scheduled_date, assigned_to, customer_id, customer:customers(full_name, email, assigned_to, workflow_owner_id)",
+      "title, scheduled_date, assigned_to, customer_id, delivery_type, customer:customers(full_name, email, assigned_to, workflow_owner_id)",
     )
     .eq("id", id)
     .maybeSingle();
+  const isPickup =
+    job?.delivery_type === "cash_carry" ||
+    job?.delivery_type === "installer_pickup";
 
   // Materials ready → advance the lead to install scheduling (unchanged).
   if (job?.customer_id)
@@ -796,7 +820,9 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
       customer_id: job.customer_id,
       channel: "client",
       author_id: user?.id ?? null,
-      body: "✅ Good news — your materials are prepped and ready for your installation.",
+      body: isPickup
+        ? "✅ Your order is cut and ready for pickup. Come grab it whenever you're ready!"
+        : "✅ Good news — your materials are prepped and ready for your installation.",
     });
   }
 

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { FileText, Wrench, Receipt, MessageSquare } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { FileText, Wrench, Receipt, MessageSquare, ShoppingBag } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -55,13 +55,18 @@ export default async function PortalHome() {
         table="messages"
         filter={`customer_id=eq.${profile.customer_id}`}
       />
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Welcome, {firstName}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Your estimates, project schedule, and invoices in one place.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Welcome, {firstName}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Your estimates, project schedule, and invoices in one place.
+          </p>
+        </div>
+        <Link href="/portal/order" className={buttonVariants({ size: "lg" })}>
+          <ShoppingBag className="size-4" /> Place an order
+        </Link>
       </div>
 
       {/* Samples you have out */}

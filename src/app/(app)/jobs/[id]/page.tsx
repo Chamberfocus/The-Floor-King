@@ -59,6 +59,7 @@ import {
   setJobCrew,
   setJobAddress,
   assignWarehousePerson,
+  submitJobToWarehouse,
 } from "../actions";
 import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
@@ -541,6 +542,30 @@ export default async function JobPage({
               </div>
               <Button type="submit" size="sm" variant="outline">
                 Update site
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Cash-and-carry / pickup: send to the warehouse to cut & stage (no
+          install date, so it doesn't auto-submit) */}
+      {isStaff &&
+      (job.delivery_type === "cash_carry" ||
+        job.delivery_type === "installer_pickup") &&
+      !job.warehouse_submitted_at ? (
+        <Card className="mb-6 border-amber-300 dark:border-amber-900/60">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div className="text-sm">
+              <div className="font-medium">Cash &amp; carry / pickup</div>
+              <div className="text-muted-foreground">
+                Send this to the warehouse to be cut &amp; staged for pickup.
+              </div>
+            </div>
+            <form action={submitJobToWarehouse}>
+              <input type="hidden" name="job_id" value={job.id} />
+              <Button type="submit" size="sm">
+                Send to warehouse
               </Button>
             </form>
           </CardContent>
