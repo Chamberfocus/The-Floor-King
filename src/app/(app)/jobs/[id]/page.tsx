@@ -123,6 +123,25 @@ export default async function JobPage({
   const installCrews = isStaff ? await listInstallCrews({ activeOnly: true }) : [];
   const jobCrew = isStaff ? await getJobCrew(job.id) : null;
 
+  // Cohesion: your Team installers are assignable as crews right here — no need
+  // to re-enter them under Settings → Install Crews. Picking one auto-creates
+  // its employee crew. Dedupe by name so someone who's already a crew isn't
+  // listed twice.
+  const existingCrewNames = new Set(
+    installCrews.map((c) => (c.name || "").trim().toLowerCase()),
+  );
+  const teamInstallerOptions = users
+    .filter((u) => u.role === "crew")
+    .filter((u) => !existingCrewNames.has(u.name.trim().toLowerCase()))
+    .map((u) => ({ value: `user:${u.id}`, label: `${u.name} (team installer)` }));
+  const crewOptions = [
+    ...installCrews.map((c) => ({
+      value: c.id,
+      label: `${c.name}${c.kind === "subcontractor" ? " (sub)" : ""}`,
+    })),
+    ...teamInstallerOptions,
+  ];
+
   const siteParts = [
     job.site_street,
     [job.site_city, job.site_state].filter(Boolean).join(", "),
@@ -479,11 +498,15 @@ export default async function JobPage({
                 </span>
               </p>
             ) : null}
-            {installCrews.length === 0 ? (
+            {crewOptions.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No crews yet.{" "}
+                No installers yet. Add a{" "}
+                <Link href="/settings/team" className="text-primary underline">
+                  team installer
+                </Link>{" "}
+                or a{" "}
                 <Link href="/settings/install-crews" className="text-primary underline">
-                  Add your install crews
+                  subcontractor crew
                 </Link>{" "}
                 to assign one here.
               </p>
@@ -498,10 +521,7 @@ export default async function JobPage({
                     name="crew_id"
                     defaultValue={jobCrew?.id ?? ""}
                     placeholder="— Choose a crew —"
-                    options={installCrews.map((c) => ({
-                      value: c.id,
-                      label: `${c.name}${c.kind === "subcontractor" ? " (sub)" : ""}`,
-                    }))}
+                    options={crewOptions}
                   />
                 </div>
                 <Button type="submit" size="sm">

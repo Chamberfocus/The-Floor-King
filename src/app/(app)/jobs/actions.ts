@@ -226,11 +226,68 @@ export async function updateJob(
 export async function setJobCrew(formData: FormData): Promise<void> {
   const id = str(formData.get("job_id"));
   if (!id) return;
-  const crewId = str(formData.get("crew_id")) || null;
+  let crewId = str(formData.get("crew_id")) || null;
   const supabase = await createClient();
+
+  // A team installer can be assigned directly (value "user:<profileId>"). We
+  // find-or-create a matching employee crew so they "just work" here without
+  // being re-entered under Settings → Install Crews — and so payout tracking
+  // still has a crew to hang off of.
+  if (crewId && crewId.startsWith("user:")) {
+    const profileId = crewId.slice(5);
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", profileId)
+      .maybeSingle();
+    const name =
+      (prof?.full_name as string) || (prof?.email as string) || "Installer";
+    const email = (prof?.email as string) || null;
+
+    let existingId: string | null = null;
+    if (email) {
+      const { data } = await supabase
+        .from("install_crews")
+        .select("id")
+        .eq("email", email)
+        .limit(1)
+        .maybeSingle();
+      existingId = (data?.id as string) ?? null;
+    }
+    if (!existingId) {
+      const { data } = await supabase
+        .from("install_crews")
+        .select("id")
+        .eq("name", name)
+        .limit(1)
+        .maybeSingle();
+      existingId = (data?.id as string) ?? null;
+    }
+    if (existingId) {
+      crewId = existingId;
+    } else {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const { data: created } = await supabase
+        .from("install_crews")
+        .insert({
+          name,
+          kind: "employee",
+          email,
+          active: true,
+          created_by: user?.id ?? null,
+        })
+        .select("id")
+        .single();
+      crewId = (created?.id as string) ?? null;
+    }
+  }
+
   await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", id);
   revalidatePath(`/jobs/${id}`);
   revalidatePath("/jobs");
+  revalidatePath("/settings/install-crews");
 }
 
 /** Quick status change (also usable by assigned crew from the field). */
