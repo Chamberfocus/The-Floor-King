@@ -160,6 +160,22 @@ export async function listOpenJobs(): Promise<JobListRow[]> {
   return rows.map((r) => ({ ...r, customer_name: r.customer?.full_name ?? null }));
 }
 
+/** Warehouse-role team members, for assigning who preps a job. */
+export async function listWarehouseUsers(): Promise<
+  { id: string; name: string }[]
+> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .eq("role", "warehouse")
+    .order("full_name", { ascending: true });
+  return (data ?? []).map((p) => ({
+    id: p.id as string,
+    name: (p.full_name as string) || (p.email as string) || "Warehouse",
+  }));
+}
+
 export interface JobApplicant extends JobApplication {
   installer_name: string;
 }
@@ -215,6 +231,7 @@ export interface WarehouseMaterial {
 export interface WarehouseJob extends JobListRow {
   materials: WarehouseMaterial[];
   crew_name: string | null; // who's doing the install (crew or assigned installer)
+  warehouse_assignee_name: string | null; // warehouse person assigned to prep it
 }
 
 export async function listWarehouseJobs(): Promise<WarehouseJob[]> {
@@ -228,12 +245,14 @@ export async function listWarehouseJobs(): Promise<WarehouseJob[]> {
     customer?: { full_name: string | null } | null;
     assigned_to?: string | null;
     assigned_crew_id?: string | null;
+    warehouse_assigned_to?: string | null;
   })[];
   const rows: WarehouseJob[] = jobs.map((j) => ({
     ...j,
     customer_name: j.customer?.full_name ?? null,
     materials: [],
     crew_name: null,
+    warehouse_assignee_name: null,
   }));
 
   // Resolve who's doing each job so the warehouse can see the installer/crew:
@@ -242,7 +261,12 @@ export async function listWarehouseJobs(): Promise<WarehouseJob[]> {
     ...new Set(jobs.map((j) => j.assigned_crew_id).filter(Boolean) as string[]),
   ];
   const installerIds = [
-    ...new Set(jobs.map((j) => j.assigned_to).filter(Boolean) as string[]),
+    ...new Set(
+      [
+        ...jobs.map((j) => j.assigned_to),
+        ...jobs.map((j) => j.warehouse_assigned_to),
+      ].filter(Boolean) as string[],
+    ),
   ];
   const crewName = new Map<string, string>();
   if (crewIds.length) {
@@ -268,10 +292,13 @@ export async function listWarehouseJobs(): Promise<WarehouseJob[]> {
   for (const r of rows) {
     const cid = (r as { assigned_crew_id?: string | null }).assigned_crew_id;
     const iid = (r as { assigned_to?: string | null }).assigned_to;
+    const wid = (r as { warehouse_assigned_to?: string | null })
+      .warehouse_assigned_to;
     r.crew_name =
       (cid ? crewName.get(cid) : null) ??
       (iid ? installerName.get(iid) : null) ??
       null;
+    r.warehouse_assignee_name = wid ? (installerName.get(wid) ?? null) : null;
   }
 
   const optionIds = rows.map((r) => r.option_id).filter(Boolean) as string[];

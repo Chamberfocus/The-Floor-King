@@ -26,6 +26,7 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import {
   getJob,
   listAssignableUsers,
+  listWarehouseUsers,
   listJobFiles,
   getJobApplications,
 } from "@/lib/data/jobs";
@@ -54,6 +55,7 @@ import {
   assignInstaller,
   setJobCrew,
   setJobAddress,
+  assignWarehousePerson,
 } from "../actions";
 import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
@@ -127,6 +129,8 @@ export default async function JobPage({
   const serviceAddresses = isStaff
     ? await listServiceAddresses(job.customer_id)
     : [];
+  const canAssignWarehouse = profile.role === "admin" || profile.role === "office";
+  const warehouseUsers = canAssignWarehouse ? await listWarehouseUsers() : [];
   const jobCrew = isStaff ? await getJobCrew(job.id) : null;
 
   // Cohesion: your Team installers are assignable as crews right here — no need
@@ -521,6 +525,55 @@ export default async function JobPage({
                 Update site
               </Button>
             </form>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Warehouse — who preps/stages this job (office/admin) */}
+      {canAssignWarehouse ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Warehouse prep</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              {job.warehouse_ready_at
+                ? `Staged & ready${job.staging_location ? ` at ${job.staging_location}` : ""}.`
+                : job.warehouse_accepted_at
+                  ? "Accepted — being staged."
+                  : job.warehouse_submitted_at
+                    ? "Submitted to the warehouse — awaiting acceptance."
+                    : "Sends to the warehouse automatically once the install is scheduled."}
+            </p>
+            {warehouseUsers.length > 0 ? (
+              <form action={assignWarehousePerson} className="flex flex-wrap items-end gap-2">
+                <input type="hidden" name="job_id" value={job.id} />
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Assigned warehouse person
+                  </label>
+                  <select
+                    name="warehouse_person_id"
+                    defaultValue={job.warehouse_assigned_to ?? ""}
+                    className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                  >
+                    <option value="">— Anyone —</option>
+                    {warehouseUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button type="submit" size="sm" variant="outline">
+                  {job.warehouse_assigned_to ? "Reassign" : "Assign"}
+                </Button>
+              </form>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No warehouse logins yet — add one under Settings → Team.
+              </p>
+            )}
           </CardContent>
         </Card>
       ) : null}

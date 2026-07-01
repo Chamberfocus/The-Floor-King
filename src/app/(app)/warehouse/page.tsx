@@ -25,6 +25,8 @@ import {
   setDeliveryType,
   reportMaterialIssue,
 } from "../jobs/actions";
+import { WarehouseJobActions } from "./warehouse-job-actions";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 
 export const metadata: Metadata = { title: "Warehouse" };
 
@@ -37,8 +39,11 @@ const DELIVERY_BANNER: Record<JobDeliveryType, string> = {
     "bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-200",
 };
 
-// Steps shown as buttons (skip "pending" — that's the starting state).
-const STEPS = WAREHOUSE_STATUS_ORDER.filter((s) => s !== "pending");
+// Post-staging delivery steps (accept → staged is handled by the lifecycle
+// component; these track getting it out the door).
+const DELIVERY_STEPS = WAREHOUSE_STATUS_ORDER.filter(
+  (s) => s !== "pending" && s !== "staged",
+);
 
 const fieldClass =
   "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -57,6 +62,7 @@ export default async function WarehousePage() {
 
   return (
     <div>
+      <RealtimeRefresh table="jobs" />
       <PageHeader
         title="Warehouse"
         description="Materials to prep, stage, and deliver for upcoming jobs."
@@ -152,34 +158,55 @@ export default async function WarehousePage() {
                     </div>
                   ) : null}
 
-                  {/* Staging status */}
+                  {/* Warehouse lifecycle: accept (with acknowledgment) → staged */}
                   <div>
-                    <div className="mb-2 text-sm font-medium">
-                      Status: {WAREHOUSE_STATUS_LABELS[j.warehouse_status]}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {STEPS.map((s) => {
-                        const current = j.warehouse_status === s;
-                        return (
-                          <form key={s} action={setWarehouseStatus}>
-                            <input type="hidden" name="id" value={j.id} />
-                            <input
-                              type="hidden"
-                              name="warehouse_status"
-                              value={s}
-                            />
-                            <Button
-                              type="submit"
-                              size="lg"
-                              variant={current ? "default" : "outline"}
-                            >
-                              {WAREHOUSE_STATUS_LABELS[s]}
-                            </Button>
-                          </form>
-                        );
-                      })}
-                    </div>
+                    {j.warehouse_assignee_name ? (
+                      <div className="mb-1.5 text-xs text-muted-foreground">
+                        Warehouse: {j.warehouse_assignee_name}
+                      </div>
+                    ) : null}
+                    <WarehouseJobActions
+                      job={{
+                        id: j.id,
+                        warehouse_submitted_at: j.warehouse_submitted_at,
+                        warehouse_accepted_at: j.warehouse_accepted_at,
+                        warehouse_ready_at: j.warehouse_ready_at,
+                        staging_location: j.staging_location,
+                        warehouse_assignee_name: j.warehouse_assignee_name,
+                      }}
+                    />
                   </div>
+
+                  {/* Delivery progress — only once it's staged & ready */}
+                  {j.warehouse_ready_at ? (
+                    <div>
+                      <div className="mb-2 text-sm font-medium">
+                        Delivery: {WAREHOUSE_STATUS_LABELS[j.warehouse_status]}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {DELIVERY_STEPS.map((s) => {
+                          const current = j.warehouse_status === s;
+                          return (
+                            <form key={s} action={setWarehouseStatus}>
+                              <input type="hidden" name="id" value={j.id} />
+                              <input
+                                type="hidden"
+                                name="warehouse_status"
+                                value={s}
+                              />
+                              <Button
+                                type="submit"
+                                size="lg"
+                                variant={current ? "default" : "outline"}
+                              >
+                                {WAREHOUSE_STATUS_LABELS[s]}
+                              </Button>
+                            </form>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {/* Delivery type override */}
                   <form

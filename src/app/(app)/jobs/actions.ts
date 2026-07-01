@@ -57,10 +57,14 @@ export async function bookInstall(formData: FormData): Promise<void> {
   if (job?.customer_id)
     await advanceFromAutoAction(job.customer_id as string, "schedule_install");
 
+  // Scheduled → auto-submit to the warehouse (notifies the assigned person).
+  await ensureWarehouseSubmitted(id);
+
   revalidatePath(`/jobs/${id}`);
   revalidatePath("/jobs");
   revalidatePath("/pipeline");
   revalidatePath("/dashboard");
+  revalidatePath("/warehouse");
 }
 
 /** Create a job from an estimate (uses the accepted option, or the first one). */
@@ -328,9 +332,14 @@ export async function updateJob(
     .eq("id", id);
   if (error) return { error: error.message };
 
+  // If a scheduled date was set here, auto-submit to the warehouse (once).
+  if (str(formData.get("scheduled_date")))
+    await ensureWarehouseSubmitted(id);
+
   revalidatePath(`/jobs/${id}`);
   revalidatePath("/jobs");
   revalidatePath("/dashboard");
+  revalidatePath("/warehouse");
   return { error: null, ok: true };
 }
 
@@ -553,6 +562,246 @@ export async function assignInstaller(formData: FormData): Promise<void> {
 }
 
 // --- Warehouse --------------------------------------------------------------
+
+type WhDb = Awaited<ReturnType<typeof createClient>>;
+
+function fmtDay(d: string | null | undefined): string {
+  if (!d) return "TBD";
+  return new Date(`${d.slice(0, 10)}T00:00:00`).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** Warehouse-role team members (id, name, email). */
+async function warehouseUsers(
+  db: WhDb,
+): Promise<{ id: string; name: string; email: string | null }[]> {
+  const { data } = await db
+    .from("profiles")
+    .select("id, full_name, email")
+    .eq("role", "warehouse");
+  return (data ?? []).map((p) => ({
+    id: p.id as string,
+    name: (p.full_name as string) || (p.email as string) || "Warehouse",
+    email: (p.email as string) || null,
+  }));
+}
+
+/**
+ * Send a scheduled job to the warehouse ONCE — assigns a person (auto if there's
+ * a single warehouse user, else leaves it open) and notifies them. No-op if the
+ * job isn't scheduled yet or was already submitted. Runs elevated so it works no
+ * matter which role scheduled the install (warehouse/customers/profiles reads
+ * are otherwise RLS-restricted).
+ */
+async function ensureWarehouseSubmitted(jobId: string): Promise<void> {
+  const db = createAdminClient() as unknown as WhDb;
+  const { data: job } = await db
+    .from("jobs")
+    .select(
+      "id, title, scheduled_date, warehouse_submitted_at, warehouse_assigned_to, site_street, site_city, site_state, customer:customers(full_name)",
+    )
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job || !job.scheduled_date || job.warehouse_submitted_at) return;
+
+  const whu = await warehouseUsers(db);
+  let assignee = (job.warehouse_assigned_to as string | null) ?? null;
+  if (!assignee && whu.length === 1) assignee = whu[0].id;
+
+  await db
+    .from("jobs")
+    .update({
+      warehouse_submitted_at: new Date().toISOString(),
+      warehouse_assigned_to: assignee,
+    })
+    .eq("id", jobId);
+
+  const cust = job.customer as unknown as { full_name: string | null } | null;
+  const custName = cust?.full_name ?? "Customer";
+  const site = [job.site_street, job.site_city, job.site_state]
+    .filter(Boolean)
+    .join(", ");
+  const recipients = assignee ? whu.filter((u) => u.id === assignee) : whu;
+  for (const u of recipients) {
+    if (!u.email) continue;
+    await sendEmail({
+      to: u.email,
+      subject: `🧰 New job to prep — ${custName}`,
+      html: emailLayout(
+        "New job to stage",
+        `<p><strong>${custName}</strong>${job.title ? ` — ${job.title}` : ""}</p>
+         <p>Install: <strong>${fmtDay(job.scheduled_date as string)}</strong>${site ? ` · ${site}` : ""}</p>
+         <p>Open it in the warehouse and <strong>accept</strong> it to get started.</p>`,
+        { label: "Open warehouse", url: `${siteUrl()}/warehouse` },
+      ),
+    });
+  }
+}
+
+/** Office/admin: assign (or change) which warehouse person preps a job. */
+export async function assignWarehousePerson(
+  formData: FormData,
+): Promise<void> {
+  const id = str(formData.get("job_id"));
+  if (!id) return;
+  const personId = str(formData.get("warehouse_person_id")) || null;
+  const supabase = await createClient();
+  await supabase
+    .from("jobs")
+    .update({ warehouse_assigned_to: personId })
+    .eq("id", id);
+
+  if (personId) {
+    const { data: p } = await supabase
+      .from("profiles")
+      .select("email, full_name")
+      .eq("id", personId)
+      .maybeSingle();
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("title, scheduled_date, customer:customers(full_name)")
+      .eq("id", id)
+      .maybeSingle();
+    const cust = job?.customer as unknown as { full_name: string | null } | null;
+    if (p?.email) {
+      await sendEmail({
+        to: p.email as string,
+        subject: `🧰 You're assigned to prep — ${cust?.full_name ?? "a job"}`,
+        html: emailLayout(
+          "You've been assigned a job to stage",
+          `<p><strong>${cust?.full_name ?? "Customer"}</strong>${job?.title ? ` — ${job.title}` : ""}</p>
+           <p>Install: <strong>${fmtDay(job?.scheduled_date as string)}</strong></p>
+           <p>Open it in the warehouse and <strong>accept</strong> it to get started.</p>`,
+          { label: "Open warehouse", url: `${siteUrl()}/warehouse` },
+        ),
+      });
+    }
+  }
+  revalidatePath("/warehouse");
+  revalidatePath(`/jobs/${id}`);
+}
+
+/**
+ * Warehouse accepts a job — must acknowledge cutting/pulling the right material.
+ * Whoever accepts an unassigned job becomes its owner.
+ */
+export async function acceptWarehouseJob(formData: FormData): Promise<void> {
+  const id = str(formData.get("job_id"));
+  const ack = str(formData.get("ack")); // "on" when the checkbox is ticked
+  if (!id || ack !== "on") return;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const now = new Date().toISOString();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("warehouse_assigned_to")
+    .eq("id", id)
+    .maybeSingle();
+  const patch: Record<string, string | null> = {
+    warehouse_accepted_at: now,
+    warehouse_ack_at: now,
+  };
+  if (!job?.warehouse_assigned_to && user?.id)
+    patch.warehouse_assigned_to = user.id;
+  await supabase.from("jobs").update(patch).eq("id", id);
+  revalidatePath("/warehouse");
+  revalidatePath(`/jobs/${id}`);
+}
+
+/**
+ * Warehouse marks a job staged & ready at a location — notifies the installer,
+ * salesperson and admin (with the staging location) and drops the customer a
+ * brief heads-up. Keeps the existing auto-advance to install scheduling.
+ */
+export async function completeWarehouseJob(formData: FormData): Promise<void> {
+  const id = str(formData.get("id") || formData.get("job_id"));
+  const location = str(formData.get("staging_location"));
+  if (!id || !location) return;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  // Elevated: the warehouse role can't read customers/profiles or write messages
+  // under RLS, but this action legitimately needs to notify everyone.
+  const admin = createAdminClient() as unknown as WhDb;
+  const now = new Date().toISOString();
+
+  await admin
+    .from("jobs")
+    .update({
+      warehouse_status: "staged",
+      warehouse_ready_at: now,
+      staging_location: location,
+    })
+    .eq("id", id);
+
+  const { data: job } = await admin
+    .from("jobs")
+    .select(
+      "title, scheduled_date, assigned_to, customer_id, customer:customers(full_name, email, assigned_to, workflow_owner_id)",
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  // Materials ready → advance the lead to install scheduling (unchanged).
+  if (job?.customer_id)
+    await moveToAutoActionStage(job.customer_id as string, "schedule_install");
+
+  const cust = job?.customer as unknown as {
+    full_name: string | null;
+    email: string | null;
+    assigned_to: string | null;
+    workflow_owner_id: string | null;
+  } | null;
+  const custName = cust?.full_name ?? "Customer";
+
+  // Installer + salesperson + admin get the "ready + where" email.
+  const ids = [
+    (job?.assigned_to as string | null) ?? null,
+    cust?.assigned_to ?? null,
+    cust?.workflow_owner_id ?? null,
+  ].filter(Boolean) as string[];
+  const recipients = new Set<string>([ownerEmail()]);
+  if (ids.length) {
+    const { data: profs } = await admin
+      .from("profiles")
+      .select("email")
+      .in("id", [...new Set(ids)]);
+    for (const p of profs ?? []) if (p.email) recipients.add(p.email as string);
+  }
+  for (const to of recipients) {
+    await sendEmail({
+      to,
+      subject: `✅ Materials staged & ready — ${custName}`,
+      html: emailLayout(
+        "Job is staged and ready",
+        `<p><strong>${custName}</strong>${job?.title ? ` — ${job.title}` : ""}</p>
+         <p>Staged at: <strong>${location}</strong></p>
+         <p>Install: <strong>${fmtDay(job?.scheduled_date as string)}</strong></p>`,
+        { label: "Open job", url: `${siteUrl()}/jobs/${id}` },
+      ),
+    });
+  }
+
+  // Brief, non-technical note to the customer via their portal thread.
+  if (job?.customer_id) {
+    await admin.from("messages").insert({
+      customer_id: job.customer_id,
+      channel: "client",
+      author_id: user?.id ?? null,
+      body: "✅ Good news — your materials are prepped and ready for your installation.",
+    });
+  }
+
+  revalidatePath("/warehouse");
+  revalidatePath(`/jobs/${id}`);
+  if (job?.customer_id) revalidatePath(`/customers/${job.customer_id}`);
+}
 
 export async function setWarehouseStatus(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));

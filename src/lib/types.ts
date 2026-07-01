@@ -560,6 +560,13 @@ export interface Job {
   notes: string | null;
   delivery_type: JobDeliveryType;
   warehouse_status: WarehouseStatus;
+  // Warehouse staging lifecycle (migration 0060)
+  warehouse_submitted_at?: string | null;
+  warehouse_assigned_to?: string | null;
+  warehouse_accepted_at?: string | null;
+  warehouse_ack_at?: string | null;
+  staging_location?: string | null;
+  warehouse_ready_at?: string | null;
   open_for_claim: boolean;
   reminder_sent_at: string | null;
   created_by: string | null;
