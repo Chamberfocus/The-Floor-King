@@ -112,6 +112,10 @@ export async function carryOverDeal(
         source: (nc.source || "repeat") as LeadSource,
         stage: targetStage,
         notes: STAMP,
+        // Carry-overs are past qualification — don't make the guided flow nag to
+        // "qualify & assign" an existing deal.
+        qualified: true,
+        workflow_owner_id: uid,
         created_by: uid,
         assigned_to: uid,
       })
@@ -132,6 +136,7 @@ export async function carryOverDeal(
       .update({
         stage: targetStage,
         source: (c?.source as string | null) || "repeat",
+        qualified: true,
       })
       .eq("id", customerId);
   }
@@ -147,6 +152,21 @@ export async function carryOverDeal(
 
   // 2) Estimate appointment (not quoted yet) — book it and we're done ---------
   if (kind === "estimate_appt") {
+    // Land the lead on the "schedule estimate" workflow stage so the guided
+    // flow shows the booked appointment (not a nag to schedule it).
+    const { data: schedStage } = await supabase
+      .from("workflow_stages")
+      .select("id")
+      .eq("auto_action", "schedule_estimate")
+      .order("position", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (schedStage?.id) {
+      await supabase
+        .from("customers")
+        .update({ workflow_stage_id: schedStage.id })
+        .eq("id", customerId);
+    }
     const { error: apptErr } = await supabase.from("appointments").insert({
       customer_id: customerId,
       salesperson_id: uid,

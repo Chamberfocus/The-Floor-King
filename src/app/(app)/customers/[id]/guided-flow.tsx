@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   Phone,
   CalendarClock,
+  MapPin,
   FileText,
   DollarSign,
   Boxes,
@@ -141,6 +142,7 @@ export async function GuidedFlow({
   nextActionDue,
   money,
   installPop,
+  appointment,
 }: {
   customer: Customer;
   stages: WorkflowStage[];
@@ -155,6 +157,12 @@ export async function GuidedFlow({
   nextActionDue: string | null;
   money: { invoiced: number; paid: number; balance: number };
   installPop: InstallPop;
+  appointment: {
+    id: string;
+    startsAt: string;
+    address: string | null;
+    salespersonName: string | null;
+  } | null;
 }) {
   const sorted = [...stages].sort((a, b) => a.position - b.position);
   const currentIdxForGate = currentStage
@@ -192,6 +200,55 @@ export async function GuidedFlow({
     ? sorted.findIndex((s) => s.id === currentStage.id)
     : -1;
 
+  // If an estimate appointment is already on the books, show it — never nag to
+  // "schedule" something that's already scheduled. Works for carry-overs and
+  // normal bookings alike.
+  const apptWhen = appointment
+    ? new Date(appointment.startsAt).toLocaleString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+  const bookedEstimate = appointment ? (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+        <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+          <CalendarClock className="size-4" /> Estimate booked
+        </div>
+        <div className="mt-1 text-sm font-medium">{apptWhen}</div>
+        {appointment.salespersonName ? (
+          <div className="text-xs text-muted-foreground">
+            with {appointment.salespersonName}
+          </div>
+        ) : null}
+        {appointment.address ? (
+          <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+            <MapPin className="size-3" /> {appointment.address}
+          </div>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <AdvanceButton
+          customerId={customer.id}
+          ownerId={owner}
+          nextStage={nextStage}
+          label="Estimate done → build quote"
+        />
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+            Reschedule / change time
+          </summary>
+          <div className="mt-2">
+            <EstimateScheduler customerId={customer.id} reps={repOptions} />
+          </div>
+        </details>
+      </div>
+    </div>
+  ) : null;
+
   // Step body
   let body: React.ReactNode = null;
 
@@ -205,7 +262,7 @@ export async function GuidedFlow({
       />
     );
   } else if (step === "contact") {
-    body = (
+    body = bookedEstimate ?? (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
           New lead. Log your first call or text in the Activity panel below, then
@@ -215,7 +272,7 @@ export async function GuidedFlow({
       </div>
     );
   } else if (step === "schedule_estimate") {
-    body = (
+    body = bookedEstimate ?? (
       <EstimateScheduler customerId={customer.id} autoOpen reps={repOptions} />
     );
   } else if (step === "build_quote") {

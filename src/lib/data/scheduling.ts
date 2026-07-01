@@ -357,6 +357,55 @@ export interface AppointmentRow {
   driveMinutes: number | null;
 }
 
+export interface CustomerAppointment {
+  id: string;
+  startsAt: string; // ISO
+  address: string | null;
+  salespersonId: string | null;
+  salespersonName: string | null;
+}
+
+/**
+ * The customer's soonest still-scheduled estimate appointment, so the guided
+ * flow can show "booked for …" instead of nagging to schedule. Prefers an
+ * upcoming one; falls back to the most recent if all are in the past.
+ */
+export async function getCustomerEstimateAppointment(
+  customerId: string,
+): Promise<CustomerAppointment | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("appointments")
+    .select("id, starts_at, address, salesperson_id, status, kind, is_block")
+    .eq("customer_id", customerId)
+    .eq("status", "scheduled")
+    .order("starts_at", { ascending: true });
+  const rows = (data ?? []).filter(
+    (a) => a.kind !== "block" && !a.is_block,
+  );
+  if (!rows.length) return null;
+  const nowIso = new Date().toISOString();
+  const upcoming = rows.find((a) => (a.starts_at as string) >= nowIso);
+  const pick = upcoming ?? rows[rows.length - 1];
+
+  let salespersonName: string | null = null;
+  if (pick.salesperson_id) {
+    const { data: p } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", pick.salesperson_id)
+      .maybeSingle();
+    salespersonName = (p?.full_name as string) ?? null;
+  }
+  return {
+    id: pick.id as string,
+    startsAt: pick.starts_at as string,
+    address: (pick.address as string) ?? null,
+    salespersonId: (pick.salesperson_id as string) ?? null,
+    salespersonName,
+  };
+}
+
 /** Upcoming estimate appointments (today forward), time-ordered. */
 export async function listUpcomingAppointments(): Promise<AppointmentRow[]> {
   const supabase = await createClient();

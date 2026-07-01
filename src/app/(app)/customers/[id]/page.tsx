@@ -72,6 +72,7 @@ import { InvitePortalForm } from "./invite-portal-form";
 import { CustomerChat } from "./customer-chat";
 import { OnTheWayButton } from "./on-the-way-button";
 import { GuidedFlow } from "./guided-flow";
+import { getCustomerEstimateAppointment } from "@/lib/data/scheduling";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { AreaCalculator } from "@/components/area-calculator";
 import { CancelCustomer } from "./cancel-customer";
@@ -135,6 +136,7 @@ export default async function CustomerPage({
   const currentStage =
     stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
   const autoAction = currentStage?.auto_action ?? "none";
+  const estimateAppointment = await getCustomerEstimateAppointment(id);
 
   // Money status for the command center.
   const money = invoices.reduce(
@@ -259,6 +261,7 @@ export default async function CustomerPage({
             nextActionDue={customer.next_action_due ?? null}
             money={money}
             installPop={installPop}
+            appointment={estimateAppointment}
           />
         </div>
       ) : null}
