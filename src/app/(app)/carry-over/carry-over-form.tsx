@@ -28,8 +28,10 @@ const KINDS: { value: CarryKind; label: string; hint: string }[] = [
 
 export function CarryOverForm({
   customers,
+  installers,
 }: {
   customers: { id: string; full_name: string }[];
+  installers: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -55,9 +57,12 @@ export function CarryOverForm({
   const [collectedDate, setCollectedDate] = useState("");
   const [method, setMethod] = useState("check");
   const [soldDate, setSoldDate] = useState("");
+  const [installerId, setInstallerId] = useState("");
+  const [stageNotes, setStageNotes] = useState("");
 
   const isAppt = kind === "estimate_appt";
   const isSold = kind === "awaiting_materials" || kind === "install_scheduled" || kind === "balance_due";
+  const isInstallJob = kind === "awaiting_materials" || kind === "install_scheduled";
   const showMoney = isSold;
   const moneyLabel = kind === "balance_due" ? "Paid so far" : "Deposit collected";
   const balance = num(amount) * (1 + num(taxRate) / 100) - num(collected);
@@ -65,6 +70,7 @@ export function CarryOverForm({
   const resetDeal = () => {
     setTitle(""); setAmount(""); setEstCost(""); setApptAt("");
     setScheduledDate(""); setCollected(""); setCollectedDate(""); setSoldDate("");
+    setInstallerId(""); setStageNotes("");
     if (custMode === "new") {
       setNc({ full_name: "", phone: "", email: "", street: "", city: "", state: "", zip: "", source: "repeat" });
     } else setCustomerId("");
@@ -90,7 +96,9 @@ export function CarryOverForm({
         method,
         soldDate: soldDate || null,
         apptAt: isAppt ? new Date(apptAt).toISOString() : null,
-        scheduledDate: kind === "install_scheduled" || kind === "awaiting_materials" ? scheduledDate || null : null,
+        scheduledDate: isInstallJob ? scheduledDate || null : null,
+        installerId: isInstallJob ? installerId || null : null,
+        stageNotes: isInstallJob ? stageNotes : "",
       };
       const res = await carryOverDeal(input);
       if (res.error) { toast.error(res.error); return; }
@@ -242,6 +250,47 @@ export function CarryOverForm({
                       <span className="text-muted-foreground">Balance owed: <span className="font-medium text-foreground">{formatMoney(Math.max(0, balance))}</span></span>
                     </div>
                   ) : null}
+                </div>
+              ) : null}
+
+              {isInstallJob ? (
+                <div className="space-y-3 rounded-md border border-sky-200 bg-sky-50/50 p-3 dark:border-sky-900/50 dark:bg-sky-950/20">
+                  <div className="text-xs font-semibold text-sky-800 dark:text-sky-300">
+                    Crew &amp; warehouse
+                  </div>
+                  <div>
+                    <label className={label}>Assign installer</label>
+                    {installers.length ? (
+                      <SearchPicker
+                        value={installerId}
+                        onChange={setInstallerId}
+                        placeholder="Pick an installer (optional)…"
+                        allowClear
+                        options={installers.map((i) => ({ value: i.id, label: i.name }))}
+                      />
+                    ) : (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        No installers on the team yet — add crew logins in Settings → Team.
+                      </p>
+                    )}
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      They&apos;ll see this job under their <span className="font-medium">Jobs</span>.
+                    </p>
+                  </div>
+                  <div>
+                    <label className={label}>Materials to stage / crew notes</label>
+                    <textarea
+                      value={stageNotes}
+                      onChange={(e) => setStageNotes(e.target.value)}
+                      rows={2}
+                      placeholder={'e.g. 3 boxes Shaw LVP 7" + T-molding, pad for stairs'}
+                      className="mt-1 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Shows on the warehouse card and the installer&apos;s job. No PO or
+                      inventory is touched.
+                    </p>
+                  </div>
                 </div>
               ) : null}
             </>

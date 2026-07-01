@@ -131,6 +131,18 @@ export default async function WarehousePage() {
                     )}
                   </div>
 
+                  {/* Staging / crew notes (e.g. carry-over "what to stage") */}
+                  {j.notes ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50/60 p-2 dark:border-amber-900/50 dark:bg-amber-950/20">
+                      <div className="mb-0.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                        Staging notes
+                      </div>
+                      <p className="whitespace-pre-line text-sm text-muted-foreground">
+                        {j.notes}
+                      </p>
+                    </div>
+                  ) : null}
+
                   {/* Staging status */}
                   <div>
                     <div className="mb-2 text-sm font-medium">

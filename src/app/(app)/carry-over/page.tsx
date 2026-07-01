@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { listAssignableUsers } from "@/lib/data/jobs";
 import { CarryOverForm } from "./carry-over-form";
 
 export const metadata: Metadata = { title: "Carry over work" };
@@ -19,6 +20,9 @@ export default async function CarryOverPage() {
     id: c.id as string,
     full_name: (c.full_name as string) ?? "Unnamed",
   }));
+  const installers = (await listAssignableUsers())
+    .filter((u) => u.role === "crew")
+    .map((u) => ({ id: u.id, name: u.name }));
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -46,7 +50,7 @@ export default async function CarryOverPage() {
           </li>
         </ul>
       </div>
-      <CarryOverForm customers={customers} />
+      <CarryOverForm customers={customers} installers={installers} />
     </div>
   );
 }

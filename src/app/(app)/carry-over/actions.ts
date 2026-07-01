@@ -54,6 +54,9 @@ export interface CarryOverInput {
   // scheduling
   apptAt: string | null; // estimate appointment datetime (estimate_appt)
   scheduledDate: string | null; // install date
+  // ops (sold installs only) — installer + what the warehouse should stage
+  installerId: string | null;
+  stageNotes: string;
 }
 
 export interface CarryOverResult {
@@ -265,10 +268,13 @@ export async function carryOverDeal(
         : input.scheduledDate
           ? "scheduled"
           : "unscheduled";
-    const jobNote =
-      kind === "awaiting_materials"
-        ? `Awaiting materials. ${STAMP}`
-        : STAMP;
+    // Build the crew/warehouse note: what to stage + status + carry-over marker.
+    const noteParts: string[] = [];
+    if (input.stageNotes?.trim())
+      noteParts.push(`To stage: ${input.stageNotes.trim()}`);
+    if (kind === "awaiting_materials") noteParts.push("Awaiting materials");
+    noteParts.push(STAMP);
+    const jobNote = noteParts.join("\n");
     const { data: job, error: jobErr } = await supabase
       .from("jobs")
       .insert({
@@ -278,6 +284,9 @@ export async function carryOverDeal(
         title: input.title?.trim() || "Carried-over job",
         status: jobStatus,
         scheduled_date: input.scheduledDate || null,
+        // Assign directly to the chosen installer → shows in their My Jobs.
+        // Left off the open-for-claim board on purpose.
+        assigned_to: input.installerId || null,
         notes: jobNote,
         migrated: true,
         site_street: cust?.street ?? null,
