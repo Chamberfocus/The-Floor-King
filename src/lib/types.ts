@@ -567,7 +567,11 @@ export interface Job {
   updated_at: string;
 }
 
-export type JobDeliveryType = "cash_carry" | "deliver" | "deliver_acclimate";
+export type JobDeliveryType =
+  | "cash_carry"
+  | "deliver"
+  | "installer_pickup"
+  | "deliver_acclimate";
 export type WarehouseStatus =
   | "pending"
   | "staged"
@@ -586,9 +590,10 @@ export interface JobApplication {
 }
 
 export const JOB_DELIVERY_LABELS: Record<JobDeliveryType, string> = {
-  cash_carry: "Cash & Carry",
   deliver: "Deliver to site",
+  installer_pickup: "Installer pick-up",
   deliver_acclimate: "Deliver for acclimation",
+  cash_carry: "Cash & Carry",
 };
 
 export const WAREHOUSE_STATUS_LABELS: Record<WarehouseStatus, string> = {

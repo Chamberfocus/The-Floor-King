@@ -31,6 +31,8 @@ export const metadata: Metadata = { title: "Warehouse" };
 const DELIVERY_BANNER: Record<JobDeliveryType, string> = {
   cash_carry: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
   deliver: "bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-200",
+  installer_pickup:
+    "bg-teal-100 text-teal-900 dark:bg-teal-950 dark:text-teal-200",
   deliver_acclimate:
     "bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-200",
 };
