@@ -30,8 +30,66 @@ export function CatalogTable({
 
   return (
     <div className="space-y-3">
+      <div className="space-y-2 md:hidden">
+        {shown.map((p) => (
+          <div
+            key={p.id}
+            className={`rounded-lg border p-3 ${p.active ? "" : "opacity-50"}`}
+          >
+            <Link
+              href={`/catalog/${p.id}`}
+              className="font-medium hover:underline"
+            >
+              {p.name}
+            </Link>
+            {!p.active ? (
+              <span className="ml-2 text-xs text-muted-foreground">
+                (inactive)
+              </span>
+            ) : null}
+            <div className="text-xs text-muted-foreground">
+              {PRODUCT_CATEGORY_LABELS[p.category]} · {p.sku ?? "—"} · {p.unit}
+            </div>
+            <div className="mt-1.5 grid grid-cols-3 gap-2 text-sm">
+              <div>
+                <div className="text-xs text-muted-foreground">Material</div>
+                <div className="font-medium">
+                  {formatMoney(p.material_rate)}
+                </div>
+              </div>
+              {showLanded ? (
+                <div>
+                  <div className="text-xs text-muted-foreground">Landed</div>
+                  <div className="font-medium">
+                    {formatMoney(landedMaterialCost(p.material_rate, freightPct))}
+                  </div>
+                </div>
+              ) : null}
+              <div>
+                <div className="text-xs text-muted-foreground">Labor</div>
+                <div className="font-medium">{formatMoney(p.labor_rate)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Installed</div>
+                <div className="font-medium">
+                  {formatMoney(p.material_rate + p.labor_rate)}
+                </div>
+              </div>
+            </div>
+            <div className="mt-2">
+              <Link
+                href={`/catalog/${p.id}`}
+                className="text-sm text-muted-foreground hover:text-foreground hover:underline"
+              >
+                Edit
+              </Link>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {(
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="hidden overflow-x-auto rounded-lg border md:block">
           <Table>
             <TableHeader>
               <TableRow>

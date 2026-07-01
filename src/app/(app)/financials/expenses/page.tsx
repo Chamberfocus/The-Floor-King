@@ -67,46 +67,88 @@ export default async function ExpensesPage() {
           No expenses recorded yet.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Vendor</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {expenses.map((e) => (
-                <TableRow key={e.id}>
-                  <TableCell>{formatDate(e.date)}</TableCell>
-                  <TableCell>{EXPENSE_CATEGORY_LABELS[e.category]}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {e.vendor ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-right font-medium">
-                    {formatMoney(e.amount)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <form action={deleteExpense}>
-                      <input type="hidden" name="id" value={e.id} />
-                      <Button
-                        type="submit"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Delete expense"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </form>
-                  </TableCell>
+        <>
+          {/* Phone: stacked cards */}
+          <div className="space-y-2 md:hidden">
+            {expenses.map((e) => (
+              <div key={e.id} className="rounded-lg border p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-medium">
+                      {EXPENSE_CATEGORY_LABELS[e.category]}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatDate(e.date)}
+                      {e.vendor ? ` · ${e.vendor}` : ""}
+                    </div>
+                  </div>
+                  <form action={deleteExpense}>
+                    <input type="hidden" name="id" value={e.id} />
+                    <Button
+                      type="submit"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Delete expense"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </form>
+                </div>
+                <div className="mt-1.5 grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Vendor</div>
+                    <div className="font-medium">{e.vendor ?? "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Amount</div>
+                    <div className="font-medium">{formatMoney(e.amount)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Larger screens: table */}
+          <div className="hidden overflow-x-auto rounded-lg border md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Vendor</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {expenses.map((e) => (
+                  <TableRow key={e.id}>
+                    <TableCell>{formatDate(e.date)}</TableCell>
+                    <TableCell>{EXPENSE_CATEGORY_LABELS[e.category]}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {e.vendor ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatMoney(e.amount)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <form action={deleteExpense}>
+                        <input type="hidden" name="id" value={e.id} />
+                        <Button
+                          type="submit"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Delete expense"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </form>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
     </div>
   );

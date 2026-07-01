@@ -94,7 +94,46 @@ export default async function ScorecardPage({
               <CardTitle className="text-base">By salesperson</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              {/* Phone: stacked cards */}
+              <div className="space-y-2 md:hidden">
+                {bySalesman.map((s) => (
+                  <div key={s.salesmanId ?? "none"} className="rounded-lg border p-3">
+                    <div className="font-medium">{s.salesman}</div>
+                    <div className="mt-1.5 grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Jobs</div>
+                        <div className="font-medium">{s.jobs}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Beat / missed</div>
+                        <div className="font-medium">
+                          {s.beat} / {s.missed}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Quoted profit</div>
+                        <div className="font-medium">{money(s.quotedProfit)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Actual profit</div>
+                        <div className="font-medium">{money(s.actualProfit)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Variance</div>
+                        <div className={cn("font-medium", s.variance < 0 ? "text-destructive" : "text-emerald-600")}>
+                          {money(s.variance)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Avg margin</div>
+                        <div className="font-medium">{Math.round(s.avgActualMargin)}%</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Larger screens: table */}
+              <div className="hidden overflow-x-auto md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -135,7 +174,49 @@ export default async function ScorecardPage({
               <CardTitle className="text-base">Every completed job</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              {/* Phone: stacked cards */}
+              <div className="space-y-2 md:hidden">
+                {jobs.map((j) => {
+                  const variance = j.profit - j.estProfit;
+                  return (
+                    <div key={j.jobId} className="rounded-lg border p-3">
+                      <div className="font-medium">
+                        <Link href={`/jobs/${j.jobId}`} className="hover:underline">
+                          {j.customer ? `${j.customer} — ` : ""}{j.title}
+                        </Link>
+                      </div>
+                      <div className="mt-1.5 grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <div className="text-xs text-muted-foreground">Salesperson</div>
+                          <div className="font-medium">{j.salesman ?? "—"}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Margin (est→act)</div>
+                          <div className="font-medium">
+                            {Math.round(j.estMargin)}% → {Math.round(j.margin)}%
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Quoted profit</div>
+                          <div className="font-medium">{money(j.estProfit)}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Actual profit</div>
+                          <div className="font-medium">{money(j.profit)}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Variance</div>
+                          <div className={cn("font-medium", variance < -0.5 ? "text-destructive" : variance > 0.5 ? "text-emerald-600" : "")}>
+                            {variance > 0 ? "+" : ""}{money(variance)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Larger screens: table */}
+              <div className="hidden overflow-x-auto md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>

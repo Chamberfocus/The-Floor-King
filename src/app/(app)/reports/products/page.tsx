@@ -74,7 +74,59 @@ export default async function ProductPerformancePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              {/* Phone: stacked cards */}
+              <div className="space-y-2 md:hidden">
+                {topSellers.map((p) => (
+                  <div key={p.productId} className="rounded-lg border p-3">
+                    <div className="font-medium">
+                      {p.name}
+                      {p.manufacturer ? (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          {p.manufacturer}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Jobs</div>
+                        <div className="font-medium">{p.jobs}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Units
+                        </div>
+                        <div className="font-medium">{Math.round(p.units)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Margin
+                        </div>
+                        <div className="font-medium">
+                          {Math.round(p.margin)}%
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Revenue
+                        </div>
+                        <div className="font-medium">
+                          {formatMoney(p.revenue)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Profit
+                        </div>
+                        <div className="font-medium">
+                          {formatMoney(p.profit)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Larger screens: table */}
+              <div className="hidden overflow-x-auto md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -129,7 +181,44 @@ export default async function ProductPerformancePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              {/* Phone: stacked cards */}
+              <div className="space-y-2 md:hidden">
+                {worstMargin.map((p) => (
+                  <div key={p.productId} className="rounded-lg border p-3">
+                    <div className="font-medium">{p.name}</div>
+                    <div className="mt-1.5 grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Revenue
+                        </div>
+                        <div className="font-medium">
+                          {formatMoney(p.revenue)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Cost</div>
+                        <div className="font-medium">{formatMoney(p.cost)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Margin
+                        </div>
+                        <div
+                          className={
+                            p.margin < 20
+                              ? "font-medium text-destructive"
+                              : "font-medium text-amber-600"
+                          }
+                        >
+                          {Math.round(p.margin)}%
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Larger screens: table */}
+              <div className="hidden overflow-x-auto md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -187,7 +276,56 @@ export default async function ProductPerformancePage() {
                 Tracked stock with no movement in 90+ days. Consider marking it
                 clearance to move it and free up cash.
               </p>
-              <div className="overflow-x-auto">
+              {/* Phone: stacked cards */}
+              <div className="space-y-2 md:hidden">
+                {dead.map((d) => (
+                  <div key={d.product.id} className="rounded-lg border p-3">
+                    <div className="font-medium">
+                      <Link
+                        href={`/inventory/${d.product.id}`}
+                        className="hover:underline"
+                      >
+                        {d.product.name}
+                      </Link>
+                      {d.product.clearance ? (
+                        <span className="ml-2 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-600">
+                          clearance
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          On hand
+                        </div>
+                        <div className="font-medium">{d.product.on_hand}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Idle days
+                        </div>
+                        <div className="font-medium">{d.idleDays}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Cash tied up
+                        </div>
+                        <div className="font-medium">{formatMoney(d.value)}</div>
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <Link
+                        href={`/inventory/${d.product.id}`}
+                        className="text-sm font-medium hover:underline"
+                      >
+                        Manage
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Larger screens: table */}
+              <div className="hidden overflow-x-auto md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>

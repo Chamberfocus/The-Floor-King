@@ -85,34 +85,65 @@ export default async function LeadSourcesReportPage({
           No leads created in this period.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Source</TableHead>
-                <TableHead className="text-right">Leads</TableHead>
-                <TableHead className="text-right">Won</TableHead>
-                <TableHead className="text-right">Win rate</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {report.rows.map((r) => (
-                <TableRow key={r.source}>
-                  <TableCell className="font-medium">
-                    {r.source === "unknown"
-                      ? "Unknown"
-                      : LEAD_SOURCE_LABELS[r.source]}
-                  </TableCell>
-                  <TableCell className="text-right">{r.leads}</TableCell>
-                  <TableCell className="text-right">{r.won}</TableCell>
-                  <TableCell className="text-right text-muted-foreground">
-                    {r.leads ? Math.round((r.won / r.leads) * 100) : 0}%
-                  </TableCell>
+        <>
+          {/* Phone: stacked cards */}
+          <div className="space-y-2 md:hidden">
+            {report.rows.map((r) => (
+              <div key={r.source} className="rounded-lg border p-3">
+                <div className="font-medium">
+                  {r.source === "unknown"
+                    ? "Unknown"
+                    : LEAD_SOURCE_LABELS[r.source]}
+                </div>
+                <div className="mt-1.5 grid grid-cols-3 gap-2 text-sm">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Leads</div>
+                    <div className="font-medium">{r.leads}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Won</div>
+                    <div className="font-medium">{r.won}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Win rate</div>
+                    <div className="font-medium">
+                      {r.leads ? Math.round((r.won / r.leads) * 100) : 0}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Larger screens: table */}
+          <div className="hidden overflow-x-auto rounded-lg border md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Source</TableHead>
+                  <TableHead className="text-right">Leads</TableHead>
+                  <TableHead className="text-right">Won</TableHead>
+                  <TableHead className="text-right">Win rate</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {report.rows.map((r) => (
+                  <TableRow key={r.source}>
+                    <TableCell className="font-medium">
+                      {r.source === "unknown"
+                        ? "Unknown"
+                        : LEAD_SOURCE_LABELS[r.source]}
+                    </TableCell>
+                    <TableCell className="text-right">{r.leads}</TableCell>
+                    <TableCell className="text-right">{r.won}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {r.leads ? Math.round((r.won / r.leads) * 100) : 0}%
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
     </div>
   );

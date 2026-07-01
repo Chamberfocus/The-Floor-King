@@ -124,39 +124,73 @@ export default async function WinLossPage({
           {r.lostDeals.length === 0 ? (
             <p className="text-sm text-muted-foreground">No lost deals in this range.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Deal</TableHead>
-                    <TableHead>Salesperson</TableHead>
-                    <TableHead className="text-right">Value</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead className="text-right">Lost</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {r.lostDeals.map((d) => (
-                    <TableRow key={d.estimateId}>
-                      <TableCell className="font-medium">
-                        <Link href={`/estimates/${d.estimateId}`} className="hover:underline">
-                          {d.customer ? `${d.customer} — ` : ""}{d.title}
-                        </Link>
-                        <span className="block text-xs text-muted-foreground">{d.source}</span>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{d.salesman ?? "—"}</TableCell>
-                      <TableCell className="text-right">{formatMoney(d.value)}</TableCell>
-                      <TableCell className="max-w-xs text-sm text-muted-foreground">
-                        {d.reason || <span className="italic">no reason recorded</span>}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
-                        {d.decidedAt ? formatDate(d.decidedAt) : "—"}
-                      </TableCell>
+            <>
+              {/* Phone: stacked cards */}
+              <div className="space-y-2 md:hidden">
+                {r.lostDeals.map((d) => (
+                  <div key={d.estimateId} className="rounded-lg border p-3">
+                    <div className="font-medium">
+                      <Link href={`/estimates/${d.estimateId}`} className="hover:underline">
+                        {d.customer ? `${d.customer} — ` : ""}{d.title}
+                      </Link>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{d.source}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {d.salesman ?? "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {d.reason || <span className="italic">no reason recorded</span>}
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Value</div>
+                        <div className="font-medium">{formatMoney(d.value)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Lost</div>
+                        <div className="font-medium">
+                          {d.decidedAt ? formatDate(d.decidedAt) : "—"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Larger screens: table */}
+              <div className="hidden overflow-x-auto md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Deal</TableHead>
+                      <TableHead>Salesperson</TableHead>
+                      <TableHead className="text-right">Value</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead className="text-right">Lost</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {r.lostDeals.map((d) => (
+                      <TableRow key={d.estimateId}>
+                        <TableCell className="font-medium">
+                          <Link href={`/estimates/${d.estimateId}`} className="hover:underline">
+                            {d.customer ? `${d.customer} — ` : ""}{d.title}
+                          </Link>
+                          <span className="block text-xs text-muted-foreground">{d.source}</span>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{d.salesman ?? "—"}</TableCell>
+                        <TableCell className="text-right">{formatMoney(d.value)}</TableCell>
+                        <TableCell className="max-w-xs text-sm text-muted-foreground">
+                          {d.reason || <span className="italic">no reason recorded</span>}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {d.decidedAt ? formatDate(d.decidedAt) : "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -174,39 +208,75 @@ function GroupCard({ title, rows }: { title: string; rows: WinLossGroup[] }) {
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No decided deals yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{title.includes("source") ? "Source" : "Rep"}</TableHead>
-                  <TableHead className="text-right">Won</TableHead>
-                  <TableHead className="text-right">Lost</TableHead>
-                  <TableHead className="text-right">Win rate</TableHead>
-                  <TableHead className="text-right">Won $</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((g) => (
-                  <TableRow key={g.key}>
-                    <TableCell className="font-medium">{g.label}</TableCell>
-                    <TableCell className="text-right text-emerald-600">{g.won}</TableCell>
-                    <TableCell className="text-right text-destructive">{g.lost}</TableCell>
-                    <TableCell
-                      className={cn(
-                        "text-right font-medium",
-                        g.winRate < 50 ? "text-amber-600" : "text-emerald-600",
-                      )}
-                    >
-                      {Math.round(g.winRate)}%
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {formatMoney(g.wonValue)}
-                    </TableCell>
+          <>
+            {/* Phone: stacked cards */}
+            <div className="space-y-2 md:hidden">
+              {rows.map((g) => (
+                <div key={g.key} className="rounded-lg border p-3">
+                  <div className="font-medium">{g.label}</div>
+                  <div className="mt-1.5 grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <div className="text-xs text-muted-foreground">Won</div>
+                      <div className="font-medium text-emerald-600">{g.won}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Lost</div>
+                      <div className="font-medium text-destructive">{g.lost}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Win rate</div>
+                      <div
+                        className={cn(
+                          "font-medium",
+                          g.winRate < 50 ? "text-amber-600" : "text-emerald-600",
+                        )}
+                      >
+                        {Math.round(g.winRate)}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Won $</div>
+                      <div className="font-medium">{formatMoney(g.wonValue)}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Larger screens: table */}
+            <div className="hidden overflow-x-auto md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{title.includes("source") ? "Source" : "Rep"}</TableHead>
+                    <TableHead className="text-right">Won</TableHead>
+                    <TableHead className="text-right">Lost</TableHead>
+                    <TableHead className="text-right">Win rate</TableHead>
+                    <TableHead className="text-right">Won $</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((g) => (
+                    <TableRow key={g.key}>
+                      <TableCell className="font-medium">{g.label}</TableCell>
+                      <TableCell className="text-right text-emerald-600">{g.won}</TableCell>
+                      <TableCell className="text-right text-destructive">{g.lost}</TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right font-medium",
+                          g.winRate < 50 ? "text-amber-600" : "text-emerald-600",
+                        )}
+                      >
+                        {Math.round(g.winRate)}%
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {formatMoney(g.wonValue)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

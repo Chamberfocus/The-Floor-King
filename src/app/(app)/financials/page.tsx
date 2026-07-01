@@ -175,19 +175,98 @@ export default async function FinancialsPage({
               expenses.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Job</TableHead>
-                    <TableHead className="text-right">Revenue</TableHead>
-                    <TableHead className="text-right">Material</TableHead>
-                    <TableHead className="text-right">Crew pay</TableHead>
-                    <TableHead className="text-right">Other</TableHead>
-                    <TableHead className="text-right">Profit</TableHead>
-                    <TableHead className="text-right">Margin</TableHead>
-                  </TableRow>
-                </TableHeader>
+            <>
+              {/* Phone: stacked cards */}
+              <div className="space-y-2 md:hidden">
+                {jobs.map((j) => (
+                  <div key={j.jobId} className="rounded-lg border p-3">
+                    <div className="font-medium">
+                      <Link
+                        href={`/jobs/${j.jobId}`}
+                        className="hover:underline"
+                      >
+                        {j.customer ? `${j.customer} — ` : ""}
+                        {j.title}
+                      </Link>
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Revenue
+                        </div>
+                        <div className="font-medium">
+                          {formatMoney(j.revenue)}
+                          {!j.revenueIsActual ? (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              (quoted)
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Material
+                        </div>
+                        <div className="font-medium">
+                          {formatMoney(j.materialCost)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Crew pay
+                        </div>
+                        <div className="font-medium">
+                          {formatMoney(j.laborCost)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Other
+                        </div>
+                        <div className="font-medium">
+                          {formatMoney(j.otherCost)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Profit
+                        </div>
+                        <div
+                          className={
+                            j.profit < 0
+                              ? "font-medium text-destructive"
+                              : "font-medium"
+                          }
+                        >
+                          {formatMoney(j.profit)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          Margin
+                        </div>
+                        <div className="font-medium">
+                          {Math.round(j.margin)}%
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Larger screens: table */}
+              <div className="hidden overflow-x-auto md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Job</TableHead>
+                      <TableHead className="text-right">Revenue</TableHead>
+                      <TableHead className="text-right">Material</TableHead>
+                      <TableHead className="text-right">Crew pay</TableHead>
+                      <TableHead className="text-right">Other</TableHead>
+                      <TableHead className="text-right">Profit</TableHead>
+                      <TableHead className="text-right">Margin</TableHead>
+                    </TableRow>
+                  </TableHeader>
                 <TableBody>
                   {jobs.map((j) => (
                     <TableRow key={j.jobId}>
@@ -231,9 +310,10 @@ export default async function FinancialsPage({
                       </TableCell>
                     </TableRow>
                   ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
