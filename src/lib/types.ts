@@ -758,6 +758,26 @@ export interface OrderItem {
   cut_notes: string | null;
 }
 
+export type OrderStockStatus =
+  | "unknown"
+  | "in_stock"
+  | "out_of_stock"
+  | "partial";
+
+export const ORDER_STOCK_LABELS: Record<OrderStockStatus, string> = {
+  unknown: "Stock: not checked",
+  in_stock: "In stock",
+  out_of_stock: "Out of stock",
+  partial: "Partial",
+};
+
+export const ORDER_STOCK_BADGE: Record<OrderStockStatus, string> = {
+  unknown: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  in_stock: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  out_of_stock: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+  partial: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+};
+
 export interface Order {
   id: string;
   customer_id: string | null;
@@ -768,6 +788,11 @@ export interface Order {
   source: "portal" | "public";
   notes: string | null;
   decline_reason: string | null;
+  stock_status: OrderStockStatus;
+  stock_note: string | null;
+  stock_checked_at: string | null;
+  customer_stock_notified_at: string | null;
+  invoice_id: string | null;
   job_id: string | null;
   created_by: string | null;
   approved_by: string | null;

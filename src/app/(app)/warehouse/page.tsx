@@ -12,10 +12,13 @@ import { PageHeader } from "@/components/page-header";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { requireProfile } from "@/lib/auth";
 import { listWarehouseJobs } from "@/lib/data/jobs";
+import { listOrders } from "@/lib/data/orders";
+import { reportOrderStock } from "../orders/actions";
 import {
   JOB_DELIVERY_LABELS,
   WAREHOUSE_STATUS_LABELS,
   WAREHOUSE_STATUS_ORDER,
+  ORDER_STOCK_LABELS,
   type JobDeliveryType,
 } from "@/lib/types";
 import { formatDate } from "@/lib/format";
@@ -59,14 +62,96 @@ export default async function WarehousePage() {
   }
 
   const jobs = await listWarehouseJobs();
+  const stockChecks = (await listOrders()).filter(
+    (o) => o.status === "submitted",
+  );
 
   return (
     <div>
       <RealtimeRefresh table="jobs" />
+      <RealtimeRefresh table="orders" />
       <PageHeader
         title="Warehouse"
         description="Materials to prep, stage, and deliver for upcoming jobs."
       />
+
+      {/* New client orders — flag stock right away so the office can decide */}
+      {stockChecks.length > 0 ? (
+        <div className="mb-6 space-y-2">
+          <h2 className="text-sm font-semibold">
+            Stock checks — new orders ({stockChecks.length})
+          </h2>
+          {stockChecks.map((o) => (
+            <Card key={o.id} className="border-blue-300 dark:border-blue-900/60">
+              <CardContent className="space-y-2 py-3">
+                <div className="text-sm font-medium">
+                  {o.contact_name || "Order"}
+                  {o.contact_phone ? (
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      · {o.contact_phone}
+                    </span>
+                  ) : null}
+                </div>
+                <ul className="text-sm">
+                  {(o.items ?? []).map((it) => (
+                    <li key={it.id}>
+                      •{" "}
+                      {[it.description, it.color, it.style]
+                        .filter(Boolean)
+                        .join(" · ") || "Item"}
+                      {it.quantity ? ` — ${it.quantity} ${it.unit}` : ""}
+                      {it.cut_notes ? (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          (cuts: {it.cut_notes.split(" | ").join(", ")})
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                <form
+                  action={reportOrderStock}
+                  className="flex flex-wrap items-center gap-2 border-t pt-2"
+                >
+                  <input type="hidden" name="order_id" value={o.id} />
+                  <input
+                    name="stock_note"
+                    placeholder="Note (optional) — e.g. have beige, gray backordered"
+                    className="h-9 min-w-48 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
+                  />
+                  <button
+                    name="stock_status"
+                    value="in_stock"
+                    className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white"
+                  >
+                    In stock ✓
+                  </button>
+                  <button
+                    name="stock_status"
+                    value="partial"
+                    className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white"
+                  >
+                    Partial
+                  </button>
+                  <button
+                    name="stock_status"
+                    value="out_of_stock"
+                    className="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white"
+                  >
+                    Out ✗
+                  </button>
+                </form>
+                {o.stock_status !== "unknown" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Reported: {ORDER_STOCK_LABELS[o.stock_status]}
+                    {o.stock_note ? ` — ${o.stock_note}` : ""}
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : null}
 
       {jobs.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">

@@ -21,7 +21,7 @@ interface Line {
   style: string;
   quantity: string;
   unit: string;
-  cutNotes: string;
+  cuts: string[];
 }
 
 const UNITS = ["sq yd", "sq ft", "lnft", "roll", "each"];
@@ -46,7 +46,7 @@ export function OrderForm({
     style: "",
     quantity: "",
     unit: "sq yd",
-    cutNotes: "",
+    cuts: [""],
   });
 
   const [name, setName] = useState("");
@@ -73,7 +73,7 @@ export function OrderForm({
           style: l.style.trim(),
           quantity: parseFloat(l.quantity) || 0,
           unit: l.unit,
-          cutNotes: l.cutNotes.trim(),
+          cutNotes: l.cuts.map((c) => c.trim()).filter(Boolean).join(" | "),
         }));
       if (requireContact && !name.trim()) return toastErr("Enter your name.");
       if (requireContact && !phone.trim()) return toastErr("Enter a phone number.");
@@ -179,13 +179,48 @@ export function OrderForm({
                   <Input value={l.style} onChange={(e) => update(i, { style: e.target.value })} className="h-9" />
                 </div>
               </div>
-              <div className="mt-2 flex items-end gap-2">
-                <div className="flex-1">
-                  <label className="mb-0.5 block text-xs text-muted-foreground">Cut sizes / notes</label>
-                  <Input value={l.cutNotes} onChange={(e) => update(i, { cutNotes: e.target.value })} placeholder={"e.g. two 12' x 9', one 12' x 15'"} className="h-9" />
+              <div className="mt-2">
+                <label className="mb-0.5 block text-xs text-muted-foreground">Cuts</label>
+                <div className="space-y-1.5">
+                  {l.cuts.map((c, ci) => (
+                    <div key={ci} className="flex items-center gap-2">
+                      <Input
+                        value={c}
+                        onChange={(e) =>
+                          update(i, {
+                            cuts: l.cuts.map((x, k) => (k === ci ? e.target.value : x)),
+                          })
+                        }
+                        placeholder={`Cut ${ci + 1} — e.g. 12' x 9'`}
+                        className="h-9"
+                      />
+                      {l.cuts.length > 1 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Remove cut"
+                          onClick={() =>
+                            update(i, { cuts: l.cuts.filter((_, k) => k !== ci) })
+                          }
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
-                <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove item" onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}>
-                  <Trash2 className="size-3.5" />
+                <button
+                  type="button"
+                  onClick={() => update(i, { cuts: [...l.cuts, ""] })}
+                  className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary"
+                >
+                  <Plus className="size-3" /> Add a cut
+                </button>
+              </div>
+              <div className="mt-2 flex justify-end">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}>
+                  <Trash2 className="size-3.5" /> Remove item
                 </Button>
               </div>
             </div>

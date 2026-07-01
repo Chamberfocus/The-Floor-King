@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
-import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { sendJobToWarehouse } from "@/app/(app)/jobs/actions";
-import type { OrderItem } from "@/lib/types";
+import type { OrderItem, OrderStockStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -121,6 +123,184 @@ export async function approveOrder(formData: FormData): Promise<void> {
   revalidatePath("/orders");
   revalidatePath("/warehouse");
   revalidatePath(`/customers/${customerId}`);
+}
+
+/** Warehouse (or staff) flags whether an order is in stock → pings the owner.
+ *  Runs elevated (warehouse can read orders but not write them under RLS). */
+export async function reportOrderStock(formData: FormData): Promise<void> {
+  const orderId = str(formData.get("order_id"));
+  const status = str(formData.get("stock_status")) as OrderStockStatus;
+  const note = str(formData.get("stock_note"));
+  if (!orderId || !["in_stock", "out_of_stock", "partial"].includes(status))
+    return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role, full_name")
+    .eq("id", user.id)
+    .maybeSingle();
+  const role = me?.role as string | undefined;
+  if (!role || !["admin", "office", "warehouse"].includes(role)) return;
+
+  const admin = createAdminClient();
+  await admin
+    .from("orders")
+    .update({
+      stock_status: status,
+      stock_note: note || null,
+      stock_checked_by: user.id,
+      stock_checked_at: new Date().toISOString(),
+    })
+    .eq("id", orderId);
+
+  const { data: order } = await admin
+    .from("orders")
+    .select("contact_name")
+    .eq("id", orderId)
+    .maybeSingle();
+  const who = (order?.contact_name as string) || "an order";
+  const label =
+    status === "in_stock"
+      ? "IN STOCK ✅"
+      : status === "out_of_stock"
+        ? "OUT OF STOCK ❌"
+        : "PARTIAL ⚠️";
+  await sendEmail({
+    to: ownerEmail(),
+    subject: `📦 Stock check — ${who}: ${label}`,
+    html: emailLayout(
+      "Warehouse stock check",
+      `<p>${(me?.full_name as string) || "Warehouse"} marked the order from <strong>${who}</strong> as <strong>${label}</strong>${note ? ` — ${note}` : ""}.</p>`,
+      { label: "Open orders", url: `${siteUrl()}/orders` },
+    ),
+  });
+  revalidatePath("/orders");
+  revalidatePath("/warehouse");
+}
+
+/** Owner/office relays the stock status to the customer (portal note + email). */
+export async function notifyCustomerStock(formData: FormData): Promise<void> {
+  await assertRole(["admin", "office"]);
+  const orderId = str(formData.get("order_id"));
+  if (!orderId) return;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: order } = await supabase
+    .from("orders")
+    .select("customer_id, contact_name, contact_email, stock_status, stock_note")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!order) return;
+  const s = order.stock_status as OrderStockStatus;
+  const base =
+    s === "in_stock"
+      ? "Good news — we have your carpet in stock and can cut it for pickup."
+      : s === "out_of_stock"
+        ? "Heads up — the carpet you asked for isn't in stock right now. We'll reach out about options and timing."
+        : s === "partial"
+          ? "We have part of your order in stock — we'll reach out about the rest."
+          : "We're checking stock on your order and will update you shortly.";
+  const body = `${base}${order.stock_note ? ` (${order.stock_note})` : ""}`;
+
+  if (order.customer_id) {
+    await supabase.from("messages").insert({
+      customer_id: order.customer_id,
+      channel: "client",
+      author_id: user?.id ?? null,
+      body: `📦 ${body}`,
+    });
+  }
+  if (order.contact_email) {
+    await sendEmail({
+      to: order.contact_email as string,
+      subject: "Update on your order",
+      html: emailLayout("Order update", `<p>${body}</p>`),
+    });
+  }
+  await supabase
+    .from("orders")
+    .update({ customer_stock_notified_at: new Date().toISOString() })
+    .eq("id", orderId);
+  revalidatePath("/orders");
+}
+
+/** Build a draft invoice from an approved order — you set the trade prices. */
+export async function createInvoiceFromOrder(
+  formData: FormData,
+): Promise<void> {
+  await assertRole(["admin", "office"]);
+  const orderId = str(formData.get("order_id"));
+  if (!orderId) return;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: order } = await supabase
+    .from("orders")
+    .select("id, customer_id, job_id, invoice_id")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!order || !order.customer_id) return;
+  if (order.invoice_id) redirect(`/invoices/${order.invoice_id}`);
+
+  const { data: itemData } = await supabase
+    .from("order_items")
+    .select("*")
+    .eq("order_id", orderId)
+    .order("position", { ascending: true });
+  const items = (itemData ?? []) as OrderItem[];
+
+  const pids = [
+    ...new Set(items.map((i) => i.product_id).filter(Boolean) as string[]),
+  ];
+  const rate = new Map<string, number>();
+  if (pids.length) {
+    const { data: prods } = await supabase
+      .from("products")
+      .select("id, material_rate")
+      .in("id", pids);
+    for (const p of prods ?? [])
+      rate.set(p.id as string, Number(p.material_rate) || 0);
+  }
+
+  const { data: inv } = await supabase
+    .from("invoices")
+    .insert({
+      customer_id: order.customer_id,
+      job_id: order.job_id,
+      issue_date: new Date().toISOString().slice(0, 10),
+      status: "draft",
+      tax_rate: 0,
+      created_by: user?.id ?? null,
+    })
+    .select("id")
+    .single();
+  if (!inv) return;
+
+  const rows = items.map((it, i) => ({
+    invoice_id: inv.id,
+    position: i,
+    description:
+      [it.description, it.color, it.style].filter(Boolean).join(" · ") +
+      (it.cut_notes ? ` (cuts: ${it.cut_notes})` : ""),
+    quantity: it.quantity ?? 1,
+    unit: it.unit || "each",
+    rate: it.product_id ? (rate.get(it.product_id) ?? 0) : 0,
+  }));
+  if (rows.length) await supabase.from("invoice_items").insert(rows);
+
+  await supabase.from("orders").update({ invoice_id: inv.id }).eq("id", orderId);
+  revalidatePath("/orders");
+  revalidatePath("/invoices");
+  redirect(`/invoices/${inv.id}`);
 }
 
 export async function declineOrder(formData: FormData): Promise<void> {

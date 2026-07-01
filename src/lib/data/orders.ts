@@ -77,6 +77,40 @@ export async function pendingOrderCount(): Promise<number> {
   }
 }
 
+export interface ProductStock {
+  on_hand: number;
+  reserved: number;
+  track_stock: boolean;
+  unit: string;
+}
+
+/** Live on-hand for the given catalog products — for auto stock display on
+ *  orders. Defensive; missing/untracked products simply aren't in the map. */
+export async function getProductStock(
+  ids: string[],
+): Promise<Map<string, ProductStock>> {
+  const map = new Map<string, ProductStock>();
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length) return map;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("products")
+      .select("id, on_hand, reserved, track_stock, unit")
+      .in("id", unique);
+    for (const p of data ?? [])
+      map.set(p.id as string, {
+        on_hand: Number(p.on_hand) || 0,
+        reserved: Number(p.reserved) || 0,
+        track_stock: !!p.track_stock,
+        unit: (p.unit as string) || "",
+      });
+  } catch {
+    /* products not readable for this role — skip auto stock */
+  }
+  return map;
+}
+
 export async function listOrdersForCustomer(
   customerId: string,
 ): Promise<Order[]> {
