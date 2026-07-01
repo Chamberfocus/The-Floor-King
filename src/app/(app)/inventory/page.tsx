@@ -149,7 +149,56 @@ export default async function InventoryPage({
           {q ? `No tracked stock matches "${q}".` : "No tracked stock yet — add a product below."}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <>
+        {/* Phone: cards */}
+        <div className="space-y-2 md:hidden">
+          {items.map((p) => {
+            const low = p.reorder_point > 0 && p.on_hand <= p.reorder_point;
+            return (
+              <div key={p.id} className={cn("rounded-lg border p-3", low && "bg-destructive/5")}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <Link href={`/inventory/${p.id}`} className="font-medium hover:underline">
+                      {p.name}
+                    </Link>
+                    {p.clearance ? (
+                      <span className="ml-1.5 rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                        Clearance
+                      </span>
+                    ) : null}
+                    <div className="text-xs text-muted-foreground">
+                      {[p.manufacturer, p.sku ? `#${p.sku}` : null, p.bin_location ? `Bin ${p.bin_location}` : null].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className={cn("font-medium tabular-nums", low && "text-destructive")}>
+                      {p.on_hand} {p.unit}
+                    </div>
+                    {low ? <div className="text-[11px] font-medium text-destructive">low</div> : null}
+                  </div>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-muted-foreground">
+                  <span>Reorder at {p.reorder_point || "—"}</span>
+                  <span>Value {formatMoney(p.on_hand * (p.material_rate || 0))}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <form action={receiveStock} className="flex items-center gap-1">
+                    <input type="hidden" name="product_id" value={p.id} />
+                    <input name="qty" type="number" step="0.01" min="0" placeholder="+ qty" className={cn(cell, "w-20")} />
+                    <Button type="submit" size="sm" variant="outline">Receive</Button>
+                  </form>
+                  <form action={adjustStock} className="flex items-center gap-1">
+                    <input type="hidden" name="product_id" value={p.id} />
+                    <input name="counted" type="number" step="0.01" min="0" placeholder="count" className={cn(cell, "w-20")} />
+                    <Button type="submit" size="sm" variant="ghost">Set</Button>
+                  </form>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {/* Larger screens: table */}
+        <div className="hidden overflow-x-auto rounded-lg border md:block">
           <table className="w-full text-sm">
             <thead className="bg-muted/60 text-xs text-muted-foreground">
               <tr>
@@ -217,6 +266,7 @@ export default async function InventoryPage({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* Start tracking a catalog product */}

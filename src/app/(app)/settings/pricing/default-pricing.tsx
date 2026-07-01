@@ -51,28 +51,15 @@ export function DefaultPricing({
         <CardHeader>
           <CardTitle className="text-base">Flooring rates (per type)</CardTitle>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-xs text-muted-foreground">
-                <th className="px-2 py-2 text-left font-medium">Type</th>
-                <th className="px-2 py-2 text-left font-medium">Mat. cost</th>
-                <th className="px-2 py-2 text-left font-medium">Mat. sell</th>
-                <th className="px-2 py-2 text-left font-medium">Waste %</th>
-                <th className="px-2 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {FLOORING_TYPES.map((t) => (
-                <RoomRow
-                  key={t}
-                  category={t}
-                  label={profileFor(t)?.label ?? t}
-                  def={roomDefaults[t]}
-                />
-              ))}
-            </tbody>
-          </table>
+        <CardContent className="space-y-2">
+          {FLOORING_TYPES.map((t) => (
+            <RoomRow
+              key={t}
+              category={t}
+              label={profileFor(t)?.label ?? t}
+              def={roomDefaults[t]}
+            />
+          ))}
         </CardContent>
       </Card>
 
@@ -80,47 +67,39 @@ export function DefaultPricing({
         <CardHeader>
           <CardTitle className="text-base">Add-ons &amp; pad</CardTitle>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-xs text-muted-foreground">
-                <th className="px-2 py-2 text-left font-medium">Item</th>
-                <th className="px-2 py-2 text-left font-medium">Unit</th>
-                <th className="px-2 py-2 text-left font-medium">Cost</th>
-                <th className="px-2 py-2 text-left font-medium">Sell</th>
-                <th className="px-2 py-2 text-left font-medium">Labor</th>
-                <th className="px-2 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {addonRows.map((d) => (
-                <AddonRow key={d.label} def={d} saved={addonDefaults[d.label]} />
-              ))}
-            </tbody>
-          </table>
+        <CardContent className="space-y-2">
+          {addonRows.map((d) => (
+            <AddonRow key={d.label} def={d} saved={addonDefaults[d.label]} />
+          ))}
         </CardContent>
       </Card>
     </div>
   );
 }
 
-function Cell({
+/** A labeled numeric field — label sits above the input so it reads on a phone. */
+function LabeledCell({
+  label,
   value,
   onChange,
-  w = "w-20",
+  w = "w-24",
 }: {
+  label: string;
   value: string;
   onChange: (v: string) => void;
   w?: string;
 }) {
   return (
-    <Input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      inputMode="decimal"
-      placeholder="—"
-      className={`h-8 ${w}`}
-    />
+    <div>
+      <div className="mb-0.5 text-xs text-muted-foreground">{label}</div>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        inputMode="decimal"
+        placeholder="—"
+        className={`h-9 ${w}`}
+      />
+    </div>
   );
 }
 
@@ -161,13 +140,13 @@ function RoomRow({
   };
 
   return (
-    <tr className="border-b last:border-0">
-      <td className="px-2 py-1.5 font-medium">{label}</td>
-      <td className="px-2 py-1.5"><Cell value={mc} onChange={setMc} /></td>
-      <td className="px-2 py-1.5"><Cell value={ms} onChange={setMs} /></td>
-      <td className="px-2 py-1.5"><Cell value={w} onChange={setW} w="w-14" /></td>
-      <td className="px-2 py-1.5 text-right">
-        <div className="flex justify-end gap-1">
+    <div className="rounded-lg border p-3">
+      <div className="mb-2 font-medium">{label}</div>
+      <div className="flex flex-wrap items-end gap-3">
+        <LabeledCell label="Mat. cost" value={mc} onChange={setMc} />
+        <LabeledCell label="Mat. sell" value={ms} onChange={setMs} />
+        <LabeledCell label="Waste %" value={w} onChange={setW} w="w-20" />
+        <div className="flex gap-1">
           <Button type="button" size="sm" onClick={save} disabled={busy}>
             Save
           </Button>
@@ -175,8 +154,8 @@ function RoomRow({
             Clear
           </Button>
         </div>
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }
 
@@ -208,33 +187,35 @@ function AddonRow({ def, saved }: { def: AddonDef; saved?: AddonDefault }) {
   };
 
   return (
-    <tr className="border-b last:border-0">
-      <td className="px-2 py-1.5 font-medium">{def.label}</td>
-      <td className="px-2 py-1.5">
-        <select
-          value={unit}
-          onChange={(e) => setUnit(e.target.value)}
-          className="h-8 rounded-md border border-input bg-transparent px-1 text-xs"
-        >
-          {UNITS.map((u) => (
-            <option key={u} value={u}>
-              {u}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td className="px-2 py-1.5"><Cell value={cost} onChange={setCost} w="w-16" /></td>
-      <td className="px-2 py-1.5"><Cell value={sell} onChange={setSell} w="w-16" /></td>
-      <td className="px-2 py-1.5">
-        <input
-          type="checkbox"
-          checked={labor}
-          onChange={(e) => setLabor(e.target.checked)}
-          className="size-4 rounded border-input"
-        />
-      </td>
-      <td className="px-2 py-1.5 text-right">
-        <div className="flex justify-end gap-1">
+    <div className="rounded-lg border p-3">
+      <div className="mb-2 font-medium">{def.label}</div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <div className="mb-0.5 text-xs text-muted-foreground">Unit</div>
+          <select
+            value={unit}
+            onChange={(e) => setUnit(e.target.value)}
+            className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+          >
+            {UNITS.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </select>
+        </div>
+        <LabeledCell label="Cost" value={cost} onChange={setCost} w="w-20" />
+        <LabeledCell label="Sell" value={sell} onChange={setSell} w="w-20" />
+        <label className="flex items-center gap-1.5 pb-2 text-sm">
+          <input
+            type="checkbox"
+            checked={labor}
+            onChange={(e) => setLabor(e.target.checked)}
+            className="size-4 rounded border-input"
+          />
+          Labor
+        </label>
+        <div className="flex gap-1">
           <Button type="button" size="sm" onClick={save} disabled={busy}>
             Save
           </Button>
@@ -242,7 +223,7 @@ function AddonRow({ def, saved }: { def: AddonDef; saved?: AddonDefault }) {
             Clear
           </Button>
         </div>
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }
