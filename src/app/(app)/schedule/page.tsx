@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listUpcomingAppointments } from "@/lib/data/scheduling";
 import { getProfileNames } from "@/lib/data/customers";
-import { formatDate } from "@/lib/format";
+import { formatDate, to12 } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Estimate schedule" };
 
@@ -61,7 +61,7 @@ export default async function SchedulePage() {
                     >
                       <div className="min-w-0">
                         <div className="font-medium">
-                          {a.time}{" "}
+                          {to12(a.time)}{" "}
                           <Link
                             href={`/customers/${a.customerId}`}
                             className="hover:underline"

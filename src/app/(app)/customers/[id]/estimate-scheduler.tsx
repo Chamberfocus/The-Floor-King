@@ -11,21 +11,15 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { formatDate } from "@/lib/format";
+import { formatDate, to12, parseArrivalWindows } from "@/lib/format";
+import type { ArrivalWindow } from "@/lib/format";
 import {
   suggestEstimateTimes,
   bookEstimateAppointment,
+  getArrivalWindows,
 } from "./schedule-actions";
 import type { EstimateSlot } from "@/lib/data/scheduling";
 
-// Arrival windows (instead of an exact minute) — what customers actually get told.
-const WINDOWS = [
-  { label: "Morning · 8–10 AM", start: "08:00", end: "10:00" },
-  { label: "Late morning · 10 AM–12 PM", start: "10:00", end: "12:00" },
-  { label: "Early afternoon · 12–2 PM", start: "12:00", end: "14:00" },
-  { label: "Afternoon · 2–4 PM", start: "14:00", end: "16:00" },
-  { label: "Late afternoon · 4–6 PM", start: "16:00", end: "18:00" },
-];
 const fieldCls =
   "h-11 w-full rounded-md border border-input bg-transparent px-3 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -44,7 +38,19 @@ export function EstimateScheduler({
   const [showManual, setShowManual] = useState(false);
   const [win, setWin] = useState(0);
   const [rep, setRep] = useState("");
+  const [windows, setWindows] = useState<ArrivalWindow[]>(() =>
+    parseArrivalWindows(null),
+  );
   const auto = useRef(false);
+
+  // Load the shop's customizable arrival windows.
+  useEffect(() => {
+    getArrivalWindows()
+      .then((w) => {
+        if (w.length) setWindows(w);
+      })
+      .catch(() => {});
+  }, []);
 
   const find = (m: "assigned" | "closest") =>
     startTransition(async () => {
@@ -117,7 +123,7 @@ export function EstimateScheduler({
               >
                 <div className="min-w-0">
                   <div className="font-medium">
-                    {formatDate(s.date)} · {s.time}
+                    {formatDate(s.date)} · {to12(s.time)}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
@@ -175,8 +181,8 @@ export function EstimateScheduler({
           {showManual ? (
             <form action={bookEstimateAppointment} className="mt-3 space-y-3">
               <input type="hidden" name="customer_id" value={customerId} />
-              <input type="hidden" name="time" value={WINDOWS[win].start} />
-              <input type="hidden" name="end_time" value={WINDOWS[win].end} />
+              <input type="hidden" name="time" value={windows[win]?.start ?? ""} />
+              <input type="hidden" name="end_time" value={windows[win]?.end ?? ""} />
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -194,7 +200,7 @@ export function EstimateScheduler({
                   onChange={(e) => setWin(Number(e.target.value))}
                   className={fieldCls}
                 >
-                  {WINDOWS.map((w, i) => (
+                  {windows.map((w, i) => (
                     <option key={i} value={i}>
                       {w.label}
                     </option>

@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getDayRoute } from "@/lib/data/scheduling";
 import { storeAddress } from "@/lib/maps";
-import { formatDate } from "@/lib/format";
+import { formatDate, to12 } from "@/lib/format";
 import { moveAppointment } from "../actions";
 
 export const metadata: Metadata = { title: "Day route" };
@@ -116,7 +116,7 @@ export default async function DayRoutePage({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="font-medium">
-                      {s.time}{" "}
+                      {to12(s.time)}{" "}
                       <Link
                         href={`/customers/${s.customerId}`}
                         className="hover:underline"

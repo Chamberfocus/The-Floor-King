@@ -16,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { cn } from "@/lib/utils";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate, formatMoney, formatWallDateTime } from "@/lib/format";
 import type {
   Customer,
   WorkflowStage,
@@ -203,15 +203,7 @@ export async function GuidedFlow({
   // If an estimate appointment is already on the books, show it — never nag to
   // "schedule" something that's already scheduled. Works for carry-overs and
   // normal bookings alike.
-  const apptWhen = appointment
-    ? new Date(appointment.startsAt).toLocaleString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : null;
+  const apptWhen = appointment ? formatWallDateTime(appointment.startsAt) : null;
   const bookedEstimate = appointment ? (
     <div className="space-y-3">
       <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">

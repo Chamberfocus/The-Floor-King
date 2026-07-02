@@ -70,6 +70,7 @@ export interface SchedulingSettings {
   cap_subfloor_sheets: number;
   cap_selflevel_sf: number;
   default_origin: string | null;
+  arrival_windows: string; // "HH:MM-HH:MM,HH:MM-HH:MM" customizable arrival windows
   updated_at: string;
 }
 

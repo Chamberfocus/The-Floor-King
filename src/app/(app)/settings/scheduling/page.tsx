@@ -16,6 +16,7 @@ import {
   listInstallerSettings,
 } from "@/lib/data/scheduling";
 import { saveSchedulingSettings, saveInstallerSettings } from "./actions";
+import { ArrivalWindowsField } from "./arrival-windows-field";
 
 export const metadata: Metadata = { title: "Scheduling" };
 
@@ -124,6 +125,14 @@ export default async function SchedulingSettingsPage() {
               <p className="text-xs text-muted-foreground">
                 Where routing starts when a rep has no home base of their own.
               </p>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Arrival windows</Label>
+              <p className="text-xs text-muted-foreground">
+                The time windows you offer customers for estimate visits. Shown
+                in 12-hour time — customize as many as you like.
+              </p>
+              <ArrivalWindowsField value={s.arrival_windows} />
             </div>
           </CardContent>
         </Card>

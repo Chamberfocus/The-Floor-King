@@ -10,6 +10,7 @@ import {
 } from "@/lib/scheduling";
 import { getDriveTime, storeAddress } from "@/lib/maps";
 import type { EstimateLineItem, SchedulingSettings } from "@/lib/types";
+import { DEFAULT_ARRIVAL_WINDOWS } from "@/lib/format";
 
 const CAP_KEYS = [
   "cap_carpet_yd",
@@ -50,6 +51,7 @@ const DEFAULTS: SchedulingSettings = {
   cap_subfloor_sheets: 10,
   cap_selflevel_sf: 600,
   default_origin: null,
+  arrival_windows: DEFAULT_ARRIVAL_WINDOWS,
   updated_at: "",
 };
 

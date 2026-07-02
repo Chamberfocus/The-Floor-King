@@ -3,14 +3,25 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getEstimateSuggestions, type EstimateSlot } from "@/lib/data/scheduling";
+import {
+  getEstimateSuggestions,
+  getSchedulingSettings,
+  type EstimateSlot,
+} from "@/lib/data/scheduling";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
 import { advanceFromAutoAction } from "@/lib/workflow-engine";
+import { parseArrivalWindows, type ArrivalWindow } from "@/lib/format";
 
 export interface SuggestResult {
   error: string | null;
   slots?: EstimateSlot[];
+}
+
+/** The shop's customizable arrival windows (for the manual booking dropdown). */
+export async function getArrivalWindows(): Promise<ArrivalWindow[]> {
+  const settings = await getSchedulingSettings();
+  return parseArrivalWindows(settings.arrival_windows);
 }
 
 function str(v: FormDataEntryValue | null): string {
