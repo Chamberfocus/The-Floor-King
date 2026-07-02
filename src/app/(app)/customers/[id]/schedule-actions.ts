@@ -12,6 +12,7 @@ import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
 import { advanceFromAutoAction } from "@/lib/workflow-engine";
 import { parseArrivalWindows, type ArrivalWindow } from "@/lib/format";
+import { todayLocalYmd } from "@/lib/booking";
 
 export interface SuggestResult {
   error: string | null;
@@ -64,6 +65,20 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
 
   const startsAt = `${date}T${time}:00+00`;
 
+  // Reschedule = REPLACE. Cancel any other still-upcoming estimate appointment
+  // for this customer so we never end up showing it twice. (Past visits stay as
+  // history; the slot we're (re)booking is left alone so the dup-guard below can
+  // treat an exact re-pick as a no-op.)
+  const today = todayLocalYmd();
+  await supabase
+    .from("appointments")
+    .update({ status: "cancelled" })
+    .eq("customer_id", customerId)
+    .eq("kind", "estimate")
+    .eq("status", "scheduled")
+    .gte("starts_at", `${today}T00:00:00+00`)
+    .neq("starts_at", startsAt);
+
   // Guard against duplicates (e.g. a double-click): if this customer already
   // has an estimate appointment at this exact time, don't make another.
   const { data: existing } = await supabase
@@ -75,6 +90,8 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     .maybeSingle();
   if (existing) {
     revalidatePath(`/customers/${customerId}`);
+    revalidatePath("/schedule");
+    revalidatePath("/calendar");
     redirect(`/customers/${customerId}`);
   }
 
@@ -147,6 +164,8 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/pipeline");
   revalidatePath("/dashboard");
+  revalidatePath("/schedule");
+  revalidatePath("/calendar");
   // Booked → close the scheduler out to the customer's dashboard.
   redirect(`/customers/${customerId}`);
 }
