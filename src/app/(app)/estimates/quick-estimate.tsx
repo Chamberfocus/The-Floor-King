@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Printer, Send, Ruler, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Printer, Send, Ruler, RotateCcw, Camera } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,10 +10,12 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { priceFromMargin, marginPct } from "@/lib/estimate-calc";
 import { FLOORING_TYPES, profileFor } from "@/lib/flooring-profiles";
+import { createClient } from "@/lib/supabase/client";
 import { AreaCalculator } from "@/components/area-calculator";
 import { PriceBookPicker } from "@/components/price-book-picker";
 import type { PriceItem } from "@/lib/price-book";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
+import { analyzeJobDrawing, type DrawingFindings } from "./ai-actions";
 
 const num = (v: string) => {
   const n = parseFloat(v);
@@ -60,6 +62,7 @@ export function QuickEstimate({
 }) {
   const [title, setTitle] = useState("");
   const [marginGoal, setMarginGoal] = useState(String(targetMargin));
+  const [taxRate, setTaxRate] = useState("8");
   const [presentation, setPresentation] = useState<"detailed" | "summary">("detailed");
 
   // Flooring block (optional)
@@ -77,8 +80,13 @@ export function QuickEstimate({
   const [lines, setLines] = useState<QLine[]>([]);
   const [notes, setNotes] = useState("");
   const [saving, startSave] = useTransition();
+  const [analyzing, startAnalyze] = useTransition();
+  const drawingRef = useRef<HTMLInputElement>(null);
 
-  const goal = num(marginGoal);
+  // Guard the margin so a blank / 0 / ≥100 entry can't break price-from-margin
+  // (it divides by 1 − margin). Falls back to the shop's target margin.
+  const goalRaw = num(marginGoal);
+  const goal = goalRaw > 0 && goalRaw < 100 ? goalRaw : targetMargin;
   const sellAt = (c: number) => (c > 0 ? r2(priceFromMargin(c, goal)) : 0);
   const profile = profileFor(type);
 
@@ -89,6 +97,99 @@ export function QuickEstimate({
       ...xs,
       mkLine({ label: it.label, unit: it.unit, labor: it.labor, cost: String(it.cost), sell: String(sellAt(it.cost)) }),
     ]);
+
+  // Read a drawing / measure sheet → fill the single flooring block. Quick has
+  // ONE flooring type, so we pick the dominant type by area, sum its area, and
+  // pull material cost from it. Any other types + add-ons drop into extra lines
+  // so nothing's lost — and we tell you to use the guided builder if the sheet
+  // is genuinely multi-type.
+  const drawingArea = (d: DrawingFindings["rooms"][number]) => {
+    if (d.sqft && d.sqft > 0) return d.sqft;
+    const L = (d.lengthFt || 0) + (d.lengthIn || 0) / 12;
+    const W = (d.widthFt || 0) + (d.widthIn || 0) / 12;
+    return L > 0 && W > 0 ? r2(L * W) : 0;
+  };
+  const applyDrawing = (f: DrawingFindings) => {
+    if (!f.rooms.length) {
+      toast.error("Couldn't read any rooms from that drawing.");
+      return;
+    }
+    // Sum area per flooring type.
+    const byType = new Map<string, { area: number; matCost: number; install: boolean; pad: boolean }>();
+    for (const d of f.rooms) {
+      const a = drawingArea(d);
+      if (a <= 0) continue;
+      const cur = byType.get(d.type) ?? { area: 0, matCost: 0, install: false, pad: false };
+      cur.area += a;
+      if (!cur.matCost && d.materialCost && d.materialCost > 0) cur.matCost = d.materialCost;
+      cur.install = cur.install || d.install;
+      cur.pad = cur.pad || d.pad;
+      byType.set(d.type, cur);
+    }
+    if (!byType.size) {
+      toast.error("The drawing had rooms but no usable sizes — enter the area by hand.");
+      return;
+    }
+    // Dominant type = most area.
+    const dominant = [...byType.entries()].sort((a, b) => b[1].area - a[1].area)[0];
+    const [domType, dom] = dominant;
+    const domProfile = profileFor(domType);
+    setType(domType);
+    setArea(String(r2(dom.area)));
+    if (dom.matCost > 0) {
+      setMatCost(String(dom.matCost));
+      setMatSell(String(sellAt(dom.matCost)));
+    }
+    if (dom.pad && domProfile?.category === "carpet") setPad(true);
+
+    // Any OTHER flooring types → drop as extra lines (area × placeholder) so
+    // they're visible; the salesperson prices them.
+    const others = [...byType.entries()].filter(([t]) => t !== domType);
+    const extraLines: QLine[] = others.map(([t, v]) => {
+      const p = profileFor(t);
+      return mkLine({
+        label: `${p?.label ?? t} — ${r2(v.area)} sq ft (price me)`,
+        unit: "sqft",
+      });
+    });
+    // Drawing add-ons → extra lines too.
+    for (const a of f.addons ?? []) {
+      extraLines.push(mkLine({ label: a.label, labor: a.labor }));
+    }
+    if (extraLines.length) setLines((xs) => [...xs, ...extraLines]);
+
+    const parts = [
+      `Read ${f.rooms.length} room${f.rooms.length === 1 ? "" : "s"} → ${domProfile?.label ?? domType} at ${r2(dom.area)} sq ft`,
+    ];
+    if (others.length)
+      parts.push(
+        `${others.length} other floor type${others.length === 1 ? "" : "s"} added as line${others.length === 1 ? "" : "s"} to price — use the guided builder for a full multi-room job`,
+      );
+    if (f.totalNote) parts.push(`sheet total: ${f.totalNote}`);
+    toast.success(parts.join(" · "));
+  };
+  const onDrawing = (file: File) =>
+    startAnalyze(async () => {
+      if (file.size > 20 * 1024 * 1024) {
+        toast.error("That photo is too large (max 20 MB).");
+        return;
+      }
+      const supabase = createClient();
+      const path = `notes/${crypto.randomUUID()}-${file.name}`;
+      const { error } = await supabase.storage
+        .from("documents")
+        .upload(path, file, { contentType: file.type || "image/jpeg" });
+      if (error) {
+        toast.error(`Upload failed: ${error.message}`);
+        return;
+      }
+      const f = await analyzeJobDrawing({ storagePath: path, mime: file.type || "image/jpeg" });
+      if (f.error) {
+        toast.error(f.error);
+        return;
+      }
+      applyDrawing(f);
+    });
 
   const buildLines = (): SmartLine[] => {
     const out: SmartLine[] = [];
@@ -153,10 +254,12 @@ export function QuickEstimate({
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
   const cost = allLines.reduce((s, l) => s + lineCost(l, fMult), 0);
   const margin = marginPct(grand, cost);
+  const taxAmt = r2(grand * (num(taxRate) / 100));
+  const grandWithTax = r2(grand + taxAmt);
 
   const startOver = () => {
     if (!window.confirm("Clear this quick estimate and start over?")) return;
-    setTitle(""); setMarginGoal(String(targetMargin)); setPresentation("detailed");
+    setTitle(""); setMarginGoal(String(targetMargin)); setTaxRate("8"); setPresentation("detailed");
     setType(""); setArea(""); setWaste("");
     setMatCost(""); setMatSell(""); setInstCost(""); setInstSell("");
     setPad(false); setPadCost(""); setPadSell("");
@@ -172,7 +275,7 @@ export function QuickEstimate({
         return;
       }
       const res = await createSmartEstimate({
-        customerId, title, taxRate: 8, lines: built, presentation,
+        customerId, title, taxRate: num(taxRate), lines: built, presentation,
         jobDescription: notes.trim() || undefined,
         serviceAddressId: serviceAddressId || null,
         print: opts.print, send: opts.send,
@@ -191,6 +294,29 @@ export function QuickEstimate({
           <span className="text-muted-foreground">Margin</span>
           <Input value={marginGoal} onChange={(e) => setMarginGoal(e.target.value)} inputMode="decimal" className="h-8 w-16" />%
         </div>
+      </div>
+
+      {/* Start from a photo of the measure sheet / drawing */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3">
+        <Camera className="size-4 text-primary" />
+        <span className="text-sm font-medium">Start from your drawing</span>
+        <span className="text-xs text-muted-foreground">
+          Snap the measure sheet — we&apos;ll fill in the flooring type, area &amp; material cost.
+        </span>
+        <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={() => drawingRef.current?.click()} disabled={analyzing}>
+          <Camera className="size-4" /> {analyzing ? "Reading…" : "Photo or upload"}
+        </Button>
+        <input
+          ref={drawingRef}
+          type="file"
+          accept="image/*,application/pdf"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) onDrawing(f);
+          }}
+        />
       </div>
 
       {/* Flooring block */}
@@ -321,10 +447,26 @@ export function QuickEstimate({
         </CardContent>
       </Card>
 
+      {margin < 0 && grand > 0 ? (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-2 text-sm font-semibold text-destructive">
+          ⚠ This estimate is priced below cost — you&apos;d lose {formatMoney(cost - grand)} on this job. Raise the sell prices or your margin.
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4">
         <div className="flex items-center gap-6">
-          <div><div className="text-xs text-muted-foreground">Total</div><div className="text-xl font-bold">{formatMoney(grand)}</div></div>
-          <div><div className="text-xs text-muted-foreground">Margin</div><div className={cn("text-lg font-semibold", margin < goal - 0.5 && grand > 0 && "text-amber-600")}>{Math.round(margin)}%</div></div>
+          <div>
+            <div className="text-xs text-muted-foreground">Subtotal</div>
+            <div className="text-lg font-semibold">{formatMoney(grand)}</div>
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-muted-foreground">Tax %</div>
+            <Input value={taxRate} onChange={(e) => setTaxRate(e.target.value)} inputMode="decimal" className="h-8 w-16" />
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">Total{num(taxRate) > 0 ? " w/ tax" : ""}</div>
+            <div className="text-xl font-bold">{formatMoney(grandWithTax)}</div>
+          </div>
+          <div><div className="text-xs text-muted-foreground">Margin</div><div className={cn("text-lg font-semibold", margin < 0 && grand > 0 ? "text-destructive" : margin < goal - 0.5 && grand > 0 && "text-amber-600")}>{Math.round(margin)}%</div></div>
           <div>
             <div className="mb-1 text-xs text-muted-foreground">Customer sees</div>
             <div className="flex gap-1">

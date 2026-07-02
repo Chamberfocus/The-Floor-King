@@ -72,6 +72,7 @@ interface WRoom {
   demo: boolean; demoCost: string; demoSell: string; demoNote: string;
   prep: boolean; prepCost: string; prepSell: string; prepNote: string;
   trans: boolean; transQty: string; transCost: string; transSell: string; transNote: string;
+  note: string; // free crew note for this room → carried to the work order
   extras: WExtra[];
 }
 let seq = 0;
@@ -85,6 +86,7 @@ const newRoom = (): WRoom => ({
   demo: false, demoCost: "", demoSell: "", demoNote: "",
   prep: false, prepCost: "", prepSell: "", prepNote: "",
   trans: false, transQty: "", transCost: "", transSell: "", transNote: "",
+  note: "",
   extras: [],
 });
 const roomWaste = (r: WRoom, fallback: number) => (num(r.waste) > 0 ? num(r.waste) : fallback);
@@ -275,7 +277,11 @@ export function GuidedWizard({
   const [analyzing, startAnalyze] = useTransition();
   const drawingRef = useRef<HTMLInputElement>(null);
 
-  const goal = num(marginGoal);
+  const [taxRate, setTaxRate] = useState("8");
+  // Guard the margin so a blank / 0 / ≥100 entry can't break price-from-margin
+  // (which divides by 1 − margin). Falls back to the shop's target margin.
+  const goalRaw = num(marginGoal);
+  const goal = goalRaw > 0 && goalRaw < 100 ? goalRaw : targetMargin;
   const sellAt = (c: number) => (c > 0 ? r2(priceFromMargin(c, goal)) : 0);
 
   // Read a job drawing/measure sheet → prefill the rooms + keep findings for the
@@ -423,6 +429,8 @@ export function GuidedWizard({
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
   const cost = allLines.reduce((s, l) => s + lineCost(l, fMult), 0);
   const margin = marginPct(grand, cost);
+  const taxAmt = r2(grand * (num(taxRate) / 100));
+  const grandWithTax = r2(grand + taxAmt);
 
   const readyRooms = rooms.filter((r) => profileFor(r.type) && roomSqft(r) > 0);
   const canNext =
@@ -482,9 +490,16 @@ export function GuidedWizard({
         toast.error("Add at least one room with a size first.");
         return;
       }
+      // Per-room crew notes → carried onto the work order via the job notes.
+      const roomNotes = rooms
+        .filter((r) => r.note.trim())
+        .map((r) => `${r.name || profileFor(r.type)?.label || "Room"}: ${r.note.trim()}`)
+        .join("\n");
+      const jobDescription =
+        [notes.trim(), roomNotes].filter(Boolean).join("\n") || undefined;
       const res = await createSmartEstimate({
-        customerId, title, taxRate: 8, lines, presentation,
-        jobDescription: notes.trim() || undefined,
+        customerId, title, taxRate: num(taxRate), lines, presentation,
+        jobDescription,
         serviceAddressId: serviceAddressId || null,
         print: opts.print, send: opts.send,
       });
@@ -744,6 +759,14 @@ export function GuidedWizard({
                       </div>
                     ))}
                   </div>
+
+                  {/* Free note for THIS room — carried onto the work order */}
+                  <Input
+                    value={r.note}
+                    onChange={(e) => up(r.id, { note: e.target.value })}
+                    placeholder="Note for this room (e.g. seam by the window, stairs are steep) — shows on the work order"
+                    className="h-8 text-xs"
+                  />
                 </CardContent>
               </Card>
             );
@@ -805,10 +828,26 @@ export function GuidedWizard({
               {!allLines.length ? <div className="px-3 py-4 text-muted-foreground">Nothing added yet.</div> : null}
             </CardContent>
           </Card>
+          {margin < 0 && grand > 0 ? (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-2 text-sm font-semibold text-destructive">
+              ⚠ This estimate is priced below cost — you'd lose {formatMoney(cost - grand)} on this job. Raise the sell prices or your margin.
+            </div>
+          ) : null}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4">
             <div className="flex items-center gap-6">
-              <div><div className="text-xs text-muted-foreground">Total</div><div className="text-xl font-bold">{formatMoney(grand)}</div></div>
-              <div><div className="text-xs text-muted-foreground">Margin</div><div className={cn("text-lg font-semibold", margin < goal - 0.5 && grand > 0 && "text-amber-600")}>{Math.round(margin)}%</div></div>
+              <div>
+                <div className="text-xs text-muted-foreground">Subtotal</div>
+                <div className="text-lg font-semibold">{formatMoney(grand)}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-xs text-muted-foreground">Tax %</div>
+                <Input value={taxRate} onChange={(e) => setTaxRate(e.target.value)} inputMode="decimal" className="h-8 w-16" />
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Total{num(taxRate) > 0 ? " w/ tax" : ""}</div>
+                <div className="text-xl font-bold">{formatMoney(grandWithTax)}</div>
+              </div>
+              <div><div className="text-xs text-muted-foreground">Margin</div><div className={cn("text-lg font-semibold", margin < 0 && grand > 0 ? "text-destructive" : margin < goal - 0.5 && grand > 0 && "text-amber-600")}>{Math.round(margin)}%</div></div>
               <div>
                 <div className="mb-1 text-xs text-muted-foreground">Customer sees</div>
                 <div className="flex gap-1">
