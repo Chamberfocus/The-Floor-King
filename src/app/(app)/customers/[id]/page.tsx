@@ -9,6 +9,7 @@ import {
   Mail,
   ArrowLeftRight,
   Info,
+  ChevronRight,
   FileText,
   Wrench,
   Receipt,
@@ -82,13 +83,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { AreaCalculator } from "@/components/area-calculator";
 import { CancelCustomer } from "./cancel-customer";
 import { AiFollowup } from "./ai-followup";
-import {
-  CustomerTabs,
-  TabGrid,
-  TabColumn,
-  TabSection,
-  TabCollapse,
-} from "./customer-tabs";
+import { CustomerQuickNav } from "./customer-quicknav";
 import { CustomerSettingsMenu } from "./customer-settings-menu";
 import { requireProfile } from "@/lib/auth";
 
@@ -240,24 +235,8 @@ export default async function CustomerPage({
         </div>
       </div>
 
-      {customer.cancelled_at ? (
-        <div className="mb-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-          <p className="font-medium text-destructive">
-            Cancelled{" "}
-            <span className="font-normal text-muted-foreground">
-              · {formatDate(customer.cancelled_at)}
-              {customer.cancel_reason ? ` · ${customer.cancel_reason}` : ""}
-            </span>
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            This job is out of your active pipeline. Reopen it (top right) to pick
-            back up where it left off.
-          </p>
-        </div>
-      ) : null}
-
-      {/* Hybrid tabs: Overview shows the whole file; each tab zooms into one part. */}
-      <CustomerTabs
+      {/* Quick links to every part of this customer's file + record settings. */}
+      <CustomerQuickNav
         counts={{
           estimates: estimates.length,
           jobs: jobs.length,
@@ -274,94 +253,100 @@ export default async function CustomerPage({
             defaultEmail={customer.email ?? ""}
           />
         }
-      >
-        {/* Guided flow — progress + owner/money + the one next step inline. */}
-        {!customer.cancelled_at ? (
-          <TabSection tab="overview">
-            <div className="mb-6">
-              <GuidedFlow
-                customer={customer}
-                stages={stages}
-                currentStage={currentStage}
-                estimates={estimates}
-                jobs={jobs}
-                invoices={invoices}
-                repOptions={repOptions}
-                members={handoffMembers}
-                questions={qualifyingQuestions}
-                ownerName={ownerName}
-                nextActionDue={customer.next_action_due ?? null}
-                money={money}
-                installPop={installPop}
-                appointment={estimateAppointment}
-              />
-            </div>
-          </TabSection>
-        ) : null}
+      />
 
-        <TabGrid>
+      {customer.cancelled_at ? (
+        <div className="mb-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+          <p className="font-medium text-destructive">
+            Cancelled{" "}
+            <span className="font-normal text-muted-foreground">
+              · {formatDate(customer.cancelled_at)}
+              {customer.cancel_reason ? ` · ${customer.cancel_reason}` : ""}
+            </span>
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            This job is out of your active pipeline. Reopen it (top right) to pick
+            back up where it left off.
+          </p>
+        </div>
+      ) : null}
+
+      {/* Guided flow — progress + owner/money + the one next step inline.
+          (This single hub replaces the old separate command-center.) */}
+      {!customer.cancelled_at ? (
+        <div className="mb-6">
+          <GuidedFlow
+            customer={customer}
+            stages={stages}
+            currentStage={currentStage}
+            estimates={estimates}
+            jobs={jobs}
+            invoices={invoices}
+            repOptions={repOptions}
+            members={handoffMembers}
+            questions={qualifyingQuestions}
+            ownerName={ownerName}
+            nextActionDue={customer.next_action_due ?? null}
+            money={money}
+            installPop={installPop}
+            appointment={estimateAppointment}
+          />
+        </div>
+      ) : null}
+
+      <div className="grid gap-6 lg:grid-cols-3">
         {/* Left: stage automations + contact */}
-        <TabColumn show={["overview", "contact"]} className="space-y-6">
-          <TabSection tab="contact">
-            {customer.qualified ? (
-              <Card>
-                <CardContent className="flex items-center justify-between gap-3 py-4">
-                  <div>
-                    <div className="text-sm font-medium">Qualification</div>
-                    <div className="text-xs text-muted-foreground">
-                      Qualified — view the answers on file
-                    </div>
+        <div className="space-y-6">
+          {customer.qualified ? (
+            <Card>
+              <CardContent className="flex items-center justify-between gap-3 py-4">
+                <div>
+                  <div className="text-sm font-medium">Qualification</div>
+                  <div className="text-xs text-muted-foreground">
+                    Qualified — view the answers on file
                   </div>
-                  <Link
-                    href={`/customers/${customer.id}/qualify`}
-                    className={buttonVariants({ size: "sm", variant: "outline" })}
-                  >
-                    View
-                  </Link>
-                </CardContent>
-              </Card>
-            ) : null}
-          </TabSection>
+                </div>
+                <Link
+                  href={`/customers/${customer.id}/qualify`}
+                  className={buttonVariants({ size: "sm", variant: "outline" })}
+                >
+                  View
+                </Link>
+              </CardContent>
+            </Card>
+          ) : null}
 
-          <TabSection tab="contact">
+          <section id="contact" className="scroll-mt-24">
             <CustomerInfoCard customer={customer} />
-          </TabSection>
+          </section>
 
-          <TabSection tab="contact">
-            <PropertyCard
-              customer={customer}
-              hasMaps={!!process.env.GOOGLE_MAPS_API_KEY}
-              hasPropertyApi={!!process.env.RENTCAST_API_KEY}
-            />
-          </TabSection>
+          <PropertyCard
+            customer={customer}
+            hasMaps={!!process.env.GOOGLE_MAPS_API_KEY}
+            hasPropertyApi={!!process.env.RENTCAST_API_KEY}
+          />
 
-          <TabSection tab="contact">
-            <ServiceAddressesCard
-              customerId={customer.id}
-              addresses={serviceAddresses}
-            />
-          </TabSection>
-        </TabColumn>
+          <ServiceAddressesCard
+            customerId={customer.id}
+            addresses={serviceAddresses}
+          />
+        </div>
 
         {/* Right: chat + estimates + activity timeline */}
-        <TabColumn
-          show={["overview", "estimates", "jobs", "invoices", "materials", "files", "messages", "activity"]}
-          className="space-y-6 lg:col-span-2"
-        >
+        <div className="space-y-6 lg:col-span-2">
           {/* AI follow-up drafting */}
           {!customer.cancelled_at ? (
-            <TabCollapse tab="overview" title="AI follow-up draft">
+            <Collapse title="AI follow-up draft">
               <AiFollowup customerId={customer.id} />
-            </TabCollapse>
+            </Collapse>
           ) : null}
 
           {/* Chat */}
-          <TabCollapse tab="messages" title={`Messages${messages.length ? ` (${messages.length})` : ""}`}>
+          <Collapse id="messages" title={`Messages${messages.length ? ` (${messages.length})` : ""}`}>
             <CustomerChat customerId={customer.id} messages={messages} />
-          </TabCollapse>
+          </Collapse>
 
           {/* Estimates */}
-          <TabSection tab="estimates">
           <Card id="estimates" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
@@ -421,21 +406,17 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
-          </TabSection>
 
           {/* Samples */}
-          <TabSection tab="overview">
-            <SamplesCard
-              customerId={customer.id}
-              checkouts={sampleCheckouts}
-              loanDays={bizSettings.sample_loan_days}
-              defaultDeposit={bizSettings.sample_default_deposit}
-              maxOut={bizSettings.sample_max_out}
-            />
-          </TabSection>
+          <SamplesCard
+            customerId={customer.id}
+            checkouts={sampleCheckouts}
+            loanDays={bizSettings.sample_loan_days}
+            defaultDeposit={bizSettings.sample_default_deposit}
+            maxOut={bizSettings.sample_max_out}
+          />
 
           {/* Jobs */}
-          <TabSection tab="jobs">
           <Card id="jobs" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Jobs</CardTitle>
@@ -491,19 +472,17 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
-          </TabSection>
 
           {/* Materials & Orders — POs + stock for this customer */}
-          <TabSection tab="materials">
+          <section id="materials" className="scroll-mt-24">
             <CustomerOrdersCard
               customerId={customer.id}
               pos={customerPOs}
               stockPulls={stockPulls}
             />
-          </TabSection>
+          </section>
 
           {/* Invoices */}
-          <TabSection tab="invoices">
           <Card id="invoices" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Invoices</CardTitle>
@@ -552,19 +531,18 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
-          </TabSection>
 
           {/* Photos & files */}
-          <TabCollapse
-            tab="files"
+          <Collapse
+            id="files"
             title={`Photos & files${documents.length ? ` (${documents.length})` : ""}`}
             defaultOpen={documents.length > 0}
           >
             <CustomerDocuments customerId={customer.id} documents={documents} />
-          </TabCollapse>
+          </Collapse>
 
           {/* Activity */}
-          <TabCollapse tab="activity" title="Activity history">
+          <Collapse id="activity" title="Activity history">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Activity</CardTitle>
@@ -600,10 +578,35 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
-          </TabCollapse>
-        </TabColumn>
-        </TabGrid>
-      </CustomerTabs>
+          </Collapse>
+        </div>
+      </div>
     </div>
+  );
+}
+
+/**
+ * Tuck a secondary section behind a one-line, click-to-expand header so the
+ * customer page leads with what matters. Native <details> — no client JS.
+ */
+function Collapse({
+  id,
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  id?: string;
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details id={id} open={defaultOpen} className="group scroll-mt-24">
+      <summary className="mb-2 flex cursor-pointer list-none items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="size-4 transition-transform group-open:rotate-90" />
+        {title}
+      </summary>
+      {children}
+    </details>
   );
 }
