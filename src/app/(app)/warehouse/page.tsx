@@ -30,6 +30,9 @@ import {
 } from "../jobs/actions";
 import { WarehouseJobActions } from "./warehouse-job-actions";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
+import { getOrgSettings } from "@/lib/data/org";
+import { StagingSheetDoc } from "./staging-sheet-doc";
+import { WarehousePrintProvider, PrintStagingButton } from "./warehouse-print";
 
 export const metadata: Metadata = { title: "Warehouse" };
 
@@ -62,12 +65,19 @@ export default async function WarehousePage() {
   }
 
   const jobs = await listWarehouseJobs();
+  const org = await getOrgSettings();
   const stockChecks = (await listOrders()).filter(
     (o) => o.status === "submitted",
   );
 
+  // One print-ready staging sheet per job (hidden until its button is clicked).
+  const sheets = jobs.map((j) => ({
+    id: j.id,
+    node: <StagingSheetDoc org={org} job={j} />,
+  }));
+
   return (
-    <div>
+    <WarehousePrintProvider sheets={sheets}>
       <RealtimeRefresh table="jobs" />
       <RealtimeRefresh table="orders" />
       <PageHeader
@@ -176,14 +186,17 @@ export default async function WarehousePage() {
                       {j.customer_name ?? "Customer"}
                       {j.title ? ` — ${j.title}` : ""}
                     </CardTitle>
-                    <span
-                      className={cn(
-                        "rounded-md px-2.5 py-1 text-sm font-semibold",
-                        DELIVERY_BANNER[j.delivery_type],
-                      )}
-                    >
-                      {JOB_DELIVERY_LABELS[j.delivery_type]}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <PrintStagingButton id={j.id} />
+                      <span
+                        className={cn(
+                          "rounded-md px-2.5 py-1 text-sm font-semibold",
+                          DELIVERY_BANNER[j.delivery_type],
+                        )}
+                      >
+                        {JOB_DELIVERY_LABELS[j.delivery_type]}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1.5">
@@ -341,6 +354,6 @@ export default async function WarehousePage() {
           })}
         </div>
       )}
-    </div>
+    </WarehousePrintProvider>
   );
 }
