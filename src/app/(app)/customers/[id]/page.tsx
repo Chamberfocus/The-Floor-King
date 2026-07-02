@@ -75,7 +75,6 @@ import { cn } from "@/lib/utils";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
-import { InvitePortalForm } from "./invite-portal-form";
 import { CustomerChat } from "./customer-chat";
 import { OnTheWayButton } from "./on-the-way-button";
 import { GuidedFlow } from "./guided-flow";
@@ -83,8 +82,9 @@ import { getCustomerEstimateAppointment } from "@/lib/data/scheduling";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { AreaCalculator } from "@/components/area-calculator";
 import { CancelCustomer } from "./cancel-customer";
-import { DeleteCustomer } from "./delete-customer";
 import { AiFollowup } from "./ai-followup";
+import { CustomerQuickNav } from "./customer-quicknav";
+import { CustomerSettingsMenu } from "./customer-settings-menu";
 import { requireProfile } from "@/lib/auth";
 
 export async function generateMetadata({
@@ -199,7 +199,7 @@ export default async function CustomerPage({
         <ArrowLeft className="size-4" /> Back to customers
       </Link>
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div id="overview" className="mb-6 flex scroll-mt-24 flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">
@@ -234,6 +234,26 @@ export default async function CustomerPage({
           />
         </div>
       </div>
+
+      {/* Quick links to every part of this customer's file + record settings. */}
+      <CustomerQuickNav
+        counts={{
+          estimates: estimates.length,
+          jobs: jobs.length,
+          invoices: invoices.length,
+          materials: customerPOs.length + stockPulls.length,
+          files: documents.length,
+          messages: messages.length,
+        }}
+        settings={
+          <CustomerSettingsMenu
+            customer={customer}
+            canDelete={canDelete}
+            portalUser={portalUser}
+            defaultEmail={customer.email ?? ""}
+          />
+        }
+      />
 
       {customer.cancelled_at ? (
         <div className="mb-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
@@ -296,7 +316,9 @@ export default async function CustomerPage({
             </Card>
           ) : null}
 
-          <CustomerInfoCard customer={customer} />
+          <section id="contact" className="scroll-mt-24">
+            <CustomerInfoCard customer={customer} />
+          </section>
 
           <PropertyCard
             customer={customer}
@@ -308,41 +330,6 @@ export default async function CustomerPage({
             customerId={customer.id}
             addresses={serviceAddresses}
           />
-
-          <Collapse title="Customer portal">
-            <Card>
-              <CardContent className="pt-6">
-                {portalUser ? (
-                  <p className="text-sm text-muted-foreground">
-                    Portal access enabled for{" "}
-                    <span className="font-medium text-foreground">
-                      {portalUser.email}
-                    </span>
-                    .
-                  </p>
-                ) : (
-                  <InvitePortalForm
-                    customerId={customer.id}
-                    defaultEmail={customer.email ?? ""}
-                  />
-                )}
-              </CardContent>
-            </Card>
-          </Collapse>
-
-          {canDelete ? (
-            <Collapse title="Danger zone">
-              <Card className="border-destructive/30">
-                <CardContent className="space-y-2 pt-6">
-                  <p className="text-xs text-muted-foreground">
-                    Cancel keeps the record. Delete erases the customer and
-                    everything attached, for good.
-                  </p>
-                  <DeleteCustomer customerId={customer.id} name={customer.full_name} />
-                </CardContent>
-              </Card>
-            </Collapse>
-          ) : null}
         </div>
 
         {/* Right: chat + estimates + activity timeline */}
@@ -355,12 +342,12 @@ export default async function CustomerPage({
           ) : null}
 
           {/* Chat */}
-          <Collapse title={`Messages${messages.length ? ` (${messages.length})` : ""}`}>
+          <Collapse id="messages" title={`Messages${messages.length ? ` (${messages.length})` : ""}`}>
             <CustomerChat customerId={customer.id} messages={messages} />
           </Collapse>
 
           {/* Estimates */}
-          <Card>
+          <Card id="estimates" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
               {customer.source ? (
@@ -430,7 +417,7 @@ export default async function CustomerPage({
           />
 
           {/* Jobs */}
-          <Card>
+          <Card id="jobs" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Jobs</CardTitle>
               <form action={createJob} className="flex items-center gap-2">
@@ -487,14 +474,16 @@ export default async function CustomerPage({
           </Card>
 
           {/* Materials & Orders — POs + stock for this customer */}
-          <CustomerOrdersCard
-            customerId={customer.id}
-            pos={customerPOs}
-            stockPulls={stockPulls}
-          />
+          <section id="materials" className="scroll-mt-24">
+            <CustomerOrdersCard
+              customerId={customer.id}
+              pos={customerPOs}
+              stockPulls={stockPulls}
+            />
+          </section>
 
           {/* Invoices */}
-          <Card>
+          <Card id="invoices" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Invoices</CardTitle>
               <form action={createInvoice}>
@@ -545,6 +534,7 @@ export default async function CustomerPage({
 
           {/* Photos & files */}
           <Collapse
+            id="files"
             title={`Photos & files${documents.length ? ` (${documents.length})` : ""}`}
             defaultOpen={documents.length > 0}
           >
@@ -552,7 +542,7 @@ export default async function CustomerPage({
           </Collapse>
 
           {/* Activity */}
-          <Collapse title="Activity history">
+          <Collapse id="activity" title="Activity history">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Activity</CardTitle>
@@ -600,16 +590,18 @@ export default async function CustomerPage({
  * customer page leads with what matters. Native <details> — no client JS.
  */
 function Collapse({
+  id,
   title,
   children,
   defaultOpen = false,
 }: {
+  id?: string;
   title: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
 }) {
   return (
-    <details open={defaultOpen} className="group">
+    <details id={id} open={defaultOpen} className="group scroll-mt-24">
       <summary className="mb-2 flex cursor-pointer list-none items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
         <ChevronRight className="size-4 transition-transform group-open:rotate-90" />
         {title}
