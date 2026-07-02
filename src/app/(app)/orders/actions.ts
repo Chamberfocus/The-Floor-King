@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { sendJobToWarehouse } from "@/app/(app)/jobs/actions";
+import { buildInvoiceFromOrder } from "@/lib/data/order-invoice";
 import type { OrderItem, OrderStockStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -242,54 +243,10 @@ export async function createInvoiceFromOrder(
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { data: order } = await supabase
-    .from("orders")
-    .select("id, customer_id, job_id, invoice_id")
-    .eq("id", orderId)
-    .maybeSingle();
-  if (!order || !order.customer_id) return;
-  if (order.invoice_id) redirect(`/invoices/${order.invoice_id}`);
-
-  const { data: itemData } = await supabase
-    .from("order_items")
-    .select("*")
-    .eq("order_id", orderId)
-    .order("position", { ascending: true });
-  const items = (itemData ?? []) as OrderItem[];
-
-  const { data: inv } = await supabase
-    .from("invoices")
-    .insert({
-      customer_id: order.customer_id,
-      job_id: order.job_id,
-      issue_date: new Date().toISOString().slice(0, 10),
-      status: "draft",
-      tax_rate: 0,
-      created_by: user?.id ?? null,
-    })
-    .select("id")
-    .single();
-  if (!inv) return;
-
-  const rows = items.map((it, i) => ({
-    invoice_id: inv.id,
-    position: i,
-    description:
-      [it.description, it.color, it.style].filter(Boolean).join(" · ") +
-      (it.cut_notes ? ` (cuts: ${it.cut_notes})` : ""),
-    quantity: it.quantity ?? 1,
-    unit: it.unit || "each",
-    // Sell price: the customer's requested price if any, else the retail they
-    // saw. You still edit it in the invoice builder before sending.
-    rate: it.requested_price ?? it.retail_price ?? 0,
-  }));
-  if (rows.length) await supabase.from("invoice_items").insert(rows);
-
-  await supabase.from("orders").update({ invoice_id: inv.id }).eq("id", orderId);
+  const invId = await buildInvoiceFromOrder(supabase, orderId, user?.id ?? null);
   revalidatePath("/orders");
   revalidatePath("/invoices");
-  redirect(`/invoices/${inv.id}`);
+  if (invId) redirect(`/invoices/${invId}`);
 }
 
 export async function declineOrder(formData: FormData): Promise<void> {

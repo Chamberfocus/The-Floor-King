@@ -13,6 +13,7 @@ import {
 import { prepareJobMaterialsFor } from "./material-actions";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getJobOpenBalance } from "@/lib/data/invoices";
+import { buildInvoiceFromOrder } from "@/lib/data/order-invoice";
 import type {
   JobDeliveryType,
   JobStatus,
@@ -826,8 +827,36 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
     });
   }
 
+  // If this job came from a client order, auto-generate the invoice now that
+  // it's cut & staged (idempotent — skips if one already exists).
+  const { data: linkedOrder } = await admin
+    .from("orders")
+    .select("id, invoice_id")
+    .eq("job_id", id)
+    .maybeSingle();
+  if (linkedOrder && !linkedOrder.invoice_id) {
+    const invId = await buildInvoiceFromOrder(
+      admin,
+      linkedOrder.id as string,
+      user?.id ?? null,
+    );
+    if (invId) {
+      await sendEmail({
+        to: ownerEmail(),
+        subject: `🧾 Invoice ready — ${custName}`,
+        html: emailLayout(
+          "Invoice generated",
+          `<p><strong>${custName}</strong>'s order is cut &amp; staged, so a draft invoice was generated automatically. Review it and collect at pickup.</p>`,
+          { label: "Open invoice", url: `${siteUrl()}/invoices/${invId}` },
+        ),
+      });
+    }
+  }
+
   revalidatePath("/warehouse");
   revalidatePath(`/jobs/${id}`);
+  revalidatePath("/orders");
+  revalidatePath("/invoices");
   if (job?.customer_id) revalidatePath(`/customers/${job.customer_id}`);
 }
 
