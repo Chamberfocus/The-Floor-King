@@ -69,6 +69,9 @@ import { JobPhotoUpload } from "../job-photo-upload";
 import { SignaturePad } from "../signature-pad";
 import { JobLaborCard } from "./job-labor-card";
 import { JobMaterialsCard } from "./job-materials-card";
+import { getOrgSettings } from "@/lib/data/org";
+import { PrintButton } from "@/components/print-button";
+import { JobPrintDoc } from "./job-print";
 
 export async function generateMetadata({
   params,
@@ -92,6 +95,7 @@ export default async function JobPage({
   const job = await getJob(id);
   if (!job) notFound();
 
+  const org = await getOrgSettings();
   const users = isStaff ? await listAssignableUsers() : [];
   const names = job.assigned_to ? await getProfileNames([job.assigned_to]) : {};
   const assignedName = job.assigned_to ? names[job.assigned_to] : null;
@@ -169,7 +173,9 @@ export default async function JobPage({
   ].filter(Boolean);
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <>
+      <JobPrintDoc org={org} job={job} assignedName={assignedName} />
+      <div className="mx-auto max-w-4xl print:hidden">
       <Link
         href="/jobs"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -201,6 +207,7 @@ export default async function JobPage({
         {/* Quick actions — the assigned installer or staff */}
         {isStaff || isAssignedToMe ? (
           <div className="flex items-center gap-2">
+            <PrintButton label="Print work order" size="default" />
             {job.status !== "in_progress" && job.status !== "completed" ? (
               <form action={setJobStatus}>
                 <input type="hidden" name="id" value={job.id} />
@@ -966,5 +973,6 @@ export default async function JobPage({
         </>
       ) : null}
     </div>
+    </>
   );
 }

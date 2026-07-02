@@ -249,6 +249,20 @@ export async function createInvoiceFromOrder(
   if (invId) redirect(`/invoices/${invId}`);
 }
 
+/** Permanently remove an unwanted order (and its line items) from the tab.
+ *  Any job/invoice already spawned from it is left untouched. Admin/office only. */
+export async function deleteOrder(formData: FormData): Promise<void> {
+  await assertRole(["admin", "office"]);
+  const orderId = str(formData.get("order_id"));
+  if (!orderId) return;
+  // Elevated: sidestep any gap in orders' RLS delete policy (public orders have
+  // no customer/owner). Items first, then the order row.
+  const admin = createAdminClient();
+  await admin.from("order_items").delete().eq("order_id", orderId);
+  await admin.from("orders").delete().eq("id", orderId);
+  revalidatePath("/orders");
+}
+
 export async function declineOrder(formData: FormData): Promise<void> {
   await assertRole(["admin", "office"]);
   const orderId = str(formData.get("order_id"));

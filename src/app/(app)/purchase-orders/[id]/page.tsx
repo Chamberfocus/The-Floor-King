@@ -6,8 +6,11 @@ import { Button } from "@/components/ui/button";
 import { PoStatusBadge } from "@/components/po-status-badge";
 import { getPurchaseOrder } from "@/lib/data/purchase-orders";
 import { getCustomer } from "@/lib/data/customers";
+import { getOrgSettings } from "@/lib/data/org";
 import { listProducts } from "@/lib/data/products";
 import { listSuppliers } from "@/lib/data/suppliers";
+import { PrintButton } from "@/components/print-button";
+import { PoPrintDoc } from "./po-print";
 import { PO_SOURCE_BADGE, PO_SOURCE_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
@@ -26,14 +29,17 @@ export default async function PurchaseOrderPage({
   const po = await getPurchaseOrder(id);
   if (!po) notFound();
 
-  const [products, customer, suppliers] = await Promise.all([
+  const [products, customer, suppliers, org] = await Promise.all([
     listProducts({ activeOnly: true }),
     po.customer_id ? getCustomer(po.customer_id) : Promise.resolve(null),
     listSuppliers(),
+    getOrgSettings(),
   ]);
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <>
+      <PoPrintDoc org={org} customer={customer} po={po} />
+      <div className="mx-auto max-w-4xl print:hidden">
       <Link
         href="/purchase-orders"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -75,6 +81,7 @@ export default async function PurchaseOrderPage({
             ) : null}
           </p>
         </div>
+        <PrintButton label="Print PO" />
       </div>
 
       <PoBuilder po={po} products={products} suppliers={suppliers} />
@@ -85,6 +92,7 @@ export default async function PurchaseOrderPage({
           <Trash2 className="size-3.5" /> Delete PO
         </Button>
       </form>
-    </div>
+      </div>
+    </>
   );
 }

@@ -18,10 +18,12 @@ import { formatDateTime, formatMoney } from "@/lib/format";
 import {
   approveOrder,
   declineOrder,
+  deleteOrder,
   reportOrderStock,
   notifyCustomerStock,
   createInvoiceFromOrder,
 } from "./actions";
+import { Trash2 } from "lucide-react";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { OrderLinkCard } from "./order-link-card";
 import { COMPANY_NAME } from "@/lib/nav";
@@ -179,6 +181,20 @@ export default async function OrdersPage() {
           ) : o.status === "declined" && o.decline_reason ? (
             <p className="border-t pt-3 text-sm text-muted-foreground">Declined: {o.decline_reason}</p>
           ) : null}
+
+          {/* Remove an unwanted order from the tab (two-step, so it's deliberate). */}
+          <details className="ml-auto w-fit text-right">
+            <summary className="cursor-pointer list-none text-xs text-muted-foreground hover:text-destructive [&::-webkit-details-marker]:hidden">
+              Delete order
+            </summary>
+            <form action={deleteOrder} className="mt-2 flex items-center justify-end gap-2">
+              <input type="hidden" name="order_id" value={o.id} />
+              <span className="text-xs text-muted-foreground">Permanently remove this order?</span>
+              <Button type="submit" size="sm" variant="destructive">
+                <Trash2 className="size-3.5" /> Delete
+              </Button>
+            </form>
+          </details>
         </CardContent>
       </Card>
     );
