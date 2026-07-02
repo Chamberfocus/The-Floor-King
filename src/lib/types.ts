@@ -553,6 +553,7 @@ export interface Job {
   status: JobStatus;
   scheduled_date: string | null;
   scheduled_end: string | null;
+  arrival_window?: string | null; // install arrival window "HH:MM-HH:MM" (migration 0066)
   assigned_to: string | null;
   site_street: string | null;
   site_city: string | null;

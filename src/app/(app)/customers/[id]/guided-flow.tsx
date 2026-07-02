@@ -16,7 +16,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { cn } from "@/lib/utils";
-import { formatDate, formatMoney, formatWallDateTime } from "@/lib/format";
+import {
+  formatDate,
+  formatMoney,
+  formatWallDateTime,
+  type ArrivalWindow,
+} from "@/lib/format";
 import type {
   Customer,
   WorkflowStage,
@@ -143,6 +148,7 @@ export async function GuidedFlow({
   money,
   installPop,
   appointment,
+  arrivalWindows,
 }: {
   customer: Customer;
   stages: WorkflowStage[];
@@ -163,6 +169,7 @@ export async function GuidedFlow({
     address: string | null;
     salespersonName: string | null;
   } | null;
+  arrivalWindows: ArrivalWindow[];
 }) {
   const sorted = [...stages].sort((a, b) => a.position - b.position);
   const currentIdxForGate = currentStage
@@ -373,11 +380,24 @@ export async function GuidedFlow({
                   {sug.end !== sug.start ? ` → ${formatDate(sug.end)}` : ""}
                 </span>
               </div>
-              <form action={bookInstall}>
+              <form action={bookInstall} className="flex items-center gap-1.5">
                 <input type="hidden" name="job_id" value={installPop.jobId} />
                 <input type="hidden" name="installer_id" value={sug.installerId} />
                 <input type="hidden" name="start" value={sug.start} />
                 <input type="hidden" name="end" value={sug.end} />
+                <select
+                  name="arrival_window"
+                  defaultValue=""
+                  aria-label="Arrival window"
+                  className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                >
+                  <option value="">No window</option>
+                  {arrivalWindows.map((w) => (
+                    <option key={`${w.start}-${w.end}`} value={`${w.start}-${w.end}`}>
+                      {w.label}
+                    </option>
+                  ))}
+                </select>
                 <SubmitButton
                   size="sm"
                   variant="outline"

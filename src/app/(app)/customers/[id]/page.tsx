@@ -9,7 +9,6 @@ import {
   Mail,
   ArrowLeftRight,
   Info,
-  ChevronRight,
   FileText,
   Wrench,
   Receipt,
@@ -72,7 +71,12 @@ import {
   formatServiceAddress,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  parseArrivalWindows,
+} from "@/lib/format";
 import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
 import { CustomerChat } from "./customer-chat";
@@ -83,8 +87,15 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { AreaCalculator } from "@/components/area-calculator";
 import { CancelCustomer } from "./cancel-customer";
 import { AiFollowup } from "./ai-followup";
-import { CustomerQuickNav } from "./customer-quicknav";
+import {
+  CustomerTabs,
+  TabGrid,
+  TabColumn,
+  TabSection,
+  TabCollapse,
+} from "./customer-tabs";
 import { CustomerSettingsMenu } from "./customer-settings-menu";
+import { ScheduleSummary } from "./schedule-summary";
 import { requireProfile } from "@/lib/auth";
 
 export async function generateMetadata({
@@ -135,16 +146,30 @@ export default async function CustomerPage({
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
   const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
+  // Soonest scheduled install (for the at-a-glance schedule strip under the stage).
+  const installJob =
+    jobs.find(
+      (j) =>
+        j.scheduled_date &&
+        j.status !== "cancelled" &&
+        j.status !== "completed",
+    ) ??
+    jobs.find((j) => j.scheduled_date) ??
+    null;
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
     customer.created_by ?? "",
     customer.workflow_owner_id ?? "",
+    installJob?.assigned_to ?? "",
   ]);
   const currentStage =
     stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
   const autoAction = currentStage?.auto_action ?? "none";
   const estimateAppointment = await getCustomerEstimateAppointment(id);
+  const arrivalWindows = parseArrivalWindows(
+    (await getSchedulingSettings()).arrival_windows,
+  );
 
   // Money status for the command center.
   const money = invoices.reduce(
@@ -221,6 +246,28 @@ export default async function CustomerPage({
           <p className="text-sm text-muted-foreground">
             Added {formatDate(customer.created_at)}
           </p>
+          <ScheduleSummary
+            estimate={
+              estimateAppointment
+                ? {
+                    startsAt: estimateAppointment.startsAt,
+                    rep: estimateAppointment.salespersonName ?? null,
+                  }
+                : null
+            }
+            install={
+              installJob?.scheduled_date
+                ? {
+                    date: installJob.scheduled_date,
+                    endDate: installJob.scheduled_end ?? null,
+                    window: installJob.arrival_window ?? null,
+                    installer: installJob.assigned_to
+                      ? (names[installJob.assigned_to] ?? null)
+                      : null,
+                  }
+                : null
+            }
+          />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <AreaCalculator triggerLabel="Calculator" triggerVariant="outline" />
@@ -234,26 +281,6 @@ export default async function CustomerPage({
           />
         </div>
       </div>
-
-      {/* Quick links to every part of this customer's file + record settings. */}
-      <CustomerQuickNav
-        counts={{
-          estimates: estimates.length,
-          jobs: jobs.length,
-          invoices: invoices.length,
-          materials: customerPOs.length + stockPulls.length,
-          files: documents.length,
-          messages: messages.length,
-        }}
-        settings={
-          <CustomerSettingsMenu
-            customer={customer}
-            canDelete={canDelete}
-            portalUser={portalUser}
-            defaultEmail={customer.email ?? ""}
-          />
-        }
-      />
 
       {customer.cancelled_at ? (
         <div className="mb-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
@@ -271,82 +298,113 @@ export default async function CustomerPage({
         </div>
       ) : null}
 
-      {/* Guided flow — progress + owner/money + the one next step inline.
-          (This single hub replaces the old separate command-center.) */}
-      {!customer.cancelled_at ? (
-        <div className="mb-6">
-          <GuidedFlow
+      {/* Hybrid tabs: Overview shows the whole file; each tab zooms into one part. */}
+      <CustomerTabs
+        counts={{
+          estimates: estimates.length,
+          jobs: jobs.length,
+          invoices: invoices.length,
+          materials: customerPOs.length + stockPulls.length,
+          files: documents.length,
+          messages: messages.length,
+        }}
+        settings={
+          <CustomerSettingsMenu
             customer={customer}
-            stages={stages}
-            currentStage={currentStage}
-            estimates={estimates}
-            jobs={jobs}
-            invoices={invoices}
-            repOptions={repOptions}
-            members={handoffMembers}
-            questions={qualifyingQuestions}
-            ownerName={ownerName}
-            nextActionDue={customer.next_action_due ?? null}
-            money={money}
-            installPop={installPop}
-            appointment={estimateAppointment}
+            canDelete={canDelete}
+            portalUser={portalUser}
+            defaultEmail={customer.email ?? ""}
           />
-        </div>
-      ) : null}
+        }
+      >
+        {/* Guided flow — progress + owner/money + the one next step inline. */}
+        {!customer.cancelled_at ? (
+          <TabSection tab="overview">
+            <div className="mb-6">
+              <GuidedFlow
+                customer={customer}
+                stages={stages}
+                currentStage={currentStage}
+                estimates={estimates}
+                jobs={jobs}
+                invoices={invoices}
+                repOptions={repOptions}
+                members={handoffMembers}
+                questions={qualifyingQuestions}
+                ownerName={ownerName}
+                nextActionDue={customer.next_action_due ?? null}
+                money={money}
+                installPop={installPop}
+                appointment={estimateAppointment}
+                arrivalWindows={arrivalWindows}
+              />
+            </div>
+          </TabSection>
+        ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+        <TabGrid>
         {/* Left: stage automations + contact */}
-        <div className="space-y-6">
-          {customer.qualified ? (
-            <Card>
-              <CardContent className="flex items-center justify-between gap-3 py-4">
-                <div>
-                  <div className="text-sm font-medium">Qualification</div>
-                  <div className="text-xs text-muted-foreground">
-                    Qualified — view the answers on file
+        <TabColumn show={["overview", "contact"]} className="space-y-6">
+          <TabSection tab="contact">
+            {customer.qualified ? (
+              <Card>
+                <CardContent className="flex items-center justify-between gap-3 py-4">
+                  <div>
+                    <div className="text-sm font-medium">Qualification</div>
+                    <div className="text-xs text-muted-foreground">
+                      Qualified — view the answers on file
+                    </div>
                   </div>
-                </div>
-                <Link
-                  href={`/customers/${customer.id}/qualify`}
-                  className={buttonVariants({ size: "sm", variant: "outline" })}
-                >
-                  View
-                </Link>
-              </CardContent>
-            </Card>
-          ) : null}
+                  <Link
+                    href={`/customers/${customer.id}/qualify`}
+                    className={buttonVariants({ size: "sm", variant: "outline" })}
+                  >
+                    View
+                  </Link>
+                </CardContent>
+              </Card>
+            ) : null}
+          </TabSection>
 
-          <section id="contact" className="scroll-mt-24">
+          <TabSection tab="contact">
             <CustomerInfoCard customer={customer} />
-          </section>
+          </TabSection>
 
-          <PropertyCard
-            customer={customer}
-            hasMaps={!!process.env.GOOGLE_MAPS_API_KEY}
-            hasPropertyApi={!!process.env.RENTCAST_API_KEY}
-          />
+          <TabSection tab="contact">
+            <PropertyCard
+              customer={customer}
+              hasMaps={!!process.env.GOOGLE_MAPS_API_KEY}
+              hasPropertyApi={!!process.env.RENTCAST_API_KEY}
+            />
+          </TabSection>
 
-          <ServiceAddressesCard
-            customerId={customer.id}
-            addresses={serviceAddresses}
-          />
-        </div>
+          <TabSection tab="contact">
+            <ServiceAddressesCard
+              customerId={customer.id}
+              addresses={serviceAddresses}
+            />
+          </TabSection>
+        </TabColumn>
 
         {/* Right: chat + estimates + activity timeline */}
-        <div className="space-y-6 lg:col-span-2">
+        <TabColumn
+          show={["overview", "estimates", "jobs", "invoices", "materials", "files", "messages", "activity"]}
+          className="space-y-6 lg:col-span-2"
+        >
           {/* AI follow-up drafting */}
           {!customer.cancelled_at ? (
-            <Collapse title="AI follow-up draft">
+            <TabCollapse tab="overview" title="AI follow-up draft">
               <AiFollowup customerId={customer.id} />
-            </Collapse>
+            </TabCollapse>
           ) : null}
 
           {/* Chat */}
-          <Collapse id="messages" title={`Messages${messages.length ? ` (${messages.length})` : ""}`}>
+          <TabCollapse tab="messages" title={`Messages${messages.length ? ` (${messages.length})` : ""}`}>
             <CustomerChat customerId={customer.id} messages={messages} />
-          </Collapse>
+          </TabCollapse>
 
           {/* Estimates */}
+          <TabSection tab="estimates">
           <Card id="estimates" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
@@ -406,17 +464,21 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
+          </TabSection>
 
           {/* Samples */}
-          <SamplesCard
-            customerId={customer.id}
-            checkouts={sampleCheckouts}
-            loanDays={bizSettings.sample_loan_days}
-            defaultDeposit={bizSettings.sample_default_deposit}
-            maxOut={bizSettings.sample_max_out}
-          />
+          <TabSection tab="overview">
+            <SamplesCard
+              customerId={customer.id}
+              checkouts={sampleCheckouts}
+              loanDays={bizSettings.sample_loan_days}
+              defaultDeposit={bizSettings.sample_default_deposit}
+              maxOut={bizSettings.sample_max_out}
+            />
+          </TabSection>
 
           {/* Jobs */}
+          <TabSection tab="jobs">
           <Card id="jobs" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Jobs</CardTitle>
@@ -472,17 +534,19 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
+          </TabSection>
 
           {/* Materials & Orders — POs + stock for this customer */}
-          <section id="materials" className="scroll-mt-24">
+          <TabSection tab="materials">
             <CustomerOrdersCard
               customerId={customer.id}
               pos={customerPOs}
               stockPulls={stockPulls}
             />
-          </section>
+          </TabSection>
 
           {/* Invoices */}
+          <TabSection tab="invoices">
           <Card id="invoices" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Invoices</CardTitle>
@@ -531,18 +595,19 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
+          </TabSection>
 
           {/* Photos & files */}
-          <Collapse
-            id="files"
+          <TabCollapse
+            tab="files"
             title={`Photos & files${documents.length ? ` (${documents.length})` : ""}`}
             defaultOpen={documents.length > 0}
           >
             <CustomerDocuments customerId={customer.id} documents={documents} />
-          </Collapse>
+          </TabCollapse>
 
           {/* Activity */}
-          <Collapse id="activity" title="Activity history">
+          <TabCollapse tab="activity" title="Activity history">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Activity</CardTitle>
@@ -578,35 +643,10 @@ export default async function CustomerPage({
               )}
             </CardContent>
           </Card>
-          </Collapse>
-        </div>
-      </div>
+          </TabCollapse>
+        </TabColumn>
+        </TabGrid>
+      </CustomerTabs>
     </div>
-  );
-}
-
-/**
- * Tuck a secondary section behind a one-line, click-to-expand header so the
- * customer page leads with what matters. Native <details> — no client JS.
- */
-function Collapse({
-  id,
-  title,
-  children,
-  defaultOpen = false,
-}: {
-  id?: string;
-  title: string;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-}) {
-  return (
-    <details id={id} open={defaultOpen} className="group scroll-mt-24">
-      <summary className="mb-2 flex cursor-pointer list-none items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
-        <ChevronRight className="size-4 transition-transform group-open:rotate-90" />
-        {title}
-      </summary>
-      {children}
-    </details>
   );
 }

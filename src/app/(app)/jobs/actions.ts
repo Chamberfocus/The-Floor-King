@@ -38,6 +38,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
   const installer = str(formData.get("installer_id"));
   const start = str(formData.get("start"));
   const end = str(formData.get("end")) || start;
+  const arrivalWindow = str(formData.get("arrival_window"));
   if (!id || !start) return;
   const supabase = await createClient();
   await supabase
@@ -50,6 +51,14 @@ export async function bookInstall(formData: FormData): Promise<void> {
       open_for_claim: false,
     })
     .eq("id", id);
+  // Arrival window — separate update so a pre-migration DB (no column yet)
+  // can't break booking the install.
+  if (arrivalWindow) {
+    await supabase
+      .from("jobs")
+      .update({ arrival_window: arrivalWindow })
+      .eq("id", id);
+  }
 
   // Install booked → advance out of the "schedule install" stage.
   const { data: job } = await supabase
@@ -68,6 +77,22 @@ export async function bookInstall(formData: FormData): Promise<void> {
   revalidatePath("/pipeline");
   revalidatePath("/dashboard");
   revalidatePath("/warehouse");
+}
+
+/** Set / change the install arrival window on a job (independent of booking). */
+export async function setJobArrivalWindow(formData: FormData): Promise<void> {
+  const id = str(formData.get("job_id"));
+  const window = str(formData.get("arrival_window"));
+  if (!id) return;
+  const supabase = await createClient();
+  await supabase
+    .from("jobs")
+    .update({ arrival_window: window || null })
+    .eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+  if (formData.get("customer_id")) {
+    revalidatePath(`/customers/${str(formData.get("customer_id"))}`);
+  }
 }
 
 /** Create a job from an estimate (uses the accepted option, or the first one). */

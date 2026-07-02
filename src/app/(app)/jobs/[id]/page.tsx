@@ -47,7 +47,7 @@ import { installDaysForJob } from "@/lib/scheduling";
 import { bookInstall } from "../actions";
 import { requireProfile } from "@/lib/auth";
 import { lineTotal } from "@/lib/estimate-calc";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate, formatMoney, to12, parseArrivalWindows } from "@/lib/format";
 import { JobForm } from "../job-form";
 import {
   setJobStatus,
@@ -60,6 +60,7 @@ import {
   setJobAddress,
   assignWarehousePerson,
   submitJobToWarehouse,
+  setJobArrivalWindow,
 } from "../actions";
 import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
@@ -123,6 +124,13 @@ export default async function JobPage({
   // Smart install scheduling (staff + scheduler).
   const canSchedule = isStaff || profile.role === "scheduler";
   const schedSettings = canSchedule ? await getSchedulingSettings() : null;
+  const arrivalWindows = parseArrivalWindows(schedSettings?.arrival_windows);
+  const installWindowLabel = job.arrival_window
+    ? job.arrival_window
+        .split("-")
+        .map((t) => to12(t))
+        .join("–")
+    : null;
   const installEst =
     schedSettings && job.line_items.length
       ? installDaysForJob(job.line_items, schedSettings)
@@ -243,6 +251,47 @@ export default async function JobPage({
                   ? ` – ${formatDate(job.scheduled_end)}`
                   : ""}
               </div>
+              {installWindowLabel ? (
+                <div className="text-xs font-medium text-primary">
+                  Arrives {installWindowLabel}
+                </div>
+              ) : null}
+              {isStaff && job.scheduled_date ? (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                    {installWindowLabel ? "Change window" : "Set arrival window"}
+                  </summary>
+                  <form
+                    action={setJobArrivalWindow}
+                    className="mt-1 flex flex-wrap items-center gap-1.5"
+                  >
+                    <input type="hidden" name="job_id" value={job.id} />
+                    <input
+                      type="hidden"
+                      name="customer_id"
+                      value={job.customer_id}
+                    />
+                    <select
+                      name="arrival_window"
+                      defaultValue={job.arrival_window ?? ""}
+                      className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                    >
+                      <option value="">No window</option>
+                      {arrivalWindows.map((w) => (
+                        <option
+                          key={`${w.start}-${w.end}`}
+                          value={`${w.start}-${w.end}`}
+                        >
+                          {w.label}
+                        </option>
+                      ))}
+                    </select>
+                    <Button type="submit" size="sm" variant="outline">
+                      Save
+                    </Button>
+                  </form>
+                </details>
+              ) : null}
             </div>
           </CardContent>
         </Card>
@@ -443,7 +492,7 @@ export default async function JobPage({
                             {sug.end !== sug.start ? ` → ${formatDate(sug.end)}` : ""}
                           </span>
                         </div>
-                        <form action={bookInstall}>
+                        <form action={bookInstall} className="flex items-center gap-1.5">
                           <input type="hidden" name="job_id" value={job.id} />
                           <input
                             type="hidden"
@@ -452,6 +501,22 @@ export default async function JobPage({
                           />
                           <input type="hidden" name="start" value={sug.start} />
                           <input type="hidden" name="end" value={sug.end} />
+                          <select
+                            name="arrival_window"
+                            defaultValue={job.arrival_window ?? ""}
+                            aria-label="Arrival window"
+                            className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                          >
+                            <option value="">No window</option>
+                            {arrivalWindows.map((w) => (
+                              <option
+                                key={`${w.start}-${w.end}`}
+                                value={`${w.start}-${w.end}`}
+                              >
+                                {w.label}
+                              </option>
+                            ))}
+                          </select>
                           <Button type="submit" size="sm" variant="outline">
                             Book
                           </Button>
@@ -506,6 +571,26 @@ export default async function JobPage({
                         defaultValue={job.scheduled_end ?? ""}
                         className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
                       />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs text-muted-foreground">
+                        Arrival window
+                      </label>
+                      <select
+                        name="arrival_window"
+                        defaultValue={job.arrival_window ?? ""}
+                        className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                      >
+                        <option value="">No window</option>
+                        {arrivalWindows.map((w) => (
+                          <option
+                            key={`${w.start}-${w.end}`}
+                            value={`${w.start}-${w.end}`}
+                          >
+                            {w.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <Button type="submit" size="sm">
                       Book manually
