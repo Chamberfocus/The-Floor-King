@@ -8,9 +8,9 @@ import {
   addDaysYmd,
   type DateRange,
 } from "@/lib/scheduling";
-import { getDriveTime, storeAddress } from "@/lib/maps";
+import { getDriveMatrix, storeAddress } from "@/lib/maps";
 import type { EstimateLineItem, SchedulingSettings } from "@/lib/types";
-import { DEFAULT_ARRIVAL_WINDOWS } from "@/lib/format";
+import { DEFAULT_ARRIVAL_WINDOWS, to12 } from "@/lib/format";
 
 const CAP_KEYS = [
   "cap_carpet_yd",
@@ -213,8 +213,11 @@ export interface EstimateSlot {
   time: string;
   endTime: string;
   address: string;
-  driveMinutes: number | null;
+  driveMinutes: number | null; // drive from the prior stop (arrival leg)
   driveText: string | null;
+  addedDriveMinutes: number | null; // detour this appointment adds to the route
+  addedMiles: number | null; // extra miles added (fuel proxy)
+  reason: string | null; // why it's placed here, e.g. "Between your 10 AM & 1 PM stops"
 }
 
 /**
@@ -292,7 +295,9 @@ export async function getEstimateSuggestions(
     .eq("status", "scheduled")
     .gte("starts_at", `${today}T00:00:00Z`)
     .lte("starts_at", `${windowEnd}T23:59:59Z`);
-  const byRepDay = new Map<string, { endMin: number; address: string | null }[]>();
+
+  // Full existing stops per rep/day (start, end, address) — the route we insert into.
+  const byRepDay = new Map<string, DayStop[]>();
   for (const a of appts ?? []) {
     const st = a.starts_at as string;
     const date = st.slice(0, 10);
@@ -301,51 +306,181 @@ export async function getEstimateSuggestions(
     const endMin = en ? parseHM(en.slice(11, 16)) : startMin + dur;
     const k = `${a.salesperson_id}|${date}`;
     const arr = byRepDay.get(k) ?? [];
-    arr.push({ endMin, address: (a.address as string) || null });
+    arr.push({ startMin, endMin, address: (a.address as string) || null });
     byRepDay.set(k, arr);
   }
 
-  const slots: EstimateSlot[] = [];
-  for (const rep of reps) {
-    for (const date of days) {
-      const dayAppts = (byRepDay.get(`${rep.id}|${date}`) ?? []).sort(
-        (a, b) => a.endMin - b.endMin,
+  // Score every rep×day in parallel: find the lowest-detour place to slot the new
+  // estimate that day (before the first stop, between two stops, or end-of-day
+  // back home) — one Distance Matrix call each.
+  const pairs: { rep: (typeof reps)[number]; date: string }[] = [];
+  for (const rep of reps) for (const date of days) pairs.push({ rep, date });
+
+  const results = await Promise.all(
+    pairs.map(async ({ rep, date }): Promise<EstimateSlot | null> => {
+      const home = rep.home_address || defaultOrigin(settings);
+      const stops = (byRepDay.get(`${rep.id}|${date}`) ?? []).sort(
+        (a, b) => a.startMin - b.startMin,
       );
-      let startMin = dayStart;
-      // First stop of the day starts from the rep's home base (or the shop).
-      let priorAddr = rep.home_address || defaultOrigin(settings);
-      if (dayAppts.length) {
-        const last = dayAppts[dayAppts.length - 1];
-        startMin = last.endMin + buffer;
-        priorAddr = last.address || defaultOrigin(settings);
-      }
-      if (startMin + dur > dayEnd) continue;
-      const drive = await getDriveTime(customerAddress, priorAddr || undefined);
-      slots.push({
+      const best = await bestInsertion({
+        destination: customerAddress,
+        home,
+        stops,
+        dayStart,
+        dayEnd,
+        dur,
+        buffer,
+      });
+      if (!best) return null;
+      return {
         salespersonId: rep.id,
         name: rep.full_name || rep.email,
         date,
-        time: toHM(startMin),
-        endTime: toHM(startMin + dur),
+        time: toHM(best.startMin),
+        endTime: toHM(best.startMin + dur),
         address: customerAddress,
-        driveMinutes: drive?.minutes ?? null,
-        driveText: drive?.text ?? null,
-      });
-    }
-  }
+        driveMinutes: best.arriveDrive,
+        driveText:
+          best.arriveDrive != null ? `${best.arriveDrive} min drive` : null,
+        addedDriveMinutes: best.detour,
+        addedMiles: best.miles,
+        reason: best.reason,
+      };
+    }),
+  );
+  const slots = results.filter((s): s is EstimateSlot => s !== null);
 
   slots.sort((a, b) => {
     if (mode === "closest") {
-      const da = a.driveMinutes ?? 9999;
-      const db = b.driveMinutes ?? 9999;
+      const da = a.addedDriveMinutes ?? 9999;
+      const db = b.addedDriveMinutes ?? 9999;
       if (da !== db) return da - db;
       return `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`);
     }
     const cmp = `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`);
     if (cmp !== 0) return cmp;
-    return (a.driveMinutes ?? 9999) - (b.driveMinutes ?? 9999);
+    return (a.addedDriveMinutes ?? 9999) - (b.addedDriveMinutes ?? 9999);
   });
   return slots.slice(0, 6);
+}
+
+interface DayStop {
+  startMin: number;
+  endMin: number;
+  address: string | null;
+}
+
+/**
+ * Find the most fuel/route-efficient place to slot a `dur`-minute estimate into
+ * ONE rep's day. Considers inserting before the first stop, between any two
+ * stops, or after the last stop (returning home); an empty day is a fresh round
+ * trip. Ranks by the drive detour ADDED to the route (least added minutes wins);
+ * with no Maps key it falls back to the earliest time. Returns the winning
+ * placement, or null if nothing fits the work hours. One Distance Matrix call.
+ */
+async function bestInsertion(opts: {
+  destination: string;
+  home: string;
+  stops: DayStop[];
+  dayStart: number;
+  dayEnd: number;
+  dur: number;
+  buffer: number;
+}): Promise<{
+  startMin: number;
+  arriveDrive: number | null;
+  detour: number | null;
+  miles: number | null;
+  reason: string | null;
+} | null> {
+  const { destination, home, stops, dayStart, dayEnd, dur, buffer } = opts;
+
+  // One call: drive from the new stop to home + each existing stop's address.
+  const anchors = [home, ...stops.map((s) => s.address || home)];
+  const matrix = await getDriveMatrix(destination, anchors);
+  const dHome = matrix[0];
+  const dStop = (i: number) => matrix[i + 1];
+  // Realistic travel gap between two stops = the real drive (never below the buffer).
+  const gap = (m: { minutes: number } | null) =>
+    m ? Math.max(buffer, m.minutes) : buffer;
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  const clock = (min: number) => to12(toHM(min));
+
+  type C = {
+    startMin: number;
+    arriveDrive: number | null;
+    detour: number | null;
+    miles: number | null;
+    reason: string | null;
+  };
+  const cands: C[] = [];
+
+  if (stops.length === 0) {
+    if (dayStart + dur <= dayEnd) {
+      cands.push({
+        startMin: dayStart,
+        arriveDrive: dHome?.minutes ?? null,
+        detour: dHome ? dHome.minutes * 2 : null,
+        miles: dHome ? round1(dHome.miles * 2) : null,
+        reason: "Only stop that day",
+      });
+    }
+  } else {
+    // Before the first stop.
+    const first = stops[0];
+    if (dayStart + dur + gap(dStop(0)) <= first.startMin && dayStart + dur <= dayEnd) {
+      const a = dHome;
+      const b = dStop(0);
+      cands.push({
+        startMin: dayStart,
+        arriveDrive: a?.minutes ?? null,
+        detour: a && b ? a.minutes + b.minutes : null,
+        miles: a && b ? round1(a.miles + b.miles) : null,
+        reason: `Before your ${clock(first.startMin)} stop`,
+      });
+    }
+    // Between two stops.
+    for (let i = 0; i < stops.length - 1; i++) {
+      const prev = stops[i];
+      const next = stops[i + 1];
+      const arrive = prev.endMin + gap(dStop(i));
+      const leave = arrive + dur + gap(dStop(i + 1));
+      if (arrive + dur <= dayEnd && leave <= next.startMin) {
+        const a = dStop(i);
+        const b = dStop(i + 1);
+        cands.push({
+          startMin: arrive,
+          arriveDrive: a?.minutes ?? null,
+          detour: a && b ? a.minutes + b.minutes : null,
+          miles: a && b ? round1(a.miles + b.miles) : null,
+          reason: `Between your ${clock(prev.startMin)} & ${clock(next.startMin)} stops`,
+        });
+      }
+    }
+    // After the last stop (then back home).
+    const last = stops[stops.length - 1];
+    const arriveLast = last.endMin + gap(dStop(stops.length - 1));
+    if (arriveLast + dur <= dayEnd) {
+      const a = dStop(stops.length - 1);
+      const b = dHome;
+      cands.push({
+        startMin: arriveLast,
+        arriveDrive: a?.minutes ?? null,
+        detour: a && b ? a.minutes + b.minutes : null,
+        miles: a && b ? round1(a.miles + b.miles) : null,
+        reason: `After your ${clock(last.startMin)} stop`,
+      });
+    }
+  }
+
+  if (!cands.length) return null;
+  cands.sort((x, y) => {
+    const dx = x.detour ?? Infinity;
+    const dy = y.detour ?? Infinity;
+    if (dx !== dy) return dx - dy;
+    return x.startMin - y.startMin;
+  });
+  return cands[0];
 }
 
 export interface AppointmentRow {

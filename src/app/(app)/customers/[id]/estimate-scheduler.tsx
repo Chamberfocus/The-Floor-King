@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { CalendarClock, Car, MapPin } from "lucide-react";
+import { CalendarClock, Car, MapPin, Route } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -125,11 +125,21 @@ export function EstimateScheduler({
                   <div className="font-medium">
                     {formatDate(s.date)} · {to12(s.time)}
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
                       <MapPin className="size-3" /> {s.name}
                     </span>
-                    {s.driveText ? (
+                    {s.reason ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Route className="size-3" /> {s.reason}
+                      </span>
+                    ) : null}
+                    {s.addedDriveMinutes != null ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Car className="size-3" /> adds ~{s.addedDriveMinutes} min
+                        {s.addedMiles != null ? ` · ${s.addedMiles} mi` : ""} to the route
+                      </span>
+                    ) : s.driveText ? (
                       <span className="inline-flex items-center gap-1">
                         <Car className="size-3" /> {s.driveText} from prior stop
                       </span>
@@ -162,9 +172,10 @@ export function EstimateScheduler({
             <p className="text-xs text-muted-foreground">
               Ranked by{" "}
               {mode === "closest"
-                ? "least drive time across reps"
-                : "soonest, then least drive time"}
-              . Times are slotted after each day&apos;s last appointment.
+                ? "least added drive & fuel across reps"
+                : "soonest, then least added drive"}
+              . Each estimate is slotted into the most route-efficient gap in the
+              rep&apos;s day — before, between, or after their existing stops.
             </p>
           </div>
         ) : null}
