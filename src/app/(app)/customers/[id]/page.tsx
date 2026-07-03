@@ -68,6 +68,10 @@ import {
   type ActivityType,
   STAGE_COLOR_BADGE,
   SALES_ROLES,
+  INSTALL_ROLES,
+  DUTY_ROLES,
+  DUTY_LABELS,
+  inferStageDuty,
   formatServiceAddress,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -96,6 +100,7 @@ import {
 } from "./customer-tabs";
 import { CustomerSettingsMenu } from "./customer-settings-menu";
 import { ScheduleSummary } from "./schedule-summary";
+import { QuickActions } from "./quick-actions";
 import { requireProfile } from "@/lib/auth";
 
 export async function generateMetadata({
@@ -156,12 +161,20 @@ export default async function CustomerPage({
     ) ??
     jobs.find((j) => j.scheduled_date) ??
     null;
+  // The job the install quick-action targets — the active one (schedulable even
+  // if not yet dated), else whatever's on the books.
+  const schedulableJob =
+    jobs.find((j) => j.status !== "cancelled" && j.status !== "completed") ??
+    installJob ??
+    jobs[0] ??
+    null;
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     customer.assigned_to ?? "",
     customer.created_by ?? "",
     customer.workflow_owner_id ?? "",
     installJob?.assigned_to ?? "",
+    schedulableJob?.assigned_to ?? "",
   ]);
   const currentStage =
     stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
@@ -194,6 +207,36 @@ export default async function CustomerPage({
   const repOptions = handoffMembers
     .filter((m) => (SALES_ROLES as string[]).includes(m.role))
     .map((m) => ({ id: m.id, name: m.name }));
+  // Quick-actions role scoping: reassign-owner is limited to the duty inferred
+  // from the current stage (estimate stages → sales, install → crew, …), and
+  // the install picker only offers installers.
+  const ownerDuty =
+    inferStageDuty(currentStage) ?? currentStage?.owner_duty ?? null;
+  const ownerRoles = ownerDuty ? DUTY_ROLES[ownerDuty] : null;
+  const reassignOptions = (
+    ownerRoles
+      ? handoffMembers.filter(
+          (m) =>
+            (ownerRoles as string[]).includes(m.role) ||
+            m.id === customer.workflow_owner_id,
+        )
+      : handoffMembers
+  ).map((m) => ({ id: m.id, name: m.name, title: m.title }));
+  const installOptions = handoffMembers
+    .filter((m) => (INSTALL_ROLES as string[]).includes(m.role))
+    .map((m) => ({ id: m.id, name: m.name }));
+  const quickJob = schedulableJob
+    ? {
+        id: schedulableJob.id,
+        date: schedulableJob.scheduled_date ?? null,
+        endDate: schedulableJob.scheduled_end ?? null,
+        window: schedulableJob.arrival_window ?? null,
+        installerId: schedulableJob.assigned_to ?? null,
+        installerName: schedulableJob.assigned_to
+          ? (names[schedulableJob.assigned_to] ?? null)
+          : null,
+      }
+    : null;
   let installPop: {
     jobId: string;
     days: number;
@@ -281,6 +324,31 @@ export default async function CustomerPage({
           />
         </div>
       </div>
+
+      {!customer.cancelled_at ? (
+        <QuickActions
+          customerId={customer.id}
+          stages={stages.map((s) => ({ id: s.id, name: s.name }))}
+          currentStageId={currentStage?.id ?? null}
+          currentStageName={currentStage?.name ?? null}
+          currentOwnerId={customer.workflow_owner_id ?? null}
+          currentOwnerName={ownerName}
+          ownerDutyLabel={ownerDuty ? DUTY_LABELS[ownerDuty] : null}
+          reassignOptions={reassignOptions}
+          repOptions={repOptions}
+          installOptions={installOptions}
+          estimate={
+            estimateAppointment
+              ? {
+                  startsAt: estimateAppointment.startsAt,
+                  rep: estimateAppointment.salespersonName ?? null,
+                }
+              : null
+          }
+          job={quickJob}
+          arrivalWindows={arrivalWindows}
+        />
+      ) : null}
 
       {customer.cancelled_at ? (
         <div className="mb-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4">

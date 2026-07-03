@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { advanceFromFirstStage, deriveLeadStage } from "@/lib/workflow-engine";
 import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
+import { listCustomers } from "@/lib/data/customers";
 import {
   type ActivityType,
   type LeadSource,
@@ -300,6 +301,109 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
   revalidatePath("/pipeline");
   // Redirect back so the command-center form closes and the new stage shows.
   redirect(`/customers/${id}`);
+}
+
+/**
+ * Reassign just the owner of a customer (keeps the stage exactly where it is).
+ * Logs a handoff + activity and notifies the new owner — the lightweight cousin
+ * of advanceWorkflow used by the customer-page quick actions.
+ */
+export async function reassignCustomer(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const toUser = nullable(formData.get("to_user"));
+  if (!id) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("workflow_owner_id, workflow_stage_id, full_name")
+    .eq("id", id)
+    .maybeSingle();
+
+  // No-op if it's already assigned to that person.
+  if ((cust?.workflow_owner_id ?? null) === toUser) {
+    refreshCustomerViews(id);
+    redirect(`/customers/${id}`);
+  }
+
+  const { error } = await supabase
+    .from("customers")
+    .update({ workflow_owner_id: toUser })
+    .eq("id", id);
+  if (error) return;
+
+  let toName: string | null = null;
+  if (toUser) {
+    const { data: p } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", toUser)
+      .maybeSingle();
+    toName = (p?.full_name as string) || (p?.email as string) || null;
+  }
+
+  await supabase.from("handoffs").insert({
+    customer_id: id,
+    from_stage_id: cust?.workflow_stage_id ?? null,
+    to_stage_id: cust?.workflow_stage_id ?? null,
+    from_user: cust?.workflow_owner_id ?? null,
+    to_user: toUser,
+    note: "Reassigned",
+  });
+
+  await supabase.from("activities").insert({
+    customer_id: id,
+    user_id: user?.id ?? null,
+    type: "system",
+    body: toUser
+      ? `Reassigned to ${toName ?? "a team member"}.`
+      : "Owner unassigned.",
+  });
+
+  // Best-effort heads-up to the new owner.
+  if (toUser && toUser !== user?.id) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("id", toUser)
+      .maybeSingle();
+    if (prof?.email) {
+      await sendEmail({
+        to: prof.email,
+        subject: `Assigned to you: ${cust?.full_name ?? "a customer"}`,
+        html: emailLayout(
+          "A customer was assigned to you",
+          `<p>You're now the owner of <strong>${cust?.full_name ?? "a customer"}</strong>.</p>`,
+          { label: "Open customer", url: `${siteUrl()}/customers/${id}` },
+        ),
+      });
+    }
+  }
+
+  refreshCustomerViews(id);
+  redirect(`/customers/${id}`);
+}
+
+/** Type-to-search customer lookup for the quick "jump to customer" switcher. */
+export async function searchCustomers(
+  query: string,
+): Promise<{ id: string; name: string; hint: string | null }[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const rows = await listCustomers({ search: q });
+  return rows.slice(0, 10).map((c) => ({
+    id: c.id,
+    name: c.full_name || c.company || "Customer",
+    hint:
+      c.phone ||
+      c.email ||
+      [c.city, c.state].filter(Boolean).join(", ") ||
+      null,
+  }));
 }
 
 /** Cancel a customer/job (deal fell through, no-show, job called off). */

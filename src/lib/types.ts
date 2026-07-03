@@ -129,6 +129,31 @@ export const DUTY_LABELS: Record<string, string> = {
   warehouse: "Warehouse",
 };
 
+/**
+ * Infer which job-duty owns a stage from its auto-action (then its name), so an
+ * owner/assignee picker can offer only the right people even when a stage has no
+ * duty explicitly configured. Returns a DUTY_ROLES key, or null for "anyone".
+ * (e.g. booking an estimate → sales; scheduling an install → crew.)
+ */
+export function inferStageDuty(
+  stage: { auto_action?: string | null; name?: string | null } | null,
+): keyof typeof DUTY_ROLES | null {
+  if (!stage) return null;
+  switch (stage.auto_action) {
+    case "schedule_estimate":
+    case "build_quote":
+    case "collect_deposit":
+      return "sales";
+    case "schedule_install":
+      return "install";
+  }
+  const name = (stage.name ?? "").toLowerCase();
+  if (/material|warehouse|stag|order/.test(name)) return "warehouse";
+  if (/install/.test(name)) return "install";
+  if (/estimate|quote|deposit|sale/.test(name)) return "sales";
+  return null;
+}
+
 // --- Leads & Customers ------------------------------------------------------
 
 export type LeadStage =
