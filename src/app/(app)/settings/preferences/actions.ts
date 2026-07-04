@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { resolvePreferences } from "@/lib/preferences";
+import { disconnectGoogle } from "@/lib/data/google-calendar";
 
 function csv(v: FormDataEntryValue | null): string[] {
   return typeof v === "string"
@@ -43,4 +44,15 @@ export async function saveUserPreferences(formData: FormData): Promise<void> {
 
   revalidatePath("/settings/preferences");
   revalidatePath("/customers");
+}
+
+/** Disconnect the signed-in user's Google Calendar (stops future sync). */
+export async function disconnectGoogleCalendar(): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  await disconnectGoogle(user.id);
+  revalidatePath("/settings/preferences");
 }

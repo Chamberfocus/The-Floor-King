@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { syncAppointmentToGoogle } from "@/lib/data/google-calendar";
 import { createClient } from "@/lib/supabase/server";
 import {
   getEstimateSuggestions,
@@ -72,6 +73,15 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   // history; the slot we're (re)booking is left alone so the dup-guard below can
   // treat an exact re-pick as a no-op.)
   const today = todayLocalYmd();
+  // Capture which ones we're about to cancel so we can pull their Google events.
+  const { data: replaced } = await supabase
+    .from("appointments")
+    .select("id")
+    .eq("customer_id", customerId)
+    .eq("kind", "estimate")
+    .eq("status", "scheduled")
+    .gte("starts_at", `${today}T00:00:00+00`)
+    .neq("starts_at", startsAt);
   await supabase
     .from("appointments")
     .update({ status: "cancelled" })
@@ -80,6 +90,8 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     .eq("status", "scheduled")
     .gte("starts_at", `${today}T00:00:00+00`)
     .neq("starts_at", startsAt);
+  for (const r of replaced ?? [])
+    await syncAppointmentToGoogle(r.id as string);
 
   // Guard against duplicates (e.g. a double-click): if this customer already
   // has an estimate appointment at this exact time, don't make another.
@@ -97,17 +109,22 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     redirect(redirectTo ?? `/customers/${customerId}`);
   }
 
-  await supabase.from("appointments").insert({
-    customer_id: customerId,
-    salesperson_id: salesperson || null,
-    kind: "estimate",
-    starts_at: startsAt,
-    ends_at: endTime ? `${date}T${endTime}:00+00` : null,
-    address: address || null,
-    drive_minutes: Number.isFinite(driveMin) ? driveMin : null,
-    status: "scheduled",
-    created_by: user?.id ?? null,
-  });
+  const { data: newAppt } = await supabase
+    .from("appointments")
+    .insert({
+      customer_id: customerId,
+      salesperson_id: salesperson || null,
+      kind: "estimate",
+      starts_at: startsAt,
+      ends_at: endTime ? `${date}T${endTime}:00+00` : null,
+      address: address || null,
+      drive_minutes: Number.isFinite(driveMin) ? driveMin : null,
+      status: "scheduled",
+      created_by: user?.id ?? null,
+    })
+    .select("id")
+    .single();
+  if (newAppt?.id) await syncAppointmentToGoogle(newAppt.id as string);
   await supabase.from("activities").insert({
     customer_id: customerId,
     user_id: user?.id ?? null,

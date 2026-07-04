@@ -8,6 +8,10 @@ import { sendEmail, emailLayout } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
 
 import { listCustomers } from "@/lib/data/customers";
+import {
+  syncAppointmentToGoogle,
+  removeAppointmentFromGoogle,
+} from "@/lib/data/google-calendar";
 
 export interface CustomerHit {
   id: string;
@@ -109,22 +113,28 @@ export async function createAppointment(formData: FormData): Promise<void> {
     }
   }
 
-  await supabase.from("appointments").insert({
-    customer_id: customerId,
-    type_id: typeId,
-    kind: type?.kind ?? "showroom",
-    salesperson_id: nul(formData.get("salesperson_id")),
-    starts_at: w.starts_at,
-    ends_at: w.ends_at,
-    address: nul(formData.get("address")),
-    notes: nul(formData.get("notes")),
-    contact_name: nul(formData.get("contact_name")),
-    contact_phone: nul(formData.get("contact_phone")),
-    contact_email: nul(formData.get("contact_email")),
-    status: "scheduled",
-    source: "staff",
-    created_by: user?.id ?? null,
-  });
+  const { data: created } = await supabase
+    .from("appointments")
+    .insert({
+      customer_id: customerId,
+      type_id: typeId,
+      kind: type?.kind ?? "showroom",
+      salesperson_id: nul(formData.get("salesperson_id")),
+      starts_at: w.starts_at,
+      ends_at: w.ends_at,
+      address: nul(formData.get("address")),
+      notes: nul(formData.get("notes")),
+      contact_name: nul(formData.get("contact_name")),
+      contact_phone: nul(formData.get("contact_phone")),
+      contact_email: nul(formData.get("contact_email")),
+      status: "scheduled",
+      source: "staff",
+      created_by: user?.id ?? null,
+    })
+    .select("id")
+    .single();
+
+  if (created?.id) await syncAppointmentToGoogle(created.id as string);
 
   // Confirm to the customer when we have contact info.
   let email = nul(formData.get("contact_email"));
@@ -166,18 +176,23 @@ export async function blockTime(formData: FormData): Promise<void> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  await supabase.from("appointments").insert({
-    is_block: true,
-    title: str(formData.get("title")) || "Blocked",
-    kind: "other",
-    salesperson_id: nul(formData.get("salesperson_id")),
-    starts_at: isoAt(date, startMin),
-    ends_at: isoAt(date, endMin),
-    notes: nul(formData.get("notes")),
-    status: "scheduled",
-    source: "staff",
-    created_by: user?.id ?? null,
-  });
+  const { data: created } = await supabase
+    .from("appointments")
+    .insert({
+      is_block: true,
+      title: str(formData.get("title")) || "Blocked",
+      kind: "other",
+      salesperson_id: nul(formData.get("salesperson_id")),
+      starts_at: isoAt(date, startMin),
+      ends_at: isoAt(date, endMin),
+      notes: nul(formData.get("notes")),
+      status: "scheduled",
+      source: "staff",
+      created_by: user?.id ?? null,
+    })
+    .select("id")
+    .single();
+  if (created?.id) await syncAppointmentToGoogle(created.id as string);
   revalidatePath("/calendar");
 }
 
@@ -217,6 +232,7 @@ export async function rescheduleAppointment(formData: FormData): Promise<void> {
   if (repRaw !== null) update.salesperson_id = nul(repRaw);
 
   await supabase.from("appointments").update(update).eq("id", id);
+  await syncAppointmentToGoogle(id);
   revalidatePath("/calendar");
 }
 
@@ -229,6 +245,8 @@ export async function setAppointmentStatus(formData: FormData): Promise<void> {
   if (!allowed.includes(status)) return;
   const supabase = await createClient();
   await supabase.from("appointments").update({ status }).eq("id", id);
+  // Cancelled → the sync removes it from Google; others just refresh the event.
+  await syncAppointmentToGoogle(id);
   revalidatePath("/calendar");
 }
 
@@ -266,6 +284,7 @@ export async function confirmRequest(formData: FormData): Promise<void> {
     update.ends_at = w.ends_at;
   }
   await supabase.from("appointments").update(update).eq("id", id);
+  await syncAppointmentToGoogle(id);
 
   // Notify the client.
   const startsAt =
@@ -301,6 +320,8 @@ export async function deleteAppointment(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   if (!id) return;
   const supabase = await createClient();
+  // Pull the Google event first — after the row is gone we can't find it.
+  await removeAppointmentFromGoogle(id);
   await supabase.from("appointments").delete().eq("id", id);
   revalidatePath("/calendar");
 }
