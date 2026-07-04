@@ -201,6 +201,9 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
   const toStageId = str(formData.get("to_stage"));
   const toUser = nullable(formData.get("to_user"));
   const note = str(formData.get("note"));
+  // Where to land after the move — defaults to the customer file, but the
+  // customer LIST passes its own URL so a quick action there stays on the list.
+  const redirectTo = nullable(formData.get("redirect_to"));
   if (!id || !toStageId) return;
 
   const supabase = await createClient();
@@ -300,7 +303,7 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
   refreshCustomerViews(id);
   revalidatePath("/pipeline");
   // Redirect back so the command-center form closes and the new stage shows.
-  redirect(`/customers/${id}`);
+  redirect(redirectTo ?? `/customers/${id}`);
 }
 
 /**
@@ -311,6 +314,7 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
 export async function reassignCustomer(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   const toUser = nullable(formData.get("to_user"));
+  const redirectTo = nullable(formData.get("redirect_to"));
   if (!id) return;
 
   const supabase = await createClient();
@@ -327,7 +331,7 @@ export async function reassignCustomer(formData: FormData): Promise<void> {
   // No-op if it's already assigned to that person.
   if ((cust?.workflow_owner_id ?? null) === toUser) {
     refreshCustomerViews(id);
-    redirect(`/customers/${id}`);
+    redirect(redirectTo ?? `/customers/${id}`);
   }
 
   const { error } = await supabase
@@ -385,7 +389,7 @@ export async function reassignCustomer(formData: FormData): Promise<void> {
   }
 
   refreshCustomerViews(id);
-  redirect(`/customers/${id}`);
+  redirect(redirectTo ?? `/customers/${id}`);
 }
 
 /** Type-to-search customer lookup for the quick "jump to customer" switcher. */

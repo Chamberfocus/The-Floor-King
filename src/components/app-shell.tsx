@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, LogOut, MoreHorizontal } from "lucide-react";
+import { Menu, LogOut, MoreHorizontal, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -110,6 +110,17 @@ function UserCard({ profile }: { profile: Profile }) {
           </div>
         </div>
       </div>
+      {profile.role !== "customer" ? (
+        <Button
+          render={<Link href="/settings/preferences" />}
+          variant="ghost"
+          size="sm"
+          className="mt-1 w-full justify-start text-muted-foreground"
+        >
+          <SlidersHorizontal className="size-4" />
+          My page setup
+        </Button>
+      ) : null}
       <form action={signout}>
         <Button
           type="submit"

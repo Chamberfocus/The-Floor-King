@@ -11,6 +11,100 @@ function sanitize(term: string) {
   return term.replace(/[,()]/g, " ").trim();
 }
 
+export interface CustomerRowContext {
+  job: {
+    id: string;
+    date: string | null;
+    endDate: string | null;
+    window: string | null;
+    installerId: string | null;
+  } | null;
+  estimate: { startsAt: string; salespersonId: string | null } | null;
+}
+
+/**
+ * For the customer LIST quick actions: in TWO batched queries (jobs +
+ * appointments across every listed customer) find each customer's schedulable
+ * job and soonest estimate appointment. Keeps per-row quick actions cheap — no
+ * N+1. Names are resolved by the caller from the team list it already has.
+ */
+export async function getCustomerRowContexts(
+  ids: string[],
+): Promise<Record<string, CustomerRowContext>> {
+  const out: Record<string, CustomerRowContext> = {};
+  if (!ids.length) return out;
+  const supabase = await createClient();
+
+  const [{ data: jobRows }, { data: apptRows }] = await Promise.all([
+    supabase
+      .from("jobs")
+      .select(
+        "id, customer_id, status, scheduled_date, scheduled_end, arrival_window, assigned_to",
+      )
+      .in("customer_id", ids),
+    supabase
+      .from("appointments")
+      .select("customer_id, starts_at, salesperson_id, status, kind, is_block")
+      .in("customer_id", ids)
+      .eq("status", "scheduled"),
+  ]);
+
+  const jobsBy = new Map<string, NonNullable<typeof jobRows>>();
+  for (const j of jobRows ?? []) {
+    const k = j.customer_id as string;
+    const arr = jobsBy.get(k) ?? [];
+    arr.push(j);
+    jobsBy.set(k, arr);
+  }
+  const apptsBy = new Map<string, NonNullable<typeof apptRows>>();
+  for (const a of apptRows ?? []) {
+    if (a.kind === "block" || a.is_block) continue;
+    const k = a.customer_id as string;
+    const arr = apptsBy.get(k) ?? [];
+    arr.push(a);
+    apptsBy.set(k, arr);
+  }
+
+  const nowIso = new Date().toISOString();
+  for (const id of ids) {
+    const jobs = jobsBy.get(id) ?? [];
+    const open = jobs.filter(
+      (j) => j.status !== "cancelled" && j.status !== "completed",
+    );
+    const jr =
+      open.find((j) => j.scheduled_date) ??
+      open[0] ??
+      jobs.find((j) => j.scheduled_date) ??
+      jobs[0] ??
+      null;
+
+    const appts = [...(apptsBy.get(id) ?? [])].sort((a, b) =>
+      (a.starts_at as string).localeCompare(b.starts_at as string),
+    );
+    const upcoming = appts.find((a) => (a.starts_at as string) >= nowIso);
+    const ap = upcoming ?? appts[appts.length - 1] ?? null;
+
+    out[id] = {
+      job: jr
+        ? {
+            id: jr.id as string,
+            date: (jr.scheduled_date as string) ?? null,
+            endDate: (jr.scheduled_end as string) ?? null,
+            window: (jr.arrival_window as string) ?? null,
+            installerId: (jr.assigned_to as string) ?? null,
+          }
+        : null,
+      estimate: ap
+        ? {
+            startsAt: ap.starts_at as string,
+            salespersonId: (ap.salesperson_id as string) ?? null,
+          }
+        : null,
+    };
+  }
+  return out;
+}
+
 export async function listCustomers(
   opts: { search?: string; stage?: LeadStage; stages?: LeadStage[] } = {},
 ): Promise<Customer[]> {

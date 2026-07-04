@@ -27,10 +27,13 @@ export function EstimateScheduler({
   customerId,
   autoOpen,
   reps = [],
+  redirectTo,
 }: {
   customerId: string;
   autoOpen?: boolean;
   reps?: { id: string; name: string }[];
+  /** Where to land after booking (list rows pass their URL to stay put). */
+  redirectTo?: string;
 }) {
   const [slots, setSlots] = useState<EstimateSlot[] | null>(null);
   const [mode, setMode] = useState<"assigned" | "closest">("assigned");
@@ -148,6 +151,9 @@ export function EstimateScheduler({
                 </div>
                 <form action={bookEstimateAppointment}>
                   <input type="hidden" name="customer_id" value={customerId} />
+                  {redirectTo ? (
+                    <input type="hidden" name="redirect_to" value={redirectTo} />
+                  ) : null}
                   <input type="hidden" name="salesperson_id" value={s.salespersonId} />
                   <input type="hidden" name="date" value={s.date} />
                   <input type="hidden" name="time" value={s.time} />
@@ -192,6 +198,9 @@ export function EstimateScheduler({
           {showManual ? (
             <form action={bookEstimateAppointment} className="mt-3 space-y-3">
               <input type="hidden" name="customer_id" value={customerId} />
+              {redirectTo ? (
+                <input type="hidden" name="redirect_to" value={redirectTo} />
+              ) : null}
               <input type="hidden" name="time" value={windows[win]?.start ?? ""} />
               <input type="hidden" name="end_time" value={windows[win]?.end ?? ""} />
 

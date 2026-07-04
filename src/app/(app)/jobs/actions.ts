@@ -77,6 +77,14 @@ export async function bookInstall(formData: FormData): Promise<void> {
   revalidatePath("/pipeline");
   revalidatePath("/dashboard");
   revalidatePath("/warehouse");
+
+  // When invoked from the customer LIST, return there; the guided flow / file
+  // pass nothing and stay put (revalidate only), as before.
+  const redirectTo = str(formData.get("redirect_to"));
+  if (redirectTo) {
+    revalidatePath(redirectTo);
+    redirect(redirectTo);
+  }
 }
 
 /** Set / change the install arrival window on a job (independent of booking). */

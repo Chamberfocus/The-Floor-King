@@ -56,6 +56,8 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   const endTime = str(formData.get("end_time"));
   const address = str(formData.get("address"));
   const driveMin = parseInt(str(formData.get("drive_minutes")), 10);
+  // Land back on the customer file by default; the LIST passes its own URL.
+  const redirectTo = str(formData.get("redirect_to")) || null;
   if (!customerId || !date || !time) return;
 
   const supabase = await createClient();
@@ -92,7 +94,7 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     revalidatePath(`/customers/${customerId}`);
     revalidatePath("/schedule");
     revalidatePath("/calendar");
-    redirect(`/customers/${customerId}`);
+    redirect(redirectTo ?? `/customers/${customerId}`);
   }
 
   await supabase.from("appointments").insert({
@@ -167,5 +169,5 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   revalidatePath("/schedule");
   revalidatePath("/calendar");
   // Booked → close the scheduler out to the customer's dashboard.
-  redirect(`/customers/${customerId}`);
+  redirect(redirectTo ?? `/customers/${customerId}`);
 }

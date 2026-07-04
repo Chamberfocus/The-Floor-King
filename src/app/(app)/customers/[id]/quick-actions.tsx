@@ -23,6 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatDate, formatWallDateTime, to12 } from "@/lib/format";
 import type { ArrivalWindow } from "@/lib/format";
+import { QUICK_ACTION_ORDER, type QuickAction } from "@/lib/preferences";
 import { advanceWorkflow, reassignCustomer } from "../actions";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { EstimateScheduler } from "./estimate-scheduler";
@@ -74,6 +75,10 @@ export function QuickActions({
   estimate,
   job,
   arrivalWindows,
+  actions = QUICK_ACTION_ORDER,
+  showSwitcher = true,
+  compact = false,
+  redirectTo,
 }: {
   customerId: string;
   stages: { id: string; name: string }[];
@@ -88,6 +93,14 @@ export function QuickActions({
   estimate: { startsAt: string; rep: string | null } | null;
   job: Job | null;
   arrivalWindows: ArrivalWindow[];
+  /** Which actions to show, in order (personal preference). */
+  actions?: QuickAction[];
+  /** Show the "jump to another customer" search (off inside a list row). */
+  showSwitcher?: boolean;
+  /** Compact mode for embedding in a list row (no card chrome / label). */
+  compact?: boolean;
+  /** Where to navigate after an action (list rows pass their URL to stay put). */
+  redirectTo?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("stage");
@@ -108,14 +121,17 @@ export function QuickActions({
 
   const installWindow = windowLabel(job?.window ?? null);
 
-  return (
-    <div className="mb-6 rounded-lg border bg-card p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="mr-1 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-          <Zap className="size-4 text-primary" /> Quick actions
-        </span>
+  if (compact && actions.length === 0) return null;
 
-        <Button variant="outline" size="sm" onClick={() => launch("stage")}>
+  const actionButton = (a: QuickAction) => {
+    if (a === "stage")
+      return (
+        <Button
+          key="stage"
+          variant="outline"
+          size="sm"
+          onClick={() => launch("stage")}
+        >
           <ArrowLeftRight className="size-3.5" /> Stage
           {currentStageName ? (
             <span className="ml-1 max-w-[8rem] truncate text-muted-foreground">
@@ -123,31 +139,66 @@ export function QuickActions({
             </span>
           ) : null}
         </Button>
-
-        <Button variant="outline" size="sm" onClick={() => launch("assignee")}>
+      );
+    if (a === "assignee")
+      return (
+        <Button
+          key="assignee"
+          variant="outline"
+          size="sm"
+          onClick={() => launch("assignee")}
+        >
           <UserCog className="size-3.5" /> Assignee
           <span className="ml-1 max-w-[8rem] truncate text-muted-foreground">
             · {currentOwnerName ?? "Unassigned"}
           </span>
         </Button>
-
-        <Button variant="outline" size="sm" onClick={() => launch("estimate")}>
+      );
+    if (a === "estimate")
+      return (
+        <Button
+          key="estimate"
+          variant="outline"
+          size="sm"
+          onClick={() => launch("estimate")}
+        >
           <CalendarClock className="size-3.5" /> Estimate
           <span className="ml-1 text-muted-foreground">
             · {estimate ? formatDate(estimate.startsAt) : "Set"}
           </span>
         </Button>
+      );
+    return (
+      <Button
+        key="install"
+        variant="outline"
+        size="sm"
+        onClick={() => launch("install")}
+      >
+        <Hammer className="size-3.5" /> Install
+        <span className="ml-1 text-muted-foreground">
+          · {job?.date ? formatDate(job.date) : "Set"}
+        </span>
+      </Button>
+    );
+  };
 
-        <Button variant="outline" size="sm" onClick={() => launch("install")}>
-          <Hammer className="size-3.5" /> Install
-          <span className="ml-1 text-muted-foreground">
-            · {job?.date ? formatDate(job.date) : "Set"}
+  return (
+    <div className={cn(!compact && "mb-6 rounded-lg border bg-card p-3")}>
+      <div className="flex flex-wrap items-center gap-2">
+        {!compact ? (
+          <span className="mr-1 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+            <Zap className="size-4 text-primary" /> Quick actions
           </span>
-        </Button>
+        ) : null}
 
-        <div className="ml-auto">
-          <CustomerSwitcher currentId={customerId} />
-        </div>
+        {actions.map((a) => actionButton(a))}
+
+        {showSwitcher && !compact ? (
+          <div className="ml-auto">
+            <CustomerSwitcher currentId={customerId} />
+          </div>
+        ) : null}
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -166,6 +217,9 @@ export function QuickActions({
                 <input type="hidden" name="to_stage" value={toStage} />
                 <input type="hidden" name="to_user" value={currentOwnerId ?? ""} />
                 <input type="hidden" name="note" value={isLost ? reason : ""} />
+                {redirectTo ? (
+                  <input type="hidden" name="redirect_to" value={redirectTo} />
+                ) : null}
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">
                     Stage
@@ -235,6 +289,9 @@ export function QuickActions({
               <form action={reassignCustomer} className="space-y-3">
                 <input type="hidden" name="id" value={customerId} />
                 <input type="hidden" name="to_user" value={toUser} />
+                {redirectTo ? (
+                  <input type="hidden" name="redirect_to" value={redirectTo} />
+                ) : null}
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">
                     Assign to
@@ -288,7 +345,11 @@ export function QuickActions({
                     : "Find a smart time or book manually. Only salespeople are offered."}
                 </DialogDescription>
               </DialogHeader>
-              <EstimateScheduler customerId={customerId} reps={repOptions} />
+              <EstimateScheduler
+                customerId={customerId}
+                reps={repOptions}
+                redirectTo={redirectTo}
+              />
             </>
           ) : (
             <>
@@ -303,6 +364,9 @@ export function QuickActions({
               {job ? (
                 <form action={bookInstall} className="space-y-3">
                   <input type="hidden" name="job_id" value={job.id} />
+                  {redirectTo ? (
+                    <input type="hidden" name="redirect_to" value={redirectTo} />
+                  ) : null}
                   {job.date ? (
                     <p className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                       Currently{" "}

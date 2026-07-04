@@ -3,25 +3,21 @@ import Link from "next/link";
 import { Plus, Search, Upload } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { PageHeader } from "@/components/page-header";
-import { StageBadge } from "@/components/stage-badge";
 import { SearchPicker } from "@/components/ui/search-picker";
-import { listCustomers } from "@/lib/data/customers";
+import { listCustomers, getCustomerRowContexts } from "@/lib/data/customers";
+import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
+import { getSchedulingSettings } from "@/lib/data/scheduling";
+import { getUserPreferences } from "@/lib/data/preferences";
 import {
-  LEAD_SOURCE_LABELS,
   LEAD_STAGE_LABELS,
   LEAD_STAGE_ORDER,
+  SALES_ROLES,
+  INSTALL_ROLES,
   type LeadStage,
 } from "@/lib/types";
-import { formatDate } from "@/lib/format";
+import { parseArrivalWindows } from "@/lib/format";
+import { CustomerList, type ListShared } from "./customer-list";
 
 export const metadata: Metadata = { title: "Customers" };
 
@@ -37,6 +33,44 @@ export default async function CustomersPage({
     stageParam && LEAD_STAGE_ORDER.includes(stageParam) ? stageParam : undefined;
 
   const customers = await listCustomers({ search: q, stage });
+
+  // Shared data for per-row quick actions — fetched once for the whole list.
+  const [stages, members, schedSettings, prefs, contexts] = await Promise.all([
+    listWorkflowStages(),
+    listHandoffMembers(),
+    getSchedulingSettings(),
+    getUserPreferences(),
+    getCustomerRowContexts(customers.map((c) => c.id)),
+  ]);
+  const shared: ListShared = {
+    stages: stages.map((s) => ({
+      id: s.id,
+      name: s.name,
+      auto_action: s.auto_action ?? null,
+      owner_duty: s.owner_duty ?? null,
+    })),
+    members: members.map((m) => ({
+      id: m.id,
+      name: m.name,
+      title: m.title,
+      role: m.role,
+    })),
+    reps: members
+      .filter((m) => (SALES_ROLES as string[]).includes(m.role))
+      .map((m) => ({ id: m.id, name: m.name })),
+    installOptions: members
+      .filter((m) => (INSTALL_ROLES as string[]).includes(m.role))
+      .map((m) => ({ id: m.id, name: m.name })),
+    arrivalWindows: parseArrivalWindows(schedSettings.arrival_windows),
+    listActions: prefs.listActions,
+    listHref: (() => {
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (stage) params.set("stage", stage);
+      const qs = params.toString();
+      return qs ? `/customers?${qs}` : "/customers";
+    })(),
+  };
 
   return (
     <div>
@@ -111,83 +145,7 @@ export default async function CustomersPage({
           ) : null}
         </div>
       ) : (
-        <>
-        {/* Phone: tappable cards */}
-        <div className="space-y-2 md:hidden">
-          {customers.map((c) => (
-            <Link
-              key={c.id}
-              href={`/customers/${c.id}`}
-              className="block rounded-lg border p-3 active:bg-muted/50"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{c.full_name}</div>
-                  {c.company ? (
-                    <div className="truncate text-xs text-muted-foreground">{c.company}</div>
-                  ) : null}
-                </div>
-                <StageBadge stage={c.stage} />
-              </div>
-              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                {c.phone ? <span>{c.phone}</span> : null}
-                {c.city ? <span>{c.city}</span> : null}
-                {c.source ? <span>{LEAD_SOURCE_LABELS[c.source]}</span> : null}
-                <span className="ml-auto">{formatDate(c.updated_at)}</span>
-              </div>
-            </Link>
-          ))}
-        </div>
-        {/* Larger screens: table */}
-        <div className="hidden overflow-x-auto rounded-lg border md:block">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Stage</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>City</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead className="text-right">Updated</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {customers.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell className="font-medium">
-                    <Link
-                      href={`/customers/${c.id}`}
-                      className="hover:underline"
-                    >
-                      {c.full_name}
-                    </Link>
-                    {c.company ? (
-                      <span className="block text-xs text-muted-foreground">
-                        {c.company}
-                      </span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    <StageBadge stage={c.stage} />
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {c.phone ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {c.city ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {c.source ? LEAD_SOURCE_LABELS[c.source] : "—"}
-                  </TableCell>
-                  <TableCell className="text-right text-muted-foreground">
-                    {formatDate(c.updated_at)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-        </>
+        <CustomerList customers={customers} contexts={contexts} shared={shared} />
       )}
     </div>
   );

@@ -101,6 +101,7 @@ import {
 import { CustomerSettingsMenu } from "./customer-settings-menu";
 import { ScheduleSummary } from "./schedule-summary";
 import { QuickActions } from "./quick-actions";
+import { getUserPreferences } from "@/lib/data/preferences";
 import { requireProfile } from "@/lib/auth";
 
 export async function generateMetadata({
@@ -129,6 +130,7 @@ export default async function CustomerPage({
 }) {
   const { id } = await params;
   const profile = await requireProfile();
+  const prefs = await getUserPreferences();
   const customer = await getCustomer(id);
   if (!customer) notFound();
   const canDelete = profile.role === "admin" || profile.role === "office";
@@ -347,6 +349,7 @@ export default async function CustomerPage({
           }
           job={quickJob}
           arrivalWindows={arrivalWindows}
+          actions={prefs.quickActions}
         />
       ) : null}
 
@@ -368,6 +371,8 @@ export default async function CustomerPage({
 
       {/* Hybrid tabs: Overview shows the whole file; each tab zooms into one part. */}
       <CustomerTabs
+        tabs={prefs.tabs}
+        defaultTab={prefs.defaultTab}
         counts={{
           estimates: estimates.length,
           jobs: jobs.length,

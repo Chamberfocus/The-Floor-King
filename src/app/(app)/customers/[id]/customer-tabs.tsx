@@ -15,24 +15,19 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TAB_ORDER, type CustomerTab } from "@/lib/preferences";
 
 /**
  * Hybrid tabs for a customer file. "Overview" shows the whole record (the full
  * two-column layout); every other tab zooms into just that section, full width.
  * Sections are rendered ONCE by the server page and passed through as children —
  * switching tabs is instant client-side show/hide, no refetch, no duplication.
+ *
+ * Which tabs show, their order, and the default tab come from the signed-in
+ * user's preferences (see @/lib/preferences).
  */
 
-export type CustomerTab =
-  | "overview"
-  | "contact"
-  | "estimates"
-  | "jobs"
-  | "invoices"
-  | "materials"
-  | "files"
-  | "messages"
-  | "activity";
+export type { CustomerTab };
 
 export interface TabCounts {
   estimates: number;
@@ -66,12 +61,25 @@ export function CustomerTabs({
   counts,
   settings,
   children,
+  tabs = TAB_ORDER,
+  defaultTab = "overview",
 }: {
   counts: TabCounts;
   settings: React.ReactNode;
   children: React.ReactNode;
+  /** Visible tabs, in order (personal preference). */
+  tabs?: CustomerTab[];
+  /** Tab the file opens on. */
+  defaultTab?: CustomerTab;
 }) {
-  const [active, setActive] = useState<CustomerTab>("overview");
+  // Reorder/filter the rich tab metadata by the user's chosen order.
+  const visible = tabs
+    .map((k) => TABS.find((t) => t.key === k))
+    .filter((t): t is (typeof TABS)[number] => Boolean(t));
+  const initial: CustomerTab = tabs.includes(defaultTab)
+    ? defaultTab
+    : (tabs[0] ?? "overview");
+  const [active, setActive] = useState<CustomerTab>(initial);
   const navRef = useRef<HTMLElement>(null);
 
   const pick = (key: CustomerTab) => {
@@ -87,7 +95,7 @@ export function CustomerTabs({
         className="sticky top-0 z-20 mb-6 flex items-center gap-1 rounded-xl border bg-background/90 p-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/70"
       >
         <div className="flex flex-1 items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {TABS.map((t) => {
+          {visible.map((t) => {
             const Icon = t.icon;
             const n = t.count ? counts[t.count] : 0;
             const on = active === t.key;
