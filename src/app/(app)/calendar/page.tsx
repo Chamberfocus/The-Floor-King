@@ -33,6 +33,18 @@ function startOfWeek(s: string): string {
   const d = new Date(`${s}T12:00:00Z`);
   return addDays(s, -d.getUTCDay()); // back to Sunday
 }
+/** The full month grid for `anchor`: whole weeks (Sun→Sat) covering the month,
+ *  including the trailing/leading days needed to fill the first & last rows. */
+function monthGridDays(anchor: string): string[] {
+  const d = new Date(`${anchor}T12:00:00Z`);
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth();
+  const first = new Date(Date.UTC(year, month, 1, 12));
+  const gridStart = addDays(ymd(first), -first.getUTCDay());
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0, 12)).getUTCDate();
+  const cells = Math.ceil((first.getUTCDay() + daysInMonth) / 7) * 7;
+  return Array.from({ length: cells }, (_, i) => addDays(gridStart, i));
+}
 
 // Lets Next's redirect()/notFound() keep working when we wrap everything in
 // a try/catch (they signal via a throw with a NEXT_ digest).
@@ -56,7 +68,8 @@ export default async function CalendarPage({
     if (!STAFF_ROLES.includes(profile.role)) redirect("/");
 
     const sp = await searchParams;
-    const view = sp.view === "day" ? "day" : "week";
+    const view =
+      sp.view === "day" ? "day" : sp.view === "month" ? "month" : "week";
     const today = ymd(new Date());
     const anchor = sp.date || today;
     const repFilter = sp.rep || "";
@@ -64,7 +77,9 @@ export default async function CalendarPage({
     const days =
       view === "day"
         ? [anchor]
-        : Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(anchor), i));
+        : view === "month"
+          ? monthGridDays(anchor)
+          : Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(anchor), i));
 
     const rangeStart = `${days[0]}T00:00:00+00`;
     const rangeEnd = `${addDays(days[days.length - 1], 1)}T00:00:00+00`;

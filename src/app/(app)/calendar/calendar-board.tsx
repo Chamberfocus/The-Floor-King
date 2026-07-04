@@ -86,7 +86,7 @@ export function CalendarBoard({
   pending,
   settings,
 }: {
-  view: "week" | "day";
+  view: "week" | "day" | "month";
   anchor: string;
   today: string;
   days: string[];
@@ -129,6 +129,18 @@ export function CalendarBoard({
     d.setUTCDate(d.getUTCDate() + n);
     go({ date: d.toISOString().slice(0, 10) });
   };
+  const shiftMonth = (n: number) => {
+    const d = new Date(`${anchor}T12:00:00Z`);
+    // Land on the 1st of the target month so day overflow can't skip a month.
+    const nd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1, 12));
+    go({ date: nd.toISOString().slice(0, 10) });
+  };
+  const monthLabel = new Date(`${anchor}T12:00:00Z`).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const anchorMonth = Number(anchor.slice(5, 7)); // 1–12, for dimming other-month days
 
   const rowTimes = Array.from({ length: rows }, (_, i) =>
     hmFromMinutes(startMin + i * interval),
@@ -139,13 +151,25 @@ export function CalendarBoard({
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon-sm" onClick={() => shift(view === "day" ? -1 : -7)}>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() =>
+              view === "month" ? shiftMonth(-1) : shift(view === "day" ? -1 : -7)
+            }
+          >
             <ChevronLeft className="size-4" />
           </Button>
           <Button variant="outline" size="sm" onClick={() => go({ date: today })}>
             Today
           </Button>
-          <Button variant="outline" size="icon-sm" onClick={() => shift(view === "day" ? 1 : 7)}>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() =>
+              view === "month" ? shiftMonth(1) : shift(view === "day" ? 1 : 7)
+            }
+          >
             <ChevronRight className="size-4" />
           </Button>
         </div>
@@ -153,7 +177,9 @@ export function CalendarBoard({
         <span className="text-sm font-medium">
           {view === "day"
             ? `${prettyDay(anchor).wd} ${prettyDay(anchor).md}`
-            : `${prettyDay(days[0]).md} – ${prettyDay(days[6]).md}`}
+            : view === "month"
+              ? monthLabel
+              : `${prettyDay(days[0]).md} – ${prettyDay(days[6]).md}`}
         </span>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -162,6 +188,7 @@ export function CalendarBoard({
             value={view}
             onChange={(v) => go({ view: v })}
             options={[
+              { value: "month", label: "Month" },
               { value: "week", label: "Week" },
               { value: "day", label: "Day" },
             ]}
@@ -215,6 +242,17 @@ export function CalendarBoard({
       ) : null}
 
       {/* Grid */}
+      {view === "month" ? (
+        <MonthGrid
+          days={days}
+          visible={visible}
+          today={today}
+          anchorMonth={anchorMonth}
+          onNew={(d) => setNewSlot({ date: d, time: settings.dayStart })}
+          onAppt={(a) => setDetail(a)}
+          onDay={(d) => go({ view: "day", date: d })}
+        />
+      ) : (
       <div className="overflow-x-auto rounded-lg border">
         <div className="flex min-w-[640px]">
           {/* Time gutter */}
@@ -309,6 +347,7 @@ export function CalendarBoard({
           })}
         </div>
       </div>
+      )}
 
       {newSlot ? (
         <NewApptDialog
@@ -325,6 +364,115 @@ export function CalendarBoard({
           onClose={() => setDetail(null)}
         />
       ) : null}
+    </div>
+  );
+}
+
+// ---- Month grid ----
+function MonthGrid({
+  days,
+  visible,
+  today,
+  anchorMonth,
+  onNew,
+  onAppt,
+  onDay,
+}: {
+  days: string[];
+  visible: CalendarAppointment[];
+  today: string;
+  anchorMonth: number;
+  onNew: (day: string) => void;
+  onAppt: (a: CalendarAppointment) => void;
+  onDay: (day: string) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border">
+      <div className="grid grid-cols-7 border-b bg-muted/30 text-center text-xs font-medium text-muted-foreground">
+        {WD.map((w) => (
+          <div key={w} className="px-2 py-1.5">
+            {w}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {days.map((d) => {
+          const inMonth = Number(d.slice(5, 7)) === anchorMonth;
+          const isToday = d === today;
+          const dayAppts = visible
+            .filter((a) => dayOf(a.startsAt) === d)
+            .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+          const shown = dayAppts.slice(0, 3);
+          const extra = dayAppts.length - shown.length;
+          return (
+            <div
+              key={d}
+              onClick={() => onNew(d)}
+              className={cn(
+                "min-h-[104px] cursor-pointer border-b border-r p-1 transition-colors hover:bg-primary/5",
+                !inMonth && "bg-muted/20 text-muted-foreground",
+              )}
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDay(d);
+                }}
+                className={cn(
+                  "mb-1 flex size-6 items-center justify-center rounded-full text-xs hover:bg-muted",
+                  isToday &&
+                    "bg-primary font-semibold text-primary-foreground hover:bg-primary",
+                )}
+              >
+                {Number(d.slice(8, 10))}
+              </button>
+              <div className="space-y-0.5">
+                {shown.map((a) => {
+                  const c = APPOINTMENT_COLOR_CLASSES[a.color];
+                  const s = minutesOf(a.startsAt);
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAppt(a);
+                      }}
+                      className={cn(
+                        "block w-full truncate rounded px-1 py-0.5 text-left text-[10px] leading-tight",
+                        c.block,
+                        a.status === "pending" &&
+                          "border border-dashed opacity-90",
+                        a.isBlock && "bg-gray-100 text-gray-600",
+                      )}
+                    >
+                      <span className="font-semibold">
+                        {to12(hmFromMinutes(s))}
+                      </span>{" "}
+                      {a.isBlock
+                        ? a.title ?? "Blocked"
+                        : a.customerName ?? a.contactName ?? a.typeName}
+                    </button>
+                  );
+                })}
+                {extra > 0 ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDay(d);
+                    }}
+                    className="block w-full px-1 text-left text-[10px] font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    +{extra} more
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
