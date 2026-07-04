@@ -7,6 +7,7 @@ import {
   Phone,
   MessageSquare,
   Mail,
+  MapPin,
   ArrowLeftRight,
   Info,
   FileText,
@@ -67,6 +68,7 @@ import { invoiceTotals } from "@/lib/invoice-calc";
 import {
   type ActivityType,
   STAGE_COLOR_BADGE,
+  LEAD_SOURCE_LABELS,
   SALES_ROLES,
   INSTALL_ROLES,
   DUTY_ROLES,
@@ -260,6 +262,59 @@ export default async function CustomerPage({
     }
   }
 
+  // Identity-band bits: address for the maps chip, owner initials, sub line.
+  const addressText = [
+    customer.street,
+    [customer.city, customer.state].filter(Boolean).join(", "),
+    customer.zip,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const mapsUrl = addressText
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`
+    : null;
+  const ownerInitials = ownerName
+    ? ownerName
+        .trim()
+        .split(/\s+/)
+        .map((w) => w[0])
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
+    : null;
+  const subBits = [
+    customer.city && customer.state
+      ? `${customer.city}, ${customer.state}`
+      : customer.city || customer.state || null,
+    customer.source ? LEAD_SOURCE_LABELS[customer.source] : null,
+    `Added ${formatDate(customer.created_at)}`,
+  ].filter(Boolean) as string[];
+  const scheduleStrip = (
+    <ScheduleSummary
+      estimate={
+        estimateAppointment
+          ? {
+              startsAt: estimateAppointment.startsAt,
+              rep: estimateAppointment.salespersonName ?? null,
+            }
+          : null
+      }
+      install={
+        installJob?.scheduled_date
+          ? {
+              date: installJob.scheduled_date,
+              endDate: installJob.scheduled_end ?? null,
+              window: installJob.arrival_window ?? null,
+              installer: installJob.assigned_to
+                ? (names[installJob.assigned_to] ?? null)
+                : null,
+            }
+          : null
+      }
+    />
+  );
+
   return (
     <div className="mx-auto max-w-5xl">
       <Link
@@ -269,63 +324,110 @@ export default async function CustomerPage({
         <ArrowLeft className="size-4" /> Back to customers
       </Link>
 
-      <div id="overview" className="mb-6 flex scroll-mt-24 flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {customer.full_name}
-            </h1>
-            {currentStage ? (
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                  STAGE_COLOR_BADGE[currentStage.color] ?? STAGE_COLOR_BADGE.zinc,
-                )}
-              >
-                {currentStage.name}
-              </span>
-            ) : (
-              <StageBadge stage={customer.stage} />
-            )}
+      {/* Identity band — who they are, their stage, contact, owner & schedule,
+          all in one place (replaces the plain header + its scattered bits). */}
+      <section
+        id="overview"
+        className="relative mb-4 scroll-mt-24 overflow-hidden rounded-2xl border bg-card p-5 shadow-sm sm:p-6"
+      >
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-primary to-amber-500"
+        />
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                {customer.full_name}
+              </h1>
+              {currentStage ? (
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold",
+                    STAGE_COLOR_BADGE[currentStage.color] ?? STAGE_COLOR_BADGE.zinc,
+                  )}
+                >
+                  {currentStage.name}
+                </span>
+              ) : (
+                <StageBadge stage={customer.stage} />
+              )}
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
+              {subBits.map((t, i) => (
+                <span key={t} className="inline-flex items-center gap-2">
+                  {i > 0 ? (
+                    <span className="size-1 rounded-full bg-muted-foreground/40" />
+                  ) : null}
+                  {t}
+                </span>
+              ))}
+            </div>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Added {formatDate(customer.created_at)}
-          </p>
-          <ScheduleSummary
-            estimate={
-              estimateAppointment
-                ? {
-                    startsAt: estimateAppointment.startsAt,
-                    rep: estimateAppointment.salespersonName ?? null,
-                  }
-                : null
-            }
-            install={
-              installJob?.scheduled_date
-                ? {
-                    date: installJob.scheduled_date,
-                    endDate: installJob.scheduled_end ?? null,
-                    window: installJob.arrival_window ?? null,
-                    installer: installJob.assigned_to
-                      ? (names[installJob.assigned_to] ?? null)
-                      : null,
-                  }
-                : null
-            }
-          />
+          <div className="flex items-center gap-2.5">
+            <div className="text-right leading-tight">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Owner
+              </div>
+              <div className="text-sm font-semibold">
+                {ownerName ?? "Unassigned"}
+              </div>
+            </div>
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground shadow-sm">
+              {ownerInitials ?? "—"}
+            </div>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <AreaCalculator triggerLabel="Calculator" triggerVariant="outline" />
-          {!customer.cancelled_at ? (
-            <OnTheWayButton customerId={customer.id} />
-          ) : null}
-          <CancelCustomer
-            customerId={customer.id}
-            name={customer.full_name}
-            cancelled={!!customer.cancelled_at}
-          />
+
+        {customer.phone || customer.email || addressText ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {customer.phone ? (
+              <a
+                href={`tel:${customer.phone}`}
+                className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
+              >
+                <Phone className="size-4 text-muted-foreground" />
+                {customer.phone}
+              </a>
+            ) : null}
+            {customer.email ? (
+              <a
+                href={`mailto:${customer.email}`}
+                className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
+              >
+                <Mail className="size-4 text-muted-foreground" />
+                <span className="max-w-[16rem] truncate">{customer.email}</span>
+              </a>
+            ) : null}
+            {addressText && mapsUrl ? (
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
+              >
+                <MapPin className="size-4 text-muted-foreground" />
+                <span className="max-w-[18rem] truncate">{addressText}</span>
+              </a>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t pt-4">
+          {scheduleStrip}
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <AreaCalculator triggerLabel="Calculator" triggerVariant="outline" />
+            {!customer.cancelled_at ? (
+              <OnTheWayButton customerId={customer.id} />
+            ) : null}
+            <CancelCustomer
+              customerId={customer.id}
+              name={customer.full_name}
+              cancelled={!!customer.cancelled_at}
+            />
+          </div>
         </div>
-      </div>
+      </section>
 
       {!customer.cancelled_at ? (
         <QuickActions
