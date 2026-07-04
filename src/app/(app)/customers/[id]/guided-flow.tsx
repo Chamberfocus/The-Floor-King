@@ -36,7 +36,6 @@ import { advanceWorkflow } from "../actions";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { EstimateScheduler } from "./estimate-scheduler";
 import { JobMaterialsCard } from "@/app/(app)/jobs/[id]/job-materials-card";
-import { StageManage } from "./stage-manage";
 import { QualifyStep } from "./qualify-step";
 import type { HandoffMember } from "@/lib/data/workflow";
 import type { QualifyingQuestion } from "@/lib/types";
@@ -143,9 +142,6 @@ export async function GuidedFlow({
   repOptions,
   members,
   questions,
-  ownerName,
-  nextActionDue,
-  money,
   installPop,
   appointment,
   arrivalWindows,
@@ -159,9 +155,6 @@ export async function GuidedFlow({
   repOptions: { id: string; name: string }[];
   members: HandoffMember[];
   questions: QualifyingQuestion[];
-  ownerName: string | null;
-  nextActionDue: string | null;
-  money: { invoiced: number; paid: number; balance: number };
   installPop: InstallPop;
   appointment: {
     id: string;
@@ -518,30 +511,18 @@ export async function GuidedFlow({
         </div>
       </div>
 
-      {/* Owner · money · due, and the manual move/reassign (one stage control) */}
-      <StageManage
-        customerId={customer.id}
-        stages={stages}
-        members={members}
-        currentStageId={currentStage?.id ?? null}
-        currentOwnerId={customer.workflow_owner_id ?? null}
-        ownerName={ownerName}
-        nextActionDue={nextActionDue}
-        money={money}
-      />
-
-      {/* Do this next */}
-      <Card className="border-primary/40 ring-1 ring-primary/20">
-        <CardContent className="space-y-3 pt-5">
-          <div className="flex items-center gap-2">
-            <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Meta.icon className="size-4" />
+      {/* Do this next — the one prominent action for this customer */}
+      <Card className="overflow-hidden rounded-2xl border-primary/40 bg-gradient-to-b from-primary/[0.06] to-card shadow-sm ring-1 ring-primary/15">
+        <CardContent className="space-y-4 pt-6">
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Meta.icon className="size-5" />
             </span>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
                 Do this next
               </p>
-              <p className="font-semibold">{Meta.title}</p>
+              <p className="text-lg font-bold tracking-tight">{Meta.title}</p>
             </div>
           </div>
           {body}

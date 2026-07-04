@@ -495,24 +495,92 @@ export default async function CustomerPage({
         {/* Guided flow — progress + owner/money + the one next step inline. */}
         {!customer.cancelled_at ? (
           <TabSection tab="overview">
-            <div className="mb-6">
-              <GuidedFlow
-                customer={customer}
-                stages={stages}
-                currentStage={currentStage}
-                estimates={estimates}
-                jobs={jobs}
-                invoices={invoices}
-                repOptions={repOptions}
-                members={handoffMembers}
-                questions={qualifyingQuestions}
-                ownerName={ownerName}
-                nextActionDue={customer.next_action_due ?? null}
-                money={money}
-                installPop={installPop}
-                appointment={estimateAppointment}
-                arrivalWindows={arrivalWindows}
-              />
+            <div className="mb-6 grid gap-6 lg:grid-cols-3">
+              {/* Left: the guided "do this next" hero + progress */}
+              <div className="lg:col-span-2">
+                <GuidedFlow
+                  customer={customer}
+                  stages={stages}
+                  currentStage={currentStage}
+                  estimates={estimates}
+                  jobs={jobs}
+                  invoices={invoices}
+                  repOptions={repOptions}
+                  members={handoffMembers}
+                  questions={qualifyingQuestions}
+                  installPop={installPop}
+                  appointment={estimateAppointment}
+                  arrivalWindows={arrivalWindows}
+                />
+              </div>
+
+              {/* Right: money + due rail */}
+              <aside className="space-y-4">
+                <div className="rounded-2xl border bg-card p-5 shadow-sm">
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Money
+                  </p>
+                  {money.invoiced > 0 || money.balance > 0 ? (
+                    <div className="space-y-2.5 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Invoiced</span>
+                        <span className="font-semibold tabular-nums">
+                          {formatMoney(money.invoiced)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Paid</span>
+                        <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                          {formatMoney(money.paid)}
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-emerald-500"
+                          style={{
+                            width: `${
+                              money.invoiced > 0
+                                ? Math.min(
+                                    100,
+                                    Math.round(
+                                      (money.paid / money.invoiced) * 100,
+                                    ),
+                                  )
+                                : 0
+                            }%`,
+                          }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between border-t pt-2.5">
+                        <span className="text-muted-foreground">Balance</span>
+                        <span
+                          className={cn(
+                            "font-bold tabular-nums",
+                            money.balance > 0.005 && "text-destructive",
+                          )}
+                        >
+                          {formatMoney(money.balance)}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No invoices yet.
+                    </p>
+                  )}
+                </div>
+
+                {customer.next_action_due ? (
+                  <div className="rounded-2xl border bg-card p-5 shadow-sm">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Next action due
+                    </p>
+                    <p className="text-sm font-semibold">
+                      {formatDateTime(customer.next_action_due)}
+                    </p>
+                  </div>
+                ) : null}
+              </aside>
             </div>
           </TabSection>
         ) : null}
