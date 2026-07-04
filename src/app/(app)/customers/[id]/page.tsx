@@ -8,6 +8,8 @@ import {
   MessageSquare,
   Mail,
   MapPin,
+  Crown,
+  CalendarClock,
   ArrowLeftRight,
   Info,
   FileText,
@@ -67,7 +69,6 @@ import { optionTotals } from "@/lib/estimate-calc";
 import { invoiceTotals } from "@/lib/invoice-calc";
 import {
   type ActivityType,
-  STAGE_COLOR_BADGE,
   LEAD_SOURCE_LABELS,
   SALES_ROLES,
   INSTALL_ROLES,
@@ -81,6 +82,8 @@ import {
   formatDate,
   formatDateTime,
   formatMoney,
+  formatWallTime,
+  to12,
   parseArrivalWindows,
 } from "@/lib/format";
 import { AddActivityForm } from "./add-activity-form";
@@ -101,7 +104,6 @@ import {
   TabCollapse,
 } from "./customer-tabs";
 import { CustomerSettingsMenu } from "./customer-settings-menu";
-import { ScheduleSummary } from "./schedule-summary";
 import { QuickActions } from "./quick-actions";
 import { getUserPreferences } from "@/lib/data/preferences";
 import { requireProfile } from "@/lib/auth";
@@ -290,30 +292,12 @@ export default async function CustomerPage({
     customer.source ? LEAD_SOURCE_LABELS[customer.source] : null,
     `Added ${formatDate(customer.created_at)}`,
   ].filter(Boolean) as string[];
-  const scheduleStrip = (
-    <ScheduleSummary
-      estimate={
-        estimateAppointment
-          ? {
-              startsAt: estimateAppointment.startsAt,
-              rep: estimateAppointment.salespersonName ?? null,
-            }
-          : null
-      }
-      install={
-        installJob?.scheduled_date
-          ? {
-              date: installJob.scheduled_date,
-              endDate: installJob.scheduled_end ?? null,
-              window: installJob.arrival_window ?? null,
-              installer: installJob.assigned_to
-                ? (names[installJob.assigned_to] ?? null)
-                : null,
-            }
-          : null
-      }
-    />
-  );
+  const installWindowLabel = installJob?.arrival_window
+    ? installJob.arrival_window
+        .split("-")
+        .map((s) => to12(s.trim()))
+        .join("–")
+    : null;
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -337,16 +321,12 @@ export default async function CustomerPage({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+              <h1 className="text-2xl font-extrabold tracking-tight sm:text-4xl">
                 {customer.full_name}
               </h1>
               {currentStage ? (
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold",
-                    STAGE_COLOR_BADGE[currentStage.color] ?? STAGE_COLOR_BADGE.zinc,
-                  )}
-                >
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+                  <Crown className="size-3.5" />
                   {currentStage.name}
                 </span>
               ) : (
@@ -373,7 +353,7 @@ export default async function CustomerPage({
                 {ownerName ?? "Unassigned"}
               </div>
             </div>
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground shadow-sm">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/60 text-sm font-bold text-primary-foreground shadow-md">
               {ownerInitials ?? "—"}
             </div>
           </div>
@@ -414,7 +394,6 @@ export default async function CustomerPage({
         ) : null}
 
         <div className="mt-4 flex flex-wrap items-center gap-3 border-t pt-4">
-          {scheduleStrip}
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <AreaCalculator triggerLabel="Calculator" triggerVariant="outline" />
             {!customer.cancelled_at ? (
@@ -569,6 +548,59 @@ export default async function CustomerPage({
                     </p>
                   )}
                 </div>
+
+                {estimateAppointment || installJob?.scheduled_date ? (
+                  <div className="rounded-2xl border bg-card p-5 shadow-sm">
+                    <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Schedule
+                    </p>
+                    <div className="space-y-3.5">
+                      {estimateAppointment ? (
+                        <div className="flex items-start gap-3">
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <CalendarClock className="size-4" />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Estimate
+                            </div>
+                            <div className="text-sm font-semibold">
+                              {formatDate(estimateAppointment.startsAt)} ·{" "}
+                              {formatWallTime(estimateAppointment.startsAt)}
+                            </div>
+                            {estimateAppointment.salespersonName ? (
+                              <div className="text-xs text-muted-foreground">
+                                with {estimateAppointment.salespersonName}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+                      {installJob?.scheduled_date ? (
+                        <div className="flex items-start gap-3">
+                          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <Wrench className="size-4" />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Install
+                            </div>
+                            <div className="text-sm font-semibold">
+                              {formatDate(installJob.scheduled_date)}
+                              {installWindowLabel ? ` · ${installWindowLabel}` : ""}
+                            </div>
+                            {installJob.assigned_to &&
+                            names[installJob.assigned_to] ? (
+                              <div className="text-xs text-muted-foreground">
+                                {names[installJob.assigned_to]}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
 
                 {customer.next_action_due ? (
                   <div className="rounded-2xl border bg-card p-5 shadow-sm">
