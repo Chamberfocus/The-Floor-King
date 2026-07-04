@@ -217,7 +217,7 @@ export function InvoiceBuilder({
                 (p) => ({ value: p, label: ESTIMATE_PRESENTATION_LABELS[p] }),
               )}
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Lump sum prints one total (a “ball of wax”); Itemized prints the
               lines. You always keep the line items for your records.
             </p>

@@ -322,7 +322,7 @@ export function QuickEstimate({
       {/* Flooring block */}
       <Card className="border-primary/20">
         <CardContent className="space-y-2.5 p-3">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Flooring</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Flooring</div>
           <div className="flex flex-wrap gap-1.5">
             {FLOORING_TYPES.map((t) => {
               const p = profileFor(t)!;
@@ -388,7 +388,7 @@ export function QuickEstimate({
       <Card>
         <CardContent className="space-y-2 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Add-ons & extras</div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Add-ons & extras</div>
             <div className="flex gap-1.5">
               <PriceBookPicker triggerLabel="Add from price list" onPick={addPriced} />
               <Button type="button" variant="outline" size="sm" onClick={() => setLines((xs) => [...xs, mkLine()])}>
@@ -491,7 +491,7 @@ export function QuickEstimate({
 function QuickCostSell({ label, cost, sell, onCost, onSell }: { label: string; cost: string; sell: string; onCost: (v: string) => void; onSell: (v: string) => void }) {
   return (
     <div className="flex items-center gap-1">
-      <span className="w-24 shrink-0 text-[11px] text-muted-foreground">{label}</span>
+      <span className="w-24 shrink-0 text-xs text-muted-foreground">{label}</span>
       <span className="text-xs text-muted-foreground">$</span>
       <Input value={cost} onChange={(e) => onCost(e.target.value)} inputMode="decimal" placeholder="cost" className="h-8" />
       <span className="text-xs text-muted-foreground">→ $</span>

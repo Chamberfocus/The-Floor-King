@@ -180,7 +180,7 @@ export default async function DashboardPage() {
                           {q.stage_name ? (
                             <span
                               className={cn(
-                                "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
                                 STAGE_COLOR_BADGE[q.stage_color ?? "zinc"] ??
                                   STAGE_COLOR_BADGE.zinc,
                               )}

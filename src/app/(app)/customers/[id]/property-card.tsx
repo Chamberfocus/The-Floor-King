@@ -89,7 +89,7 @@ export function PropertyCard({
               </div>
             ) : null}
             {customer.property_checked_at ? (
-              <div className="mt-0.5 text-[11px] text-muted-foreground">
+              <div className="mt-0.5 text-xs text-muted-foreground">
                 as of {new Date(customer.property_checked_at).toLocaleDateString()}
               </div>
             ) : null}

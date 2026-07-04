@@ -50,7 +50,7 @@ export function ProfitLensCard({
               type="button"
               onClick={() => setLens(v)}
               className={cn(
-                "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+                "rounded px-2 py-0.5 text-xs font-medium transition-colors",
                 lens === v
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground",
@@ -74,7 +74,7 @@ export function ProfitLensCard({
           {up ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
           {formatMoney(Math.abs(delta))} vs last month
         </p>
-        <p className="mt-1 text-[11px] text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           {lens === "cash"
             ? "Money in minus money out this month."
             : completedJobs > 0

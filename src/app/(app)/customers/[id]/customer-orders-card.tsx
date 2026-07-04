@@ -92,7 +92,7 @@ export function CustomerOrdersCard({
                   <PoStatusBadge status={po.status} />
                   <span
                     className={cn(
-                      "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
                       po.source_type
                         ? PO_SOURCE_BADGE[po.source_type as PoSourceType]
                         : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",

@@ -520,7 +520,7 @@ export function GuidedWizard({
               i === step ? "bg-primary text-primary-foreground" : i < step ? "bg-primary/10 text-primary" : "text-muted-foreground",
             )}
           >
-            <span className="flex size-4 items-center justify-center rounded-full border text-[10px]">
+            <span className="flex size-4 items-center justify-center rounded-full border text-xs">
               {i < step ? <Check className="size-3" /> : i + 1}
             </span>
             {s}
@@ -674,7 +674,7 @@ export function GuidedWizard({
                   ) : null}
 
                   {/* Per-room prompts so nothing's missed for THIS room */}
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     This room also
                   </div>
                   <Toggle on={r.demo} onToggle={() => up(r.id, { demo: !r.demo })} label="Tear out / demo (existing floor)">
@@ -713,7 +713,7 @@ export function GuidedWizard({
 
                   {/* Any other add-on for THIS room — quick-add the common ones */}
                   <div className="rounded-md border p-2">
-                    <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                    <div className="flex flex-wrap items-center gap-1 text-xs">
                       <span className="font-medium uppercase tracking-wide text-muted-foreground">Add-ons</span>
                       {(profile.category === "carpet" ? CARPET_EXTRAS : HARD_EXTRAS).map((p) => (
                         <button key={p.label} type="button" onClick={() => addExtra(r.id, p)}
@@ -722,7 +722,7 @@ export function GuidedWizard({
                         </button>
                       ))}
                       <button type="button" onClick={() => addExtra(r.id)} className="rounded-full border px-2 py-0.5 hover:bg-muted">+ Custom</button>
-                      <PriceBookPicker triggerSize="sm" triggerVariant="ghost" triggerClassName="h-6 px-2 text-[11px]" onPick={(it) => addExtra(r.id, it)} />
+                      <PriceBookPicker triggerSize="sm" triggerVariant="ghost" triggerClassName="h-6 px-2 text-xs" onPick={(it) => addExtra(r.id, it)} />
                     </div>
                     {/* Pull any add-on straight from the catalog (trim, stair nose, metals…). */}
                     <div className="mt-1.5">
@@ -901,7 +901,7 @@ function FtIn({ label, ft, inch, onFt, onIn, disabled }: { label: string; ft: st
 function CostSell({ label, cost, sell, onCost, onSell, compact }: { label: string; cost: string; sell: string; onCost: (v: string) => void; onSell: (v: string) => void; compact?: boolean }) {
   return (
     <div className={compact ? "" : "space-y-1"}>
-      {!compact ? <label className="block text-[11px] text-muted-foreground">{label}</label> : null}
+      {!compact ? <label className="block text-xs text-muted-foreground">{label}</label> : null}
       <div className="flex items-center gap-1">
         <span className="text-xs text-muted-foreground">$</span>
         <Input value={cost} onChange={(e) => onCost(e.target.value)} inputMode="decimal" placeholder="cost" className="h-8" />

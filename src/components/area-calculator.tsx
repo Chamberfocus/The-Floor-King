@@ -110,7 +110,7 @@ export function AreaCalculator({
           </DialogHeader>
 
           <div className="space-y-2">
-            <div className="hidden grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-1 text-[11px] text-muted-foreground sm:grid">
+            <div className="hidden grid-cols-[auto_1fr_auto_auto_auto] gap-2 px-1 text-xs text-muted-foreground sm:grid">
               <span className="w-9" />
               <span>Area</span>
               <span className="text-center">Length (ft / in)</span>

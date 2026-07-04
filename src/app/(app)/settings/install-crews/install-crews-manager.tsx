@@ -87,11 +87,11 @@ export function InstallCrewsManager({
               <div className="min-w-0">
                 <div className="flex items-center gap-2 font-medium">
                   {c.name}
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
                     {c.kind === "employee" ? "Employee" : "Subcontractor"}
                   </span>
                   {!c.active ? (
-                    <span className="text-[11px] text-amber-600">inactive</span>
+                    <span className="text-xs text-amber-600">inactive</span>
                   ) : null}
                 </div>
                 <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">

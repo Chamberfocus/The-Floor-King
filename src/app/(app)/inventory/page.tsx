@@ -104,7 +104,7 @@ export default async function InventoryPage({
                   {p.clearance ? (
                     <form action={setClearance} className="flex items-center gap-1">
                       <input type="hidden" name="product_id" value={p.id} />
-                      <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+                      <span className="rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-800">
                         On clearance
                       </span>
                       <Button type="submit" size="sm" variant="ghost">
@@ -162,7 +162,7 @@ export default async function InventoryPage({
                       {p.name}
                     </Link>
                     {p.clearance ? (
-                      <span className="ml-1.5 rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                      <span className="ml-1.5 rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-800">
                         Clearance
                       </span>
                     ) : null}
@@ -174,7 +174,7 @@ export default async function InventoryPage({
                     <div className={cn("font-medium tabular-nums", low && "text-destructive")}>
                       {p.on_hand} {p.unit}
                     </div>
-                    {low ? <div className="text-[11px] font-medium text-destructive">low</div> : null}
+                    {low ? <div className="text-xs font-medium text-destructive">low</div> : null}
                   </div>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-muted-foreground">
@@ -222,7 +222,7 @@ export default async function InventoryPage({
                           {p.name}
                         </Link>
                         {p.clearance ? (
-                          <span className="rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                          <span className="rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-800">
                             Clearance
                           </span>
                         ) : null}
@@ -237,7 +237,7 @@ export default async function InventoryPage({
                         {p.on_hand} {p.unit}
                       </span>
                       {low ? (
-                        <span className="ml-1 text-[11px] font-medium text-destructive">low</span>
+                        <span className="ml-1 text-xs font-medium text-destructive">low</span>
                       ) : null}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">

@@ -147,7 +147,7 @@ export function GlobalSearch({ className }: { className?: string }) {
                 const Icon = ICON[g.type];
                 return (
                   <div key={g.type}>
-                    <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {g.label}
                     </div>
                     {g.hits.map((hit) => {

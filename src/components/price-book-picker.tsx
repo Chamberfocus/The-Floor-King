@@ -89,7 +89,7 @@ export function PriceBookPicker({
           <div className="max-h-[55vh] space-y-3 overflow-y-auto pr-1">
             {groups.map((g) => (
               <div key={g.group}>
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {g.group}
                 </div>
                 <div className="grid gap-1 sm:grid-cols-2">
@@ -104,7 +104,7 @@ export function PriceBookPicker({
                         {it.label}
                         <span
                           className={cn(
-                            "ml-1 text-[10px] uppercase",
+                            "ml-1 text-xs uppercase",
                             it.labor ? "text-amber-600" : "text-muted-foreground",
                           )}
                         >
@@ -113,7 +113,7 @@ export function PriceBookPicker({
                       </span>
                       <span className="shrink-0 font-medium tabular-nums">
                         {formatMoney(it.cost)}
-                        <span className="text-[10px] text-muted-foreground">/{it.unit}</span>
+                        <span className="text-xs text-muted-foreground">/{it.unit}</span>
                       </span>
                     </button>
                   ))}

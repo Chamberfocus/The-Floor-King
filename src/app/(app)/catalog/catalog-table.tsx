@@ -100,7 +100,7 @@ export function CatalogTable({
                 {showLanded ? (
                   <TableHead className="text-right">
                     Landed
-                    <span className="block text-[10px] font-normal text-muted-foreground">
+                    <span className="block text-xs font-normal text-muted-foreground">
                       +{freightPct}% freight
                     </span>
                   </TableHead>

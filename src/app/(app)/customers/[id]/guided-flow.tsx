@@ -512,14 +512,14 @@ export async function GuidedFlow({
       </div>
 
       {/* Do this next — the one prominent action for this customer */}
-      <Card className="overflow-hidden rounded-2xl border-primary/40 bg-gradient-to-b from-primary/[0.06] to-card shadow-sm ring-1 ring-primary/15">
+      <Card className="overflow-hidden rounded-lg border-primary/40 bg-gradient-to-b from-primary/[0.06] to-card shadow-sm ring-1 ring-primary/15">
         <CardContent className="space-y-4 pt-6">
           <div className="flex items-center gap-3">
             <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <Meta.icon className="size-5" />
             </span>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+              <p className="text-xs font-semibold uppercase tracking-wide text-primary">
                 Do this next
               </p>
               <p className="text-lg font-bold tracking-tight">{Meta.title}</p>

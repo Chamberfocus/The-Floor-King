@@ -220,7 +220,7 @@ export default async function SchedulingSettingsPage() {
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {fields.map((f) => (
                       <div key={f.name}>
-                        <label className="mb-0.5 block text-[11px] text-muted-foreground">
+                        <label className="mb-0.5 block text-xs text-muted-foreground">
                           {f.label}
                         </label>
                         <Input

@@ -914,12 +914,12 @@ export function EstimateBuilder({
                               {formatMoney(sell)}
                             </div>
                             {line.line_type !== "flat" && qty > 0 ? (
-                              <div className="text-[11px] tabular-nums text-muted-foreground">
+                              <div className="text-xs tabular-nums text-muted-foreground">
                                 {qty.toFixed(qty < 100 ? 1 : 0)} {unitLabel}
                               </div>
                             ) : null}
                             {ourCost > 0 ? (
-                              <div className="text-[11px] tabular-nums text-muted-foreground">
+                              <div className="text-xs tabular-nums text-muted-foreground">
                                 cost {formatMoney(ourCost)} · {Math.round(m)}%
                               </div>
                             ) : null}
@@ -980,7 +980,7 @@ export function EstimateBuilder({
                         </span>
                       </div>
                       {costSplit.mat > 0 || costSplit.labor > 0 ? (
-                        <div className="flex justify-between pl-3 text-[11px] text-muted-foreground/80">
+                        <div className="flex justify-between pl-3 text-xs text-muted-foreground/80">
                           <span>
                             ↳ Material {formatMoney(costSplit.mat)} · Labor{" "}
                             {formatMoney(costSplit.labor)}

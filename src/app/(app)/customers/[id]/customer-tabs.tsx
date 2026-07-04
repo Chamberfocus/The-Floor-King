@@ -117,7 +117,7 @@ export function CustomerTabs({
                 {n > 0 ? (
                   <span
                     className={cn(
-                      "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                      "rounded-full px-1.5 py-0.5 text-xs font-semibold",
                       on ? "bg-primary-foreground/20" : "bg-muted text-foreground",
                     )}
                   >

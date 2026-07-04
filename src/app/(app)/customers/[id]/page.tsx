@@ -312,7 +312,7 @@ export default async function CustomerPage({
           all in one place (replaces the plain header + its scattered bits). */}
       <section
         id="overview"
-        className="relative mb-4 scroll-mt-24 overflow-hidden rounded-2xl border bg-card p-5 shadow-sm sm:p-6"
+        className="relative mb-4 scroll-mt-24 overflow-hidden rounded-lg border bg-card p-5 shadow-sm sm:p-6"
       >
         <span
           aria-hidden
@@ -346,7 +346,7 @@ export default async function CustomerPage({
           </div>
           <div className="flex items-center gap-2.5">
             <div className="text-right leading-tight">
-              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Owner
               </div>
               <div className="text-sm font-semibold">
@@ -495,8 +495,8 @@ export default async function CustomerPage({
 
               {/* Right: money + due rail */}
               <aside className="space-y-4">
-                <div className="rounded-2xl border bg-card p-5 shadow-sm">
-                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="rounded-lg border bg-card p-5 shadow-sm">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Money
                   </p>
                   {money.invoiced > 0 || money.balance > 0 ? (
@@ -550,8 +550,8 @@ export default async function CustomerPage({
                 </div>
 
                 {estimateAppointment || installJob?.scheduled_date ? (
-                  <div className="rounded-2xl border bg-card p-5 shadow-sm">
-                    <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <div className="rounded-lg border bg-card p-5 shadow-sm">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Schedule
                     </p>
                     <div className="space-y-3.5">
@@ -561,7 +561,7 @@ export default async function CustomerPage({
                             <CalendarClock className="size-4" />
                           </span>
                           <div className="min-w-0">
-                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                               Estimate
                             </div>
                             <div className="text-sm font-semibold">
@@ -582,7 +582,7 @@ export default async function CustomerPage({
                             <Wrench className="size-4" />
                           </span>
                           <div className="min-w-0">
-                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                               Install
                             </div>
                             <div className="text-sm font-semibold">
@@ -603,8 +603,8 @@ export default async function CustomerPage({
                 ) : null}
 
                 {customer.next_action_due ? (
-                  <div className="rounded-2xl border bg-card p-5 shadow-sm">
-                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <div className="rounded-lg border bg-card p-5 shadow-sm">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Next action due
                     </p>
                     <p className="text-sm font-semibold">

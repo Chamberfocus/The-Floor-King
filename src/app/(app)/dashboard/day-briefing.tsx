@@ -189,7 +189,7 @@ export function DayBriefing({
                       >
                         {t.title}
                         {t.urgent && !done ? (
-                          <span className="ml-2 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
+                          <span className="ml-2 rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs font-semibold text-destructive">
                             overdue
                           </span>
                         ) : null}

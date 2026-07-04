@@ -262,7 +262,7 @@ export function CalendarBoard({
               <div
                 key={t}
                 style={{ height: ROW_H }}
-                className="relative border-b text-[10px] text-muted-foreground"
+                className="relative border-b text-xs text-muted-foreground"
               >
                 <span className="absolute -top-1.5 right-1">{to12(t)}</span>
               </div>
@@ -317,7 +317,7 @@ export function CalendarBoard({
                         onClick={() => setDetail(a)}
                         style={{ top: Math.max(0, top), height: h }}
                         className={cn(
-                          "absolute inset-x-1 overflow-hidden rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight shadow-sm",
+                          "absolute inset-x-1 overflow-hidden rounded-md border px-1.5 py-1 text-left text-xs leading-tight shadow-sm",
                           c.block,
                           pendingStyle && "border-dashed opacity-90 ring-1 ring-amber-400",
                           a.isBlock && "bg-gray-100 text-gray-600",
@@ -440,7 +440,7 @@ function MonthGrid({
                         onAppt(a);
                       }}
                       className={cn(
-                        "block w-full truncate rounded px-1 py-0.5 text-left text-[10px] leading-tight",
+                        "block w-full truncate rounded px-1 py-0.5 text-left text-xs leading-tight",
                         c.block,
                         a.status === "pending" &&
                           "border border-dashed opacity-90",
@@ -463,7 +463,7 @@ function MonthGrid({
                       e.stopPropagation();
                       onDay(d);
                     }}
-                    className="block w-full px-1 text-left text-[10px] font-medium text-muted-foreground hover:text-foreground"
+                    className="block w-full px-1 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
                   >
                     +{extra} more
                   </button>

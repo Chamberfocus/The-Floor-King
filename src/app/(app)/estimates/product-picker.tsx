@@ -236,7 +236,7 @@ export function ProductPicker({
                           </span>
                           <span className="mt-0.5 flex flex-wrap gap-1">
                             {p.clearance && p.clearance_price != null ? (
-                              <span className="inline-block rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                              <span className="inline-block rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-800">
                                 🔖 Clearance {formatMoney(p.clearance_price)}/
                                 {p.unit}
                               </span>
@@ -244,7 +244,7 @@ export function ProductPicker({
                             {p.track_stock ? (
                               <span
                                 className={cn(
-                                  "inline-block rounded px-1.5 py-0.5 text-[10px] font-medium",
+                                  "inline-block rounded px-1.5 py-0.5 text-xs font-medium",
                                   p.on_hand > 0
                                     ? "bg-emerald-100 text-emerald-700"
                                     : "bg-amber-100 text-amber-700",
@@ -265,11 +265,11 @@ export function ProductPicker({
                             </span>
                           </span>
                           {isCarpet ? (
-                            <span className="block text-[11px] font-medium tabular-nums text-primary">
+                            <span className="block text-xs font-medium tabular-nums text-primary">
                               {formatMoney(perSqyd)}/sq yd
                             </span>
                           ) : null}
-                          <span className="block text-[11px] tabular-nums text-muted-foreground">
+                          <span className="block text-xs tabular-nums text-muted-foreground">
                             mat {formatMoney(p.material_rate)} · lab{" "}
                             {formatMoney(p.labor_rate)}
                           </span>

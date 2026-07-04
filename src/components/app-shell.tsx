@@ -47,13 +47,13 @@ function NavLinks({ role, onNavigate }: { role: Profile["role"]; onNavigate?: ()
             href={item.href}
             onClick={onNavigate}
             className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              "flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm transition-colors",
               active
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm"
+                : "font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
             )}
           >
-            <Icon className="size-4 shrink-0" />
+            <Icon className="size-5 shrink-0" />
             {item.label}
           </Link>
         );
@@ -153,7 +153,7 @@ function MobileBottomNav({
   if (!items.length) return null;
 
   const cell =
-    "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium min-w-0";
+    "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-xs font-medium min-w-0";
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 pb-[env(safe-area-inset-bottom)] md:hidden print:hidden"
