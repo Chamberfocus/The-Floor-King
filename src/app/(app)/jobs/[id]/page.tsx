@@ -212,28 +212,31 @@ export default async function JobPage({
             )}
           </p>
         </div>
-        {/* Quick actions — the assigned installer or staff */}
+        {/* Quick actions — the assigned installer or staff. On phones the two
+            on-site actions go big and full-width; Print tucks to the side. */}
         {isStaff || isAssignedToMe ? (
-          <div className="flex items-center gap-2">
-            <PrintButton label="Print work order" size="default" />
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             {job.status !== "in_progress" && job.status !== "completed" ? (
-              <form action={setJobStatus}>
+              <form action={setJobStatus} className="w-full sm:w-auto">
                 <input type="hidden" name="id" value={job.id} />
                 <input type="hidden" name="status" value="in_progress" />
-                <Button type="submit" variant="outline">
+                <Button type="submit" variant="outline" className="w-full sm:w-auto">
                   <Play className="size-4" /> Start job
                 </Button>
               </form>
             ) : null}
             {job.status !== "completed" ? (
-              <form action={setJobStatus}>
+              <form action={setJobStatus} className="w-full sm:w-auto">
                 <input type="hidden" name="id" value={job.id} />
                 <input type="hidden" name="status" value="completed" />
-                <Button type="submit">
+                <Button type="submit" size="lg" className="w-full sm:w-auto">
                   <Check className="size-4" /> Mark complete
                 </Button>
               </form>
             ) : null}
+            <div className="w-full sm:w-auto">
+              <PrintButton label="Print work order" size="default" />
+            </div>
           </div>
         ) : null}
       </div>
