@@ -31,6 +31,7 @@ import {
 } from "@/lib/types";
 import type { CalendarAppointment, BookingStaff } from "@/lib/data/booking";
 import { CustomerSearch } from "./customer-search";
+import { OnTheWayButton } from "@/app/(app)/customers/[id]/on-the-way-button";
 import {
   createAppointment,
   rescheduleAppointment,
@@ -665,6 +666,13 @@ function DetailDialog({
             </p>
           ) : null}
         </div>
+
+        {/* Tell this customer you're on the way (texts + emails them + ETA). */}
+        {!appt.isBlock && appt.customerId ? (
+          <div className="border-t pt-3">
+            <OnTheWayButton customerId={appt.customerId} />
+          </div>
+        ) : null}
 
         {/* Confirm (pending) or Reschedule */}
         <form
