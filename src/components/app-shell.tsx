@@ -16,6 +16,7 @@ import { GlobalSearch } from "@/components/global-search";
 import { ImportJobsBanner } from "@/components/import-jobs-banner";
 import { AreaCalculator } from "@/components/area-calculator";
 import { FieldAssistant } from "@/components/field-assistant";
+import { OnMyWayFab } from "@/components/on-my-way-fab";
 import { cn } from "@/lib/utils";
 import { APP_NAME, COMPANY_NAME, navItemsForRole } from "@/lib/nav";
 import { ROLE_LABELS, type OrgSettings, type Profile } from "@/lib/types";
@@ -251,6 +252,7 @@ export function AppShell({
 
       <MobileBottomNav role={profile.role} onMore={() => setMobileOpen(true)} />
       {profile.role !== "customer" ? <FieldAssistant /> : null}
+      {profile.role !== "customer" ? <OnMyWayFab /> : null}
     </div>
   );
 }

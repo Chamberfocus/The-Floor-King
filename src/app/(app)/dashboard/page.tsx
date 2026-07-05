@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Plus,
   AlertTriangle,
+  Truck,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -21,6 +22,8 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getDashboardCounts, listMyQueue } from "@/lib/data/customers";
 import { getTodayTasks } from "@/lib/data/day-tasks";
+import { myStopsToday } from "@/lib/data/my-stops";
+import { TodaysStopsList } from "@/components/todays-stops-list";
 import { getActiveJobCount } from "@/lib/data/jobs";
 import { getOutstandingInvoiceCount } from "@/lib/data/invoices";
 import { STAGE_COLOR_BADGE } from "@/lib/types";
@@ -39,6 +42,7 @@ export default async function DashboardPage() {
   const outstanding = await getOutstandingInvoiceCount();
   const queue = await listMyQueue(profile.id);
   const todayTasks = await getTodayTasks();
+  const myStops = await myStopsToday();
   const nowMs = Date.now();
   const overdueCount = queue.filter(
     (q) => q.next_action_due && new Date(q.next_action_due).getTime() < nowMs,
@@ -97,6 +101,19 @@ export default async function DashboardPage() {
           <Plus className="size-4" /> Add lead
         </Link>
       </PageHeader>
+
+      {myStops.length > 0 ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Truck className="size-5 text-primary" /> Your stops today
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TodaysStopsList stops={myStops} />
+          </CardContent>
+        </Card>
+      ) : null}
 
       <DayBriefing firstName={firstName} tasks={todayTasks} />
 
