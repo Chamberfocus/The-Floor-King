@@ -255,7 +255,8 @@ export function CalendarBoard({
         />
       ) : (
       <div className="overflow-x-auto rounded-lg border">
-        <div className="flex min-w-[640px]">
+        {/* Day view fits a phone (1 column); only the 7-day Week view needs width. */}
+        <div className={cn("flex", view === "week" && "min-w-[640px]")}>
           {/* Time gutter */}
           <div className="w-14 shrink-0 border-r bg-muted/30">
             <div className="h-10 border-b" />

@@ -85,7 +85,7 @@ export default async function JobCalendarPage({
       </div>
 
       <div className="overflow-x-auto">
-        <div className="min-w-[700px]">
+        <div className="min-w-0 sm:min-w-[700px]">
           <div className="grid grid-cols-7 border-b text-xs font-medium text-muted-foreground">
             {WEEKDAYS.map((d) => (
               <div key={d} className="p-2">
