@@ -207,7 +207,7 @@ export function AppShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar: mobile menu (mobile only) + global search (always) */}
-        <header className="flex items-center gap-3 border-b bg-background px-4 py-3 print:hidden">
+        <header className="flex items-center gap-3 border-b bg-background px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] print:hidden">
           <div className="md:hidden">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger
