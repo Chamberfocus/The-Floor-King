@@ -93,7 +93,6 @@ import { OnTheWayButton } from "./on-the-way-button";
 import { GuidedFlow } from "./guided-flow";
 import { getCustomerEstimateAppointment } from "@/lib/data/scheduling";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { AreaCalculator } from "@/components/area-calculator";
 import { CancelCustomer } from "./cancel-customer";
 import { AiFollowup } from "./ai-followup";
 import {
@@ -393,12 +392,17 @@ export default async function CustomerPage({
           </div>
         ) : null}
 
-        <div className="mt-4 flex flex-wrap items-center gap-3 border-t pt-4">
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <AreaCalculator triggerLabel="Calculator" triggerVariant="outline" />
-            {!customer.cancelled_at ? (
-              <OnTheWayButton customerId={customer.id} />
-            ) : null}
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
+          <CustomerSettingsMenu
+            customer={customer}
+            canDelete={canDelete}
+            portalUser={portalUser}
+            defaultEmail={customer.email ?? ""}
+          />
+          {!customer.cancelled_at ? (
+            <OnTheWayButton customerId={customer.id} />
+          ) : null}
+          <div className="ml-auto">
             <CancelCustomer
               customerId={customer.id}
               name={customer.full_name}
@@ -462,14 +466,6 @@ export default async function CustomerPage({
           files: documents.length,
           messages: messages.length,
         }}
-        settings={
-          <CustomerSettingsMenu
-            customer={customer}
-            canDelete={canDelete}
-            portalUser={portalUser}
-            defaultEmail={customer.email ?? ""}
-          />
-        }
       >
         {/* Guided flow — progress + owner/money + the one next step inline. */}
         {!customer.cancelled_at ? (

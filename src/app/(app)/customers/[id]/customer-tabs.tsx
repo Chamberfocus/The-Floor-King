@@ -65,7 +65,7 @@ export function CustomerTabs({
   defaultTab = "overview",
 }: {
   counts: TabCounts;
-  settings: React.ReactNode;
+  settings?: React.ReactNode;
   children: React.ReactNode;
   /** Visible tabs, in order (personal preference). */
   tabs?: CustomerTab[];
@@ -128,7 +128,9 @@ export function CustomerTabs({
             );
           })}
         </div>
-        <div className="shrink-0 border-l pl-1.5">{settings}</div>
+        {settings ? (
+          <div className="shrink-0 border-l pl-1.5">{settings}</div>
+        ) : null}
       </nav>
       {children}
     </TabCtx.Provider>

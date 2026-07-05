@@ -40,8 +40,8 @@ export function CancelCustomer({
     return (
       <form action={reopenCustomer}>
         <input type="hidden" name="id" value={customerId} />
-        <SubmitButton variant="outline" size="sm" pendingText="Reopening…" confirm="Customer reopened">
-          <RotateCcw className="size-4" /> Reopen customer
+        <SubmitButton variant="outline" pendingText="Reopening…" confirm="Customer reopened">
+          <RotateCcw className="size-4" /> Reopen job
         </SubmitButton>
       </form>
     );
@@ -52,11 +52,10 @@ export function CancelCustomer({
       <Button
         type="button"
         variant="outline"
-        size="sm"
         className="text-destructive hover:text-destructive"
         onClick={() => setOpen(true)}
       >
-        <Ban className="size-4" /> Cancel
+        <Ban className="size-4" /> Cancel job
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>

@@ -55,7 +55,7 @@ export function CustomerSettingsMenu({
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button variant="outline" onClick={() => setOpen(true)}>
         <Settings2 className="size-4" /> Settings
       </Button>
 
