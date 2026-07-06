@@ -1,19 +1,31 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CalendarOff, Users } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  CalendarOff,
+  Users,
+  BellRing,
+} from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { redirect } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
 import { listTeamMembers } from "@/lib/data/team";
-import { getWorkDaysMap, listTimeOff } from "@/lib/data/team-schedule";
+import {
+  getShiftsMap,
+  listTimeOff,
+  listPendingTimeOff,
+} from "@/lib/data/team-schedule";
 import { ROLE_LABELS, SCHEDULE_ROLES } from "@/lib/types";
 import { fromYmd, addDaysYmd } from "@/lib/scheduling";
+import { to12 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AddDayOff } from "./add-day-off";
 import { DeleteDayOff } from "./day-off-actions";
-import { WorkDaysEditor } from "./work-days-editor";
+import { ApprovalActions } from "./approval-actions";
+import { ShiftEditor } from "./shift-editor";
 
 export const metadata: Metadata = { title: "Team Schedule" };
 
@@ -23,7 +35,6 @@ const MON = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
-const DEFAULT_WORK = "1,2,3,4,5,6"; // Mon–Sat until set per person
 const KIND_LABEL: Record<string, string> = {
   off: "Off",
   vacation: "Vacation",
@@ -57,14 +68,13 @@ export default async function TeamSchedulePage({
     timeZone: "America/New_York",
   }).format(new Date());
 
-  // Work out the visible grid + navigation for the chosen view.
   let gridDays: string[];
   let rangeStart: string;
   let rangeEnd: string;
   let periodLabel: string;
   let prevHref: string;
   let nextHref: string;
-  let monthKey = ""; // set in month view, used to dim adjacent-month days
+  let monthKey = "";
 
   if (view === "month") {
     const monthParam =
@@ -101,12 +111,16 @@ export default async function TeamSchedulePage({
     nextHref = `/team?week=${addDaysYmd(monday, 7)}`;
   }
 
-  const [membersRaw, workMap, rangeOff, upcoming] = await Promise.all([
-    listTeamMembers(),
-    getWorkDaysMap(),
-    listTimeOff(rangeStart, rangeEnd),
-    listTimeOff(todayYmd, addDaysYmd(todayYmd, 45)),
-  ]);
+  const [membersRaw, shiftsMap, rangeOff, upcoming, pending] =
+    await Promise.all([
+      listTeamMembers(),
+      getShiftsMap(),
+      listTimeOff(rangeStart, rangeEnd), // approved only
+      listTimeOff(todayYmd, addDaysYmd(todayYmd, 45)),
+      isManager
+        ? listPendingTimeOff(todayYmd)
+        : Promise.resolve([] as Awaited<ReturnType<typeof listPendingTimeOff>>),
+    ]);
   const members = membersRaw.filter(
     (m) => m.active && SCHEDULE_ROLES.includes(m.role),
   );
@@ -116,15 +130,9 @@ export default async function TeamSchedulePage({
     return m?.full_name || m?.email || "—";
   };
   const firstName = (id: string) => nameOf(id).split(" ")[0];
-  const workSet = (id: string) =>
-    new Set(
-      (workMap[id] ?? DEFAULT_WORK)
-        .split(",")
-        .map(Number)
-        .filter((n) => n >= 0 && n <= 6),
-    );
+  const shiftOf = (id: string, weekday: number) => shiftsMap[id]?.[weekday];
 
-  // day ymd -> (userId -> kind)
+  // day ymd -> (userId -> kind), approved off only
   const offByDay = new Map<string, Map<string, string>>();
   for (const d of gridDays) offByDay.set(d, new Map());
   for (const t of rangeOff) {
@@ -152,10 +160,43 @@ export default async function TeamSchedulePage({
     <div>
       <PageHeader
         title="Team Schedule"
-        description="Who's working each day, and who's off. Post your own days off — everyone sees them."
+        description="Each person's working hours, and who's off. Request a day off — it's approved automatically unless it clashes with someone already off."
       >
         <AddDayOff isManager={isManager} members={memberOptions} />
       </PageHeader>
+
+      {/* Approval queue — managers only */}
+      {isManager && pending.length > 0 ? (
+        <Card className="mb-6 border-amber-300 dark:border-amber-900">
+          <CardContent className="pt-6">
+            <div className="mb-3 flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-400">
+              <BellRing className="size-4" /> Needs your approval (
+              {pending.length})
+            </div>
+            <ul className="divide-y">
+              {pending.map((t) => (
+                <li
+                  key={t.id}
+                  className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+                >
+                  <div className="min-w-0">
+                    <span className="font-medium">{nameOf(t.user_id)}</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      — {KIND_LABEL[t.kind] ?? "Off"} ·{" "}
+                      {t.start_date === t.end_date
+                        ? mdLabel(t.start_date)
+                        : `${mdLabel(t.start_date)} – ${mdLabel(t.end_date)}`}
+                      {t.note ? ` · ${t.note}` : ""}
+                    </span>
+                  </div>
+                  <ApprovalActions id={t.id} />
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* View toggle + period navigation */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -163,10 +204,7 @@ export default async function TeamSchedulePage({
           <Link href="/team" className={toggleCls(view === "week")}>
             Week
           </Link>
-          <Link
-            href="/team?view=month"
-            className={toggleCls(view === "month")}
-          >
+          <Link href="/team?view=month" className={toggleCls(view === "month")}>
             Month
           </Link>
         </div>
@@ -198,13 +236,13 @@ export default async function TeamSchedulePage({
       </div>
 
       {view === "week" ? (
-        /* Week: a card per day with the full working / off roster */
+        /* Week: a card per day with each person's hours + who's off */
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
           {gridDays.map((d) => {
             const weekday = fromYmd(d).getUTCDay();
             const off = offByDay.get(d)!;
             const working = members.filter(
-              (m) => workSet(m.id).has(weekday) && !off.has(m.id),
+              (m) => shiftOf(m.id, weekday) && !off.has(m.id),
             );
             const offList = members.filter((m) => off.has(m.id));
             const isToday = d === todayYmd;
@@ -223,14 +261,22 @@ export default async function TeamSchedulePage({
                   </span>
                 </div>
                 <div className="space-y-1">
-                  {working.map((m) => (
-                    <div
-                      key={m.id}
-                      className="truncate rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                    >
-                      {m.full_name || m.email}
-                    </div>
-                  ))}
+                  {working.map((m) => {
+                    const s = shiftOf(m.id, weekday)!;
+                    return (
+                      <div
+                        key={m.id}
+                        className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                      >
+                        <div className="truncate font-medium">
+                          {m.full_name || m.email}
+                        </div>
+                        <div className="text-[10px] opacity-80">
+                          {to12(s.start)}–{to12(s.end)}
+                        </div>
+                      </div>
+                    );
+                  })}
                   {offList.map((m) => (
                     <div
                       key={m.id}
@@ -251,7 +297,7 @@ export default async function TeamSchedulePage({
           })}
         </div>
       ) : (
-        /* Month: a calendar grid focused on who's off (coverage at a glance) */
+        /* Month: calendar grid focused on who's off (coverage at a glance) */
         <div className="overflow-x-auto">
           <div className="min-w-[640px]">
             <div className="grid grid-cols-7 text-center text-xs font-semibold text-muted-foreground">
@@ -306,7 +352,7 @@ export default async function TeamSchedulePage({
           </div>
           {upcoming.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No days off in the next 45 days.
+              No approved days off in the next 45 days.
             </p>
           ) : (
             <ul className="divide-y">
@@ -341,35 +387,26 @@ export default async function TeamSchedulePage({
         </CardContent>
       </Card>
 
-      {/* Weekly work days — office/admin only */}
+      {/* Weekly hours template — office/admin only */}
       {isManager ? (
         <Card className="mt-6">
           <CardContent className="pt-6">
             <div className="mb-1 flex items-center gap-2 font-semibold">
-              <Users className="size-4 text-muted-foreground" /> Regular work
-              days
+              <Users className="size-4 text-muted-foreground" /> Working hours
             </div>
             <p className="mb-4 text-sm text-muted-foreground">
-              Set each person&apos;s normal working days. Taps save instantly.
-              (M T W T F S S)
+              Set each person&apos;s weekly hours. This is the schedule everyone
+              works to — changes save instantly.
             </p>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {members.map((m) => (
-                <div
+                <ShiftEditor
                   key={m.id}
-                  className="flex flex-wrap items-center justify-between gap-3"
-                >
-                  <div className="min-w-0">
-                    <div className="font-medium">{m.full_name || m.email}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {ROLE_LABELS[m.role]}
-                    </div>
-                  </div>
-                  <WorkDaysEditor
-                    userId={m.id}
-                    workDays={workMap[m.id] ?? DEFAULT_WORK}
-                  />
-                </div>
+                  userId={m.id}
+                  name={m.full_name || m.email}
+                  roleLabel={ROLE_LABELS[m.role]}
+                  shifts={shiftsMap[m.id] ?? {}}
+                />
               ))}
             </div>
           </CardContent>

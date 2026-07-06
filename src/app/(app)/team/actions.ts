@@ -5,26 +5,49 @@ import { requireProfile } from "@/lib/auth";
 import {
   addTimeOff,
   deleteTimeOff,
-  setWorkDays,
+  decideTimeOff,
+  findConflicts,
+  setShift,
+  clearShift,
+  listManagerEmails,
 } from "@/lib/data/team-schedule";
+import { getProfileNames } from "@/lib/data/customers";
 import {
   syncTimeOffToGoogle,
   removeTimeOffFromGoogle,
 } from "@/lib/data/google-calendar";
+import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 
 export interface DayOffState {
   error: string | null;
   ok?: boolean;
+  pending?: boolean;
+  /** Names of people already off on the requested days (coverage clash). */
+  conflicts?: string[];
 }
 
 const KINDS = ["off", "vacation", "sick", "personal"];
+const KIND_LABEL: Record<string, string> = {
+  off: "Day off",
+  vacation: "Vacation",
+  sick: "Sick",
+  personal: "Personal",
+};
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-/** Post a day (or range) off. Anyone posts their own; office/admin for anyone. */
-export async function addDayOff(
+function fmt(start: string, end: string): string {
+  return start === end ? start : `${start} → ${end}`;
+}
+
+/**
+ * Request a day (or range) off. Auto-approved when nobody else is off those
+ * days; if it clashes with someone already off it goes to a manager to approve,
+ * and they get an email. Approved days off mirror to the shared calendar.
+ */
+export async function requestDayOff(
   _prev: DayOffState,
   formData: FormData,
 ): Promise<DayOffState> {
@@ -44,21 +67,90 @@ export async function addDayOff(
   if (!start) return { error: "Pick a date." };
   if (end < start) end = start;
 
+  const clashes = await findConflicts(userId, start, end);
+  const conflictNames = clashes.length
+    ? Object.values(await getProfileNames(clashes.map((c) => c.user_id)))
+    : [];
+
+  // Managers posting directly are trusted to have checked coverage → approve.
+  const status = clashes.length && !isManager ? "pending" : "approved";
+
   const id = await addTimeOff({
     userId,
     startDate: start,
     endDate: end,
     kind,
     note,
+    status,
   });
   if (!id) return { error: "Couldn't save — please try again." };
 
-  await syncTimeOffToGoogle(id); // best-effort mirror to shared calendar
+  if (status === "approved") {
+    await syncTimeOffToGoogle(id); // best-effort mirror to shared calendar
+  } else {
+    await notifyManagersOfRequest({
+      requester:
+        Object.values(await getProfileNames([userId]))[0] || "A team member",
+      range: fmt(start, end),
+      kind: KIND_LABEL[kind] ?? "Day off",
+      conflictNames,
+    });
+  }
+
   revalidatePath("/team");
-  return { error: null, ok: true };
+  return {
+    error: null,
+    ok: true,
+    pending: status === "pending",
+    conflicts: conflictNames,
+  };
 }
 
-/** Remove a day off (own, or office/admin). */
+async function notifyManagersOfRequest(info: {
+  requester: string;
+  range: string;
+  kind: string;
+  conflictNames: string[];
+}): Promise<void> {
+  const emails = await listManagerEmails();
+  if (!emails.length) return;
+  const clash = info.conflictNames.length
+    ? `<p><strong>Heads up:</strong> ${info.conflictNames.join(
+        ", ",
+      )} ${info.conflictNames.length > 1 ? "are" : "is"} already off during this time.</p>`
+    : "";
+  const html = emailLayout(
+    "Time-off request needs approval",
+    `<p><strong>${info.requester}</strong> requested time off.</p>
+     <p>${info.kind} · ${info.range}</p>
+     ${clash}`,
+    { label: "Review request", url: `${siteUrl()}/team` },
+  );
+  await Promise.all(
+    emails.map((to) =>
+      sendEmail({ to, subject: `Time-off request — ${info.requester}`, html }),
+    ),
+  );
+}
+
+/** Approve a pending request (manager). Mirrors it to the shared calendar. */
+export async function approveDayOff(id: string): Promise<void> {
+  const profile = await requireProfile();
+  if (!(profile.role === "admin" || profile.role === "office") || !id) return;
+  await decideTimeOff(id, "approved");
+  await syncTimeOffToGoogle(id);
+  revalidatePath("/team");
+}
+
+/** Deny a pending request (manager). */
+export async function denyDayOff(id: string): Promise<void> {
+  const profile = await requireProfile();
+  if (!(profile.role === "admin" || profile.role === "office") || !id) return;
+  await decideTimeOff(id, "denied");
+  revalidatePath("/team");
+}
+
+/** Remove a day off (own, or manager). */
 export async function removeDayOff(id: string): Promise<void> {
   const profile = await requireProfile();
   if (profile.role === "customer" || !id) return;
@@ -67,17 +159,17 @@ export async function removeDayOff(id: string): Promise<void> {
   revalidatePath("/team");
 }
 
-/** Set one person's regular weekly working days (office/admin only). */
-export async function saveWorkDays(
+/** Set one weekday's hours for a person (office/admin). Empty = mark off. */
+export async function saveShift(
   userId: string,
-  days: number[],
+  weekday: number,
+  start: string | null,
+  end: string | null,
 ): Promise<void> {
   const profile = await requireProfile();
   if (!(profile.role === "admin" || profile.role === "office")) return;
-  if (!userId) return;
-  const clean = Array.from(new Set(days.filter((d) => d >= 0 && d <= 6))).sort(
-    (a, b) => a - b,
-  );
-  await setWorkDays(userId, clean.join(","));
+  if (!userId || weekday < 0 || weekday > 6) return;
+  if (start && end) await setShift(userId, weekday, start, end);
+  else await clearShift(userId, weekday);
   revalidatePath("/team");
 }
