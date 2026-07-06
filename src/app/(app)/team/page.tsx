@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CalendarOff, Users, BellRing } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarOff, BellRing } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -41,10 +41,6 @@ function mdLabel(ymd: string): string {
 }
 function dayLabel(ymd: string): string {
   return `${DOW_FULL[fromYmd(ymd).getUTCDay()]}, ${mdLabel(ymd)}`;
-}
-/** Compact time: "9:00 AM" → "9a", "9:30 AM" → "9:30a". */
-function compact(hm: string): string {
-  return to12(hm).replace(":00 ", " ").replace(" AM", "a").replace(" PM", "p");
 }
 function mondayOf(ymd: string): string {
   return addDaysYmd(ymd, -((fromYmd(ymd).getUTCDay() + 6) % 7));
@@ -153,6 +149,25 @@ export default async function TeamSchedulePage({
       }
     }
   }
+  // Plain-object versions for the client grid (Maps don't cross the boundary).
+  const offObj: Record<string, Record<string, string>> = {};
+  for (const [ymd, m] of offByDay)
+    for (const [uid, kind] of m) (offObj[uid] ??= {})[ymd] = kind;
+  const weekColumns = gridDays.map((d) => {
+    const wd = fromYmd(d).getUTCDay();
+    return {
+      weekday: wd,
+      top: DOW[wd],
+      bottom: mdLabel(d),
+      ymd: d,
+      isToday: d === todayYmd,
+    };
+  });
+  const gridMembers = members.map((m) => ({
+    id: m.id,
+    name: m.full_name || m.email,
+    roleLabel: ROLE_LABELS[m.role],
+  }));
 
   // What a person is doing on a date: a shift, off (with reason), or nothing.
   type Cell =
@@ -274,62 +289,22 @@ export default async function TeamSchedulePage({
           })}
         </div>
       ) : view === "week" ? (
-        /* ---- WEEK: employees × 7 days grid ---- */
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="bg-muted/40">
-                <th className="sticky left-0 z-10 min-w-32 bg-muted/40 px-3 py-2 text-left font-semibold">Employee</th>
-                {gridDays.map((d) => (
-                  <th
-                    key={d}
-                    className={cn(
-                      "min-w-20 px-2 py-2 text-center font-semibold",
-                      d === todayYmd ? "text-primary" : "text-muted-foreground",
-                    )}
-                  >
-                    <div>{DOW[fromYmd(d).getUTCDay()]}</div>
-                    <div className="text-xs font-normal">{mdLabel(d)}</div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((m) => (
-                <tr key={m.id} className="border-t">
-                  <td className="sticky left-0 z-10 min-w-32 bg-background px-3 py-2">
-                    <div className="font-medium">{m.full_name || m.email}</div>
-                    <div className="text-xs text-muted-foreground">{ROLE_LABELS[m.role]}</div>
-                  </td>
-                  {gridDays.map((d) => {
-                    const c = cellFor(m.id, d);
-                    return (
-                      <td
-                        key={d}
-                        className={cn(
-                          "px-1.5 py-2 text-center align-middle text-xs",
-                          d === todayYmd && "bg-primary/5",
-                        )}
-                      >
-                        {c?.kind === "work" ? (
-                          <span className="font-medium text-emerald-700 dark:text-emerald-300">
-                            {compact(c.start)}–{compact(c.end)}
-                          </span>
-                        ) : c?.kind === "off" ? (
-                          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                            {KIND_LABEL[c.reason] ?? "Off"}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">·</span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        /* ---- WEEK: employees × 7 days grid (managers edit in place) ---- */
+        <>
+          {isManager ? (
+            <p className="mb-2 text-sm text-muted-foreground">
+              Click any day to change that person&apos;s hours — it saves right
+              away.
+            </p>
+          ) : null}
+          <ShiftGrid
+            members={gridMembers}
+            columns={weekColumns}
+            shifts={shiftsMap}
+            off={offObj}
+            editable={isManager}
+          />
+        </>
       ) : (
         /* ---- MONTH: employees × days heat grid ---- */
         <div>
@@ -443,28 +418,6 @@ export default async function TeamSchedulePage({
         </CardContent>
       </Card>
 
-      {/* Weekly schedule editor — office/admin only */}
-      {isManager ? (
-        <Card className="mt-6">
-          <CardContent className="pt-6">
-            <div className="mb-1 flex items-center gap-2 font-semibold">
-              <Users className="size-4 text-muted-foreground" /> Set weekly hours
-            </div>
-            <p className="mb-4 text-sm text-muted-foreground">
-              The schedule everyone works to. Click a day to set that person&apos;s
-              hours — changes save instantly and show up in the views above.
-            </p>
-            <ShiftGrid
-              members={members.map((m) => ({
-                id: m.id,
-                name: m.full_name || m.email,
-                roleLabel: ROLE_LABELS[m.role],
-              }))}
-              shifts={shiftsMap}
-            />
-          </CardContent>
-        </Card>
-      ) : null}
     </div>
   );
 }
