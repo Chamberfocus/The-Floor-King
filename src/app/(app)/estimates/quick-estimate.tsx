@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Printer, Send, Ruler, RotateCcw, Camera } from "lucide-react";
+import { Plus, Trash2, Printer, Send, Ruler, RotateCcw, Camera, Bookmark } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -269,7 +269,7 @@ export function QuickEstimate({
     toast.success("Cleared — fresh quick estimate");
   };
 
-  const save = (opts: { print?: boolean; send?: boolean } = {}) =>
+  const save = (opts: { print?: boolean; send?: boolean; stash?: boolean } = {}) =>
     startSave(async () => {
       const built = buildLines().filter((l) => l.description.trim());
       if (!built.length) {
@@ -280,7 +280,7 @@ export function QuickEstimate({
         customerId, title, taxRate: num(taxRate), lines: built, presentation,
         jobDescription: notes.trim() || undefined,
         serviceAddressId: serviceAddressId || null,
-        print: opts.print, send: opts.send,
+        print: opts.print, send: opts.send, stash: opts.stash,
       });
       if (res?.error) toast.error(res.error);
     });
@@ -482,6 +482,7 @@ export function QuickEstimate({
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="ghost" onClick={startOver} className="text-muted-foreground"><RotateCcw className="size-4" /> Start over</Button>
+          <Button type="button" variant="ghost" onClick={() => save({ stash: true })} disabled={saving}><Bookmark className="size-4" /> Save for later</Button>
           <Button type="button" variant="ghost" onClick={() => save({ print: true })} disabled={saving}><Printer className="size-4" /> Print</Button>
           <Button type="button" variant="outline" onClick={() => save()} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
           <Button type="button" onClick={() => save({ send: true })} disabled={saving}><Send className="size-4" /> Save &amp; send</Button>

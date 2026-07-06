@@ -116,6 +116,7 @@ export interface SmartEstimateInput {
   serviceAddressId?: string | null;
   print?: boolean;
   send?: boolean;
+  stash?: boolean; // "save for later" — keep as draft and land on the hub
 }
 
 export interface SmartResult {
@@ -209,6 +210,9 @@ export async function createSmartEstimate(
 
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/estimates");
+
+  // Save for later: it's already a draft — just go to the hub to resume anytime.
+  if (input.stash) redirect("/saved");
 
   // Save & send: email the customer, advance their stage, then land on the
   // dashboard. Otherwise land on the finished quote.

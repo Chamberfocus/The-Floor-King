@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Printer, Upload, Sparkles } from "lucide-react";
+import { Plus, Trash2, Save, Printer, Upload, Sparkles, Bookmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -172,7 +172,7 @@ export function PoBuilder({
     );
   };
 
-  const save = () =>
+  const save = (opts: { stash?: boolean } = {}) =>
     startTransition(async () => {
       const input: SavePoInput = {
         supplier,
@@ -199,8 +199,9 @@ export function PoBuilder({
         toast.error(res.error);
         return;
       }
-      toast.success("Purchase order saved");
-      router.refresh();
+      toast.success(opts.stash ? "Saved for later" : "Purchase order saved");
+      if (opts.stash) router.push("/saved");
+      else router.refresh();
     });
 
   return (
@@ -497,7 +498,15 @@ export function PoBuilder({
           >
             <Printer className="size-4" /> Print
           </Button>
-          <Button type="button" disabled={isPending} onClick={save}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={isPending}
+            onClick={() => save({ stash: true })}
+          >
+            <Bookmark className="size-4" /> Save for later
+          </Button>
+          <Button type="button" disabled={isPending} onClick={() => save()}>
             <Save className="size-4" /> {isPending ? "Saving…" : "Save PO"}
           </Button>
         </div>

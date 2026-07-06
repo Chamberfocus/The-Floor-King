@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
-  Plus, Trash2, ArrowLeft, ArrowRight, Check, Printer, Send, Ruler, RotateCcw, Camera,
+  Plus, Trash2, ArrowLeft, ArrowRight, Check, Printer, Send, Ruler, RotateCcw, Camera, Bookmark,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -509,7 +509,7 @@ export function GuidedWizard({
     toast.success("Cleared — fresh estimate");
   };
 
-  const save = (opts: { print?: boolean; send?: boolean } = {}) =>
+  const save = (opts: { print?: boolean; send?: boolean; stash?: boolean } = {}) =>
     startSave(async () => {
       const lines = jobLines(rooms).filter((l) => l.description.trim());
       if (!lines.length) {
@@ -527,31 +527,42 @@ export function GuidedWizard({
         customerId, title, taxRate: num(taxRate), lines, presentation,
         jobDescription,
         serviceAddressId: serviceAddressId || null,
-        print: opts.print, send: opts.send,
+        print: opts.print, send: opts.send, stash: opts.stash,
       });
       if (res?.error) toast.error(res.error);
     });
 
   return (
     <div className="space-y-4">
-      {/* Stepper */}
-      <div className="flex items-center gap-1.5 text-xs">
-        {STEPS.map((s, i) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => i < step && setStep(i)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium",
-              i === step ? "bg-primary text-primary-foreground" : i < step ? "bg-primary/10 text-primary" : "text-muted-foreground",
-            )}
-          >
-            <span className="flex size-4 items-center justify-center rounded-full border text-xs">
-              {i < step ? <Check className="size-3" /> : i + 1}
-            </span>
-            {s}
-          </button>
-        ))}
+      {/* Stepper + always-available "save for later" */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          {STEPS.map((s, i) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => i < step && setStep(i)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium",
+                i === step ? "bg-primary text-primary-foreground" : i < step ? "bg-primary/10 text-primary" : "text-muted-foreground",
+              )}
+            >
+              <span className="flex size-4 items-center justify-center rounded-full border text-xs">
+                {i < step ? <Check className="size-3" /> : i + 1}
+              </span>
+              {s}
+            </button>
+          ))}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => save({ stash: true })}
+          disabled={saving}
+        >
+          <Bookmark className="size-4" /> Save for later
+        </Button>
       </div>
 
       {/* STEP 1 — Rooms */}

@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Printer, Sparkles } from "lucide-react";
+import { Plus, Trash2, Save, Printer, Sparkles, Bookmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -139,15 +139,16 @@ export function InvoiceBuilder({
     })),
   });
 
-  const save = () =>
+  const save = (opts: { stash?: boolean } = {}) =>
     startTransition(async () => {
       const res = await saveInvoice(invoice.id, buildInput());
       if (res.error) {
         toast.error(res.error);
         return;
       }
-      toast.success("Invoice saved");
-      router.refresh();
+      toast.success(opts.stash ? "Saved for later" : "Invoice saved");
+      if (opts.stash) router.push("/saved");
+      else router.refresh();
     });
 
   // Save first so the record matches the printout, then open the print dialog.
@@ -391,7 +392,15 @@ export function InvoiceBuilder({
           >
             <Printer className="size-4" /> Save &amp; print
           </Button>
-          <Button type="button" disabled={isPending} onClick={save}>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={isPending}
+            onClick={() => save({ stash: true })}
+          >
+            <Bookmark className="size-4" /> Save for later
+          </Button>
+          <Button type="button" disabled={isPending} onClick={() => save()}>
             <Save className="size-4" /> {isPending ? "Saving…" : "Save invoice"}
           </Button>
         </div>
