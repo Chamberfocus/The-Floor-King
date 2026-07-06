@@ -14,6 +14,7 @@ import {
   Route,
   CalendarClock,
   CalendarRange,
+  UserCheck,
   Activity,
   ArrowRightLeft,
   ShoppingBag,
@@ -52,6 +53,16 @@ const JOBS_ROLES: UserRole[] = [
   "scheduler",
   "crew",
 ];
+// Everyone on staff (not customers) — the team schedule is for the whole crew.
+const STAFF: UserRole[] = [
+  "admin",
+  "office",
+  "sales_manager",
+  "salesman",
+  "scheduler",
+  "crew",
+  "warehouse",
+];
 
 /** Primary navigation. Items are filtered by the current user's role. */
 export const NAV_ITEMS: NavItem[] = [
@@ -64,6 +75,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Samples", href: "/samples", icon: Layers, roles: SALES_VIEW },
   { label: "Calendar", href: "/calendar", icon: CalendarRange, roles: SALES_VIEW },
   { label: "Estimate Schedule", href: "/schedule", icon: CalendarClock, roles: SALES_VIEW },
+  { label: "Team Schedule", href: "/team", icon: UserCheck, roles: STAFF },
   { label: "Jobs", href: "/jobs", icon: CalendarDays, roles: JOBS_ROLES },
   { label: "Job Board", href: "/board", icon: ClipboardList, roles: ["admin", "office", "scheduler", "crew"] },
   { label: "Invoices", href: "/invoices", icon: Receipt, roles: SALES },

@@ -193,6 +193,41 @@ export async function createEvent(
   return j.id as string;
 }
 
+/** Create an all-day event (for days off). `endDateExclusive` is the day AFTER
+ *  the last day off, per Google's all-day convention. Marked free/transparent
+ *  so it doesn't block the calendar. */
+export async function createAllDayEvent(
+  token: string,
+  calendarId: string,
+  e: {
+    summary: string;
+    description?: string | null;
+    startDate: string;
+    endDateExclusive: string;
+  },
+): Promise<string> {
+  const r = await fetch(
+    `${CAL_BASE}/calendars/${encodeURIComponent(calendarId)}/events`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        summary: e.summary,
+        description: e.description || undefined,
+        start: { date: e.startDate },
+        end: { date: e.endDateExclusive },
+        transparency: "transparent",
+      }),
+    },
+  );
+  if (!r.ok) throw new Error(`create all-day ${r.status}: ${await r.text()}`);
+  const j = await r.json();
+  return j.id as string;
+}
+
 export async function updateEvent(
   token: string,
   calendarId: string,

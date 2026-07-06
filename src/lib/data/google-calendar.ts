@@ -5,6 +5,7 @@ import {
   googleConfigured,
   refreshAccessToken,
   createEvent,
+  createAllDayEvent,
   updateEvent,
   deleteEvent,
   listCalendars,
@@ -409,4 +410,91 @@ export async function removeAppointmentFromGoogle(
   } catch {
     /* best-effort */
   }
+}
+
+// --- Time off → shared calendar --------------------------------------------
+
+const TIME_OFF_LABEL: Record<string, string> = {
+  off: "Off",
+  vacation: "Vacation",
+  sick: "Sick",
+  personal: "Personal",
+};
+
+/** Mirror a day-off onto the shared team calendar as an all-day event, so it
+ *  shows on everyone's phones. No-op unless a team calendar is configured. */
+export async function syncTimeOffToGoogle(timeOffId: string): Promise<void> {
+  if (!googleConfigured() || !timeOffId) return;
+  const db = adminOrNull();
+  if (!db) return;
+  try {
+    const team = await getTeamCalendar();
+    if (!team) return; // nowhere shared to post it
+    const { data: t } = await db
+      .from("time_off")
+      .select(
+        "id, user_id, start_date, end_date, kind, google_event_id, profile:profiles!time_off_user_id_fkey(full_name)",
+      )
+      .eq("id", timeOffId)
+      .maybeSingle();
+    if (!t || t.google_event_id) return; // already synced
+
+    const conn = await tokenFor(team.ownerId);
+    if (!conn) return;
+    const who =
+      (t.profile as unknown as { full_name: string | null } | null)
+        ?.full_name ?? "Someone";
+    const label = TIME_OFF_LABEL[t.kind as string] ?? "Off";
+    const eventId = await createAllDayEvent(conn.token, team.calendarId, {
+      summary: `${who} — ${label}`,
+      startDate: t.start_date as string,
+      // Google's all-day end is exclusive, so add a day to the last day off.
+      endDateExclusive: addDay(t.end_date as string),
+    });
+    await db
+      .from("time_off")
+      .update({ google_event_id: eventId, google_calendar_id: team.calendarId })
+      .eq("id", timeOffId);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Remove a day-off's event from the shared calendar (before deleting the row). */
+export async function removeTimeOffFromGoogle(
+  timeOffId: string,
+): Promise<void> {
+  if (!googleConfigured() || !timeOffId) return;
+  const db = adminOrNull();
+  if (!db) return;
+  try {
+    const { data: t } = await db
+      .from("time_off")
+      .select("google_event_id, google_calendar_id")
+      .eq("id", timeOffId)
+      .maybeSingle();
+    const eventId = (t?.google_event_id as string) ?? null;
+    const calId = (t?.google_calendar_id as string) ?? null;
+    if (!eventId || !calId) return;
+    const team = await getTeamCalendar();
+    const owner = team?.ownerId;
+    if (!owner) return;
+    const conn = await tokenFor(owner);
+    if (conn) {
+      try {
+        await deleteEvent(conn.token, calId, eventId);
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Add one calendar day to a YYYY-MM-DD string (UTC-safe, no Date.now). */
+function addDay(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + 1, 12));
+  return dt.toISOString().slice(0, 10);
 }
