@@ -17,14 +17,17 @@ import { ROLE_LABELS, SCHEDULE_ROLES } from "@/lib/types";
 import { fromYmd, addDaysYmd } from "@/lib/scheduling";
 import { to12 } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { COMPANY_NAME } from "@/lib/nav";
 import { AddDayOff } from "./add-day-off";
 import { DeleteDayOff } from "./day-off-actions";
 import { ApprovalActions } from "./approval-actions";
 import { ShiftGrid } from "./shift-grid";
+import { PrintButton } from "./print-button";
 
 export const metadata: Metadata = { title: "Team Schedule" };
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEK_HEAD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DOW_FULL = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 ];
@@ -45,6 +48,10 @@ function dayLabel(ymd: string): string {
 }
 function mondayOf(ymd: string): string {
   return addDaysYmd(ymd, -((fromYmd(ymd).getUTCDay() + 6) % 7));
+}
+/** Compact time for calendar cells: "9:00 AM" → "9a". */
+function compact(hm: string): string {
+  return to12(hm).replace(":00 ", " ").replace(" AM", "a").replace(" PM", "p");
 }
 
 type View = "day" | "week" | "month";
@@ -76,6 +83,7 @@ export default async function TeamSchedulePage({
   let periodLabel: string;
   let prevHref: string;
   let nextHref: string;
+  let monthKey = ""; // "YYYY-MM" of the shown month (month view only)
 
   if (view === "day") {
     const anchor =
@@ -93,13 +101,16 @@ export default async function TeamSchedulePage({
       typeof sp.month === "string" && /^\d{4}-\d{2}$/.test(sp.month)
         ? sp.month
         : todayYmd.slice(0, 7);
+    monthKey = monthParam;
     const [yy, mm] = monthParam.split("-").map(Number);
     const daysInMonth = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
-    rangeStart = `${monthParam}-01`;
-    rangeEnd = `${monthParam}-${String(daysInMonth).padStart(2, "0")}`;
-    gridDays = Array.from({ length: daysInMonth }, (_, i) =>
-      addDaysYmd(rangeStart, i),
-    );
+    const first = `${monthParam}-01`;
+    const last = `${monthParam}-${String(daysInMonth).padStart(2, "0")}`;
+    // Pad to whole weeks (Mon-start) so it reads like a wall calendar.
+    rangeStart = mondayOf(first);
+    rangeEnd = addDaysYmd(last, 6 - ((fromYmd(last).getUTCDay() + 6) % 7));
+    gridDays = [];
+    for (let d = rangeStart; d <= rangeEnd; d = addDaysYmd(d, 1)) gridDays.push(d);
     periodLabel = `${MON[mm - 1]} ${yy}`;
     const prevMonth =
       mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
@@ -202,16 +213,18 @@ export default async function TeamSchedulePage({
 
   return (
     <div>
-      <PageHeader
-        title="Team Schedule"
-        description="Everyone's working hours and days off in one place. Request a day off — it's approved automatically unless it clashes with someone already off."
-      >
-        <AddDayOff isManager={isManager} members={memberOptions} />
-      </PageHeader>
+      <div className="print:hidden">
+        <PageHeader
+          title="Team Schedule"
+          description="Everyone's working hours and days off in one place. Request a day off — it's approved automatically unless it clashes with someone already off."
+        >
+          <AddDayOff isManager={isManager} members={memberOptions} />
+        </PageHeader>
+      </div>
 
       {/* Approval queue — managers only */}
       {isManager && pending.length > 0 ? (
-        <Card className="mb-6 border-amber-300 dark:border-amber-900">
+        <Card className="mb-6 border-amber-300 dark:border-amber-900 print:hidden">
           <CardContent className="pt-6">
             <div className="mb-3 flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-400">
               <BellRing className="size-4" /> Needs your approval ({pending.length})
@@ -238,13 +251,14 @@ export default async function TeamSchedulePage({
       ) : null}
 
       {/* View toggle + period navigation */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 print:hidden">
         <div className="inline-flex rounded-md border p-0.5">
           <Link href="/team?view=day" className={toggleCls(view === "day")}>Day</Link>
           <Link href="/team" className={toggleCls(view === "week")}>Week</Link>
           <Link href="/team?view=month" className={toggleCls(view === "month")}>Month</Link>
         </div>
         <div className="flex items-center gap-2">
+          {view === "month" ? <PrintButton /> : null}
           <Link href={prevHref} className={buttonVariants({ variant: "outline", size: "sm" })}>
             <ChevronLeft className="size-4" /> Prev
           </Link>
@@ -317,84 +331,77 @@ export default async function TeamSchedulePage({
           />
         </>
       ) : (
-        /* ---- MONTH: employees × days heat grid ---- */
+        /* ---- MONTH: a real wall calendar, and it prints cleanly ---- */
         <div>
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="border-collapse text-xs">
-              <thead>
-                <tr className="bg-muted/40">
-                  <th className="sticky left-0 z-10 min-w-28 bg-muted/40 px-3 py-2 text-left font-semibold">Employee</th>
-                  {gridDays.map((d) => {
-                    const wd = fromYmd(d).getUTCDay();
-                    const weekend = wd === 0 || wd === 6;
-                    return (
-                      <th
-                        key={d}
-                        className={cn(
-                          "w-8 min-w-8 px-0 py-1 text-center font-medium",
-                          weekend && "bg-muted/60",
-                          d === todayYmd ? "text-primary" : "text-muted-foreground",
-                        )}
-                      >
-                        <div className="text-[10px]">{DOW[wd][0]}</div>
-                        <div>{Number(d.slice(8, 10))}</div>
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((m) => (
-                  <tr key={m.id} className="border-t">
-                    <td className="sticky left-0 z-10 min-w-28 bg-background px-3 py-1.5 font-medium">
-                      {m.full_name || m.email}
-                    </td>
-                    {gridDays.map((d) => {
-                      const c = cellFor(m.id, d);
-                      return (
-                        <td key={d} className="p-0.5 text-center">
-                          <div
-                            title={
-                              c?.kind === "work"
-                                ? `${to12(c.start)}–${to12(c.end)}`
-                                : c?.kind === "off"
-                                  ? KIND_LABEL[c.reason] ?? "Off"
-                                  : "Not scheduled"
-                            }
-                            className={cn(
-                              "mx-auto flex h-6 w-6 items-center justify-center rounded",
-                              c?.kind === "work" && "bg-emerald-200/70 dark:bg-emerald-800/50",
-                              c?.kind === "off" && "bg-amber-200/80 text-amber-900 dark:bg-amber-800/50 dark:text-amber-200",
-                              !c && "bg-muted/40",
-                              d === todayYmd && "ring-2 ring-primary",
-                            )}
-                          >
-                            {c?.kind === "off" ? "×" : ""}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* Title shows only on the printout */}
+          <div className="mb-3 hidden text-center print:block">
+            <div className="text-lg font-bold">{COMPANY_NAME} — Team Schedule</div>
+            <div className="text-sm">{periodLabel}</div>
           </div>
-          <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <span className="size-3 rounded bg-emerald-200/70 dark:bg-emerald-800/50" /> Working
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="size-3 rounded bg-amber-200/80 dark:bg-amber-800/50" /> Off
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="size-3 rounded bg-muted/40" /> Not scheduled
-            </span>
+
+          <div className="overflow-hidden rounded-lg border">
+            <div className="grid grid-cols-7 border-b bg-muted/40 text-center text-xs font-semibold text-muted-foreground print:bg-transparent">
+              {WEEK_HEAD.map((d) => (
+                <div key={d} className="py-1.5">{d}</div>
+              ))}
+            </div>
+            {Array.from({ length: gridDays.length / 7 }, (_, w) =>
+              gridDays.slice(w * 7, w * 7 + 7),
+            ).map((week, wi) => (
+              <div key={wi} className="grid grid-cols-7 break-inside-avoid">
+                {week.map((d) => {
+                  const inMonth = d.slice(0, 7) === monthKey;
+                  const isToday = d === todayYmd;
+                  return (
+                    <div
+                      key={d}
+                      className={cn(
+                        "min-h-[96px] border-b border-r p-1 text-[11px] leading-tight [&:nth-child(7n)]:border-r-0",
+                        !inMonth && "bg-muted/20 text-muted-foreground print:bg-transparent",
+                        isToday && "bg-primary/5",
+                      )}
+                    >
+                      <div className={cn("mb-0.5 text-right font-semibold", isToday && "text-primary")}>
+                        {Number(d.slice(8, 10))}
+                      </div>
+                      <div className="space-y-0.5">
+                        {members.map((m) => {
+                          const c = cellFor(m.id, d);
+                          if (c?.kind !== "work") return null;
+                          return (
+                            <div key={m.id} className="truncate text-emerald-700 dark:text-emerald-400">
+                              {(m.full_name || m.email).split(" ")[0]}{" "}
+                              <span className="text-muted-foreground">
+                                {compact(c.start)}–{compact(c.end)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {members.map((m) => {
+                          const c = cellFor(m.id, d);
+                          if (c?.kind !== "off") return null;
+                          return (
+                            <div key={m.id} className="truncate text-amber-700 dark:text-amber-400">
+                              {(m.full_name || m.email).split(" ")[0]} · {KIND_LABEL[c.reason] ?? "Off"}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground print:hidden">
+            <span className="text-emerald-700 dark:text-emerald-400">Name 9a–5p = working hours</span>
+            <span className="text-amber-700 dark:text-amber-400">Name · Off = time off</span>
           </div>
         </div>
       )}
 
       {/* Upcoming days off */}
-      <Card className="mt-6">
+      <Card className="mt-6 print:hidden">
         <CardContent className="pt-6">
           <div className="mb-3 flex items-center gap-2 font-semibold">
             <CalendarOff className="size-4 text-muted-foreground" /> Upcoming days off
