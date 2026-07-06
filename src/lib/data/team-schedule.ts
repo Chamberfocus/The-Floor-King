@@ -38,29 +38,33 @@ export async function getShiftsMap(): Promise<
 }
 
 /** Set (or replace) one weekday's hours for a person (manager; RLS enforces). */
+type DbResult = { error: string | null };
+
 export async function setShift(
   userId: string,
   weekday: number,
   start: string,
   end: string,
-): Promise<void> {
+): Promise<DbResult> {
   const supabase = await createClient();
-  await supabase
+  const { error } = await supabase
     .from("staff_shifts")
     .upsert({ user_id: userId, weekday, start_time: start, end_time: end });
+  return { error: error?.message ?? null };
 }
 
 /** Mark a weekday off (remove the shift). */
 export async function clearShift(
   userId: string,
   weekday: number,
-): Promise<void> {
+): Promise<DbResult> {
   const supabase = await createClient();
-  await supabase
+  const { error } = await supabase
     .from("staff_shifts")
     .delete()
     .eq("user_id", userId)
     .eq("weekday", weekday);
+  return { error: error?.message ?? null };
 }
 
 export interface Override {
@@ -101,9 +105,9 @@ export async function setOverride(
   start: string | null,
   end: string | null,
   off: boolean,
-): Promise<void> {
+): Promise<DbResult> {
   const supabase = await createClient();
-  await supabase.from("shift_overrides").upsert({
+  const { error } = await supabase.from("shift_overrides").upsert({
     user_id: userId,
     date,
     start_time: off ? null : start,
@@ -111,19 +115,21 @@ export async function setOverride(
     off,
     updated_at: new Date().toISOString(),
   });
+  return { error: error?.message ?? null };
 }
 
 /** Remove a date's override — that day reverts to the recurring template. */
 export async function clearOverride(
   userId: string,
   date: string,
-): Promise<void> {
+): Promise<DbResult> {
   const supabase = await createClient();
-  await supabase
+  const { error } = await supabase
     .from("shift_overrides")
     .delete()
     .eq("user_id", userId)
     .eq("date", date);
+  return { error: error?.message ?? null };
 }
 
 const TIME_OFF_COLS =

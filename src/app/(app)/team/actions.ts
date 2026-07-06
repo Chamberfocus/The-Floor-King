@@ -176,31 +176,42 @@ export async function applyShift(input: {
   start: string | null;
   end: string | null;
   off: boolean;
-}): Promise<void> {
+}): Promise<{ error: string | null }> {
   const profile = await requireProfile();
-  if (!(profile.role === "admin" || profile.role === "office")) return;
+  if (!(profile.role === "admin" || profile.role === "office"))
+    return { error: "Not allowed." };
   const { userId, mode, date, weekday, start, end, off } = input;
-  if (!userId || weekday < 0 || weekday > 6 || !date) return;
+  if (!userId || weekday < 0 || weekday > 6 || !date)
+    return { error: "Invalid change." };
 
+  let error: string | null = null;
   if (mode === "series") {
-    if (off) await clearShift(userId, weekday);
-    else if (start && end) await setShift(userId, weekday, start, end);
-    await clearOverride(userId, date); // this date follows the series again
+    const r1 = off
+      ? await clearShift(userId, weekday)
+      : start && end
+        ? await setShift(userId, weekday, start, end)
+        : { error: null };
+    const r2 = await clearOverride(userId, date); // follow the series again
+    error = r1.error || r2.error;
   } else {
-    if (off) await setOverride(userId, date, null, null, true);
-    else if (start && end) await setOverride(userId, date, start, end, false);
+    if (off) error = (await setOverride(userId, date, null, null, true)).error;
+    else if (start && end)
+      error = (await setOverride(userId, date, start, end, false)).error;
   }
   revalidatePath("/team");
+  return { error };
 }
 
 /** Drop a date's one-off override — that day goes back to the normal hours. */
 export async function clearDayOverride(
   userId: string,
   date: string,
-): Promise<void> {
+): Promise<{ error: string | null }> {
   const profile = await requireProfile();
-  if (!(profile.role === "admin" || profile.role === "office")) return;
-  if (!userId || !date) return;
-  await clearOverride(userId, date);
+  if (!(profile.role === "admin" || profile.role === "office"))
+    return { error: "Not allowed." };
+  if (!userId || !date) return { error: "Invalid change." };
+  const { error } = await clearOverride(userId, date);
   revalidatePath("/team");
+  return { error };
 }

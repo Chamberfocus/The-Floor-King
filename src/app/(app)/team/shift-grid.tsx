@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { X, Copy, Calendar, RotateCcw, Lock } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { X, Copy, Calendar, RotateCcw, Lock, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { to12 } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,11 @@ type Shift = { start: string; end: string };
 type Shifts = Record<string, Record<number, Shift>>;
 type Override = { off: boolean; start?: string; end?: string };
 type Overrides = Record<string, Record<string, Override>>;
+// A queued schedule change, held locally until the user hits Save.
+type PendingOp =
+  | { kind: "series"; userId: string; weekday: number; date: string; start: string | null; end: string | null; off: boolean }
+  | { kind: "date"; userId: string; weekday: number; date: string; start: string | null; end: string | null; off: boolean }
+  | { kind: "revert"; userId: string; date: string };
 
 interface Member {
   id: string;
@@ -67,8 +73,13 @@ export function ShiftGrid({
   const [sel, setSel] = useState<{ userId: string; col: GridColumn } | null>(
     null,
   );
-  const [mode, setMode] = useState<"date" | "series">("date");
-  const [, start] = useTransition();
+  // Default to changing the recurring schedule (what "edit the schedule" means);
+  // "Just this day" is the opt-in exception.
+  const [mode, setMode] = useState<"date" | "series">("series");
+  // Edits are buffered here until Save, so nothing is lost to a silent failure.
+  const [pending, setPending] = useState<Record<string, PendingOp>>({});
+  const [saving, setSaving] = useState(false);
+  const dirty = Object.keys(pending).length > 0;
 
   // Effective schedule for a person on a column's date.
   const effective = (
@@ -113,24 +124,14 @@ export function ShiftGrid({
 
   const open = (userId: string, col: GridColumn) => {
     setSel({ userId, col });
-    setMode("date"); // default to changing just this day
+    setMode("series"); // default: change the regular weekly hours
   };
 
-  // Push a change to the server and mirror it locally for an instant update.
+  // Apply a change to the on-screen grid AND queue it for saving. Nothing hits
+  // the server until Save, so a failed write can't quietly vanish.
   const apply = (off_: boolean, s?: Shift) => {
     if (!sel) return;
     const { userId, col } = sel;
-    start(async () => {
-      await applyShift({
-        userId,
-        mode,
-        date: col.ymd,
-        weekday: col.weekday,
-        start: s?.start ?? null,
-        end: s?.end ?? null,
-        off: off_,
-      });
-    });
     if (mode === "series") {
       setShifts((p) => {
         const u = { ...(p[userId] ?? {}) };
@@ -143,45 +144,85 @@ export function ShiftGrid({
         delete u[col.ymd];
         return { ...p, [userId]: u };
       });
+      setPending((p) => {
+        const next = { ...p };
+        delete next[`o:${userId}:${col.ymd}`]; // series supersedes a same-day override
+        next[`s:${userId}:${col.weekday}`] = {
+          kind: "series", userId, weekday: col.weekday, date: col.ymd,
+          start: s?.start ?? null, end: s?.end ?? null, off: off_,
+        };
+        return next;
+      });
     } else {
       setOverrides((p) => {
         const u = { ...(p[userId] ?? {}) };
         u[col.ymd] = off_ ? { off: true } : { off: false, ...s! };
         return { ...p, [userId]: u };
       });
+      setPending((p) => ({
+        ...p,
+        [`o:${userId}:${col.ymd}`]: {
+          kind: "date", userId, weekday: col.weekday, date: col.ymd,
+          start: s?.start ?? null, end: s?.end ?? null, off: off_,
+        },
+      }));
     }
   };
 
   const revert = () => {
     if (!sel) return;
     const { userId, col } = sel;
-    start(async () => {
-      await clearDayOverride(userId, col.ymd);
-    });
     setOverrides((p) => {
       const u = { ...(p[userId] ?? {}) };
       delete u[col.ymd];
       return { ...p, [userId]: u };
     });
+    setPending((p) => ({
+      ...p,
+      [`o:${userId}:${col.ymd}`]: { kind: "revert", userId, date: col.ymd },
+    }));
   };
 
   // Copy a shift onto several weekdays of the recurring template at once.
   const writeSeries = (userId: string, date: string, weekday: number, s: Shift) => {
-    start(async () => {
-      await applyShift({
-        userId,
-        mode: "series",
-        date,
-        weekday,
-        start: s.start,
-        end: s.end,
-        off: false,
-      });
-    });
     setShifts((p) => ({
       ...p,
       [userId]: { ...(p[userId] ?? {}), [weekday]: s },
     }));
+    setPending((p) => {
+      const next = { ...p };
+      delete next[`o:${userId}:${date}`];
+      next[`s:${userId}:${weekday}`] = {
+        kind: "series", userId, weekday, date, start: s.start, end: s.end, off: false,
+      };
+      return next;
+    });
+  };
+
+  // Commit every queued change; keep any that fail so nothing is lost.
+  const save = async () => {
+    const entries = Object.entries(pending);
+    if (!entries.length || saving) return;
+    setSaving(true);
+    const stillPending: Record<string, PendingOp> = {};
+    let firstError: string | null = null;
+    for (const [key, op] of entries) {
+      const res =
+        op.kind === "revert"
+          ? await clearDayOverride(op.userId, op.date)
+          : await applyShift({
+              userId: op.userId, mode: op.kind, date: op.date,
+              weekday: op.weekday, start: op.start, end: op.end, off: op.off,
+            });
+      if (res?.error) {
+        stillPending[key] = op;
+        firstError = firstError ?? res.error;
+      }
+    }
+    setPending(stillPending);
+    setSaving(false);
+    if (firstError) toast.error(`Couldn't save: ${firstError}`);
+    else toast.success("Schedule saved");
   };
 
   const selMember = sel ? members.find((m) => m.id === sel.userId) : null;
@@ -199,6 +240,24 @@ export function ShiftGrid({
 
   return (
     <div>
+      {editable ? (
+        <div
+          className={cn(
+            "mb-3 flex items-center justify-between gap-3 rounded-lg border p-3",
+            dirty ? "border-amber-400 bg-amber-50 dark:bg-amber-950/20" : "bg-card",
+          )}
+        >
+          <span className={cn("text-sm", dirty ? "font-medium text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
+            {dirty
+              ? `${Object.keys(pending).length} unsaved change${Object.keys(pending).length === 1 ? "" : "s"}`
+              : "All changes saved"}
+          </span>
+          <Button type="button" size="sm" onClick={save} disabled={!dirty || saving}>
+            <Save className="size-4" />{" "}
+            {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
+          </Button>
+        </div>
+      ) : null}
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full border-collapse text-sm">
           <thead>
