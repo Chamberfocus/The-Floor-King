@@ -10,6 +10,7 @@ import {
   MapPin,
   Crown,
   CalendarClock,
+  AlertTriangle,
   ArrowLeftRight,
   Info,
   FileText,
@@ -297,6 +298,10 @@ export default async function CustomerPage({
         .map((s) => to12(s.trim()))
         .join("–")
     : null;
+  // "Stuck" = past this stage's time limit (the next-action-due date).
+  const overdue =
+    !!customer.next_action_due &&
+    new Date(customer.next_action_due).getTime() < Date.now();
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -331,6 +336,11 @@ export default async function CustomerPage({
               ) : (
                 <StageBadge stage={customer.stage} />
               )}
+              {overdue ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs font-semibold text-destructive">
+                  <AlertTriangle className="size-3.5" /> Stuck
+                </span>
+              ) : null}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-muted-foreground">
               {subBits.map((t, i) => (

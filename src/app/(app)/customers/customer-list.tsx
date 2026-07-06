@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, AlertTriangle } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -123,16 +123,27 @@ function assignedName(c: Customer, shared: ListShared): string {
   );
 }
 
+/** Flag for a client sitting past its stage's time limit. */
+function StuckBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
+      <AlertTriangle className="size-3.5" /> Stuck
+    </span>
+  );
+}
+
 function DesktopRow({
   c,
   ctx,
   shared,
   isAdmin,
+  overdue,
 }: {
   c: Customer;
   ctx: CustomerRowContext | undefined;
   shared: ListShared;
   isAdmin: boolean;
+  overdue: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const hasActions = shared.listActions.length > 0;
@@ -159,7 +170,10 @@ function DesktopRow({
           </TableCell>
         ) : null}
         <TableCell>
-          <StageBadge stage={c.stage} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <StageBadge stage={c.stage} />
+            {overdue ? <StuckBadge /> : null}
+          </div>
         </TableCell>
         <TableCell className="text-muted-foreground">{c.phone ?? "—"}</TableCell>
         <TableCell className="text-muted-foreground">{c.city ?? "—"}</TableCell>
@@ -191,11 +205,13 @@ function MobileCard({
   ctx,
   shared,
   isAdmin,
+  overdue,
 }: {
   c: Customer;
   ctx: CustomerRowContext | undefined;
   shared: ListShared;
   isAdmin: boolean;
+  overdue: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const hasActions = shared.listActions.length > 0;
@@ -223,6 +239,7 @@ function MobileCard({
           ) : null}
         </Link>
         <div className="flex shrink-0 items-center gap-2">
+          {overdue ? <StuckBadge /> : null}
           <StageBadge stage={c.stage} />
           {hasActions ? (
             <ExpandToggle open={open} onClick={() => setOpen((v) => !v)} />
@@ -259,6 +276,9 @@ export function CustomerList({
   /** Show the "Assigned to" (salesperson) column — admin only. */
   isAdmin?: boolean;
 }) {
+  const nowMs = Date.now();
+  const isOverdue = (c: Customer) =>
+    !!c.next_action_due && new Date(c.next_action_due).getTime() < nowMs;
   return (
     <>
       {/* Phone: tappable cards, each expandable to quick actions */}
@@ -270,6 +290,7 @@ export function CustomerList({
             ctx={contexts[c.id]}
             shared={shared}
             isAdmin={isAdmin}
+            overdue={isOverdue(c)}
           />
         ))}
       </div>
@@ -296,6 +317,7 @@ export function CustomerList({
                 ctx={contexts[c.id]}
                 shared={shared}
                 isAdmin={isAdmin}
+                overdue={isOverdue(c)}
               />
             ))}
           </TableBody>
