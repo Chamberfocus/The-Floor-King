@@ -24,9 +24,11 @@ const emptyNc = {
 export function QuickInstallForm({
   customers,
   installers,
+  windows,
 }: {
   customers: { id: string; full_name: string }[];
   installers: { id: string; name: string }[];
+  windows: { value: string; label: string }[];
 }) {
   const router = useRouter();
   const [custMode, setCustMode] = useState<"existing" | "new">("new");
@@ -34,6 +36,7 @@ export function QuickInstallForm({
   const [nc, setNc] = useState(emptyNc);
   const [title, setTitle] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
+  const [arrivalWindow, setArrivalWindow] = useState("");
   const [installerId, setInstallerId] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, start] = useTransition();
@@ -45,6 +48,7 @@ export function QuickInstallForm({
         newCustomer: custMode === "new" ? nc : null,
         title,
         scheduledDate: scheduledDate || null,
+        arrivalWindow: arrivalWindow || null,
         installerId: installerId || null,
         notes,
       });
@@ -129,6 +133,16 @@ export function QuickInstallForm({
             <div>
               <label className={label}>Install date (if set)</label>
               <Input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="mt-1" />
+            </div>
+            <div>
+              <label className={label}>Arrival window</label>
+              <SearchPicker
+                value={arrivalWindow}
+                onChange={setArrivalWindow}
+                placeholder={scheduledDate ? "Pick a window…" : "Set a date first"}
+                allowClear
+                options={windows}
+              />
             </div>
             <div>
               <label className={label}>Assign installer (optional)</label>

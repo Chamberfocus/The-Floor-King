@@ -18,6 +18,7 @@ export interface QuickInstallInput {
   } | null;
   title: string;
   scheduledDate: string | null;
+  arrivalWindow: string | null; // "HH:MM-HH:MM"
   installerId: string | null;
   notes: string;
 }
@@ -89,6 +90,7 @@ export async function createQuickInstall(
       title: input.title.trim(),
       status: input.scheduledDate ? "scheduled" : "unscheduled",
       scheduled_date: input.scheduledDate || null,
+      arrival_window: input.scheduledDate ? input.arrivalWindow || null : null,
       assigned_to: input.installerId || null,
       notes: jobNote,
       migrated: true,

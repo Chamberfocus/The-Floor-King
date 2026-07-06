@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { listAssignableUsers } from "@/lib/data/jobs";
+import { getSchedulingSettings } from "@/lib/data/scheduling";
+import { parseArrivalWindows } from "@/lib/format";
 import { QuickInstallForm } from "./quick-install-form";
 
 export const metadata: Metadata = { title: "Quick install" };
@@ -25,6 +27,11 @@ export default async function QuickInstallPage() {
   const installers = (await listAssignableUsers())
     .filter((u) => u.role === "crew")
     .map((u) => ({ id: u.id, name: u.name }));
+  const sched = await getSchedulingSettings();
+  const windows = parseArrivalWindows(sched.arrival_windows).map((w) => ({
+    value: `${w.start}-${w.end}`,
+    label: w.label,
+  }));
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -38,7 +45,11 @@ export default async function QuickInstallPage() {
         title="Quick install"
         description="Already sold with materials in hand? Drop it straight onto the schedule and installer board — just the customer and the work. No estimate, no pricing, no invoicing."
       />
-      <QuickInstallForm customers={customers} installers={installers} />
+      <QuickInstallForm
+        customers={customers}
+        installers={installers}
+        windows={windows}
+      />
     </div>
   );
 }

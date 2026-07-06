@@ -19,6 +19,7 @@ import {
   ArrowRightLeft,
   ShoppingBag,
   Bookmark,
+  Hammer,
   type LucideIcon,
 } from "lucide-react";
 import { SCHEDULE_ROLES, type UserRole } from "@/lib/types";
@@ -68,6 +69,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Estimate Schedule", href: "/schedule", icon: CalendarClock, roles: SALES_VIEW },
   { label: "Team Schedule", href: "/team", icon: UserCheck, roles: SCHEDULE_ROLES },
   { label: "Jobs", href: "/jobs", icon: CalendarDays, roles: JOBS_ROLES },
+  { label: "Quick install", href: "/jobs/quick", icon: Hammer, roles: ["admin", "office", "scheduler"] },
   { label: "Job Board", href: "/board", icon: ClipboardList, roles: ["admin", "office", "scheduler", "crew"] },
   { label: "Invoices", href: "/invoices", icon: Receipt, roles: SALES },
   { label: "Saved for later", href: "/saved", icon: Bookmark, roles: SALES },
