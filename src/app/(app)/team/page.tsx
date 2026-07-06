@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { AddDayOff } from "./add-day-off";
 import { DeleteDayOff } from "./day-off-actions";
 import { ApprovalActions } from "./approval-actions";
-import { ShiftEditor } from "./shift-editor";
+import { ShiftGrid } from "./shift-grid";
 
 export const metadata: Metadata = { title: "Team Schedule" };
 
@@ -392,23 +392,20 @@ export default async function TeamSchedulePage({
         <Card className="mt-6">
           <CardContent className="pt-6">
             <div className="mb-1 flex items-center gap-2 font-semibold">
-              <Users className="size-4 text-muted-foreground" /> Working hours
+              <Users className="size-4 text-muted-foreground" /> Weekly schedule
             </div>
             <p className="mb-4 text-sm text-muted-foreground">
-              Set each person&apos;s weekly hours. This is the schedule everyone
-              works to — changes save instantly.
+              This is the schedule everyone works to. Click a day to set that
+              person&apos;s hours — changes save instantly.
             </p>
-            <div className="space-y-2">
-              {members.map((m) => (
-                <ShiftEditor
-                  key={m.id}
-                  userId={m.id}
-                  name={m.full_name || m.email}
-                  roleLabel={ROLE_LABELS[m.role]}
-                  shifts={shiftsMap[m.id] ?? {}}
-                />
-              ))}
-            </div>
+            <ShiftGrid
+              members={members.map((m) => ({
+                id: m.id,
+                name: m.full_name || m.email,
+                roleLabel: ROLE_LABELS[m.role],
+              }))}
+              shifts={shiftsMap}
+            />
           </CardContent>
         </Card>
       ) : null}
