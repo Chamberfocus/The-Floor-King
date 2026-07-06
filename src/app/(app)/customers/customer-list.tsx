@@ -115,14 +115,24 @@ function ExpandToggle({
   );
 }
 
+/** The salesperson a client is permanently assigned to (admin-only column). */
+function assignedName(c: Customer, shared: ListShared): string {
+  if (!c.assigned_to) return "Unassigned";
+  return (
+    shared.members.find((m) => m.id === c.assigned_to)?.name ?? "Unassigned"
+  );
+}
+
 function DesktopRow({
   c,
   ctx,
   shared,
+  isAdmin,
 }: {
   c: Customer;
   ctx: CustomerRowContext | undefined;
   shared: ListShared;
+  isAdmin: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const hasActions = shared.listActions.length > 0;
@@ -139,6 +149,15 @@ function DesktopRow({
             </span>
           ) : null}
         </TableCell>
+        {isAdmin ? (
+          <TableCell
+            className={
+              c.assigned_to ? "font-medium" : "text-muted-foreground italic"
+            }
+          >
+            {assignedName(c, shared)}
+          </TableCell>
+        ) : null}
         <TableCell>
           <StageBadge stage={c.stage} />
         </TableCell>
@@ -158,7 +177,7 @@ function DesktopRow({
       </TableRow>
       {open && hasActions ? (
         <TableRow>
-          <TableCell colSpan={7} className="bg-muted/30">
+          <TableCell colSpan={isAdmin ? 8 : 7} className="bg-muted/30">
             <QuickActions {...quickProps(c, ctx, shared)} />
           </TableCell>
         </TableRow>
@@ -171,10 +190,12 @@ function MobileCard({
   c,
   ctx,
   shared,
+  isAdmin,
 }: {
   c: Customer;
   ctx: CustomerRowContext | undefined;
   shared: ListShared;
+  isAdmin: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const hasActions = shared.listActions.length > 0;
@@ -186,6 +207,18 @@ function MobileCard({
           {c.company ? (
             <div className="truncate text-xs text-muted-foreground">
               {c.company}
+            </div>
+          ) : null}
+          {isAdmin ? (
+            <div className="mt-0.5 truncate text-xs text-muted-foreground">
+              Assigned to{" "}
+              <span
+                className={
+                  c.assigned_to ? "font-medium text-foreground" : "italic"
+                }
+              >
+                {assignedName(c, shared)}
+              </span>
             </div>
           ) : null}
         </Link>
@@ -218,17 +251,26 @@ export function CustomerList({
   customers,
   contexts,
   shared,
+  isAdmin = false,
 }: {
   customers: Customer[];
   contexts: Record<string, CustomerRowContext>;
   shared: ListShared;
+  /** Show the "Assigned to" (salesperson) column — admin only. */
+  isAdmin?: boolean;
 }) {
   return (
     <>
       {/* Phone: tappable cards, each expandable to quick actions */}
       <div className="space-y-2 md:hidden">
         {customers.map((c) => (
-          <MobileCard key={c.id} c={c} ctx={contexts[c.id]} shared={shared} />
+          <MobileCard
+            key={c.id}
+            c={c}
+            ctx={contexts[c.id]}
+            shared={shared}
+            isAdmin={isAdmin}
+          />
         ))}
       </div>
       {/* Larger screens: table, each row expandable to quick actions */}
@@ -237,6 +279,7 @@ export function CustomerList({
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
+              {isAdmin ? <TableHead>Assigned to</TableHead> : null}
               <TableHead>Stage</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>City</TableHead>
@@ -247,7 +290,13 @@ export function CustomerList({
           </TableHeader>
           <TableBody>
             {customers.map((c) => (
-              <DesktopRow key={c.id} c={c} ctx={contexts[c.id]} shared={shared} />
+              <DesktopRow
+                key={c.id}
+                c={c}
+                ctx={contexts[c.id]}
+                shared={shared}
+                isAdmin={isAdmin}
+              />
             ))}
           </TableBody>
         </Table>

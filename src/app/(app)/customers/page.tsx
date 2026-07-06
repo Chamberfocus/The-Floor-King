@@ -9,6 +9,7 @@ import { listCustomers, getCustomerRowContexts } from "@/lib/data/customers";
 import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
 import { getSchedulingSettings } from "@/lib/data/scheduling";
 import { getUserPreferences } from "@/lib/data/preferences";
+import { requireProfile } from "@/lib/auth";
 import {
   LEAD_STAGE_LABELS,
   LEAD_STAGE_ORDER,
@@ -31,6 +32,9 @@ export default async function CustomersPage({
   const stageParam = sp.stage as LeadStage | undefined;
   const stage =
     stageParam && LEAD_STAGE_ORDER.includes(stageParam) ? stageParam : undefined;
+
+  const profile = await requireProfile();
+  const isAdmin = profile.role === "admin";
 
   const customers = await listCustomers({ search: q, stage });
 
@@ -145,7 +149,12 @@ export default async function CustomersPage({
           ) : null}
         </div>
       ) : (
-        <CustomerList customers={customers} contexts={contexts} shared={shared} />
+        <CustomerList
+          customers={customers}
+          contexts={contexts}
+          shared={shared}
+          isAdmin={isAdmin}
+        />
       )}
     </div>
   );
