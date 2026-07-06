@@ -112,6 +112,7 @@ export async function listCustomers(
     stages?: LeadStage[];
     assignedTo?: string;
     unassignedOnly?: boolean;
+    stuckOnly?: boolean;
   } = {},
 ): Promise<Customer[]> {
   const supabase = await createClient();
@@ -124,6 +125,11 @@ export async function listCustomers(
   if (opts.stages?.length) query = query.in("stage", opts.stages);
   if (opts.unassignedOnly) query = query.is("assigned_to", null);
   else if (opts.assignedTo) query = query.eq("assigned_to", opts.assignedTo);
+  // "Stuck" = past this stage's time limit (next_action_due in the past).
+  if (opts.stuckOnly)
+    query = query
+      .not("next_action_due", "is", null)
+      .lt("next_action_due", new Date().toISOString());
 
   const search = opts.search ? sanitize(opts.search) : "";
   if (search) {

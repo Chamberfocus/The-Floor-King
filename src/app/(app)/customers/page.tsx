@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Search, Upload } from "lucide-react";
+import { Plus, Search, Upload, AlertTriangle } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
@@ -25,13 +25,21 @@ export const metadata: Metadata = { title: "Customers" };
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; stage?: string; owner?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    stage?: string;
+    owner?: string;
+    stuck?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
   const stageParam = sp.stage as LeadStage | undefined;
   const stage =
     stageParam && LEAD_STAGE_ORDER.includes(stageParam) ? stageParam : undefined;
+  // "Stuck only" — clients past their stage's time limit. Available to everyone
+  // (RLS already scopes reps to their own book).
+  const stuck = sp.stuck === "1";
 
   const profile = await requireProfile();
   const isAdmin = profile.role === "admin";
@@ -45,6 +53,7 @@ export default async function CustomersPage({
     stage,
     assignedTo: unassignedOnly ? undefined : owner,
     unassignedOnly,
+    stuckOnly: stuck,
   });
 
   // Shared data for per-row quick actions — fetched once for the whole list.
@@ -81,10 +90,22 @@ export default async function CustomersPage({
       if (q) params.set("q", q);
       if (stage) params.set("stage", stage);
       if (owner) params.set("owner", owner);
+      if (stuck) params.set("stuck", "1");
       const qs = params.toString();
       return qs ? `/customers?${qs}` : "/customers";
     })(),
   };
+
+  // Toggle link for the "Stuck only" filter — keeps the other filters intact.
+  const stuckHref = (() => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (stage) params.set("stage", stage);
+    if (owner) params.set("owner", owner);
+    if (!stuck) params.set("stuck", "1");
+    const qs = params.toString();
+    return qs ? `/customers?${qs}` : "/customers";
+  })();
 
   return (
     <div>
@@ -148,7 +169,19 @@ export default async function CustomersPage({
         <Button type="submit" variant="outline" size="lg">
           Search
         </Button>
-        {(q || stage || owner) && (
+        <Link
+          href={stuckHref}
+          className={buttonVariants({
+            variant: stuck ? "default" : "outline",
+            size: "lg",
+            className: stuck
+              ? ""
+              : "border-destructive/40 text-destructive hover:bg-destructive/10",
+          })}
+        >
+          <AlertTriangle className="size-4" /> Stuck{stuck ? " ✓" : ""}
+        </Link>
+        {(q || stage || owner || stuck) && (
           <Link
             href="/customers"
             className={buttonVariants({ variant: "ghost", size: "lg" })}
@@ -161,11 +194,13 @@ export default async function CustomersPage({
       {customers.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center">
           <p className="text-sm text-muted-foreground">
-            {q || stage || owner
-              ? "No customers match your search."
+            {q || stage || owner || stuck
+              ? stuck
+                ? "No stuck clients — everyone's on track. 🎉"
+                : "No customers match your search."
               : "No customers yet. Add your first lead to get started."}
           </p>
-          {!q && !stage && !owner ? (
+          {!q && !stage && !owner && !stuck ? (
             <Link
               href="/customers/new"
               className={buttonVariants({ className: "mt-4" })}
