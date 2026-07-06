@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
   Plus, Trash2, ArrowLeft, ArrowRight, Check, Printer, Send, Ruler, RotateCcw, Camera, Bookmark,
+  Columns2, PanelLeft, Rows3,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -257,7 +258,13 @@ function lineCost(l: SmartLine, fMult = 1): number {
   return q * l.material_cost * (1 + l.waste_pct / 100) * fMult + q * l.labor_cost;
 }
 
-const STEPS = ["Rooms", "Pricing", "Review"] as const;
+const STEPS = ["Rooms & pricing", "Review"] as const;
+type Layout = "cols" | "list" | "compact";
+const LAYOUTS: { key: Layout; label: string; icon: typeof Columns2 }[] = [
+  { key: "cols", label: "Two-column", icon: Columns2 },
+  { key: "list", label: "List", icon: PanelLeft },
+  { key: "compact", label: "Compact", icon: Rows3 },
+];
 
 export function GuidedWizard({
   customerId, customerName, targetMargin, freightPct, serviceAddressId,
@@ -265,6 +272,21 @@ export function GuidedWizard({
   customerId: string; customerName: string; targetMargin: number; freightPct: number; serviceAddressId: string;
 }) {
   const [step, setStep] = useState(0);
+  // How the combined Rooms + Pricing tab is arranged — remembered per user.
+  const [layout, setLayout] = useState<Layout>("cols");
+  const [selRoomId, setSelRoomId] = useState<string | null>(null);
+  useEffect(() => {
+    const v = localStorage.getItem("fk_wizard_layout");
+    if (v === "cols" || v === "list" || v === "compact") setLayout(v);
+  }, []);
+  const chooseLayout = (l: Layout) => {
+    setLayout(l);
+    try {
+      localStorage.setItem("fk_wizard_layout", l);
+    } catch {
+      /* ignore */
+    }
+  };
   const [title, setTitle] = useState("");
   const [marginGoal, setMarginGoal] = useState(String(targetMargin));
   const [presentation, setPresentation] = useState<"detailed" | "summary">("detailed");
@@ -532,6 +554,232 @@ export function GuidedWizard({
       if (res?.error) toast.error(res.error);
     });
 
+  const addRoom = () => {
+    const nr = newRoom();
+    setRooms((rs) => [...rs, nr]);
+    setSelRoomId(nr.id);
+  };
+  const selRoom = rooms.find((r) => r.id === selRoomId) ?? rooms[0] ?? null;
+  const isReady = (r: WRoom) => !!profileFor(r.type) && roomSqft(r) > 0;
+
+  // Photo-of-the-drawing importer (top of the build tab).
+  const drawingImport = (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+      <div className="min-w-0 text-sm">
+        <div className="flex items-center gap-1.5 font-medium">
+          <Camera className="size-4 text-primary" /> Start from your drawing
+        </div>
+        <div className="text-xs text-muted-foreground">
+          Take a photo of your measure sheet or pick a saved one — it reads the
+          rooms &amp; sizes, then flags anything you might miss. Add as many
+          photos as you need; each one&apos;s rooms are added on.
+        </div>
+      </div>
+      <Button type="button" variant="outline" onClick={() => drawingRef.current?.click()} disabled={analyzing}>
+        <Camera className="size-4" />{" "}
+        {analyzing ? "Reading…" : rooms.some((r) => !isBlankRoom(r)) ? "Add another photo" : "Photo or upload"}
+      </Button>
+      <input
+        ref={drawingRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          Array.from(e.target.files ?? []).forEach((f) => onDrawing(f));
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+
+  // The "room builder" — name, flooring type, size. Reused by every layout.
+  const roomDetails = (r: WRoom, idx: number) => {
+    const profile = profileFor(r.type);
+    const sqft = roomSqft(r);
+    return (
+      <>
+        <div className="flex items-center gap-2">
+          <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{idx + 1}</span>
+          <Input value={r.name} onChange={(e) => up(r.id, { name: e.target.value })} placeholder="Room (e.g. Living room)" className="h-8 flex-1" />
+          {rooms.length > 1 ? (
+            <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => setRooms((rs) => rs.filter((x) => x.id !== r.id))}>
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {FLOORING_TYPES.map((t) => {
+            const p = profileFor(t)!;
+            return (
+              <button key={t} type="button" onClick={() => up(r.id, { type: t })}
+                className={cn("rounded-md border px-2.5 py-1 text-xs", r.type === t ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+        {profile ? (
+          <div className="flex flex-wrap items-end gap-2">
+            <FtIn label="Length" ft={r.lengthFt} inch={r.lengthIn} onFt={(v) => up(r.id, { lengthFt: v })} onIn={(v) => up(r.id, { lengthIn: v })} disabled={num(r.areaOverride) > 0} />
+            <span className="pb-2 text-muted-foreground">×</span>
+            <FtIn label="Width" ft={r.widthFt} inch={r.widthIn} onFt={(v) => up(r.id, { widthFt: v })} onIn={(v) => up(r.id, { widthIn: v })} disabled={num(r.areaOverride) > 0} />
+            <div className="pb-1 flex items-center gap-2">
+              <AreaCalculator
+                triggerLabel={num(r.areaOverride) > 0 ? "Edit areas" : "Add up areas"}
+                title={`Square footage — ${r.name || "this room"}`}
+                initialLabel={r.name}
+                onApply={(area) => up(r.id, { areaOverride: String(area) })}
+              />
+              {num(r.areaOverride) > 0 ? (
+                <button type="button" onClick={() => up(r.id, { areaOverride: "" })} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+                  use L×W
+                </button>
+              ) : null}
+            </div>
+            <span className="pb-1.5 text-sm">
+              <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
+              <span className="font-medium">{sqft}</span> sq ft
+              {num(r.areaOverride) > 0 ? <span className="ml-1 text-xs text-primary">· added up</span> : null}
+            </span>
+          </div>
+        ) : null}
+      </>
+    );
+  };
+
+  // The "price builder" — everything from material to add-ons for one room.
+  const roomPricing = (r: WRoom) => {
+    const profile = profileFor(r.type)!;
+    const unitLabel = profile.unit === "sqyd" ? "yd" : "ft";
+    return (
+      <>
+        <ProductPicker value={r.productId ?? ""} initialLabel={r.productLabel} onPick={(p) => pickProduct(r.id, p)} onCreated={(p) => pickProduct(r.id, p)} />
+        <CostSell label={`Material /${unitLabel}`} cost={r.matCost} sell={r.matSell}
+          onCost={(v) => up(r.id, { matCost: v, ...(num(v) > 0 ? { matSell: String(sellAt(num(v))) } : {}) })}
+          onSell={(v) => up(r.id, { matSell: v })} />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>Waste</span>
+          <Input value={r.waste} onChange={(e) => up(r.id, { waste: e.target.value })} inputMode="decimal" placeholder={String(profile.waste)} className="h-7 w-14" />%
+          {profile.unit !== "sqyd" ? (
+            <>
+              <span>· Sq ft / box</span>
+              <Input value={r.boxSqft} onChange={(e) => up(r.id, { boxSqft: e.target.value })} inputMode="decimal" placeholder="e.g. 23.8" className="h-7 w-16" />
+              {num(r.boxSqft) > 0 && roomSqft(r) > 0 ? (
+                <span className="font-semibold text-primary">
+                  = {Math.ceil((roomSqft(r) * (1 + roomWaste(r, profile.waste) / 100)) / num(r.boxSqft))} cartons
+                </span>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+        <Toggle on={r.install} onToggle={() => up(r.id, { install: !r.install })} label="Install labor">
+          <CostSell compact label="Install" cost={r.instCost} sell={r.instSell}
+            onCost={(v) => up(r.id, { instCost: v, ...(num(v) > 0 ? { instSell: String(sellAt(num(v))) } : {}) })}
+            onSell={(v) => up(r.id, { instSell: v })} />
+        </Toggle>
+        {profile.category === "carpet" ? (
+          <Toggle on={r.pad} onToggle={() => up(r.id, { pad: !r.pad })} label="Carpet pad">
+            <CostSell compact label="Pad" cost={r.padCost} sell={r.padSell}
+              onCost={(v) => up(r.id, { padCost: v, ...(num(v) > 0 ? { padSell: String(sellAt(num(v))) } : {}) })}
+              onSell={(v) => up(r.id, { padSell: v })} />
+          </Toggle>
+        ) : null}
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">This room also</div>
+        <Toggle on={r.demo} onToggle={() => up(r.id, { demo: !r.demo })} label="Tear out / demo (existing floor)">
+          <CostSell compact label="Demo /sf" cost={r.demoCost} sell={r.demoSell}
+            onCost={(v) => up(r.id, { demoCost: v, ...(num(v) > 0 ? { demoSell: String(sellAt(num(v))) } : {}) })}
+            onSell={(v) => up(r.id, { demoSell: v })} />
+          <Input value={r.demoNote} onChange={(e) => up(r.id, { demoNote: e.target.value })}
+            placeholder="Type of demo (e.g. glue-down VCT, carpet & pad) — shows on the work order" className="mt-1 h-7 text-xs" />
+        </Toggle>
+        <Toggle on={r.prep} onToggle={() => up(r.id, { prep: !r.prep })} label="Floor prep / leveling">
+          <CostSell compact label="Prep /sf" cost={r.prepCost} sell={r.prepSell}
+            onCost={(v) => up(r.id, { prepCost: v, ...(num(v) > 0 ? { prepSell: String(sellAt(num(v))) } : {}) })}
+            onSell={(v) => up(r.id, { prepSell: v })} />
+          <Input value={r.prepNote} onChange={(e) => up(r.id, { prepNote: e.target.value })}
+            placeholder="Prep notes (e.g. skim coat, patch low spots) — shows on the work order" className="mt-1 h-7 text-xs" />
+        </Toggle>
+        <Toggle on={r.trans} onToggle={() => up(r.id, { trans: !r.trans })} label="Transitions / thresholds">
+          <ProductPicker
+            key={`trans-${r.id}-${catalogKey}`}
+            value=""
+            label="Pick from catalog (T-mold, reducer, stair nose…)"
+            defaultCategory="trim"
+            onPick={(p) => p && pickTransition(r.id, p)}
+            onCreated={(p) => pickTransition(r.id, p)}
+          />
+          <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+            <Input value={r.transQty} onChange={(e) => up(r.id, { transQty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-8 w-16" />
+            <span>each</span>
+            $<Input value={r.transCost} onChange={(e) => up(r.id, { transCost: e.target.value, ...(num(e.target.value) > 0 ? { transSell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
+            →$<Input value={r.transSell} onChange={(e) => up(r.id, { transSell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
+          </div>
+          <Input value={r.transNote} onChange={(e) => up(r.id, { transNote: e.target.value })}
+            placeholder="Type (e.g. carpet→tile T-mold, flush threshold) — shows on the work order" className="mt-1 h-7 text-xs" />
+        </Toggle>
+        <div className="rounded-md border p-2">
+          <div className="flex flex-wrap items-center gap-1 text-xs">
+            <span className="font-medium uppercase tracking-wide text-muted-foreground">Add-ons</span>
+            {(profile.category === "carpet" ? CARPET_EXTRAS : HARD_EXTRAS).map((p) => (
+              <button key={p.label} type="button" onClick={() => addExtra(r.id, p)}
+                className="rounded-full border px-2 py-0.5 hover:bg-muted">
+                + {p.label.split(" / ")[0]}
+              </button>
+            ))}
+            <button type="button" onClick={() => addExtra(r.id)} className="rounded-full border px-2 py-0.5 hover:bg-muted">+ Custom</button>
+            <PriceBookPicker triggerSize="sm" triggerVariant="ghost" triggerClassName="h-6 px-2 text-xs" onPick={(it) => addExtra(r.id, it)} />
+          </div>
+          <div className="mt-1.5">
+            <ProductPicker
+              key={`extra-${r.id}-${catalogKey}`}
+              value=""
+              label="Add from catalog"
+              defaultCategory="trim"
+              onPick={(p) => p && addCatalogExtra(r.id, p)}
+              onCreated={(p) => addCatalogExtra(r.id, p)}
+            />
+          </div>
+          {r.extras.map((x) => (
+            <div key={x.id} className="mt-1.5 space-y-1.5 rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <Input value={x.label} onChange={(e) => updExtra(r.id, x.id, { label: e.target.value })} placeholder="Add-on name" className="h-8 flex-1" />
+                <Button type="button" variant="ghost" size="icon" aria-label="Remove add-on" onClick={() => delExtra(r.id, x.id)}>
+                  <Trash2 className="size-4 text-destructive" />
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
+                <Input value={x.qty} onChange={(e) => updExtra(r.id, x.id, { qty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-8 w-16" />
+                <select value={x.unit} onChange={(e) => updExtra(r.id, x.id, { unit: e.target.value })} className="h-8 rounded-md border border-input bg-transparent px-1.5 text-xs">
+                  <option value="sqft">sq ft</option>
+                  <option value="sqyd">sq yd</option>
+                  <option value="lnft">ln ft</option>
+                  <option value="each">each</option>
+                  <option value="step">step</option>
+                </select>
+                $<Input value={x.cost} onChange={(e) => updExtra(r.id, x.id, { cost: e.target.value, ...(num(e.target.value) > 0 ? { sell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
+                →$<Input value={x.sell} onChange={(e) => updExtra(r.id, x.id, { sell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
+                <label className="flex items-center gap-1.5 pl-1"><input type="checkbox" checked={x.labor} onChange={(e) => updExtra(r.id, x.id, { labor: e.target.checked })} className="size-4 rounded border-input" />labor</label>
+              </div>
+            </div>
+          ))}
+        </div>
+        <Input
+          value={r.note}
+          onChange={(e) => up(r.id, { note: e.target.value })}
+          placeholder="Note for this room (e.g. seam by the window, stairs are steep) — shows on the work order"
+          className="h-8 text-xs"
+        />
+      </>
+    );
+  };
+
+  const priceHint = (
+    <p className="text-xs text-muted-foreground">
+      Pick a flooring type &amp; enter the size to price this room.
+    </p>
+  );
+
   return (
     <div className="space-y-4">
       {/* Stepper + always-available "save for later" */}
@@ -565,261 +813,117 @@ export function GuidedWizard({
         </Button>
       </div>
 
-      {/* STEP 1 — Rooms */}
+      {/* STEP 1 — Rooms & pricing, in one tab with your chosen layout */}
       {step === 0 ? (
         <div className="space-y-3">
-          {/* Start from a photo of the measure sheet / drawing */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
-            <div className="min-w-0 text-sm">
-              <div className="flex items-center gap-1.5 font-medium">
-                <Camera className="size-4 text-primary" /> Start from your drawing
-              </div>
-              <div className="text-xs text-muted-foreground">
-                Take a photo of your measure sheet or pick a saved one — it reads
-                the rooms &amp; sizes, then flags anything you might miss. Add as
-                many photos as you need; each one&apos;s rooms are added on.
-              </div>
+          {drawingImport}
+
+          {/* Layout switch + margin */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex rounded-md border p-0.5">
+              {LAYOUTS.map((l) => {
+                const Icon = l.icon;
+                return (
+                  <button
+                    key={l.key}
+                    type="button"
+                    onClick={() => chooseLayout(l.key)}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                      layout === l.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="size-3.5" /> {l.label}
+                  </button>
+                );
+              })}
             </div>
-            <Button type="button" variant="outline" onClick={() => drawingRef.current?.click()} disabled={analyzing}>
-              <Camera className="size-4" />{" "}
-              {analyzing
-                ? "Reading…"
-                : rooms.some((r) => !isBlankRoom(r))
-                  ? "Add another photo"
-                  : "Photo or upload"}
-            </Button>
-            {/* No `capture` → the phone offers Photo Library / Take Photo / Browse.
-                `multiple` lets you pick several sheets at once. */}
-            <input
-              ref={drawingRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                Array.from(e.target.files ?? []).forEach((f) => onDrawing(f));
-                e.target.value = "";
-              }}
-            />
-          </div>
-
-          <p className="text-sm text-muted-foreground">
-            Add each room and its size — we&apos;ll price them next.
-          </p>
-          {rooms.map((r, idx) => {
-            const profile = profileFor(r.type);
-            const sqft = roomSqft(r);
-            return (
-              <Card key={r.id} className="border-primary/20">
-                <CardContent className="space-y-2.5 p-3">
-                  <div className="flex items-center gap-2">
-                    <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{idx + 1}</span>
-                    <Input value={r.name} onChange={(e) => up(r.id, { name: e.target.value })} placeholder="Room (e.g. Living room)" className="h-8 flex-1" />
-                    {rooms.length > 1 ? (
-                      <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => setRooms((rs) => rs.filter((x) => x.id !== r.id))}>
-                        <Trash2 className="size-4 text-destructive" />
-                      </Button>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {FLOORING_TYPES.map((t) => {
-                      const p = profileFor(t)!;
-                      return (
-                        <button key={t} type="button" onClick={() => up(r.id, { type: t })}
-                          className={cn("rounded-md border px-2.5 py-1 text-xs", r.type === t ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
-                          {p.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {profile ? (
-                    <div className="flex flex-wrap items-end gap-2">
-                      <FtIn label="Length" ft={r.lengthFt} inch={r.lengthIn} onFt={(v) => up(r.id, { lengthFt: v })} onIn={(v) => up(r.id, { lengthIn: v })} disabled={num(r.areaOverride) > 0} />
-                      <span className="pb-2 text-muted-foreground">×</span>
-                      <FtIn label="Width" ft={r.widthFt} inch={r.widthIn} onFt={(v) => up(r.id, { widthFt: v })} onIn={(v) => up(r.id, { widthIn: v })} disabled={num(r.areaOverride) > 0} />
-                      <div className="pb-1 flex items-center gap-2">
-                        <AreaCalculator
-                          triggerLabel={num(r.areaOverride) > 0 ? "Edit areas" : "Add up areas"}
-                          title={`Square footage — ${r.name || "this room"}`}
-                          initialLabel={r.name}
-                          onApply={(area) => up(r.id, { areaOverride: String(area) })}
-                        />
-                        {num(r.areaOverride) > 0 ? (
-                          <button type="button" onClick={() => up(r.id, { areaOverride: "" })} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
-                            use L×W
-                          </button>
-                        ) : null}
-                      </div>
-                      <span className="pb-1.5 text-sm">
-                        <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
-                        <span className="font-medium">{sqft}</span> sq ft
-                        {num(r.areaOverride) > 0 ? <span className="ml-1 text-xs text-primary">· added up</span> : null}
-                      </span>
-                    </div>
-                  ) : null}
-                </CardContent>
-              </Card>
-            );
-          })}
-          <Button type="button" variant="outline" onClick={() => setRooms((rs) => [...rs, newRoom()])}>
-            <Plus className="size-4" /> Add another room
-          </Button>
-        </div>
-      ) : null}
-
-      {/* STEP 2 — Pricing per room */}
-      {step === 1 ? (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">Set the cost — the sell price fills in at your margin.</p>
             <div className="flex items-center gap-1 text-xs">
               <span className="text-muted-foreground">Margin</span>
               <Input value={marginGoal} onChange={(e) => setMarginGoal(e.target.value)} inputMode="decimal" className="h-8 w-16" />%
             </div>
           </div>
-          {readyRooms.map((r) => {
-            const profile = profileFor(r.type)!;
-            const unitLabel = profile.unit === "sqyd" ? "yd" : "ft";
-            return (
-              <Card key={r.id} className="border-primary/20">
-                <CardContent className="space-y-2 p-3">
-                  <div className="text-sm font-medium">{r.name || profile.label} · {roomSqft(r)} sf</div>
-                  <ProductPicker value={r.productId ?? ""} initialLabel={r.productLabel} onPick={(p) => pickProduct(r.id, p)} onCreated={(p) => pickProduct(r.id, p)} />
-                  <CostSell label={`Material /${unitLabel}`} cost={r.matCost} sell={r.matSell}
-                    onCost={(v) => up(r.id, { matCost: v, ...(num(v) > 0 ? { matSell: String(sellAt(num(v))) } : {}) })}
-                    onSell={(v) => up(r.id, { matSell: v })} />
-                  {/* Waste % and (hard surface) cartons from sq ft per box */}
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    <span>Waste</span>
-                    <Input value={r.waste} onChange={(e) => up(r.id, { waste: e.target.value })} inputMode="decimal" placeholder={String(profile.waste)} className="h-7 w-14" />%
-                    {profile.unit !== "sqyd" ? (
-                      <>
-                        <span>· Sq ft / box</span>
-                        <Input value={r.boxSqft} onChange={(e) => up(r.id, { boxSqft: e.target.value })} inputMode="decimal" placeholder="e.g. 23.8" className="h-7 w-16" />
-                        {num(r.boxSqft) > 0 && roomSqft(r) > 0 ? (
-                          <span className="font-semibold text-primary">
-                            = {Math.ceil((roomSqft(r) * (1 + roomWaste(r, profile.waste) / 100)) / num(r.boxSqft))} cartons
-                          </span>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </div>
-                  <Toggle on={r.install} onToggle={() => up(r.id, { install: !r.install })} label="Install labor">
-                    <CostSell compact label="Install" cost={r.instCost} sell={r.instSell}
-                      onCost={(v) => up(r.id, { instCost: v, ...(num(v) > 0 ? { instSell: String(sellAt(num(v))) } : {}) })}
-                      onSell={(v) => up(r.id, { instSell: v })} />
-                  </Toggle>
-                  {profile.category === "carpet" ? (
-                    <Toggle on={r.pad} onToggle={() => up(r.id, { pad: !r.pad })} label="Carpet pad">
-                      <CostSell compact label="Pad" cost={r.padCost} sell={r.padSell}
-                        onCost={(v) => up(r.id, { padCost: v, ...(num(v) > 0 ? { padSell: String(sellAt(num(v))) } : {}) })}
-                        onSell={(v) => up(r.id, { padSell: v })} />
-                    </Toggle>
-                  ) : null}
 
-                  {/* Per-room prompts so nothing's missed for THIS room */}
-                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    This room also
-                  </div>
-                  <Toggle on={r.demo} onToggle={() => up(r.id, { demo: !r.demo })} label="Tear out / demo (existing floor)">
-                    <CostSell compact label="Demo /sf" cost={r.demoCost} sell={r.demoSell}
-                      onCost={(v) => up(r.id, { demoCost: v, ...(num(v) > 0 ? { demoSell: String(sellAt(num(v))) } : {}) })}
-                      onSell={(v) => up(r.id, { demoSell: v })} />
-                    <Input value={r.demoNote} onChange={(e) => up(r.id, { demoNote: e.target.value })}
-                      placeholder="Type of demo (e.g. glue-down VCT, carpet & pad) — shows on the work order" className="mt-1 h-7 text-xs" />
-                  </Toggle>
-                  <Toggle on={r.prep} onToggle={() => up(r.id, { prep: !r.prep })} label="Floor prep / leveling">
-                    <CostSell compact label="Prep /sf" cost={r.prepCost} sell={r.prepSell}
-                      onCost={(v) => up(r.id, { prepCost: v, ...(num(v) > 0 ? { prepSell: String(sellAt(num(v))) } : {}) })}
-                      onSell={(v) => up(r.id, { prepSell: v })} />
-                    <Input value={r.prepNote} onChange={(e) => up(r.id, { prepNote: e.target.value })}
-                      placeholder="Prep notes (e.g. skim coat, patch low spots) — shows on the work order" className="mt-1 h-7 text-xs" />
-                  </Toggle>
-                  <Toggle on={r.trans} onToggle={() => up(r.id, { trans: !r.trans })} label="Transitions / thresholds">
-                    {/* Pull the transition from the catalog — fills the cost; not there? add it inline. */}
-                    <ProductPicker
-                      key={`trans-${r.id}-${catalogKey}`}
-                      value=""
-                      label="Pick from catalog (T-mold, reducer, stair nose…)"
-                      defaultCategory="trim"
-                      onPick={(p) => p && pickTransition(r.id, p)}
-                      onCreated={(p) => pickTransition(r.id, p)}
-                    />
-                    <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-                      <Input value={r.transQty} onChange={(e) => up(r.id, { transQty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-8 w-16" />
-                      <span>each</span>
-                      $<Input value={r.transCost} onChange={(e) => up(r.id, { transCost: e.target.value, ...(num(e.target.value) > 0 ? { transSell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
-                      →$<Input value={r.transSell} onChange={(e) => up(r.id, { transSell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
+          {layout === "list" ? (
+            <div className="grid gap-3 md:grid-cols-[210px_1fr]">
+              <div className="space-y-1">
+                {rooms.map((r, idx) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => setSelRoomId(r.id)}
+                    className={cn(
+                      "w-full rounded-md border px-2.5 py-1.5 text-left",
+                      selRoom?.id === r.id ? "border-primary bg-primary/10" : "hover:bg-muted",
+                    )}
+                  >
+                    <div className="truncate text-sm font-medium">{r.name || `Room ${idx + 1}`}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {profileFor(r.type)?.label ?? "No type yet"}
+                      {roomSqft(r) > 0 ? ` · ${roomSqft(r)} sf` : ""}
                     </div>
-                    <Input value={r.transNote} onChange={(e) => up(r.id, { transNote: e.target.value })}
-                      placeholder="Type (e.g. carpet→tile T-mold, flush threshold) — shows on the work order" className="mt-1 h-7 text-xs" />
-                  </Toggle>
-
-                  {/* Any other add-on for THIS room — quick-add the common ones */}
-                  <div className="rounded-md border p-2">
-                    <div className="flex flex-wrap items-center gap-1 text-xs">
-                      <span className="font-medium uppercase tracking-wide text-muted-foreground">Add-ons</span>
-                      {(profile.category === "carpet" ? CARPET_EXTRAS : HARD_EXTRAS).map((p) => (
-                        <button key={p.label} type="button" onClick={() => addExtra(r.id, p)}
-                          className="rounded-full border px-2 py-0.5 hover:bg-muted">
-                          + {p.label.split(" / ")[0]}
-                        </button>
-                      ))}
-                      <button type="button" onClick={() => addExtra(r.id)} className="rounded-full border px-2 py-0.5 hover:bg-muted">+ Custom</button>
-                      <PriceBookPicker triggerSize="sm" triggerVariant="ghost" triggerClassName="h-6 px-2 text-xs" onPick={(it) => addExtra(r.id, it)} />
-                    </div>
-                    {/* Pull any add-on straight from the catalog (trim, stair nose, metals…). */}
-                    <div className="mt-1.5">
-                      <ProductPicker
-                        key={`extra-${r.id}-${catalogKey}`}
-                        value=""
-                        label="Add from catalog"
-                        defaultCategory="trim"
-                        onPick={(p) => p && addCatalogExtra(r.id, p)}
-                        onCreated={(p) => addCatalogExtra(r.id, p)}
-                      />
-                    </div>
-                    {r.extras.map((x) => (
-                      <div key={x.id} className="mt-1.5 space-y-1.5 rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Input value={x.label} onChange={(e) => updExtra(r.id, x.id, { label: e.target.value })} placeholder="Add-on name" className="h-8 flex-1" />
-                          <Button type="button" variant="ghost" size="icon" aria-label="Remove add-on" onClick={() => delExtra(r.id, x.id)}>
-                            <Trash2 className="size-4 text-destructive" />
-                          </Button>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1">
-                          <Input value={x.qty} onChange={(e) => updExtra(r.id, x.id, { qty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-8 w-16" />
-                          <select value={x.unit} onChange={(e) => updExtra(r.id, x.id, { unit: e.target.value })} className="h-8 rounded-md border border-input bg-transparent px-1.5 text-xs">
-                            <option value="sqft">sq ft</option>
-                            <option value="sqyd">sq yd</option>
-                            <option value="lnft">ln ft</option>
-                            <option value="each">each</option>
-                            <option value="step">step</option>
-                          </select>
-                          $<Input value={x.cost} onChange={(e) => updExtra(r.id, x.id, { cost: e.target.value, ...(num(e.target.value) > 0 ? { sell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
-                          →$<Input value={x.sell} onChange={(e) => updExtra(r.id, x.id, { sell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
-                          <label className="flex items-center gap-1.5 pl-1"><input type="checkbox" checked={x.labor} onChange={(e) => updExtra(r.id, x.id, { labor: e.target.checked })} className="size-4 rounded border-input" />labor</label>
-                        </div>
+                  </button>
+                ))}
+                <Button type="button" variant="outline" size="sm" className="w-full" onClick={addRoom}>
+                  <Plus className="size-4" /> Add room
+                </Button>
+              </div>
+              <Card className="border-primary/20">
+                <CardContent className="space-y-2.5 p-3">
+                  {selRoom ? (
+                    <>
+                      {roomDetails(selRoom, rooms.indexOf(selRoom))}
+                      <div className="space-y-2 border-t pt-2.5">
+                        {isReady(selRoom) ? roomPricing(selRoom) : priceHint}
                       </div>
-                    ))}
-                  </div>
-
-                  {/* Free note for THIS room — carried onto the work order */}
-                  <Input
-                    value={r.note}
-                    onChange={(e) => up(r.id, { note: e.target.value })}
-                    placeholder="Note for this room (e.g. seam by the window, stairs are steep) — shows on the work order"
-                    className="h-8 text-xs"
-                  />
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Add a room to get started.</p>
+                  )}
                 </CardContent>
               </Card>
-            );
-          })}
+            </div>
+          ) : (
+            <>
+              {rooms.map((r, idx) => (
+                <Card key={r.id} className="border-primary/20">
+                  <CardContent className={cn("p-3", layout === "cols" ? "grid gap-4 md:grid-cols-2" : "space-y-2.5")}>
+                    <div className="space-y-2.5">{roomDetails(r, idx)}</div>
+                    <div className={cn("space-y-2", layout === "cols" ? "md:border-l md:pl-4" : "border-t pt-2.5")}>
+                      {isReady(r) ? roomPricing(r) : priceHint}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              <Button type="button" variant="outline" onClick={addRoom}>
+                <Plus className="size-4" /> Add another room
+              </Button>
+            </>
+          )}
+
+          {/* Running totals — always visible while you build */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3 text-sm">
+            <span className="text-muted-foreground">
+              {readyRooms.length} room{readyRooms.length === 1 ? "" : "s"} priced
+            </span>
+            <div className="flex items-center gap-5">
+              <div>
+                <span className="text-xs text-muted-foreground">Subtotal </span>
+                <span className="font-semibold">{formatMoney(grand)}</span>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground">Margin </span>
+                <span className={cn("font-semibold", margin < 0 && grand > 0 && "text-destructive")}>
+                  {Math.round(margin)}%
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       ) : null}
 
-      {/* STEP 3 — Review */}
-      {step === 2 ? (
+      {/* STEP 2 — Review */}
+      {step === 1 ? (
         <div className="space-y-3">
           {/* Don't-miss checklist — smart nudges from the actual job */}
           {reminders.length ? (
@@ -834,10 +938,10 @@ export function GuidedWizard({
               </ul>
               <button
                 type="button"
-                onClick={() => setStep(1)}
+                onClick={() => setStep(0)}
                 className="mt-2 text-xs font-medium text-amber-700 underline-offset-2 hover:underline"
               >
-                ← Back to pricing &amp; add-ons to handle these
+                ← Back to rooms &amp; pricing to handle these
               </button>
             </div>
           ) : (
