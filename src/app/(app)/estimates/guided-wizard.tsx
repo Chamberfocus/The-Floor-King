@@ -55,6 +55,13 @@ const CARPET_EXTRAS: { label: string; unit: string; labor: boolean }[] = [
   { label: "Tackstrip", unit: "lnft", labor: true },
   { label: "Cover / carpet stairs", unit: "step", labor: true },
 ];
+// Common on any job, regardless of flooring type.
+const COMMON_EXTRAS: { label: string; unit: string; labor: boolean }[] = [
+  { label: "Furniture / appliance moving", unit: "each", labor: true },
+  { label: "Haul-away / disposal", unit: "each", labor: true },
+  { label: "Subfloor repair / replace", unit: "sqft", labor: true },
+  { label: "Trip / delivery fee", unit: "each", labor: false },
+];
 
 interface WRoom {
   id: string;
@@ -649,99 +656,121 @@ export function GuidedWizard({
   };
 
   // The "price builder" — everything from material to add-ons for one room.
+  const H = (t: string) => (
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      {t}
+    </div>
+  );
   const roomPricing = (r: WRoom) => {
     const profile = profileFor(r.type)!;
     const unitLabel = profile.unit === "sqyd" ? "yd" : "ft";
+    const chips = [
+      ...(profile.category === "carpet" ? CARPET_EXTRAS : HARD_EXTRAS),
+      ...COMMON_EXTRAS,
+    ];
     return (
-      <>
-        <ProductPicker value={r.productId ?? ""} initialLabel={r.productLabel} onPick={(p) => pickProduct(r.id, p)} onCreated={(p) => pickProduct(r.id, p)} />
-        <CostSell label={`Material /${unitLabel}`} cost={r.matCost} sell={r.matSell}
-          onCost={(v) => up(r.id, { matCost: v, ...(num(v) > 0 ? { matSell: String(sellAt(num(v))) } : {}) })}
-          onSell={(v) => up(r.id, { matSell: v })} />
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>Waste</span>
-          <Input value={r.waste} onChange={(e) => up(r.id, { waste: e.target.value })} inputMode="decimal" placeholder={String(profile.waste)} className="h-7 w-14" />%
-          {profile.unit !== "sqyd" ? (
-            <>
-              <span>· Sq ft / box</span>
-              <Input value={r.boxSqft} onChange={(e) => up(r.id, { boxSqft: e.target.value })} inputMode="decimal" placeholder="e.g. 23.8" className="h-7 w-16" />
-              {num(r.boxSqft) > 0 && roomSqft(r) > 0 ? (
-                <span className="font-semibold text-primary">
-                  = {Math.ceil((roomSqft(r) * (1 + roomWaste(r, profile.waste) / 100)) / num(r.boxSqft))} cartons
-                </span>
-              ) : null}
-            </>
+      <div className="space-y-3">
+        {/* Material */}
+        <div className="space-y-2">
+          {H("Material")}
+          <ProductPicker value={r.productId ?? ""} initialLabel={r.productLabel} onPick={(p) => pickProduct(r.id, p)} onCreated={(p) => pickProduct(r.id, p)} />
+          <CostSell label={`Material /${unitLabel}`} cost={r.matCost} sell={r.matSell}
+            onCost={(v) => up(r.id, { matCost: v, ...(num(v) > 0 ? { matSell: String(sellAt(num(v))) } : {}) })}
+            onSell={(v) => up(r.id, { matSell: v })} />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span>Waste</span>
+            <Input value={r.waste} onChange={(e) => up(r.id, { waste: e.target.value })} inputMode="decimal" placeholder={String(profile.waste)} className="h-7 w-14" />%
+            {profile.unit !== "sqyd" ? (
+              <>
+                <span>· Sq ft / box</span>
+                <Input value={r.boxSqft} onChange={(e) => up(r.id, { boxSqft: e.target.value })} inputMode="decimal" placeholder="e.g. 23.8" className="h-7 w-16" />
+                {num(r.boxSqft) > 0 && roomSqft(r) > 0 ? (
+                  <span className="font-semibold text-primary">
+                    = {Math.ceil((roomSqft(r) * (1 + roomWaste(r, profile.waste) / 100)) / num(r.boxSqft))} cartons
+                  </span>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Labor */}
+        <div className="space-y-2 border-t pt-2.5">
+          {H("Labor")}
+          <Toggle on={r.install} onToggle={() => up(r.id, { install: !r.install })} label="Install labor">
+            <CostSell compact label="Install" cost={r.instCost} sell={r.instSell}
+              onCost={(v) => up(r.id, { instCost: v, ...(num(v) > 0 ? { instSell: String(sellAt(num(v))) } : {}) })}
+              onSell={(v) => up(r.id, { instSell: v })} />
+          </Toggle>
+          {profile.category === "carpet" ? (
+            <Toggle on={r.pad} onToggle={() => up(r.id, { pad: !r.pad })} label="Carpet pad">
+              <CostSell compact label="Pad" cost={r.padCost} sell={r.padSell}
+                onCost={(v) => up(r.id, { padCost: v, ...(num(v) > 0 ? { padSell: String(sellAt(num(v))) } : {}) })}
+                onSell={(v) => up(r.id, { padSell: v })} />
+            </Toggle>
           ) : null}
         </div>
-        <Toggle on={r.install} onToggle={() => up(r.id, { install: !r.install })} label="Install labor">
-          <CostSell compact label="Install" cost={r.instCost} sell={r.instSell}
-            onCost={(v) => up(r.id, { instCost: v, ...(num(v) > 0 ? { instSell: String(sellAt(num(v))) } : {}) })}
-            onSell={(v) => up(r.id, { instSell: v })} />
-        </Toggle>
-        {profile.category === "carpet" ? (
-          <Toggle on={r.pad} onToggle={() => up(r.id, { pad: !r.pad })} label="Carpet pad">
-            <CostSell compact label="Pad" cost={r.padCost} sell={r.padSell}
-              onCost={(v) => up(r.id, { padCost: v, ...(num(v) > 0 ? { padSell: String(sellAt(num(v))) } : {}) })}
-              onSell={(v) => up(r.id, { padSell: v })} />
+
+        {/* Prep & tear-out */}
+        <div className="space-y-2 border-t pt-2.5">
+          {H("Prep & tear-out")}
+          <Toggle on={r.demo} onToggle={() => up(r.id, { demo: !r.demo })} label="Tear out / demo (existing floor)">
+            <CostSell compact label="Demo /sf" cost={r.demoCost} sell={r.demoSell}
+              onCost={(v) => up(r.id, { demoCost: v, ...(num(v) > 0 ? { demoSell: String(sellAt(num(v))) } : {}) })}
+              onSell={(v) => up(r.id, { demoSell: v })} />
+            <Input value={r.demoNote} onChange={(e) => up(r.id, { demoNote: e.target.value })}
+              placeholder="Type of demo (e.g. glue-down VCT, carpet & pad) — shows on the work order" className="mt-1 h-7 text-xs" />
           </Toggle>
-        ) : null}
-        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">This room also</div>
-        <Toggle on={r.demo} onToggle={() => up(r.id, { demo: !r.demo })} label="Tear out / demo (existing floor)">
-          <CostSell compact label="Demo /sf" cost={r.demoCost} sell={r.demoSell}
-            onCost={(v) => up(r.id, { demoCost: v, ...(num(v) > 0 ? { demoSell: String(sellAt(num(v))) } : {}) })}
-            onSell={(v) => up(r.id, { demoSell: v })} />
-          <Input value={r.demoNote} onChange={(e) => up(r.id, { demoNote: e.target.value })}
-            placeholder="Type of demo (e.g. glue-down VCT, carpet & pad) — shows on the work order" className="mt-1 h-7 text-xs" />
-        </Toggle>
-        <Toggle on={r.prep} onToggle={() => up(r.id, { prep: !r.prep })} label="Floor prep / leveling">
-          <CostSell compact label="Prep /sf" cost={r.prepCost} sell={r.prepSell}
-            onCost={(v) => up(r.id, { prepCost: v, ...(num(v) > 0 ? { prepSell: String(sellAt(num(v))) } : {}) })}
-            onSell={(v) => up(r.id, { prepSell: v })} />
-          <Input value={r.prepNote} onChange={(e) => up(r.id, { prepNote: e.target.value })}
-            placeholder="Prep notes (e.g. skim coat, patch low spots) — shows on the work order" className="mt-1 h-7 text-xs" />
-        </Toggle>
-        <Toggle on={r.trans} onToggle={() => up(r.id, { trans: !r.trans })} label="Transitions / thresholds">
-          <ProductPicker
-            key={`trans-${r.id}-${catalogKey}`}
-            value=""
-            label="Pick from catalog (T-mold, reducer, stair nose…)"
-            defaultCategory="trim"
-            onPick={(p) => p && pickTransition(r.id, p)}
-            onCreated={(p) => pickTransition(r.id, p)}
-          />
-          <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-            <Input value={r.transQty} onChange={(e) => up(r.id, { transQty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-8 w-16" />
-            <span>each</span>
-            $<Input value={r.transCost} onChange={(e) => up(r.id, { transCost: e.target.value, ...(num(e.target.value) > 0 ? { transSell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
-            →$<Input value={r.transSell} onChange={(e) => up(r.id, { transSell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
-          </div>
-          <Input value={r.transNote} onChange={(e) => up(r.id, { transNote: e.target.value })}
-            placeholder="Type (e.g. carpet→tile T-mold, flush threshold) — shows on the work order" className="mt-1 h-7 text-xs" />
-        </Toggle>
-        <div className="rounded-md border p-2">
+          <Toggle on={r.prep} onToggle={() => up(r.id, { prep: !r.prep })} label="Floor prep / leveling">
+            <CostSell compact label="Prep /sf" cost={r.prepCost} sell={r.prepSell}
+              onCost={(v) => up(r.id, { prepCost: v, ...(num(v) > 0 ? { prepSell: String(sellAt(num(v))) } : {}) })}
+              onSell={(v) => up(r.id, { prepSell: v })} />
+            <Input value={r.prepNote} onChange={(e) => up(r.id, { prepNote: e.target.value })}
+              placeholder="Prep notes (e.g. skim coat, patch low spots) — shows on the work order" className="mt-1 h-7 text-xs" />
+          </Toggle>
+          <Toggle on={r.trans} onToggle={() => up(r.id, { trans: !r.trans })} label="Transitions / thresholds">
+            <ProductPicker
+              key={`trans-${r.id}-${catalogKey}`}
+              value=""
+              label="Pick from catalog (T-mold, reducer, stair nose…)"
+              defaultCategory="trim"
+              onPick={(p) => p && pickTransition(r.id, p)}
+              onCreated={(p) => pickTransition(r.id, p)}
+            />
+            <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+              <Input value={r.transQty} onChange={(e) => up(r.id, { transQty: e.target.value })} inputMode="decimal" placeholder="qty" className="h-8 w-16" />
+              <span>each</span>
+              $<Input value={r.transCost} onChange={(e) => up(r.id, { transCost: e.target.value, ...(num(e.target.value) > 0 ? { transSell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
+              →$<Input value={r.transSell} onChange={(e) => up(r.id, { transSell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
+            </div>
+            <Input value={r.transNote} onChange={(e) => up(r.id, { transNote: e.target.value })}
+              placeholder="Type (e.g. carpet→tile T-mold, flush threshold) — shows on the work order" className="mt-1 h-7 text-xs" />
+          </Toggle>
+        </div>
+
+        {/* Add-ons & extras */}
+        <div className="space-y-2 border-t pt-2.5">
+          {H("Add-ons & extras")}
           <div className="flex flex-wrap items-center gap-1 text-xs">
-            <span className="font-medium uppercase tracking-wide text-muted-foreground">Add-ons</span>
-            {(profile.category === "carpet" ? CARPET_EXTRAS : HARD_EXTRAS).map((p) => (
+            {chips.map((p) => (
               <button key={p.label} type="button" onClick={() => addExtra(r.id, p)}
-                className="rounded-full border px-2 py-0.5 hover:bg-muted">
+                className="rounded-full border px-2.5 py-1 font-medium hover:border-primary hover:bg-primary/5">
                 + {p.label.split(" / ")[0]}
               </button>
             ))}
-            <button type="button" onClick={() => addExtra(r.id)} className="rounded-full border px-2 py-0.5 hover:bg-muted">+ Custom</button>
+            <button type="button" onClick={() => addExtra(r.id)} className="rounded-full border px-2.5 py-1 font-medium hover:border-primary hover:bg-primary/5">+ Custom</button>
             <PriceBookPicker triggerSize="sm" triggerVariant="ghost" triggerClassName="h-6 px-2 text-xs" onPick={(it) => addExtra(r.id, it)} />
           </div>
-          <div className="mt-1.5">
-            <ProductPicker
-              key={`extra-${r.id}-${catalogKey}`}
-              value=""
-              label="Add from catalog"
-              defaultCategory="trim"
-              onPick={(p) => p && addCatalogExtra(r.id, p)}
-              onCreated={(p) => addCatalogExtra(r.id, p)}
-            />
-          </div>
+          <ProductPicker
+            key={`extra-${r.id}-${catalogKey}`}
+            value=""
+            label="Add from catalog"
+            defaultCategory="trim"
+            onPick={(p) => p && addCatalogExtra(r.id, p)}
+            onCreated={(p) => addCatalogExtra(r.id, p)}
+          />
           {r.extras.map((x) => (
-            <div key={x.id} className="mt-1.5 space-y-1.5 rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
+            <div key={x.id} className="space-y-1.5 rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
               <div className="flex items-center gap-1">
                 <Input value={x.label} onChange={(e) => updExtra(r.id, x.id, { label: e.target.value })} placeholder="Add-on name" className="h-8 flex-1" />
                 <Button type="button" variant="ghost" size="icon" aria-label="Remove add-on" onClick={() => delExtra(r.id, x.id)}>
@@ -764,13 +793,18 @@ export function GuidedWizard({
             </div>
           ))}
         </div>
-        <Input
-          value={r.note}
-          onChange={(e) => up(r.id, { note: e.target.value })}
-          placeholder="Note for this room (e.g. seam by the window, stairs are steep) — shows on the work order"
-          className="h-8 text-xs"
-        />
-      </>
+
+        {/* Crew note */}
+        <div className="space-y-2 border-t pt-2.5">
+          {H("Crew note")}
+          <Input
+            value={r.note}
+            onChange={(e) => up(r.id, { note: e.target.value })}
+            placeholder="Note for this room (e.g. seam by the window, stairs are steep) — shows on the work order"
+            className="h-8 text-xs"
+          />
+        </div>
+      </div>
     );
   };
 
