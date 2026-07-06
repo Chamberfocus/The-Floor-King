@@ -286,34 +286,60 @@ export function GuidedWizard({
 
   // Read a job drawing/measure sheet → prefill the rooms + keep findings for the
   // "did you forget?" cross-check.
+  // A room is "blank" if nothing meaningful was entered — the starter row, or a
+  // leftover empty one. Those get replaced; rooms with real data are kept.
+  const isBlankRoom = (r: WRoom) =>
+    !r.name.trim() &&
+    !r.areaOverride.trim() &&
+    !r.lengthFt.trim() &&
+    !r.lengthIn.trim() &&
+    !r.widthFt.trim() &&
+    !r.widthIn.trim() &&
+    !r.matCost.trim() &&
+    r.extras.length === 0;
+
+  const mapDrawingRoom = (d: DrawingFindings["rooms"][number]): WRoom => {
+    const room = newRoom();
+    room.name = d.name || "";
+    room.type = d.type;
+    if (d.sqft && d.sqft > 0 && !(d.lengthFt || d.widthFt)) {
+      room.areaOverride = String(d.sqft);
+    } else {
+      room.lengthFt = d.lengthFt ? String(d.lengthFt) : "";
+      room.lengthIn = d.lengthIn ? String(d.lengthIn) : "";
+      room.widthFt = d.widthFt ? String(d.widthFt) : "";
+      room.widthIn = d.widthIn ? String(d.widthIn) : "";
+    }
+    if (d.materialCost && d.materialCost > 0) {
+      room.matCost = String(d.materialCost);
+      room.matSell = String(sellAt(d.materialCost));
+    }
+    room.install = d.install;
+    room.pad = d.pad;
+    return room;
+  };
+
   const applyFindings = (f: DrawingFindings) => {
-    setFindings(f);
+    // Merge with anything read from earlier photos so the "did you forget?"
+    // cross-check covers every picture, not just the last one.
+    setFindings((prev) =>
+      prev
+        ? {
+            rooms: [...prev.rooms, ...f.rooms],
+            addons: [...prev.addons, ...f.addons],
+            totalNote: f.totalNote ?? prev.totalNote,
+            error: null,
+          }
+        : f,
+    );
     if (f.rooms.length) {
-      setRooms(
-        f.rooms.map((d) => {
-          const room = newRoom();
-          room.name = d.name || "";
-          room.type = d.type;
-          if (d.sqft && d.sqft > 0 && !(d.lengthFt || d.widthFt)) {
-            room.areaOverride = String(d.sqft);
-          } else {
-            room.lengthFt = d.lengthFt ? String(d.lengthFt) : "";
-            room.lengthIn = d.lengthIn ? String(d.lengthIn) : "";
-            room.widthFt = d.widthFt ? String(d.widthFt) : "";
-            room.widthIn = d.widthIn ? String(d.widthIn) : "";
-          }
-          if (d.materialCost && d.materialCost > 0) {
-            room.matCost = String(d.materialCost);
-            room.matSell = String(sellAt(d.materialCost));
-          }
-          room.install = d.install;
-          room.pad = d.pad;
-          return room;
-        }),
-      );
+      const mapped = f.rooms.map(mapDrawingRoom);
+      // Keep rooms already entered (a prior photo or by hand) and ADD the new
+      // ones — a second picture no longer wipes the first.
+      setRooms((prev) => [...prev.filter((r) => !isBlankRoom(r)), ...mapped]);
     }
     toast.success(
-      `Read ${f.rooms.length} room${f.rooms.length === 1 ? "" : "s"} from the drawing — review them` +
+      `Added ${f.rooms.length} room${f.rooms.length === 1 ? "" : "s"} from the drawing — review them` +
         (f.totalNote ? ` · sheet total: ${f.totalNote}` : ""),
     );
   };
@@ -539,21 +565,28 @@ export function GuidedWizard({
               </div>
               <div className="text-xs text-muted-foreground">
                 Take a photo of your measure sheet or pick a saved one — it reads
-                the rooms &amp; sizes, then flags anything you might miss.
+                the rooms &amp; sizes, then flags anything you might miss. Add as
+                many photos as you need; each one&apos;s rooms are added on.
               </div>
             </div>
             <Button type="button" variant="outline" onClick={() => drawingRef.current?.click()} disabled={analyzing}>
-              <Camera className="size-4" /> {analyzing ? "Reading…" : "Photo or upload"}
+              <Camera className="size-4" />{" "}
+              {analyzing
+                ? "Reading…"
+                : rooms.some((r) => !isBlankRoom(r))
+                  ? "Add another photo"
+                  : "Photo or upload"}
             </Button>
-            {/* No `capture` → the phone offers Photo Library / Take Photo / Browse. */}
+            {/* No `capture` → the phone offers Photo Library / Take Photo / Browse.
+                `multiple` lets you pick several sheets at once. */}
             <input
               ref={drawingRef}
               type="file"
               accept="image/*"
+              multiple
               className="hidden"
               onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onDrawing(f);
+                Array.from(e.target.files ?? []).forEach((f) => onDrawing(f));
                 e.target.value = "";
               }}
             />

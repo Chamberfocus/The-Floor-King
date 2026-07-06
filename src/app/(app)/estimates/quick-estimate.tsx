@@ -134,9 +134,11 @@ export function QuickEstimate({
     const dominant = [...byType.entries()].sort((a, b) => b[1].area - a[1].area)[0];
     const [domType, dom] = dominant;
     const domProfile = profileFor(domType);
-    setType(domType);
-    setArea(String(r2(dom.area)));
-    if (dom.matCost > 0) {
+    // ADD onto what's already there so a second photo doesn't wipe the first —
+    // set the type/cost only if they're still empty, and sum the area.
+    if (!type) setType(domType);
+    setArea((a) => String(r2(num(a) + dom.area)));
+    if (dom.matCost > 0 && !num(matCost)) {
       setMatCost(String(dom.matCost));
       setMatSell(String(sellAt(dom.matCost)));
     }
@@ -310,11 +312,12 @@ export function QuickEstimate({
           ref={drawingRef}
           type="file"
           accept="image/*,application/pdf"
+          multiple
           className="hidden"
           onChange={(e) => {
-            const f = e.target.files?.[0];
+            const files = Array.from(e.target.files ?? []);
             e.target.value = "";
-            if (f) onDrawing(f);
+            files.forEach((f) => onDrawing(f));
           }}
         />
       </div>
