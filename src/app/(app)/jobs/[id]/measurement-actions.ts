@@ -46,14 +46,18 @@ export async function uploadJobMeasurement(
     .maybeSingle();
   if (!prof || prof.role === "customer") return { error: "Not allowed." };
 
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return { error: "Server isn't configured for uploads." };
+  // Staff write directly — same proven path as the customer file's uploader.
+  // Only crew (blocked from the documents table by RLS) need the service role.
+  let db = supabase;
+  if (prof.role === "crew") {
+    try {
+      db = createAdminClient() as unknown as typeof supabase;
+    } catch {
+      return { error: "Server isn't set up for crew uploads." };
+    }
   }
 
-  const { data: job } = await admin
+  const { data: job } = await db
     .from("jobs")
     .select("customer_id")
     .eq("id", jobId)
@@ -63,14 +67,14 @@ export async function uploadJobMeasurement(
 
   const bytes = Buffer.from(await file.arrayBuffer());
   const path = `customer/${customerId}/${crypto.randomUUID()}-${file.name}`;
-  const { error: upErr } = await admin.storage
+  const { error: upErr } = await db.storage
     .from("documents")
     .upload(path, bytes, {
       contentType: file.type || "application/octet-stream",
     });
   if (upErr) return { error: upErr.message };
 
-  const { error } = await admin.from("documents").insert({
+  const { error } = await db.from("documents").insert({
     customer_id: customerId,
     uploaded_by: user.id,
     name: file.name,
