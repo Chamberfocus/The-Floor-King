@@ -35,10 +35,17 @@ export default async function CustomersPage({
 
   const profile = await requireProfile();
   const isAdmin = profile.role === "admin";
-  // Admins can filter the list down to one salesperson's book.
+  // Admins can filter the list down to one salesperson's book, or to clients
+  // that still have no salesperson ("unassigned").
   const owner = isAdmin ? sp.owner?.trim() || undefined : undefined;
+  const unassignedOnly = owner === "unassigned";
 
-  const customers = await listCustomers({ search: q, stage, assignedTo: owner });
+  const customers = await listCustomers({
+    search: q,
+    stage,
+    assignedTo: unassignedOnly ? undefined : owner,
+    unassignedOnly,
+  });
 
   // Shared data for per-row quick actions — fetched once for the whole list.
   const [stages, members, schedSettings, prefs, contexts] = await Promise.all([
@@ -131,6 +138,7 @@ export default async function CustomersPage({
             allowClear
             options={[
               { value: "", label: "All salespeople" },
+              { value: "unassigned", label: "— Unassigned —" },
               ...members
                 .filter((m) => (SALES_ROLES as string[]).includes(m.role))
                 .map((m) => ({ value: m.id, label: m.name })),

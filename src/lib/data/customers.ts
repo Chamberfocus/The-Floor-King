@@ -111,6 +111,7 @@ export async function listCustomers(
     stage?: LeadStage;
     stages?: LeadStage[];
     assignedTo?: string;
+    unassignedOnly?: boolean;
   } = {},
 ): Promise<Customer[]> {
   const supabase = await createClient();
@@ -121,7 +122,8 @@ export async function listCustomers(
 
   if (opts.stage) query = query.eq("stage", opts.stage);
   if (opts.stages?.length) query = query.in("stage", opts.stages);
-  if (opts.assignedTo) query = query.eq("assigned_to", opts.assignedTo);
+  if (opts.unassignedOnly) query = query.is("assigned_to", null);
+  else if (opts.assignedTo) query = query.eq("assigned_to", opts.assignedTo);
 
   const search = opts.search ? sanitize(opts.search) : "";
   if (search) {
