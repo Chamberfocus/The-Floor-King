@@ -9,6 +9,8 @@ import {
   findConflicts,
   setShift,
   clearShift,
+  setOverride,
+  clearOverride,
   listManagerEmails,
 } from "@/lib/data/team-schedule";
 import { getProfileNames } from "@/lib/data/customers";
@@ -159,17 +161,46 @@ export async function removeDayOff(id: string): Promise<void> {
   revalidatePath("/team");
 }
 
-/** Set one weekday's hours for a person (office/admin). Empty = mark off. */
-export async function saveShift(
+/**
+ * Change a person's schedule from the week grid (office/admin).
+ *  - mode "series": sets the recurring weekly template for that weekday (and
+ *    clears any one-off override on this date so it follows the series).
+ *  - mode "date": sets a one-off override for just this date.
+ * `off: true` means not working; otherwise start/end are the hours.
+ */
+export async function applyShift(input: {
+  userId: string;
+  mode: "date" | "series";
+  date: string;
+  weekday: number;
+  start: string | null;
+  end: string | null;
+  off: boolean;
+}): Promise<void> {
+  const profile = await requireProfile();
+  if (!(profile.role === "admin" || profile.role === "office")) return;
+  const { userId, mode, date, weekday, start, end, off } = input;
+  if (!userId || weekday < 0 || weekday > 6 || !date) return;
+
+  if (mode === "series") {
+    if (off) await clearShift(userId, weekday);
+    else if (start && end) await setShift(userId, weekday, start, end);
+    await clearOverride(userId, date); // this date follows the series again
+  } else {
+    if (off) await setOverride(userId, date, null, null, true);
+    else if (start && end) await setOverride(userId, date, start, end, false);
+  }
+  revalidatePath("/team");
+}
+
+/** Drop a date's one-off override — that day goes back to the normal hours. */
+export async function clearDayOverride(
   userId: string,
-  weekday: number,
-  start: string | null,
-  end: string | null,
+  date: string,
 ): Promise<void> {
   const profile = await requireProfile();
   if (!(profile.role === "admin" || profile.role === "office")) return;
-  if (!userId || weekday < 0 || weekday > 6) return;
-  if (start && end) await setShift(userId, weekday, start, end);
-  else await clearShift(userId, weekday);
+  if (!userId || !date) return;
+  await clearOverride(userId, date);
   revalidatePath("/team");
 }

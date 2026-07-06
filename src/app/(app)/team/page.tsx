@@ -9,6 +9,7 @@ import { requireProfile } from "@/lib/auth";
 import { listTeamMembers } from "@/lib/data/team";
 import {
   getShiftsMap,
+  getOverrides,
   listTimeOff,
   listPendingTimeOff,
 } from "@/lib/data/team-schedule";
@@ -120,10 +121,11 @@ export default async function TeamSchedulePage({
     nextHref = `/team?week=${addDaysYmd(monday, 7)}`;
   }
 
-  const [membersRaw, shiftsMap, rangeOff, upcoming, pending] =
+  const [membersRaw, shiftsMap, overridesMap, rangeOff, upcoming, pending] =
     await Promise.all([
       listTeamMembers(),
       getShiftsMap(),
+      getOverrides(rangeStart, rangeEnd),
       listTimeOff(rangeStart, rangeEnd), // approved only
       listTimeOff(todayYmd, addDaysYmd(todayYmd, 45)),
       isManager
@@ -177,6 +179,13 @@ export default async function TeamSchedulePage({
   const cellFor = (userId: string, ymd: string): Cell => {
     const off = offByDay.get(ymd)?.get(userId);
     if (off) return { kind: "off", reason: off };
+    // A one-off override for this date wins over the recurring template.
+    const ov = overridesMap[userId]?.[ymd];
+    if (ov) {
+      return ov.off
+        ? { kind: "off", reason: "off" }
+        : { kind: "work", start: ov.start!, end: ov.end! };
+    }
     const s = shiftsMap[userId]?.[fromYmd(ymd).getUTCDay()];
     return s ? { kind: "work", start: s.start, end: s.end } : null;
   };
@@ -301,6 +310,7 @@ export default async function TeamSchedulePage({
             members={gridMembers}
             columns={weekColumns}
             shifts={shiftsMap}
+            overrides={overridesMap}
             off={offObj}
             editable={isManager}
           />

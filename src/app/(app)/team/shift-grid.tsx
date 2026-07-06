@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { X, Copy, Calendar } from "lucide-react";
+import { X, Copy, Calendar, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { to12 } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { saveShift } from "./actions";
+import { applyShift, clearDayOverride } from "./actions";
 
 type Shift = { start: string; end: string };
 type Shifts = Record<string, Record<number, Shift>>;
+type Override = { off: boolean; start?: string; end?: string };
+type Overrides = Record<string, Record<string, Override>>;
 
 interface Member {
   id: string;
@@ -16,14 +18,14 @@ interface Member {
   roleLabel: string;
 }
 export interface GridColumn {
-  weekday: number; // 0=Sun..6=Sat
-  top: string; // e.g. "Mon"
-  bottom: string; // e.g. "Jul 7"
+  weekday: number;
+  top: string;
+  bottom: string;
   ymd: string;
   isToday: boolean;
 }
 
-const WEEKDAYS = [1, 2, 3, 4, 5]; // Mon–Fri, for "copy to weekdays"
+const WEEKDAYS = [1, 2, 3, 4, 5];
 const PRESETS = [
   { label: "8–4", start: "08:00", end: "16:00" },
   { label: "9–5", start: "09:00", end: "17:00" },
@@ -37,57 +39,142 @@ const KIND_LABEL: Record<string, string> = {
   off: "Off", vacation: "Vacation", sick: "Sick", personal: "Personal",
 };
 
-/** Compact time for a cell: "9:00 AM" → "9a", "9:30 AM" → "9:30a". */
 function compact(hm: string): string {
   return to12(hm).replace(":00 ", " ").replace(" AM", "a").replace(" PM", "p");
 }
 
-/**
- * The weekly schedule as a grid — people down the side, this week's days across
- * the top. Managers click any day to set/change that person's hours (which sets
- * their recurring weekly schedule); approved time off shows as Off. Everyone
- * else sees the same grid, read-only.
- */
 export function ShiftGrid({
   members,
   columns,
-  shifts: initial,
+  shifts: initialShifts,
+  overrides: initialOverrides,
   off,
   editable,
 }: {
   members: Member[];
   columns: GridColumn[];
   shifts: Shifts;
+  overrides: Overrides;
   /** userId -> (ymd -> kind) for approved time off. */
   off: Record<string, Record<string, string>>;
   editable: boolean;
 }) {
-  const [shifts, setShifts] = useState<Shifts>(initial);
-  const [sel, setSel] = useState<{ userId: string; weekday: number } | null>(
+  const [shifts, setShifts] = useState<Shifts>(initialShifts);
+  const [overrides, setOverrides] = useState<Overrides>(initialOverrides);
+  const [sel, setSel] = useState<{ userId: string; col: GridColumn } | null>(
     null,
   );
+  const [mode, setMode] = useState<"date" | "series">("date");
   const [, start] = useTransition();
 
-  const shiftOf = (userId: string, weekday: number): Shift | undefined =>
-    shifts[userId]?.[weekday];
-  const offOn = (userId: string, ymd: string): string | undefined =>
-    off[userId]?.[ymd];
+  // Effective schedule for a person on a column's date.
+  const effective = (
+    userId: string,
+    col: GridColumn,
+  ):
+    | { type: "timeoff"; reason: string }
+    | { type: "work"; start: string; end: string; override: boolean }
+    | { type: "off"; override: boolean }
+    | { type: "none" } => {
+    const timeoff = off[userId]?.[col.ymd];
+    if (timeoff) return { type: "timeoff", reason: timeoff };
+    const ov = overrides[userId]?.[col.ymd];
+    if (ov) {
+      return ov.off
+        ? { type: "off", override: true }
+        : { type: "work", start: ov.start!, end: ov.end!, override: true };
+    }
+    const s = shifts[userId]?.[col.weekday];
+    return s
+      ? { type: "work", start: s.start, end: s.end, override: false }
+      : { type: "none" };
+  };
 
-  const write = (userId: string, weekday: number, s: Shift | null) => {
-    setShifts((prev) => {
-      const forUser = { ...(prev[userId] ?? {}) };
-      if (s) forUser[weekday] = s;
-      else delete forUser[weekday];
-      return { ...prev, [userId]: forUser };
-    });
+  const open = (userId: string, col: GridColumn) => {
+    setSel({ userId, col });
+    setMode("date"); // default to changing just this day
+  };
+
+  // Push a change to the server and mirror it locally for an instant update.
+  const apply = (off_: boolean, s?: Shift) => {
+    if (!sel) return;
+    const { userId, col } = sel;
     start(async () => {
-      await saveShift(userId, weekday, s?.start ?? null, s?.end ?? null);
+      await applyShift({
+        userId,
+        mode,
+        date: col.ymd,
+        weekday: col.weekday,
+        start: s?.start ?? null,
+        end: s?.end ?? null,
+        off: off_,
+      });
+    });
+    if (mode === "series") {
+      setShifts((p) => {
+        const u = { ...(p[userId] ?? {}) };
+        if (off_) delete u[col.weekday];
+        else if (s) u[col.weekday] = s;
+        return { ...p, [userId]: u };
+      });
+      setOverrides((p) => {
+        const u = { ...(p[userId] ?? {}) };
+        delete u[col.ymd];
+        return { ...p, [userId]: u };
+      });
+    } else {
+      setOverrides((p) => {
+        const u = { ...(p[userId] ?? {}) };
+        u[col.ymd] = off_ ? { off: true } : { off: false, ...s! };
+        return { ...p, [userId]: u };
+      });
+    }
+  };
+
+  const revert = () => {
+    if (!sel) return;
+    const { userId, col } = sel;
+    start(async () => {
+      await clearDayOverride(userId, col.ymd);
+    });
+    setOverrides((p) => {
+      const u = { ...(p[userId] ?? {}) };
+      delete u[col.ymd];
+      return { ...p, [userId]: u };
     });
   };
 
+  // Copy a shift onto several weekdays of the recurring template at once.
+  const writeSeries = (userId: string, date: string, weekday: number, s: Shift) => {
+    start(async () => {
+      await applyShift({
+        userId,
+        mode: "series",
+        date,
+        weekday,
+        start: s.start,
+        end: s.end,
+        off: false,
+      });
+    });
+    setShifts((p) => ({
+      ...p,
+      [userId]: { ...(p[userId] ?? {}), [weekday]: s },
+    }));
+  };
+
   const selMember = sel ? members.find((m) => m.id === sel.userId) : null;
-  const selShift = sel ? shiftOf(sel.userId, sel.weekday) : undefined;
-  const draft = selShift ?? { start: "09:00", end: "17:00" };
+  const selOverride = sel
+    ? overrides[sel.userId]?.[sel.col.ymd]
+    : undefined;
+  // Time controls start from the value the chosen mode is editing.
+  const seriesShift = sel ? shifts[sel.userId]?.[sel.col.weekday] : undefined;
+  const base: Shift =
+    mode === "date"
+      ? selOverride && !selOverride.off
+        ? { start: selOverride.start!, end: selOverride.end! }
+        : (seriesShift ?? { start: "09:00", end: "17:00" })
+      : (seriesShift ?? { start: "09:00", end: "17:00" });
 
   return (
     <div>
@@ -122,63 +209,58 @@ export function ShiftGrid({
                   </div>
                 </td>
                 {columns.map((c) => {
-                  const offKind = offOn(m.id, c.ymd);
-                  const s = shiftOf(m.id, c.weekday);
+                  const e = effective(m.id, c);
                   const active =
-                    sel?.userId === m.id && sel?.weekday === c.weekday;
+                    sel?.userId === m.id && sel?.col.ymd === c.ymd;
+                  const tdCls = cn(
+                    "p-1 text-center align-middle text-xs",
+                    c.isToday && "bg-primary/5",
+                  );
 
-                  // Time off wins over the shift, and isn't editable here
-                  // (manage it with the day-off request, not the hours).
-                  if (offKind) {
+                  // Approved time off: shown, not edited here.
+                  if (e.type === "timeoff") {
                     return (
-                      <td
-                        key={c.ymd}
-                        className={cn(
-                          "px-1.5 py-2 text-center align-middle",
-                          c.isToday && "bg-primary/5",
-                        )}
-                      >
-                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                          {KIND_LABEL[offKind] ?? "Off"}
+                      <td key={c.ymd} className={tdCls}>
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                          {KIND_LABEL[e.reason] ?? "Off"}
                         </span>
                       </td>
                     );
                   }
 
-                  const label = s ? (
-                    <span className="font-medium text-emerald-700 dark:text-emerald-300">
-                      {compact(s.start)}–{compact(s.end)}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">
-                      {editable ? "Off" : "·"}
-                    </span>
-                  );
+                  const inner =
+                    e.type === "work" ? (
+                      <span className="relative font-medium text-emerald-700 dark:text-emerald-300">
+                        {compact(e.start)}–{compact(e.end)}
+                        {e.override ? (
+                          <span className="absolute -right-2 -top-1 size-1.5 rounded-full bg-primary" />
+                        ) : null}
+                      </span>
+                    ) : e.type === "off" ? (
+                      <span className="text-muted-foreground">Off*</span>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        {editable ? "Off" : "·"}
+                      </span>
+                    );
 
                   return (
-                    <td
-                      key={c.ymd}
-                      className={cn(
-                        "p-1 text-center align-middle text-xs",
-                        c.isToday && "bg-primary/5",
-                      )}
-                    >
+                    <td key={c.ymd} className={tdCls}>
                       {editable ? (
                         <button
                           type="button"
-                          onClick={() =>
-                            setSel({ userId: m.id, weekday: c.weekday })
-                          }
+                          onClick={() => open(m.id, c)}
                           className={cn(
                             "w-full rounded-md px-1.5 py-2 transition-colors hover:bg-muted",
-                            s && "bg-emerald-50/60 dark:bg-emerald-950/30",
+                            e.type === "work" &&
+                              "bg-emerald-50/60 dark:bg-emerald-950/30",
                             active && "ring-2 ring-primary",
                           )}
                         >
-                          {label}
+                          {inner}
                         </button>
                       ) : (
-                        <div className="px-1.5 py-2">{label}</div>
+                        <div className="px-1.5 py-2">{inner}</div>
                       )}
                     </td>
                   );
@@ -195,7 +277,7 @@ export function ShiftGrid({
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2 font-medium">
                 <Calendar className="size-4 text-primary" />
-                {selMember.name} · {DAY_NAME[sel.weekday]}
+                {selMember.name} · {DAY_NAME[sel.col.weekday]} {sel.col.bottom}
               </div>
               <button
                 type="button"
@@ -207,14 +289,40 @@ export function ShiftGrid({
               </button>
             </div>
 
+            {/* This day only vs the whole recurring series */}
+            <div className="mb-3 inline-flex rounded-md border p-0.5 text-sm">
+              <button
+                type="button"
+                onClick={() => setMode("date")}
+                className={cn(
+                  "rounded px-3 py-1 font-medium transition-colors",
+                  mode === "date"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Just this day
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("series")}
+                className={cn(
+                  "rounded px-3 py-1 font-medium transition-colors",
+                  mode === "series"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Every {DAY_NAME[sel.col.weekday]}
+              </button>
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               {PRESETS.map((p) => (
                 <button
                   key={p.label}
                   type="button"
-                  onClick={() =>
-                    write(sel.userId, sel.weekday, { start: p.start, end: p.end })
-                  }
+                  onClick={() => apply(false, { start: p.start, end: p.end })}
                   className="rounded-md border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-muted"
                 >
                   {p.label}
@@ -223,24 +331,18 @@ export function ShiftGrid({
               <span className="mx-1 h-6 w-px bg-border" />
               <input
                 type="time"
-                value={draft.start}
+                value={base.start}
                 onChange={(e) =>
-                  write(sel.userId, sel.weekday, {
-                    start: e.target.value,
-                    end: draft.end,
-                  })
+                  apply(false, { start: e.target.value, end: base.end })
                 }
                 className="rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
               <span className="text-sm text-muted-foreground">to</span>
               <input
                 type="time"
-                value={draft.end}
+                value={base.end}
                 onChange={(e) =>
-                  write(sel.userId, sel.weekday, {
-                    start: draft.start,
-                    end: e.target.value,
-                  })
+                  apply(false, { start: base.start, end: e.target.value })
                 }
                 className="rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
@@ -251,24 +353,34 @@ export function ShiftGrid({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => write(sel.userId, sel.weekday, null)}
+                onClick={() => apply(true)}
               >
                 Mark off
               </Button>
-              {selShift ? (
+              {mode === "series" && seriesShift ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => {
                     for (const wd of WEEKDAYS)
-                      write(sel.userId, wd, {
-                        start: selShift.start,
-                        end: selShift.end,
+                      writeSeries(sel.userId, sel.col.ymd, wd, {
+                        start: seriesShift.start,
+                        end: seriesShift.end,
                       });
                   }}
                 >
                   <Copy className="size-4" /> Copy to Mon–Fri
+                </Button>
+              ) : null}
+              {mode === "date" && selOverride ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={revert}
+                >
+                  <RotateCcw className="size-4" /> Use regular hours
                 </Button>
               ) : null}
               <Button
@@ -281,12 +393,15 @@ export function ShiftGrid({
               </Button>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Sets the recurring weekly hours for this person.
+              {mode === "date"
+                ? "Changes only this date. A dot marks days that differ from the regular schedule."
+                : `Sets the regular hours for every ${DAY_NAME[sel.col.weekday]}.`}
             </p>
           </div>
         ) : (
           <p className="mt-3 text-sm text-muted-foreground">
-            Tap any day to set or change that person&apos;s hours.
+            Tap any day to set or change that person&apos;s hours — for just that
+            day or every week.
           </p>
         )
       ) : null}

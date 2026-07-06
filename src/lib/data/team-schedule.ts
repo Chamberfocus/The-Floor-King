@@ -63,6 +63,69 @@ export async function clearShift(
     .eq("weekday", weekday);
 }
 
+export interface Override {
+  off: boolean;
+  start?: string;
+  end?: string;
+}
+
+/** userId -> (date -> one-off override) within [startYmd, endYmd]. */
+export async function getOverrides(
+  startYmd: string,
+  endYmd: string,
+): Promise<Record<string, Record<string, Override>>> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("shift_overrides")
+    .select("user_id, date, start_time, end_time, off")
+    .gte("date", startYmd)
+    .lte("date", endYmd);
+  const map: Record<string, Record<string, Override>> = {};
+  for (const r of data ?? []) {
+    const uid = r.user_id as string;
+    (map[uid] ??= {})[r.date as string] = r.off
+      ? { off: true }
+      : {
+          off: false,
+          start: (r.start_time as string) ?? undefined,
+          end: (r.end_time as string) ?? undefined,
+        };
+  }
+  return map;
+}
+
+/** Set a one-off override for a single date (custom hours, or off). */
+export async function setOverride(
+  userId: string,
+  date: string,
+  start: string | null,
+  end: string | null,
+  off: boolean,
+): Promise<void> {
+  const supabase = await createClient();
+  await supabase.from("shift_overrides").upsert({
+    user_id: userId,
+    date,
+    start_time: off ? null : start,
+    end_time: off ? null : end,
+    off,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+/** Remove a date's override — that day reverts to the recurring template. */
+export async function clearOverride(
+  userId: string,
+  date: string,
+): Promise<void> {
+  const supabase = await createClient();
+  await supabase
+    .from("shift_overrides")
+    .delete()
+    .eq("user_id", userId)
+    .eq("date", date);
+}
+
 const TIME_OFF_COLS =
   "id, user_id, start_date, end_date, kind, note, status, created_by";
 
