@@ -106,7 +106,12 @@ export async function getCustomerRowContexts(
 }
 
 export async function listCustomers(
-  opts: { search?: string; stage?: LeadStage; stages?: LeadStage[] } = {},
+  opts: {
+    search?: string;
+    stage?: LeadStage;
+    stages?: LeadStage[];
+    assignedTo?: string;
+  } = {},
 ): Promise<Customer[]> {
   const supabase = await createClient();
   let query = supabase
@@ -116,6 +121,7 @@ export async function listCustomers(
 
   if (opts.stage) query = query.eq("stage", opts.stage);
   if (opts.stages?.length) query = query.in("stage", opts.stages);
+  if (opts.assignedTo) query = query.eq("assigned_to", opts.assignedTo);
 
   const search = opts.search ? sanitize(opts.search) : "";
   if (search) {

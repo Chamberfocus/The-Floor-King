@@ -25,7 +25,7 @@ export const metadata: Metadata = { title: "Customers" };
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; stage?: string }>;
+  searchParams: Promise<{ q?: string; stage?: string; owner?: string }>;
 }) {
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
@@ -35,8 +35,10 @@ export default async function CustomersPage({
 
   const profile = await requireProfile();
   const isAdmin = profile.role === "admin";
+  // Admins can filter the list down to one salesperson's book.
+  const owner = isAdmin ? sp.owner?.trim() || undefined : undefined;
 
-  const customers = await listCustomers({ search: q, stage });
+  const customers = await listCustomers({ search: q, stage, assignedTo: owner });
 
   // Shared data for per-row quick actions — fetched once for the whole list.
   const [stages, members, schedSettings, prefs, contexts] = await Promise.all([
@@ -71,6 +73,7 @@ export default async function CustomersPage({
       const params = new URLSearchParams();
       if (q) params.set("q", q);
       if (stage) params.set("stage", stage);
+      if (owner) params.set("owner", owner);
       const qs = params.toString();
       return qs ? `/customers?${qs}` : "/customers";
     })(),
@@ -119,10 +122,25 @@ export default async function CustomersPage({
             })),
           ]}
         />
+        {isAdmin ? (
+          <SearchPicker
+            className="w-48"
+            name="owner"
+            defaultValue={owner ?? ""}
+            placeholder="All salespeople"
+            allowClear
+            options={[
+              { value: "", label: "All salespeople" },
+              ...members
+                .filter((m) => (SALES_ROLES as string[]).includes(m.role))
+                .map((m) => ({ value: m.id, label: m.name })),
+            ]}
+          />
+        ) : null}
         <Button type="submit" variant="outline" size="lg">
           Search
         </Button>
-        {(q || stage) && (
+        {(q || stage || owner) && (
           <Link
             href="/customers"
             className={buttonVariants({ variant: "ghost", size: "lg" })}
@@ -135,11 +153,11 @@ export default async function CustomersPage({
       {customers.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center">
           <p className="text-sm text-muted-foreground">
-            {q || stage
+            {q || stage || owner
               ? "No customers match your search."
               : "No customers yet. Add your first lead to get started."}
           </p>
-          {!q && !stage ? (
+          {!q && !stage && !owner ? (
             <Link
               href="/customers/new"
               className={buttonVariants({ className: "mt-4" })}
