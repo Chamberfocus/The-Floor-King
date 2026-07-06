@@ -173,59 +173,92 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // --- Stalled-lead nudges: email each owner their overdue leads ---
+  // --- Stuck-too-long alerts ---
+  // A client past its stage's time limit alerts BOTH the current handler and its
+  // salesperson (so a passed-down client never falls off the salesperson's
+  // radar), and every admin (owner + Debbie) gets a full oversight digest.
   let nudges = 0;
   const { data: overdue } = await admin
     .from("customers")
     .select(
-      "id, full_name, next_action_due, workflow_owner_id, stage:workflow_stages(name, next_action)",
+      "id, full_name, next_action_due, workflow_owner_id, assigned_to, stage:workflow_stages(name, next_action)",
     )
-    .not("workflow_owner_id", "is", null)
     .not("next_action_due", "is", null)
     .lt("next_action_due", new Date(now).toISOString());
 
-  const byOwner = new Map<
-    string,
-    { name: string; stage: string; action: string }[]
-  >();
+  type StuckLead = { name: string; stage: string; action: string };
+  const rowHtml = (l: StuckLead) =>
+    `<li><strong>${l.name}</strong> — ${l.stage}: ${l.action}</li>`;
+
+  // Admins (owner + Debbie) get the full digest; skip them in the per-person
+  // alerts so they aren't double-emailed.
+  const { data: adminProfs } = await admin
+    .from("profiles")
+    .select("id, email")
+    .eq("role", "admin");
+  const adminIds = new Set((adminProfs ?? []).map((p) => p.id as string));
+
+  const allStuck: StuckLead[] = [];
+  const byRecipient = new Map<string, StuckLead[]>();
   for (const c of overdue ?? []) {
-    const owner = c.workflow_owner_id as string;
     const stage = c.stage as unknown as {
       name: string | null;
       next_action: string | null;
     } | null;
-    const arr = byOwner.get(owner) ?? [];
-    arr.push({
+    const lead: StuckLead = {
       name: (c.full_name as string) ?? "A customer",
       stage: stage?.name ?? "—",
       action: stage?.next_action ?? "Follow up",
-    });
-    byOwner.set(owner, arr);
+    };
+    allStuck.push(lead);
+    // The current handler + the permanent salesperson (deduped).
+    const recipients = new Set<string>();
+    if (c.workflow_owner_id) recipients.add(c.workflow_owner_id as string);
+    if (c.assigned_to) recipients.add(c.assigned_to as string);
+    for (const uid of recipients) {
+      if (adminIds.has(uid)) continue; // admins get the full digest instead
+      const arr = byRecipient.get(uid) ?? [];
+      arr.push(lead);
+      byRecipient.set(uid, arr);
+    }
   }
-  for (const [ownerId, leads] of byOwner) {
+
+  for (const [uid, leads] of byRecipient) {
     const { data: prof } = await admin
       .from("profiles")
-      .select("email, full_name")
-      .eq("id", ownerId)
+      .select("email")
+      .eq("id", uid)
       .maybeSingle();
     if (!prof?.email) continue;
-    const rows = leads
-      .map(
-        (l) =>
-          `<li><strong>${l.name}</strong> — ${l.stage}: ${l.action}</li>`,
-      )
-      .join("");
     await sendEmail({
-      to: prof.email,
-      subject: `${leads.length} lead${leads.length === 1 ? "" : "s"} need your attention`,
+      to: prof.email as string,
+      subject: `${leads.length} client${leads.length === 1 ? "" : "s"} need your attention`,
       html: emailLayout(
-        "Leads waiting on you",
-        `<p>These leads are past their target time for the next step:</p>
-         <ul>${rows}</ul>`,
+        "Clients waiting on you",
+        `<p>These clients are past their target time for the next step:</p>
+         <ul>${leads.map(rowHtml).join("")}</ul>`,
         { label: "Open the pipeline", url: `${siteUrl()}/pipeline?mine=1&overdue=1` },
       ),
     });
     nudges += 1;
+  }
+
+  // Full oversight digest to each admin (owner + Debbie).
+  if (allStuck.length) {
+    for (const p of adminProfs ?? []) {
+      if (!p.email) continue;
+      await sendEmail({
+        to: p.email as string,
+        subject: `${allStuck.length} client${allStuck.length === 1 ? "" : "s"} stuck too long`,
+        html: emailLayout(
+          "Clients stuck too long — full view",
+          `<p>These clients are past their stage's time limit across the whole team, so nothing falls through the cracks:</p>
+           <ul>${allStuck.map(rowHtml).join("")}</ul>`,
+          { label: "Open the pipeline", url: `${siteUrl()}/pipeline?overdue=1` },
+        ),
+      });
+      nudges += 1;
+    }
   }
 
   // --- Safety net: resume any import job that stalled (e.g. a dropped trigger) ---
