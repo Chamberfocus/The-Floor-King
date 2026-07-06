@@ -51,10 +51,23 @@ export async function qualifyAndAssign(formData: FormData): Promise<void> {
 
   // Mark qualified and assign the owner before advancing, so the workflow
   // engine carries the chosen owner forward to the next stage.
-  await supabase
-    .from("customers")
-    .update({ qualified: true, workflow_owner_id: owner })
-    .eq("id", customerId);
+  // The qualify step assigns the SALESPERSON — lock them in as the permanent
+  // account owner (assigned_to) too, so the client stays theirs through every
+  // later handoff to admin/warehouse.
+  const qualifyPatch: Record<string, unknown> = {
+    qualified: true,
+    workflow_owner_id: owner,
+  };
+  if (owner) {
+    const { data: op } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", owner)
+      .maybeSingle();
+    if (["salesman", "sales_manager"].includes((op?.role as string) ?? ""))
+      qualifyPatch.assigned_to = owner;
+  }
+  await supabase.from("customers").update(qualifyPatch).eq("id", customerId);
 
   // Forward to the stage that schedules the estimate (skips the old standalone
   // "Qualifying" parking stage — qualify is now the first stage's action).

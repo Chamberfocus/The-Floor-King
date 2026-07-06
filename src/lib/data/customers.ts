@@ -232,7 +232,10 @@ export async function listMyQueue(userId: string): Promise<QueueItem[]> {
     .select(
       "id, full_name, city, next_action_due, stage:workflow_stages(name, next_action, color)",
     )
-    .eq("workflow_owner_id", userId)
+    // A rep's book = clients they permanently own (assigned_to) OR that are
+    // currently on their plate (workflow_owner_id) — so passed-down clients
+    // stay visible to their salesperson.
+    .or(`assigned_to.eq.${userId},workflow_owner_id.eq.${userId}`)
     .not("workflow_stage_id", "is", null)
     .is("cancelled_at", null)
     .order("next_action_due", { ascending: true, nullsFirst: false })

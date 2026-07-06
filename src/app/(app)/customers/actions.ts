@@ -324,31 +324,41 @@ export async function reassignCustomer(formData: FormData): Promise<void> {
 
   const { data: cust } = await supabase
     .from("customers")
-    .select("workflow_owner_id, workflow_stage_id, full_name")
+    .select("workflow_owner_id, workflow_stage_id, full_name, assigned_to")
     .eq("id", id)
     .maybeSingle();
 
-  // No-op if it's already assigned to that person.
-  if ((cust?.workflow_owner_id ?? null) === toUser) {
+  // Look up who we're assigning to. If they're a SALESPERSON, they also become
+  // the permanent account owner (assigned_to) — so the client stays theirs even
+  // after it's later passed down to admin/warehouse for a step. Handing a step
+  // to Debbie/Fernando (non-sales roles) moves only the current owner.
+  let toName: string | null = null;
+  let isSalesperson = false;
+  if (toUser) {
+    const { data: p } = await supabase
+      .from("profiles")
+      .select("full_name, email, role")
+      .eq("id", toUser)
+      .maybeSingle();
+    toName = (p?.full_name as string) || (p?.email as string) || null;
+    isSalesperson = ["salesman", "sales_manager"].includes(
+      (p?.role as string) ?? "",
+    );
+  }
+
+  const patch: Record<string, unknown> = { workflow_owner_id: toUser };
+  if (isSalesperson) patch.assigned_to = toUser;
+
+  // No-op only if nothing actually changes.
+  const ownerSame = (cust?.workflow_owner_id ?? null) === toUser;
+  const salesSame = !isSalesperson || (cust?.assigned_to ?? null) === toUser;
+  if (ownerSame && salesSame) {
     refreshCustomerViews(id);
     redirect(redirectTo ?? `/customers/${id}`);
   }
 
-  const { error } = await supabase
-    .from("customers")
-    .update({ workflow_owner_id: toUser })
-    .eq("id", id);
+  const { error } = await supabase.from("customers").update(patch).eq("id", id);
   if (error) return;
-
-  let toName: string | null = null;
-  if (toUser) {
-    const { data: p } = await supabase
-      .from("profiles")
-      .select("full_name, email")
-      .eq("id", toUser)
-      .maybeSingle();
-    toName = (p?.full_name as string) || (p?.email as string) || null;
-  }
 
   await supabase.from("handoffs").insert({
     customer_id: id,
