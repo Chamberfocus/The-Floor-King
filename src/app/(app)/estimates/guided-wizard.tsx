@@ -43,23 +43,27 @@ const mkExtra = (label = "", unit = "sqft", labor = false, cost = ""): WExtra =>
   id: `e${exid++}`, label, unit, labor, qty: "", cost, sell: "",
 });
 // Quick-add per-room add-ons by flooring type.
-const HARD_EXTRAS: { label: string; unit: string; labor: boolean }[] = [
+// Quick-add presets. `cost` (our cost, from the Floor King price book) fills in
+// automatically and marks up to the job's margin; left off where there's no
+// single reliable default, so the estimator prices it.
+type ExtraPreset = { label: string; unit: string; labor: boolean; cost?: number };
+const HARD_EXTRAS: ExtraPreset[] = [
   { label: "Underlayment / moisture barrier", unit: "sqft", labor: false },
-  { label: "Quarter round / shoe molding", unit: "lnft", labor: false },
+  { label: "Quarter round / shoe molding", unit: "lnft", labor: false, cost: 2.78 },
   { label: "Baseboard remove & reinstall", unit: "lnft", labor: true },
-  { label: "Reducer / T-mold", unit: "each", labor: false },
+  { label: "Reducer / T-mold", unit: "each", labor: false, cost: 50 },
   { label: "Stair nosing", unit: "step", labor: true },
-  { label: "Pull & reset toilet", unit: "each", labor: true },
+  { label: "Pull & reset toilet", unit: "each", labor: true, cost: 75 },
 ];
-const CARPET_EXTRAS: { label: string; unit: string; labor: boolean }[] = [
+const CARPET_EXTRAS: ExtraPreset[] = [
   { label: "Tackstrip", unit: "lnft", labor: true },
-  { label: "Cover / carpet stairs", unit: "step", labor: true },
+  { label: "Cover / carpet stairs", unit: "step", labor: true, cost: 18.5 },
 ];
 // Common on any job, regardless of flooring type.
-const COMMON_EXTRAS: { label: string; unit: string; labor: boolean }[] = [
-  { label: "Furniture / appliance moving", unit: "each", labor: true },
-  { label: "Haul-away / disposal", unit: "each", labor: true },
-  { label: "Subfloor repair / replace", unit: "sqft", labor: true },
+const COMMON_EXTRAS: ExtraPreset[] = [
+  { label: "Furniture / appliance moving", unit: "sqft", labor: true, cost: 0.34 },
+  { label: "Haul-away / disposal", unit: "each", labor: false },
+  { label: "Subfloor repair / replace", unit: "each", labor: false },
   { label: "Trip / delivery fee", unit: "each", labor: false },
 ];
 
