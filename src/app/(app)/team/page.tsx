@@ -18,6 +18,7 @@ import { WorkDaysEditor } from "./work-days-editor";
 export const metadata: Metadata = { title: "Team Schedule" };
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEK_HEAD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MON = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -35,33 +36,75 @@ function mdLabel(ymd: string): string {
   return `${MON[m - 1]} ${d}`;
 }
 
+/** Monday on/before the given day (weeks start Monday). */
+function mondayOf(ymd: string): string {
+  return addDaysYmd(ymd, -((fromYmd(ymd).getUTCDay() + 6) % 7));
+}
+
 export default async function TeamSchedulePage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ view?: string; week?: string; month?: string }>;
 }) {
   const profile = await requireProfile();
   // Installers (crew) don't use the schedule — keep them out even via direct URL.
   if (!SCHEDULE_ROLES.includes(profile.role)) redirect("/");
   const sp = await searchParams;
   const isManager = profile.role === "admin" || profile.role === "office";
+  const view = sp.view === "month" ? "month" : "week";
 
   const todayYmd = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
   }).format(new Date());
-  const weekParam =
-    typeof sp.week === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sp.week)
-      ? sp.week
-      : todayYmd;
-  const dow = fromYmd(weekParam).getUTCDay();
-  const monday = addDaysYmd(weekParam, -((dow + 6) % 7)); // week starts Monday
-  const days = Array.from({ length: 7 }, (_, i) => addDaysYmd(monday, i));
-  const sunday = days[6];
 
-  const [membersRaw, workMap, weekOff, upcoming] = await Promise.all([
+  // Work out the visible grid + navigation for the chosen view.
+  let gridDays: string[];
+  let rangeStart: string;
+  let rangeEnd: string;
+  let periodLabel: string;
+  let prevHref: string;
+  let nextHref: string;
+  let monthKey = ""; // set in month view, used to dim adjacent-month days
+
+  if (view === "month") {
+    const monthParam =
+      typeof sp.month === "string" && /^\d{4}-\d{2}$/.test(sp.month)
+        ? sp.month
+        : todayYmd.slice(0, 7);
+    monthKey = monthParam;
+    const [yy, mm] = monthParam.split("-").map(Number);
+    const daysInMonth = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+    const first = `${monthParam}-01`;
+    const last = `${monthParam}-${String(daysInMonth).padStart(2, "0")}`;
+    rangeStart = mondayOf(first);
+    rangeEnd = addDaysYmd(last, 6 - ((fromYmd(last).getUTCDay() + 6) % 7));
+    gridDays = [];
+    for (let d = rangeStart; d <= rangeEnd; d = addDaysYmd(d, 1)) gridDays.push(d);
+    periodLabel = `${MON[mm - 1]} ${yy}`;
+    const prevMonth =
+      mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
+    const nextMonth =
+      mm === 12 ? `${yy + 1}-01` : `${yy}-${String(mm + 1).padStart(2, "0")}`;
+    prevHref = `/team?view=month&month=${prevMonth}`;
+    nextHref = `/team?view=month&month=${nextMonth}`;
+  } else {
+    const weekParam =
+      typeof sp.week === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sp.week)
+        ? sp.week
+        : todayYmd;
+    const monday = mondayOf(weekParam);
+    gridDays = Array.from({ length: 7 }, (_, i) => addDaysYmd(monday, i));
+    rangeStart = gridDays[0];
+    rangeEnd = gridDays[6];
+    periodLabel = `${mdLabel(rangeStart)} – ${mdLabel(rangeEnd)}`;
+    prevHref = `/team?week=${addDaysYmd(monday, -7)}`;
+    nextHref = `/team?week=${addDaysYmd(monday, 7)}`;
+  }
+
+  const [membersRaw, workMap, rangeOff, upcoming] = await Promise.all([
     listTeamMembers(),
     getWorkDaysMap(),
-    listTimeOff(monday, sunday),
+    listTimeOff(rangeStart, rangeEnd),
     listTimeOff(todayYmd, addDaysYmd(todayYmd, 45)),
   ]);
   const members = membersRaw.filter(
@@ -72,6 +115,7 @@ export default async function TeamSchedulePage({
     const m = members.find((x) => x.id === id);
     return m?.full_name || m?.email || "—";
   };
+  const firstName = (id: string) => nameOf(id).split(" ")[0];
   const workSet = (id: string) =>
     new Set(
       (workMap[id] ?? DEFAULT_WORK)
@@ -82,9 +126,9 @@ export default async function TeamSchedulePage({
 
   // day ymd -> (userId -> kind)
   const offByDay = new Map<string, Map<string, string>>();
-  for (const d of days) offByDay.set(d, new Map());
-  for (const t of weekOff) {
-    for (const d of days) {
+  for (const d of gridDays) offByDay.set(d, new Map());
+  for (const t of rangeOff) {
+    for (const d of gridDays) {
       if (t.start_date <= d && d <= t.end_date) {
         offByDay.get(d)!.set(t.user_id, t.kind);
       }
@@ -96,6 +140,14 @@ export default async function TeamSchedulePage({
     name: m.full_name || m.email,
   }));
 
+  const toggleCls = (active: boolean) =>
+    cn(
+      "rounded px-3 py-1 text-sm font-medium transition-colors",
+      active
+        ? "bg-primary text-primary-foreground"
+        : "text-muted-foreground hover:text-foreground",
+    );
+
   return (
     <div>
       <PageHeader
@@ -105,89 +157,145 @@ export default async function TeamSchedulePage({
         <AddDayOff isManager={isManager} members={memberOptions} />
       </PageHeader>
 
-      {/* Week navigation */}
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <Link
-          href={`/team?week=${addDaysYmd(monday, -7)}`}
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-        >
-          <ChevronLeft className="size-4" /> Prev
-        </Link>
-        <div className="text-sm font-semibold">
-          {mdLabel(monday)} – {mdLabel(sunday)}
-          {monday <= todayYmd && todayYmd <= sunday ? (
-            <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
-              This week
-            </span>
-          ) : (
-            <Link
-              href="/team"
-              className="ml-2 text-xs text-muted-foreground underline hover:text-foreground"
-            >
-              Jump to today
-            </Link>
-          )}
+      {/* View toggle + period navigation */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex rounded-md border p-0.5">
+          <Link href="/team" className={toggleCls(view === "week")}>
+            Week
+          </Link>
+          <Link
+            href="/team?view=month"
+            className={toggleCls(view === "month")}
+          >
+            Month
+          </Link>
         </div>
-        <Link
-          href={`/team?week=${addDaysYmd(monday, 7)}`}
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-        >
-          Next <ChevronRight className="size-4" />
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={prevHref}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            <ChevronLeft className="size-4" /> Prev
+          </Link>
+          <div className="min-w-36 text-center text-sm font-semibold">
+            {periodLabel}
+            {rangeStart <= todayYmd && todayYmd <= rangeEnd ? null : (
+              <Link
+                href={view === "month" ? "/team?view=month" : "/team"}
+                className="ml-2 text-xs text-muted-foreground underline hover:text-foreground"
+              >
+                Today
+              </Link>
+            )}
+          </div>
+          <Link
+            href={nextHref}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Next <ChevronRight className="size-4" />
+          </Link>
+        </div>
       </div>
 
-      {/* 7-day roster */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
-        {days.map((d) => {
-          const weekday = fromYmd(d).getUTCDay();
-          const off = offByDay.get(d)!;
-          const working = members.filter(
-            (m) => workSet(m.id).has(weekday) && !off.has(m.id),
-          );
-          const offList = members.filter((m) => off.has(m.id));
-          const isToday = d === todayYmd;
-          return (
-            <div
-              key={d}
-              className={cn(
-                "rounded-lg border p-2",
-                isToday && "ring-2 ring-primary",
-              )}
-            >
-              <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-sm font-semibold">{DOW[weekday]}</span>
-                <span className="text-xs text-muted-foreground">
-                  {mdLabel(d)}
-                </span>
+      {view === "week" ? (
+        /* Week: a card per day with the full working / off roster */
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
+          {gridDays.map((d) => {
+            const weekday = fromYmd(d).getUTCDay();
+            const off = offByDay.get(d)!;
+            const working = members.filter(
+              (m) => workSet(m.id).has(weekday) && !off.has(m.id),
+            );
+            const offList = members.filter((m) => off.has(m.id));
+            const isToday = d === todayYmd;
+            return (
+              <div
+                key={d}
+                className={cn(
+                  "rounded-lg border p-2",
+                  isToday && "ring-2 ring-primary",
+                )}
+              >
+                <div className="mb-2 flex items-baseline justify-between">
+                  <span className="text-sm font-semibold">{DOW[weekday]}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {mdLabel(d)}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {working.map((m) => (
+                    <div
+                      key={m.id}
+                      className="truncate rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    >
+                      {m.full_name || m.email}
+                    </div>
+                  ))}
+                  {offList.map((m) => (
+                    <div
+                      key={m.id}
+                      className="truncate rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800 line-through decoration-amber-400 dark:bg-amber-950/40 dark:text-amber-300"
+                    >
+                      {m.full_name || m.email}
+                      <span className="ml-1 no-underline">
+                        · {KIND_LABEL[off.get(m.id)!] ?? "Off"}
+                      </span>
+                    </div>
+                  ))}
+                  {working.length === 0 && offList.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">—</div>
+                  ) : null}
+                </div>
               </div>
-              <div className="space-y-1">
-                {working.map((m) => (
-                  <div
-                    key={m.id}
-                    className="truncate rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                  >
-                    {m.full_name || m.email}
-                  </div>
-                ))}
-                {offList.map((m) => (
-                  <div
-                    key={m.id}
-                    className="truncate rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-800 line-through decoration-amber-400 dark:bg-amber-950/40 dark:text-amber-300"
-                  >
-                    {m.full_name || m.email}
-                    <span className="ml-1 no-underline">
-                      · {KIND_LABEL[off.get(m.id)!] ?? "Off"}
-                    </span>
-                  </div>
-                ))}
-                {working.length === 0 && offList.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">—</div>
-                ) : null}
-              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Month: a calendar grid focused on who's off (coverage at a glance) */
+        <div className="overflow-x-auto">
+          <div className="min-w-[640px]">
+            <div className="grid grid-cols-7 text-center text-xs font-semibold text-muted-foreground">
+              {WEEK_HEAD.map((d) => (
+                <div key={d} className="py-1">
+                  {d}
+                </div>
+              ))}
             </div>
-          );
-        })}
-      </div>
+            <div className="grid grid-cols-7 gap-1">
+              {gridDays.map((d) => {
+                const off = offByDay.get(d)!;
+                const inMonth = d.slice(0, 7) === monthKey;
+                const isToday = d === todayYmd;
+                return (
+                  <div
+                    key={d}
+                    className={cn(
+                      "min-h-[84px] rounded-md border p-1",
+                      !inMonth && "opacity-40",
+                      isToday && "ring-2 ring-primary",
+                    )}
+                  >
+                    <div className="text-xs font-semibold">
+                      {Number(d.slice(8, 10))}
+                    </div>
+                    <div className="mt-1 space-y-0.5">
+                      {[...off.entries()].map(([uid, kind]) => (
+                        <div
+                          key={uid}
+                          className="truncate rounded bg-amber-50 px-1 py-0.5 text-[11px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                          title={`${nameOf(uid)} — ${KIND_LABEL[kind] ?? "Off"}`}
+                        >
+                          {firstName(uid)} · {KIND_LABEL[kind] ?? "Off"}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Upcoming days off */}
       <Card className="mt-6">
@@ -252,9 +360,7 @@ export default async function TeamSchedulePage({
                   className="flex flex-wrap items-center justify-between gap-3"
                 >
                   <div className="min-w-0">
-                    <div className="font-medium">
-                      {m.full_name || m.email}
-                    </div>
+                    <div className="font-medium">{m.full_name || m.email}</div>
                     <div className="text-xs text-muted-foreground">
                       {ROLE_LABELS[m.role]}
                     </div>
