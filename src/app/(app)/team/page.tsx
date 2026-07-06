@@ -313,6 +313,7 @@ export default async function TeamSchedulePage({
             overrides={overridesMap}
             off={offObj}
             editable={isManager}
+            showTotals={isManager}
           />
         </>
       ) : (

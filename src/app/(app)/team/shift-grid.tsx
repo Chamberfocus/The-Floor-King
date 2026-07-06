@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { X, Copy, Calendar, RotateCcw } from "lucide-react";
+import { X, Copy, Calendar, RotateCcw, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { to12 } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,7 @@ export function ShiftGrid({
   overrides: initialOverrides,
   off,
   editable,
+  showTotals = false,
 }: {
   members: Member[];
   columns: GridColumn[];
@@ -58,6 +59,8 @@ export function ShiftGrid({
   /** userId -> (ymd -> kind) for approved time off. */
   off: Record<string, Record<string, string>>;
   editable: boolean;
+  /** Show a private weekly-hours tally column (managers only). */
+  showTotals?: boolean;
 }) {
   const [shifts, setShifts] = useState<Shifts>(initialShifts);
   const [overrides, setOverrides] = useState<Overrides>(initialOverrides);
@@ -89,6 +92,24 @@ export function ShiftGrid({
       ? { type: "work", start: s.start, end: s.end, override: false }
       : { type: "none" };
   };
+
+  // Scheduled hours for one person across the visible week (off days = 0).
+  const hoursBetween = (a: string, b: string) => {
+    const [ah, am] = a.split(":").map(Number);
+    const [bh, bm] = b.split(":").map(Number);
+    const mins = bh * 60 + bm - (ah * 60 + am);
+    return mins > 0 ? mins / 60 : 0;
+  };
+  const weeklyHours = (userId: string) =>
+    columns.reduce((sum, c) => {
+      const e = effective(userId, c);
+      return e.type === "work" ? sum + hoursBetween(e.start, e.end) : sum;
+    }, 0);
+  const fmtHours = (n: number) =>
+    n === 0 ? "—" : n.toFixed(2).replace(/\.?0+$/, "");
+  const teamHours = showTotals
+    ? members.reduce((s, m) => s + weeklyHours(m.id), 0)
+    : 0;
 
   const open = (userId: string, col: GridColumn) => {
     setSel({ userId, col });
@@ -197,6 +218,13 @@ export function ShiftGrid({
                   <div className="text-xs font-normal">{c.bottom}</div>
                 </th>
               ))}
+              {showTotals ? (
+                <th className="sticky right-0 z-10 min-w-16 bg-muted/40 px-2 py-2 text-right font-semibold">
+                  <div className="flex items-center justify-end gap-1">
+                    <Lock className="size-3 text-muted-foreground" /> Hrs
+                  </div>
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -265,11 +293,35 @@ export function ShiftGrid({
                     </td>
                   );
                 })}
+                {showTotals ? (
+                  <td className="sticky right-0 z-10 bg-background px-2 py-2 text-right font-semibold tabular-nums">
+                    {fmtHours(weeklyHours(m.id))}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>
+          {showTotals ? (
+            <tfoot>
+              <tr className="border-t bg-muted/30">
+                <td className="sticky left-0 z-10 bg-muted/30 px-3 py-2 font-semibold">
+                  Team total
+                </td>
+                <td colSpan={columns.length} />
+                <td className="sticky right-0 z-10 bg-muted/30 px-2 py-2 text-right font-bold tabular-nums">
+                  {fmtHours(teamHours)}
+                </td>
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </div>
+      {showTotals ? (
+        <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
+          <Lock className="size-3" /> Scheduled hours this week — only managers
+          see this column.
+        </p>
+      ) : null}
 
       {editable ? (
         sel && selMember ? (
