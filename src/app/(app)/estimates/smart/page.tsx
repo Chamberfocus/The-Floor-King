@@ -32,7 +32,7 @@ export default async function SmartEstimatePage({
   }));
 
   return (
-    <div className="mx-auto max-w-3xl pb-20">
+    <div className="mx-auto max-w-5xl pb-20">
       <Link
         href={`/customers/${customerId}`}
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

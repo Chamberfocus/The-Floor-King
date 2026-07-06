@@ -572,6 +572,9 @@ export function GuidedWizard({
   };
   const selRoom = rooms.find((r) => r.id === selRoomId) ?? rooms[0] ?? null;
   const isReady = (r: WRoom) => !!profileFor(r.type) && roomSqft(r) > 0;
+  // Show the pricing column as soon as a flooring type is picked — you can set
+  // material/labor before the exact size is in, so the column isn't left blank.
+  const hasType = (r: WRoom) => !!profileFor(r.type);
 
   // Photo-of-the-drawing importer (top of the build tab).
   const drawingImport = (
@@ -814,7 +817,7 @@ export function GuidedWizard({
 
   const priceHint = (
     <p className="text-xs text-muted-foreground">
-      Pick a flooring type &amp; enter the size to price this room.
+      Pick a flooring type on the left to start pricing this room.
     </p>
   );
 
@@ -912,7 +915,7 @@ export function GuidedWizard({
                     <>
                       {roomDetails(selRoom, rooms.indexOf(selRoom))}
                       <div className="space-y-2 border-t pt-2.5">
-                        {isReady(selRoom) ? roomPricing(selRoom) : priceHint}
+                        {hasType(selRoom) ? roomPricing(selRoom) : priceHint}
                       </div>
                     </>
                   ) : (
@@ -928,7 +931,7 @@ export function GuidedWizard({
                   <CardContent className={cn("p-3", layout === "cols" ? "grid gap-4 md:grid-cols-2" : "space-y-2.5")}>
                     <div className="space-y-2.5">{roomDetails(r, idx)}</div>
                     <div className={cn("space-y-2", layout === "cols" ? "md:border-l md:pl-4" : "border-t pt-2.5")}>
-                      {isReady(r) ? roomPricing(r) : priceHint}
+                      {hasType(r) ? roomPricing(r) : priceHint}
                     </div>
                   </CardContent>
                 </Card>
