@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Plus } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -36,12 +36,22 @@ export default async function JobsPage() {
             : "Your assigned jobs."
         }
       >
-        <Link
-          href="/jobs/calendar"
-          className={buttonVariants({ variant: "outline", size: "lg" })}
-        >
-          <CalendarDays className="size-4" /> Calendar
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/jobs/calendar"
+            className={buttonVariants({ variant: "outline", size: "lg" })}
+          >
+            <CalendarDays className="size-4" /> Calendar
+          </Link>
+          {isStaff ? (
+            <Link
+              href="/jobs/quick"
+              className={buttonVariants({ size: "lg" })}
+            >
+              <Plus className="size-4" /> Quick install
+            </Link>
+          ) : null}
+        </div>
       </PageHeader>
 
       {jobs.length === 0 ? (

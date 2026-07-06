@@ -50,6 +50,13 @@ export default async function CarryOverPage() {
           </li>
         </ul>
       </div>
+      <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+        Already sold and just need it installed?{" "}
+        <a href="/jobs/quick" className="font-medium text-primary underline-offset-2 hover:underline">
+          Use Quick install
+        </a>{" "}
+        — no pricing or invoicing, straight to the schedule.
+      </div>
       <CarryOverForm customers={customers} installers={installers} />
     </div>
   );
