@@ -1,15 +1,32 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, Calendar, CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  ArrowLeft,
+  Calendar,
+  CalendarDays,
+  Users,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { SearchPicker } from "@/components/ui/search-picker";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getUserPreferences } from "@/lib/data/preferences";
-import { getMyGoogleStatus } from "@/lib/data/google-calendar";
+import {
+  getMyGoogleStatus,
+  getTeamCalendar,
+  listMyCalendars,
+} from "@/lib/data/google-calendar";
 import { googleConfigured } from "@/lib/google-calendar";
 import { PreferencesForm } from "./preferences-form";
-import { disconnectGoogleCalendar } from "./actions";
+import {
+  disconnectGoogleCalendar,
+  setTeamCalendar,
+  createTeamCalendar,
+  unsetTeamCalendar,
+} from "./actions";
 
 export const metadata: Metadata = { title: "My page setup" };
 
@@ -48,6 +65,14 @@ export default async function PreferencesSettingsPage({
   const configured = googleConfigured();
   const sp = await searchParams;
   const flash = sp.gcal ? GCAL_MESSAGES[sp.gcal] : null;
+
+  // Shared team calendar — admin-only. Only load Google calendars once the
+  // admin is connected (and the upgraded scope is granted).
+  const isAdmin = profile.role === "admin";
+  const showTeamCalendar = isAdmin && configured;
+  const teamCal = showTeamCalendar ? await getTeamCalendar() : null;
+  const myCalendars =
+    showTeamCalendar && gstatus.connected ? await listMyCalendars() : [];
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -116,6 +141,99 @@ export default async function PreferencesSettingsPage({
                 {flash.text}
               </div>
             ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {showTeamCalendar ? (
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Users className="size-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold">Team calendar</div>
+                <div className="text-sm text-muted-foreground">
+                  One shared calendar every appointment syncs into — so the whole
+                  crew sees the full schedule, not just their own jobs. Each event
+                  is labelled with the rep it belongs to.
+                </div>
+
+                {!gstatus.connected ? (
+                  <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                    Connect your Google Calendar above first — the shared calendar
+                    lives in your Google account.
+                  </div>
+                ) : (
+                  <>
+                    {teamCal ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+                        <CheckCircle2 className="size-4 shrink-0" />
+                        <span>
+                          Syncing all appointments to{" "}
+                          <strong>{teamCal.calendarName ?? "your calendar"}</strong>
+                          .
+                        </span>
+                      </div>
+                    ) : null}
+
+                    {myCalendars.length > 0 ? (
+                      <>
+                        <form
+                          action={setTeamCalendar}
+                          className="mt-3 flex flex-wrap items-center gap-2"
+                        >
+                          <SearchPicker
+                            className="w-64"
+                            name="calendar_id"
+                            defaultValue={teamCal?.calendarId ?? ""}
+                            placeholder="Choose a calendar…"
+                            options={myCalendars.map((c) => ({
+                              value: c.id,
+                              label: c.primary
+                                ? `${c.summary} (your main calendar)`
+                                : c.summary,
+                            }))}
+                          />
+                          <Button type="submit" size="sm">
+                            Use this calendar
+                          </Button>
+                        </form>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <form action={createTeamCalendar}>
+                            <Button type="submit" variant="outline" size="sm">
+                              <CalendarDays className="size-4" /> Create a new
+                              “Floor King Schedule” calendar
+                            </Button>
+                          </form>
+                          {teamCal ? (
+                            <form action={unsetTeamCalendar}>
+                              <Button type="submit" variant="ghost" size="sm">
+                                Turn off shared calendar
+                              </Button>
+                            </form>
+                          ) : null}
+                        </div>
+                        {teamCal ? (
+                          <p className="mt-3 text-xs text-muted-foreground">
+                            Tip: in Google Calendar, share “
+                            {teamCal.calendarName ?? "this calendar"}” with your
+                            crew’s Google accounts so it shows up on their phones.
+                          </p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                        Reconnect Google Calendar above to grant the new
+                        “manage calendars” permission, then your calendars will
+                        show here.
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       ) : null}

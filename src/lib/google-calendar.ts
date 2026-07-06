@@ -13,7 +13,10 @@ const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CAL_BASE = "https://www.googleapis.com/calendar/v3";
 const SCOPES = [
-  "https://www.googleapis.com/auth/calendar.events",
+  // Full calendar scope: manage events AND list/create calendars, so an admin
+  // can create or pick the shared team calendar. (Broader than calendar.events,
+  // so reconnecting is required to upgrade an older connection.)
+  "https://www.googleapis.com/auth/calendar",
   "openid",
   "email",
 ].join(" ");
@@ -95,6 +98,49 @@ export function emailFromIdToken(idToken?: string): string | null {
   } catch {
     return null;
   }
+}
+
+// --- Calendars -------------------------------------------------------------
+
+export interface GCalListItem {
+  id: string;
+  summary: string;
+  primary: boolean;
+}
+
+/** The user's calendars they can write to (for picking the shared team one). */
+export async function listCalendars(token: string): Promise<GCalListItem[]> {
+  const r = await fetch(
+    `${CAL_BASE}/users/me/calendarList?minAccessRole=writer&maxResults=250`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!r.ok) throw new Error(`list calendars ${r.status}: ${await r.text()}`);
+  const j = await r.json();
+  return (j.items ?? []).map(
+    (c: { id: string; summary: string; primary?: boolean }) => ({
+      id: c.id,
+      summary: c.summary,
+      primary: !!c.primary,
+    }),
+  );
+}
+
+/** Create a brand-new (secondary) calendar; returns its id + name. */
+export async function createCalendar(
+  token: string,
+  summary: string,
+): Promise<{ id: string; summary: string }> {
+  const r = await fetch(`${CAL_BASE}/calendars`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ summary, timeZone: SHOP_TZ }),
+  });
+  if (!r.ok) throw new Error(`create calendar ${r.status}: ${await r.text()}`);
+  const j = await r.json();
+  return { id: j.id as string, summary: (j.summary as string) ?? summary };
 }
 
 // --- Events ----------------------------------------------------------------

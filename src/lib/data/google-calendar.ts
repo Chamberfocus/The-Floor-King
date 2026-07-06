@@ -7,7 +7,10 @@ import {
   createEvent,
   updateEvent,
   deleteEvent,
+  listCalendars,
+  createCalendar,
   type EventInput,
+  type GCalListItem,
 } from "@/lib/google-calendar";
 
 /**
@@ -84,6 +87,111 @@ export async function disconnectGoogle(userId: string): Promise<void> {
   await db.from("google_calendar_connections").delete().eq("user_id", userId);
 }
 
+// --- Shared team calendar ---------------------------------------------------
+
+export interface TeamCalendar {
+  ownerId: string;
+  calendarId: string;
+  calendarName: string | null;
+}
+
+/** The one shared calendar every appointment syncs into, or null if unset. */
+export async function getTeamCalendar(): Promise<TeamCalendar | null> {
+  const db = adminOrNull();
+  if (!db) return null;
+  const { data } = await db
+    .from("team_calendar")
+    .select("owner_id, calendar_id, calendar_name")
+    .eq("id", true)
+    .maybeSingle();
+  if (!data?.owner_id || !data?.calendar_id) return null;
+  return {
+    ownerId: data.owner_id as string,
+    calendarId: data.calendar_id as string,
+    calendarName: (data.calendar_name as string) ?? null,
+  };
+}
+
+export async function setTeamCalendar(
+  ownerId: string,
+  calendarId: string,
+  name: string | null,
+): Promise<void> {
+  const db = adminOrNull();
+  if (!db) return;
+  await db.from("team_calendar").upsert({
+    id: true,
+    owner_id: ownerId,
+    calendar_id: calendarId,
+    calendar_name: name,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+export async function clearTeamCalendar(): Promise<void> {
+  const db = adminOrNull();
+  if (!db) return;
+  await db
+    .from("team_calendar")
+    .update({ owner_id: null, calendar_id: null, calendar_name: null })
+    .eq("id", true);
+}
+
+/** The signed-in user's Google calendars (for the team-calendar picker). */
+export async function listMyCalendars(): Promise<GCalListItem[]> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return [];
+    const conn = await tokenFor(user.id);
+    if (!conn) return [];
+    return await listCalendars(conn.token);
+  } catch {
+    return [];
+  }
+}
+
+/** Create a fresh calendar owned by the signed-in user and set it as the team
+ *  calendar. Returns its id, or null on any failure. */
+export async function createTeamCalendarForMe(
+  name: string,
+): Promise<string | null> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return null;
+    const conn = await tokenFor(user.id);
+    if (!conn) return null;
+    const cal = await createCalendar(conn.token, name);
+    await setTeamCalendar(user.id, cal.id, cal.summary);
+    return cal.id;
+  } catch {
+    return null;
+  }
+}
+
+/** Point the team calendar at an EXISTING calendar the signed-in user picked. */
+export async function selectTeamCalendarForMe(
+  calendarId: string,
+  name: string | null,
+): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return false;
+    await setTeamCalendar(user.id, calendarId, name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** A valid access token for a user's calendar, refreshing if it's near expiry. */
 async function tokenFor(
   userId: string,
@@ -138,10 +246,26 @@ function summaryFor(a: {
   return `${label}: ${who}`;
 }
 
+/** Look up a person's display name (for labelling shared-calendar events). */
+async function profileName(
+  db: NonNullable<ReturnType<typeof adminOrNull>>,
+  id: string | null,
+): Promise<string | null> {
+  if (!id) return null;
+  const { data } = await db
+    .from("profiles")
+    .select("full_name")
+    .eq("id", id)
+    .maybeSingle();
+  return (data?.full_name as string) ?? null;
+}
+
 /**
- * Reflect a CRM appointment into the assigned rep's Google Calendar — create,
- * update, move (rep changed), or remove (cancelled/unassigned). Never throws:
- * a Google hiccup must never break booking. No-op unless configured.
+ * Reflect a CRM appointment into Google Calendar — create, update, move, or
+ * remove. When a shared TEAM calendar is configured every appointment lands
+ * there (labelled with the rep) so the whole crew sees one schedule; otherwise
+ * it falls back to the assigned rep's own primary calendar. Never throws: a
+ * Google hiccup must never break booking. No-op unless configured.
  */
 export async function syncAppointmentToGoogle(
   appointmentId: string,
@@ -153,47 +277,78 @@ export async function syncAppointmentToGoogle(
     const { data: a } = await db
       .from("appointments")
       .select(
-        "id, starts_at, ends_at, salesperson_id, status, is_block, kind, address, notes, title, customer_id, contact_name, google_event_id, google_calendar_user, customer:customers(full_name)",
+        "id, starts_at, ends_at, salesperson_id, status, is_block, kind, address, notes, title, customer_id, contact_name, google_event_id, google_calendar_user, google_calendar_id, customer:customers(full_name)",
       )
       .eq("id", appointmentId)
       .maybeSingle();
     if (!a) return;
 
-    const target = (a.salesperson_id as string | null) ?? null;
+    const rep = (a.salesperson_id as string | null) ?? null;
     const existingUser = (a.google_calendar_user as string | null) ?? null;
+    const existingCal = (a.google_calendar_id as string | null) ?? "primary";
     const eventId = (a.google_event_id as string | null) ?? null;
     const gone = a.status === "cancelled";
 
-    // Remove the old event when cancelled/unassigned, or when the rep changed.
-    if (eventId && existingUser && (gone || !target || target !== existingUser)) {
+    // Where should this appointment's event live?
+    //  - shared team calendar (if set): the owner's token, the team calendar.
+    //  - else the assigned rep's own primary calendar.
+    const team = await getTeamCalendar();
+    let desiredOwner: string | null = null;
+    let desiredCal = "primary";
+    if (!gone) {
+      if (team) {
+        desiredOwner = team.ownerId;
+        desiredCal = team.calendarId;
+      } else if (rep) {
+        desiredOwner = rep;
+        desiredCal = "primary";
+      }
+    }
+
+    // Remove the old event when it's going away or moving to a different
+    // owner/calendar (cancelled, unassigned, rep changed, or switched to/from
+    // the shared calendar).
+    const moved =
+      !desiredOwner ||
+      desiredOwner !== existingUser ||
+      desiredCal !== existingCal;
+    if (eventId && existingUser && moved) {
       const old = await tokenFor(existingUser);
       if (old) {
         try {
-          await deleteEvent(old.token, old.calId, eventId);
+          await deleteEvent(old.token, existingCal, eventId);
         } catch {
           /* already gone / no access — ignore */
         }
       }
       await db
         .from("appointments")
-        .update({ google_event_id: null, google_calendar_user: null })
+        .update({
+          google_event_id: null,
+          google_calendar_user: null,
+          google_calendar_id: null,
+        })
         .eq("id", appointmentId);
     }
 
-    if (gone || !target) return; // nothing to (re)create
+    if (!desiredOwner) return; // cancelled, or nowhere to sync
 
-    const conn = await tokenFor(target);
-    if (!conn) return; // rep hasn't connected their calendar — best effort
+    const conn = await tokenFor(desiredOwner);
+    if (!conn) return; // owner hasn't connected — best effort
 
     const cust = a.customer as unknown as { full_name: string | null } | null;
+    // On the shared calendar, tag each event with the rep so you know whose job
+    // it is at a glance (their own calendar needs no such label).
+    const repName = team ? await profileName(db, rep) : null;
+    const base = summaryFor({
+      is_block: !!a.is_block,
+      title: (a.title as string) ?? null,
+      kind: (a.kind as string) ?? null,
+      customerName: cust?.full_name ?? null,
+      contact_name: (a.contact_name as string) ?? null,
+    });
     const input: EventInput = {
-      summary: summaryFor({
-        is_block: !!a.is_block,
-        title: (a.title as string) ?? null,
-        kind: (a.kind as string) ?? null,
-        customerName: cust?.full_name ?? null,
-        contact_name: (a.contact_name as string) ?? null,
-      }),
+      summary: repName ? `${base} — ${repName}` : base,
       location: (a.address as string) ?? null,
       description: [
         (a.notes as string) ?? null,
@@ -205,16 +360,20 @@ export async function syncAppointmentToGoogle(
       endIso: (a.ends_at as string) ?? null,
     };
 
-    // If the event still lives in the same rep's calendar, update it in place;
-    // otherwise create a fresh one and record the mapping.
-    const sameCalendar = existingUser === target && eventId;
-    if (sameCalendar) {
-      await updateEvent(conn.token, conn.calId, eventId!, input);
+    // If the event still lives where it should, update in place; otherwise the
+    // old one was just removed above, so create a fresh one and record it.
+    const inPlace = !moved && eventId;
+    if (inPlace) {
+      await updateEvent(conn.token, desiredCal, eventId!, input);
     } else {
-      const newId = await createEvent(conn.token, conn.calId, input);
+      const newId = await createEvent(conn.token, desiredCal, input);
       await db
         .from("appointments")
-        .update({ google_event_id: newId, google_calendar_user: target })
+        .update({
+          google_event_id: newId,
+          google_calendar_user: desiredOwner,
+          google_calendar_id: desiredCal,
+        })
         .eq("id", appointmentId);
     }
   } catch {
@@ -232,16 +391,17 @@ export async function removeAppointmentFromGoogle(
   try {
     const { data: a } = await db
       .from("appointments")
-      .select("google_event_id, google_calendar_user")
+      .select("google_event_id, google_calendar_user, google_calendar_id")
       .eq("id", appointmentId)
       .maybeSingle();
     const eventId = (a?.google_event_id as string) ?? null;
     const user = (a?.google_calendar_user as string) ?? null;
+    const calId = (a?.google_calendar_id as string) ?? "primary";
     if (!eventId || !user) return;
     const conn = await tokenFor(user);
     if (conn) {
       try {
-        await deleteEvent(conn.token, conn.calId, eventId);
+        await deleteEvent(conn.token, calId, eventId);
       } catch {
         /* ignore */
       }

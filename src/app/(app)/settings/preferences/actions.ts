@@ -2,8 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireProfile } from "@/lib/auth";
 import { resolvePreferences } from "@/lib/preferences";
-import { disconnectGoogle } from "@/lib/data/google-calendar";
+import {
+  disconnectGoogle,
+  listMyCalendars,
+  selectTeamCalendarForMe,
+  createTeamCalendarForMe,
+  clearTeamCalendar,
+} from "@/lib/data/google-calendar";
 
 function csv(v: FormDataEntryValue | null): string[] {
   return typeof v === "string"
@@ -54,5 +61,37 @@ export async function disconnectGoogleCalendar(): Promise<void> {
   } = await supabase.auth.getUser();
   if (!user) return;
   await disconnectGoogle(user.id);
+  revalidatePath("/settings/preferences");
+}
+
+// --- Shared team calendar (admin only) -------------------------------------
+
+/** Point the shared team calendar at one of the admin's existing calendars. */
+export async function setTeamCalendar(formData: FormData): Promise<void> {
+  const profile = await requireProfile();
+  if (profile.role !== "admin") return;
+  const calendarId = formData.get("calendar_id");
+  if (typeof calendarId !== "string" || !calendarId) return;
+  // Resolve the human name from the picker's options so the settings UI can
+  // show it without another Google round-trip.
+  const cals = await listMyCalendars();
+  const name = cals.find((c) => c.id === calendarId)?.summary ?? null;
+  await selectTeamCalendarForMe(calendarId, name);
+  revalidatePath("/settings/preferences");
+}
+
+/** Create a fresh "Floor King Schedule" calendar and use it as the team one. */
+export async function createTeamCalendar(): Promise<void> {
+  const profile = await requireProfile();
+  if (profile.role !== "admin") return;
+  await createTeamCalendarForMe("Floor King Schedule");
+  revalidatePath("/settings/preferences");
+}
+
+/** Stop using a shared calendar (jobs go back to each rep's own calendar). */
+export async function unsetTeamCalendar(): Promise<void> {
+  const profile = await requireProfile();
+  if (profile.role !== "admin") return;
+  await clearTeamCalendar();
   revalidatePath("/settings/preferences");
 }
