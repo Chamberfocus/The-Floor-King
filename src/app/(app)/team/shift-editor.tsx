@@ -57,18 +57,19 @@ export function ShiftEditor({
 
   const persist = (r: Row) =>
     start(async () => {
-      await saveShift(userId, r.weekday, r.on ? r.start : null, r.on ? r.end : null);
+      await saveShift(
+        userId,
+        r.weekday,
+        r.on ? r.start : null,
+        r.on ? r.end : null,
+      );
     });
 
   const update = (weekday: number, patch: Partial<Row>) => {
-    setRows((prev) => {
-      const next = prev.map((r) =>
-        r.weekday === weekday ? { ...r, ...patch } : r,
-      );
-      const changed = next.find((r) => r.weekday === weekday)!;
-      persist(changed);
-      return next;
-    });
+    const current = rows.find((r) => r.weekday === weekday)!;
+    const merged = { ...current, ...patch };
+    setRows((prev) => prev.map((r) => (r.weekday === weekday ? merged : r)));
+    persist(merged); // fire the save from the event handler, not inside setRows
   };
 
   const working = rows.filter((r) => r.on);
