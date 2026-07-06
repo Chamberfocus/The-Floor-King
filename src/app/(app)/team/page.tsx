@@ -4,10 +4,11 @@ import { ChevronLeft, ChevronRight, CalendarOff, Users } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
+import { redirect } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
 import { listTeamMembers } from "@/lib/data/team";
 import { getWorkDaysMap, listTimeOff } from "@/lib/data/team-schedule";
-import { ROLE_LABELS } from "@/lib/types";
+import { ROLE_LABELS, SCHEDULE_ROLES } from "@/lib/types";
 import { fromYmd, addDaysYmd } from "@/lib/scheduling";
 import { cn } from "@/lib/utils";
 import { AddDayOff } from "./add-day-off";
@@ -40,6 +41,8 @@ export default async function TeamSchedulePage({
   searchParams: Promise<{ week?: string }>;
 }) {
   const profile = await requireProfile();
+  // Installers (crew) don't use the schedule — keep them out even via direct URL.
+  if (!SCHEDULE_ROLES.includes(profile.role)) redirect("/");
   const sp = await searchParams;
   const isManager = profile.role === "admin" || profile.role === "office";
 
@@ -61,7 +64,9 @@ export default async function TeamSchedulePage({
     listTimeOff(monday, sunday),
     listTimeOff(todayYmd, addDaysYmd(todayYmd, 45)),
   ]);
-  const members = membersRaw.filter((m) => m.active);
+  const members = membersRaw.filter(
+    (m) => m.active && SCHEDULE_ROLES.includes(m.role),
+  );
 
   const nameOf = (id: string) => {
     const m = members.find((x) => x.id === id);

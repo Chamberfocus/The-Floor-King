@@ -111,6 +111,15 @@ export const SALES_ROLES: UserRole[] = [
 ];
 export const INSTALL_ROLES: UserRole[] = ["admin", "crew"];
 export const SCHEDULER_ROLES: UserRole[] = ["admin", "office", "scheduler"];
+/** Who sees the Team Schedule / work-days board — office, sales, warehouse,
+ *  admin. Installers (crew) are excluded. */
+export const SCHEDULE_ROLES: UserRole[] = [
+  "admin",
+  "office",
+  "sales_manager",
+  "salesman",
+  "warehouse",
+];
 
 /** A workflow stage can declare which DUTY owns it; the owner-picker for that
  *  stage then only offers people with that duty. Empty = anyone. */
