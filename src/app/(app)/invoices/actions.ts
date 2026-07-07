@@ -9,7 +9,7 @@ import {
 } from "@/lib/invoice-calc";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { advanceFromAutoAction } from "@/lib/workflow-engine";
-import { lineQty } from "@/lib/estimate-calc";
+import { lineQty, discountAmount } from "@/lib/estimate-calc";
 import type {
   EstimateLineItem,
   InvoiceStatus,
@@ -91,7 +91,7 @@ export async function createInvoiceFromEstimate(
   const supabase = await createClient();
   const { data: est } = await supabase
     .from("estimates")
-    .select("id, customer_id, tax_rate, title, accepted_option_id")
+    .select("id, customer_id, tax_rate, title, accepted_option_id, discount_kind, discount_value")
     .eq("id", estimateId)
     .maybeSingle();
   if (!est) return;
@@ -163,6 +163,24 @@ export async function createInvoiceFromEstimate(
       rate,
     };
   });
+  // Carry the estimate's discount as a line so the invoice bills the same total
+  // the customer approved (applied before tax, like the estimate).
+  const sellSubtotal = items.reduce(
+    (s, it) => s + (Number(it.quantity) || 0) * (Number(it.rate) || 0),
+    0,
+  );
+  const disc = discountAmount(sellSubtotal, est.discount_kind, est.discount_value);
+  if (disc > 0) {
+    items.push({
+      invoice_id: invoice.id,
+      position: items.length,
+      description: "Discount",
+      quantity: 1,
+      unit: "ea",
+      rate: -Math.round(disc * 100) / 100,
+    });
+  }
+
   if (items.length) await supabase.from("invoice_items").insert(items);
 
   revalidatePath("/invoices");

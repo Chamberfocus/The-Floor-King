@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Printer, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
-import { optionTotals, lineTotal, lineQty } from "@/lib/estimate-calc";
+import { optionTotalsWithDiscount, lineTotal, lineQty } from "@/lib/estimate-calc";
 import { formatMoney, formatDate } from "@/lib/format";
 import type {
   Customer,
@@ -91,6 +91,8 @@ export function EstimatePrintDoc({
     created_at: string;
     valid_until: string | null;
     tax_rate: number;
+    discount_kind: "amount" | "percent";
+    discount_value: number;
     presentation: string;
     job_description: string | null;
     notes: string | null;
@@ -133,7 +135,12 @@ export function EstimatePrintDoc({
       ) : null}
 
       {options.map((o) => {
-        const totals = optionTotals(o.line_items ?? [], estimate.tax_rate);
+        const totals = optionTotalsWithDiscount(
+          o.line_items ?? [],
+          estimate.tax_rate,
+          estimate.discount_kind,
+          estimate.discount_value,
+        );
         return (
           <div key={o.id} className="mt-4 break-inside-avoid">
             {options.length > 1 ? (
@@ -165,6 +172,9 @@ export function EstimatePrintDoc({
               {detailed ? (
                 <>
                   <div className="flex justify-between"><span className="text-gray-600">Subtotal</span><span>{formatMoney(totals.subtotal)}</span></div>
+                  {totals.discount > 0 ? (
+                    <div className="flex justify-between"><span className="text-gray-600">Discount</span><span>−{formatMoney(totals.discount)}</span></div>
+                  ) : null}
                   <div className="flex justify-between"><span className="text-gray-600">Tax ({estimate.tax_rate}%)</span><span>{formatMoney(totals.tax)}</span></div>
                 </>
               ) : null}

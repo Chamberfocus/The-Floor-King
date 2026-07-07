@@ -26,7 +26,7 @@ import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate } from "@/lib/data/estimates";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
-import { optionTotals, lineTotal, lineQty } from "@/lib/estimate-calc";
+import { optionTotalsWithDiscount, lineTotal, lineQty } from "@/lib/estimate-calc";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, deleteEstimate, duplicateOption } from "../actions";
@@ -81,7 +81,12 @@ export default async function EstimatePage({
   const detailed = estimate.presentation === "detailed";
 
   const totalsFor = (o: EstimateOption) =>
-    optionTotals(o.line_items ?? [], estimate.tax_rate);
+    optionTotalsWithDiscount(
+      o.line_items ?? [],
+      estimate.tax_rate,
+      estimate.discount_kind,
+      estimate.discount_value,
+    );
 
   return (
     <>
@@ -260,6 +265,12 @@ export default async function EstimatePage({
                       <span>Subtotal</span>
                       <span>{formatMoney(totals.subtotal)}</span>
                     </div>
+                    {totals.discount > 0 ? (
+                      <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+                        <span>Discount</span>
+                        <span>−{formatMoney(totals.discount)}</span>
+                      </div>
+                    ) : null}
                     <div className="flex justify-between text-muted-foreground">
                       <span>Tax ({estimate.tax_rate}%)</span>
                       <span>{formatMoney(totals.tax)}</span>

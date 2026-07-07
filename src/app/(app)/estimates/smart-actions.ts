@@ -114,6 +114,8 @@ export interface SmartEstimateInput {
   jobDescription?: string;
   presentation?: "detailed" | "summary";
   serviceAddressId?: string | null;
+  discountKind?: "amount" | "percent";
+  discountValue?: number;
   print?: boolean;
   send?: boolean;
   stash?: boolean; // "save for later" — keep as draft and land on the hub
@@ -167,6 +169,8 @@ export async function createSmartEstimate(
       job_description: input.jobDescription?.trim() || null,
       valid_until: validUntil.toISOString().slice(0, 10),
       service_address_id: input.serviceAddressId || null,
+      discount_kind: input.discountKind === "percent" ? "percent" : "amount",
+      discount_value: Number(input.discountValue) || 0,
       created_by: user?.id ?? null,
     })
     .select("id")

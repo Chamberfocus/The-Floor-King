@@ -423,6 +423,8 @@ export interface Estimate {
   status: EstimateStatus;
   presentation: EstimatePresentation;
   tax_rate: number;
+  discount_kind: "amount" | "percent";
+  discount_value: number;
   notes: string | null;
   job_description: string | null;
   customer_response_note: string | null;

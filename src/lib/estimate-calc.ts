@@ -140,6 +140,41 @@ export function optionTotals(
   return { subtotal, tax, total: subtotal + tax };
 }
 
+/** Dollar value of an estimate-level discount ($ amount or % of subtotal). */
+export function discountAmount(
+  subtotal: number,
+  kind: string | null | undefined,
+  value: number | string | null | undefined,
+): number {
+  const v = num(value);
+  if (v <= 0 || subtotal <= 0) return 0;
+  return kind === "percent"
+    ? Math.min((subtotal * v) / 100, subtotal)
+    : Math.min(v, subtotal);
+}
+
+export interface DiscountedTotals {
+  subtotal: number;
+  discount: number;
+  tax: number;
+  total: number;
+}
+
+/** Totals with an estimate-level discount applied before tax. One source of
+ *  truth for the builder, the estimate view/print, and the invoice. */
+export function optionTotalsWithDiscount(
+  lines: CalcLine[],
+  taxRatePct: number | string,
+  discountKind: string | null | undefined,
+  discountValue: number | string | null | undefined,
+): DiscountedTotals {
+  const subtotal = lines.reduce((sum, line) => sum + lineTotal(line), 0);
+  const discount = discountAmount(subtotal, discountKind, discountValue);
+  const taxable = subtotal - discount;
+  const tax = taxable * (num(taxRatePct) / 100);
+  return { subtotal, discount, tax, total: taxable + tax };
+}
+
 // --- Save payload shapes (shared by the client builder and the save action) --
 
 export interface SaveLineInput {

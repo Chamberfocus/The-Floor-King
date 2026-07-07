@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
   Plus, Trash2, ArrowLeft, ArrowRight, Check, Printer, Send, Ruler, RotateCcw, Camera, Bookmark,
-  Columns2, PanelLeft, Rows3, Copy,
+  Columns2, PanelLeft, Rows3, Copy, AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -311,6 +311,8 @@ export function GuidedWizard({
   const drawingRef = useRef<HTMLInputElement>(null);
 
   const [taxRate, setTaxRate] = useState("8");
+  const [discountKind, setDiscountKind] = useState<"amount" | "percent">("amount");
+  const [discountValue, setDiscountValue] = useState("");
   // Guard the margin so a blank / 0 / ≥100 entry can't break price-from-margin
   // (which divides by 1 − margin). Falls back to the shop's target margin.
   const goalRaw = num(marginGoal);
@@ -488,10 +490,18 @@ export function GuidedWizard({
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
   const cost = allLines.reduce((s, l) => s + lineCost(l, fMult), 0);
   const margin = marginPct(grand, cost);
-  const taxAmt = r2(grand * (num(taxRate) / 100));
-  const grandWithTax = r2(grand + taxAmt);
+  // Discount applies to the subtotal, before tax.
+  const discountAmt =
+    discountKind === "percent"
+      ? r2((grand * num(discountValue)) / 100)
+      : Math.min(num(discountValue), grand);
+  const taxable = r2(grand - discountAmt);
+  const taxAmt = r2(taxable * (num(taxRate) / 100));
+  const grandWithTax = r2(taxable + taxAmt);
 
   const readyRooms = rooms.filter((r) => profileFor(r.type) && roomSqft(r) > 0);
+  // Rooms that have a floor picked but no size yet — they won't be priced/saved.
+  const needSize = rooms.filter((r) => profileFor(r.type) && roomSqft(r) <= 0);
   const canNext =
     step === 0 ? readyRooms.length > 0 : true;
 
@@ -560,6 +570,7 @@ export function GuidedWizard({
         customerId, title, taxRate: num(taxRate), lines, presentation,
         jobDescription,
         serviceAddressId: serviceAddressId || null,
+        discountKind, discountValue: num(discountValue),
         print: opts.print, send: opts.send, stash: opts.stash,
       });
       if (res?.error) toast.error(res.error);
@@ -976,17 +987,27 @@ export function GuidedWizard({
             </>
           )}
 
-          {/* Running totals — always visible while you build */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3 text-sm">
+          {/* Running total — sticks to the bottom of the screen while you build */}
+          <div className="sticky bottom-2 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-3 text-sm shadow-lg ring-1 ring-foreground/5">
             <span className="text-muted-foreground">
               {readyRooms.length} room{readyRooms.length === 1 ? "" : "s"} priced
             </span>
-            <div className="flex items-center gap-5">
+            <div className="flex items-center gap-4">
               <div>
                 <span className="text-xs text-muted-foreground">Subtotal </span>
                 <span className="font-semibold">{formatMoney(grand)}</span>
               </div>
+              {discountAmt > 0 ? (
+                <div className="text-emerald-700 dark:text-emerald-400">
+                  <span className="text-xs text-muted-foreground">Discount </span>
+                  <span className="font-semibold">−{formatMoney(discountAmt)}</span>
+                </div>
+              ) : null}
               <div>
+                <span className="text-xs text-muted-foreground">Total </span>
+                <span className="text-base font-bold">{formatMoney(grandWithTax)}</span>
+              </div>
+              <div className="hidden sm:block">
                 <span className="text-xs text-muted-foreground">Margin </span>
                 <span className={cn("font-semibold", margin < 0 && grand > 0 && "text-destructive")}>
                   {Math.round(margin)}%
@@ -1056,37 +1077,76 @@ export function GuidedWizard({
               ⚠ This estimate is priced below cost — you'd lose {formatMoney(cost - grand)} on this job. Raise the sell prices or your margin.
             </div>
           ) : null}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4">
-            <div className="flex items-center gap-6">
-              <div>
-                <div className="text-xs text-muted-foreground">Subtotal</div>
-                <div className="text-lg font-semibold">{formatMoney(grand)}</div>
+          <div className="rounded-xl border bg-card p-4">
+            {/* Totals breakdown — reads top to bottom on any screen */}
+            <div className="space-y-2 text-base">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span className="font-medium tabular-nums">{formatMoney(grand)}</span>
               </div>
-              <div>
-                <div className="mb-1 text-xs text-muted-foreground">Tax %</div>
-                <Input value={taxRate} onChange={(e) => setTaxRate(e.target.value)} inputMode="decimal" className="h-8 w-16" />
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Discount</span>
+                  <div className="inline-flex rounded-md border p-0.5 text-sm">
+                    <button type="button" onClick={() => setDiscountKind("amount")}
+                      className={cn("rounded px-2.5 py-1 font-medium", discountKind === "amount" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>$</button>
+                    <button type="button" onClick={() => setDiscountKind("percent")}
+                      className={cn("rounded px-2.5 py-1 font-medium", discountKind === "percent" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>%</button>
+                  </div>
+                  <Input value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} inputMode="decimal" placeholder="0" className="h-11 w-20 text-base" />
+                </div>
+                <span className="font-medium tabular-nums text-emerald-700 dark:text-emerald-400">
+                  {discountAmt > 0 ? `−${formatMoney(discountAmt)}` : formatMoney(0)}
+                </span>
               </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Total{num(taxRate) > 0 ? " w/ tax" : ""}</div>
-                <div className="text-xl font-bold">{formatMoney(grandWithTax)}</div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Tax</span>
+                  <Input value={taxRate} onChange={(e) => setTaxRate(e.target.value)} inputMode="decimal" className="h-11 w-16 text-base" />
+                  <span className="text-muted-foreground">%</span>
+                </div>
+                <span className="font-medium tabular-nums">{formatMoney(taxAmt)}</span>
               </div>
-              <div><div className="text-xs text-muted-foreground">Margin</div><div className={cn("text-lg font-semibold", margin < 0 && grand > 0 ? "text-destructive" : margin < goal - 0.5 && grand > 0 && "text-amber-600")}>{Math.round(margin)}%</div></div>
+              <div className="flex items-center justify-between border-t pt-2">
+                <span className="text-lg font-semibold">Total</span>
+                <span className="text-2xl font-bold tabular-nums">{formatMoney(grandWithTax)}</span>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
               <div>
-                <div className="mb-1 text-xs text-muted-foreground">Customer sees</div>
+                <span className="text-sm text-muted-foreground">Margin </span>
+                <span className={cn("font-semibold", margin < 0 && grand > 0 ? "text-destructive" : margin < goal - 0.5 && grand > 0 ? "text-amber-600" : "")}>{Math.round(margin)}%</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Customer sees</span>
                 <div className="flex gap-1">
                   {([["detailed", "Itemized"], ["summary", "Lump sum"]] as ["detailed" | "summary", string][]).map(([v, lbl]) => (
                     <button key={v} type="button" onClick={() => setPresentation(v)}
-                      className={cn("rounded-md border px-2.5 py-1 text-xs", presentation === v ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>{lbl}</button>
+                      className={cn("rounded-md border px-3 py-1.5 text-sm", presentation === v ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>{lbl}</button>
                   ))}
                 </div>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="ghost" onClick={() => save({ print: true })} disabled={saving}><Printer className="size-4" /> Print</Button>
-              <Button type="button" variant="outline" onClick={() => save()} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
-              <Button type="button" onClick={() => save({ send: true })} disabled={saving}><Send className="size-4" /> Save &amp; send</Button>
+
+            <div className="mt-4 grid grid-cols-1 gap-2 border-t pt-3 sm:grid-cols-3">
+              <Button type="button" variant="outline" size="lg" onClick={() => save({ print: true })} disabled={saving}><Printer className="size-4" /> Print</Button>
+              <Button type="button" variant="outline" size="lg" onClick={() => save()} disabled={saving}>{saving ? "Saving…" : "Save draft"}</Button>
+              <Button type="button" size="lg" onClick={() => save({ send: true })} disabled={saving}><Send className="size-4" /> Save &amp; send</Button>
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {/* Inline validation — tell them exactly what's missing before moving on */}
+      {step === 0 && (needSize.length > 0 || (rooms.length > 0 && !canNext)) ? (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>
+            {readyRooms.length === 0
+              ? "Add a room with a flooring type and a size to continue."
+              : `${needSize.length} room${needSize.length === 1 ? "" : "s"} still ${needSize.length === 1 ? "needs" : "need"} a size — they won't be included until you add it.`}
+          </span>
         </div>
       ) : null}
 
