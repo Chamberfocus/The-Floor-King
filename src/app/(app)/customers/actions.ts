@@ -360,6 +360,18 @@ export async function reassignCustomer(formData: FormData): Promise<void> {
   const { error } = await supabase.from("customers").update(patch).eq("id", id);
   if (error) return;
 
+  // A client's booked estimate belongs to their salesperson — so when the owner
+  // changes to a salesperson, re-credit their open (scheduled) estimate visits
+  // instead of leaving them on whoever booked them.
+  if (isSalesperson && !salesSame) {
+    await supabase
+      .from("appointments")
+      .update({ salesperson_id: toUser })
+      .eq("customer_id", id)
+      .eq("kind", "estimate")
+      .eq("status", "scheduled");
+  }
+
   await supabase.from("handoffs").insert({
     customer_id: id,
     from_stage_id: cust?.workflow_stage_id ?? null,

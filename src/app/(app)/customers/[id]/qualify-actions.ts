@@ -58,16 +58,29 @@ export async function qualifyAndAssign(formData: FormData): Promise<void> {
     qualified: true,
     workflow_owner_id: owner,
   };
+  let ownerIsSalesperson = false;
   if (owner) {
     const { data: op } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", owner)
       .maybeSingle();
-    if (["salesman", "sales_manager"].includes((op?.role as string) ?? ""))
-      qualifyPatch.assigned_to = owner;
+    ownerIsSalesperson = ["salesman", "sales_manager"].includes(
+      (op?.role as string) ?? "",
+    );
+    if (ownerIsSalesperson) qualifyPatch.assigned_to = owner;
   }
   await supabase.from("customers").update(qualifyPatch).eq("id", customerId);
+
+  // Credit any already-booked estimate visit to the assigned salesperson too.
+  if (ownerIsSalesperson) {
+    await supabase
+      .from("appointments")
+      .update({ salesperson_id: owner })
+      .eq("customer_id", customerId)
+      .eq("kind", "estimate")
+      .eq("status", "scheduled");
+  }
 
   // Forward to the stage that schedules the estimate (skips the old standalone
   // "Qualifying" parking stage — qualify is now the first stage's action).

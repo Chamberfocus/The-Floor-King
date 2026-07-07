@@ -234,7 +234,7 @@ export async function GuidedFlow({
             Reschedule / change time
           </summary>
           <div className="mt-2">
-            <EstimateScheduler customerId={customer.id} reps={repOptions} />
+            <EstimateScheduler customerId={customer.id} reps={repOptions} defaultRep={customer.assigned_to} />
           </div>
         </details>
       </div>
@@ -260,12 +260,12 @@ export async function GuidedFlow({
           New lead. Log your first call or text in the Activity panel below, then
           book the in-home estimate or showroom visit.
         </p>
-        <EstimateScheduler customerId={customer.id} autoOpen reps={repOptions} />
+        <EstimateScheduler customerId={customer.id} autoOpen reps={repOptions} defaultRep={customer.assigned_to} />
       </div>
     );
   } else if (step === "schedule_estimate") {
     body = bookedEstimate ?? (
-      <EstimateScheduler customerId={customer.id} autoOpen reps={repOptions} />
+      <EstimateScheduler customerId={customer.id} autoOpen reps={repOptions} defaultRep={customer.assigned_to} />
     );
   } else if (step === "build_quote") {
     body = (

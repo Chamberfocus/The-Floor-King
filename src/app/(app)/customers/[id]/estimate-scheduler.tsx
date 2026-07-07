@@ -27,11 +27,15 @@ export function EstimateScheduler({
   customerId,
   autoOpen,
   reps = [],
+  defaultRep = null,
   redirectTo,
 }: {
   customerId: string;
   autoOpen?: boolean;
   reps?: { id: string; name: string }[];
+  /** The client's assigned salesperson — pre-selected so the estimate is
+   *  credited to them by default (still overridable). */
+  defaultRep?: string | null;
   /** Where to land after booking (list rows pass their URL to stay put). */
   redirectTo?: string;
 }) {
@@ -40,7 +44,7 @@ export function EstimateScheduler({
   const [pending, startTransition] = useTransition();
   const [showManual, setShowManual] = useState(false);
   const [win, setWin] = useState(0);
-  const [rep, setRep] = useState("");
+  const [rep, setRep] = useState(defaultRep ?? "");
   const [windows, setWindows] = useState<ArrivalWindow[]>(() =>
     parseArrivalWindows(null),
   );

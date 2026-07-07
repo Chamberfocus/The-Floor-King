@@ -75,6 +75,7 @@ export function QuickActions({
   estimate,
   job,
   arrivalWindows,
+  assignedRepId = null,
   actions = QUICK_ACTION_ORDER,
   showSwitcher = true,
   compact = false,
@@ -93,6 +94,8 @@ export function QuickActions({
   estimate: { startsAt: string; rep: string | null } | null;
   job: Job | null;
   arrivalWindows: ArrivalWindow[];
+  /** The client's assigned salesperson — pre-selects the estimate rep. */
+  assignedRepId?: string | null;
   /** Which actions to show, in order (personal preference). */
   actions?: QuickAction[];
   /** Show the "jump to another customer" search (off inside a list row). */
@@ -348,6 +351,7 @@ export function QuickActions({
               <EstimateScheduler
                 customerId={customerId}
                 reps={repOptions}
+                defaultRep={assignedRepId}
                 redirectTo={redirectTo}
               />
             </>

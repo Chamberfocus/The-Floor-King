@@ -71,6 +71,7 @@ function quickProps(
     currentStageId: c.workflow_stage_id ?? null,
     currentStageName: stage?.name ?? null,
     currentOwnerId: c.workflow_owner_id ?? null,
+    assignedRepId: c.assigned_to ?? null,
     currentOwnerName: nameById(c.workflow_owner_id ?? null),
     ownerDutyLabel: duty ? DUTY_LABELS[duty] : null,
     reassignOptions,

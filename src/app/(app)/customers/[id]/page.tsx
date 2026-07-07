@@ -430,6 +430,7 @@ export default async function CustomerPage({
           currentStageName={currentStage?.name ?? null}
           currentOwnerId={customer.workflow_owner_id ?? null}
           currentOwnerName={ownerName}
+          assignedRepId={customer.assigned_to ?? null}
           ownerDutyLabel={ownerDuty ? DUTY_LABELS[ownerDuty] : null}
           reassignOptions={reassignOptions}
           repOptions={repOptions}

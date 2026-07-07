@@ -66,6 +66,18 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Credit the estimate to the CLIENT'S salesperson (their owner), not whoever
+  // happens to be booking it — unless a specific rep was chosen in the form.
+  let salespersonId = salesperson || null;
+  if (!salespersonId) {
+    const { data: c } = await supabase
+      .from("customers")
+      .select("assigned_to")
+      .eq("id", customerId)
+      .maybeSingle();
+    salespersonId = (c?.assigned_to as string) || null;
+  }
+
   const startsAt = `${date}T${time}:00+00`;
 
   // Reschedule = REPLACE. Cancel any other still-upcoming estimate appointment
@@ -113,7 +125,7 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     .from("appointments")
     .insert({
       customer_id: customerId,
-      salesperson_id: salesperson || null,
+      salesperson_id: salespersonId,
       kind: "estimate",
       starts_at: startsAt,
       ends_at: endTime ? `${date}T${endTime}:00+00` : null,
