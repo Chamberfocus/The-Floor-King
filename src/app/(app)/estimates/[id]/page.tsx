@@ -130,30 +130,69 @@ export default async function EstimatePage({
           </Link>
           <PrintEstimateButton />
           <CopyEstimate estimateId={estimate.id} />
-          {estimate.status === "approved" ? (
-            <>
-              <form action={createJobFromEstimate}>
-                <input type="hidden" name="estimate_id" value={estimate.id} />
-                <Button type="submit" size="lg">
-                  <Wrench className="size-4" /> Create job
-                </Button>
-              </form>
-              <form action={createPOFromEstimate}>
-                <input type="hidden" name="estimate_id" value={estimate.id} />
-                <Button type="submit" variant="outline" size="lg">
-                  <ShoppingCart className="size-4" /> Create PO
-                </Button>
-              </form>
-              <Link
-                href={`/estimates/${estimate.id}/invoice`}
-                className={buttonVariants({ variant: "outline", size: "lg" })}
-              >
-                <Receipt className="size-4" /> Create invoice
-              </Link>
-            </>
-          ) : null}
         </div>
       </div>
+
+      {/* Next steps — the obvious "what now" once the estimate is built */}
+      <Card className="mb-6 border-primary/40 print:hidden">
+        <CardContent className="pt-6">
+          {estimate.status === "approved" ? (
+            <>
+              <div className="mb-1 font-semibold">Next steps</div>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Everything below is pre-filled from this estimate — no re-typing.
+                Materials become the PO, labor &amp; scope become the work order,
+                and billing becomes the invoice.
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <form action={createJobFromEstimate}>
+                  <input type="hidden" name="estimate_id" value={estimate.id} />
+                  <Button type="submit" size="lg" className="w-full">
+                    <Wrench className="size-4" /> Create work order
+                  </Button>
+                </form>
+                <form action={createPOFromEstimate}>
+                  <input type="hidden" name="estimate_id" value={estimate.id} />
+                  <Button type="submit" variant="outline" size="lg" className="w-full">
+                    <ShoppingCart className="size-4" /> Create PO
+                  </Button>
+                </form>
+                <Link
+                  href={`/estimates/${estimate.id}/invoice`}
+                  className={buttonVariants({ variant: "outline", size: "lg", className: "w-full" })}
+                >
+                  <Receipt className="size-4" /> Create invoice
+                </Link>
+              </div>
+            </>
+          ) : options.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">Ready to go?</div>
+                <p className="text-sm text-muted-foreground">
+                  Approve this estimate to unlock the work order, PO &amp; invoice.
+                </p>
+              </div>
+              <form action={setEstimateStatus} className="flex items-end gap-2">
+                <input type="hidden" name="id" value={estimate.id} />
+                <input type="hidden" name="status" value="approved" />
+                <input
+                  type="hidden"
+                  name="accepted_option_id"
+                  value={estimate.accepted_option_id || options[0].id}
+                />
+                <Button type="submit" size="lg">
+                  <Check className="size-4" /> Approve &amp; continue
+                </Button>
+              </form>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Add at least one priced option to approve this estimate.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {estimate.job_description ? (
         <Card className="mb-6">

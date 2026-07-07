@@ -646,7 +646,7 @@ export function GuidedWizard({
       <>
         <div className="flex items-center gap-2">
           <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{idx + 1}</span>
-          <Input value={r.name} onChange={(e) => up(r.id, { name: e.target.value })} placeholder="Room (e.g. Living room)" className="h-8 flex-1" />
+          <Input value={r.name} onChange={(e) => up(r.id, { name: e.target.value })} placeholder="Room (e.g. Living room)" className="h-11 flex-1 text-base md:h-9" />
           {profileFor(r.type) ? (
             <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1 text-primary" onClick={() => duplicateRoom(r.id)}>
               <Copy className="size-3.5" /> Same again
@@ -663,7 +663,7 @@ export function GuidedWizard({
             const p = profileFor(t)!;
             return (
               <button key={t} type="button" onClick={() => up(r.id, { type: t })}
-                className={cn("rounded-md border px-2.5 py-1 text-xs", r.type === t ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
+                className={cn("rounded-lg border px-3 py-2 text-sm font-medium md:px-2.5 md:py-1.5", r.type === t ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
                 {p.label}
               </button>
             );
@@ -895,9 +895,9 @@ export function GuidedWizard({
         <div className="space-y-3">
           {drawingImport}
 
-          {/* Layout switch + margin */}
+          {/* Layout switch (desktop only — phones are single-column) + margin */}
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="inline-flex rounded-md border p-0.5">
+            <div className="hidden rounded-md border p-0.5 md:inline-flex">
               {LAYOUTS.map((l) => {
                 const Icon = l.icon;
                 return (
@@ -1175,8 +1175,8 @@ function FtIn({ label, ft, inch, onFt, onIn, disabled }: { label: string; ft: st
     <div>
       <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
       <div className="flex items-end gap-1">
-        <Input value={ft} onChange={(e) => onFt(e.target.value)} inputMode="decimal" placeholder="ft" disabled={disabled} className="h-9 w-14" /><span className="pb-2 text-xs text-muted-foreground">ft</span>
-        <Input value={inch} onChange={(e) => onIn(e.target.value)} inputMode="decimal" placeholder="in" disabled={disabled} className="h-9 w-12" /><span className="pb-2 text-xs text-muted-foreground">in</span>
+        <Input value={ft} onChange={(e) => onFt(e.target.value)} inputMode="decimal" placeholder="ft" disabled={disabled} className="h-11 w-16 text-base md:h-9 md:w-14 md:text-sm" /><span className="pb-2.5 text-xs text-muted-foreground md:pb-2">ft</span>
+        <Input value={inch} onChange={(e) => onIn(e.target.value)} inputMode="decimal" placeholder="in" disabled={disabled} className="h-11 w-14 text-base md:h-9 md:w-12 md:text-sm" /><span className="pb-2.5 text-xs text-muted-foreground md:pb-2">in</span>
       </div>
     </div>
   );
@@ -1187,9 +1187,9 @@ function CostSell({ label, cost, sell, onCost, onSell, compact }: { label: strin
       {!compact ? <label className="block text-xs text-muted-foreground">{label}</label> : null}
       <div className="flex items-center gap-1">
         <span className="text-xs text-muted-foreground">$</span>
-        <Input value={cost} onChange={(e) => onCost(e.target.value)} inputMode="decimal" placeholder="cost" className="h-8" />
+        <Input value={cost} onChange={(e) => onCost(e.target.value)} inputMode="decimal" placeholder="cost" className="h-11 text-base md:h-8 md:text-sm" />
         <span className="text-xs text-muted-foreground">→ $</span>
-        <Input value={sell} onChange={(e) => onSell(e.target.value)} inputMode="decimal" placeholder="sell" className="h-8" />
+        <Input value={sell} onChange={(e) => onSell(e.target.value)} inputMode="decimal" placeholder="sell" className="h-11 text-base md:h-8 md:text-sm" />
       </div>
     </div>
   );
@@ -1197,8 +1197,8 @@ function CostSell({ label, cost, sell, onCost, onSell, compact }: { label: strin
 function Toggle({ on, onToggle, label, children }: { on: boolean; onToggle: () => void; label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-md border p-2">
-      <label className="flex items-center gap-2 text-xs font-medium">
-        <input type="checkbox" checked={on} onChange={onToggle} className="size-4 rounded border-input" />{label}
+      <label className="flex items-center gap-2 text-sm font-medium md:text-xs">
+        <input type="checkbox" checked={on} onChange={onToggle} className="size-5 rounded border-input md:size-4" />{label}
       </label>
       {on ? <div className="mt-1.5">{children}</div> : null}
     </div>
