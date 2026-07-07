@@ -104,6 +104,7 @@ export interface SmartLine {
   manufacturer: string | null;
   style: string | null;
   color: string | null;
+  from_stock?: boolean; // pulled from stock → kept off the PO
 }
 
 export interface SmartEstimateInput {
@@ -206,6 +207,7 @@ export async function createSmartEstimate(
     manufacturer: l.manufacturer || null,
     style: l.style || null,
     color: l.color || null,
+    from_stock: !!l.from_stock,
   }));
   const { error: lineErr } = await supabase
     .from("estimate_line_items")

@@ -62,6 +62,7 @@ interface LineState {
   quantity: string;
   unit: string;
   category: string;
+  from_stock: boolean; // pulled from stock → excluded from the PO
 }
 
 // Typical material waste by category (%), used as a smart default on pick.
@@ -221,6 +222,7 @@ export function EstimateBuilder({
     quantity: "",
     unit: "",
     category: "",
+    from_stock: false,
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -264,6 +266,7 @@ export function EstimateBuilder({
         quantity: l.quantity?.toString() ?? "",
         unit: l.unit ?? "",
         category: l.category ?? "",
+        from_stock: !!l.from_stock,
       })),
     }));
     return initial.length
@@ -456,6 +459,7 @@ export function EstimateBuilder({
         quantity: l.quantity || null,
         unit: l.unit || null,
         category: l.category || null,
+        from_stock: l.from_stock,
       })),
     })),
   });
@@ -722,6 +726,36 @@ export function EstimateBuilder({
                           )}
                         />
                       </div>
+
+                      {line.line_type !== "flat" && line.category !== "labor" ? (
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">
+                            Source
+                          </label>
+                          <div className="inline-flex rounded-md border p-0.5 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => updateLine(oi, li, { from_stock: false })}
+                              className={cn(
+                                "rounded px-2.5 py-1.5 font-medium",
+                                !line.from_stock ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+                              )}
+                            >
+                              Order
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateLine(oi, li, { from_stock: true })}
+                              className={cn(
+                                "rounded px-2.5 py-1.5 font-medium",
+                                line.from_stock ? "bg-amber-500 text-white" : "text-muted-foreground",
+                              )}
+                            >
+                              From stock
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
 
                       {line.line_type !== "flat" ? (
                         <>

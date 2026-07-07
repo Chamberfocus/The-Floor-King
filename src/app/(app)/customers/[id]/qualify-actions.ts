@@ -125,6 +125,49 @@ export async function saveQualification(formData: FormData): Promise<void> {
   revalidatePath(`/customers/${customerId}`);
 }
 
+/** Save the questionnaire answers to the customer + mark qualified. Returns a
+ *  result so the pop-up can confirm success (no owner assign, no stage change). */
+export async function qualifyAnswers(
+  _prev: { error: string | null; ok?: boolean },
+  formData: FormData,
+): Promise<{ error: string | null; ok?: boolean }> {
+  const customerId = str(formData.get("customer_id"));
+  if (!customerId) return { error: "Missing customer." };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: qs } = await supabase
+    .from("qualifying_questions")
+    .select("id, label")
+    .eq("active", true)
+    .order("position", { ascending: true });
+  const lines: string[] = [];
+  for (const q of qs ?? []) {
+    const answer = str(formData.get(`q_${q.id}`));
+    if (answer) lines.push(`• ${q.label}\n    ${answer}`);
+  }
+  const body = lines.length
+    ? `Lead qualified:\n${lines.join("\n")}`
+    : "Lead marked qualified.";
+
+  await supabase.from("activities").insert({
+    customer_id: customerId,
+    user_id: user?.id ?? null,
+    type: "note",
+    body,
+  });
+  const { error } = await supabase
+    .from("customers")
+    .update({ qualified: true })
+    .eq("id", customerId);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/customers/${customerId}`);
+  return { error: null, ok: true };
+}
+
 export async function skipQualification(formData: FormData): Promise<void> {
   const customerId = str(formData.get("customer_id"));
   if (!customerId) return;

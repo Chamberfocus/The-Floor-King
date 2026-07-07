@@ -36,7 +36,6 @@ import { advanceWorkflow } from "../actions";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { EstimateScheduler } from "./estimate-scheduler";
 import { JobMaterialsCard } from "@/app/(app)/jobs/[id]/job-materials-card";
-import { QualifyStep } from "./qualify-step";
 import type { HandoffMember } from "@/lib/data/workflow";
 import type { QualifyingQuestion } from "@/lib/types";
 
@@ -171,15 +170,11 @@ export async function GuidedFlow({
   const scheduleIdx = sorted.findIndex(
     (s) => s.auto_action === "schedule_estimate",
   );
-  // Qualify is the very first thing: until the lead is qualified, the guided
-  // step is "qualify & assign" — no matter which early stage they're parked on.
-  const needsQualify =
-    !customer.qualified &&
-    (currentIdxForGate === -1 ||
-      (scheduleIdx >= 0
-        ? currentIdxForGate <= scheduleIdx
-        : currentIdxForGate === 0));
-  const step: Step = needsQualify ? "qualify" : resolveStep(currentStage, stages);
+  // Qualifying is now OPTIONAL — a pop-up on the customer file, not a gate. The
+  // guided flow always moves straight to the real next step (scheduling, etc.).
+  void scheduleIdx;
+  void currentIdxForGate;
+  const step: Step = resolveStep(currentStage, stages);
   const nextStage = nextStageOf(currentStage, stages);
   const owner = customer.workflow_owner_id ?? null;
   const Meta = STEP_META[step];
@@ -244,16 +239,7 @@ export async function GuidedFlow({
   // Step body
   let body: React.ReactNode = null;
 
-  if (step === "qualify") {
-    body = (
-      <QualifyStep
-        customerId={customer.id}
-        questions={questions}
-        members={members}
-        defaultOwner={customer.workflow_owner_id ?? null}
-      />
-    );
-  } else if (step === "contact") {
+  if (step === "contact") {
     body = bookedEstimate ?? (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">

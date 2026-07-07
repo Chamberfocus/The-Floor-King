@@ -104,6 +104,7 @@ import {
   TabCollapse,
 } from "./customer-tabs";
 import { CustomerSettingsMenu } from "./customer-settings-menu";
+import { QualifyDialog } from "./qualify-dialog";
 import { QuickActions } from "./quick-actions";
 import { getUserPreferences } from "@/lib/data/preferences";
 import { requireProfile } from "@/lib/auth";
@@ -129,10 +130,13 @@ const ACTIVITY_ICON: Record<ActivityType, LucideIcon> = {
 
 export default async function CustomerPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ new?: string }>;
 }) {
   const { id } = await params;
+  const justAdded = (await searchParams).new === "1";
   const profile = await requireProfile();
   const prefs = await getUserPreferences();
   const customer = await getCustomer(id);
@@ -408,6 +412,12 @@ export default async function CustomerPage({
             canDelete={canDelete}
             portalUser={portalUser}
             defaultEmail={customer.email ?? ""}
+          />
+          <QualifyDialog
+            customerId={customer.id}
+            questions={qualifyingQuestions}
+            qualified={!!customer.qualified}
+            autoOpen={justAdded}
           />
           {!customer.cancelled_at ? (
             <OnTheWayButton customerId={customer.id} />

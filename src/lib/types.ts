@@ -404,6 +404,7 @@ export interface EstimateLineItem {
   quantity: number | null;
   unit: string | null;
   category: ProductCategory | null;
+  from_stock?: boolean; // pulled from our stock → excluded from the PO
 }
 
 export interface EstimateOption {

@@ -83,9 +83,14 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
   } = await supabase.auth.getUser();
 
   // Only quantity-bearing MATERIAL lines. Labor (install, tear-out, prep) is
-  // never ordered as material.
+  // never ordered as material — and anything pulled FROM STOCK is excluded
+  // (we already have it; the estimate/work order still show it).
   const orderable = lines.filter(
-    (l) => l.line_type !== "flat" && l.category !== "labor" && lineQty(l) > 0,
+    (l) =>
+      l.line_type !== "flat" &&
+      l.category !== "labor" &&
+      !l.from_stock &&
+      lineQty(l) > 0,
   );
   if (!orderable.length) {
     // Still create an empty PO so the user lands somewhere sensible.

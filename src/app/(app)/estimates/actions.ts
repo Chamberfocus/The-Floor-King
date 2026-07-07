@@ -146,6 +146,7 @@ export async function saveEstimate(
         labor_cost: toNumOrNull(line.labor_cost ?? null),
         quantity: toNumOrNull(line.quantity ?? null),
         unit: line.unit || null,
+        from_stock: !!line.from_stock,
       }));
       const { error: lineError } = await supabase
         .from("estimate_line_items")

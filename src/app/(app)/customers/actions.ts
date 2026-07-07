@@ -84,7 +84,8 @@ export async function createCustomer(
   if (error) return { error: error.message };
 
   refreshCustomerViews();
-  redirect(`/customers/${data.id}`);
+  // ?new=1 → the customer file offers the optional "qualify this customer?" pop-up.
+  redirect(`/customers/${data.id}?new=1`);
 }
 
 export async function updateCustomer(

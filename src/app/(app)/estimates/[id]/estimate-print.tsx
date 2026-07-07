@@ -158,7 +158,10 @@ export function EstimatePrintDoc({
                 <tbody>
                   {(o.line_items ?? []).map((l) => (
                     <tr key={l.id} className="border-b align-top">
-                      <td className="py-1 pr-2">{lineLabel(l)}</td>
+                      <td className="py-1 pr-2">
+                        {lineLabel(l)}
+                        {l.from_stock ? <span className="text-gray-500"> (from stock)</span> : null}
+                      </td>
                       <td className="py-1 px-2 text-right tabular-nums text-gray-600">{lineQtyText(l)}</td>
                       <td className="py-1 pl-2 text-right tabular-nums">{formatMoney(lineTotal(l))}</td>
                     </tr>

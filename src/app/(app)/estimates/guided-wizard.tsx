@@ -37,10 +37,11 @@ interface WExtra {
   qty: string;
   cost: string;
   sell: string;
+  fromStock: boolean; // pulled from stock → excluded from the PO
 }
 let exid = 0;
 const mkExtra = (label = "", unit = "sqft", labor = false, cost = ""): WExtra => ({
-  id: `e${exid++}`, label, unit, labor, qty: "", cost, sell: "",
+  id: `e${exid++}`, label, unit, labor, qty: "", cost, sell: "", fromStock: false,
 });
 // Quick-add per-room add-ons by flooring type.
 // Quick-add presets. `cost` (our cost, from the Floor King price book) fills in
@@ -79,7 +80,7 @@ const JOB_EXTRA_DEFS = [
 // Per-room "tackstrip" chips that the whole-job mode replaces (so they aren't
 // double-counted when the same room extra was added before switching).
 const TACKLESS_LABELS = new Set(["Tackstrip", "Tackstrip / tackless"]);
-type JobExtra = { qty: string; cost: string; sell: string };
+type JobExtra = { qty: string; cost: string; sell: string; stock: boolean };
 
 /** Whole-job extra lines (padding/tackless/prep entered once). Padding quantity
  *  falls back to the total carpet area (sq yd) when left blank. room = null. */
@@ -99,7 +100,7 @@ function jobExtraLines(
     const unitLabel =
       def.unit === "sqyd" ? "sq yd" : def.unit === "lnft" ? "ln ft" : "sq ft";
     out.push(
-      bundledLine(def.label, def.labor, def.category, unitLabel, qty, qty * cost, qty * sell),
+      bundledLine(def.label, def.labor, def.category, unitLabel, qty, qty * cost, qty * sell, !!v.stock),
     );
   }
   return out;
@@ -122,6 +123,7 @@ interface WRoom {
   demo: boolean; demoCost: string; demoSell: string; demoNote: string;
   prep: boolean; prepCost: string; prepSell: string; prepNote: string;
   trans: boolean; transQty: string; transCost: string; transSell: string; transNote: string;
+  transStock: boolean; // transitions pulled from stock → off the PO
   note: string; // free crew note for this room → carried to the work order
   extras: WExtra[];
 }
@@ -136,6 +138,7 @@ const newRoom = (): WRoom => ({
   demo: false, demoCost: "", demoSell: "", demoNote: "",
   prep: false, prepCost: "", prepSell: "", prepNote: "",
   trans: false, transQty: "", transCost: "", transSell: "", transNote: "",
+  transStock: false,
   note: "",
   extras: [],
 });
@@ -205,6 +208,7 @@ function bundledLine(
   qty: number,
   costSum: number,
   sellSum: number,
+  fromStock = false,
 ): SmartLine {
   const unitCost = qty > 0 ? r2(costSum / qty) : 0;
   const unitSell = qty > 0 ? r2(sellSum / qty) : 0;
@@ -214,6 +218,7 @@ function bundledLine(
     material_rate: isLabor ? 0 : unitSell, labor_rate: isLabor ? unitSell : 0,
     material_cost: isLabor ? 0 : unitCost, labor_cost: isLabor ? unitCost : 0,
     waste_pct: 0, product_id: null, manufacturer: null, style: null, color: null,
+    from_stock: fromStock,
   };
 }
 
@@ -227,12 +232,15 @@ function jobLines(rooms: WRoom[], whole = false): SmartLine[] {
   >();
   let demoSqft = 0, demoCost = 0, demoSell = 0;
   let prepSqft = 0, prepCost = 0, prepSell = 0;
+  // Transitions bundle separately for ordered vs from-stock (they route differently).
   let transQty = 0, transCost = 0, transSell = 0;
-  const demoNotes = new Set<string>(), prepNotes = new Set<string>(), transNotes = new Set<string>();
-  // Per-room add-ons, bundled by their label (so "Underlayment" across rooms = 1 line).
+  let transStQty = 0, transStCost = 0, transStSell = 0;
+  const demoNotes = new Set<string>(), prepNotes = new Set<string>();
+  const transNotes = new Set<string>(), transStNotes = new Set<string>();
+  // Per-room add-ons, bundled by their label + stock flag.
   const extraBy = new Map<
     string,
-    { label: string; unit: string; labor: boolean; qty: number; costSum: number; sellSum: number }
+    { label: string; unit: string; labor: boolean; fromStock: boolean; qty: number; costSum: number; sellSum: number }
   >();
 
   for (const r of rooms) {
@@ -250,8 +258,8 @@ function jobLines(rooms: WRoom[], whole = false): SmartLine[] {
       // Whole-job mode handles tackless at the job level — don't double-count.
       if (whole && TACKLESS_LABELS.has(x.label.trim())) continue;
       const q = num(x.qty);
-      const key = `${x.label}|${x.unit}|${x.labor}`;
-      const e = extraBy.get(key) ?? { label: x.label, unit: x.unit, labor: x.labor, qty: 0, costSum: 0, sellSum: 0 };
+      const key = `${x.label}|${x.unit}|${x.labor}|${x.fromStock}`;
+      const e = extraBy.get(key) ?? { label: x.label, unit: x.unit, labor: x.labor, fromStock: x.fromStock, qty: 0, costSum: 0, sellSum: 0 };
       e.qty += q; e.costSum += q * num(x.cost); e.sellSum += q * num(x.sell);
       extraBy.set(key, e);
     }
@@ -277,11 +285,16 @@ function jobLines(rooms: WRoom[], whole = false): SmartLine[] {
       prepSqft += sqft; prepCost += sqft * num(r.prepCost); prepSell += sqft * num(r.prepSell);
       if (r.prepNote.trim()) prepNotes.add(r.prepNote.trim());
     }
-    // Transitions — by the each, bundled.
+    // Transitions — by the each, bundled; ordered vs from-stock kept apart.
     if (r.trans && num(r.transQty) > 0) {
       const q = num(r.transQty);
-      transQty += q; transCost += q * num(r.transCost); transSell += q * num(r.transSell);
-      if (r.transNote.trim()) transNotes.add(r.transNote.trim());
+      if (r.transStock) {
+        transStQty += q; transStCost += q * num(r.transCost); transStSell += q * num(r.transSell);
+        if (r.transNote.trim()) transStNotes.add(r.transNote.trim());
+      } else {
+        transQty += q; transCost += q * num(r.transCost); transSell += q * num(r.transSell);
+        if (r.transNote.trim()) transNotes.add(r.transNote.trim());
+      }
     }
   }
 
@@ -294,9 +307,10 @@ function jobLines(rooms: WRoom[], whole = false): SmartLine[] {
   if (demoSqft > 0) out.push(bundledLine(withNote("Tear-out & haul-away", demoNotes), true, "labor", "sq ft", demoSqft, demoCost, demoSell));
   if (prepSqft > 0) out.push(bundledLine(withNote("Floor prep / leveling", prepNotes), true, "labor", "sq ft", prepSqft, prepCost, prepSell));
   if (transQty > 0) out.push(bundledLine(withNote("Transitions", transNotes), false, "trim", "each", transQty, transCost, transSell));
+  if (transStQty > 0) out.push(bundledLine(withNote("Transitions (from stock)", transStNotes), false, "trim", "each", transStQty, transStCost, transStSell, true));
   for (const e of extraBy.values()) {
     if (e.qty <= 0) continue;
-    out.push(bundledLine(e.label, e.labor, e.labor ? "labor" : "other", e.unit, e.qty, e.costSum, e.sellSum));
+    out.push(bundledLine(e.label, e.labor, e.labor ? "labor" : "other", e.unit, e.qty, e.costSum, e.sellSum, e.fromStock));
   }
 
   return out;
@@ -358,7 +372,7 @@ export function GuidedWizard({
   const [jobExtras, setJobExtras] = useState<Record<string, JobExtra>>({});
   const upJobExtra = (key: string, patch: Partial<JobExtra>) =>
     setJobExtras((p) => {
-      const prev = p[key] ?? { qty: "", cost: "", sell: "" };
+      const prev = p[key] ?? { qty: "", cost: "", sell: "", stock: false };
       return { ...p, [key]: { ...prev, ...patch } };
     });
   const [discountKind, setDiscountKind] = useState<"amount" | "percent">("amount");
@@ -855,6 +869,7 @@ export function GuidedWizard({
               $<Input value={r.transCost} onChange={(e) => up(r.id, { transCost: e.target.value, ...(num(e.target.value) > 0 ? { transSell: String(sellAt(num(e.target.value))) } : {}) })} inputMode="decimal" placeholder="cost" className="h-8 w-16" />
               →$<Input value={r.transSell} onChange={(e) => up(r.id, { transSell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
             </div>
+            <StockToggle on={r.transStock} onToggle={() => up(r.id, { transStock: !r.transStock })} />
             <Input value={r.transNote} onChange={(e) => up(r.id, { transNote: e.target.value })}
               placeholder="Type (e.g. carpet→tile T-mold, flush threshold) — shows on the work order" className="mt-1 h-7 text-xs" />
           </Toggle>
@@ -902,6 +917,9 @@ export function GuidedWizard({
                 →$<Input value={x.sell} onChange={(e) => updExtra(r.id, x.id, { sell: e.target.value })} inputMode="decimal" placeholder="sell" className="h-8 w-16" />
                 <label className="flex items-center gap-1.5 pl-1"><input type="checkbox" checked={x.labor} onChange={(e) => updExtra(r.id, x.id, { labor: e.target.checked })} className="size-4 rounded border-input" />labor</label>
               </div>
+              {!x.labor ? (
+                <StockToggle on={x.fromStock} onToggle={() => updExtra(r.id, x.id, { fromStock: !x.fromStock })} />
+              ) : null}
             </div>
           ))}
         </div>
@@ -1096,7 +1114,7 @@ export function GuidedWizard({
                   Job extras — padding, tackless &amp; prep
                 </div>
                 {JOB_EXTRA_DEFS.map((def) => {
-                  const v = jobExtras[def.key] ?? { qty: "", cost: "", sell: "" };
+                  const v = jobExtras[def.key] ?? { qty: "", cost: "", sell: "", stock: false };
                   const unitLabel =
                     def.unit === "sqyd" ? "sq yd" : def.unit === "lnft" ? "ln ft" : "sq ft";
                   const qtyPlaceholder =
@@ -1139,6 +1157,12 @@ export function GuidedWizard({
                         placeholder="sell"
                         className="h-11 w-24 text-base md:h-9"
                       />
+                      {!def.labor ? (
+                        <StockToggle
+                          on={!!v.stock}
+                          onToggle={() => upJobExtra(def.key, { stock: !v.stock })}
+                        />
+                      ) : null}
                     </div>
                   );
                 })}
@@ -1364,6 +1388,24 @@ function Toggle({ on, onToggle, label, children }: { on: boolean; onToggle: () =
         <input type="checkbox" checked={on} onChange={onToggle} className="size-5 rounded border-input md:size-4" />{label}
       </label>
       {on ? <div className="mt-1.5">{children}</div> : null}
+    </div>
+  );
+}
+/** Order vs pull-from-stock choice for a material line. From-stock stays off the PO. */
+function StockToggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <div className="mt-1 inline-flex items-center gap-1.5 text-xs">
+      <span className="text-muted-foreground">Source:</span>
+      <div className="inline-flex rounded-md border p-0.5">
+        <button type="button" onClick={() => { if (on) onToggle(); }}
+          className={cn("rounded px-2 py-0.5 font-medium", !on ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+          Order
+        </button>
+        <button type="button" onClick={() => { if (!on) onToggle(); }}
+          className={cn("rounded px-2 py-0.5 font-medium", on ? "bg-amber-500 text-white" : "text-muted-foreground")}>
+          From stock
+        </button>
+      </div>
     </div>
   );
 }

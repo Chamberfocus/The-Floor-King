@@ -200,6 +200,7 @@ export interface SaveLineInput {
   labor_cost?: string | number | null;
   quantity?: string | number | null;
   unit?: string | null;
+  from_stock?: boolean;
 }
 
 export interface SaveOptionInput {
