@@ -67,6 +67,44 @@ const COMMON_EXTRAS: ExtraPreset[] = [
   { label: "Trip / delivery fee", unit: "each", labor: false },
 ];
 
+// The three extras that can be entered per-room OR once for the whole job.
+// A known set so they're consistent (not free-typed). Padding is material (→ PO);
+// tackless + prep are labor (→ Work Order).
+type ExtrasMode = "room" | "job";
+const JOB_EXTRA_DEFS = [
+  { key: "padding", label: "Carpet pad", unit: "sqyd", labor: false, category: "underlayment" },
+  { key: "tackless", label: "Tackstrip / tackless", unit: "lnft", labor: true, category: "labor" },
+  { key: "prep", label: "Floor prep / leveling", unit: "sqft", labor: true, category: "labor" },
+] as const;
+// Per-room "tackstrip" chips that the whole-job mode replaces (so they aren't
+// double-counted when the same room extra was added before switching).
+const TACKLESS_LABELS = new Set(["Tackstrip", "Tackstrip / tackless"]);
+type JobExtra = { qty: string; cost: string; sell: string };
+
+/** Whole-job extra lines (padding/tackless/prep entered once). Padding quantity
+ *  falls back to the total carpet area (sq yd) when left blank. room = null. */
+function jobExtraLines(
+  je: Record<string, JobExtra>,
+  carpetSqyd: number,
+): SmartLine[] {
+  const out: SmartLine[] = [];
+  for (const def of JOB_EXTRA_DEFS) {
+    const v = je[def.key];
+    if (!v) continue;
+    const qty =
+      num(v.qty) > 0 ? num(v.qty) : def.key === "padding" ? carpetSqyd : 0;
+    const cost = num(v.cost);
+    const sell = num(v.sell);
+    if (qty <= 0 || (cost <= 0 && sell <= 0)) continue;
+    const unitLabel =
+      def.unit === "sqyd" ? "sq yd" : def.unit === "lnft" ? "ln ft" : "sq ft";
+    out.push(
+      bundledLine(def.label, def.labor, def.category, unitLabel, qty, qty * cost, qty * sell),
+    );
+  }
+  return out;
+}
+
 interface WRoom {
   id: string;
   name: string;
@@ -107,8 +145,9 @@ const roomSqft = (r: WRoom) =>
     ? num(r.areaOverride)
     : areaSqft(feet(r.lengthFt, r.lengthIn), feet(r.widthFt, r.widthIn));
 
-/** Material + pad for a room — never any labor on these (order quantity, waste rolled in). */
-function roomMatPad(r: WRoom): SmartLine[] {
+/** Material + pad for a room — never any labor on these (order quantity, waste rolled in).
+ *  `includePad` is false in whole-job extras mode (pad is a job-level line then). */
+function roomMatPad(r: WRoom, includePad = true): SmartLine[] {
   const profile = profileFor(r.type);
   if (!profile) return [];
   const sqft = roomSqft(r);
@@ -143,7 +182,7 @@ function roomMatPad(r: WRoom): SmartLine[] {
     material_cost: num(r.matCost), labor_cost: 0, waste_pct: 0,
     product_id: r.productId, manufacturer: r.manufacturer, style: r.style, color: r.color,
   });
-  if (r.pad && profile.category === "carpet" && (num(r.padCost) > 0 || num(r.padSell) > 0)) {
+  if (includePad && r.pad && profile.category === "carpet" && (num(r.padCost) > 0 || num(r.padSell) > 0)) {
     const padYd = Math.ceil(sqft / 9);
     out.push({
       room: r.name || null, description: "Carpet pad", category: "underlayment",
@@ -180,7 +219,7 @@ function bundledLine(
 
 /** All estimate lines: materials/pad per room + bundled labor / demo / prep /
  *  transitions (one line each, totals across rooms) + per-room add-ons. */
-function jobLines(rooms: WRoom[]): SmartLine[] {
+function jobLines(rooms: WRoom[], whole = false): SmartLine[] {
   const out: SmartLine[] = [];
   const laborByCat = new Map<
     string,
@@ -197,7 +236,8 @@ function jobLines(rooms: WRoom[]): SmartLine[] {
   >();
 
   for (const r of rooms) {
-    out.push(...roomMatPad(r));
+    // In whole-job mode, pad becomes a single job-level line (skip per-room).
+    out.push(...roomMatPad(r, !whole));
     const profile = profileFor(r.type);
     if (!profile) continue;
     const sqft = roomSqft(r);
@@ -207,6 +247,8 @@ function jobLines(rooms: WRoom[]): SmartLine[] {
     // Per-room add-ons → bundle by label across rooms.
     for (const x of r.extras) {
       if (!x.label.trim() || num(x.qty) <= 0) continue;
+      // Whole-job mode handles tackless at the job level — don't double-count.
+      if (whole && TACKLESS_LABELS.has(x.label.trim())) continue;
       const q = num(x.qty);
       const key = `${x.label}|${x.unit}|${x.labor}`;
       const e = extraBy.get(key) ?? { label: x.label, unit: x.unit, labor: x.labor, qty: 0, costSum: 0, sellSum: 0 };
@@ -231,7 +273,7 @@ function jobLines(rooms: WRoom[]): SmartLine[] {
       demoSqft += sqft; demoCost += sqft * num(r.demoCost); demoSell += sqft * num(r.demoSell);
       if (r.demoNote.trim()) demoNotes.add(r.demoNote.trim());
     }
-    if (r.prep && (num(r.prepCost) > 0 || num(r.prepSell) > 0) && sqft > 0) {
+    if (!whole && r.prep && (num(r.prepCost) > 0 || num(r.prepSell) > 0) && sqft > 0) {
       prepSqft += sqft; prepCost += sqft * num(r.prepCost); prepSell += sqft * num(r.prepSell);
       if (r.prepNote.trim()) prepNotes.add(r.prepNote.trim());
     }
@@ -311,6 +353,14 @@ export function GuidedWizard({
   const drawingRef = useRef<HTMLInputElement>(null);
 
   const [taxRate, setTaxRate] = useState("8");
+  // Extras (padding, tackless, prep): per-room OR entered once for the whole job.
+  const [extrasMode, setExtrasMode] = useState<ExtrasMode>("room");
+  const [jobExtras, setJobExtras] = useState<Record<string, JobExtra>>({});
+  const upJobExtra = (key: string, patch: Partial<JobExtra>) =>
+    setJobExtras((p) => {
+      const prev = p[key] ?? { qty: "", cost: "", sell: "" };
+      return { ...p, [key]: { ...prev, ...patch } };
+    });
   const [discountKind, setDiscountKind] = useState<"amount" | "percent">("amount");
   const [discountValue, setDiscountValue] = useState("");
   // Guard the margin so a blank / 0 / ≥100 entry can't break price-from-margin
@@ -485,7 +535,19 @@ export function GuidedWizard({
     });
   };
 
-  const allLines = useMemo(() => jobLines(rooms), [rooms]);
+  // Total carpet area (sq yd) — used to auto-fill whole-job padding.
+  const carpetSqyd = r2(
+    rooms
+      .filter((r) => profileFor(r.type)?.category === "carpet")
+      .reduce((s, r) => s + roomSqft(r), 0) / 9,
+  );
+  const allLines = useMemo(
+    () => [
+      ...jobLines(rooms, extrasMode === "job"),
+      ...jobExtraLines(jobExtras, carpetSqyd),
+    ],
+    [rooms, extrasMode, jobExtras, carpetSqyd],
+  );
   const fMult = 1 + (freightPct || 0) / 100;
   const grand = allLines.reduce((s, l) => s + lineSell(l), 0);
   const cost = allLines.reduce((s, l) => s + lineCost(l, fMult), 0);
@@ -554,7 +616,11 @@ export function GuidedWizard({
 
   const save = (opts: { print?: boolean; send?: boolean; stash?: boolean } = {}) =>
     startSave(async () => {
-      const lines = jobLines(rooms).filter((l) => l.description.trim());
+      // Same source as the on-screen total: per-room lines (+ whole-job extras).
+      const lines = [
+        ...jobLines(rooms, extrasMode === "job"),
+        ...jobExtraLines(jobExtras, carpetSqyd),
+      ].filter((l) => l.description.trim());
       if (!lines.length) {
         toast.error("Add at least one room with a size first.");
         return;
@@ -710,7 +776,8 @@ export function GuidedWizard({
     const chips = [
       ...(profile.category === "carpet" ? CARPET_EXTRAS : HARD_EXTRAS),
       ...COMMON_EXTRAS,
-    ];
+      // In whole-job mode, tackless is entered once at the job level.
+    ].filter((c) => extrasMode === "room" || !TACKLESS_LABELS.has(c.label));
     return (
       <div className="space-y-3">
         {/* Material */}
@@ -745,7 +812,7 @@ export function GuidedWizard({
               onCost={(v) => up(r.id, { instCost: v, ...(num(v) > 0 ? { instSell: String(sellAt(num(v))) } : {}) })}
               onSell={(v) => up(r.id, { instSell: v })} />
           </Toggle>
-          {profile.category === "carpet" ? (
+          {profile.category === "carpet" && extrasMode === "room" ? (
             <Toggle on={r.pad} onToggle={() => up(r.id, { pad: !r.pad })} label="Carpet pad">
               <CostSell compact label="Pad" cost={r.padCost} sell={r.padSell}
                 onCost={(v) => up(r.id, { padCost: v, ...(num(v) > 0 ? { padSell: String(sellAt(num(v))) } : {}) })}
@@ -764,13 +831,15 @@ export function GuidedWizard({
             <Input value={r.demoNote} onChange={(e) => up(r.id, { demoNote: e.target.value })}
               placeholder="Type of demo (e.g. glue-down VCT, carpet & pad) — shows on the work order" className="mt-1 h-7 text-xs" />
           </Toggle>
-          <Toggle on={r.prep} onToggle={() => up(r.id, { prep: !r.prep })} label="Floor prep / leveling">
-            <CostSell compact label="Prep /sf" cost={r.prepCost} sell={r.prepSell}
-              onCost={(v) => up(r.id, { prepCost: v, ...(num(v) > 0 ? { prepSell: String(sellAt(num(v))) } : {}) })}
-              onSell={(v) => up(r.id, { prepSell: v })} />
-            <Input value={r.prepNote} onChange={(e) => up(r.id, { prepNote: e.target.value })}
-              placeholder="Prep notes (e.g. skim coat, patch low spots) — shows on the work order" className="mt-1 h-7 text-xs" />
-          </Toggle>
+          {extrasMode === "room" ? (
+            <Toggle on={r.prep} onToggle={() => up(r.id, { prep: !r.prep })} label="Floor prep / leveling">
+              <CostSell compact label="Prep /sf" cost={r.prepCost} sell={r.prepSell}
+                onCost={(v) => up(r.id, { prepCost: v, ...(num(v) > 0 ? { prepSell: String(sellAt(num(v))) } : {}) })}
+                onSell={(v) => up(r.id, { prepSell: v })} />
+              <Input value={r.prepNote} onChange={(e) => up(r.id, { prepNote: e.target.value })}
+                placeholder="Prep notes (e.g. skim coat, patch low spots) — shows on the work order" className="mt-1 h-7 text-xs" />
+            </Toggle>
+          ) : null}
           <Toggle on={r.trans} onToggle={() => up(r.id, { trans: !r.trans })} label="Transitions / thresholds">
             <ProductPicker
               key={`trans-${r.id}-${catalogKey}`}
@@ -930,6 +999,38 @@ export function GuidedWizard({
             </span>
           </div>
 
+          {/* Padding, tackless & prep: per-room vs once for the whole job */}
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border p-2.5">
+            <span className="text-sm font-medium">Padding, tackless &amp; prep:</span>
+            <div className="inline-flex rounded-md border p-0.5">
+              {(
+                [
+                  ["room", "Per room"],
+                  ["job", "Whole job"],
+                ] as [ExtrasMode, string][]
+              ).map(([v, lbl]) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setExtrasMode(v)}
+                  className={cn(
+                    "rounded px-3 py-1.5 text-sm font-medium transition-colors",
+                    extrasMode === v
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {extrasMode === "room"
+                ? "Set them inside each room."
+                : "Enter them once for the whole job (below)."}
+            </span>
+          </div>
+
           {layout === "list" ? (
             <div className="grid gap-3 md:grid-cols-[210px_1fr]">
               <div className="space-y-1">
@@ -986,6 +1087,68 @@ export function GuidedWizard({
               </Button>
             </>
           )}
+
+          {/* Whole-job extras — padding, tackless, prep entered once */}
+          {extrasMode === "job" ? (
+            <Card className="border-primary/20">
+              <CardContent className="space-y-3 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Job extras — padding, tackless &amp; prep
+                </div>
+                {JOB_EXTRA_DEFS.map((def) => {
+                  const v = jobExtras[def.key] ?? { qty: "", cost: "", sell: "" };
+                  const unitLabel =
+                    def.unit === "sqyd" ? "sq yd" : def.unit === "lnft" ? "ln ft" : "sq ft";
+                  const qtyPlaceholder =
+                    def.key === "padding" && carpetSqyd > 0 ? String(carpetSqyd) : "qty";
+                  return (
+                    <div key={def.key} className="flex flex-wrap items-center gap-2">
+                      <div className="w-40 shrink-0 text-sm font-medium">
+                        {def.label}
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          /{unitLabel}{def.labor ? " · labor" : ""}
+                        </span>
+                      </div>
+                      <Input
+                        value={v.qty}
+                        onChange={(e) => upJobExtra(def.key, { qty: e.target.value })}
+                        inputMode="decimal"
+                        placeholder={qtyPlaceholder}
+                        className="h-11 w-24 text-base md:h-9"
+                      />
+                      <span className="text-sm text-muted-foreground">$</span>
+                      <Input
+                        value={v.cost}
+                        onChange={(e) =>
+                          upJobExtra(def.key, {
+                            cost: e.target.value,
+                            ...(num(e.target.value) > 0
+                              ? { sell: String(sellAt(num(e.target.value))) }
+                              : {}),
+                          })
+                        }
+                        inputMode="decimal"
+                        placeholder="cost"
+                        className="h-11 w-24 text-base md:h-9"
+                      />
+                      <span className="text-sm text-muted-foreground">→ $</span>
+                      <Input
+                        value={v.sell}
+                        onChange={(e) => upJobExtra(def.key, { sell: e.target.value })}
+                        inputMode="decimal"
+                        placeholder="sell"
+                        className="h-11 w-24 text-base md:h-9"
+                      />
+                    </div>
+                  );
+                })}
+                <p className="text-xs text-muted-foreground">
+                  Fill only what applies — blank rows are skipped. Padding defaults
+                  to the total carpet area; edit any of them.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {/* Running total — sticks to the bottom of the screen while you build */}
           <div className="sticky bottom-2 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-3 text-sm shadow-lg ring-1 ring-foreground/5">
