@@ -311,11 +311,20 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
  * Logs a handoff + activity and notifies the new owner — the lightweight cousin
  * of advanceWorkflow used by the customer-page quick actions.
  */
-export async function reassignCustomer(formData: FormData): Promise<void> {
+export interface ReassignState {
+  error: string | null;
+  ok?: boolean;
+  redirectTo?: string | null;
+}
+
+export async function reassignCustomer(
+  _prev: ReassignState,
+  formData: FormData,
+): Promise<ReassignState> {
   const id = str(formData.get("id"));
   const toUser = nullable(formData.get("to_user"));
   const redirectTo = nullable(formData.get("redirect_to"));
-  if (!id) return;
+  if (!id) return { error: "Missing customer." };
 
   const supabase = await createClient();
   const {
@@ -354,11 +363,11 @@ export async function reassignCustomer(formData: FormData): Promise<void> {
   const salesSame = !isSalesperson || (cust?.assigned_to ?? null) === toUser;
   if (ownerSame && salesSame) {
     refreshCustomerViews(id);
-    redirect(redirectTo ?? `/customers/${id}`);
+    return { ok: true, error: null, redirectTo };
   }
 
   const { error } = await supabase.from("customers").update(patch).eq("id", id);
-  if (error) return;
+  if (error) return { error: error.message || "Couldn't save the assignment." };
 
   // A client's booked estimate belongs to their salesperson — so when the owner
   // changes to a salesperson, re-credit their open (scheduled) estimate visits
@@ -411,7 +420,7 @@ export async function reassignCustomer(formData: FormData): Promise<void> {
   }
 
   refreshCustomerViews(id);
-  redirect(redirectTo ?? `/customers/${id}`);
+  return { ok: true, error: null, redirectTo };
 }
 
 /** Type-to-search customer lookup for the quick "jump to customer" switcher. */

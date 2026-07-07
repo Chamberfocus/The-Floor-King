@@ -41,6 +41,7 @@ export interface CarryOverInput {
     zip: string;
     source: string;
   } | null;
+  salespersonId: string | null; // the client's owner + estimate rep
   kind: CarryKind;
   title: string;
   amount: number; // quote / contract total (not used for estimate_appt)
@@ -86,6 +87,10 @@ export async function carryOverDeal(
   } = await supabase.auth.getUser();
   const uid = user?.id ?? null;
 
+  // The client's owner + estimate rep = the chosen salesperson (falls back to
+  // the person doing the carry-over if none was picked).
+  const ownerId = input.salespersonId || uid;
+
   const kind = input.kind;
   const targetStage = stageFor(kind);
   const amount = n(input.amount);
@@ -118,9 +123,9 @@ export async function carryOverDeal(
         // Carry-overs are past qualification — don't make the guided flow nag to
         // "qualify & assign" an existing deal.
         qualified: true,
-        workflow_owner_id: uid,
+        workflow_owner_id: ownerId,
         created_by: uid,
-        assigned_to: uid,
+        assigned_to: ownerId,
       })
       .select("id")
       .single();
@@ -140,6 +145,11 @@ export async function carryOverDeal(
         stage: targetStage,
         source: (c?.source as string | null) || "repeat",
         qualified: true,
+        // Only set the owner when a salesperson was explicitly chosen — don't
+        // clobber an existing client's owner otherwise.
+        ...(input.salespersonId
+          ? { assigned_to: input.salespersonId, workflow_owner_id: input.salespersonId }
+          : {}),
       })
       .eq("id", customerId);
   }
@@ -172,7 +182,7 @@ export async function carryOverDeal(
     }
     const { error: apptErr } = await supabase.from("appointments").insert({
       customer_id: customerId,
-      salesperson_id: uid,
+      salesperson_id: ownerId,
       kind: "estimate",
       starts_at: input.apptAt,
       address: address || null,

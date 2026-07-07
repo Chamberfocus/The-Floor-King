@@ -20,8 +20,12 @@ export default async function CarryOverPage() {
     id: c.id as string,
     full_name: (c.full_name as string) ?? "Unnamed",
   }));
-  const installers = (await listAssignableUsers())
+  const assignable = await listAssignableUsers();
+  const installers = assignable
     .filter((u) => u.role === "crew")
+    .map((u) => ({ id: u.id, name: u.name }));
+  const salespeople = assignable
+    .filter((u) => u.role === "salesman" || u.role === "sales_manager")
     .map((u) => ({ id: u.id, name: u.name }));
 
   return (
@@ -57,7 +61,11 @@ export default async function CarryOverPage() {
         </a>{" "}
         — no pricing or invoicing, straight to the schedule.
       </div>
-      <CarryOverForm customers={customers} installers={installers} />
+      <CarryOverForm
+        customers={customers}
+        installers={installers}
+        salespeople={salespeople}
+      />
     </div>
   );
 }

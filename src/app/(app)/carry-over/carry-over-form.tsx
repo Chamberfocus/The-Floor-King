@@ -29,9 +29,11 @@ const KINDS: { value: CarryKind; label: string; hint: string }[] = [
 export function CarryOverForm({
   customers,
   installers,
+  salespeople,
 }: {
   customers: { id: string; full_name: string }[];
   installers: { id: string; name: string }[];
+  salespeople: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -41,6 +43,7 @@ export function CarryOverForm({
     customers.length ? "existing" : "new",
   );
   const [customerId, setCustomerId] = useState("");
+  const [salespersonId, setSalespersonId] = useState("");
   const [nc, setNc] = useState({
     full_name: "", phone: "", email: "", street: "", city: "", state: "", zip: "",
     source: "repeat" as LeadSource,
@@ -86,6 +89,7 @@ export function CarryOverForm({
       const input: CarryOverInput = {
         customerId: custMode === "existing" ? customerId : null,
         newCustomer: custMode === "new" ? nc : null,
+        salespersonId: salespersonId || null,
         kind,
         title,
         amount: num(amount),
@@ -167,6 +171,21 @@ export function CarryOverForm({
               </div>
             </div>
           )}
+
+          <div className="border-t pt-3">
+            <label className={label}>Salesperson (owner)</label>
+            <SearchPicker
+              className="mt-1 w-full sm:w-72"
+              value={salespersonId}
+              onChange={setSalespersonId}
+              placeholder="— Choose the salesperson —"
+              allowClear
+              options={salespeople.map((s) => ({ value: s.id, label: s.name }))}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              This client stays theirs, and the estimate is credited to them.
+            </p>
+          </div>
         </CardContent>
       </Card>
 

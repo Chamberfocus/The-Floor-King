@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import Link from "next/link";
 import {
   ArrowLeftRight,
@@ -24,7 +26,7 @@ import { cn } from "@/lib/utils";
 import { formatDate, formatWallDateTime, to12 } from "@/lib/format";
 import type { ArrivalWindow } from "@/lib/format";
 import { QUICK_ACTION_ORDER, type QuickAction } from "@/lib/preferences";
-import { advanceWorkflow, reassignCustomer } from "../actions";
+import { advanceWorkflow, reassignCustomer, type ReassignState } from "../actions";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { EstimateScheduler } from "./estimate-scheduler";
 import { CustomerSwitcher } from "./customer-switcher";
@@ -105,11 +107,27 @@ export function QuickActions({
   /** Where to navigate after an action (list rows pass their URL to stay put). */
   redirectTo?: string;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("stage");
   const [toStage, setToStage] = useState(currentStageId ?? stages[0]?.id ?? "");
   const [toUser, setToUser] = useState(currentOwnerId ?? "");
   const [reason, setReason] = useState("");
+
+  // Reassign owner runs through useActionState so a FAILED save shows a real
+  // error instead of a fake "success" toast.
+  const [reassignState, reassignAction, reassignPending] = useActionState(
+    reassignCustomer,
+    { error: null } as ReassignState,
+  );
+  useEffect(() => {
+    if (reassignState.ok) {
+      toast.success("Owner updated");
+      setOpen(false);
+      if (reassignState.redirectTo) router.push(reassignState.redirectTo);
+      else router.refresh();
+    }
+  }, [reassignState, router]);
 
   const launch = (v: View) => {
     setView(v);
@@ -289,7 +307,7 @@ export function QuickActions({
                     : "Hand this customer to another team member."}
                 </DialogDescription>
               </DialogHeader>
-              <form action={reassignCustomer} className="space-y-3">
+              <form action={reassignAction} className="space-y-3">
                 <input type="hidden" name="id" value={customerId} />
                 <input type="hidden" name="to_user" value={toUser} />
                 {redirectTo ? (
@@ -317,6 +335,11 @@ export function QuickActions({
                     </p>
                   ) : null}
                 </div>
+                {reassignState.error ? (
+                  <p className="text-sm text-destructive" role="alert">
+                    {reassignState.error}
+                  </p>
+                ) : null}
                 <div className="flex justify-end gap-2">
                   <Button
                     type="button"
@@ -326,13 +349,9 @@ export function QuickActions({
                   >
                     Cancel
                   </Button>
-                  <SubmitButton
-                    size="sm"
-                    pendingText="Saving…"
-                    confirm="Owner updated"
-                  >
-                    Save
-                  </SubmitButton>
+                  <Button type="submit" size="sm" disabled={reassignPending}>
+                    {reassignPending ? "Saving…" : "Save"}
+                  </Button>
                 </div>
               </form>
             </>
