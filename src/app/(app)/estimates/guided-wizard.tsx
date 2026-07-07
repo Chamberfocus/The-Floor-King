@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
   Plus, Trash2, ArrowLeft, ArrowRight, Check, Printer, Send, Ruler, RotateCcw, Camera, Bookmark,
-  Columns2, PanelLeft, Rows3,
+  Columns2, PanelLeft, Rows3, Copy,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -570,6 +570,26 @@ export function GuidedWizard({
     setRooms((rs) => [...rs, nr]);
     setSelRoomId(nr.id);
   };
+  // Copy a room's whole setup (floor, material, labor, prep, add-ons) into a new
+  // one — everything continues; only the name & size are cleared. So a whole-job
+  // repeat is: build the first room, then "same again" for each area.
+  const duplicateRoom = (id: string) => {
+    const src = rooms.find((x) => x.id === id);
+    if (!src) return;
+    const copy: WRoom = {
+      ...src,
+      id: `w${seq++}`,
+      name: "",
+      lengthFt: "", lengthIn: "", widthFt: "", widthIn: "", areaOverride: "",
+      note: "",
+      extras: src.extras.map((x) => ({ ...x, id: `e${exid++}` })),
+    };
+    setRooms((rs) => {
+      const i = rs.findIndex((x) => x.id === id);
+      return [...rs.slice(0, i + 1), copy, ...rs.slice(i + 1)];
+    });
+    setSelRoomId(copy.id);
+  };
   const selRoom = rooms.find((r) => r.id === selRoomId) ?? rooms[0] ?? null;
   const isReady = (r: WRoom) => !!profileFor(r.type) && roomSqft(r) > 0;
   // Show the pricing column as soon as a flooring type is picked — you can set
@@ -616,6 +636,11 @@ export function GuidedWizard({
         <div className="flex items-center gap-2">
           <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{idx + 1}</span>
           <Input value={r.name} onChange={(e) => up(r.id, { name: e.target.value })} placeholder="Room (e.g. Living room)" className="h-8 flex-1" />
+          {profileFor(r.type) ? (
+            <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1 text-primary" onClick={() => duplicateRoom(r.id)}>
+              <Copy className="size-3.5" /> Same again
+            </Button>
+          ) : null}
           {rooms.length > 1 ? (
             <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => setRooms((rs) => rs.filter((x) => x.id !== r.id))}>
               <Trash2 className="size-4 text-destructive" />
@@ -883,6 +908,15 @@ export function GuidedWizard({
               <span className="text-muted-foreground">Margin</span>
               <Input value={marginGoal} onChange={(e) => setMarginGoal(e.target.value)} inputMode="decimal" className="h-8 w-16" />%
             </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+            <Copy className="size-3.5 shrink-0 text-primary" />
+            <span>
+              Same floor throughout? Set up the first room, then hit{" "}
+              <span className="font-medium text-foreground">Same again</span> to
+              reuse the floor &amp; pricing — just type the next room&apos;s size.
+            </span>
           </div>
 
           {layout === "list" ? (
