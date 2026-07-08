@@ -1,18 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { ListChecks, Zap } from "lucide-react";
+import { ListChecks, Zap, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GuidedWizard } from "./guided-wizard";
 import { QuickEstimate } from "./quick-estimate";
+import { AiEstimate } from "./ai-estimate";
 
-type Mode = "wizard" | "quick";
+type Mode = "wizard" | "quick" | "ai";
 
 /**
- * Two ways to build an estimate:
+ * Three ways to build an estimate:
  *  - Wizard : the guided, step-by-step builder that covers every base.
  *  - Quick  : one screen for a fast quote.
- * Both save the identical estimate and flow on to invoice / PO / job.
+ *  - AI     : describe the job in plain English → itemized draft to review.
+ * All save the identical estimate and flow on to invoice / PO / job.
  * Each stays mounted, so switching never loses what you entered.
  */
 export function BuilderSwitch(props: {
@@ -67,9 +69,10 @@ export function BuilderSwitch(props: {
         </div>
       ) : null}
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-3">
         <Tab value="wizard" icon={ListChecks} label="Estimate builder" hint="Step-by-step — covers every base" />
         <Tab value="quick" icon={Zap} label="Quick estimate" hint="One screen — fast quote" />
+        <Tab value="ai" icon={Sparkles} label="Describe the job (AI)" hint="Plain English → itemized draft" />
       </div>
 
       <div className={mode === "wizard" ? "" : "hidden"}>
@@ -87,6 +90,13 @@ export function BuilderSwitch(props: {
           customerName={props.customerName}
           targetMargin={props.targetMargin}
           freightPct={props.freightPct}
+          serviceAddressId={serviceAddressId}
+        />
+      </div>
+      <div className={mode === "ai" ? "" : "hidden"}>
+        <AiEstimate
+          customerId={props.customerId}
+          customerName={props.customerName}
           serviceAddressId={serviceAddressId}
         />
       </div>

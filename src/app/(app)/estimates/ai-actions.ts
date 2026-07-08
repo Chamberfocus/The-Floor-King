@@ -4,26 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { aiText } from "@/lib/ai";
-import { extractJobFromNotes } from "@/lib/extract";
+import { extractJobFromNotes, type NotesJob } from "@/lib/extract";
 import { searchCatalog } from "@/lib/data/products";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getRoomDefaults, getAddonDefaults } from "@/lib/data/addon-defaults";
 import { priceFromMargin } from "@/lib/estimate-calc";
 import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
-
-const CATEGORIES = [
-  "carpet", "lvp", "hardwood", "laminate", "tile", "vinyl",
-  "underlayment", "trim", "labor", "other",
-];
-
-interface AiLine {
-  room?: string;
-  material?: string;
-  category?: string;
-  sqft?: number;
-  description?: string;
-}
 
 export interface DraftQuoteResult {
   error: string | null;
@@ -45,40 +32,14 @@ function mapFloorType(t: string): string {
 }
 
 /**
- * Turn job notes — typed OR a photo of handwriting — into a real estimate,
- * built EXACTLY the way the smart builder builds it (rooms with ft+in
- * measurements, material priced to the target margin off the catalog, install
- * labor, carpet pad, and the extra add-ons), then open it to continue.
+ * The heart of the AI estimate generator: turn parsed job notes into estimate
+ * line items built EXACTLY like the smart builder — a separate MATERIAL /
+ * INSTALL-LABOR / PAD line (never combined), each material matched to a REAL
+ * catalog product & price, correct units (carpet sq yd, planks/tile sq ft,
+ * trim ln ft), the carpet pad pulled from the catalog as a material, and the
+ * job-wide extras. Returns the same SmartLine[] the wizard produces.
  */
-export async function createEstimateFromNotes(
-  customerId: string,
-  input: { text?: string; storagePath?: string; mime?: string },
-  appendToEstimateId?: string,
-): Promise<{ error: string | null }> {
-  if (!customerId && !appendToEstimateId) return { error: "Missing customer." };
-
-  let opts: Parameters<typeof extractJobFromNotes>[0];
-  if (input.storagePath) {
-    const supabase = await createClient();
-    const { data: signed } = await supabase.storage
-      .from("documents")
-      .createSignedUrl(input.storagePath, 600);
-    if (!signed?.signedUrl) return { error: "Couldn't open that photo." };
-    opts = { url: signed.signedUrl, mediaType: input.mime || "image/jpeg" };
-  } else if (input.text?.trim()) {
-    opts = { text: input.text.trim() };
-  } else {
-    return { error: "Type the job details or add a photo first." };
-  }
-
-  const job = await extractJobFromNotes(opts);
-  if (!job || !job.rooms.length) {
-    return {
-      error:
-        "I couldn't read any rooms from that. Add a little more detail (room, size, flooring type) or a clearer photo.",
-    };
-  }
-
+async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
   const settings = await getBusinessSettings();
   const margin = settings.target_gross_margin_pct || 40;
   const sellAt = (cost: number) => (cost > 0 ? round2(priceFromMargin(cost, margin)) : 0);
@@ -109,6 +70,19 @@ export async function createEstimateFromNotes(
       }
     }
   } catch { /* no catalog */ }
+
+  // A REAL pad/underlayment product from the catalog — so padding is a matched
+  // MATERIAL line (product + price), never an invented add-on.
+  let padProduct: { id: string; rate: number; manufacturer: string | null; style: string | null; color: string | null } | null = null;
+  try {
+    const hits = await searchCatalog("pad", { activeOnly: true, limit: 8 });
+    const m = hits.find((p) => p.category === "underlayment") ?? null;
+    if (m) padProduct = { id: m.id, rate: Number(m.material_rate) || 0, manufacturer: m.manufacturer, style: m.style, color: m.color };
+  } catch { /* ignore */ }
+  if (!padProduct && catProduct["underlayment"]) {
+    const cp = catProduct["underlayment"];
+    padProduct = { id: cp.id, rate: cp.material_rate, manufacturer: cp.manufacturer, style: cp.style, color: cp.color };
+  }
 
   const lines: SmartLine[] = [];
   // Labor is consolidated into ONE installation line per flooring type — never
@@ -161,8 +135,9 @@ export async function createEstimateFromNotes(
       }
     }
 
-    // Fall back so a bare "carpet" still gets priced: the type's saved default
-    // cost, then a representative active product in that category.
+    // Price fallback ONLY — never attach a guessed product. A bare "carpet" is
+    // priced from the saved default, then a representative product's rate, so
+    // the estimator sees a real number and picks the exact product on review.
     const rd = roomDefaults[profile.category];
     if (!cost && rd?.materialCost) cost = rd.materialCost;
     if (!laborRate && rd?.laborCost) laborRate = rd.laborCost;
@@ -170,12 +145,6 @@ export async function createEstimateFromNotes(
     if (cp) {
       if (!cost) cost = cp.material_rate;
       if (!laborRate) laborRate = cp.labor_rate;
-      if (!productId && cp.material_rate > 0) {
-        productId = cp.id;
-        manufacturer = manufacturer ?? cp.manufacturer;
-        style = style ?? cp.style;
-        color = color ?? cp.color;
-      }
     }
 
     // MATERIAL line — the quantity is what you actually order: area + waste,
@@ -206,12 +175,12 @@ export async function createEstimateFromNotes(
       color,
     });
 
-    // PAD — accumulate across all carpet rooms; bundled into ONE line below.
-    // Cost: written → saved "Carpet pad" default → an underlayment in the catalog.
+    // PAD — accumulate across all carpet rooms; bundled into ONE catalog-matched
+    // material line below. Cost: written → saved "Carpet pad" default → catalog.
     if (profile.category === "carpet" && room.pad) {
       let padCost = Number(room.pad_cost) || 0;
       if (!padCost) padCost = addonDefaults["Carpet pad"]?.cost ?? 0;
-      if (!padCost) padCost = catProduct["underlayment"]?.material_rate ?? 0;
+      if (!padCost) padCost = padProduct?.rate ?? 0;
       padSqft += sqft;
       padCostSum += (sqft / 9) * padCost;
     }
@@ -234,13 +203,15 @@ export async function createEstimateFromNotes(
     }
   }
 
-  // ONE carpet-pad line — total square yards across the whole job, rounded up.
+  // ONE carpet-pad line — a catalog-matched MATERIAL (product + price), total
+  // square yards across the whole job, rounded up. Flows to the PO like any
+  // material (unless later marked from stock on review).
   if (padSqft > 0) {
     const padYdArea = padSqft / 9;
     const unitCost = round2(padCostSum / padYdArea);
     lines.push({
       room: null,
-      description: "Carpet pad",
+      description: padProduct?.manufacturer ? `Carpet pad — ${padProduct.manufacturer}` : "Carpet pad",
       category: "underlayment",
       measure_unit: "sqyd",
       sqft: null,
@@ -253,10 +224,10 @@ export async function createEstimateFromNotes(
       material_cost: unitCost,
       labor_cost: 0,
       waste_pct: 0,
-      product_id: null,
-      manufacturer: null,
-      style: null,
-      color: null,
+      product_id: padProduct?.id ?? null,
+      manufacturer: padProduct?.manufacturer ?? null,
+      style: padProduct?.style ?? null,
+      color: padProduct?.color ?? null,
     });
   }
 
@@ -287,24 +258,31 @@ export async function createEstimateFromNotes(
     });
   }
 
-  // Job-wide extras (tear-out, transitions, stairs, metals…).
+  // Job-wide extras (tear-out, transitions, stairs, furniture, tackless…). Trim
+  // gets its own category so units + PO routing stay correct.
   for (const a of job.addons ?? []) {
     if (!a.label) continue;
     const cost = Number(a.cost) || 0;
+    const isLabor = !!a.labor;
+    const cat = isLabor
+      ? "labor"
+      : /transition|reducer|t-?mold|threshold|nose|molding|trim|quarter|shoe|base/i.test(a.label)
+        ? "trim"
+        : "other";
     lines.push({
       room: null,
       description: a.label,
-      category: a.labor ? "labor" : "other",
+      category: cat,
       measure_unit: "sqft",
       sqft: null,
       quantity: a.qty && a.qty > 0 ? a.qty : 1,
       length_in: null,
       width_in: null,
       unit: a.unit || "each",
-      material_rate: a.labor ? 0 : sellAt(cost),
-      labor_rate: a.labor ? sellAt(cost) : 0,
-      material_cost: a.labor ? 0 : cost,
-      labor_cost: a.labor ? cost : 0,
+      material_rate: isLabor ? 0 : sellAt(cost),
+      labor_rate: isLabor ? sellAt(cost) : 0,
+      material_cost: isLabor ? 0 : cost,
+      labor_cost: isLabor ? cost : 0,
       waste_pct: 0,
       product_id: null,
       manufacturer: null,
@@ -313,6 +291,43 @@ export async function createEstimateFromNotes(
     });
   }
 
+  return lines;
+}
+
+/**
+ * Turn job notes — typed OR a photo of handwriting — into a real estimate,
+ * built EXACTLY the way the smart builder builds it, then open it to continue.
+ */
+export async function createEstimateFromNotes(
+  customerId: string,
+  input: { text?: string; storagePath?: string; mime?: string },
+  appendToEstimateId?: string,
+): Promise<{ error: string | null }> {
+  if (!customerId && !appendToEstimateId) return { error: "Missing customer." };
+
+  let opts: Parameters<typeof extractJobFromNotes>[0];
+  if (input.storagePath) {
+    const supabase = await createClient();
+    const { data: signed } = await supabase.storage
+      .from("documents")
+      .createSignedUrl(input.storagePath, 600);
+    if (!signed?.signedUrl) return { error: "Couldn't open that photo." };
+    opts = { url: signed.signedUrl, mediaType: input.mime || "image/jpeg" };
+  } else if (input.text?.trim()) {
+    opts = { text: input.text.trim() };
+  } else {
+    return { error: "Type the job details or add a photo first." };
+  }
+
+  const job = await extractJobFromNotes(opts);
+  if (!job || !job.rooms.length) {
+    return {
+      error:
+        "I couldn't read any rooms from that. Add a little more detail (room, size, flooring type) or a clearer photo.",
+    };
+  }
+
+  const lines = await buildLinesFromJob(job);
   if (!lines.length) return { error: "Couldn't build any lines from that." };
 
   // "Add more from notes": append to the existing estimate's option instead of
@@ -508,55 +523,49 @@ Hard rules: base everything ONLY on the line items given — never invent prices
 }
 
 /**
- * Turn a plain-English job description into a draft estimate: AI parses the
- * rooms/materials/areas, we match each to a catalog product and price it to the
- * target margin, then open the quote builder to review.
+ * The AI Estimate Generator: turn a plain-English job description into a REAL
+ * draft estimate, itemized exactly like the smart builder — rooms parsed by the
+ * same brain that reads a measure sheet, each material matched to the real
+ * catalog and priced to the target margin, pad pulled from the catalog, correct
+ * units, separate material/labor lines. Returns the new estimate's id so callers
+ * can open it in the edit builder to review (nothing is finalized).
  */
 export async function createDraftEstimateFromText(
   customerId: string,
   description: string,
+  serviceAddressId?: string | null,
 ): Promise<{ error: string | null; estimateId?: string }> {
   const desc = (description ?? "").trim();
   if (!customerId || desc.length < 4)
     return { error: "Describe the job first." };
 
-  const { text, error } = await aiText({
-    system: `You are a flooring estimator for Cleveland Floor King. Turn the job description into structured line items. Reply with ONLY JSON, no prose:
-{"title": string, "lines": [{"room": string, "material": string, "category": one of [${CATEGORIES.join(", ")}], "sqft": number, "description": string}]}
-Rules: one line per room/material. "material" is a short product term to search the catalog (e.g. "plush carpet", "luxury vinyl plank", "oak hardwood"). Estimate sqft if a size is given; if no size, make a reasonable guess and note it. Keep descriptions short.`,
-    maxTokens: 1500,
-    prompt: `Job description:\n${desc}`,
-  });
-  if (error) return { error };
-
-  let parsed: { title?: string; lines?: AiLine[] };
-  try {
-    const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-    const s = cleaned.indexOf("{");
-    const e = cleaned.lastIndexOf("}");
-    parsed = JSON.parse(cleaned.slice(s, e + 1));
-  } catch {
-    return { error: "Couldn't read the AI's draft. Try rephrasing the job." };
+  const job = await extractJobFromNotes({ text: desc });
+  if (!job || !job.rooms.length) {
+    return {
+      error:
+        "I couldn't read any rooms from that. Add a room, a size, and the floor type (e.g. “living room 320 sq ft luxury vinyl, 3 bedrooms ~540 sq ft carpet”).",
+    };
   }
-  const lines = (parsed.lines ?? []).filter((l) => l && (l.material || l.room));
-  if (!lines.length) return { error: "No rooms/materials found in that description." };
+
+  const lines = await buildLinesFromJob(job);
+  if (!lines.length)
+    return { error: "Couldn't build any lines from that description." };
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const settings = await getBusinessSettings();
-  const margin = settings.target_gross_margin_pct || 40;
 
   // Create the estimate + a single option.
   const { data: est, error: estErr } = await supabase
     .from("estimates")
     .insert({
       customer_id: customerId,
-      title: parsed.title || "Flooring estimate",
+      title: job.title || "Flooring estimate",
       status: "draft",
       tax_rate: 8.0,
       presentation: "detailed",
+      service_address_id: serviceAddressId || null,
       created_by: user?.id ?? null,
     })
     .select("id")
@@ -570,70 +579,52 @@ Rules: one line per room/material. "material" is a short product term to search 
     .single();
   if (!opt) return { error: "Couldn't create the estimate option." };
 
-  // Build line items, matching each to a catalog product for pricing.
-  const rows = [];
-  let i = 0;
-  for (const l of lines) {
-    const category = CATEGORIES.includes(l.category ?? "") ? l.category! : "other";
-    const term = (l.material || category).trim();
-    let productId: string | null = null;
-    let cost = 0;
-    let manufacturer: string | null = null;
-    let style: string | null = null;
-    let color: string | null = null;
-    let labor = 0;
-    try {
-      const hits = await searchCatalog(term, { activeOnly: true, limit: 5 });
-      const match =
-        hits.find((p) => p.category === category) ?? hits[0] ?? null;
-      if (match) {
-        productId = match.id;
-        cost = Number(match.material_rate) || 0;
-        labor = Number(match.labor_rate) || 0;
-        manufacturer = match.manufacturer;
-        style = match.style;
-        color = match.color;
-      }
-    } catch {
-      /* no match — leave blank for manual pricing */
-    }
-    const sell = cost > 0 ? Math.round(priceFromMargin(cost, margin) * 100) / 100 : 0;
-    rows.push({
-      option_id: opt.id,
-      position: i++,
-      room: l.room || null,
-      description: l.description || term,
-      line_type: "mat_labor",
-      sqft: typeof l.sqft === "number" && l.sqft > 0 ? l.sqft : null,
-      measure_unit: "sqft",
-      material_rate: sell,
-      labor_rate: labor,
-      material_cost: cost,
-      labor_cost: 0,
-      product_id: productId,
-      manufacturer,
-      style,
-      color,
-      category,
-      unit: "sqft",
-    });
-  }
-  await supabase.from("estimate_line_items").insert(rows);
+  // Persist the builder-parity lines — same column shape as every other path.
+  const rows = lines.map((l, i) => ({
+    option_id: opt.id,
+    position: i,
+    room: l.room || null,
+    description: l.description,
+    line_type: "mat_labor",
+    category: l.category || "other",
+    measure_unit: l.measure_unit,
+    sqft: l.sqft && l.sqft > 0 ? l.sqft : null,
+    quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
+    length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
+    width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
+    unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+    material_rate: Number(l.material_rate) || 0,
+    labor_rate: Number(l.labor_rate) || 0,
+    material_cost: Number(l.material_cost) || 0,
+    labor_cost: Number(l.labor_cost) || 0,
+    waste_pct: Number(l.waste_pct) || 0,
+    product_id: l.product_id || null,
+    manufacturer: l.manufacturer || null,
+    style: l.style || null,
+    color: l.color || null,
+    from_stock: false,
+  }));
+  const { error: lineErr } = await supabase
+    .from("estimate_line_items")
+    .insert(rows);
+  if (lineErr) return { error: lineErr.message };
 
   revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/estimates");
   return { error: null, estimateId: est.id as string };
 }
 
 /**
- * UI entry point: build the draft from text, then open the builder. Thin
- * wrapper over createDraftEstimateFromText so other callers (e.g. the field
- * assistant) can get the new estimate's id without a redirect.
+ * UI entry point: build the draft from text, then OPEN THE EDIT BUILDER to
+ * review & adjust before finalizing (never auto-finalizes). Thin wrapper so
+ * other callers (e.g. the field assistant) can get the id without a redirect.
  */
 export async function draftEstimateFromText(
   customerId: string,
   description: string,
+  serviceAddressId?: string | null,
 ): Promise<DraftQuoteResult> {
-  const res = await createDraftEstimateFromText(customerId, description);
+  const res = await createDraftEstimateFromText(customerId, description, serviceAddressId);
   if (res.error) return { error: res.error };
   redirect(`/estimates/${res.estimateId}/edit`);
 }
