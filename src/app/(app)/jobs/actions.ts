@@ -218,7 +218,7 @@ export async function createJobFromEstimate(formData: FormData): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
   const jobId = await ensureJobForEstimate(estimateId, user?.id ?? null);
-  if (jobId) redirect(`/jobs/${jobId}`);
+  if (jobId) redirect(`/jobs/${jobId}?created=1`);
 }
 
 /** Create a blank job tied to a customer (optionally at a service address). */
@@ -278,7 +278,7 @@ export async function createJob(formData: FormData): Promise<void> {
 
   revalidatePath("/jobs");
   revalidatePath(`/customers/${customerId}`);
-  redirect(`/jobs/${job.id}`);
+  redirect(`/jobs/${job.id}?created=1`);
 }
 
 /** Change which address a job is for — refills its site_* fields to match. */

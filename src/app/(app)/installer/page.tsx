@@ -13,6 +13,8 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import { InstallerCollect } from "../jobs/[id]/installer-collect";
 import { SatisfactionForm } from "../jobs/[id]/satisfaction-form";
 import { JobPhotos } from "../jobs/[id]/job-photos";
+import { getJobProgress } from "@/lib/job-progress";
+import { JobStepPopup } from "@/components/job-step-popup";
 
 export const metadata: Metadata = { title: "My work" };
 export const dynamic = "force-dynamic";
@@ -50,6 +52,12 @@ export default async function InstallerHomePage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 pb-16">
+      <JobStepPopup
+        jobs={active.map(({ job }) => ({
+          ...getJobProgress(job),
+          title: job.customer_name || job.title,
+        }))}
+      />
       <PageHeader title={`Hi, ${profile.full_name?.split(" ")[0] || "there"}`} description="Your jobs, pay, and sign-offs — all in one place." />
 
       {/* Pay + ratings summary */}

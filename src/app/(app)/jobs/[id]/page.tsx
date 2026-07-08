@@ -67,6 +67,8 @@ import { JobMaterialsCard } from "./job-materials-card";
 import { getOrgSettings } from "@/lib/data/org";
 import { PrintButton } from "@/components/print-button";
 import { JobPrintDoc } from "./job-print";
+import { getJobProgress } from "@/lib/job-progress";
+import { JobStepPopup } from "@/components/job-step-popup";
 
 // Carpet padding is bought by the roll; the shop's standard roll covers this
 // many square yards (matches the estimate builder's roll math).
@@ -111,15 +113,19 @@ export async function generateMetadata({
 
 export default async function JobPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ created?: string }>;
 }) {
   const { id } = await params;
+  const justCreated = (await searchParams).created === "1";
   const profile = await requireProfile();
   const isStaff = profile.role === "admin" || profile.role === "office";
 
   const job = await getJob(id);
   if (!job) notFound();
+  const progress = getJobProgress(job);
 
   const org = await getOrgSettings();
   const users = isStaff ? await listAssignableUsers() : [];
@@ -188,6 +194,9 @@ export default async function JobPage({
   return (
     <>
       <JobPrintDoc org={org} job={job} assignedName={assignedName} />
+      <JobStepPopup
+        jobs={[{ ...progress, title: job.title, justCreated }]}
+      />
       <div className="mx-auto max-w-4xl print:hidden">
       <Link
         href="/jobs"

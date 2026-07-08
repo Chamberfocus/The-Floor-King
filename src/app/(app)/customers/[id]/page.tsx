@@ -62,6 +62,8 @@ import {
 import { installDaysForJob } from "@/lib/scheduling";
 import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
 import { InstallSchedule } from "./install-schedule";
+import { getJobProgress } from "@/lib/job-progress";
+import { JobStepPopup } from "@/components/job-step-popup";
 import { CustomerDocuments } from "./customer-documents";
 import {
   listWorkflowStages,
@@ -367,6 +369,11 @@ export default async function CustomerPage({
 
   return (
     <div className="mx-auto max-w-5xl">
+      {schedulableJob ? (
+        <JobStepPopup
+          jobs={[{ ...getJobProgress(schedulableJob), title: schedulableJob.title }]}
+        />
+      ) : null}
       <Link
         href="/customers"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
