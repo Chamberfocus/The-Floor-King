@@ -18,6 +18,18 @@ export interface DraftQuoteResult {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Convert a catalog product's per-unit rate to a line's billing unit. Carpet &
+ * pad bill per sq yd; hard surface bills per sq ft. Catalog products are stored
+ * in EITHER unit, so a sq-ft rate on a sq-yd line must be ×9 (and vice-versa
+ * ÷9). Mirrors the guided builder's pickProduct/pickPad conversion.
+ */
+function rateFor(rate: number, productUnit: string | null, wantYd: boolean): number {
+  const isYd = (productUnit || "").toLowerCase().includes("yd");
+  const factor = isYd === wantYd ? 1 : wantYd ? 9 : 1 / 9;
+  return round2((rate || 0) * factor);
+}
+
 /** Map a free-text flooring type onto one of the builder's profile keys. */
 function mapFloorType(t: string): string {
   const s = (t || "").toLowerCase();
@@ -49,10 +61,11 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
   let addonDefaults: Awaited<ReturnType<typeof getAddonDefaults>> = {};
   try { roomDefaults = await getRoomDefaults(); } catch { /* table may be missing */ }
   try { addonDefaults = await getAddonDefaults(); } catch { /* table may be missing */ }
-  // A representative active product per flooring category (first by name).
+  // A representative active product per flooring category (first by name) — keep
+  // its UNIT so its rate can be converted to each line's billing unit.
   const catProduct: Record<
     string,
-    { id: string; material_rate: number; labor_rate: number; manufacturer: string | null; style: string | null; color: string | null }
+    { id: string; unit: string; material_rate: number; labor_rate: number; manufacturer: string | null; style: string | null; color: string | null }
   > = {};
   try {
     const all = await searchCatalog("", { activeOnly: true, limit: 1000 });
@@ -61,6 +74,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
       if (!catProduct[c]) {
         catProduct[c] = {
           id: p.id,
+          unit: p.unit,
           material_rate: Number(p.material_rate) || 0,
           labor_rate: Number(p.labor_rate) || 0,
           manufacturer: p.manufacturer,
@@ -72,16 +86,18 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
   } catch { /* no catalog */ }
 
   // A REAL pad/underlayment product from the catalog — so padding is a matched
-  // MATERIAL line (product + price), never an invented add-on.
+  // MATERIAL line (product + price), never an invented add-on. Its rate is
+  // normalized to SQ YD (pad bills per sq yd; catalog pads are stored in either
+  // unit — the sq-ft ones must be ×9).
   let padProduct: { id: string; rate: number; manufacturer: string | null; style: string | null; color: string | null } | null = null;
   try {
     const hits = await searchCatalog("pad", { activeOnly: true, limit: 8 });
     const m = hits.find((p) => p.category === "underlayment") ?? null;
-    if (m) padProduct = { id: m.id, rate: Number(m.material_rate) || 0, manufacturer: m.manufacturer, style: m.style, color: m.color };
+    if (m) padProduct = { id: m.id, rate: rateFor(Number(m.material_rate) || 0, m.unit, true), manufacturer: m.manufacturer, style: m.style, color: m.color };
   } catch { /* ignore */ }
   if (!padProduct && catProduct["underlayment"]) {
     const cp = catProduct["underlayment"];
-    padProduct = { id: cp.id, rate: cp.material_rate, manufacturer: cp.manufacturer, style: cp.style, color: cp.color };
+    padProduct = { id: cp.id, rate: rateFor(cp.material_rate, cp.unit, true), manufacturer: cp.manufacturer, style: cp.style, color: cp.color };
   }
 
   const lines: SmartLine[] = [];
@@ -111,7 +127,10 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     const qty = round2(isYd ? sqft / 9 : sqft);
     const unit = isYd ? "sq yd" : "sq ft";
 
-    // Material cost: from the notes if written, else matched off the catalog.
+    // Match to a REAL catalog product BY ID — same category only (a generic term
+    // like "plush carpet" that hits nothing is NOT a match). Catalog rates are
+    // per the PRODUCT's unit; convert to THIS line's billing unit. A written
+    // price in the notes is already per the line's unit, so it's not converted.
     let cost = Number(room.material_cost) || 0;
     let productId: string | null = null;
     let manufacturer: string | null = null;
@@ -121,30 +140,31 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     if (room.material) {
       try {
         const hits = await searchCatalog(room.material, { activeOnly: true, limit: 5 });
-        const match = hits.find((p) => p.category === profile.category) ?? hits[0] ?? null;
+        const match = hits.find((p) => p.category === profile.category) ?? null;
         if (match) {
           productId = match.id;
-          if (!cost) cost = Number(match.material_rate) || 0;
-          laborRate = Number(match.labor_rate) || 0;
+          if (!cost) cost = rateFor(Number(match.material_rate) || 0, match.unit, isYd);
+          laborRate = rateFor(Number(match.labor_rate) || 0, match.unit, isYd);
           manufacturer = match.manufacturer;
           style = match.style;
           color = match.color;
         }
       } catch {
-        /* no catalog match — fall back below */
+        /* no catalog match — fall back + flag below */
       }
     }
 
-    // Price fallback ONLY — never attach a guessed product. A bare "carpet" is
-    // priced from the saved default, then a representative product's rate, so
-    // the estimator sees a real number and picks the exact product on review.
-    const rd = roomDefaults[profile.category];
-    if (!cost && rd?.materialCost) cost = rd.materialCost;
-    if (!laborRate && rd?.laborCost) laborRate = rd.laborCost;
-    const cp = catProduct[profile.category];
-    if (cp) {
-      if (!cost) cost = cp.material_rate;
-      if (!laborRate) laborRate = cp.labor_rate;
+    // No confident product match → DON'T invent a product. Price a ballpark from
+    // the category default (real catalog data, converted to this line's unit)
+    // and FLAG the line so the estimator picks the exact product on review.
+    const needsProduct = !productId;
+    if (needsProduct) {
+      const rd = roomDefaults[profile.category];
+      const cp = catProduct[profile.category];
+      if (!cost && rd?.materialCost) cost = rd.materialCost;
+      if (!cost && cp) cost = rateFor(cp.material_rate, cp.unit, isYd);
+      if (!laborRate && rd?.laborCost) laborRate = rd.laborCost;
+      if (!laborRate && cp) laborRate = rateFor(cp.labor_rate, cp.unit, isYd);
     }
 
     // MATERIAL line — the quantity is what you actually order: area + waste,
@@ -152,10 +172,11 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     const matQty = isYd
       ? Math.ceil((sqft / 9) * (1 + profile.waste / 100))
       : Math.ceil(sqft * (1 + profile.waste / 100));
+    const baseDesc =
+      [manufacturer, room.material].filter(Boolean).join(" ").trim() || profile.label;
     lines.push({
       room: room.name || null,
-      description:
-        [manufacturer, room.material].filter(Boolean).join(" ").trim() || profile.label,
+      description: needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
       category: profile.category,
       measure_unit: profile.unit,
       sqft: null,
