@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireProfile } from "@/lib/auth";
 import {
   num,
   type SaveEstimateInput,
@@ -415,17 +417,81 @@ export async function deleteAllDraftEstimates(): Promise<void> {
   redirect("/estimates");
 }
 
+export interface EstimateDeleteImpact {
+  jobs: number; // work orders
+  purchaseOrders: number;
+  invoices: number;
+}
+
+/** Count everything a delete would take down, so the warning is honest. */
+export async function getEstimateDeleteImpact(id: string): Promise<EstimateDeleteImpact> {
+  const empty = { jobs: 0, purchaseOrders: 0, invoices: 0 };
+  if (!id) return empty;
+  await requireProfile();
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return empty;
+  }
+  const { data: jobRows } = await admin.from("jobs").select("id").eq("estimate_id", id);
+  const jobIds = (jobRows ?? []).map((j) => j.id as string);
+  const countWhere = async (table: string) => {
+    const orParts = [`estimate_id.eq.${id}`];
+    if (jobIds.length) orParts.push(`job_id.in.(${jobIds.join(",")})`);
+    const { count } = await admin
+      .from(table)
+      .select("id", { count: "exact", head: true })
+      .or(orParts.join(","));
+    return count ?? 0;
+  };
+  return {
+    jobs: jobIds.length,
+    purchaseOrders: await countWhere("purchase_orders"),
+    invoices: await countWhere("invoices"),
+  };
+}
+
 export async function deleteEstimate(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   const customerId = str(formData.get("customer_id"));
   if (!id) return;
+  await requireProfile();
 
-  const supabase = await createClient();
-  await supabase.from("estimates").delete().eq("id", id);
+  // Cascade EVERYTHING tied to this estimate. Jobs/POs/invoices reference the
+  // estimate with `on delete set null`, so deleting the estimate alone would
+  // orphan them — instead we delete them (their children cascade), then the
+  // estimate (its options + line items cascade). Service-role client so the
+  // cleanup can't be half-blocked by row-level security.
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    admin = await createClient(); // fall back (may leave orphans under RLS)
+  }
+
+  const { data: jobRows } = await admin.from("jobs").select("id").eq("estimate_id", id);
+  const jobIds = (jobRows ?? []).map((j) => j.id as string);
+  const del = async (table: string) => {
+    // Delete rows tied directly to the estimate…
+    await admin.from(table).delete().eq("estimate_id", id);
+    // …and rows tied to any of this estimate's work orders.
+    if (jobIds.length) await admin.from(table).delete().in("job_id", jobIds);
+  };
+  await del("purchase_orders"); // PO items cascade
+  await del("invoices"); // invoice items + payments cascade
+  // Work orders — their labor, materials, stock movements, satisfaction, photos
+  // cascade / detach on delete.
+  await admin.from("jobs").delete().eq("estimate_id", id);
+  // Finally the estimate itself (options + line items cascade).
+  await admin.from("estimates").delete().eq("id", id);
 
   // An estimate drives pipeline value & quoted-revenue forecasts — refresh the
   // money views so they don't show a deleted estimate's numbers.
   revalidatePath("/estimates");
+  revalidatePath("/jobs");
+  revalidatePath("/purchase-orders");
+  revalidatePath("/invoices");
   revalidatePath("/pulse");
   revalidatePath("/financials");
   revalidatePath("/reports");

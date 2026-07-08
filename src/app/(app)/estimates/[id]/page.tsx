@@ -29,7 +29,8 @@ import { getOrgSettings } from "@/lib/data/org";
 import { optionTotalsWithDiscount, lineTotal, lineQty } from "@/lib/estimate-calc";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
-import { setEstimateStatus, deleteEstimate, duplicateOption } from "../actions";
+import { setEstimateStatus, duplicateOption } from "../actions";
+import { DeleteEstimateButton } from "../estimate-list-actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
 import { CopyEstimate } from "./copy-estimate";
@@ -430,16 +431,9 @@ export default async function EstimatePage({
       </Card>
 
       {/* Danger zone */}
-      <form
-        action={deleteEstimate}
-        className="mt-4 flex justify-end"
-      >
-        <input type="hidden" name="id" value={estimate.id} />
-        <input type="hidden" name="customer_id" value={estimate.customer_id} />
-        <Button type="submit" variant="destructive" size="sm">
-          <Trash2 className="size-3.5" /> Delete estimate
-        </Button>
-      </form>
+      <div className="mt-4 flex justify-end">
+        <DeleteEstimateButton id={estimate.id} customerId={estimate.customer_id} variant="full" />
+      </div>
       </div>
     </>
   );
