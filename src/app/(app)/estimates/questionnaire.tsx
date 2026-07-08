@@ -46,7 +46,18 @@ function unitLabel(u: string): string {
 }
 
 // --- Answer shapes ---------------------------------------------------------
-interface AreaRow { id: string; name: string; sqft: string }
+// A measured area: length × width in feet + inches. `override` (from the
+// multi-shape calculator) wins over L×W when set.
+interface AreaRow {
+  id: string;
+  name: string;
+  lf: string; li: string; // length feet / inches
+  wf: string; wi: string; // width feet / inches
+  override: string; // total sq ft from the area calculator (irregular rooms)
+}
+const feetIn = (ft: string, inch: string) => numv(ft) + numv(inch) / 12;
+const rowSqft = (r: AreaRow): number =>
+  numv(r.override) > 0 ? numv(r.override) : r2(feetIn(r.lf, r.li) * feetIn(r.wf, r.wi));
 interface ProductAns {
   productId: string; label: string; unit: string;
   materialRate: number; laborRate: number;
@@ -63,7 +74,9 @@ type Answer =
   | { kind: "text"; text: string };
 
 let rid = 0;
-const newRow = (name = ""): AreaRow => ({ id: `a${rid++}`, name, sqft: "" });
+const newRow = (name = ""): AreaRow => ({
+  id: `a${rid++}`, name, lf: "", li: "", wf: "", wi: "", override: "",
+});
 
 export function Questionnaire({
   customerId,
@@ -106,7 +119,7 @@ export function Questionnaire({
     for (const q of questions) {
       if (q.kind !== "areas") continue;
       const a = answers[q.id];
-      if (a?.kind === "areas") s += a.rooms.reduce((t, r) => t + numv(r.sqft), 0);
+      if (a?.kind === "areas") s += a.rooms.reduce((t, r) => t + rowSqft(r), 0);
     }
     return r2(s);
   }, [questions, answers]);
@@ -252,7 +265,7 @@ export function Questionnaire({
   const q = atReview ? null : questions[step];
   const answered = (qq: EstimateQuestion): boolean => {
     const a = answers[qq.id];
-    if (qq.kind === "areas") return a?.kind === "areas" && a.rooms.some((r) => numv(r.sqft) > 0);
+    if (qq.kind === "areas") return a?.kind === "areas" && a.rooms.some((r) => rowSqft(r) > 0);
     if (qq.kind === "product") return a?.kind === "product" && !!a.product;
     return true; // yesno/number/choice/text are always "answerable"
   };
@@ -401,48 +414,73 @@ function QuestionBody({
   if (q.kind === "areas" && answer?.kind === "areas") {
     const rooms = answer.rooms;
     const upd = (rs: AreaRow[]) => set({ kind: "areas", rooms: rs });
-    const total = rooms.reduce((t, r) => t + numv(r.sqft), 0);
+    const patch = (id: string, p: Partial<AreaRow>) =>
+      upd(rooms.map((x) => (x.id === id ? { ...x, ...p } : x)));
+    const total = rooms.reduce((t, r) => t + rowSqft(r), 0);
     return (
-      <div className="space-y-2">
-        {rooms.map((r, i) => (
-          <div key={r.id} className="flex flex-wrap items-center gap-2">
-            <Input
-              value={r.name}
-              onChange={(e) => upd(rooms.map((x) => (x.id === r.id ? { ...x, name: e.target.value } : x)))}
-              placeholder={`Area ${i + 1} (e.g. Living room)`}
-              className="h-11 flex-1 text-base md:h-10"
-            />
-            <div className="flex items-center gap-1">
-              <Input
-                value={r.sqft}
-                onChange={(e) => upd(rooms.map((x) => (x.id === r.id ? { ...x, sqft: e.target.value } : x)))}
-                inputMode="decimal"
-                placeholder="sq ft"
-                className="h-11 w-24 text-base md:h-10"
-              />
-              <AreaCalculator
-                triggerLabel=""
-                triggerClassName="h-10 px-2"
-                title={`Square footage — ${r.name || "area"}`}
-                initialLabel={r.name}
-                onApply={(sqft) => upd(rooms.map((x) => (x.id === r.id ? { ...x, sqft: String(sqft) } : x)))}
-              />
-              {rooms.length > 1 ? (
-                <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => upd(rooms.filter((x) => x.id !== r.id))}>
-                  <Trash2 className="size-4 text-destructive" />
-                </Button>
-              ) : null}
+      <div className="space-y-3">
+        {rooms.map((r, i) => {
+          const usingCalc = numv(r.override) > 0;
+          const sf = rowSqft(r);
+          return (
+            <div key={r.id} className="space-y-2 rounded-lg border bg-muted/20 p-2.5">
+              <div className="flex items-center gap-2">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                  {i + 1}
+                </span>
+                <Input
+                  value={r.name}
+                  onChange={(e) => patch(r.id, { name: e.target.value })}
+                  placeholder={`Area ${i + 1} (e.g. Living room)`}
+                  className="h-11 flex-1 text-base md:h-10"
+                />
+                {rooms.length > 1 ? (
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => upd(rooms.filter((x) => x.id !== r.id))}>
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+                <FtInField label="Length" ft={r.lf} inch={r.li} disabled={usingCalc}
+                  onFt={(v) => patch(r.id, { lf: v })} onIn={(v) => patch(r.id, { li: v })} />
+                <span className="pb-2.5 text-muted-foreground">×</span>
+                <FtInField label="Width" ft={r.wf} inch={r.wi} disabled={usingCalc}
+                  onFt={(v) => patch(r.id, { wf: v })} onIn={(v) => patch(r.id, { wi: v })} />
+                <div className="flex items-center gap-1 pb-0.5">
+                  <AreaCalculator
+                    triggerLabel={usingCalc ? "Edit areas" : "Odd shape?"}
+                    triggerVariant="ghost"
+                    triggerClassName="h-9 px-2 text-xs"
+                    title={`Square footage — ${r.name || "area"}`}
+                    initialLabel={r.name}
+                    onApply={(sqft) => patch(r.id, { override: String(sqft) })}
+                  />
+                  {usingCalc ? (
+                    <button type="button" onClick={() => patch(r.id, { override: "" })} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
+                      use L×W
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="text-sm">
+                <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
+                <span className="font-semibold tabular-nums">{r2(sf)}</span> sq ft
+                <span className="ml-1 text-muted-foreground tabular-nums">· {r2(sf / 9)} sq yd</span>
+                {usingCalc ? <span className="ml-1 text-xs text-primary">· added up</span> : null}
+              </div>
             </div>
-          </div>
-        ))}
-        <div className="flex items-center justify-between">
+          );
+        })}
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => upd([...rooms, newRow()])}>
             <Plus className="size-4" /> Add area
           </Button>
-          <span className="text-sm">
-            <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
-            <span className="font-semibold">{r2(total)}</span> sq ft
-            <span className="ml-1 text-muted-foreground">· {r2(total / 9)} sq yd</span>
+          <span className="rounded-md bg-primary/10 px-3 py-1.5 text-sm">
+            Total <span className="font-bold tabular-nums">{r2(total)}</span> sq ft
+            <span className="ml-1 font-semibold text-primary tabular-nums">· {r2(total / 9)} sq yd</span>
           </span>
         </div>
       </div>
@@ -600,4 +638,26 @@ function QuestionBody({
   }
 
   return null;
+}
+
+/** A feet + inches pair for a single dimension (length or width). */
+function FtInField({
+  label, ft, inch, onFt, onIn, disabled,
+}: {
+  label: string; ft: string; inch: string;
+  onFt: (v: string) => void; onIn: (v: string) => void; disabled?: boolean;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
+      <div className="flex items-end gap-1">
+        <Input value={ft} onChange={(e) => onFt(e.target.value)} inputMode="decimal" placeholder="ft" disabled={disabled}
+          className="h-11 w-16 text-base md:h-10 md:w-14" />
+        <span className="pb-2.5 text-xs text-muted-foreground">ft</span>
+        <Input value={inch} onChange={(e) => onIn(e.target.value)} inputMode="decimal" placeholder="in" disabled={disabled}
+          className="h-11 w-14 text-base md:h-10 md:w-12" />
+        <span className="pb-2.5 text-xs text-muted-foreground">in</span>
+      </div>
+    </div>
+  );
 }
