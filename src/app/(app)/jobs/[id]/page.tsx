@@ -37,7 +37,11 @@ import { getJobOpenBalance } from "@/lib/data/invoices";
 import { InstallerCollect } from "./installer-collect";
 import { listJobLabor } from "@/lib/data/job-labor";
 import { getJobMaterials } from "@/lib/data/job-materials";
-import { getMeasurementDocuments } from "@/lib/data/documents";
+import { getMeasurementDocuments, getJobPhotos } from "@/lib/data/documents";
+import { getJobSatisfaction } from "@/lib/data/jobs";
+import { JobPhotos } from "./job-photos";
+import { SatisfactionForm } from "./satisfaction-form";
+import { setJobShowPrices, setJobCollectsBalance } from "./wo-actions";
 import { JobMeasurementUpload } from "./measurement-upload";
 import {
   getSchedulingSettings,
@@ -179,12 +183,20 @@ export default async function JobPage({
   const canAssignWarehouse = profile.role === "admin" || profile.role === "office";
   const warehouseUsers = canAssignWarehouse ? await listWarehouseUsers() : [];
 
-  // Optional: the assigned installer can collect the balance on site.
+  // Optional: the assigned installer can collect the balance on site. Per-job
+  // override (null = inherit the global setting).
   const bizSettings = await getBusinessSettings();
-  const showInstallerCollect =
-    bizSettings.installer_collects_balance && isAssignedToMe && !isStaff;
+  const collectsBalance =
+    job.installer_collects_balance ?? bizSettings.installer_collects_balance;
+  const showInstallerCollect = collectsBalance && isAssignedToMe && !isStaff;
   const collectible = showInstallerCollect ? await getJobOpenBalance(id) : null;
   const jobCrew = isStaff ? await getJobCrew(job.id) : null;
+
+  // Work-order features: prices toggle, completed photos, satisfaction sign-off.
+  const showPrices = !!job.show_prices;
+  const canInstallerTools = isStaff || isAssignedToMe;
+  const jobPhotos = canInstallerTools ? await getJobPhotos(id) : [];
+  const satisfaction = canInstallerTools ? await getJobSatisfaction(id) : null;
 
   // Cohesion: your Team installers are assignable as crews right here — no need
   // to re-enter them under Settings → Install Crews. Picking one auto-creates
@@ -415,7 +427,7 @@ export default async function JobPage({
                       );
                     })()}
                   </div>
-                  {isStaff ? (
+                  {showPrices ? (
                     <div className="shrink-0 text-muted-foreground">
                       {formatMoney(lineTotal(l))}
                     </div>
@@ -436,8 +448,54 @@ export default async function JobPage({
               </p>
             </div>
           ) : null}
+
+          {/* Staff work-order settings: prices + who collects the balance */}
+          {isStaff ? (
+            <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 border-t pt-3 text-sm">
+              <form action={setJobShowPrices} className="flex items-center gap-2">
+                <input type="hidden" name="job_id" value={job.id} />
+                <input type="hidden" name="show" value={showPrices ? "0" : "1"} />
+                <span className="text-muted-foreground">Prices on work order:</span>
+                <button type="submit" className={`rounded-full px-2.5 py-1 text-xs font-medium ${showPrices ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                  {showPrices ? "Shown" : "Hidden"}
+                </button>
+              </form>
+              <form action={setJobCollectsBalance} className="flex items-center gap-2">
+                <input type="hidden" name="job_id" value={job.id} />
+                <span className="text-muted-foreground">Installer collects balance:</span>
+                <select
+                  name="value"
+                  defaultValue={job.installer_collects_balance == null ? "" : job.installer_collects_balance ? "yes" : "no"}
+                  className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                >
+                  <option value="">Default ({bizSettings.installer_collects_balance ? "yes" : "no"})</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+                <button type="submit" className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted">Set</button>
+              </form>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
+
+      {/* Completed photos + customer satisfaction — installer + staff */}
+      {canInstallerTools ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Completed job photos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <JobPhotos jobId={job.id} photos={jobPhotos} />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canInstallerTools ? (
+        <div className="mb-6">
+          <SatisfactionForm jobId={job.id} existing={satisfaction} />
+        </div>
+      ) : null}
 
       {/* Installer on-site collection (opt-in) */}
       {showInstallerCollect && collectible ? (

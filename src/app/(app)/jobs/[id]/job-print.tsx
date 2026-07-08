@@ -1,6 +1,6 @@
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
-import { lineQty } from "@/lib/estimate-calc";
-import { formatDate } from "@/lib/format";
+import { lineQty, lineTotal } from "@/lib/estimate-calc";
+import { formatDate, formatMoney } from "@/lib/format";
 import {
   JOB_STATUS_LABELS,
   JOB_DELIVERY_LABELS,
@@ -119,6 +119,7 @@ export function JobPrintDoc({
               <tr className="border-b text-left text-[11px] text-gray-500">
                 <th className="py-1 pr-2 font-medium">Room / item</th>
                 <th className="py-1 pl-2 text-right font-medium">Quantity</th>
+                {job.show_prices ? <th className="py-1 pl-2 text-right font-medium">Amount</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -128,6 +129,11 @@ export function JobPrintDoc({
                   <td className="py-1 pl-2 text-right tabular-nums text-gray-600">
                     {scopeQty(l)}
                   </td>
+                  {job.show_prices ? (
+                    <td className="py-1 pl-2 text-right tabular-nums text-gray-600">
+                      {formatMoney(lineTotal(l))}
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -148,21 +154,7 @@ export function JobPrintDoc({
         </div>
       ) : null}
 
-      {/* On-site sign-off */}
-      <div className="mt-10 flex justify-between gap-8 break-inside-avoid text-sm">
-        <div className="flex-1">
-          <div className="border-t border-gray-500 pt-1 text-xs text-gray-600">
-            Customer signature &amp; date
-          </div>
-        </div>
-        <div className="flex-1">
-          <div className="border-t border-gray-500 pt-1 text-xs text-gray-600">
-            Installer signature &amp; date
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 text-center text-xs text-gray-500">{org.company_name}</div>
+      <div className="mt-10 text-center text-xs text-gray-500">{org.company_name}</div>
     </div>
   );
 }

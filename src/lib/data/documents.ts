@@ -2,6 +2,30 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { CustomerDocument } from "@/lib/types";
 
+/** Completed-job photos attached to a work order (signed URLs for viewing). */
+export async function getJobPhotos(jobId: string): Promise<CustomerDocument[]> {
+  if (!jobId) return [];
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return [];
+  }
+  const { data } = await admin
+    .from("documents")
+    .select("id, customer_id, po_id, uploaded_by, name, path, mime, kind, created_at")
+    .eq("job_id", jobId)
+    .eq("kind", "completed")
+    .order("created_at", { ascending: false });
+  const docs = (data ?? []) as CustomerDocument[];
+  return Promise.all(
+    docs.map(async (d) => {
+      const { data: signed } = await admin.storage.from("documents").createSignedUrl(d.path, 3600);
+      return { ...d, url: signed?.signedUrl ?? null };
+    }),
+  );
+}
+
 /**
  * Measurement diagrams for a customer, for the INSTALLER job view. Loaded with
  * the service-role client because crew/warehouse are blocked from the documents

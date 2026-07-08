@@ -681,6 +681,8 @@ export interface Job {
   warehouse_ready_at?: string | null;
   open_for_claim: boolean;
   reminder_sent_at: string | null;
+  show_prices?: boolean; // show prices on this work order
+  installer_collects_balance?: boolean | null; // per-job override; null = inherit global
   created_by: string | null;
   created_at: string;
   updated_at: string;

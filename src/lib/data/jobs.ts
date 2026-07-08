@@ -106,6 +106,30 @@ export interface AssignableUser {
   role: string;
 }
 
+export interface JobSatisfaction {
+  id: string;
+  job_id: string;
+  rating: number | null;
+  comments: string | null;
+  signature: string | null;
+  signed_name: string | null;
+  signed_at: string;
+}
+
+/** The latest customer satisfaction sign-off for a job (or null). */
+export async function getJobSatisfaction(jobId: string): Promise<JobSatisfaction | null> {
+  if (!jobId) return null;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("job_satisfaction")
+    .select("id, job_id, rating, comments, signature, signed_name, signed_at")
+    .eq("job_id", jobId)
+    .order("signed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as JobSatisfaction | null) ?? null;
+}
+
 export async function listAssignableUsers(): Promise<AssignableUser[]> {
   const supabase = await createClient();
   const { data } = await supabase
