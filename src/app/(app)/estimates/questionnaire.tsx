@@ -226,6 +226,28 @@ export function Questionnaire({
     }
     return out;
   }, [questions, answers]);
+  // Every measured room with its size + cut dimensions — so the flooring can be
+  // itemized per room and the measurements transfer to the estimate/work order.
+  const allRooms = useMemo(() => {
+    const out: { name: string; sqft: number; lenIn: number | null; widIn: number | null }[] = [];
+    for (const q of questions) {
+      if (q.kind !== "areas") continue;
+      const a = answers[q.id];
+      if (a?.kind !== "areas") continue;
+      for (const r of a.rooms) {
+        const sf = rowSqft(r);
+        if (sf <= 0) continue;
+        const usingCalc = numv(r.override) > 0;
+        out.push({
+          name: r.name || "",
+          sqft: sf,
+          lenIn: usingCalc ? null : Math.round(feetIn(r.lf, r.li) * 12) || null,
+          widIn: usingCalc ? null : Math.round(feetIn(r.wf, r.wi) * 12) || null,
+        });
+      }
+    }
+    return out;
+  }, [questions, answers]);
 
   // --- Answer → line items -------------------------------------------------
   // Emit one line billed against a SPECIFIC area; `room` tags per-room prep.
@@ -246,7 +268,7 @@ export function Questionnaire({
       description: room ? `${emit.description} — ${room}` : emit.description,
       category: isLabor ? "labor" : emit.category || "other",
       measure_unit: emit.unit.includes("yd") ? "sqyd" : "sqft",
-      sqft: null,
+      sqft: per === "area" ? r2(areaSqft) : null, // area billed → carried for confirmation
       quantity: r2(qty),
       length_in: null,
       width_in: null,
@@ -303,15 +325,19 @@ export function Questionnaire({
         const cat = q.config.category || "other";
         const b = billing(cat);
         const waste = profileFor(cat)?.waste ?? 0;
-        const matLine = (p: ProductAns, qty: number): SmartLine => ({
-          room: null,
+        const matLine = (
+          p: ProductAns,
+          qty: number,
+          size?: { room?: string | null; sqft?: number | null; lenIn?: number | null; widIn?: number | null },
+        ): SmartLine => ({
+          room: size?.room ?? null,
           description: p.label || cat,
           category: cat,
           measure_unit: b.measureUnit,
-          sqft: null,
+          sqft: size?.sqft ?? null, // the measurement, carried for confirmation
           quantity: qty,
-          length_in: null,
-          width_in: null,
+          length_in: size?.lenIn ?? null,
+          width_in: size?.widIn ?? null,
           unit: b.unitLabel,
           material_rate: sellAt(rateFor(p.materialRate, p.unit, b.wantYd)),
           labor_rate: 0,
@@ -326,38 +352,46 @@ export function Questionnaire({
           color: p.color,
           from_stock: p.source === "stock",
         });
-        // Main product — covers the whole measured job area (+ install labor).
+        const qtyFor = (sf: number) => Math.ceil((b.wantYd ? sf / 9 : sf) * (1 + waste / 100));
         if (a.product) {
           const p = a.product;
-          const base = b.wantYd ? totalSqft / 9 : totalSqft;
-          const qty = Math.ceil(base * (1 + waste / 100));
-          if (qty > 0) {
-            out.push(matLine(p, qty));
-            const lr = rateFor(p.laborRate, p.unit, b.wantYd);
-            if (lr > 0) {
-              const laborQty = b.wantYd ? Math.ceil(totalSqft / 9) : Math.ceil(totalSqft);
-              out.push({
-                room: null,
-                description: `Installation — ${(p.label || cat).toLowerCase()}`,
-                category: "labor",
-                measure_unit: b.measureUnit,
-                sqft: null,
-                quantity: laborQty,
-                length_in: null,
-                width_in: null,
-                unit: b.unitLabel,
-                material_rate: 0,
-                labor_rate: sellAt(lr),
-                material_cost: 0,
-                labor_cost: lr,
-                waste_pct: 0,
-                product_id: null,
-                manufacturer: null,
-                style: null,
-                color: null,
-                from_stock: false,
-              });
+          // Flooring is itemized PER ROOM (name + sq ft + L×W) so the sizes you
+          // measured show on the estimate & work order. Pad / trim / other stay
+          // bundled to one line, but carry the total sq ft.
+          const perRoomFloor = cat !== "underlayment" && cat !== "trim" && cat !== "other" && allRooms.length > 0;
+          if (perRoomFloor) {
+            for (const rm of allRooms) {
+              const qty = qtyFor(rm.sqft);
+              if (qty > 0) out.push(matLine(p, qty, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
             }
+          } else if (totalSqft > 0) {
+            out.push(matLine(p, qtyFor(totalSqft), { sqft: totalSqft }));
+          }
+          // Install labor — bundled, with the total area recorded.
+          const lr = rateFor(p.laborRate, p.unit, b.wantYd);
+          if (lr > 0 && totalSqft > 0) {
+            const laborQty = b.wantYd ? Math.ceil(totalSqft / 9) : Math.ceil(totalSqft);
+            out.push({
+              room: null,
+              description: `Installation — ${(p.label || cat).toLowerCase()}`,
+              category: "labor",
+              measure_unit: b.measureUnit,
+              sqft: r2(totalSqft),
+              quantity: laborQty,
+              length_in: null,
+              width_in: null,
+              unit: b.unitLabel,
+              material_rate: 0,
+              labor_rate: sellAt(lr),
+              material_cost: 0,
+              labor_cost: lr,
+              waste_pct: 0,
+              product_id: null,
+              manufacturer: null,
+              style: null,
+              color: null,
+              from_stock: false,
+            });
           }
         }
         // Additional products for specific areas (e.g. upgraded pad on the
@@ -387,7 +421,7 @@ export function Questionnaire({
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides]);
+  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms]);
 
   const notes = useMemo(() => {
     // "Job conditions" — flagged choice / yes-no answers (subfloor, tackless…)

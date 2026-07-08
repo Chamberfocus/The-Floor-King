@@ -372,8 +372,19 @@ export default async function JobPage({
               the rooms and materials.
             </p>
           ) : (
-            <div className="divide-y text-sm">
-              {job.line_items.map((l) => (
+            <div className="space-y-4">
+              {(["mat", "labor"] as const).map((sec) => {
+                const secLines = job.line_items.filter(
+                  (l) => (sec === "labor") === (l.category === "labor"),
+                );
+                if (!secLines.length) return null;
+                return (
+                  <div key={sec}>
+                    <div className="mb-1 border-b pb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                      {sec === "labor" ? "Labor" : "Materials"}
+                    </div>
+                    <div className="divide-y text-sm">
+                      {secLines.map((l) => (
                 <div
                   key={l.id}
                   className="flex items-start justify-between gap-4 py-2"
@@ -410,7 +421,11 @@ export default async function JobPage({
                     </div>
                   ) : null}
                 </div>
-              ))}
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
           {job.notes ? (
