@@ -172,35 +172,40 @@ export function Questionnaire({
     return r2(s);
   }, [questions, answers]);
 
-  // Conditional visibility: a question shows only when its `show_if` matches a
-  // prior keyed answer. Forward pass — questions arrive ordered by position, and
-  // a hidden question's answer doesn't count toward later conditions.
+  // Conditional visibility: a question shows only when its `show_if` matches the
+  // answer to a keyed question. Position-INDEPENDENT — we iterate to a fixed
+  // point, so a gate can sit anywhere relative to the questions it reveals (a
+  // hidden question's answer never counts toward another condition).
   const visible = useMemo(() => {
-    const valByKey: Record<string, string[]> = {};
+    const answerVal = (q: EstimateQuestion): string[] => {
+      const a = answers[q.id];
+      return a?.kind === "yesno"
+        ? [a.yes ? "Yes" : "No"]
+        : a?.kind === "choice"
+          ? a.selected
+          : a?.kind === "text"
+            ? [a.text]
+            : a?.kind === "product"
+              ? a.product
+                ? [a.product.label]
+                : []
+              : [];
+    };
     const vis: Record<string, boolean> = {};
-    for (const q of questions) {
-      const cond = q.config.show_if;
-      let show = true;
-      if (cond?.key) {
-        const vals = valByKey[cond.key] ?? [];
-        show = vals.some((v) => cond.in.includes(v));
+    for (const q of questions) vis[q.id] = true; // start optimistic
+    for (let iter = 0; iter <= questions.length; iter++) {
+      const valByKey: Record<string, string[]> = {};
+      for (const q of questions) if (vis[q.id] && q.key) valByKey[q.key] = answerVal(q);
+      let changed = false;
+      for (const q of questions) {
+        const cond = q.config.show_if;
+        const show = !cond?.key ? true : (valByKey[cond.key] ?? []).some((v) => cond.in.includes(v));
+        if (vis[q.id] !== show) {
+          vis[q.id] = show;
+          changed = true;
+        }
       }
-      vis[q.id] = show;
-      if (show && q.key) {
-        const a = answers[q.id];
-        valByKey[q.key] =
-          a?.kind === "yesno"
-            ? [a.yes ? "Yes" : "No"]
-            : a?.kind === "choice"
-              ? a.selected
-              : a?.kind === "text"
-                ? [a.text]
-                : a?.kind === "product"
-                  ? a.product
-                    ? [a.product.label]
-                    : []
-                  : [];
-      }
+      if (!changed) break;
     }
     return vis;
   }, [questions, answers]);
