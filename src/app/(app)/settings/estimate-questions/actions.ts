@@ -95,14 +95,35 @@ function readConfig(kind: EstimateQuestionKind, formData: FormData): EstimateQue
   }
 }
 
+/** "Show only if [question key] is [value1, value2]" → config.show_if. */
+function readShowIf(formData: FormData): { key: string; in: string[] } | null {
+  const key = str(formData.get("show_if_key"));
+  if (!key) return null;
+  const values = str(formData.get("show_if_in"))
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!values.length) return null;
+  return { key, in: values };
+}
+
+function slug(v: string): string {
+  return v.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
 function readFields(formData: FormData) {
   const kind = (str(formData.get("kind")) || "yesno") as EstimateQuestionKind;
+  const config = readConfig(kind, formData);
+  // Conditional + per-room apply to any kind.
+  config.show_if = readShowIf(formData);
+  config.per_room = on(formData.get("cfg_per_room"));
   return {
     label: str(formData.get("label")),
     help: str(formData.get("help")) || null,
     section: str(formData.get("section")) || "Carpet",
     kind,
-    config: readConfig(kind, formData),
+    key: slug(str(formData.get("key"))) || null,
+    config,
     required: on(formData.get("required")),
     position: Math.round(numOr(formData.get("position"), 0)),
   };

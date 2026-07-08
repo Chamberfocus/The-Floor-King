@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ClipboardList, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { EstimateQuestion } from "@/lib/types";
+import type { EstimateQuestion, CustomerArea } from "@/lib/types";
 import { Questionnaire } from "./questionnaire";
 import { AiEstimate } from "./ai-estimate";
 
@@ -22,6 +22,7 @@ export function BuilderSwitch(props: {
   targetMargin: number;
   serviceAddresses: { id: string; label: string }[];
   questions: EstimateQuestion[];
+  savedAreas: CustomerArea[];
 }) {
   const [mode, setMode] = useState<Mode>("questionnaire");
   const [serviceAddressId, setServiceAddressId] = useState("");
@@ -74,6 +75,7 @@ export function BuilderSwitch(props: {
           targetMargin={props.targetMargin}
           serviceAddressId={serviceAddressId}
           questions={props.questions}
+          savedAreas={props.savedAreas}
         />
       </div>
       <div className={mode === "ai" ? "" : "hidden"}>

@@ -18,10 +18,11 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { priceFromMargin } from "@/lib/estimate-calc";
 import { profileFor } from "@/lib/flooring-profiles";
-import type { Product, EstimateQuestion, EstimateEmit } from "@/lib/types";
+import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { AreaCalculator } from "@/components/area-calculator";
 import { ProductPicker } from "./product-picker";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
+import { replaceCustomerAreas } from "@/app/(app)/customers/[id]/area-actions";
 
 const numv = (v: string) => {
   const n = parseFloat(v);
@@ -54,6 +55,7 @@ interface AreaRow {
   lf: string; li: string; // length feet / inches
   wf: string; wi: string; // width feet / inches
   override: string; // total sq ft from the area calculator (irregular rooms)
+  differs: boolean; // this room needs different prep than the job default
 }
 const feetIn = (ft: string, inch: string) => numv(ft) + numv(inch) / 12;
 const rowSqft = (r: AreaRow): number =>
@@ -99,8 +101,22 @@ const newExtra = (): ExtraPad => ({ id: `x${xpid++}`, product: null, sqft: "" })
 
 let rid = 0;
 const newRow = (name = ""): AreaRow => ({
-  id: `a${rid++}`, name, lf: "", li: "", wf: "", wi: "", override: "",
+  id: `a${rid++}`, name, lf: "", li: "", wf: "", wi: "", override: "", differs: false,
 });
+/** A saved customer area → an editable questionnaire row (prefill). */
+const savedToRow = (sa: CustomerArea): AreaRow => {
+  const hasLW = !!(sa.length_in && sa.width_in);
+  return {
+    id: `a${rid++}`,
+    name: sa.name || "",
+    lf: sa.length_in ? String(Math.floor(sa.length_in / 12)) : "",
+    li: sa.length_in ? String(Math.round(sa.length_in % 12)) : "",
+    wf: sa.width_in ? String(Math.floor(sa.width_in / 12)) : "",
+    wi: sa.width_in ? String(Math.round(sa.width_in % 12)) : "",
+    override: !hasLW && sa.sqft ? String(sa.sqft) : "",
+    differs: !!sa.differs,
+  };
+};
 
 export function Questionnaire({
   customerId,
@@ -108,12 +124,14 @@ export function Questionnaire({
   targetMargin,
   serviceAddressId,
   questions,
+  savedAreas = [],
 }: {
   customerId: string;
   customerName: string;
   targetMargin: number;
   serviceAddressId: string;
   questions: EstimateQuestion[];
+  savedAreas?: CustomerArea[];
 }) {
   const goalRaw = targetMargin;
   const goal = goalRaw > 0 && goalRaw < 100 ? goalRaw : 40;
@@ -122,7 +140,8 @@ export function Questionnaire({
   const [answers, setAnswers] = useState<Record<string, Answer>>(() => {
     const init: Record<string, Answer> = {};
     for (const q of questions) {
-      if (q.kind === "areas") init[q.id] = { kind: "areas", rooms: [newRow()] };
+      if (q.kind === "areas")
+        init[q.id] = { kind: "areas", rooms: savedAreas.length ? savedAreas.map(savedToRow) : [newRow()] };
       else if (q.kind === "product") init[q.id] = { kind: "product", product: null, extras: [] };
       else if (q.kind === "yesno") init[q.id] = { kind: "yesno", yes: !!q.config.default };
       else if (q.kind === "number") init[q.id] = { kind: "number", value: "", rateIdx: q.config.rate_options?.length ? 0 : null };
@@ -136,6 +155,11 @@ export function Questionnaire({
 
   const set = (id: string, a: Answer) => setAnswers((p) => ({ ...p, [id]: a }));
 
+  // Per-room prep overrides: overrides[roomId][questionId] = that room's answer.
+  const [overrides, setOverrides] = useState<Record<string, Record<string, Answer>>>({});
+  const setRoomOverride = (roomId: string, qid: string, a: Answer) =>
+    setOverrides((p) => ({ ...p, [roomId]: { ...(p[roomId] ?? {}), [qid]: a } }));
+
   // Total measured area (sq ft) across every "areas" question — the quantity
   // backbone for carpet, pad, and area-based labor.
   const totalSqft = useMemo(() => {
@@ -148,17 +172,78 @@ export function Questionnaire({
     return r2(s);
   }, [questions, answers]);
 
+  // Conditional visibility: a question shows only when its `show_if` matches a
+  // prior keyed answer. Forward pass — questions arrive ordered by position, and
+  // a hidden question's answer doesn't count toward later conditions.
+  const visible = useMemo(() => {
+    const valByKey: Record<string, string[]> = {};
+    const vis: Record<string, boolean> = {};
+    for (const q of questions) {
+      const cond = q.config.show_if;
+      let show = true;
+      if (cond?.key) {
+        const vals = valByKey[cond.key] ?? [];
+        show = vals.some((v) => cond.in.includes(v));
+      }
+      vis[q.id] = show;
+      if (show && q.key) {
+        const a = answers[q.id];
+        valByKey[q.key] =
+          a?.kind === "yesno"
+            ? [a.yes ? "Yes" : "No"]
+            : a?.kind === "choice"
+              ? a.selected
+              : a?.kind === "text"
+                ? [a.text]
+                : a?.kind === "product"
+                  ? a.product
+                    ? [a.product.label]
+                    : []
+                  : [];
+      }
+    }
+    return vis;
+  }, [questions, answers]);
+  const visibleQuestions = useMemo(
+    () => questions.filter((q) => visible[q.id]),
+    [questions, visible],
+  );
+  // Prep questions that can vary by room (subfloor, demo, skim/level, moisture…).
+  const perRoomQuestions = useMemo(
+    () =>
+      visibleQuestions.filter(
+        (q) => q.config.per_room && (q.kind === "yesno" || q.kind === "choice" || q.kind === "number"),
+      ),
+    [visibleQuestions],
+  );
+  // Rooms flagged as needing different prep (across all areas questions).
+  const flaggedRooms = useMemo(() => {
+    const out: AreaRow[] = [];
+    for (const q of questions) {
+      if (q.kind !== "areas") continue;
+      const a = answers[q.id];
+      if (a?.kind === "areas") out.push(...a.rooms.filter((r) => r.differs && rowSqft(r) > 0));
+    }
+    return out;
+  }, [questions, answers]);
+
   // --- Answer → line items -------------------------------------------------
-  const emitLine = (emit: EstimateEmit, qtyOverride?: number): SmartLine | null => {
+  // Emit one line billed against a SPECIFIC area; `room` tags per-room prep.
+  const emitLineArea = (
+    emit: EstimateEmit,
+    areaSqft: number,
+    room: string | null,
+    qtyOverride?: number,
+  ): SmartLine | null => {
     const per = emit.per || "flat";
     let qty = 1;
     if (qtyOverride != null) qty = qtyOverride;
-    else if (per === "area") qty = emit.unit.includes("yd") ? Math.ceil(totalSqft / 9) : Math.ceil(totalSqft);
+    else if (per === "area") qty = emit.unit.includes("yd") ? Math.ceil(areaSqft / 9) : Math.ceil(areaSqft);
     if (qty <= 0) return null;
     const isLabor = emit.role === "labor";
     return {
-      room: null,
-      description: emit.description,
+      room,
+      description: room ? `${emit.description} — ${room}` : emit.description,
       category: isLabor ? "labor" : emit.category || "other",
       measure_unit: emit.unit.includes("yd") ? "sqyd" : "sqft",
       sqft: null,
@@ -178,10 +263,40 @@ export function Questionnaire({
       from_stock: false,
     };
   };
+  // All lines a yes-no / number / choice answer produces for one area + room.
+  const linesForAnswer = (q: EstimateQuestion, a: Answer, areaSqft: number, room: string | null): SmartLine[] => {
+    const out: SmartLine[] = [];
+    if (q.kind === "yesno" && a.kind === "yesno" && a.yes && q.config.emit) {
+      const l = emitLineArea(q.config.emit, areaSqft, room);
+      if (l) out.push(l);
+    } else if (q.kind === "number" && a.kind === "number" && q.config.emit) {
+      const n = numv(a.value);
+      if (n > 0) {
+        const opts = q.config.rate_options ?? [];
+        const opt = a.rateIdx != null ? opts[a.rateIdx] : undefined;
+        const emit: EstimateEmit = {
+          ...q.config.emit,
+          cost: opt ? opt.cost : q.config.emit.cost,
+          description: opt ? `${q.config.emit.description} — ${opt.label}` : q.config.emit.description,
+        };
+        const l = emitLineArea(emit, areaSqft, room, n);
+        if (l) out.push(l);
+      }
+    } else if (q.kind === "choice" && a.kind === "choice") {
+      for (const opt of q.config.options ?? []) {
+        if (a.selected.includes(opt.label) && opt.emit) {
+          const l = emitLineArea(opt.emit, areaSqft, room);
+          if (l) out.push(l);
+        }
+      }
+    }
+    return out;
+  };
 
   const lines: SmartLine[] = useMemo(() => {
     const out: SmartLine[] = [];
     for (const q of questions) {
+      if (!visible[q.id]) continue; // hidden by conditional logic → no line
       const a = answers[q.id];
       if (!a) continue;
       if (q.kind === "product" && a.kind === "product") {
@@ -253,34 +368,26 @@ export function Questionnaire({
           const qty = Math.ceil(b.wantYd ? area / 9 : area);
           if (qty > 0) out.push(matLine(ex.product, qty));
         }
-      } else if (q.kind === "yesno" && a.kind === "yesno" && a.yes && q.config.emit) {
-        const l = emitLine(q.config.emit);
-        if (l) out.push(l);
-      } else if (q.kind === "number" && a.kind === "number" && q.config.emit) {
-        const n = numv(a.value);
-        if (n > 0) {
-          const opts = q.config.rate_options ?? [];
-          const opt = a.rateIdx != null ? opts[a.rateIdx] : undefined;
-          const emit: EstimateEmit = {
-            ...q.config.emit,
-            cost: opt ? opt.cost : q.config.emit.cost,
-            description: opt ? `${q.config.emit.description} — ${opt.label}` : q.config.emit.description,
-          };
-          const l = emitLine(emit, n);
-          if (l) out.push(l);
-        }
-      } else if (q.kind === "choice" && a.kind === "choice") {
-        for (const opt of q.config.options ?? []) {
-          if (a.selected.includes(opt.label) && opt.emit) {
-            const l = emitLine(opt.emit);
-            if (l) out.push(l);
+      } else if (q.kind === "yesno" || q.kind === "number" || q.kind === "choice") {
+        // Per-room prep: split into a job-default line for the remaining area +
+        // one room-scoped line per flagged room (its own answer/area). Otherwise
+        // one job-level line at the whole measured area.
+        if (q.config.per_room && flaggedRooms.length) {
+          const flaggedArea = flaggedRooms.reduce((s, r) => s + rowSqft(r), 0);
+          const remaining = r2(Math.max(0, totalSqft - flaggedArea));
+          if (remaining > 0) out.push(...linesForAnswer(q, a, remaining, null));
+          for (const r of flaggedRooms) {
+            const ov = overrides[r.id]?.[q.id] ?? a;
+            out.push(...linesForAnswer(q, ov, rowSqft(r), r.name || "Room"));
           }
+        } else {
+          out.push(...linesForAnswer(q, a, totalSqft, null));
         }
       }
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questions, answers, totalSqft, goal]);
+  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides]);
 
   const notes = useMemo(() => {
     // "Job conditions" — flagged choice / yes-no answers (subfloor, tackless…)
@@ -288,6 +395,7 @@ export function Questionnaire({
     const conditions: string[] = [];
     const freeText: string[] = [];
     for (const q of questions) {
+      if (!visible[q.id]) continue;
       const a = answers[q.id];
       if (q.kind === "text" && a?.kind === "text" && a.text.trim()) {
         freeText.push(`${q.label} ${a.text.trim()}`);
@@ -301,14 +409,15 @@ export function Questionnaire({
     if (conditions.length) blocks.push(`Job conditions:\n${conditions.map((c) => `• ${c}`).join("\n")}`);
     if (freeText.length) blocks.push(freeText.join("\n"));
     return blocks.join("\n\n");
-  }, [questions, answers]);
+  }, [questions, answers, visible]);
 
   const grand = lines.reduce((s, l) => s + (l.quantity ?? 0) * (l.material_rate + l.labor_rate), 0);
 
-  // Steps: the visible question order, plus a final Review step.
-  const total = questions.length;
+  // Steps: the currently-visible questions (conditionals reveal as you answer),
+  // plus a final Review step.
+  const total = visibleQuestions.length;
   const atReview = step >= total;
-  const q = atReview ? null : questions[step];
+  const q = atReview ? null : visibleQuestions[step];
   const answered = (qq: EstimateQuestion): boolean => {
     const a = answers[qq.id];
     if (qq.kind === "areas") return a?.kind === "areas" && a.rooms.some((r) => rowSqft(r) > 0);
@@ -323,6 +432,30 @@ export function Questionnaire({
       if (!built.length) {
         toast.error("Answer a few questions first — add areas and a product.");
         return;
+      }
+      // Save the measured areas to the customer (their dashboard card) first —
+      // createSmartEstimate redirects on success.
+      const areaRooms: AreaRow[] = [];
+      for (const qq of questions) {
+        if (qq.kind !== "areas") continue;
+        const aa = answers[qq.id];
+        if (aa?.kind === "areas") areaRooms.push(...aa.rooms);
+      }
+      const usable = areaRooms.filter((r) => rowSqft(r) > 0 || r.name.trim());
+      if (usable.length) {
+        await replaceCustomerAreas(
+          customerId,
+          usable.map((r) => {
+            const usingCalc = numv(r.override) > 0;
+            return {
+              name: r.name,
+              length_in: usingCalc ? null : Math.round(feetIn(r.lf, r.li) * 12) || null,
+              width_in: usingCalc ? null : Math.round(feetIn(r.wf, r.wi) * 12) || null,
+              sqft: rowSqft(r) || null,
+              differs: r.differs,
+            };
+          }),
+        );
       }
       const res = await createSmartEstimate({
         customerId,
@@ -377,6 +510,10 @@ export function Questionnaire({
               set={(a) => set(q.id, a)}
               sellAt={sellAt}
               totalSqft={totalSqft}
+              perRoom={perRoomQuestions}
+              overrides={overrides}
+              setRoomOverride={setRoomOverride}
+              jobAnswers={answers}
             />
           </CardContent>
         </Card>
@@ -448,12 +585,20 @@ function QuestionBody({
   set,
   sellAt,
   totalSqft,
+  perRoom = [],
+  overrides = {},
+  setRoomOverride,
+  jobAnswers = {},
 }: {
   q: EstimateQuestion;
   answer: Answer | undefined;
   set: (a: Answer) => void;
   sellAt: (c: number) => number;
   totalSqft: number;
+  perRoom?: EstimateQuestion[];
+  overrides?: Record<string, Record<string, Answer>>;
+  setRoomOverride?: (roomId: string, qid: string, a: Answer) => void;
+  jobAnswers?: Record<string, Answer>;
 }) {
   if (q.kind === "areas" && answer?.kind === "areas") {
     const rooms = answer.rooms;
@@ -508,12 +653,53 @@ function QuestionBody({
                 </div>
               </div>
 
-              <div className="text-sm">
-                <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
-                <span className="font-semibold tabular-nums">{r2(sf)}</span> sq ft
-                <span className="ml-1 text-muted-foreground tabular-nums">· {r2(sf / 9)} sq yd</span>
-                {usingCalc ? <span className="ml-1 text-xs text-primary">· added up</span> : null}
+              <div className="flex flex-wrap items-center gap-x-2 text-sm">
+                <span>
+                  <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
+                  <span className="font-semibold tabular-nums">{r2(sf)}</span> sq ft
+                  <span className="ml-1 text-muted-foreground tabular-nums">· {r2(sf / 9)} sq yd</span>
+                  {usingCalc ? <span className="ml-1 text-xs text-primary">· added up</span> : null}
+                </span>
+                {r.differs ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
+                    custom prep
+                  </span>
+                ) : null}
               </div>
+
+              {/* Per-room prep: flag rooms that differ, override just those. */}
+              {perRoom.length ? (
+                <div className="border-t pt-2">
+                  <label className="flex items-center gap-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      checked={r.differs}
+                      onChange={() => patch(r.id, { differs: !r.differs })}
+                      className="size-4"
+                    />
+                    Different prep in this room
+                  </label>
+                  {r.differs ? (
+                    <div className="mt-2 space-y-3 rounded-md border bg-card p-2.5">
+                      <p className="text-xs text-muted-foreground">
+                        Overriding the job defaults for {r.name || "this area"} only.
+                      </p>
+                      {perRoom.map((pq) => (
+                        <div key={pq.id} className="space-y-1">
+                          <div className="text-xs font-medium">{pq.label}</div>
+                          <QuestionBody
+                            q={pq}
+                            answer={overrides[r.id]?.[pq.id] ?? jobAnswers[pq.id]}
+                            set={(a) => setRoomOverride?.(r.id, pq.id, a)}
+                            sellAt={sellAt}
+                            totalSqft={totalSqft}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           );
         })}

@@ -15,6 +15,7 @@ function rowToQuestion(r: Record<string, unknown>): EstimateQuestion {
     help: (r.help as string) ?? null,
     kind: ((r.kind as string) || "yesno") as EstimateQuestionKind,
     config: config && typeof config === "object" ? config : {},
+    key: (r.key as string) || null,
     required: Boolean(r.required),
     active: r.active !== false,
     position: Number(r.position) || 0,

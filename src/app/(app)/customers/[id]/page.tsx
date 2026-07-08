@@ -48,6 +48,8 @@ import { PropertyCard } from "./property-card";
 import { CustomerOrdersCard } from "./customer-orders-card";
 import { ServiceAddressesCard } from "./service-addresses-card";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
+import { listCustomerAreas } from "@/lib/data/customer-areas";
+import { CustomerAreasCard } from "./areas-card";
 import {
   listPurchaseOrdersForCustomer,
   getCustomerStockPulls,
@@ -150,6 +152,7 @@ export default async function CustomerPage({
   const portalUser = await getPortalUser(id);
   const messages = await listCustomerMessages(id);
   const documents = await listCustomerDocuments(id);
+  const customerAreas = await listCustomerAreas(id);
   const [sampleCheckouts, bizSettings, customerPOs, stockPulls, serviceAddresses] =
     await Promise.all([
       listCustomerCheckouts(id),
@@ -897,6 +900,8 @@ export default async function CustomerPage({
           >
             <CustomerDocuments customerId={customer.id} documents={documents} />
           </TabCollapse>
+
+          <CustomerAreasCard customerId={customer.id} areas={customerAreas} />
 
           {/* Activity */}
           <TabCollapse tab="activity" title="Activity history">

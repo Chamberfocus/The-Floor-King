@@ -27,6 +27,9 @@ export default async function EstimateQuestionsSettingsPage() {
   if (profile.role !== "admin") redirect("/");
 
   const questions = await listEstimateQuestions();
+  const keyed = questions
+    .filter((q) => q.key)
+    .map((q) => ({ key: q.key as string, label: q.label }));
   const sections = Array.from(new Set(questions.map((q) => q.section))).sort((a, b) =>
     a.localeCompare(b),
   );
@@ -43,7 +46,7 @@ export default async function EstimateQuestionsSettingsPage() {
           <CardTitle className="text-base">Add a question</CardTitle>
         </CardHeader>
         <CardContent>
-          <QuestionForm />
+          <QuestionForm keyed={keyed} />
         </CardContent>
       </Card>
 

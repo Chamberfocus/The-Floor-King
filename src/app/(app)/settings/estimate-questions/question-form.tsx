@@ -28,7 +28,13 @@ const UNITS = ["sqft", "sqyd", "lnft", "each", "step", "flat"];
 const label = "mb-1 block text-xs font-medium text-muted-foreground";
 const field = "h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm";
 
-export function QuestionForm({ question }: { question?: EstimateQuestion }) {
+export function QuestionForm({
+  question,
+  keyed = [],
+}: {
+  question?: EstimateQuestion;
+  keyed?: { key: string; label: string }[];
+}) {
   const router = useRouter();
   const editing = !!question;
   const action = editing ? updateEstimateQuestion : createEstimateQuestion;
@@ -36,6 +42,8 @@ export function QuestionForm({ question }: { question?: EstimateQuestion }) {
   const [kind, setKind] = useState<EstimateQuestionKind>(question?.kind ?? "yesno");
   const c = question?.config ?? {};
   const e = c.emit ?? null;
+  // Don't let a question reference itself in show_if.
+  const refOptions = keyed.filter((k) => k.key !== question?.key);
 
   useEffect(() => {
     if (state.ok) {
@@ -84,6 +92,37 @@ export function QuestionForm({ question }: { question?: EstimateQuestion }) {
               <input type="checkbox" name="active" defaultChecked={question.active} className="size-4" /> Active
             </label>
           ) : null}
+        </div>
+      </div>
+
+      {/* Logic & scope — conditional visibility + per-room prep */}
+      <div className="rounded-lg border bg-muted/20 p-3">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Logic &amp; scope
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className={label}>Key (for conditional logic)</label>
+            <Input name="key" defaultValue={question?.key ?? ""} placeholder="e.g. surface_type" />
+            <p className="mt-1 text-xs text-muted-foreground">A short slug so other questions can branch off this one&apos;s answer.</p>
+          </div>
+          <div>
+            <label className={label}>Show only if…</label>
+            <div className="flex gap-2">
+              <select name="show_if_key" defaultValue={c.show_if?.key ?? ""} className={field}>
+                <option value="">Always show</option>
+                {refOptions.map((k) => (
+                  <option key={k.key} value={k.key}>{k.label} ({k.key})</option>
+                ))}
+              </select>
+            </div>
+            <Input name="show_if_in" defaultValue={(c.show_if?.in ?? []).join(", ")} placeholder="is: e.g. Laminate, Hardwood" className="mt-2" />
+            <p className="mt-1 text-xs text-muted-foreground">Comma-separated answer value(s) that reveal this question.</p>
+          </div>
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <input type="checkbox" name="cfg_per_room" defaultChecked={c.per_room} className="size-4" />
+            Per-room prep — answered once as the job default, overridable on rooms flagged as different
+          </label>
         </div>
       </div>
 

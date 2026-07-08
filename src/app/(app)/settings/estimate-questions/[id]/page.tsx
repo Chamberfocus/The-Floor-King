@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
-import { getEstimateQuestion } from "@/lib/data/estimate-questions";
+import { getEstimateQuestion, listEstimateQuestions } from "@/lib/data/estimate-questions";
 import { QuestionForm } from "../question-form";
 
 export const metadata: Metadata = { title: "Edit question" };
@@ -21,6 +21,9 @@ export default async function EditEstimateQuestionPage({
   const { id } = await params;
   const question = await getEstimateQuestion(id);
   if (!question) redirect("/settings/estimate-questions");
+  const keyed = (await listEstimateQuestions())
+    .filter((q) => q.key)
+    .map((q) => ({ key: q.key as string, label: q.label }));
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -30,7 +33,7 @@ export default async function EditEstimateQuestionPage({
       <PageHeader title="Edit question" description="Change the question, its answer type, or how the answer maps into the estimate." />
       <Card>
         <CardContent className="pt-6">
-          <QuestionForm question={question} />
+          <QuestionForm question={question} keyed={keyed} />
         </CardContent>
       </Card>
     </div>

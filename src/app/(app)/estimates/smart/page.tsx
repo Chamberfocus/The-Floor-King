@@ -8,6 +8,7 @@ import { getCustomer } from "@/lib/data/customers";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
 import { listEstimateQuestions } from "@/lib/data/estimate-questions";
+import { listCustomerAreas } from "@/lib/data/customer-areas";
 import { formatServiceAddress } from "@/lib/types";
 import { BuilderSwitch } from "../builder-switch";
 
@@ -30,6 +31,7 @@ export default async function SmartEstimatePage({
     label: a.label || formatServiceAddress(a),
   }));
   const questions = await listEstimateQuestions({ activeOnly: true });
+  const savedAreas = await listCustomerAreas(customer.id);
 
   return (
     <div className="mx-auto max-w-5xl pb-20">
@@ -49,6 +51,7 @@ export default async function SmartEstimatePage({
         targetMargin={settings.target_gross_margin_pct || 40}
         serviceAddresses={serviceAddresses}
         questions={questions}
+        savedAreas={savedAreas}
       />
     </div>
   );

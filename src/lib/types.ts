@@ -280,7 +280,13 @@ export interface EstimateQuestionConfig {
   rate_options?: { label: string; cost: number }[]; // number: pick the rate
   multi?: boolean; // choice: allow multiple
   options?: { label: string; emit?: EstimateEmit | null }[]; // choice options
-  note?: boolean; // text: (always a note) — reserved
+  note?: boolean; // record the answer as a job condition on the work order
+  // Conditional visibility: show this question only when the answer to the
+  // question with `show_if.key` is one of `show_if.in`. Absent = always shown.
+  show_if?: { key: string; in: string[] } | null;
+  // Per-room prep: answered once as the job default, with per-room overrides for
+  // rooms flagged as "different prep" in the areas step.
+  per_room?: boolean;
 }
 
 export interface EstimateQuestion {
@@ -290,9 +296,25 @@ export interface EstimateQuestion {
   help: string | null;
   kind: EstimateQuestionKind;
   config: EstimateQuestionConfig;
+  key: string | null; // stable slug for conditional references (show_if)
   required: boolean;
   active: boolean;
   position: number;
+  created_at: string;
+}
+
+/** A saved room/area measurement for a customer (drives the sq ft calculator
+ *  and the customer's Areas & measurements card). */
+export interface CustomerArea {
+  id: string;
+  customer_id: string;
+  position: number;
+  name: string;
+  length_in: number | null;
+  width_in: number | null;
+  sqft: number | null;
+  note: string | null;
+  differs: boolean; // needs different prep than the job default
   created_at: string;
 }
 
