@@ -283,12 +283,24 @@ export function Questionnaire({
   }, [questions, answers, totalSqft, goal]);
 
   const notes = useMemo(() => {
-    const parts: string[] = [];
+    // "Job conditions" — flagged choice / yes-no answers (subfloor, tackless…)
+    // that aren't line items but the crew needs on the work order.
+    const conditions: string[] = [];
+    const freeText: string[] = [];
     for (const q of questions) {
       const a = answers[q.id];
-      if (q.kind === "text" && a?.kind === "text" && a.text.trim()) parts.push(`${q.label} ${a.text.trim()}`);
+      if (q.kind === "text" && a?.kind === "text" && a.text.trim()) {
+        freeText.push(`${q.label} ${a.text.trim()}`);
+      } else if (q.config.note && q.kind === "choice" && a?.kind === "choice" && a.selected.length) {
+        conditions.push(`${q.label}: ${a.selected.join(", ")}`);
+      } else if (q.config.note && q.kind === "yesno" && a?.kind === "yesno") {
+        conditions.push(`${q.label}: ${a.yes ? "Yes" : "No"}`);
+      }
     }
-    return parts.join("\n");
+    const blocks: string[] = [];
+    if (conditions.length) blocks.push(`Job conditions:\n${conditions.map((c) => `• ${c}`).join("\n")}`);
+    if (freeText.length) blocks.push(freeText.join("\n"));
+    return blocks.join("\n\n");
   }, [questions, answers]);
 
   const grand = lines.reduce((s, l) => s + (l.quantity ?? 0) * (l.material_rate + l.labor_rate), 0);

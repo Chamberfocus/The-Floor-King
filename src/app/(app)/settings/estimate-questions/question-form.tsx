@@ -123,9 +123,14 @@ export function QuestionForm({ question }: { question?: EstimateQuestion }) {
         {kind === "yesno" || kind === "number" ? (
           <div className="grid gap-3 sm:grid-cols-3">
             {kind === "yesno" ? (
-              <label className="flex items-center gap-2 pb-2 text-sm sm:col-span-3">
-                <input type="checkbox" name="cfg_default" defaultChecked={c.default} className="size-4" /> Pre-select &ldquo;Yes&rdquo;
-              </label>
+              <div className="flex flex-wrap items-center gap-4 sm:col-span-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="cfg_default" defaultChecked={c.default} className="size-4" /> Pre-select &ldquo;Yes&rdquo;
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="cfg_note" defaultChecked={c.note} className="size-4" /> Record the answer as a job condition (work order)
+                </label>
+              </div>
             ) : null}
             <div>
               <label className={label}>Adds a…</label>
@@ -177,9 +182,14 @@ export function QuestionForm({ question }: { question?: EstimateQuestion }) {
 
         {kind === "choice" ? (
           <div className="space-y-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" name="cfg_multi" defaultChecked={c.multi} className="size-4" /> Allow multiple selections
-            </label>
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="cfg_multi" defaultChecked={c.multi} className="size-4" /> Allow multiple selections
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="cfg_note" defaultChecked={c.note} className="size-4" /> Record the answer as a job condition (work order)
+              </label>
+            </div>
             <div>
               <label className={label}>Options — one per line: &ldquo;Label | cost | line description&rdquo; (cost 0 = no line)</label>
               <textarea name="options" rows={4}

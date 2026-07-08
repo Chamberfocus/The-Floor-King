@@ -85,11 +85,11 @@ function readConfig(kind: EstimateQuestionKind, formData: FormData): EstimateQue
         allow_additional: on(formData.get("cfg_allow_additional")),
       };
     case "yesno":
-      return { emit: readEmit(formData), default: on(formData.get("cfg_default")) };
+      return { emit: readEmit(formData), default: on(formData.get("cfg_default")), note: on(formData.get("cfg_note")) };
     case "number":
       return { emit: readEmit(formData), rate_options: readRateOptions(formData.get("rate_options")) };
     case "choice":
-      return { multi: on(formData.get("cfg_multi")), options: readChoiceOptions(formData.get("options")) };
+      return { multi: on(formData.get("cfg_multi")), options: readChoiceOptions(formData.get("options")), note: on(formData.get("cfg_note")) };
     default:
       return {};
   }

@@ -74,6 +74,37 @@ import { getOrgSettings } from "@/lib/data/org";
 import { PrintButton } from "@/components/print-button";
 import { JobPrintDoc } from "./job-print";
 
+// Carpet padding is bought by the roll; the shop's standard roll covers this
+// many square yards (matches the estimate builder's roll math).
+const PAD_ROLL_SQYD = 30;
+/** Total inches → a tidy feet-and-inches label, e.g. 186 → 15' 6". */
+function ftIn(totalIn: number | null | undefined): string {
+  const t = Number(totalIn) || 0;
+  if (t <= 0) return "";
+  const ft = Math.floor(t / 12);
+  const inch = Math.round(t % 12);
+  return inch ? `${ft}' ${inch}"` : `${ft}'`;
+}
+/** What the crew needs per line: order quantity, cut size, and pad rolls. */
+function lineSpec(l: {
+  quantity: number | null;
+  unit: string | null;
+  measure_unit: string | null;
+  sqft: number | null;
+  length_in: number | null;
+  width_in: number | null;
+  category: string | null;
+}): { qty: string; cut: string; rolls: number } {
+  const q = Number(l.quantity) || 0;
+  const unit = l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+  const qty = q > 0 ? `${Math.round(q * 100) / 100} ${unit}` : l.sqft ? `${l.sqft} sq ft` : "";
+  const cut =
+    l.length_in && l.width_in ? `cut ${ftIn(l.width_in)} × ${ftIn(l.length_in)}` : "";
+  const sqyd = q > 0 ? (unit.toLowerCase().includes("yd") ? q : q / 9) : 0;
+  const rolls = l.category === "underlayment" && sqyd > 0 ? Math.ceil(sqyd / PAD_ROLL_SQYD) : 0;
+  return { qty, cut, rolls };
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -357,11 +388,21 @@ export default async function JobPage({
                         </span>
                       ) : null}
                     </div>
-                    {l.sqft ? (
-                      <div className="text-xs text-muted-foreground">
-                        {l.sqft} sq ft
-                      </div>
-                    ) : null}
+                    {(() => {
+                      const spec = lineSpec(l);
+                      if (!spec.qty && !spec.cut && !spec.rolls) return null;
+                      return (
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                          {spec.qty ? <span className="font-medium text-foreground">{spec.qty}</span> : null}
+                          {spec.cut ? <span>· {spec.cut}</span> : null}
+                          {spec.rolls ? (
+                            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+                              {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                   </div>
                   {isStaff ? (
                     <div className="shrink-0 text-muted-foreground">

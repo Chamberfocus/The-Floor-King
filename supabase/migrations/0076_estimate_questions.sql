@@ -32,7 +32,9 @@ insert into public.estimate_questions (section, label, help, kind, config, requi
 select v.section, v.label, v.help, v.kind, v.config::jsonb, v.required, v.position
 from (values
   ('Carpet','Which areas are we doing? Add each room with its size.','Add every room getting carpet. This total drives the carpet, pad, and labor quantities.','areas','{}',true,10),
+  ('Carpet','Subfloor','What are we installing over? Shows on the work order.','choice','{"note":true,"multi":false,"options":[{"label":"Concrete"},{"label":"Wood / plywood"},{"label":"Over existing floor"},{"label":"Unknown"}]}',false,15),
   ('Carpet','What carpet?','Pick the carpet from your catalog.','product','{"category":"carpet","ask_source":true}',true,20),
+  ('Carpet','Tackless (tackstrip) needed?','Flagged on the work order so the crew knows.','yesno','{"note":true}',false,55),
   ('Carpet','Include carpet installation?',null,'yesno','{"default":true,"emit":{"role":"labor","category":"labor","description":"Carpet installation","unit":"sqyd","per":"area","cost":6}}',false,25),
   ('Carpet','What padding?','Pick the main padding, and add additional padding for a specific area if needed.','product','{"category":"underlayment","ask_source":true,"allow_additional":true}',false,30),
   ('Carpet','Tear up the old floor?',null,'yesno','{"emit":{"role":"labor","category":"labor","description":"Tear-out (old floor)","unit":"sqft","per":"area","cost":0.5}}',false,50),
