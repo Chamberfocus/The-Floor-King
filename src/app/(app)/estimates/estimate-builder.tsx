@@ -32,6 +32,7 @@ import { saveEstimate } from "./actions";
 import { writeScopeDescription } from "./ai-actions";
 import { ProductPicker } from "./product-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import { AreaCalculator } from "@/components/area-calculator";
 
 interface LineState {
   key: string;
@@ -813,11 +814,21 @@ export function EstimateBuilder({
                               />
                             </div>
                           </div>
-                          <LabeledNumber
-                            label="Sq ft"
-                            value={line.sqft}
-                            onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
-                          />
+                          <div className="flex items-end gap-2">
+                            <LabeledNumber
+                              label="Sq ft"
+                              value={line.sqft}
+                              onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
+                            />
+                            <AreaCalculator
+                              triggerLabel="Add up areas"
+                              triggerVariant="ghost"
+                              triggerClassName="h-9 px-2 text-xs"
+                              title={`Square footage${line.room ? ` — ${line.room}` : ""}`}
+                              initialLabel={line.room}
+                              onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
+                            />
+                          </div>
                           <div className="pb-2 text-xs text-muted-foreground">
                             {(num(line.sqft) / 9).toFixed(1)} sq yd
                           </div>

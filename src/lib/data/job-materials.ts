@@ -46,6 +46,7 @@ type RawLine = CalcLine & {
   description: string;
   product_id: string | null;
   source: string | null;
+  from_stock: boolean | null; // estimate said "pull from stock" → not on the PO
   unit: string | null;
   category: string | null;
   length_in: number | null;
@@ -155,8 +156,11 @@ export async function getJobMaterials(
       : null) as MaterialSource | null;
     // Auto: if it's a stock-tracked product with enough on hand, sell from stock.
     const canStock = Boolean(p?.track_stock);
-    const resolvedSource: MaterialSource =
-      explicit ?? (canStock ? "stock" : "order");
+    // "Pull from stock" on the estimate is authoritative — it's off the PO, so
+    // the warehouse view must treat it as stock too (keeps sourcing consistent).
+    const resolvedSource: MaterialSource = l.from_stock
+      ? "stock"
+      : explicit ?? (canStock ? "stock" : "order");
 
     let status: JobMaterialLine["status"];
     if (resolvedSource === "order") status = "order";
