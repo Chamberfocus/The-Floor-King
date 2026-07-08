@@ -112,6 +112,10 @@ export function QuestionForm({ question }: { question?: EstimateQuestion }) {
               <input type="checkbox" name="cfg_ask_source" defaultChecked={c.ask_source ?? true} className="size-4" />
               Ask Stock vs Order (+ vendor)
             </label>
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <input type="checkbox" name="cfg_allow_additional" defaultChecked={c.allow_additional} className="size-4" />
+              Allow additional products for specific areas (e.g. a second/upgraded padding on the stairs) — one step, one or many
+            </label>
             <p className="sm:col-span-2 text-xs text-muted-foreground">Renders a catalog picker for this category and adds a material line, with the correct unit (carpet &amp; pad in sq yd) and price. Install labor comes in automatically when the product carries a labor rate.</p>
           </div>
         ) : null}

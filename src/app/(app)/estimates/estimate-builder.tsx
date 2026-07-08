@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Plus, Copy, Trash2, ArrowLeft, Save, Eye, Sparkles, Printer } from "lucide-react";
+import { Plus, Copy, Trash2, ArrowLeft, Save, Eye, Sparkles, Printer, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -278,6 +278,16 @@ export function EstimateBuilder({
   const updateOption = (oi: number, patch: Partial<OptionState>) =>
     setOptions((prev) => prev.map((o, i) => (i === oi ? { ...o, ...patch } : o)));
 
+  // Which line editors are expanded — visual only (tap a line to edit it).
+  const [openLines, setOpenLines] = useState<Set<string>>(new Set());
+  const toggleLine = (key: string) =>
+    setOpenLines((s) => {
+      const n = new Set(s);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+
   const addOption = () =>
     setOptions((prev) => [
       ...prev,
@@ -306,10 +316,13 @@ export function EstimateBuilder({
   const removeOption = (oi: number) =>
     setOptions((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== oi) : prev));
 
-  const addLine = (oi: number) =>
+  const addLine = (oi: number) => {
+    const line = emptyLine();
     setOptions((prev) =>
-      prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, emptyLine()] } : o)),
+      prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
+    setOpenLines((s) => new Set(s).add(line.key)); // open the new line for editing
+  };
 
   const removeLine = (oi: number, li: number) =>
     setOptions((prev) =>
@@ -520,6 +533,32 @@ export function EstimateBuilder({
     }
   };
 
+  // Running grand total across all options — shown in the always-visible bar.
+  const grand = options.reduce(
+    (acc, o) => {
+      const t = optionTotals(
+        o.lines.map((l) => ({
+          line_type: l.line_type,
+          sqft: l.sqft,
+          measure_unit: l.measure_unit,
+          material_rate: l.material_rate,
+          labor_rate: l.labor_rate,
+          installed_rate: l.installed_rate,
+          flat_amount: l.flat_amount,
+          waste_pct: l.waste_pct,
+          quantity: l.quantity,
+        })),
+        taxRate,
+      );
+      return {
+        subtotal: acc.subtotal + t.subtotal,
+        tax: acc.tax + t.tax,
+        total: acc.total + t.total,
+      };
+    },
+    { subtotal: 0, tax: 0, total: 0 },
+  );
+
   return (
     <>
     <div className="mx-auto max-w-5xl pb-44 md:pb-24 print:hidden">
@@ -656,8 +695,72 @@ export function EstimateBuilder({
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                {option.lines.map((line, li) => (
-                  <div key={line.key} className="rounded-md border p-3">
+                {option.lines.map((line, li) => {
+                  const summ = {
+                    line_type: line.line_type,
+                    sqft: line.sqft,
+                    measure_unit: line.measure_unit,
+                    material_rate: line.material_rate,
+                    labor_rate: line.labor_rate,
+                    installed_rate: line.installed_rate,
+                    flat_amount: line.flat_amount,
+                    waste_pct: line.waste_pct,
+                    quantity: line.quantity,
+                  };
+                  const sQty = lineQty(summ);
+                  const sUnit = line.unit || (line.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+                  const sSell = lineTotal(summ);
+                  const sCost = lineOurCost(line);
+                  const sMargin = sSell > 0 ? ((sSell - sCost) / sSell) * 100 : 0;
+                  const isOpen = openLines.has(line.key);
+                  return (
+                    <div key={line.key} className="overflow-hidden rounded-xl border bg-card">
+                      {/* Summary row — tap to edit */}
+                      <button
+                        type="button"
+                        onClick={() => toggleLine(line.key)}
+                        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted/40"
+                      >
+                        <ChevronRight
+                          className={cn(
+                            "size-4 shrink-0 text-muted-foreground transition-transform",
+                            isOpen && "rotate-90",
+                          )}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-base font-semibold">
+                            {line.description || (
+                              <span className="font-normal text-muted-foreground">Untitled line — tap to edit</span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            {line.room ? <span>{line.room}</span> : null}
+                            {line.line_type !== "flat" && sQty > 0 ? (
+                              <span className="tabular-nums">
+                                {sQty.toFixed(sQty < 100 ? 1 : 0)} {sUnit}
+                              </span>
+                            ) : null}
+                            {line.category === "labor" ? (
+                              <span className="rounded-full bg-muted px-1.5 py-0.5 font-medium">Labor</span>
+                            ) : null}
+                            {line.from_stock ? (
+                              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
+                                From stock
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-base font-bold tabular-nums">{formatMoney(sSell)}</div>
+                          {sCost > 0 ? (
+                            <div className="text-xs tabular-nums text-muted-foreground">{Math.round(sMargin)}% margin</div>
+                          ) : null}
+                        </div>
+                      </button>
+
+                      {/* Editor — only when expanded */}
+                      {isOpen ? (
+                      <div className="space-y-3 border-t bg-muted/20 p-4">
                     <div className="grid gap-2 sm:grid-cols-3">
                       <Input
                         value={line.room}
@@ -990,8 +1093,11 @@ export function EstimateBuilder({
                         <Trash2 className="size-3.5" />
                       </Button>
                     </div>
-                  </div>
-                ))}
+                      </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
 
                 <Button
                   type="button"
@@ -1069,7 +1175,15 @@ export function EstimateBuilder({
 
       {/* Sticky save bar */}
       <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 border-t bg-background/95 p-3 backdrop-blur md:bottom-0 md:pl-64">
-        <div className="mx-auto flex max-w-5xl items-center justify-end gap-2 px-1">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs text-muted-foreground">Total</span>
+            <span className="text-xl font-bold tabular-nums">{formatMoney(grand.total)}</span>
+            <span className="hidden text-xs text-muted-foreground sm:inline">
+              (sub {formatMoney(grand.subtotal)} · tax {formatMoney(grand.tax)})
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
           <Button
             type="button"
             variant="outline"
@@ -1089,6 +1203,7 @@ export function EstimateBuilder({
           <Button type="button" disabled={isPending} onClick={() => save(false)}>
             <Save className="size-4" /> {isPending ? "Saving…" : "Save"}
           </Button>
+          </div>
         </div>
       </div>
     </div>

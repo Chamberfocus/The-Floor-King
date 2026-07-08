@@ -37,13 +37,16 @@ export function PriceBookPicker({
   const [q, setQ] = useState("");
 
   const groups = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    if (!term) return PRICE_BOOK;
+    // Smart match: every typed word must appear in the item label or its group
+    // (any order) — case-insensitive, partial anywhere, special chars are fine.
+    const tokens = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!tokens.length) return PRICE_BOOK;
     return PRICE_BOOK.map((g) => ({
       ...g,
-      items: g.items.filter(
-        (it) => it.label.toLowerCase().includes(term) || g.group.toLowerCase().includes(term),
-      ),
+      items: g.items.filter((it) => {
+        const hay = `${it.label} ${g.group}`.toLowerCase();
+        return tokens.every((t) => hay.includes(t));
+      }),
     })).filter((g) => g.items.length);
   }, [q]);
 

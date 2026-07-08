@@ -65,13 +65,37 @@ interface ProductAns {
   supplierName: string | null;
   source: "order" | "stock"; vendor: string;
 }
+/** An extra material for a specific area (e.g. an upgraded pad for the stairs). */
+interface ExtraPad { id: string; product: ProductAns | null; sqft: string }
 type Answer =
   | { kind: "areas"; rooms: AreaRow[] }
-  | { kind: "product"; product: ProductAns | null }
+  | { kind: "product"; product: ProductAns | null; extras: ExtraPad[] }
   | { kind: "yesno"; yes: boolean }
   | { kind: "number"; value: string; rateIdx: number | null }
   | { kind: "choice"; selected: string[] }
   | { kind: "text"; text: string };
+
+const productLabel = (p: Product) =>
+  [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name;
+/** Build the answer shape for a picked catalog product (defaults to Order). */
+function toProductAns(p: Product): ProductAns {
+  const supplier = (p as Product & { supplier?: string | null }).supplier ?? null;
+  return {
+    productId: p.id,
+    label: productLabel(p),
+    unit: p.unit || "sqft",
+    materialRate: Number(p.material_rate) || 0,
+    laborRate: Number(p.labor_rate) || 0,
+    manufacturer: p.manufacturer,
+    style: p.style,
+    color: p.color,
+    supplierName: supplier,
+    source: "order",
+    vendor: supplier ?? "",
+  };
+}
+let xpid = 0;
+const newExtra = (): ExtraPad => ({ id: `x${xpid++}`, product: null, sqft: "" });
 
 let rid = 0;
 const newRow = (name = ""): AreaRow => ({
@@ -99,7 +123,7 @@ export function Questionnaire({
     const init: Record<string, Answer> = {};
     for (const q of questions) {
       if (q.kind === "areas") init[q.id] = { kind: "areas", rooms: [newRow()] };
-      else if (q.kind === "product") init[q.id] = { kind: "product", product: null };
+      else if (q.kind === "product") init[q.id] = { kind: "product", product: null, extras: [] };
       else if (q.kind === "yesno") init[q.id] = { kind: "yesno", yes: !!q.config.default };
       else if (q.kind === "number") init[q.id] = { kind: "number", value: "", rateIdx: q.config.rate_options?.length ? 0 : null };
       else if (q.kind === "choice") init[q.id] = { kind: "choice", selected: [] };
@@ -160,64 +184,74 @@ export function Questionnaire({
     for (const q of questions) {
       const a = answers[q.id];
       if (!a) continue;
-      if (q.kind === "product" && a.kind === "product" && a.product) {
-        const p = a.product;
+      if (q.kind === "product" && a.kind === "product") {
         const cat = q.config.category || "other";
         const b = billing(cat);
         const waste = profileFor(cat)?.waste ?? 0;
-        const base = b.wantYd ? totalSqft / 9 : totalSqft;
-        const qty = Math.ceil(base * (1 + waste / 100));
-        if (qty > 0) {
-          const rate = rateFor(p.materialRate, p.unit, b.wantYd);
-          out.push({
-            room: null,
-            description: p.label || cat,
-            category: cat,
-            measure_unit: b.measureUnit,
-            sqft: null,
-            quantity: qty,
-            length_in: null,
-            width_in: null,
-            unit: b.unitLabel,
-            material_rate: sellAt(rate),
-            labor_rate: 0,
-            material_cost: rate,
-            labor_cost: 0,
-            waste_pct: 0,
-            product_id: p.productId,
-            // Vendor override rides on manufacturer (the PO's name fallback) only
-            // when you explicitly set one; otherwise keep the real manufacturer.
-            manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
-            style: p.style,
-            color: p.color,
-            from_stock: p.source === "stock",
-          });
-          // Install labor from the product's own labor rate (unit-normalized).
-          const lr = rateFor(p.laborRate, p.unit, b.wantYd);
-          if (lr > 0) {
-            const laborQty = b.wantYd ? Math.ceil(totalSqft / 9) : Math.ceil(totalSqft);
-            out.push({
-              room: null,
-              description: `Installation — ${(p.label || cat).toLowerCase()}`,
-              category: "labor",
-              measure_unit: b.measureUnit,
-              sqft: null,
-              quantity: laborQty,
-              length_in: null,
-              width_in: null,
-              unit: b.unitLabel,
-              material_rate: 0,
-              labor_rate: sellAt(lr),
-              material_cost: 0,
-              labor_cost: lr,
-              waste_pct: 0,
-              product_id: null,
-              manufacturer: null,
-              style: null,
-              color: null,
-              from_stock: false,
-            });
+        const matLine = (p: ProductAns, qty: number): SmartLine => ({
+          room: null,
+          description: p.label || cat,
+          category: cat,
+          measure_unit: b.measureUnit,
+          sqft: null,
+          quantity: qty,
+          length_in: null,
+          width_in: null,
+          unit: b.unitLabel,
+          material_rate: sellAt(rateFor(p.materialRate, p.unit, b.wantYd)),
+          labor_rate: 0,
+          material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
+          labor_cost: 0,
+          waste_pct: 0,
+          product_id: p.productId,
+          // Vendor override rides on manufacturer (the PO's name fallback) only
+          // when you explicitly set one; otherwise keep the real manufacturer.
+          manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+          style: p.style,
+          color: p.color,
+          from_stock: p.source === "stock",
+        });
+        // Main product — covers the whole measured job area (+ install labor).
+        if (a.product) {
+          const p = a.product;
+          const base = b.wantYd ? totalSqft / 9 : totalSqft;
+          const qty = Math.ceil(base * (1 + waste / 100));
+          if (qty > 0) {
+            out.push(matLine(p, qty));
+            const lr = rateFor(p.laborRate, p.unit, b.wantYd);
+            if (lr > 0) {
+              const laborQty = b.wantYd ? Math.ceil(totalSqft / 9) : Math.ceil(totalSqft);
+              out.push({
+                room: null,
+                description: `Installation — ${(p.label || cat).toLowerCase()}`,
+                category: "labor",
+                measure_unit: b.measureUnit,
+                sqft: null,
+                quantity: laborQty,
+                length_in: null,
+                width_in: null,
+                unit: b.unitLabel,
+                material_rate: 0,
+                labor_rate: sellAt(lr),
+                material_cost: 0,
+                labor_cost: lr,
+                waste_pct: 0,
+                product_id: null,
+                manufacturer: null,
+                style: null,
+                color: null,
+                from_stock: false,
+              });
+            }
           }
+        }
+        // Additional products for specific areas (e.g. upgraded pad on the
+        // stairs) — each its own material line, quantity from its own area.
+        for (const ex of a.extras) {
+          if (!ex.product || numv(ex.sqft) <= 0) continue;
+          const area = numv(ex.sqft);
+          const qty = Math.ceil(b.wantYd ? area / 9 : area);
+          if (qty > 0) out.push(matLine(ex.product, qty));
         }
       } else if (q.kind === "yesno" && a.kind === "yesno" && a.yes && q.config.emit) {
         const l = emitLine(q.config.emit);
@@ -408,9 +442,6 @@ function QuestionBody({
   sellAt: (c: number) => number;
   totalSqft: number;
 }) {
-  const prodLabel = (p: Product) =>
-    [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name;
-
   if (q.kind === "areas" && answer?.kind === "areas") {
     const rooms = answer.rooms;
     const upd = (rs: AreaRow[]) => set({ kind: "areas", rooms: rs });
@@ -489,7 +520,14 @@ function QuestionBody({
 
   if (q.kind === "product" && answer?.kind === "product") {
     const p = answer.product;
+    const extras = answer.extras;
     const cat = q.config.category || "other";
+    const b = billing(cat);
+    const kindLabel = cat === "underlayment" ? "padding" : cat;
+    const setMain = (product: ProductAns | null) => set({ kind: "product", product, extras });
+    const setExtras = (xs: ExtraPad[]) => set({ kind: "product", product: p, extras: xs });
+    const patchExtra = (id: string, patch: Partial<ExtraPad>) =>
+      setExtras(extras.map((x) => (x.id === id ? { ...x, ...patch } : x)));
     return (
       <div className="space-y-3">
         <ProductPicker
@@ -497,78 +535,63 @@ function QuestionBody({
           initialLabel={p?.label ?? ""}
           label={`Pick from the catalog (${cat})`}
           defaultCategory={cat}
-          onPick={(prod) =>
-            prod
-              ? set({
-                  kind: "product",
-                  product: {
-                    productId: prod.id,
-                    label: prodLabel(prod),
-                    unit: prod.unit || "sqft",
-                    materialRate: Number(prod.material_rate) || 0,
-                    laborRate: Number(prod.labor_rate) || 0,
-                    manufacturer: prod.manufacturer,
-                    style: prod.style,
-                    color: prod.color,
-                    supplierName: (prod as Product & { supplier?: string | null }).supplier ?? null,
-                    source: "order",
-                    vendor: (prod as Product & { supplier?: string | null }).supplier ?? "",
-                  },
-                })
-              : set({ kind: "product", product: null })
-          }
-          onCreated={(prod) =>
-            set({
-              kind: "product",
-              product: {
-                productId: prod.id,
-                label: prodLabel(prod),
-                unit: prod.unit || "sqft",
-                materialRate: Number(prod.material_rate) || 0,
-                laborRate: Number(prod.labor_rate) || 0,
-                manufacturer: prod.manufacturer,
-                style: prod.style,
-                color: prod.color,
-                supplierName: (prod as Product & { supplier?: string | null }).supplier ?? null,
-                source: "order",
-                vendor: (prod as Product & { supplier?: string | null }).supplier ?? "",
-              },
-            })
-          }
+          onPick={(prod) => setMain(prod ? toProductAns(prod) : null)}
+          onCreated={(prod) => setMain(toProductAns(prod))}
         />
         {p ? (
           <>
             <div className="rounded-md border bg-muted/30 p-2.5 text-sm">
               <div className="font-medium">{p.label}</div>
               <div className="text-xs text-muted-foreground">
-                {formatMoney(p.materialRate)}/{p.unit} → sells {formatMoney(sellAt(rateFor(p.materialRate, p.unit, YD_CATS.has(cat))))}/{billing(cat).unitLabel}
-                {totalSqft > 0 ? ` · covers ${r2(YD_CATS.has(cat) ? totalSqft / 9 : totalSqft)} ${billing(cat).unitLabel}` : ""}
+                {formatMoney(p.materialRate)}/{p.unit} → sells {formatMoney(sellAt(rateFor(p.materialRate, p.unit, b.wantYd)))}/{b.unitLabel}
+                {totalSqft > 0 ? ` · covers ${r2(b.wantYd ? totalSqft / 9 : totalSqft)} ${b.unitLabel}` : ""}
               </div>
             </div>
-            {q.config.ask_source ? (
-              <div className="space-y-2">
-                <div className="inline-flex rounded-md border p-0.5">
-                  <button type="button" onClick={() => set({ kind: "product", product: { ...p, source: "order" } })}
-                    className={cn("rounded px-3 py-1.5 text-sm font-medium", p.source === "order" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
-                    Order
-                  </button>
-                  <button type="button" onClick={() => set({ kind: "product", product: { ...p, source: "stock" } })}
-                    className={cn("rounded px-3 py-1.5 text-sm font-medium", p.source === "stock" ? "bg-amber-500 text-white" : "text-muted-foreground")}>
-                    From stock
-                  </button>
-                </div>
-                {p.source === "order" ? (
-                  <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">Order from (vendor)</label>
-                    <Input value={p.vendor} onChange={(e) => set({ kind: "product", product: { ...p, vendor: e.target.value } })}
-                      placeholder={p.supplierName || "Vendor name"} className="h-10 max-w-xs" />
-                  </div>
-                ) : (
-                  <p className="text-xs text-amber-600">From stock — stays on the estimate &amp; work order, kept off the PO.</p>
-                )}
-              </div>
-            ) : null}
+            {q.config.ask_source ? <SourceToggle p={p} onChange={setMain} /> : null}
           </>
+        ) : null}
+
+        {/* One OR multiple: add another product for a specific area. */}
+        {q.config.allow_additional ? (
+          <div className="space-y-2 rounded-lg border border-dashed p-2.5">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Additional {kindLabel} for a specific area
+            </div>
+            {extras.map((ex) => (
+              <div key={ex.id} className="space-y-2 rounded-md border bg-muted/20 p-2">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <ProductPicker
+                      value={ex.product?.productId ?? ""}
+                      initialLabel={ex.product?.label ?? ""}
+                      label={`Product (${cat})`}
+                      defaultCategory={cat}
+                      onPick={(prod) => patchExtra(ex.id, { product: prod ? toProductAns(prod) : null })}
+                      onCreated={(prod) => patchExtra(ex.id, { product: toProductAns(prod) })}
+                    />
+                  </div>
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => setExtras(extras.filter((x) => x.id !== ex.id))}>
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="text-xs text-muted-foreground">Area</label>
+                  <Input value={ex.sqft} onChange={(e) => patchExtra(ex.id, { sqft: e.target.value })} inputMode="decimal" placeholder="sq ft" className="h-10 w-28" />
+                  {ex.product && numv(ex.sqft) > 0 ? (
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      = {r2(b.wantYd ? numv(ex.sqft) / 9 : numv(ex.sqft))} {b.unitLabel}
+                    </span>
+                  ) : null}
+                  {ex.product && q.config.ask_source ? (
+                    <SourceToggle p={ex.product} compact onChange={(np) => patchExtra(ex.id, { product: np })} />
+                  ) : null}
+                </div>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={() => setExtras([...extras, newExtra()])}>
+              <Plus className="size-4" /> Add {kindLabel}
+            </Button>
+          </div>
         ) : null}
       </div>
     );
@@ -638,6 +661,37 @@ function QuestionBody({
   }
 
   return null;
+}
+
+/** Order vs From-stock (+ vendor) for a picked material. Stock → off the PO. */
+function SourceToggle({
+  p, onChange, compact,
+}: {
+  p: ProductAns; onChange: (np: ProductAns) => void; compact?: boolean;
+}) {
+  return (
+    <div className={compact ? "flex flex-wrap items-center gap-2" : "space-y-2"}>
+      <div className="inline-flex rounded-md border p-0.5">
+        <button type="button" onClick={() => onChange({ ...p, source: "order" })}
+          className={cn("rounded px-3 py-1.5 text-sm font-medium", p.source === "order" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+          Order
+        </button>
+        <button type="button" onClick={() => onChange({ ...p, source: "stock" })}
+          className={cn("rounded px-3 py-1.5 text-sm font-medium", p.source === "stock" ? "bg-amber-500 text-white" : "text-muted-foreground")}>
+          From stock
+        </button>
+      </div>
+      {p.source === "order" ? (
+        <div className={compact ? "" : ""}>
+          {!compact ? <label className="mb-1 block text-xs text-muted-foreground">Order from (vendor)</label> : null}
+          <Input value={p.vendor} onChange={(e) => onChange({ ...p, vendor: e.target.value })}
+            placeholder={p.supplierName || "Vendor name"} className="h-10 max-w-xs" />
+        </div>
+      ) : !compact ? (
+        <p className="text-xs text-amber-600">From stock — stays on the estimate &amp; work order, kept off the PO.</p>
+      ) : null}
+    </div>
+  );
 }
 
 /** A feet + inches pair for a single dimension (length or width). */

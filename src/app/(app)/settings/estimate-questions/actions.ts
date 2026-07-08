@@ -82,6 +82,7 @@ function readConfig(kind: EstimateQuestionKind, formData: FormData): EstimateQue
       return {
         category: str(formData.get("cfg_category")) || "carpet",
         ask_source: on(formData.get("cfg_ask_source")),
+        allow_additional: on(formData.get("cfg_allow_additional")),
       };
     case "yesno":
       return { emit: readEmit(formData), default: on(formData.get("cfg_default")) };

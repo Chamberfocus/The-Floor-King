@@ -273,6 +273,7 @@ export interface EstimateQuestionConfig {
   // product
   category?: string; // catalog category to bias the picker + billing unit
   ask_source?: boolean; // ask Stock vs Order (+ vendor) for this material
+  allow_additional?: boolean; // let one step add extra products for specific areas
   // yesno / number / choice
   emit?: EstimateEmit | null;
   default?: boolean; // yesno: preselect Yes

@@ -29,9 +29,26 @@ export async function listProducts(
   return all;
 }
 
+// Fields a catalog search looks across.
+const SEARCH_COLS = ["name", "sku", "manufacturer", "style", "color"] as const;
+
 /**
- * Server-side product search — fetches only what matches so big catalogs stay
- * fast. Empty query returns the first `limit` by name.
+ * Build a PostgREST `.ilike` pattern for one search token that is safe for
+ * special characters. LIKE wildcards (`%` `_`) and backslashes are escaped so
+ * they're literal, and the whole pattern is double-quoted so fractions and
+ * punctuation (e.g. "1/2", "3/4", "(t-mold)") don't break the request.
+ */
+function likePattern(token: string): string {
+  const esc = token.replace(/[\\%_]/g, (m) => `\\${m}`);
+  return `"%${esc}%"`;
+}
+
+/**
+ * Smart, server-side product search. Splits the query into words and requires
+ * EVERY word to appear somewhere in the name / sku / manufacturer / style /
+ * color (in any order) — so "coretec mustang", "oak reducer 94", and "1/2
+ * cheers" all match. Case-insensitive; handles fractions & special characters.
+ * Empty query returns the first `limit` by name.
  */
 export async function searchCatalog(
   query: string,
@@ -45,18 +62,12 @@ export async function searchCatalog(
     .order("name", { ascending: true })
     .limit(limit);
   if (opts.activeOnly) q = q.eq("active", true);
-  const term = query.trim();
-  if (term) {
-    const like = `%${term}%`;
-    q = q.or(
-      [
-        `name.ilike.${like}`,
-        `sku.ilike.${like}`,
-        `manufacturer.ilike.${like}`,
-        `style.ilike.${like}`,
-        `color.ilike.${like}`,
-      ].join(","),
-    );
+  // Each token → one OR across the searchable columns. Chaining .or() ANDs the
+  // tokens, so all words must match (any order, anywhere in the text).
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  for (const token of tokens) {
+    const like = likePattern(token);
+    q = q.or(SEARCH_COLS.map((c) => `${c}.ilike.${like}`).join(","));
   }
   const { data } = await q;
   return (data ?? []) as Product[];
