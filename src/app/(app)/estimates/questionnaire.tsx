@@ -321,6 +321,7 @@ export function Questionnaire({
         jobDescription: notes.trim() || undefined,
         serviceAddressId: serviceAddressId || null,
         openEdit: true,
+        targetMargin: goal,
       });
       if (res?.error) toast.error(res.error);
     });

@@ -454,6 +454,7 @@ export interface EstimateLineItem {
   unit: string | null;
   category: ProductCategory | null;
   from_stock?: boolean; // pulled from our stock → excluded from the PO
+  margin_pct?: number | null; // per-line margin override (%); null = follow overall
 }
 
 export interface EstimateOption {
@@ -475,6 +476,7 @@ export interface Estimate {
   tax_rate: number;
   discount_kind: "amount" | "percent";
   discount_value: number;
+  target_margin: number | null; // estimate-wide gross-margin default (%)
   notes: string | null;
   job_description: string | null;
   customer_response_note: string | null;

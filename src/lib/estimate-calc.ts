@@ -201,6 +201,7 @@ export interface SaveLineInput {
   quantity?: string | number | null;
   unit?: string | null;
   from_stock?: boolean;
+  margin_pct?: string | number | null;
 }
 
 export interface SaveOptionInput {
@@ -216,6 +217,7 @@ export interface SaveEstimateInput {
   notes: string;
   job_description: string;
   options: SaveOptionInput[];
+  target_margin?: string | number | null;
 }
 
 // --- Wizard submission (one line per room + add-on lines) -------------------

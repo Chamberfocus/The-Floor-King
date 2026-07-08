@@ -121,6 +121,7 @@ export interface SmartEstimateInput {
   send?: boolean;
   stash?: boolean; // "save for later" — keep as draft and land on the hub
   openEdit?: boolean; // land on the edit builder to review (questionnaire/AI paths)
+  targetMargin?: number; // the gross-margin % the lines were priced at
 }
 
 export interface SmartResult {
@@ -173,6 +174,7 @@ export async function createSmartEstimate(
       service_address_id: input.serviceAddressId || null,
       discount_kind: input.discountKind === "percent" ? "percent" : "amount",
       discount_value: Number(input.discountValue) || 0,
+      target_margin: input.targetMargin != null ? Number(input.targetMargin) : null,
       created_by: user?.id ?? null,
     })
     .select("id")

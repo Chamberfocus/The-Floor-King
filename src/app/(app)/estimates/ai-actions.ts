@@ -576,6 +576,7 @@ export async function createDraftEstimateFromText(
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const settings = await getBusinessSettings();
 
   // Create the estimate + a single option.
   const { data: est, error: estErr } = await supabase
@@ -587,6 +588,7 @@ export async function createDraftEstimateFromText(
       tax_rate: 8.0,
       presentation: "detailed",
       service_address_id: serviceAddressId || null,
+      target_margin: settings.target_gross_margin_pct || 40,
       created_by: user?.id ?? null,
     })
     .select("id")

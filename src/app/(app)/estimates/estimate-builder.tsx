@@ -15,6 +15,9 @@ import {
   lineTotal,
   lineQty,
   optionTotals,
+  optionTotalsWithDiscount,
+  priceFromMargin,
+  marginPct,
   num,
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
@@ -64,6 +67,28 @@ interface LineState {
   unit: string;
   category: string;
   from_stock: boolean; // pulled from stock → excluded from the PO
+  margin_pct: string; // per-line margin override (%); "" = follow the overall
+}
+
+const round2s = (n: number) => String(Math.round(n * 100) / 100);
+/** A line's effective margin — its own override, else the estimate overall. */
+function effMargin(l: LineState, overall: number): number {
+  return l.margin_pct.trim() !== "" ? num(l.margin_pct) : overall;
+}
+/** Recompute sell rates from cost at margin m — only where a cost exists, so a
+ *  legacy line with a hand-typed rate but no cost is never zeroed. */
+function ratesFromMargin(l: LineState, m: number): Partial<LineState> {
+  const patch: Partial<LineState> = {};
+  if (num(l.material_cost) > 0) patch.material_rate = round2s(priceFromMargin(num(l.material_cost), m));
+  if (num(l.labor_cost) > 0) patch.labor_rate = round2s(priceFromMargin(num(l.labor_cost), m));
+  return patch;
+}
+/** Is this a LABOR line (its own section)? Labor category, or labor-only money. */
+function isLaborLine(l: LineState): boolean {
+  if (l.category === "labor") return true;
+  const laborish = num(l.labor_cost) + num(l.labor_rate);
+  const materialish = num(l.material_cost) + num(l.material_rate);
+  return laborish > 0 && materialish === 0;
 }
 
 // Typical material waste by category (%), used as a smart default on pick.
@@ -224,6 +249,7 @@ export function EstimateBuilder({
     unit: "",
     category: "",
     from_stock: false,
+    margin_pct: "",
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -235,6 +261,10 @@ export function EstimateBuilder({
     estimate.job_description ?? "",
   );
   const [notes, setNotes] = useState(estimate.notes ?? "");
+  // Estimate-wide gross margin. Lines without their own override follow this.
+  const [overallMargin, setOverallMargin] = useState(
+    estimate.target_margin != null ? String(estimate.target_margin) : "40",
+  );
 
   const [options, setOptions] = useState<OptionState[]>(() => {
     const initial = (estimate.options ?? []).map((o) => ({
@@ -268,6 +298,7 @@ export function EstimateBuilder({
         unit: l.unit ?? "",
         category: l.category ?? "",
         from_stock: !!l.from_stock,
+        margin_pct: l.margin_pct != null ? String(l.margin_pct) : "",
       })),
     }));
     return initial.length
@@ -316,8 +347,8 @@ export function EstimateBuilder({
   const removeOption = (oi: number) =>
     setOptions((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== oi) : prev));
 
-  const addLine = (oi: number) => {
-    const line = emptyLine();
+  const addLine = (oi: number, asLabor = false) => {
+    const line: LineState = asLabor ? { ...emptyLine(), category: "labor" } : emptyLine();
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
@@ -349,6 +380,75 @@ export function EstimateBuilder({
           ? {
               ...o,
               lines: o.lines.map((l, j) => (j === li ? { ...l, ...patch } : l)),
+            }
+          : o,
+      ),
+    );
+
+  // Change the estimate-wide margin → re-price every line that doesn't have its
+  // own override. Overridden lines keep their margin.
+  const changeOverallMargin = (v: string) => {
+    setOverallMargin(v);
+    const m = num(v);
+    if (m <= 0 || m >= 100) return;
+    setOptions((prev) =>
+      prev.map((o) => ({
+        ...o,
+        lines: o.lines.map((l) => (l.margin_pct.trim() !== "" ? l : { ...l, ...ratesFromMargin(l, m) })),
+      })),
+    );
+  };
+
+  // Set/clear a line's margin override → re-price that line. "" = follow overall.
+  const changeLineMargin = (oi: number, li: number, v: string) =>
+    setOptions((prev) =>
+      prev.map((o, i) =>
+        i === oi
+          ? {
+              ...o,
+              lines: o.lines.map((l, j) => {
+                if (j !== li) return l;
+                const m = v.trim() === "" ? num(overallMargin) : num(v);
+                return { ...l, margin_pct: v, ...ratesFromMargin(l, m) };
+              }),
+            }
+          : o,
+      ),
+    );
+
+  // Edit a cost → re-derive that line's sell at its effective margin.
+  const changeLineCost = (oi: number, li: number, field: "material_cost" | "labor_cost", v: string) =>
+    setOptions((prev) =>
+      prev.map((o, i) =>
+        i === oi
+          ? {
+              ...o,
+              lines: o.lines.map((l, j) => {
+                if (j !== li) return l;
+                const merged = { ...l, [field]: v };
+                return { ...merged, ...ratesFromMargin(merged, effMargin(merged, num(overallMargin))) };
+              }),
+            }
+          : o,
+      ),
+    );
+
+  // Type a sell price directly → back-compute (and pin) that line's margin.
+  const changeLineSell = (oi: number, li: number, field: "material_rate" | "labor_rate", v: string) =>
+    setOptions((prev) =>
+      prev.map((o, i) =>
+        i === oi
+          ? {
+              ...o,
+              lines: o.lines.map((l, j) => {
+                if (j !== li) return l;
+                const merged = { ...l, [field]: v };
+                const cost = field === "material_rate" ? num(merged.material_cost) : num(merged.labor_cost);
+                const sell = num(v);
+                return cost > 0 && sell > 0
+                  ? { ...merged, margin_pct: round2s(marginPct(sell, cost)) }
+                  : merged;
+              }),
             }
           : o,
       ),
@@ -407,29 +507,32 @@ export function EstimateBuilder({
         i === oi
           ? {
               ...o,
-              lines: o.lines.map((l, j) =>
-                j === li
-                  ? {
-                      ...l,
-                      product_id: p.id,
-                      category: p.category ?? l.category,
-                      material_rate: round2(p.material_rate * factor),
-                      labor_rate: round2(p.labor_rate * factor),
-                      manufacturer: p.manufacturer ?? l.manufacturer,
-                      style: p.style ?? l.style,
-                      color: p.color ?? l.color,
-                      item_no: p.sku ?? l.item_no,
-                      measure_unit,
-                      // Suggest a typical waste % for the category (only if unset).
-                      waste_pct:
-                        l.waste_pct ||
-                        (WASTE_BY_CATEGORY[p.category]
-                          ? String(WASTE_BY_CATEGORY[p.category])
-                          : ""),
-                      description: l.description || p.name,
-                    }
-                  : l,
-              ),
+              lines: o.lines.map((l, j) => {
+                if (j !== li) return l;
+                const base: LineState = {
+                  ...l,
+                  product_id: p.id,
+                  category: p.category ?? l.category,
+                  // Catalog rates are OUR cost → set cost; the sell derives from
+                  // the effective margin (so a picked product isn't sold at cost).
+                  material_cost: round2(p.material_rate * factor),
+                  labor_cost: round2(p.labor_rate * factor),
+                  manufacturer: p.manufacturer ?? l.manufacturer,
+                  style: p.style ?? l.style,
+                  color: p.color ?? l.color,
+                  item_no: p.sku ?? l.item_no,
+                  measure_unit,
+                  // Only suggest waste when the quantity is area-driven (no
+                  // explicit qty) — avoids double-counting a qty that already
+                  // includes waste (e.g. from the questionnaire).
+                  waste_pct: l.quantity
+                    ? l.waste_pct
+                    : l.waste_pct ||
+                      (WASTE_BY_CATEGORY[p.category] ? String(WASTE_BY_CATEGORY[p.category]) : ""),
+                  description: l.description || p.name,
+                };
+                return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin))) };
+              }),
             }
           : o,
       ),
@@ -474,8 +577,10 @@ export function EstimateBuilder({
         unit: l.unit || null,
         category: l.category || null,
         from_stock: l.from_stock,
+        margin_pct: l.margin_pct || null,
       })),
     })),
+    target_margin: num(overallMargin) || null,
   });
 
   const save = (thenView: boolean) =>
@@ -533,31 +638,27 @@ export function EstimateBuilder({
     }
   };
 
-  // Running grand total across all options — shown in the always-visible bar.
-  const grand = options.reduce(
-    (acc, o) => {
-      const t = optionTotals(
-        o.lines.map((l) => ({
-          line_type: l.line_type,
-          sqft: l.sqft,
-          measure_unit: l.measure_unit,
-          material_rate: l.material_rate,
-          labor_rate: l.labor_rate,
-          installed_rate: l.installed_rate,
-          flat_amount: l.flat_amount,
-          waste_pct: l.waste_pct,
-          quantity: l.quantity,
-        })),
-        taxRate,
-      );
-      return {
-        subtotal: acc.subtotal + t.subtotal,
-        tax: acc.tax + t.tax,
-        total: acc.total + t.total,
-      };
-    },
-    { subtotal: 0, tax: 0, total: 0 },
+  // Running grand total — discount-aware (matches the estimate view / invoice)
+  // and shown in the always-visible bar, with the true blended margin.
+  const toCalc = (l: LineState) => ({
+    line_type: l.line_type,
+    sqft: l.sqft,
+    measure_unit: l.measure_unit,
+    material_rate: l.material_rate,
+    labor_rate: l.labor_rate,
+    installed_rate: l.installed_rate,
+    flat_amount: l.flat_amount,
+    waste_pct: l.waste_pct,
+    quantity: l.quantity,
+  });
+  const grand = optionTotalsWithDiscount(
+    options.flatMap((o) => o.lines.map(toCalc)),
+    taxRate,
+    estimate.discount_kind,
+    estimate.discount_value,
   );
+  const grandCost = options.flatMap((o) => o.lines).reduce((s, l) => s + lineOurCost(l), 0);
+  const grandMargin = marginPct(grand.subtotal, grandCost);
 
   return (
     <>
@@ -572,6 +673,29 @@ export function EstimateBuilder({
       {/* Estimate header */}
       <Card className="mb-6">
         <CardContent className="space-y-4 pt-6">
+          {/* Overall profit margin — drives every line without its own override */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">Overall profit margin</div>
+              <div className="text-xs text-muted-foreground">
+                Applies to every line without its own margin — change it to re-price them all at once.
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                step="0.5"
+                min="0"
+                max="99"
+                value={overallMargin}
+                onChange={(e) => changeOverallMargin(e.target.value)}
+                className="h-11 w-24 text-lg font-semibold"
+                aria-label="Overall profit margin percent"
+              />
+              <span className="text-lg font-semibold">%</span>
+            </div>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="title">Estimate title</Label>
@@ -694,8 +818,26 @@ export function EstimateBuilder({
                   ) : null}
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {option.lines.map((line, li) => {
+              <CardContent className="space-y-5">
+                {(["mat", "labor"] as const).map((section) => {
+                  const secLines = option.lines
+                    .map((line, li) => ({ line, li }))
+                    .filter(({ line }) => (section === "labor") === isLaborLine(line));
+                  const secSub = secLines.reduce((s, { line }) => s + lineTotal(toCalc(line)), 0);
+                  return (
+                    <div key={section} className="space-y-2">
+                      <div className="flex items-center justify-between border-b pb-1.5">
+                        <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+                          {section === "labor" ? "Labor" : "Materials"}
+                        </h3>
+                        <span className="text-sm font-semibold tabular-nums">{formatMoney(secSub)}</span>
+                      </div>
+                      {secLines.length === 0 ? (
+                        <p className="px-1 py-1 text-xs text-muted-foreground">
+                          {section === "labor" ? "No labor lines yet." : "No material lines yet."}
+                        </p>
+                      ) : null}
+                      {secLines.map(({ line, li }) => {
                   const summ = {
                     line_type: line.line_type,
                     sqft: line.sqft,
@@ -779,7 +921,11 @@ export function EstimateBuilder({
                       />
                     </div>
 
-                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <details className="mt-2 rounded-md border bg-card [&_summary]:list-none">
+                    <summary className="cursor-pointer px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
+                      Catalog details (manufacturer, style, color, item #)
+                    </summary>
+                    <div className="grid grid-cols-2 gap-2 border-t p-2.5 sm:grid-cols-4">
                       <Input
                         value={line.manufacturer}
                         onChange={(e) =>
@@ -813,6 +959,7 @@ export function EstimateBuilder({
                         className="h-9"
                       />
                     </div>
+                    </details>
 
                     <div className="mt-2 flex flex-wrap items-end gap-2">
                       <div>
@@ -980,32 +1127,59 @@ export function EstimateBuilder({
                       ) : null}
 
                       {line.line_type === "mat_labor" ? (
-                        <>
-                          <LabeledNumber
-                            label={`Our cost /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`}
-                            prefix="$"
-                            value={line.material_cost}
-                            onChange={(v) =>
-                              updateLine(oi, li, { material_cost: v })
-                            }
-                          />
-                          <LabeledNumber
-                            label={`Material /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`}
-                            prefix="$"
-                            value={line.material_rate}
-                            onChange={(v) =>
-                              updateLine(oi, li, { material_rate: v })
-                            }
-                          />
-                          <LabeledNumber
-                            label={`Labor /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`}
-                            prefix="$"
-                            value={line.labor_rate}
-                            onChange={(v) =>
-                              updateLine(oi, li, { labor_rate: v })
-                            }
-                          />
-                        </>
+                        (() => {
+                          const labor = isLaborLine(line);
+                          const unitLbl = line.unit || (line.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+                          const overriding = line.margin_pct.trim() !== "";
+                          return (
+                            <div className="w-full space-y-1.5 rounded-lg border bg-card p-3">
+                              <div className="grid grid-cols-3 gap-2">
+                                <LabeledNumber
+                                  label={`Our cost /${unitLbl}`}
+                                  prefix="$"
+                                  width="w-full"
+                                  value={labor ? line.labor_cost : line.material_cost}
+                                  onChange={(v) => changeLineCost(oi, li, labor ? "labor_cost" : "material_cost", v)}
+                                />
+                                <div>
+                                  <label className="mb-1 block text-xs text-muted-foreground">Margin %</label>
+                                  <Input
+                                    value={line.margin_pct}
+                                    onChange={(e) => changeLineMargin(oi, li, e.target.value)}
+                                    placeholder={overallMargin}
+                                    inputMode="decimal"
+                                    className="h-9"
+                                  />
+                                </div>
+                                <LabeledNumber
+                                  label={`Sell /${unitLbl}`}
+                                  prefix="$"
+                                  width="w-full"
+                                  value={labor ? line.labor_rate : line.material_rate}
+                                  onChange={(v) => changeLineSell(oi, li, labor ? "labor_rate" : "material_rate", v)}
+                                />
+                              </div>
+                              <div className="text-xs">
+                                {overriding ? (
+                                  <span className="text-primary">
+                                    Custom margin — overrides the overall {overallMargin}%.{" "}
+                                    <button type="button" className="underline underline-offset-2" onClick={() => changeLineMargin(oi, li, "")}>
+                                      Use overall
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">Following the overall {overallMargin}% margin.</span>
+                                )}
+                              </div>
+                              {!labor && num(line.labor_cost) > 0 ? (
+                                <div className="grid grid-cols-2 gap-2 border-t pt-2">
+                                  <LabeledNumber label="Labor cost" prefix="$" width="w-full" value={line.labor_cost} onChange={(v) => changeLineCost(oi, li, "labor_cost", v)} />
+                                  <LabeledNumber label="Labor sell" prefix="$" width="w-full" value={line.labor_rate} onChange={(v) => changeLineSell(oi, li, "labor_rate", v)} />
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })()
                       ) : null}
 
                       {line.line_type === "installed" ? (
@@ -1031,49 +1205,7 @@ export function EstimateBuilder({
                         />
                       ) : null}
 
-                      {(() => {
-                        const calc = {
-                          line_type: line.line_type,
-                          sqft: line.sqft,
-                          measure_unit: line.measure_unit,
-                          material_rate: line.material_rate,
-                          labor_rate: line.labor_rate,
-                          installed_rate: line.installed_rate,
-                          flat_amount: line.flat_amount,
-                          waste_pct: line.waste_pct,
-                          quantity: line.quantity,
-                        };
-                        const qty = lineQty(calc);
-                        const unitLabel = line.unit
-                          ? line.unit
-                          : line.measure_unit === "sqyd"
-                            ? "sq yd"
-                            : "sq ft";
-                        const sell = lineTotal(calc);
-                        const ourCost = lineOurCost(line);
-                        const m =
-                          sell > 0 ? ((sell - ourCost) / sell) * 100 : 0;
-                        return (
-                          <div className="ml-auto text-right">
-                            <div className="text-xs text-muted-foreground">
-                              Line total
-                            </div>
-                            <div className="font-semibold">
-                              {formatMoney(sell)}
-                            </div>
-                            {line.line_type !== "flat" && qty > 0 ? (
-                              <div className="text-xs tabular-nums text-muted-foreground">
-                                {qty.toFixed(qty < 100 ? 1 : 0)} {unitLabel}
-                              </div>
-                            ) : null}
-                            {ourCost > 0 ? (
-                              <div className="text-xs tabular-nums text-muted-foreground">
-                                cost {formatMoney(ourCost)} · {Math.round(m)}%
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })()}
+                      <div className="ml-auto" />
                       <Button
                         type="button"
                         variant="outline"
@@ -1098,15 +1230,17 @@ export function EstimateBuilder({
                     </div>
                   );
                 })}
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => addLine(oi)}
-                >
-                  <Plus className="size-3.5" /> Add line
-                </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => addLine(oi, section === "labor")}
+                      >
+                        <Plus className="size-3.5" /> Add {section === "labor" ? "labor" : "material"}
+                      </Button>
+                    </div>
+                  );
+                })}
 
                 {/* Option totals */}
                 <div className="ml-auto w-full max-w-xs space-y-1 border-t pt-3 text-sm">

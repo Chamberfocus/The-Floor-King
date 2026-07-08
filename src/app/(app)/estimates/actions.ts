@@ -93,6 +93,7 @@ export async function saveEstimate(
       presentation: input.presentation,
       notes: input.notes || null,
       job_description: input.job_description || null,
+      target_margin: input.target_margin != null && input.target_margin !== "" ? num(input.target_margin) : null,
     })
     .eq("id", estimateId);
   if (updateError) return { error: updateError.message };
@@ -147,6 +148,7 @@ export async function saveEstimate(
         quantity: toNumOrNull(line.quantity ?? null),
         unit: line.unit || null,
         from_stock: !!line.from_stock,
+        margin_pct: toNumOrNull(line.margin_pct ?? null),
       }));
       const { error: lineError } = await supabase
         .from("estimate_line_items")
