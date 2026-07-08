@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   MapPin,
   Calendar,
+  CalendarClock,
   User,
   Trash2,
   Play,
@@ -14,7 +15,9 @@ import {
   Ruler,
   FileText,
   Warehouse,
+  Star,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -22,7 +25,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { SearchPicker } from "@/components/ui/search-picker";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import {
   getJob,
@@ -35,24 +37,15 @@ import { getProfileNames } from "@/lib/data/customers";
 import { getJobCostAnalysis } from "@/lib/data/finance";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getJobOpenBalance } from "@/lib/data/invoices";
-import { InstallerCollect } from "./installer-collect";
 import { listJobLabor } from "@/lib/data/job-labor";
 import { getJobMaterials } from "@/lib/data/job-materials";
 import { getMeasurementDocuments, getJobPhotos } from "@/lib/data/documents";
 import { getJobSatisfaction } from "@/lib/data/jobs";
-import { JobPhotos } from "./job-photos";
-import { SatisfactionForm } from "./satisfaction-form";
 import { setJobShowPrices, setJobCollectsBalance } from "./wo-actions";
 import { JobMeasurementUpload } from "./measurement-upload";
-import {
-  getSchedulingSettings,
-  getInstallerSuggestions,
-} from "@/lib/data/scheduling";
-import { installDaysForJob } from "@/lib/scheduling";
-import { bookInstall } from "../actions";
 import { requireProfile } from "@/lib/auth";
 import { lineTotal } from "@/lib/estimate-calc";
-import { formatDate, formatMoney, to12, parseArrivalWindows } from "@/lib/format";
+import { formatDate, formatMoney, to12 } from "@/lib/format";
 import { JobForm } from "../job-form";
 import {
   setJobStatus,
@@ -61,18 +54,14 @@ import {
   postJobToBoard,
   unpostJobFromBoard,
   assignInstaller,
-  setJobCrew,
   setJobAddress,
   assignWarehousePerson,
   submitJobToWarehouse,
-  setJobArrivalWindow,
 } from "../actions";
-import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
+import { getJobCrew } from "@/lib/data/install-crews";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
 import { formatServiceAddress } from "@/lib/types";
 import { deleteJobFile } from "../file-actions";
-import { JobPhotoUpload } from "../job-photo-upload";
-import { SignaturePad } from "../signature-pad";
 import { JobLaborCard } from "./job-labor-card";
 import { JobMaterialsCard } from "./job-materials-card";
 import { getOrgSettings } from "@/lib/data/org";
@@ -157,27 +146,16 @@ export default async function JobPage({
     ? await getMeasurementDocuments(job.customer_id)
     : [];
 
-  // Smart install scheduling (staff + scheduler).
+  // Scheduling & crew assignment now live on the customer file (their home);
+  // the job page shows the booked schedule read-only and links back there.
   const canSchedule = isStaff || profile.role === "scheduler";
-  const schedSettings = canSchedule ? await getSchedulingSettings() : null;
-  const arrivalWindows = parseArrivalWindows(schedSettings?.arrival_windows);
   const installWindowLabel = job.arrival_window
     ? job.arrival_window
         .split("-")
         .map((t) => to12(t))
         .join("–")
     : null;
-  const installEst =
-    schedSettings && job.line_items.length
-      ? installDaysForJob(job.line_items, schedSettings)
-      : null;
-  const installerSuggestions =
-    schedSettings && installEst && installEst.days > 0
-      ? await getInstallerSuggestions(job.line_items, schedSettings)
-      : [];
 
-  // Install crews (your managed list — subcontractors + employees).
-  const installCrews = isStaff ? await listInstallCrews({ activeOnly: true }) : [];
   const serviceAddresses = isStaff
     ? await listServiceAddresses(job.customer_id)
     : [];
@@ -185,38 +163,21 @@ export default async function JobPage({
   const warehouseUsers = canAssignWarehouse ? await listWarehouseUsers() : [];
 
   // Optional: the assigned installer can collect the balance on site. Per-job
-  // override (null = inherit the global setting).
+  // override (null = inherit the global setting). The collection action itself
+  // lives on the crew's My Work page — here we only show the balance read-only.
   const bizSettings = await getBusinessSettings();
   const collectsBalance =
     job.installer_collects_balance ?? bizSettings.installer_collects_balance;
-  const showInstallerCollect = collectsBalance && isAssignedToMe && !isStaff;
-  const collectible = showInstallerCollect ? await getJobOpenBalance(id) : null;
   const jobCrew = isStaff ? await getJobCrew(job.id) : null;
 
-  // Work-order features: prices toggle, completed photos, satisfaction sign-off.
+  // Completion (photos, sign-off, balance) is captured by the crew on their My
+  // Work page; the job page shows it read-only.
   const showPrices = !!job.show_prices;
   const canInstallerTools = isStaff || isAssignedToMe;
   const jobPhotos = canInstallerTools ? await getJobPhotos(id) : [];
   const satisfaction = canInstallerTools ? await getJobSatisfaction(id) : null;
-
-  // Cohesion: your Team installers are assignable as crews right here — no need
-  // to re-enter them under Settings → Install Crews. Picking one auto-creates
-  // its employee crew. Dedupe by name so someone who's already a crew isn't
-  // listed twice.
-  const existingCrewNames = new Set(
-    installCrews.map((c) => (c.name || "").trim().toLowerCase()),
-  );
-  const teamInstallerOptions = users
-    .filter((u) => u.role === "crew")
-    .filter((u) => !existingCrewNames.has(u.name.trim().toLowerCase()))
-    .map((u) => ({ value: `user:${u.id}`, label: `${u.name} (team installer)` }));
-  const crewOptions = [
-    ...installCrews.map((c) => ({
-      value: c.id,
-      label: `${c.name}${c.kind === "subcontractor" ? " (sub)" : ""}`,
-    })),
-    ...teamInstallerOptions,
-  ];
+  const balanceInfo =
+    collectsBalance && canInstallerTools ? await getJobOpenBalance(id) : null;
 
   const siteParts = [
     job.site_street,
@@ -303,41 +264,14 @@ export default async function JobPage({
                   Arrives {installWindowLabel}
                 </div>
               ) : null}
-              {isStaff && job.scheduled_date ? (
-                <details className="mt-1">
-                  <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                    {installWindowLabel ? "Change window" : "Set arrival window"}
-                  </summary>
-                  <form
-                    action={setJobArrivalWindow}
-                    className="mt-1 flex flex-wrap items-center gap-1.5"
-                  >
-                    <input type="hidden" name="job_id" value={job.id} />
-                    <input
-                      type="hidden"
-                      name="customer_id"
-                      value={job.customer_id}
-                    />
-                    <select
-                      name="arrival_window"
-                      defaultValue={job.arrival_window ?? ""}
-                      className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
-                    >
-                      <option value="">No window</option>
-                      {arrivalWindows.map((w) => (
-                        <option
-                          key={`${w.start}-${w.end}`}
-                          value={`${w.start}-${w.end}`}
-                        >
-                          {w.label}
-                        </option>
-                      ))}
-                    </select>
-                    <Button type="submit" size="sm" variant="outline">
-                      Save
-                    </Button>
-                  </form>
-                </details>
+              {canSchedule ? (
+                <Link
+                  href={`/customers/${job.customer_id}#jobs`}
+                  className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  <CalendarClock className="size-3" />
+                  {job.scheduled_date ? "Reschedule on customer file" : "Schedule on customer file"}
+                </Link>
               ) : null}
             </div>
           </CardContent>
@@ -484,31 +418,161 @@ export default async function JobPage({
         </CardContent>
       </Card>
 
-      {/* Completed photos + customer satisfaction — installer + staff */}
+      {/* Job completion — read-only. The crew captures the sign-off, photos and
+          any on-site payment on their My Work page; this is the office's view. */}
       {canInstallerTools ? (
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle className="text-base">Completed job photos</CardTitle>
+            <CardTitle className="text-base">Job completion</CardTitle>
           </CardHeader>
-          <CardContent>
-            <JobPhotos jobId={job.id} photos={jobPhotos} />
+          <CardContent className="space-y-5 text-sm">
+            {/* Customer sign-off */}
+            <div>
+              <div className="mb-1.5 flex items-center gap-2 font-medium">
+                Customer sign-off
+                {satisfaction || signatures.length ? (
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                    Signed ✓
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    Pending
+                  </span>
+                )}
+              </div>
+              {satisfaction ? (
+                <div className="space-y-1.5">
+                  {satisfaction.rating ? (
+                    <div className="flex items-center gap-0.5">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <Star
+                          key={n}
+                          className={cn(
+                            "size-4",
+                            n <= (satisfaction.rating ?? 0)
+                              ? "fill-amber-400 text-amber-400"
+                              : "text-muted",
+                          )}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                  {satisfaction.comments ? (
+                    <p className="text-muted-foreground">“{satisfaction.comments}”</p>
+                  ) : null}
+                  {satisfaction.signature ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={satisfaction.signature}
+                      alt="Customer signature"
+                      className="h-20 rounded border bg-white"
+                    />
+                  ) : null}
+                  <p className="text-xs text-muted-foreground">
+                    {satisfaction.signed_name ? `${satisfaction.signed_name} · ` : ""}
+                    {new Date(satisfaction.signed_at).toLocaleString()}
+                  </p>
+                </div>
+              ) : signatures.length ? (
+                <div className="space-y-2">
+                  {signatures.map((s) => (
+                    <div key={s.id} className="rounded-md border p-2">
+                      {s.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={s.url} alt="Signature" className="h-20 bg-white" />
+                      ) : null}
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {s.signer_name ? `Signed by ${s.signer_name} · ` : ""}
+                        {formatDate(s.created_at)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground">
+                  Not signed yet — the crew captures this on their{" "}
+                  <span className="font-medium">My Work</span> page.
+                </p>
+              )}
+            </div>
+
+            {/* On-site balance (read-only) */}
+            {balanceInfo ? (
+              <div className="border-t pt-3">
+                <div className="mb-1 font-medium">Balance</div>
+                {!balanceInfo.hasInvoice ? (
+                  <p className="text-muted-foreground">No invoice yet.</p>
+                ) : balanceInfo.balance <= 0 ? (
+                  <p className="text-emerald-700 dark:text-emerald-400">Paid in full.</p>
+                ) : (
+                  <p>
+                    <span className="font-semibold">{formatMoney(balanceInfo.balance)}</span>{" "}
+                    <span className="text-muted-foreground">
+                      due — the installer can collect on site (My Work).
+                    </span>
+                  </p>
+                )}
+              </div>
+            ) : null}
+
+            {/* Completed photos (new completion uploads + legacy job files) */}
+            <div className="border-t pt-3">
+              <div className="mb-1.5 font-medium">
+                Completed photos
+                {jobPhotos.length + photos.length
+                  ? ` (${jobPhotos.length + photos.length})`
+                  : ""}
+              </div>
+              {jobPhotos.length + photos.length === 0 ? (
+                <p className="text-muted-foreground">No completed photos yet.</p>
+              ) : (
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {jobPhotos.map((p) =>
+                    p.url ? (
+                      <a
+                        key={p.id}
+                        href={p.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block overflow-hidden rounded-lg border"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.url} alt={p.name} className="aspect-square w-full object-cover" />
+                      </a>
+                    ) : null,
+                  )}
+                  {photos.map((f) =>
+                    f.url ? (
+                      <div key={f.id} className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={f.url}
+                          alt={f.caption ?? "Job photo"}
+                          className="aspect-square w-full rounded-lg border object-cover"
+                        />
+                        {isStaff ? (
+                          <form action={deleteJobFile} className="absolute right-1 top-1">
+                            <input type="hidden" name="id" value={f.id} />
+                            <input type="hidden" name="job_id" value={job.id} />
+                            <input type="hidden" name="path" value={f.path} />
+                            <Button
+                              type="submit"
+                              variant="destructive"
+                              size="icon-xs"
+                              aria-label="Delete photo"
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </form>
+                        ) : null}
+                      </div>
+                    ) : null,
+                  )}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
-      ) : null}
-
-      {canInstallerTools ? (
-        <div className="mb-6">
-          <SatisfactionForm jobId={job.id} existing={satisfaction} />
-        </div>
-      ) : null}
-
-      {/* Installer on-site collection (opt-in) */}
-      {showInstallerCollect && collectible ? (
-        <InstallerCollect
-          jobId={id}
-          hasInvoice={collectible.hasInvoice}
-          balance={collectible.balance}
-        />
       ) : null}
 
       {/* Measurements & diagrams — big & clear for the installers */}
@@ -562,168 +626,6 @@ export default async function JobPage({
                 <p className="mt-3 text-xs text-muted-foreground">
                   Tap a diagram to open it full-size.
                 </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {/* Smart install scheduling */}
-      {schedSettings && installEst ? (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">Smart install scheduling</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {installEst.days === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Add material types &amp; quantities to the estimate so the
-                scheduler can size this job.
-              </p>
-            ) : (
-              <>
-                <div>
-                  <div className="text-sm">
-                    Estimated{" "}
-                    <span className="font-semibold">
-                      {installEst.days} day{installEst.days === 1 ? "" : "s"}
-                    </span>{" "}
-                    based on your crew capacity:
-                  </div>
-                  <ul className="mt-1 text-xs text-muted-foreground">
-                    {installEst.breakdown.map((b, i) => (
-                      <li key={i}>
-                        • {b.label}: {b.amount.toFixed(0)} {b.unit} →{" "}
-                        {b.days.toFixed(2)} day(s)
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="space-y-2">
-                  <div className="text-sm font-medium">Next available crews</div>
-                  {installerSuggestions.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No installers found. Add crew under Team.
-                    </p>
-                  ) : (
-                    installerSuggestions.slice(0, 4).map((sug) => (
-                      <div
-                        key={sug.installerId}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
-                      >
-                        <div>
-                          <span className="font-medium">{sug.name}</span>{" "}
-                          <span className="text-muted-foreground">
-                            — {sug.days} day{sug.days === 1 ? "" : "s"},{" "}
-                            {formatDate(sug.start)}
-                            {sug.end !== sug.start ? ` → ${formatDate(sug.end)}` : ""}
-                          </span>
-                        </div>
-                        <form action={bookInstall} className="flex items-center gap-1.5">
-                          <input type="hidden" name="job_id" value={job.id} />
-                          <input
-                            type="hidden"
-                            name="installer_id"
-                            value={sug.installerId}
-                          />
-                          <input type="hidden" name="start" value={sug.start} />
-                          <input type="hidden" name="end" value={sug.end} />
-                          <select
-                            name="arrival_window"
-                            defaultValue={job.arrival_window ?? ""}
-                            aria-label="Arrival window"
-                            className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
-                          >
-                            <option value="">No window</option>
-                            {arrivalWindows.map((w) => (
-                              <option
-                                key={`${w.start}-${w.end}`}
-                                value={`${w.start}-${w.end}`}
-                              >
-                                {w.label}
-                              </option>
-                            ))}
-                          </select>
-                          <Button type="submit" size="sm" variant="outline">
-                            Book
-                          </Button>
-                        </form>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                {/* Manual booking */}
-                <details className="border-t pt-3">
-                  <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
-                    Schedule manually
-                  </summary>
-                  <form
-                    action={bookInstall}
-                    className="mt-2 flex flex-wrap items-end gap-2"
-                  >
-                    <input type="hidden" name="job_id" value={job.id} />
-                    <div>
-                      <label className="mb-1 block text-xs text-muted-foreground">
-                        Installer
-                      </label>
-                      <SearchPicker
-                        name="installer_id"
-                        defaultValue={job.assigned_to ?? ""}
-                        placeholder="— Choose —"
-                        options={users
-                          .filter((u) => u.role === "crew")
-                          .map((u) => ({ value: u.id, label: u.name }))}
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs text-muted-foreground">
-                        Start
-                      </label>
-                      <input
-                        type="date"
-                        name="start"
-                        required
-                        defaultValue={job.scheduled_date ?? ""}
-                        className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs text-muted-foreground">
-                        End
-                      </label>
-                      <input
-                        type="date"
-                        name="end"
-                        defaultValue={job.scheduled_end ?? ""}
-                        className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs text-muted-foreground">
-                        Arrival window
-                      </label>
-                      <select
-                        name="arrival_window"
-                        defaultValue={job.arrival_window ?? ""}
-                        className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-                      >
-                        <option value="">No window</option>
-                        {arrivalWindows.map((w) => (
-                          <option
-                            key={`${w.start}-${w.end}`}
-                            value={`${w.start}-${w.end}`}
-                          >
-                            {w.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <Button type="submit" size="sm">
-                      Book manually
-                    </Button>
-                  </form>
-                </details>
               </>
             )}
           </CardContent>
@@ -843,63 +745,6 @@ export default async function JobPage({
               <p className="text-xs text-muted-foreground">
                 No warehouse logins yet — add one under Settings → Team.
               </p>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {/* Install crew — assign from your managed crew list (subs + employees) */}
-      {isStaff ? (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">Install crew</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {jobCrew ? (
-              <p className="mb-2 text-sm">
-                Assigned to <span className="font-semibold">{jobCrew.name}</span>
-                <span className="text-muted-foreground">
-                  {" "}· {jobCrew.kind === "employee" ? "Employee" : "Subcontractor"}
-                  {jobCrew.phone ? ` · ${jobCrew.phone}` : ""}
-                </span>
-              </p>
-            ) : null}
-            {crewOptions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No installers yet. Add a{" "}
-                <Link href="/settings/team" className="text-primary underline">
-                  team installer
-                </Link>{" "}
-                or a{" "}
-                <Link href="/settings/install-crews" className="text-primary underline">
-                  subcontractor crew
-                </Link>{" "}
-                to assign one here.
-              </p>
-            ) : (
-              <form action={setJobCrew} className="flex flex-wrap items-end gap-2">
-                <input type="hidden" name="job_id" value={job.id} />
-                <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">
-                    Assign a crew
-                  </label>
-                  <SearchPicker
-                    name="crew_id"
-                    defaultValue={jobCrew?.id ?? ""}
-                    placeholder="— Choose a crew —"
-                    options={crewOptions}
-                  />
-                </div>
-                <Button type="submit" size="sm">
-                  {jobCrew ? "Update crew" : "Assign crew"}
-                </Button>
-                <Link
-                  href="/settings/install-crews"
-                  className="pb-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline"
-                >
-                  Manage crews
-                </Link>
-              </form>
             )}
           </CardContent>
         </Card>
@@ -1029,77 +874,6 @@ export default async function JobPage({
           </CardContent>
         </Card>
       ) : null}
-
-      {/* Photos & sign-off */}
-      <Card className="mb-6">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">Photos &amp; sign-off</CardTitle>
-          <JobPhotoUpload jobId={job.id} />
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {photos.length ? (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {photos.map((f) => (
-                <div key={f.id} className="relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {f.url ? (
-                    <img
-                      src={f.url}
-                      alt={f.caption ?? "Job photo"}
-                      className="aspect-square w-full rounded-md border object-cover"
-                    />
-                  ) : null}
-                  {isStaff ? (
-                    <form
-                      action={deleteJobFile}
-                      className="absolute right-1 top-1"
-                    >
-                      <input type="hidden" name="id" value={f.id} />
-                      <input type="hidden" name="job_id" value={job.id} />
-                      <input type="hidden" name="path" value={f.path} />
-                      <Button
-                        type="submit"
-                        variant="destructive"
-                        size="icon-xs"
-                        aria-label="Delete photo"
-                      >
-                        <Trash2 className="size-3" />
-                      </Button>
-                    </form>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No photos yet. Tap &ldquo;Upload photos&rdquo; to add job-site
-              pictures (works with your phone camera).
-            </p>
-          )}
-
-          <div className="border-t pt-4">
-            <div className="mb-2 text-sm font-medium">Customer sign-off</div>
-            {signatures.length ? (
-              <div className="space-y-2">
-                {signatures.map((s) => (
-                  <div key={s.id} className="rounded-md border p-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {s.url ? (
-                      <img src={s.url} alt="Signature" className="h-24 bg-white" />
-                    ) : null}
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {s.signer_name ? `Signed by ${s.signer_name} · ` : ""}
-                      {formatDate(s.created_at)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <SignaturePad jobId={job.id} />
-            )}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Staff editing */}
       {isStaff ? (

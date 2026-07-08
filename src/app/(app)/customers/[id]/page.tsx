@@ -54,12 +54,14 @@ import {
   listPurchaseOrdersForCustomer,
   getCustomerStockPulls,
 } from "@/lib/data/purchase-orders";
-import { getJob } from "@/lib/data/jobs";
+import { getJob, listAssignableUsers } from "@/lib/data/jobs";
 import {
   getSchedulingSettings,
   getInstallerSuggestions,
 } from "@/lib/data/scheduling";
 import { installDaysForJob } from "@/lib/scheduling";
+import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
+import { InstallSchedule } from "./install-schedule";
 import { CustomerDocuments } from "./customer-documents";
 import {
   listWorkflowStages,
@@ -269,6 +271,59 @@ export default async function CustomerPage({
           : [];
       installPop = { jobId: targetJob.id, days: est.days, suggestions };
     }
+  }
+
+  // Install smart-scheduler for the active job — lives here on the customer file
+  // (its home). Computed only for the schedulable job to keep the page light.
+  let installScheduleProps: Parameters<typeof InstallSchedule>[0] | null = null;
+  if (schedulableJob) {
+    const [jobDetail, settings, installCrews, jobCrew, assignable] =
+      await Promise.all([
+        getJob(schedulableJob.id),
+        getSchedulingSettings(),
+        listInstallCrews({ activeOnly: true }),
+        getJobCrew(schedulableJob.id),
+        listAssignableUsers(),
+      ]);
+    const lineItems = jobDetail?.line_items ?? [];
+    const est = lineItems.length ? installDaysForJob(lineItems, settings) : null;
+    const suggestions =
+      est && est.days > 0
+        ? await getInstallerSuggestions(lineItems, settings)
+        : [];
+    const crewUsers = assignable.filter((u) => u.role === "crew");
+    const existingCrewNames = new Set(
+      installCrews.map((c) => (c.name || "").trim().toLowerCase()),
+    );
+    const crewOptions = [
+      ...installCrews.map((c) => ({
+        value: c.id,
+        label: `${c.name}${c.kind === "subcontractor" ? " (sub)" : ""}`,
+      })),
+      ...crewUsers
+        .filter((u) => !existingCrewNames.has(u.name.trim().toLowerCase()))
+        .map((u) => ({ value: `user:${u.id}`, label: `${u.name} (team installer)` })),
+    ];
+    installScheduleProps = {
+      jobId: schedulableJob.id,
+      customerId: id,
+      jobTitle: schedulableJob.title ?? null,
+      schedule: {
+        date: schedulableJob.scheduled_date ?? null,
+        endDate: schedulableJob.scheduled_end ?? null,
+        window: schedulableJob.arrival_window ?? null,
+        installerId: schedulableJob.assigned_to ?? null,
+        installerName: schedulableJob.assigned_to
+          ? (names[schedulableJob.assigned_to] ?? null)
+          : null,
+      },
+      installEst: est,
+      suggestions,
+      installerUsers: crewUsers.map((u) => ({ value: u.id, label: u.name })),
+      crewOptions,
+      currentCrew: jobCrew,
+      arrivalWindows,
+    };
   }
 
   // Identity-band bits: address for the maps chip, owner initials, sub line.
@@ -774,6 +829,11 @@ export default async function CustomerPage({
 
           {/* Jobs */}
           <TabSection tab="jobs">
+          {installScheduleProps ? (
+            <div className="mb-4">
+              <InstallSchedule {...installScheduleProps} />
+            </div>
+          ) : null}
           <Card id="jobs" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Jobs</CardTitle>

@@ -20,6 +20,7 @@ import {
   ShoppingBag,
   Bookmark,
   Hammer,
+  HardHat,
   type LucideIcon,
 } from "lucide-react";
 import { SCHEDULE_ROLES, type UserRole } from "@/lib/types";
@@ -58,6 +59,7 @@ const JOBS_ROLES: UserRole[] = [
 
 /** Primary navigation. Items are filtered by the current user's role. */
 export const NAV_ITEMS: NavItem[] = [
+  { label: "My Work", href: "/installer", icon: HardHat, roles: ["crew", "admin", "office"] },
   { label: "Business Pulse", href: "/pulse", icon: Activity, roles: ADMIN },
   { label: "Customers", href: "/customers", icon: Users, roles: SALES_VIEW },
   { label: "Pipeline", href: "/pipeline", icon: Route, roles: OFFICE_PLUS },
