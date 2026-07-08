@@ -13,6 +13,7 @@ import {
   Megaphone,
   Ruler,
   FileText,
+  Warehouse,
 } from "lucide-react";
 import {
   Card,
@@ -804,8 +805,16 @@ export default async function JobPage({
                   ? "Accepted — being staged."
                   : job.warehouse_submitted_at
                     ? "Submitted to the warehouse — awaiting acceptance."
-                    : "Sends to the warehouse automatically once the install is scheduled."}
+                    : "Not sent yet. Sends automatically once the install is scheduled, or start prep now."}
             </p>
+            {!job.warehouse_submitted_at ? (
+              <form action={submitJobToWarehouse}>
+                <input type="hidden" name="id" value={job.id} />
+                <Button type="submit" size="sm">
+                  <Warehouse className="size-4" /> Send to warehouse now
+                </Button>
+              </form>
+            ) : null}
             {warehouseUsers.length > 0 ? (
               <form action={assignWarehousePerson} className="flex flex-wrap items-end gap-2">
                 <input type="hidden" name="job_id" value={job.id} />

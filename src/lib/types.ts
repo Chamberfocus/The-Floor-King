@@ -667,6 +667,7 @@ export interface Job {
   scheduled_end: string | null;
   arrival_window?: string | null; // install arrival window "HH:MM-HH:MM" (migration 0066)
   assigned_to: string | null;
+  assigned_crew_id?: string | null; // managed install crew (parallel to assigned_to)
   site_street: string | null;
   site_city: string | null;
   site_state: string | null;

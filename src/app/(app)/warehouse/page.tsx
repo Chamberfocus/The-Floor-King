@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/page-header";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { requireProfile } from "@/lib/auth";
 import { listWarehouseJobs } from "@/lib/data/jobs";
+import { getJobMaterials } from "@/lib/data/job-materials";
 import { listOrders } from "@/lib/data/orders";
 import { reportOrderStock } from "../orders/actions";
 import {
@@ -64,7 +65,26 @@ export default async function WarehousePage() {
     redirect("/");
   }
 
-  const jobs = await listWarehouseJobs();
+  const jobsRaw = await listWarehouseJobs();
+  // The real sourcing (pull-from-stock vs order, with cut sizes) per job.
+  const sourcedArr = await Promise.all(jobsRaw.map((j) => getJobMaterials(j.id)));
+  const sourced = new Map(jobsRaw.map((j, i) => [j.id, sourcedArr[i]]));
+  // Ready to prep (sent to warehouse, not yet staged) first; then coming up;
+  // then already staged.
+  const stagedSet = new Set(["staged", "out_for_delivery", "delivered", "picked_up"]);
+  const prepRank = (j: (typeof jobsRaw)[number]) =>
+    stagedSet.has(j.warehouse_status) ? 3 : j.warehouse_submitted_at ? 0 : 1;
+  const jobs = [...jobsRaw].sort((a, b) => prepRank(a) - prepRank(b));
+  const cutOf = (m: { lengthIn: number | null; widthIn: number | null }) => {
+    const ft = (t: number | null) => {
+      const v = Number(t) || 0;
+      if (v <= 0) return "";
+      const f = Math.floor(v / 12);
+      const inch = Math.round(v % 12);
+      return inch ? `${f}' ${inch}"` : `${f}'`;
+    };
+    return m.lengthIn && m.widthIn ? `✂ ${ft(m.widthIn)} × ${ft(m.lengthIn)}` : "";
+  };
   const org = await getOrgSettings();
   const stockChecks = (await listOrders()).filter(
     (o) => o.status === "submitted",
@@ -187,6 +207,13 @@ export default async function WarehousePage() {
                       {j.title ? ` — ${j.title}` : ""}
                     </CardTitle>
                     <div className="flex items-center gap-2">
+                      {stagedSet.has(j.warehouse_status) ? (
+                        <span className="rounded-md bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">Staged ✓</span>
+                      ) : j.warehouse_submitted_at ? (
+                        <span className="rounded-md bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">Ready to prep</span>
+                      ) : (
+                        <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">Not sent yet</span>
+                      )}
                       <PrintStagingButton id={j.id} />
                       <span
                         className={cn(
@@ -216,33 +243,42 @@ export default async function WarehousePage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Materials */}
-                  <div>
-                    <div className="mb-1 text-sm font-medium">Materials</div>
-                    {j.materials.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        No material list linked to this job.
-                      </p>
-                    ) : (
-                      <ul className="text-sm">
-                        {j.materials.map((m, i) => (
-                          <li key={i} className="flex justify-between py-0.5">
-                            <span>
-                              {m.room ? `${m.room} — ` : ""}
-                              {m.description || "Material"}
-                            </span>
-                            <span className="text-muted-foreground">
-                              {m.quantity && m.quantity > 0
-                                ? `${Math.round(m.quantity * 100) / 100} ${m.unit || ""}`.trim()
-                                : m.sqft
-                                  ? `${m.sqft} sq ft`
-                                  : ""}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                  {/* Materials — split by how we source them */}
+                  {(() => {
+                    const lines = sourced.get(j.id)?.lines ?? [];
+                    const pull = lines.filter((l) => l.resolvedSource === "stock");
+                    const order = lines.filter((l) => l.resolvedSource === "order");
+                    if (!lines.length) {
+                      return <p className="text-sm text-muted-foreground">No material list linked to this job.</p>;
+                    }
+                    const group = (title: string, cls: string, items: typeof lines) =>
+                      items.length ? (
+                        <div>
+                          <div className={cn("mb-1 text-xs font-bold uppercase tracking-wide", cls)}>{title}</div>
+                          <ul className="text-sm">
+                            {items.map((m) => (
+                              <li key={m.lineId} className="flex flex-wrap items-baseline justify-between gap-x-2 py-0.5">
+                                <span className="min-w-0">
+                                  {m.room ? `${m.room} — ` : ""}
+                                  {m.productName || m.description || "Material"}
+                                  {cutOf(m) ? <span className="ml-1 rounded bg-blue-100 px-1.5 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">{cutOf(m)}</span> : null}
+                                  {m.resolvedSource === "order" && m.supplier ? <span className="ml-1 text-xs text-muted-foreground">· {m.supplier}</span> : null}
+                                </span>
+                                <span className="shrink-0 font-medium tabular-nums">
+                                  {m.qty > 0 ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim() : ""}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null;
+                    return (
+                      <div className="space-y-3">
+                        {group("Pull from stock", "text-amber-600", pull)}
+                        {group("Order in", "text-blue-600", order)}
+                      </div>
+                    );
+                  })()}
 
                   {/* Staging / crew notes (e.g. carry-over "what to stage") */}
                   {j.notes ? (
