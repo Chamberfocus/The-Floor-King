@@ -247,6 +247,54 @@ export interface Activity {
   created_at: string;
 }
 
+// --- Data-driven estimate questionnaire ------------------------------------
+// Questions live in `estimate_questions` and are managed in Settings. Each
+// question's `kind` decides how it's answered; `config` decides how the answer
+// maps into estimate line items (so the flow + pricing are code-free to edit).
+export type EstimateQuestionKind =
+  | "areas" // list rooms with measurements → the area that feeds quantities
+  | "product" // pick a catalog product → a material line (unit-correct)
+  | "yesno" // toggle → optionally emit one line
+  | "number" // a count/amount → qty × rate line (optional rate choices)
+  | "choice" // single/multi choice → each picked option can emit a line
+  | "text"; // free note → appended to the job notes
+
+/** How one answer (or one chosen option) becomes a line item. */
+export interface EstimateEmit {
+  role: "material" | "labor"; // material → PO-eligible; labor → work order
+  category: string; // ProductCategory for material, "labor" for labor
+  description: string; // the line label on the estimate
+  unit: string; // "sqft" | "sqyd" | "lnft" | "each" | "step" | "flat"
+  per?: "area" | "flat" | "each"; // area → qty from measurements; else qty = 1
+  cost: number; // our per-unit cost (sells at the target margin)
+}
+
+export interface EstimateQuestionConfig {
+  // product
+  category?: string; // catalog category to bias the picker + billing unit
+  ask_source?: boolean; // ask Stock vs Order (+ vendor) for this material
+  // yesno / number / choice
+  emit?: EstimateEmit | null;
+  default?: boolean; // yesno: preselect Yes
+  rate_options?: { label: string; cost: number }[]; // number: pick the rate
+  multi?: boolean; // choice: allow multiple
+  options?: { label: string; emit?: EstimateEmit | null }[]; // choice options
+  note?: boolean; // text: (always a note) — reserved
+}
+
+export interface EstimateQuestion {
+  id: string;
+  section: string;
+  label: string;
+  help: string | null;
+  kind: EstimateQuestionKind;
+  config: EstimateQuestionConfig;
+  required: boolean;
+  active: boolean;
+  position: number;
+  created_at: string;
+}
+
 export const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
   new: "New",
   contacted: "Contacted",

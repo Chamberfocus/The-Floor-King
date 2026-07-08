@@ -1,37 +1,32 @@
 "use client";
 
 import { useState } from "react";
-import { ListChecks, Zap, Sparkles } from "lucide-react";
+import { ClipboardList, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { GuidedWizard } from "./guided-wizard";
-import { QuickEstimate } from "./quick-estimate";
+import type { EstimateQuestion } from "@/lib/types";
+import { Questionnaire } from "./questionnaire";
 import { AiEstimate } from "./ai-estimate";
 
-type Mode = "wizard" | "quick" | "ai";
+type Mode = "questionnaire" | "ai";
 
 /**
- * Three ways to build an estimate:
- *  - Wizard : the guided, step-by-step builder that covers every base.
- *  - Quick  : one screen for a fast quote.
- *  - AI     : describe the job in plain English → itemized draft to review.
- * All save the identical estimate and flow on to invoice / PO / job.
+ * One estimate builder, two input paths — both produce the identical estimate
+ * (same line items → invoice / PO / work order):
+ *  - Questionnaire : a guided, data-driven Q&A (managed in Settings).
+ *  - AI            : describe the whole job in plain English.
  * Each stays mounted, so switching never loses what you entered.
  */
 export function BuilderSwitch(props: {
   customerId: string;
   customerName: string;
   targetMargin: number;
-  freightPct: number;
   serviceAddresses: { id: string; label: string }[];
+  questions: EstimateQuestion[];
 }) {
-  const [mode, setMode] = useState<Mode>("wizard");
+  const [mode, setMode] = useState<Mode>("questionnaire");
   const [serviceAddressId, setServiceAddressId] = useState("");
 
-  const Tab = ({
-    value, icon: Icon, label, hint,
-  }: {
-    value: Mode; icon: typeof Zap; label: string; hint: string;
-  }) => (
+  const Tab = ({ value, icon: Icon, label, hint }: { value: Mode; icon: typeof Sparkles; label: string; hint: string }) => (
     <button
       type="button"
       onClick={() => setMode(value)}
@@ -61,36 +56,24 @@ export function BuilderSwitch(props: {
           >
             <option value="">Primary address</option>
             {props.serviceAddresses.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label}
-              </option>
+              <option key={a.id} value={a.id}>{a.label}</option>
             ))}
           </select>
         </div>
       ) : null}
 
-      <div className="grid gap-2 sm:grid-cols-3">
-        <Tab value="wizard" icon={ListChecks} label="Estimate builder" hint="Step-by-step — covers every base" />
-        <Tab value="quick" icon={Zap} label="Quick estimate" hint="One screen — fast quote" />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Tab value="questionnaire" icon={ClipboardList} label="Guided questionnaire" hint="Answer a few questions" />
         <Tab value="ai" icon={Sparkles} label="Describe the job (AI)" hint="Plain English → itemized draft" />
       </div>
 
-      <div className={mode === "wizard" ? "" : "hidden"}>
-        <GuidedWizard
+      <div className={mode === "questionnaire" ? "" : "hidden"}>
+        <Questionnaire
           customerId={props.customerId}
           customerName={props.customerName}
           targetMargin={props.targetMargin}
-          freightPct={props.freightPct}
           serviceAddressId={serviceAddressId}
-        />
-      </div>
-      <div className={mode === "quick" ? "" : "hidden"}>
-        <QuickEstimate
-          customerId={props.customerId}
-          customerName={props.customerName}
-          targetMargin={props.targetMargin}
-          freightPct={props.freightPct}
-          serviceAddressId={serviceAddressId}
+          questions={props.questions}
         />
       </div>
       <div className={mode === "ai" ? "" : "hidden"}>

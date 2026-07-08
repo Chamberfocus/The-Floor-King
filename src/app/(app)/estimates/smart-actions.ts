@@ -120,6 +120,7 @@ export interface SmartEstimateInput {
   print?: boolean;
   send?: boolean;
   stash?: boolean; // "save for later" — keep as draft and land on the hub
+  openEdit?: boolean; // land on the edit builder to review (questionnaire/AI paths)
 }
 
 export interface SmartResult {
@@ -219,6 +220,10 @@ export async function createSmartEstimate(
 
   // Save for later: it's already a draft — just go to the hub to resume anytime.
   if (input.stash) redirect("/saved");
+
+  // Questionnaire / AI paths: open the edit builder to review & adjust the
+  // itemized draft before finalizing (never auto-sends).
+  if (input.openEdit) redirect(`/estimates/${est.id}/edit`);
 
   // Save & send: email the customer, advance their stage, then land on the
   // dashboard. Otherwise land on the finished quote.

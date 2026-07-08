@@ -6,8 +6,8 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getCustomer } from "@/lib/data/customers";
 import { getBusinessSettings } from "@/lib/data/business-settings";
-import { getOrgSettings } from "@/lib/data/org";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
+import { listEstimateQuestions } from "@/lib/data/estimate-questions";
 import { formatServiceAddress } from "@/lib/types";
 import { BuilderSwitch } from "../builder-switch";
 
@@ -25,11 +25,11 @@ export default async function SmartEstimatePage({
   const customer = await getCustomer(customerId);
   if (!customer) redirect("/customers");
   const settings = await getBusinessSettings();
-  const org = await getOrgSettings();
   const serviceAddresses = (await listServiceAddresses(customer.id)).map((a) => ({
     id: a.id,
     label: a.label || formatServiceAddress(a),
   }));
+  const questions = await listEstimateQuestions({ activeOnly: true });
 
   return (
     <div className="mx-auto max-w-5xl pb-20">
@@ -41,14 +41,14 @@ export default async function SmartEstimatePage({
       </Link>
       <PageHeader
         title="Build an estimate"
-        description="The step-by-step builder covers every base; Quick estimate is a one-screen fast quote. Both price to your margin and flow straight to the invoice, PO, and work order."
+        description="Answer a few guided questions, or describe the job in plain English. Either way you get one itemized estimate that flows straight to the invoice, PO, and work order."
       />
       <BuilderSwitch
         customerId={customer.id}
         customerName={customer.full_name}
         targetMargin={settings.target_gross_margin_pct || 40}
-        freightPct={org.freight_markup_pct ?? 0}
         serviceAddresses={serviceAddresses}
+        questions={questions}
       />
     </div>
   );

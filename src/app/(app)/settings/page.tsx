@@ -60,6 +60,12 @@ const SECTIONS = [
     desc: "The intake questions your team asks new leads.",
   },
   {
+    href: "/settings/estimate-questions",
+    icon: ListChecks,
+    title: "Estimate questionnaire",
+    desc: "The guided estimate builder's questions — add, edit, reorder, and map each answer to a line item.",
+  },
+  {
     href: "/settings/pricing",
     icon: DollarSign,
     title: "Default pricing",
