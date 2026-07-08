@@ -477,6 +477,8 @@ export interface EstimateLineItem {
   category: ProductCategory | null;
   from_stock?: boolean; // pulled from our stock → excluded from the PO
   margin_pct?: number | null; // per-line margin override (%); null = follow overall
+  order_as_roll?: boolean; // PO shows one roll; work order keeps the cut sizes
+  roll_width_ft?: number | null; // broadloom width (12 / 15) for the roll math
 }
 
 export interface EstimateOption {

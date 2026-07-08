@@ -103,7 +103,7 @@ function lineSpec(l: {
   const unit = l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft");
   const qty = q > 0 ? `${Math.round(q * 100) / 100} ${unit}` : l.sqft ? `${l.sqft} sq ft` : "";
   const cut =
-    l.length_in && l.width_in ? `cut ${ftIn(l.width_in)} × ${ftIn(l.length_in)}` : "";
+    l.length_in && l.width_in ? `${ftIn(l.width_in)} × ${ftIn(l.length_in)}` : "";
   const sqyd = q > 0 ? (unit.toLowerCase().includes("yd") ? q : q / 9) : 0;
   const rolls = l.category === "underlayment" && sqyd > 0 ? Math.ceil(sqyd / PAD_ROLL_SQYD) : 0;
   return { qty, cut, rolls };
@@ -415,9 +415,13 @@ export default async function JobPage({
                       const spec = lineSpec(l);
                       if (!spec.qty && !spec.cut && !spec.rolls) return null;
                       return (
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                           {spec.qty ? <span className="font-medium text-foreground">{spec.qty}</span> : null}
-                          {spec.cut ? <span>· {spec.cut}</span> : null}
+                          {spec.cut ? (
+                            <span className="rounded bg-blue-100 px-2 py-0.5 font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                              ✂ Cut {spec.cut}
+                            </span>
+                          ) : null}
                           {spec.rolls ? (
                             <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
                               {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd

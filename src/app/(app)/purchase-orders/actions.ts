@@ -156,20 +156,21 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
     if (error || !po) continue;
     if (!firstPoId) firstPoId = po.id as string;
 
-    const items = glines.map((l, i) => {
-      // PO cost = our cost (saved material_cost), else the product's cost,
-      // never the customer sell rate.
-      const unitCost =
-        (l.material_cost ?? 0) > 0
-          ? (l.material_cost ?? 0)
-          : l.product_id
-            ? (productCost.get(l.product_id) ?? 0)
-            : 0;
-      const base =
-        l.description ||
-        (l.product_id ? productName.get(l.product_id) : null) ||
-        l.room ||
-        "Material";
+    const costOf = (l: EstimateLineItem) =>
+      (l.material_cost ?? 0) > 0
+        ? (l.material_cost ?? 0)
+        : l.product_id
+          ? (productCost.get(l.product_id) ?? 0)
+          : 0;
+    const nameOf = (l: EstimateLineItem) =>
+      l.description || (l.product_id ? productName.get(l.product_id) : null) || l.room || "Material";
+
+    // Lines flagged "order as roll" consolidate into one roll per product/width;
+    // everyone else is ordered as its individual cut.
+    const cutLines = glines.filter((l) => !l.order_as_roll);
+    const rollLines = glines.filter((l) => l.order_as_roll);
+
+    const items = cutLines.map((l, i) => {
       // Carpet & any measured line: show the cut size to order, not just yards.
       const dims =
         l.length_in && l.width_in
@@ -179,17 +180,51 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
         po_id: po.id,
         position: i,
         product_id: l.product_id,
-        description: `${base}${dims}`,
+        description: `${nameOf(l)}${dims}`,
         quantity: Math.round(lineQty(l) * 100) / 100,
         unit: l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft"),
-        unit_cost: unitCost,
+        unit_cost: costOf(l),
         manufacturer: l.manufacturer ?? null,
         style: l.style ?? null,
         color: l.color ?? null,
         item_no: l.item_no ?? null,
       };
     });
-    await supabase.from("po_items").insert(items);
+
+    // Group roll lines by product + roll width → one roll line (linear ft + yardage).
+    const rollGroups = new Map<
+      string,
+      { product_id: string | null; width: number; sqyd: number; sample: EstimateLineItem }
+    >();
+    for (const l of rollLines) {
+      const width = Number(l.roll_width_ft) > 0 ? Number(l.roll_width_ft) : 12;
+      const key = `${l.product_id ?? nameOf(l)}|${width}`;
+      const g = rollGroups.get(key) ?? { product_id: l.product_id, width, sqyd: 0, sample: l };
+      // Roll math is in square yards regardless of the line's billing unit.
+      const sqyd =
+        l.measure_unit === "sqyd" ? lineQty(l) : lineQty(l) / 9;
+      g.sqyd += sqyd;
+      rollGroups.set(key, g);
+    }
+    let pos = items.length;
+    for (const g of rollGroups.values()) {
+      const sqyd = Math.round(g.sqyd * 100) / 100;
+      const linft = Math.round(((sqyd * 9) / g.width) * 10) / 10; // total sqft ÷ roll width
+      items.push({
+        po_id: po.id,
+        position: pos++,
+        product_id: g.product_id,
+        description: `Full roll — ${nameOf(g.sample)} — ${linft} lin ft (${sqyd} sq yd) @ ${g.width} ft wide`,
+        quantity: sqyd,
+        unit: "sqyd",
+        unit_cost: costOf(g.sample),
+        manufacturer: g.sample.manufacturer ?? null,
+        style: g.sample.style ?? null,
+        color: g.sample.color ?? null,
+        item_no: g.sample.item_no ?? null,
+      });
+    }
+    if (items.length) await supabase.from("po_items").insert(items);
   }
 
   revalidatePath("/purchase-orders");

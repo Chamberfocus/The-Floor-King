@@ -202,6 +202,8 @@ export interface SaveLineInput {
   unit?: string | null;
   from_stock?: boolean;
   margin_pct?: string | number | null;
+  order_as_roll?: boolean;
+  roll_width_ft?: string | number | null;
 }
 
 export interface SaveOptionInput {

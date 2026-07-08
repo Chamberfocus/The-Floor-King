@@ -17,8 +17,19 @@ function scopeQty(l: EstimateLineItem): string {
   return `${lineQty(l).toFixed(2)} ${unit}`;
 }
 
+function ftInPrint(totalIn: number | null | undefined): string {
+  const t = Number(totalIn) || 0;
+  if (t <= 0) return "";
+  const ft = Math.floor(t / 12);
+  const inch = Math.round(t % 12);
+  return inch ? `${ft}' ${inch}"` : `${ft}'`;
+}
 function scopeLabel(l: EstimateLineItem): string {
-  return [l.room, l.description || "Line item"].filter(Boolean).join(" — ");
+  const base = [l.room, l.description || "Line item"].filter(Boolean).join(" — ");
+  // Show the cut size the warehouse/crew needs on the printed work order.
+  const cut =
+    l.length_in && l.width_in ? `  ✂ Cut ${ftInPrint(l.width_in)} × ${ftInPrint(l.length_in)}` : "";
+  return `${base}${cut}`;
 }
 
 /**

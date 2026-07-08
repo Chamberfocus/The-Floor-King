@@ -68,6 +68,8 @@ interface LineState {
   category: string;
   from_stock: boolean; // pulled from stock → excluded from the PO
   margin_pct: string; // per-line margin override (%); "" = follow the overall
+  order_as_roll: boolean; // PO shows a roll; work order keeps the cuts
+  roll_width_ft: string; // 12 or 15 (broadloom width)
 }
 
 const round2s = (n: number) => String(Math.round(n * 100) / 100);
@@ -250,6 +252,8 @@ export function EstimateBuilder({
     category: "",
     from_stock: false,
     margin_pct: "",
+    order_as_roll: false,
+    roll_width_ft: "",
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -299,6 +303,8 @@ export function EstimateBuilder({
         category: l.category ?? "",
         from_stock: !!l.from_stock,
         margin_pct: l.margin_pct != null ? String(l.margin_pct) : "",
+        order_as_roll: !!l.order_as_roll,
+        roll_width_ft: l.roll_width_ft != null ? String(l.roll_width_ft) : "",
       })),
     }));
     return initial.length
@@ -578,6 +584,8 @@ export function EstimateBuilder({
         category: l.category || null,
         from_stock: l.from_stock,
         margin_pct: l.margin_pct || null,
+        order_as_roll: l.order_as_roll,
+        roll_width_ft: l.roll_width_ft || null,
       })),
     })),
     target_margin: num(overallMargin) || null,
@@ -1005,6 +1013,45 @@ export function EstimateBuilder({
                               From stock
                             </button>
                           </div>
+                        </div>
+                      ) : null}
+
+                      {/* Order as roll — PO shows one roll; work order keeps the cuts */}
+                      {line.line_type !== "flat" && line.category !== "labor" && !line.from_stock ? (
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Order as</label>
+                          <div className="flex items-center gap-2">
+                            <div className="inline-flex rounded-md border p-0.5 text-xs">
+                              <button
+                                type="button"
+                                onClick={() => updateLine(oi, li, { order_as_roll: false })}
+                                className={cn("rounded px-2.5 py-1.5 font-medium", !line.order_as_roll ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                              >
+                                Cuts
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updateLine(oi, li, { order_as_roll: true, roll_width_ft: line.roll_width_ft || "12" })}
+                                className={cn("rounded px-2.5 py-1.5 font-medium", line.order_as_roll ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                              >
+                                Roll
+                              </button>
+                            </div>
+                            {line.order_as_roll ? (
+                              <select
+                                value={line.roll_width_ft || "12"}
+                                onChange={(e) => updateLine(oi, li, { roll_width_ft: e.target.value })}
+                                className="h-8 rounded-md border border-input bg-transparent px-1.5 text-xs"
+                                aria-label="Roll width"
+                              >
+                                <option value="12">12 ft wide</option>
+                                <option value="15">15 ft wide</option>
+                              </select>
+                            ) : null}
+                          </div>
+                          {line.order_as_roll ? (
+                            <p className="mt-1 text-xs text-muted-foreground">PO orders one roll; the work order shows the cut sizes.</p>
+                          ) : null}
                         </div>
                       ) : null}
 
