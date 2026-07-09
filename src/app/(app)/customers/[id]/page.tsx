@@ -54,7 +54,7 @@ import {
   listPurchaseOrdersForCustomer,
   getCustomerStockPulls,
 } from "@/lib/data/purchase-orders";
-import { getJob, listAssignableUsers } from "@/lib/data/jobs";
+import { getJob, listAssignableUsers, getJobSatisfaction } from "@/lib/data/jobs";
 import {
   getSchedulingSettings,
   getInstallerSuggestions,
@@ -195,7 +195,6 @@ export default async function CustomerPage({
   ]);
   const currentStage =
     stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
-  const autoAction = currentStage?.auto_action ?? "none";
   const estimateAppointment = await getCustomerEstimateAppointment(id);
   const arrivalWindows = parseArrivalWindows(
     (await getSchedulingSettings()).arrival_windows,
@@ -254,26 +253,15 @@ export default async function CustomerPage({
           : null,
       }
     : null;
-  let installPop: {
-    jobId: string;
-    days: number;
-    suggestions: { installerId: string; name: string; days: number; start: string; end: string }[];
-  } | null = null;
-  if (autoAction === "schedule_install" && jobs.length) {
-    const targetJob =
-      jobs.find((j) => j.status !== "completed" && j.status !== "cancelled") ??
-      jobs[0];
-    const jobDetail = await getJob(targetJob.id);
-    if (jobDetail?.line_items?.length) {
-      const settings = await getSchedulingSettings();
-      const est = installDaysForJob(jobDetail.line_items, settings);
-      const suggestions =
-        est.days > 0
-          ? await getInstallerSuggestions(jobDetail.line_items, settings)
-          : [];
-      installPop = { jobId: targetJob.id, days: est.days, suggestions };
-    }
-  }
+  // The job the guided spine acts on (its satisfaction sign-off feeds the
+  // follow-up stage). Mirrors GuidedFlow's own active-job pick.
+  const guidedActiveJob =
+    jobs.find((j) => j.status !== "completed" && j.status !== "cancelled") ??
+    jobs[0] ??
+    null;
+  const guidedSatisfaction = guidedActiveJob
+    ? await getJobSatisfaction(guidedActiveJob.id)
+    : null;
 
   // Install smart-scheduler for the active job — lives here on the customer file
   // (its home). Computed only for the schedulable job to keep the page light.
@@ -571,11 +559,8 @@ export default async function CustomerPage({
                   jobs={jobs}
                   invoices={invoices}
                   repOptions={repOptions}
-                  members={handoffMembers}
-                  questions={qualifyingQuestions}
-                  installPop={installPop}
-                  appointment={estimateAppointment}
-                  arrivalWindows={arrivalWindows}
+                  installScheduleProps={installScheduleProps}
+                  jobSatisfaction={guidedSatisfaction}
                 />
               </div>
 
@@ -840,11 +825,6 @@ export default async function CustomerPage({
 
           {/* Jobs */}
           <TabSection tab="jobs">
-          {installScheduleProps ? (
-            <div className="mb-4">
-              <InstallSchedule {...installScheduleProps} />
-            </div>
-          ) : null}
           <Card id="jobs" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Jobs</CardTitle>

@@ -9,6 +9,15 @@ import type { StageAutoAction, LeadStage } from "@/lib/types";
 type DB = SupabaseClient<any, any, any>;
 
 /**
+ * The pipeline is fully MANUAL: a customer only changes stage when a user
+ * presses "ready for next stage" on the dashboard. This flag turns every
+ * automatic stage-mover into a no-op (callers across estimates, invoices, jobs,
+ * qualify and the portal keep calling them harmlessly). Flip to false to restore
+ * event-driven auto-advance.
+ */
+const AUTO_ADVANCE_DISABLED = true;
+
+/**
  * Workflow automation runs with the service role so it works no matter who
  * triggered the event (staff or a customer in the portal) — it's trusted
  * server logic, not user input. Returns null if the key isn't configured.
@@ -135,6 +144,13 @@ export async function moveToAutoActionStage(
   customerId: string,
   autoAction: StageAutoAction,
 ): Promise<void> {
+  // MANUAL-ONLY PIPELINE: stage advancement happens exclusively when a user
+  // presses "ready for next stage" on the customer dashboard (advanceWorkflow).
+  // Auto-advance is disabled everywhere — including the customer portal — so a
+  // job never moves stage on its own. Callers stay in place (harmless no-op);
+  // re-enable by removing this guard. deriveLeadStage below is still used by the
+  // manual advance to keep the legacy lead_stage in lock-step.
+  if (AUTO_ADVANCE_DISABLED) return;
   if (!customerId) return;
   const supabase = engineDb();
   if (!supabase) return;
@@ -166,6 +182,7 @@ export async function advanceFromAutoAction(
   customerId: string,
   fromAutoAction: StageAutoAction,
 ): Promise<void> {
+  if (AUTO_ADVANCE_DISABLED) return; // manual-only pipeline — see note above
   if (!customerId) return;
   const supabase = engineDb();
   if (!supabase) return;
@@ -198,6 +215,7 @@ export async function advanceFromAutoAction(
 export async function advanceFromFirstStage(
   customerId: string,
 ): Promise<void> {
+  if (AUTO_ADVANCE_DISABLED) return; // manual-only pipeline — see note above
   if (!customerId) return;
   const supabase = engineDb();
   if (!supabase) return;
