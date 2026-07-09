@@ -27,6 +27,18 @@ function productLabel(p: Product): string {
  * server-side (so it stays fast with thousands of products) by name /
  * manufacturer / style / color / SKU, or adds a brand-new product.
  */
+export interface CustomProductInput {
+  name: string;
+  category: string;
+  unit: string;
+  material_rate: string;
+  labor_rate: string;
+  manufacturer: string;
+  style: string;
+  color: string;
+  sku: string;
+}
+
 export function ProductPicker({
   value,
   initialLabel = "",
@@ -34,6 +46,7 @@ export function ProductPicker({
   defaultCategory,
   onPick,
   onCreated,
+  onUseOnce,
 }: {
   value: string;
   initialLabel?: string;
@@ -41,6 +54,8 @@ export function ProductPicker({
   defaultCategory?: string;
   onPick: (product: Product | null) => void;
   onCreated: (product: Product) => void;
+  /** Add a one-off product to this estimate only, without saving to the catalog. */
+  onUseOnce?: (input: CustomProductInput) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -189,6 +204,15 @@ export function ProductPicker({
                 setOpen(false);
                 setAdding(false);
               }}
+              onUseOnce={
+                onUseOnce
+                  ? (input) => {
+                      onUseOnce(input);
+                      setOpen(false);
+                      setAdding(false);
+                    }
+                  : undefined
+              }
             />
           ) : (
             <>
@@ -308,11 +332,13 @@ function AddProductForm({
   initialCategory,
   onCancel,
   onCreated,
+  onUseOnce,
 }: {
   initialName: string;
   initialCategory?: string;
   onCancel: () => void;
   onCreated: (p: Product) => void;
+  onUseOnce?: (input: CustomProductInput) => void;
 }) {
   const [saving, startSave] = useTransition();
   const [f, setF] = useState({
@@ -343,9 +369,17 @@ function AddProductForm({
       onCreated(res.product);
     });
 
+  const useOnce = () => {
+    if (!f.name.trim()) {
+      toast.error("Give the product a name.");
+      return;
+    }
+    onUseOnce?.(f);
+  };
+
   return (
     <div className="space-y-2 p-3">
-      <p className="text-sm font-medium">New catalog product</p>
+      <p className="text-sm font-medium">Add a product</p>
       <Input
         autoFocus
         value={f.name}
@@ -414,14 +448,25 @@ function AddProductForm({
           className="h-9"
         />
       </div>
-      <div className="flex justify-end gap-2 pt-1">
+      <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
+        {onUseOnce ? (
+          <Button type="button" variant="outline" size="sm" onClick={useOnce} disabled={saving}>
+            Use once
+          </Button>
+        ) : null}
         <Button type="button" size="sm" onClick={save} disabled={saving}>
-          {saving ? "Adding…" : "Add & use"}
+          {saving ? "Adding…" : "Add to catalog"}
         </Button>
       </div>
+      {onUseOnce ? (
+        <p className="text-[11px] text-muted-foreground">
+          <strong>Use once</strong> puts it on this estimate only.{" "}
+          <strong>Add to catalog</strong> also saves it for next time.
+        </p>
+      ) : null}
     </div>
   );
 }

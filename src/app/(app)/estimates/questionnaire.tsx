@@ -20,7 +20,7 @@ import { priceFromMargin } from "@/lib/estimate-calc";
 import { profileFor } from "@/lib/flooring-profiles";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { AreaCalculator } from "@/components/area-calculator";
-import { ProductPicker } from "./product-picker";
+import { ProductPicker, type CustomProductInput } from "./product-picker";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 import { replaceCustomerAreas } from "@/app/(app)/customers/[id]/area-actions";
 
@@ -94,6 +94,32 @@ function toProductAns(p: Product): ProductAns {
     supplierName: supplier,
     source: "order",
     vendor: supplier ?? "",
+  };
+}
+/** A one-off product typed in the picker — used on this estimate only, never
+ *  saved to the catalog (no productId). */
+function customToProductAns(input: CustomProductInput): ProductAns {
+  const numOr0 = (v: string) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const label =
+    [input.manufacturer, input.name, input.color]
+      .map((s) => (s || "").trim())
+      .filter(Boolean)
+      .join(" ") || input.name.trim();
+  return {
+    productId: "",
+    label,
+    unit: input.unit.trim() || "sqft",
+    materialRate: numOr0(input.material_rate),
+    laborRate: numOr0(input.labor_rate),
+    manufacturer: input.manufacturer.trim() || null,
+    style: input.style.trim() || null,
+    color: input.color.trim() || null,
+    supplierName: null,
+    source: "order",
+    vendor: "",
   };
 }
 let xpid = 0;
@@ -349,7 +375,7 @@ export function Questionnaire({
           material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
           labor_cost: 0,
           waste_pct: 0,
-          product_id: p.productId,
+          product_id: p.productId || null,
           // Vendor override rides on manufacturer (the PO's name fallback) only
           // when you explicitly set one; otherwise keep the real manufacturer.
           manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
@@ -775,6 +801,7 @@ function QuestionBody({
           defaultCategory={cat}
           onPick={(prod) => setMain(prod ? toProductAns(prod) : null)}
           onCreated={(prod) => setMain(toProductAns(prod))}
+          onUseOnce={(input) => setMain(customToProductAns(input))}
         />
         {p ? (
           <>
@@ -806,6 +833,7 @@ function QuestionBody({
                       defaultCategory={cat}
                       onPick={(prod) => patchExtra(ex.id, { product: prod ? toProductAns(prod) : null })}
                       onCreated={(prod) => patchExtra(ex.id, { product: toProductAns(prod) })}
+                      onUseOnce={(input) => patchExtra(ex.id, { product: customToProductAns(input) })}
                     />
                   </div>
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => setExtras(extras.filter((x) => x.id !== ex.id))}>
