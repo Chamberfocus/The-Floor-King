@@ -198,6 +198,9 @@
     background: #fff !important;
     color: #000 !important;
     color-scheme: light !important;
+    /* Print the real ink weights instead of the browser lightening text. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   *,
   *::before,
@@ -205,5 +208,21 @@
     background: transparent !important;
     background-color: transparent !important;
     box-shadow: none !important;
+  }
+  /* On-screen muted grays print washed-out ("faded words"). Darken the scale
+     the print docs use so labels and secondary text stay crisp and readable
+     while keeping a subtle hierarchy under the near-black body text. */
+  .text-gray-400,
+  .text-gray-500,
+  .text-muted-foreground {
+    color: #334155 !important; /* slate-700 — clear label ink */
+  }
+  .text-gray-600 {
+    color: #1f2937 !important; /* gray-800 */
+  }
+  .text-gray-700,
+  .text-gray-800,
+  .text-gray-900 {
+    color: #0a0a0a !important; /* near-black */
   }
 }
