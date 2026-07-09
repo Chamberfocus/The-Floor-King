@@ -202,27 +202,17 @@
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+  /* One uniform, fully-legible ink for the whole document. On-screen the docs
+     use a range of grays (labels lighter, body darker) which print at different
+     faded shades — force EVERY word to the same solid black so a work order,
+     invoice or estimate reads clean and professional for all to see. */
   *,
   *::before,
   *::after {
     background: transparent !important;
     background-color: transparent !important;
     box-shadow: none !important;
-  }
-  /* On-screen muted grays print washed-out ("faded words"). Darken the scale
-     the print docs use so labels and secondary text stay crisp and readable
-     while keeping a subtle hierarchy under the near-black body text. */
-  .text-gray-400,
-  .text-gray-500,
-  .text-muted-foreground {
-    color: #334155 !important; /* slate-700 — clear label ink */
-  }
-  .text-gray-600 {
-    color: #1f2937 !important; /* gray-800 */
-  }
-  .text-gray-700,
-  .text-gray-800,
-  .text-gray-900 {
-    color: #0a0a0a !important; /* near-black */
+    color: #000 !important;
+    opacity: 1 !important;
   }
 }
