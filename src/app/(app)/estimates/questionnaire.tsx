@@ -79,9 +79,12 @@ interface ProductAns {
 interface ExtraPad { id: string; product: ProductAns | null; sqft: string }
 /** One demo type + the area it covers (repeatable "demo" step). */
 interface DemoRow { id: string; option: string; sqft: string }
+/** One trim/molding line — a real product + how much (repeatable trim step). */
+interface TrimRow { id: string; product: ProductAns | null; qty: string; unit: string }
 type Answer =
   | { kind: "areas"; rooms: AreaRow[] }
   | { kind: "product"; product: ProductAns | null; extras: ExtraPad[] }
+  | { kind: "trims"; rows: TrimRow[] }
   | { kind: "yesno"; yes: boolean }
   | { kind: "number"; value: string; rateIdx: number | null }
   | { kind: "choice"; selected: string[] }
@@ -90,6 +93,8 @@ type Answer =
 
 let did = 0;
 const newDemoRow = (): DemoRow => ({ id: `d${did++}`, option: "", sqft: "" });
+let tid = 0;
+const newTrimRow = (): TrimRow => ({ id: `t${tid++}`, product: null, qty: "", unit: "lnft" });
 
 const productLabel = (p: Product) =>
   [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name;
@@ -188,7 +193,10 @@ export function Questionnaire({
     for (const q of questions) {
       if (q.kind === "areas")
         init[q.id] = { kind: "areas", rooms: savedAreas.length ? savedAreas.map(savedToRow) : [newRow()] };
-      else if (q.kind === "product") init[q.id] = { kind: "product", product: null, extras: [] };
+      else if (q.kind === "product")
+        init[q.id] = q.config.trim_list
+          ? { kind: "trims", rows: [] }
+          : { kind: "product", product: null, extras: [] };
       else if (q.kind === "yesno") init[q.id] = { kind: "yesno", yes: !!q.config.default };
       else if (q.kind === "number") init[q.id] = { kind: "number", value: "", rateIdx: q.config.rate_options?.length ? 0 : null };
       else if (q.kind === "choice")
@@ -446,21 +454,34 @@ export function Questionnaire({
           color: p.color,
           from_stock: p.source === "stock",
         });
-        const qtyFor = (sf: number, w: number) => Math.ceil((b.wantYd ? sf / 9 : sf) * (1 + w / 100));
+        // Quantity to order/charge for `sf` sq ft of a product. Waste is baked
+        // in; if a box size is set we snap UP to whole cartons so you charge for
+        // exactly the material you buy.
+        const qtyForProduct = (sf: number, p: ProductAns) => {
+          const adj = sf * (1 + wasteOf(p) / 100);
+          if (p.sqftPerBox && p.sqftPerBox > 0) {
+            const boxes = Math.ceil(adj / p.sqftPerBox);
+            const billed = boxes * p.sqftPerBox;
+            return b.wantYd ? r2(billed / 9) : billed;
+          }
+          return Math.ceil(b.wantYd ? adj / 9 : adj);
+        };
         if (a.product) {
           const p = a.product;
-          const pw = wasteOf(p);
+          const boxed = !!(p.sqftPerBox && p.sqftPerBox > 0);
           // Flooring is itemized PER ROOM (name + sq ft + L×W) so the sizes you
-          // measured show on the estimate & work order. Pad / trim / other stay
-          // bundled to one line, but carry the total sq ft.
-          const perRoomFloor = cat !== "underlayment" && cat !== "trim" && cat !== "other" && allRooms.length > 0;
+          // measured show on the estimate & work order. Boxed goods bill as ONE
+          // full-carton line (so the charge = the boxes bought); pad / trim /
+          // other stay bundled to one line, but carry the total sq ft.
+          const perRoomFloor =
+            cat !== "underlayment" && cat !== "trim" && cat !== "other" && allRooms.length > 0 && !boxed;
           if (perRoomFloor) {
             for (const rm of allRooms) {
-              const qty = qtyFor(rm.sqft, pw);
+              const qty = qtyForProduct(rm.sqft, p);
               if (qty > 0) out.push(matLine(p, qty, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
             }
           } else if (totalSqft > 0) {
-            out.push(matLine(p, qtyFor(totalSqft, pw), { sqft: totalSqft }));
+            out.push(matLine(p, qtyForProduct(totalSqft, p), { sqft: totalSqft }));
           }
           // Install labor — bundled, with the total area recorded.
           const lr = rateFor(p.laborRate, p.unit, b.wantYd);
@@ -493,9 +514,38 @@ export function Questionnaire({
         // stairs) — each its own material line, quantity from its own area.
         for (const ex of a.extras) {
           if (!ex.product || numv(ex.sqft) <= 0) continue;
-          const area = numv(ex.sqft);
-          const qty = qtyFor(area, wasteOf(ex.product));
+          const qty = qtyForProduct(numv(ex.sqft), ex.product);
           if (qty > 0) out.push(matLine(ex.product, qty));
+        }
+      } else if (q.kind === "product" && a.kind === "trims") {
+        // Trims / moldings — each row is a real product billed per its unit
+        // (lnft / each), with material + install, so the specific trim shows on
+        // the estimate and can be pulled from stock or ordered from a vendor.
+        for (const row of a.rows) {
+          const p = row.product;
+          const qty = numv(row.qty);
+          if (!p || qty <= 0) continue;
+          out.push({
+            room: null,
+            description: p.label || "Trim",
+            category: "trim",
+            measure_unit: "sqft",
+            sqft: null,
+            quantity: r2(qty),
+            length_in: null,
+            width_in: null,
+            unit: row.unit || p.unit || "lnft",
+            material_rate: sellAt(p.materialRate),
+            labor_rate: sellAt(p.laborRate),
+            material_cost: p.materialRate,
+            labor_cost: p.laborRate,
+            waste_pct: 0,
+            product_id: p.productId || null,
+            manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+            style: p.style,
+            color: p.color,
+            from_stock: p.source === "stock",
+          });
         }
       } else if (q.kind === "choice" && a.kind === "choice_areas") {
         // Multiple demo types, each billed against its own area.
@@ -561,7 +611,11 @@ export function Questionnaire({
   const answered = (qq: EstimateQuestion): boolean => {
     const a = answers[qq.id];
     if (qq.kind === "areas") return a?.kind === "areas" && a.rooms.some((r) => rowSqft(r) > 0);
-    if (qq.kind === "product") return a?.kind === "product" && !!a.product;
+    if (qq.kind === "product")
+      return (
+        (a?.kind === "product" && !!a.product) ||
+        (a?.kind === "trims" && a.rows.some((r) => r.product && numv(r.qty) > 0))
+      );
     return true; // yesno/number/choice/text are always "answerable"
   };
   const canNext = !q || !q.required || answered(q);
@@ -879,6 +933,65 @@ function QuestionBody({
     );
   }
 
+  if (q.kind === "product" && answer?.kind === "trims") {
+    const rows = answer.rows;
+    const upd = (rs: TrimRow[]) => set({ kind: "trims", rows: rs });
+    const patch = (id: string, pp: Partial<TrimRow>) =>
+      upd(rows.map((x) => (x.id === id ? { ...x, ...pp } : x)));
+    return (
+      <div className="space-y-2">
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Add baseboard, quarter-round, cove base, stairnose, J-channel, transitions… each as its own product.
+          </p>
+        ) : null}
+        {rows.map((row) => {
+          const p = row.product;
+          return (
+            <div key={row.id} className="space-y-2 rounded-md border bg-muted/20 p-2.5">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <ProductPicker
+                    value={p?.productId ?? ""}
+                    initialLabel={p?.label ?? ""}
+                    label="Trim (catalog, or add a Versatrim / manufacturer item)"
+                    defaultCategory="trim"
+                    onPick={(prod) => patch(row.id, { product: prod ? toProductAns(prod) : null, unit: prod?.unit || row.unit })}
+                    onCreated={(prod) => patch(row.id, { product: toProductAns(prod), unit: prod.unit || row.unit })}
+                    onUseOnce={(input) => patch(row.id, { product: customToProductAns(input), unit: input.unit || row.unit })}
+                  />
+                </div>
+                <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => upd(rows.filter((x) => x.id !== row.id))}>
+                  <Trash2 className="size-4 text-destructive" />
+                </Button>
+              </div>
+              {p ? (
+                <div className="flex flex-wrap items-end gap-2">
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">Quantity</label>
+                    <Input value={row.qty} onChange={(e) => patch(row.id, { qty: e.target.value })} inputMode="decimal" placeholder="0" className="h-10 w-24 text-base" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">Unit</label>
+                    <select value={row.unit} onChange={(e) => patch(row.id, { unit: e.target.value })} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
+                      <option value="lnft">linear ft</option>
+                      <option value="each">each</option>
+                      <option value="pc">pieces</option>
+                    </select>
+                  </div>
+                  <SourceToggle p={p} compact onChange={(np) => patch(row.id, { product: np })} />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+        <Button type="button" variant="outline" size="sm" onClick={() => upd([...rows, newTrimRow()])}>
+          <Plus className="size-4" /> Add trim
+        </Button>
+      </div>
+    );
+  }
+
   if (q.kind === "product" && answer?.kind === "product") {
     const p = answer.product;
     const extras = answer.extras;
@@ -916,9 +1029,12 @@ function QuestionBody({
             {isFlooring ? (
               (() => {
                 const effWaste = p.wastePct != null ? p.wastePct : defWasteForCat;
-                const ordered = totalSqft > 0 ? r2(totalSqft * (1 + effWaste / 100)) : 0;
+                const adj = totalSqft > 0 ? totalSqft * (1 + effWaste / 100) : 0;
                 const boxes =
-                  p.sqftPerBox && p.sqftPerBox > 0 ? Math.ceil(ordered / p.sqftPerBox) : 0;
+                  p.sqftPerBox && p.sqftPerBox > 0 ? Math.ceil(adj / p.sqftPerBox) : 0;
+                // What you actually order & charge for: full cartons when a box
+                // size is set, else the waste-adjusted area.
+                const ordered = boxes > 0 ? boxes * (p.sqftPerBox as number) : r2(adj);
                 return (
                   <div className="space-y-2 rounded-md border border-dashed p-2.5">
                     <div className="flex flex-wrap items-end gap-3">

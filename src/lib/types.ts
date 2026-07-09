@@ -290,6 +290,9 @@ export interface EstimateQuestionConfig {
   // A choice step where each selected option is repeated with its own area
   // (e.g. multiple demo types, each with the sq ft it covers).
   per_area?: boolean;
+  // A product step rendered as a repeatable list of trims/moldings — each a real
+  // product with its own quantity, unit and stock/order source.
+  trim_list?: boolean;
 }
 
 export interface EstimateQuestion {
