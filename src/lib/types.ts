@@ -287,6 +287,9 @@ export interface EstimateQuestionConfig {
   // Per-room prep: answered once as the job default, with per-room overrides for
   // rooms flagged as "different prep" in the areas step.
   per_room?: boolean;
+  // A choice step where each selected option is repeated with its own area
+  // (e.g. multiple demo types, each with the sq ft it covers).
+  per_area?: boolean;
 }
 
 export interface EstimateQuestion {

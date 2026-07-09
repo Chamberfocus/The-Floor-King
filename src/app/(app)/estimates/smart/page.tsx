@@ -10,6 +10,7 @@ import { listServiceAddresses } from "@/lib/data/service-addresses";
 import { listEstimateQuestions } from "@/lib/data/estimate-questions";
 import { listCustomerAreas } from "@/lib/data/customer-areas";
 import { formatServiceAddress } from "@/lib/types";
+import { getEstimateDraft } from "../smart-actions";
 import { BuilderSwitch } from "../builder-switch";
 
 export const metadata: Metadata = { title: "Smart estimate" };
@@ -32,6 +33,7 @@ export default async function SmartEstimatePage({
   }));
   const questions = await listEstimateQuestions({ activeOnly: true });
   const savedAreas = await listCustomerAreas(customer.id);
+  const draft = await getEstimateDraft(customer.id);
 
   return (
     <div className="mx-auto max-w-5xl pb-20">
@@ -52,6 +54,7 @@ export default async function SmartEstimatePage({
         serviceAddresses={serviceAddresses}
         questions={questions}
         savedAreas={savedAreas}
+        draft={draft}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -21,7 +21,13 @@ import { profileFor } from "@/lib/flooring-profiles";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { AreaCalculator } from "@/components/area-calculator";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
-import { createSmartEstimate, type SmartLine } from "./smart-actions";
+import {
+  createSmartEstimate,
+  saveEstimateDraft,
+  deleteEstimateDraft,
+  type SmartLine,
+  type EstimateDraft,
+} from "./smart-actions";
 import { replaceCustomerAreas } from "@/app/(app)/customers/[id]/area-actions";
 
 const numv = (v: string) => {
@@ -66,16 +72,24 @@ interface ProductAns {
   manufacturer: string | null; style: string | null; color: string | null;
   supplierName: string | null;
   source: "order" | "stock"; vendor: string;
+  wastePct: number | null;   // null = use the category default waste
+  sqftPerBox: number | null; // sq ft per carton → box count (display)
 }
 /** An extra material for a specific area (e.g. an upgraded pad for the stairs). */
 interface ExtraPad { id: string; product: ProductAns | null; sqft: string }
+/** One demo type + the area it covers (repeatable "demo" step). */
+interface DemoRow { id: string; option: string; sqft: string }
 type Answer =
   | { kind: "areas"; rooms: AreaRow[] }
   | { kind: "product"; product: ProductAns | null; extras: ExtraPad[] }
   | { kind: "yesno"; yes: boolean }
   | { kind: "number"; value: string; rateIdx: number | null }
   | { kind: "choice"; selected: string[] }
+  | { kind: "choice_areas"; rows: DemoRow[] }
   | { kind: "text"; text: string };
+
+let did = 0;
+const newDemoRow = (): DemoRow => ({ id: `d${did++}`, option: "", sqft: "" });
 
 const productLabel = (p: Product) =>
   [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name;
@@ -94,6 +108,8 @@ function toProductAns(p: Product): ProductAns {
     supplierName: supplier,
     source: "order",
     vendor: supplier ?? "",
+    wastePct: null,
+    sqftPerBox: null,
   };
 }
 /** A one-off product typed in the picker — used on this estimate only, never
@@ -120,6 +136,8 @@ function customToProductAns(input: CustomProductInput): ProductAns {
     supplierName: null,
     source: "order",
     vendor: "",
+    wastePct: null,
+    sqftPerBox: null,
   };
 }
 let xpid = 0;
@@ -151,6 +169,7 @@ export function Questionnaire({
   serviceAddressId,
   questions,
   savedAreas = [],
+  draft = null,
 }: {
   customerId: string;
   customerName: string;
@@ -158,12 +177,13 @@ export function Questionnaire({
   serviceAddressId: string;
   questions: EstimateQuestion[];
   savedAreas?: CustomerArea[];
+  draft?: EstimateDraft | null;
 }) {
   const goalRaw = targetMargin;
   const goal = goalRaw > 0 && goalRaw < 100 ? goalRaw : 40;
   const sellAt = (c: number) => (c > 0 ? r2(priceFromMargin(c, goal)) : 0);
 
-  const [answers, setAnswers] = useState<Record<string, Answer>>(() => {
+  const buildDefaults = (): Record<string, Answer> => {
     const init: Record<string, Answer> = {};
     for (const q of questions) {
       if (q.kind === "areas")
@@ -171,18 +191,57 @@ export function Questionnaire({
       else if (q.kind === "product") init[q.id] = { kind: "product", product: null, extras: [] };
       else if (q.kind === "yesno") init[q.id] = { kind: "yesno", yes: !!q.config.default };
       else if (q.kind === "number") init[q.id] = { kind: "number", value: "", rateIdx: q.config.rate_options?.length ? 0 : null };
-      else if (q.kind === "choice") init[q.id] = { kind: "choice", selected: [] };
+      else if (q.kind === "choice")
+        init[q.id] = q.config.per_area
+          ? { kind: "choice_areas", rows: [] }
+          : { kind: "choice", selected: [] };
       else init[q.id] = { kind: "text", text: "" };
     }
     return init;
+  };
+
+  const [answers, setAnswers] = useState<Record<string, Answer>>(() => {
+    const init = buildDefaults();
+    // Resume: overlay a saved draft's answers onto the defaults (only for
+    // questions that still exist, so a changed question set can't corrupt it).
+    if (draft?.answers) {
+      for (const [k, v] of Object.entries(draft.answers)) {
+        if (init[k] !== undefined && v) init[k] = v as Answer;
+      }
+    }
+    return init;
   });
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(draft?.step ?? 0);
+  const [resumed, setResumed] = useState(!!draft);
   const [saving, startSave] = useTransition();
 
   const set = (id: string, a: Answer) => setAnswers((p) => ({ ...p, [id]: a }));
 
   // Per-room prep overrides: overrides[roomId][questionId] = that room's answer.
-  const [overrides, setOverrides] = useState<Record<string, Record<string, Answer>>>({});
+  const [overrides, setOverrides] = useState<Record<string, Record<string, Answer>>>(
+    (draft?.overrides as Record<string, Record<string, Answer>>) ?? {},
+  );
+
+  // Auto-save progress (debounced) so it can be resumed from any device. The
+  // first render is skipped so simply opening the page doesn't overwrite a draft.
+  const firstSave = useRef(true);
+  useEffect(() => {
+    if (firstSave.current) {
+      firstSave.current = false;
+      return;
+    }
+    const t = setTimeout(() => {
+      void saveEstimateDraft(customerId, { serviceAddressId, answers, overrides, step });
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [customerId, serviceAddressId, answers, overrides, step]);
+  const startOver = () => {
+    setAnswers(buildDefaults());
+    setOverrides({});
+    setStep(0);
+    setResumed(false);
+    void deleteEstimateDraft(customerId);
+  };
   const setRoomOverride = (roomId: string, qid: string, a: Answer) =>
     setOverrides((p) => ({ ...p, [roomId]: { ...(p[roomId] ?? {}), [qid]: a } }));
 
@@ -355,7 +414,11 @@ export function Questionnaire({
       if (q.kind === "product" && a.kind === "product") {
         const cat = q.config.category || "other";
         const b = billing(cat);
-        const waste = profileFor(cat)?.waste ?? 0;
+        // Editable waste per product (falls back to the category default). Baked
+        // into the ordered quantity — waste_pct stays 0 so the price isn't
+        // double-charged (pricing multiplies material_rate by waste_pct).
+        const defWaste = profileFor(cat)?.waste ?? 0;
+        const wasteOf = (p: ProductAns) => (p.wastePct != null ? p.wastePct : defWaste);
         const matLine = (
           p: ProductAns,
           qty: number,
@@ -383,20 +446,21 @@ export function Questionnaire({
           color: p.color,
           from_stock: p.source === "stock",
         });
-        const qtyFor = (sf: number) => Math.ceil((b.wantYd ? sf / 9 : sf) * (1 + waste / 100));
+        const qtyFor = (sf: number, w: number) => Math.ceil((b.wantYd ? sf / 9 : sf) * (1 + w / 100));
         if (a.product) {
           const p = a.product;
+          const pw = wasteOf(p);
           // Flooring is itemized PER ROOM (name + sq ft + L×W) so the sizes you
           // measured show on the estimate & work order. Pad / trim / other stay
           // bundled to one line, but carry the total sq ft.
           const perRoomFloor = cat !== "underlayment" && cat !== "trim" && cat !== "other" && allRooms.length > 0;
           if (perRoomFloor) {
             for (const rm of allRooms) {
-              const qty = qtyFor(rm.sqft);
+              const qty = qtyFor(rm.sqft, pw);
               if (qty > 0) out.push(matLine(p, qty, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
             }
           } else if (totalSqft > 0) {
-            out.push(matLine(p, qtyFor(totalSqft), { sqft: totalSqft }));
+            out.push(matLine(p, qtyFor(totalSqft, pw), { sqft: totalSqft }));
           }
           // Install labor — bundled, with the total area recorded.
           const lr = rateFor(p.laborRate, p.unit, b.wantYd);
@@ -430,8 +494,19 @@ export function Questionnaire({
         for (const ex of a.extras) {
           if (!ex.product || numv(ex.sqft) <= 0) continue;
           const area = numv(ex.sqft);
-          const qty = Math.ceil(b.wantYd ? area / 9 : area);
+          const qty = qtyFor(area, wasteOf(ex.product));
           if (qty > 0) out.push(matLine(ex.product, qty));
+        }
+      } else if (q.kind === "choice" && a.kind === "choice_areas") {
+        // Multiple demo types, each billed against its own area.
+        for (const row of a.rows) {
+          const area = numv(row.sqft);
+          if (!row.option || area <= 0) continue;
+          const opt = (q.config.options ?? []).find((o) => o.label === row.option);
+          if (opt?.emit) {
+            const l = emitLineArea(opt.emit, area, null);
+            if (l) out.push(l);
+          }
         }
       } else if (q.kind === "yesno" || q.kind === "number" || q.kind === "choice") {
         // Per-room prep: split into a job-default line for the remaining area +
@@ -547,6 +622,18 @@ export function Questionnaire({
 
   return (
     <div className="space-y-4">
+      {resumed ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          <span className="font-medium">↩ Resumed your saved progress.</span>
+          <button
+            type="button"
+            onClick={startOver}
+            className="text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            Start over
+          </button>
+        </div>
+      ) : null}
       {/* Progress */}
       <div className="flex items-center gap-2">
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
@@ -586,7 +673,7 @@ export function Questionnaire({
         // Review
         <Card>
           <CardContent className="space-y-3 p-4">
-            <div className="text-sm font-semibold">Here's your estimate</div>
+            <div className="text-sm font-semibold">Here&apos;s your estimate</div>
             {lines.length ? (
               <div className="divide-y text-sm">
                 {lines.map((l, i) => (
@@ -701,6 +788,16 @@ function QuestionBody({
                 <span className="pb-2.5 text-muted-foreground">×</span>
                 <FtInField label="Width" ft={r.wf} inch={r.wi} disabled={usingCalc}
                   onFt={(v) => patch(r.id, { wf: v })} onIn={(v) => patch(r.id, { wi: v })} />
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">or total sq ft</label>
+                  <Input
+                    value={r.override}
+                    onChange={(e) => patch(r.id, { override: e.target.value })}
+                    inputMode="decimal"
+                    placeholder="sq ft"
+                    className="h-11 w-24 text-base md:h-10"
+                  />
+                </div>
                 <div className="flex items-center gap-1 pb-0.5">
                   <AreaCalculator
                     triggerLabel={usingCalc ? "Edit areas" : "Odd shape?"}
@@ -788,6 +885,9 @@ function QuestionBody({
     const cat = q.config.category || "other";
     const b = billing(cat);
     const kindLabel = cat === "underlayment" ? "padding" : cat;
+    // Waste + carton entry is for the flooring itself (not pad / trim / other).
+    const isFlooring = ["carpet", "lvp", "vinyl", "laminate", "hardwood", "tile"].includes(cat);
+    const defWasteForCat = profileFor(cat)?.waste ?? 0;
     const setMain = (product: ProductAns | null) => set({ kind: "product", product, extras });
     const setExtras = (xs: ExtraPad[]) => set({ kind: "product", product: p, extras: xs });
     const patchExtra = (id: string, patch: Partial<ExtraPad>) =>
@@ -813,6 +913,61 @@ function QuestionBody({
               </div>
             </div>
             {q.config.ask_source ? <SourceToggle p={p} onChange={setMain} /> : null}
+            {isFlooring ? (
+              (() => {
+                const effWaste = p.wastePct != null ? p.wastePct : defWasteForCat;
+                const ordered = totalSqft > 0 ? r2(totalSqft * (1 + effWaste / 100)) : 0;
+                const boxes =
+                  p.sqftPerBox && p.sqftPerBox > 0 ? Math.ceil(ordered / p.sqftPerBox) : 0;
+                return (
+                  <div className="space-y-2 rounded-md border border-dashed p-2.5">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div>
+                        <label className="mb-1 block text-xs text-muted-foreground">Waste factor</label>
+                        <div className="flex items-center gap-1">
+                          <Input
+                            value={p.wastePct != null ? String(p.wastePct) : ""}
+                            onChange={(e) =>
+                              setMain({ ...p, wastePct: e.target.value.trim() === "" ? null : numv(e.target.value) })
+                            }
+                            inputMode="decimal"
+                            placeholder={String(defWasteForCat)}
+                            className="h-10 w-20 text-base"
+                          />
+                          <span className="text-sm text-muted-foreground">%</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs text-muted-foreground">Sq ft per box</label>
+                        <Input
+                          value={p.sqftPerBox != null ? String(p.sqftPerBox) : ""}
+                          onChange={(e) =>
+                            setMain({ ...p, sqftPerBox: e.target.value.trim() === "" ? null : numv(e.target.value) })
+                          }
+                          inputMode="decimal"
+                          placeholder="e.g. 20"
+                          className="h-10 w-24 text-base"
+                        />
+                      </div>
+                    </div>
+                    {totalSqft > 0 ? (
+                      <p className="text-sm">
+                        Order{" "}
+                        <span className="font-semibold tabular-nums">{ordered}</span> sq ft
+                        <span className="text-muted-foreground"> (incl. {effWaste}% waste)</span>
+                        {boxes > 0 ? (
+                          <>
+                            {" "}·{" "}
+                            <span className="font-semibold tabular-nums text-primary">{boxes}</span>{" "}
+                            box{boxes === 1 ? "" : "es"}
+                          </>
+                        ) : null}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })()
+            ) : null}
           </>
         ) : null}
 
@@ -892,6 +1047,56 @@ function QuestionBody({
             ))}
           </div>
         ) : null}
+      </div>
+    );
+  }
+
+  if (q.kind === "choice" && answer?.kind === "choice_areas") {
+    const opts = (q.config.options ?? []).filter((o) => o.emit);
+    const rows = answer.rows;
+    const upd = (rs: DemoRow[]) => set({ kind: "choice_areas", rows: rs });
+    const patch = (id: string, pp: Partial<DemoRow>) =>
+      upd(rows.map((x) => (x.id === id ? { ...x, ...pp } : x)));
+    return (
+      <div className="space-y-2">
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Add each demo type and the area it covers.
+          </p>
+        ) : null}
+        {rows.map((row) => (
+          <div key={row.id} className="flex flex-wrap items-end gap-2 rounded-md border bg-muted/20 p-2">
+            <div className="min-w-[9rem] flex-1">
+              <label className="mb-1 block text-xs text-muted-foreground">Demo type</label>
+              <select
+                value={row.option}
+                onChange={(e) => patch(row.id, { option: e.target.value })}
+                className="h-10 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+              >
+                <option value="">— Choose —</option>
+                {opts.map((o) => (
+                  <option key={o.label} value={o.label}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">Area (sq ft)</label>
+              <Input
+                value={row.sqft}
+                onChange={(e) => patch(row.id, { sqft: e.target.value })}
+                inputMode="decimal"
+                placeholder="sq ft"
+                className="h-10 w-28 text-base"
+              />
+            </div>
+            <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => upd(rows.filter((x) => x.id !== row.id))}>
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </div>
+        ))}
+        <Button type="button" variant="outline" size="sm" onClick={() => upd([...rows, newDemoRow()])}>
+          <Plus className="size-4" /> Add demo area
+        </Button>
       </div>
     );
   }

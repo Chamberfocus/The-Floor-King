@@ -217,6 +217,10 @@ export async function createSmartEstimate(
     .insert(rows);
   if (lineErr) return { error: lineErr.message };
 
+  // The estimate is finalized — clear any saved in-progress draft for this
+  // customer so it doesn't resurface. Ignore if the table isn't there yet.
+  await supabase.from("estimate_drafts").delete().eq("customer_id", customerId);
+
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/estimates");
 
@@ -236,4 +240,77 @@ export async function createSmartEstimate(
   // Land on the finished, printable quote — totals, Print, Send, and an Edit
   // button if anything needs adjusting. ("Print" opens the print dialog.)
   redirect(`/estimates/${est.id}${input.print ? "?print=1" : ""}`);
+}
+
+// --- Save & resume: one in-progress draft per customer ----------------------
+
+export interface EstimateDraft {
+  serviceAddressId: string | null;
+  answers: Record<string, unknown>;
+  overrides: Record<string, unknown>;
+  step: number;
+}
+
+/** Load a customer's in-progress questionnaire draft (null if none / not set up). */
+export async function getEstimateDraft(
+  customerId: string,
+): Promise<EstimateDraft | null> {
+  if (!customerId) return null;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("estimate_drafts")
+      .select("service_address_id, answers, overrides, step")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (!data) return null;
+    return {
+      serviceAddressId: (data.service_address_id as string) ?? null,
+      answers: (data.answers as Record<string, unknown>) ?? {},
+      overrides: (data.overrides as Record<string, unknown>) ?? {},
+      step: (data.step as number) ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Auto-save the questionnaire so it can be resumed from any device. Best-effort
+ *  (no-op if the drafts table isn't there yet). */
+export async function saveEstimateDraft(
+  customerId: string,
+  payload: EstimateDraft,
+): Promise<void> {
+  if (!customerId) return;
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    await supabase.from("estimate_drafts").upsert(
+      {
+        customer_id: customerId,
+        service_address_id: payload.serviceAddressId || null,
+        answers: payload.answers,
+        overrides: payload.overrides,
+        step: payload.step,
+        updated_by: user?.id ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "customer_id" },
+    );
+  } catch {
+    // best-effort
+  }
+}
+
+/** Discard a customer's saved draft (e.g. "start over"). */
+export async function deleteEstimateDraft(customerId: string): Promise<void> {
+  if (!customerId) return;
+  try {
+    const supabase = await createClient();
+    await supabase.from("estimate_drafts").delete().eq("customer_id", customerId);
+  } catch {
+    // best-effort
+  }
 }

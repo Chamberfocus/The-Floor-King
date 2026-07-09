@@ -5,6 +5,7 @@ import { ClipboardList, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { EstimateQuestion, CustomerArea } from "@/lib/types";
 import { Questionnaire } from "./questionnaire";
+import type { EstimateDraft } from "./smart-actions";
 import { AiEstimate } from "./ai-estimate";
 
 type Mode = "questionnaire" | "ai";
@@ -23,6 +24,7 @@ export function BuilderSwitch(props: {
   serviceAddresses: { id: string; label: string }[];
   questions: EstimateQuestion[];
   savedAreas: CustomerArea[];
+  draft?: EstimateDraft | null;
 }) {
   const [mode, setMode] = useState<Mode>("questionnaire");
   const [serviceAddressId, setServiceAddressId] = useState("");
@@ -76,6 +78,7 @@ export function BuilderSwitch(props: {
           serviceAddressId={serviceAddressId}
           questions={props.questions}
           savedAreas={props.savedAreas}
+          draft={props.draft}
         />
       </div>
       <div className={mode === "ai" ? "" : "hidden"}>
