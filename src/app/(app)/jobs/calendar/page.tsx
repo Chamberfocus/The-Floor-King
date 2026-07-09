@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, List, MapPin, AlertTriangle } from "lucide-r
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { listJobs } from "@/lib/data/jobs";
-import { createClient } from "@/lib/supabase/server";
+import { listInstallers } from "@/lib/data/scheduling";
 import { requireProfile } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { JOB_STATUS_BADGE } from "@/lib/types";
@@ -57,16 +57,10 @@ export default async function InstallSchedulePage({
   const nextWeek = (() => { const d = new Date(start); d.setDate(start.getDate() + 7); return iso(d); })();
   const todayStr = iso(now);
 
-  // Installers (crew-role) as rows.
-  const supabase = await createClient();
-  const { data: crew } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .eq("role", "crew")
-    .order("full_name", { ascending: true });
-  const installers = (crew ?? []).map((c) => ({
-    id: c.id as string,
-    name: (c.full_name as string) || (c.email as string) || "Installer",
+  // Installer rows — the same canonical set every scheduler surface uses.
+  const installers = (await listInstallers()).map((c) => ({
+    id: c.id,
+    name: c.name,
   }));
 
   // Jobs overlapping this week (scheduled_date .. scheduled_end).

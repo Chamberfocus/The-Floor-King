@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { listAssignableUsers } from "@/lib/data/jobs";
+import { INSTALL_ROLES } from "@/lib/types";
 import { CarryOverForm } from "./carry-over-form";
 
 export const metadata: Metadata = { title: "Carry over work" };
@@ -22,7 +23,7 @@ export default async function CarryOverPage() {
   }));
   const assignable = await listAssignableUsers();
   const installers = assignable
-    .filter((u) => u.role === "crew")
+    .filter((u) => (INSTALL_ROLES as string[]).includes(u.role))
     .map((u) => ({ id: u.id, name: u.name }));
   const salespeople = assignable
     .filter((u) => u.role === "salesman" || u.role === "sales_manager")

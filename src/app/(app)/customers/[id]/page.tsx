@@ -293,7 +293,11 @@ export default async function CustomerPage({
       est && est.days > 0
         ? await getInstallerSuggestions(lineItems, settings)
         : [];
-    const crewUsers = assignable.filter((u) => u.role === "crew");
+    // Installers = the canonical INSTALL_ROLES set (matches the smart
+    // suggestions, the calendar, and the capacity settings screen).
+    const crewUsers = assignable.filter((u) =>
+      (INSTALL_ROLES as string[]).includes(u.role),
+    );
     const existingCrewNames = new Set(
       installCrews.map((c) => (c.name || "").trim().toLowerCase()),
     );

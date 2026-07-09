@@ -9,7 +9,7 @@ import {
   type DateRange,
 } from "@/lib/scheduling";
 import { getDriveMatrix, storeAddress } from "@/lib/maps";
-import type { EstimateLineItem, SchedulingSettings } from "@/lib/types";
+import { INSTALL_ROLES, type EstimateLineItem, type SchedulingSettings } from "@/lib/types";
 import { DEFAULT_ARRIVAL_WINDOWS, to12 } from "@/lib/format";
 
 const CAP_KEYS = [
@@ -70,6 +70,34 @@ export async function getSchedulingSettings(): Promise<SchedulingSettings> {
   return { ...DEFAULTS, ...(data ?? {}) } as SchedulingSettings;
 }
 
+export interface InstallerProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+/**
+ * THE canonical list of people who can be scheduled to install — the single
+ * source of truth for every scheduler surface (suggestions, the manual picker,
+ * the capacity settings screen, the install calendar). Uses INSTALL_ROLES so
+ * changing who installs is a one-line change and never diverges page to page.
+ */
+export async function listInstallers(): Promise<InstallerProfile[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("id, full_name, email, role")
+    .in("role", INSTALL_ROLES as unknown as string[])
+    .order("full_name", { ascending: true });
+  return (data ?? []).map((p) => ({
+    id: p.id as string,
+    name: (p.full_name as string) || (p.email as string),
+    email: (p.email as string) ?? "",
+    role: p.role as string,
+  }));
+}
+
 export interface InstallerSuggestion {
   installerId: string;
   name: string;
@@ -88,15 +116,7 @@ export async function getInstallerSuggestions(
   fromDate?: string,
 ): Promise<InstallerSuggestion[]> {
   const supabase = await createClient();
-  const { data: insts } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .eq("role", "crew");
-  const installers = (insts ?? []) as {
-    id: string;
-    full_name: string | null;
-    email: string;
-  }[];
+  const installers = await listInstallers();
   if (!installers.length) return [];
   const ids = installers.map((i) => i.id);
 
@@ -138,7 +158,7 @@ export async function getInstallerSuggestions(
     if (win)
       out.push({
         installerId: inst.id,
-        name: inst.full_name || inst.email,
+        name: inst.name,
         days,
         start: win.start,
         end: win.end,
@@ -168,16 +188,7 @@ export async function listInstallerSettings(): Promise<
   }[]
 > {
   const supabase = await createClient();
-  const { data: insts } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .eq("role", "crew")
-    .order("full_name", { ascending: true });
-  const crew = (insts ?? []) as {
-    id: string;
-    full_name: string | null;
-    email: string;
-  }[];
+  const crew = await listInstallers();
   if (!crew.length) return [];
   const { data: ov } = await supabase
     .from("installer_settings")
@@ -190,7 +201,7 @@ export async function listInstallerSettings(): Promise<
   for (const r of ov ?? []) map.set(r.installer_id as string, r as InstallerSettingsRow);
   return crew.map((c) => ({
     id: c.id,
-    name: c.full_name || c.email,
+    name: c.name,
     settings: map.get(c.id) ?? null,
   }));
 }

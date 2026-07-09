@@ -18,6 +18,34 @@ function numOrNull(v: FormDataEntryValue | null): number | null {
   return Number.isFinite(x) ? x : null;
 }
 
+/**
+ * Scheduling settings (work days, capacities, arrival windows, origin) feed
+ * many surfaces. Whenever they change, bust every page that reads them so the
+ * whole app reflects the new settings immediately — no stale day-estimates,
+ * suggestions, or windows anywhere.
+ */
+function revalidateSchedulingConsumers(): void {
+  for (const p of [
+    "/settings/scheduling",
+    "/customers", // list computes install suggestions inline
+    "/jobs",
+    "/jobs/quick",
+    "/jobs/calendar", // install schedule board
+    "/schedule", // estimate scheduler (uses day hours + duration + buffer)
+    "/schedule/route",
+    "/team",
+    "/warehouse", // arrival windows on staging
+    "/dashboard",
+    "/pipeline",
+  ]) {
+    revalidatePath(p);
+  }
+  // Dynamic detail routes: the customer file (install scheduler) and the job
+  // page (read-only schedule + arrival window).
+  revalidatePath("/customers/[id]", "page");
+  revalidatePath("/jobs/[id]", "page");
+}
+
 export async function saveInstallerSettings(formData: FormData): Promise<void> {
   const id = str(formData.get("installer_id"));
   if (!id) return;
@@ -42,7 +70,7 @@ export async function saveInstallerSettings(formData: FormData): Promise<void> {
     },
     { onConflict: "installer_id" },
   );
-  revalidatePath("/settings/scheduling");
+  revalidateSchedulingConsumers();
 }
 
 export async function saveSchedulingSettings(formData: FormData): Promise<void> {
@@ -83,5 +111,5 @@ export async function saveSchedulingSettings(formData: FormData): Promise<void> 
       .eq("id", "default");
   }
 
-  revalidatePath("/settings/scheduling");
+  revalidateSchedulingConsumers();
 }

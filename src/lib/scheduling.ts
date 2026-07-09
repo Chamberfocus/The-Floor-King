@@ -54,6 +54,14 @@ export function installDaysForJob(
     fraction += days;
     breakdown.push({ label, amount, unit, days });
   };
+  // Days for `amount` at a per-day capacity `cap`. Guards a missing/zero/negative
+  // capacity so a mis-set setting can't produce Infinity/NaN days (which would
+  // silently drop the installer from suggestions). No cap → this line adds no
+  // days rather than blowing up.
+  const daysAt = (amount: number, cap: number | string | null | undefined) => {
+    const rate = num(cap);
+    return rate > 0 ? amount / rate : 0;
+  };
 
   for (const l of lines) {
     const sf = lineAreaSqft(l);
@@ -61,36 +69,36 @@ export function installDaysForJob(
     const text = `${l.description ?? ""} ${l.room ?? ""}`.toLowerCase();
 
     if (/(tear|remov)/.test(text) && /(tile|ceramic)/.test(text)) {
-      add("Ceramic tear-out", sf, "sq ft", sf / num(s.cap_tile_teardown_sf));
+      add("Ceramic tear-out", sf, "sq ft", daysAt(sf, s.cap_tile_teardown_sf));
       continue;
     }
     if (/subfloor/.test(text)) {
       const sheets = lineQty(l) || sf / 32; // 4x8 sheet = 32 sq ft fallback
-      add("Subfloor", sheets, "sheets", sheets / num(s.cap_subfloor_sheets));
+      add("Subfloor", sheets, "sheets", daysAt(sheets, s.cap_subfloor_sheets));
       continue;
     }
     if (/(self.?level|leveling|self level)/.test(text)) {
-      add("Self-leveling", sf, "sq ft", sf / num(s.cap_selflevel_sf));
+      add("Self-leveling", sf, "sq ft", daysAt(sf, s.cap_selflevel_sf));
       continue;
     }
 
     switch (l.category) {
       case "carpet":
-        add("Carpet", sy, "sq yd", sy / num(s.cap_carpet_yd));
+        add("Carpet", sy, "sq yd", daysAt(sy, s.cap_carpet_yd));
         break;
       case "lvp":
       case "vinyl":
-        add("Luxury / sheet vinyl", sf, "sq ft", sf / num(s.cap_lvt_sf));
+        add("Luxury / sheet vinyl", sf, "sq ft", daysAt(sf, s.cap_lvt_sf));
         break;
       case "laminate":
-        add("Laminate", sf, "sq ft", sf / num(s.cap_laminate_sf));
+        add("Laminate", sf, "sq ft", daysAt(sf, s.cap_laminate_sf));
         break;
       case "hardwood":
-        add("Hardwood", sf, "sq ft", sf / num(s.cap_hardwood_sf));
+        add("Hardwood", sf, "sq ft", daysAt(sf, s.cap_hardwood_sf));
         break;
       case "tile":
         // Tile setting is slow; use the tile (teardown) capacity as the rate.
-        add("Tile", sf, "sq ft", sf / num(s.cap_tile_teardown_sf));
+        add("Tile", sf, "sq ft", daysAt(sf, s.cap_tile_teardown_sf));
         break;
       // Companion materials & labor lines are NOT flooring to install — they
       // don't add install days (pad/underlayment/trim/thinset/grout/tear-out).
@@ -103,7 +111,7 @@ export function installDaysForJob(
         // Only a line with NO category and a real area is treated as flooring
         // (legacy lines from the old builder); companions always set a category.
         if (!l.category && sf > 0)
-          add("Flooring", sf, "sq ft", sf / num(s.cap_lvt_sf));
+          add("Flooring", sf, "sq ft", daysAt(sf, s.cap_lvt_sf));
     }
   }
 

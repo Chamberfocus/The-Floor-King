@@ -4,8 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { listAssignableUsers } from "@/lib/data/jobs";
-import { getSchedulingSettings } from "@/lib/data/scheduling";
+import { getSchedulingSettings, listInstallers } from "@/lib/data/scheduling";
 import { parseArrivalWindows } from "@/lib/format";
 import { QuickInstallForm } from "./quick-install-form";
 
@@ -24,9 +23,7 @@ export default async function QuickInstallPage() {
     id: c.id as string,
     full_name: (c.full_name as string) ?? "Unnamed",
   }));
-  const installers = (await listAssignableUsers())
-    .filter((u) => u.role === "crew")
-    .map((u) => ({ id: u.id, name: u.name }));
+  const installers = (await listInstallers()).map((u) => ({ id: u.id, name: u.name }));
   const sched = await getSchedulingSettings();
   const windows = parseArrivalWindows(sched.arrival_windows).map((w) => ({
     value: `${w.start}-${w.end}`,

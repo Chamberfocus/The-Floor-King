@@ -98,8 +98,12 @@ export function InstallSchedule({
         {/* Smart suggestions */}
         {suggestions.length > 0 ? (
           <div className="space-y-2">
-            <div className="text-sm font-medium">Next available crews</div>
-            {suggestions.slice(0, 4).map((sug) => (
+            <div className="text-sm font-medium">
+              Next available crews{" "}
+              <span className="font-normal text-muted-foreground">({suggestions.length})</span>
+            </div>
+            <div className="max-h-80 space-y-2 overflow-y-auto">
+            {suggestions.map((sug) => (
               <div
                 key={sug.installerId}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
@@ -136,6 +140,7 @@ export function InstallSchedule({
                 </form>
               </div>
             ))}
+            </div>
           </div>
         ) : null}
 
