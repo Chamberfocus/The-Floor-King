@@ -32,6 +32,116 @@ function nullable(v: FormDataEntryValue | null): string | null {
   return str(v) || null;
 }
 
+type JobsDb = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Find-or-create the employee crew that represents a login installer, so pay and
+ * the warehouse always have a crew to hang off of. Returns the crew id.
+ */
+async function ensureCrewForProfile(
+  supabase: JobsDb,
+  profileId: string,
+): Promise<string | null> {
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", profileId)
+    .maybeSingle();
+  const name =
+    (prof?.full_name as string) || (prof?.email as string) || "Installer";
+  const email = (prof?.email as string) || null;
+  let existingId: string | null = null;
+  if (email) {
+    const { data } = await supabase
+      .from("install_crews")
+      .select("id")
+      .eq("email", email)
+      .limit(1)
+      .maybeSingle();
+    existingId = (data?.id as string) ?? null;
+  }
+  if (!existingId) {
+    const { data } = await supabase
+      .from("install_crews")
+      .select("id")
+      .eq("name", name)
+      .limit(1)
+      .maybeSingle();
+    existingId = (data?.id as string) ?? null;
+  }
+  if (existingId) return existingId;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: created } = await supabase
+    .from("install_crews")
+    .insert({ name, kind: "employee", email, active: true, created_by: user?.id ?? null })
+    .select("id")
+    .single();
+  return (created?.id as string) ?? null;
+}
+
+/**
+ * The login installer (crew/admin profile) a managed crew maps to — by email
+ * first, then by exact name (subcontractor crews are often set up without an
+ * email but share a name with the installer's phone login). Returns null when
+ * there's no login installer behind the crew (a pure subcontractor).
+ */
+async function profileForCrew(
+  supabase: JobsDb,
+  crewId: string,
+): Promise<string | null> {
+  const { data: crew } = await supabase
+    .from("install_crews")
+    .select("email, name")
+    .eq("id", crewId)
+    .maybeSingle();
+  const email = (crew?.email as string) || null;
+  if (email) {
+    const { data: byEmail } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("email", email)
+      .in("role", ["crew", "admin"])
+      .limit(1)
+      .maybeSingle();
+    if (byEmail?.id) return byEmail.id as string;
+  }
+  const name = ((crew?.name as string) || "").trim();
+  if (name) {
+    const { data: byName } = await supabase
+      .from("profiles")
+      .select("id")
+      .ilike("full_name", name)
+      .in("role", ["crew", "admin"])
+      .limit(1)
+      .maybeSingle();
+    if (byName?.id) return byName.id as string;
+  }
+  return null;
+}
+
+/**
+ * One assignment/schedule change ripples to EVERY view that shows the job, so
+ * the app stays interconnected: the installer's page, the warehouse queue, the
+ * install calendar, the job board, the pipeline/dashboard, and the customer file.
+ */
+function revalidateJobEverywhere(id: string, customerId?: string | null): void {
+  for (const p of [
+    `/jobs/${id}`,
+    "/jobs",
+    "/jobs/calendar",
+    "/installer",
+    "/warehouse",
+    "/board",
+    "/pipeline",
+    "/dashboard",
+  ]) {
+    revalidatePath(p);
+  }
+  if (customerId) revalidatePath(`/customers/${customerId}`);
+}
+
 /** Book a smart-scheduled install: assign installer + date range. */
 export async function bookInstall(formData: FormData): Promise<void> {
   const id = str(formData.get("job_id"));
@@ -72,11 +182,22 @@ export async function bookInstall(formData: FormData): Promise<void> {
   // Scheduled → auto-submit to the warehouse (notifies the assigned person).
   await ensureWarehouseSubmitted(id);
 
-  revalidatePath(`/jobs/${id}`);
-  revalidatePath("/jobs");
-  revalidatePath("/pipeline");
-  revalidatePath("/dashboard");
-  revalidatePath("/warehouse");
+  // Keep the crew (for pay + the warehouse) in sync with the booked installer —
+  // fill it in when the job has no explicit crew yet, so nothing is orphaned.
+  if (installer) {
+    const { data: cur } = await supabase
+      .from("jobs")
+      .select("assigned_crew_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (!cur?.assigned_crew_id) {
+      const crewId = await ensureCrewForProfile(supabase, installer);
+      if (crewId)
+        await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", id);
+    }
+  }
+
+  revalidateJobEverywhere(id, job?.customer_id as string | null);
 
   // When invoked from the customer LIST, return there; the guided flow / file
   // pass nothing and stay put (revalidate only), as before.
@@ -372,10 +493,12 @@ export async function updateJob(
   if (str(formData.get("scheduled_date")))
     await ensureWarehouseSubmitted(id);
 
-  revalidatePath(`/jobs/${id}`);
-  revalidatePath("/jobs");
-  revalidatePath("/dashboard");
-  revalidatePath("/warehouse");
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  revalidateJobEverywhere(id, job?.customer_id as string | null);
   return { error: null, ok: true };
 }
 
@@ -386,64 +509,30 @@ export async function setJobCrew(formData: FormData): Promise<void> {
   let crewId = str(formData.get("crew_id")) || null;
   const supabase = await createClient();
 
-  // A team installer can be assigned directly (value "user:<profileId>"). We
-  // find-or-create a matching employee crew so they "just work" here without
-  // being re-entered under Settings → Install Crews — and so payout tracking
-  // still has a crew to hang off of.
+  // Figure out the login installer this crew represents, so the installer's
+  // page (which keys off assigned_to) stays in sync no matter how you assign.
+  let installerProfileId: string | null = null;
   if (crewId && crewId.startsWith("user:")) {
-    const profileId = crewId.slice(5);
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("full_name, email")
-      .eq("id", profileId)
-      .maybeSingle();
-    const name =
-      (prof?.full_name as string) || (prof?.email as string) || "Installer";
-    const email = (prof?.email as string) || null;
-
-    let existingId: string | null = null;
-    if (email) {
-      const { data } = await supabase
-        .from("install_crews")
-        .select("id")
-        .eq("email", email)
-        .limit(1)
-        .maybeSingle();
-      existingId = (data?.id as string) ?? null;
-    }
-    if (!existingId) {
-      const { data } = await supabase
-        .from("install_crews")
-        .select("id")
-        .eq("name", name)
-        .limit(1)
-        .maybeSingle();
-      existingId = (data?.id as string) ?? null;
-    }
-    if (existingId) {
-      crewId = existingId;
-    } else {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      const { data: created } = await supabase
-        .from("install_crews")
-        .insert({
-          name,
-          kind: "employee",
-          email,
-          active: true,
-          created_by: user?.id ?? null,
-        })
-        .select("id")
-        .single();
-      crewId = (created?.id as string) ?? null;
-    }
+    // A team installer assigned directly — find-or-create their employee crew
+    // (so payout tracking has a crew) AND map to their login profile.
+    installerProfileId = crewId.slice(5);
+    crewId = await ensureCrewForProfile(supabase, installerProfileId);
+  } else if (crewId) {
+    // A managed crew — if it maps to a login installer (by email), link it too.
+    installerProfileId = await profileForCrew(supabase, crewId);
   }
 
-  await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", id);
-  revalidatePath(`/jobs/${id}`);
-  revalidatePath("/jobs");
+  // Never clear a valid installer: only set assigned_to when we resolved one.
+  const update: Record<string, unknown> = { assigned_crew_id: crewId };
+  if (installerProfileId) update.assigned_to = installerProfileId;
+  await supabase.from("jobs").update(update).eq("id", id);
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  revalidateJobEverywhere(id, job?.customer_id as string | null);
   revalidatePath("/settings/install-crews");
 }
 
@@ -592,9 +681,18 @@ export async function assignInstaller(formData: FormData): Promise<void> {
     .update({ status: "declined" })
     .eq("job_id", jobId)
     .neq("installer_id", installerId);
-  revalidatePath(`/jobs/${jobId}`);
-  revalidatePath("/board");
-  revalidatePath("/jobs");
+  // Keep the crew in sync + ripple the assignment to every view.
+  const { data: cur } = await supabase
+    .from("jobs")
+    .select("customer_id, assigned_crew_id")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!cur?.assigned_crew_id) {
+    const crewId = await ensureCrewForProfile(supabase, installerId);
+    if (crewId)
+      await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", jobId);
+  }
+  revalidateJobEverywhere(jobId, cur?.customer_id as string | null);
 }
 
 // --- Warehouse --------------------------------------------------------------
