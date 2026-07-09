@@ -75,9 +75,11 @@ export interface OrderListRow extends Order {
 }
 
 /** All orders, newest first — defensive if the table isn't there yet. */
-export async function listOrders(): Promise<OrderListRow[]> {
+export async function listOrders(
+  dbArg?: Awaited<ReturnType<typeof createClient>>,
+): Promise<OrderListRow[]> {
   try {
-    const supabase = await createClient();
+    const supabase = dbArg ?? (await createClient());
     const { data, error } = await supabase
       .from("orders")
       .select("*, customer:customers(full_name)")

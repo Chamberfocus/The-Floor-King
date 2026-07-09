@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { requireProfile } from "@/lib/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { listWarehouseJobs } from "@/lib/data/jobs";
 import { getJobMaterials } from "@/lib/data/job-materials";
 import { listOrders } from "@/lib/data/orders";
@@ -65,9 +66,13 @@ export default async function WarehousePage() {
     redirect("/");
   }
 
-  const jobsRaw = await listWarehouseJobs();
+  // Viewer is authorized above → read the queue with the service role so the
+  // warehouse sees every scheduled job AND its full prep detail (stock levels,
+  // pull-vs-order, POs), which the warehouse role's own RLS can't reach.
+  const wh = createAdminClient();
+  const jobsRaw = await listWarehouseJobs(wh);
   // The real sourcing (pull-from-stock vs order, with cut sizes) per job.
-  const sourcedArr = await Promise.all(jobsRaw.map((j) => getJobMaterials(j.id)));
+  const sourcedArr = await Promise.all(jobsRaw.map((j) => getJobMaterials(j.id, wh)));
   const sourced = new Map(jobsRaw.map((j, i) => [j.id, sourcedArr[i]]));
   // Ready to prep (sent to warehouse, not yet staged) first; then coming up;
   // then already staged.
@@ -86,7 +91,7 @@ export default async function WarehousePage() {
     return m.lengthIn && m.widthIn ? `✂ ${ft(m.widthIn)} × ${ft(m.lengthIn)}` : "";
   };
   const org = await getOrgSettings();
-  const stockChecks = (await listOrders()).filter(
+  const stockChecks = (await listOrders(wh)).filter(
     (o) => o.status === "submitted",
   );
 

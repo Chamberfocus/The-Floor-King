@@ -258,8 +258,14 @@ export interface WarehouseJob extends JobListRow {
   warehouse_assignee_name: string | null; // warehouse person assigned to prep it
 }
 
-export async function listWarehouseJobs(): Promise<WarehouseJob[]> {
-  const supabase = await createClient();
+export async function listWarehouseJobs(
+  dbArg?: Awaited<ReturnType<typeof createClient>>,
+): Promise<WarehouseJob[]> {
+  // The warehouse queue must read jobs + crew/installer names + material scope
+  // for ALL active jobs. Callers (the warehouse page) verify the viewer's role
+  // first and pass the service-role client, since the warehouse role's RLS
+  // can't reach products/POs/etc. — same pattern the other warehouse loaders use.
+  const supabase = dbArg ?? (await createClient());
   const { data } = await supabase
     .from("jobs")
     .select("*, customer:customers(full_name)")
