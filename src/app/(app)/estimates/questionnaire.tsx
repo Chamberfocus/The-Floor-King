@@ -933,8 +933,10 @@ function QuestionBody({
     );
   }
 
-  if (q.kind === "product" && answer?.kind === "trims") {
-    const rows = answer.rows;
+  if (q.kind === "product" && q.config.trim_list) {
+    // Keyed off the question config (not the answer kind) so the list always
+    // renders, even if an older saved answer had a different shape.
+    const rows = answer?.kind === "trims" ? answer.rows : [];
     const upd = (rs: TrimRow[]) => set({ kind: "trims", rows: rs });
     const patch = (id: string, pp: Partial<TrimRow>) =>
       upd(rows.map((x) => (x.id === id ? { ...x, ...pp } : x)));
@@ -992,7 +994,7 @@ function QuestionBody({
     );
   }
 
-  if (q.kind === "product" && answer?.kind === "product") {
+  if (q.kind === "product" && !q.config.trim_list && answer?.kind === "product") {
     const p = answer.product;
     const extras = answer.extras;
     const cat = q.config.category || "other";
@@ -1167,9 +1169,9 @@ function QuestionBody({
     );
   }
 
-  if (q.kind === "choice" && answer?.kind === "choice_areas") {
+  if (q.kind === "choice" && q.config.per_area) {
     const opts = (q.config.options ?? []).filter((o) => o.emit);
-    const rows = answer.rows;
+    const rows = answer?.kind === "choice_areas" ? answer.rows : [];
     const upd = (rs: DemoRow[]) => set({ kind: "choice_areas", rows: rs });
     const patch = (id: string, pp: Partial<DemoRow>) =>
       upd(rows.map((x) => (x.id === id ? { ...x, ...pp } : x)));
@@ -1217,7 +1219,7 @@ function QuestionBody({
     );
   }
 
-  if (q.kind === "choice" && answer?.kind === "choice") {
+  if (q.kind === "choice" && !q.config.per_area && answer?.kind === "choice") {
     const opts = q.config.options ?? [];
     const multi = q.config.multi;
     const toggle = (label: string) => {
