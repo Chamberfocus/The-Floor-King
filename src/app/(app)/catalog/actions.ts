@@ -75,12 +75,27 @@ export async function createProductInline(input: {
   const name = input.name?.trim();
   if (!name) return { error: "A product name is required." };
 
+  // Salespeople build estimates and must be able to add an off-catalog product
+  // on the fly — but the catalog is read-only for them under RLS. Verify the
+  // caller is an estimate-builder role, then write with the service role (the
+  // same elevate-after-check pattern used across the app).
+  try {
+    await assertRole(["admin", "office", "sales_manager", "salesman"]);
+  } catch {
+    return { error: "You don't have permission to add catalog products." };
+  }
+
   const numOr0 = (v: number | string | undefined) => {
     const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
     return Number.isFinite(n) ? n : 0;
   };
 
-  const supabase = await createClient();
+  let supabase;
+  try {
+    supabase = createAdminClient();
+  } catch {
+    return { error: "Catalog isn't configured on the server." };
+  }
   const { data, error } = await supabase
     .from("products")
     .insert({
