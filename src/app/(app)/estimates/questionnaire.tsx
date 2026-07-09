@@ -79,8 +79,35 @@ interface ProductAns {
 interface ExtraPad { id: string; product: ProductAns | null; sqft: string }
 /** One demo type + the area it covers (repeatable "demo" step). */
 interface DemoRow { id: string; option: string; sqft: string }
-/** One trim/molding line — a real product + how much (repeatable trim step). */
-interface TrimRow { id: string; product: ProductAns | null; qty: string; unit: string }
+/** One trim/molding line — a quick-picked type with color/size, and an optional
+ *  specific catalog product. */
+interface TrimRow {
+  id: string;
+  type: string; // e.g. "Baseboard", "J-channel"
+  qty: string;
+  unit: string; // lnft | each | pc
+  cost: number; // material $/unit (default from the type; overridable)
+  color: string;
+  size: string;
+  sized: boolean; // show the size field (J-channel, stair nose, baseboard…)
+  source: "order" | "stock";
+  product: ProductAns | null; // set only when you attach a specific catalog item
+}
+
+/** The trims you click to add — with sensible default material rates you can
+ *  tweak per line. Sizes/colors are typed on the line. */
+const TRIM_TYPES: { label: string; unit: string; cost: number; sized?: boolean }[] = [
+  { label: "Baseboard", unit: "lnft", cost: 2.6, sized: true },
+  { label: "Shoe molding", unit: "lnft", cost: 1.0 },
+  { label: "Quarter round", unit: "lnft", cost: 1.0 },
+  { label: "Cove base", unit: "lnft", cost: 1.5, sized: true },
+  { label: "Stair nose", unit: "each", cost: 45, sized: true },
+  { label: "J-channel", unit: "lnft", cost: 1.2, sized: true },
+  { label: "T-mold", unit: "each", cost: 25 },
+  { label: "Reducer", unit: "each", cost: 28 },
+  { label: "End cap", unit: "each", cost: 25 },
+  { label: "Threshold", unit: "each", cost: 25 },
+];
 type Answer =
   | { kind: "areas"; rooms: AreaRow[] }
   | { kind: "product"; product: ProductAns | null; extras: ExtraPad[] }
@@ -94,7 +121,18 @@ type Answer =
 let did = 0;
 const newDemoRow = (): DemoRow => ({ id: `d${did++}`, option: "", sqft: "" });
 let tid = 0;
-const newTrimRow = (): TrimRow => ({ id: `t${tid++}`, product: null, qty: "", unit: "lnft" });
+const newTrimRow = (t?: { label: string; unit: string; cost: number; sized?: boolean }): TrimRow => ({
+  id: `t${tid++}`,
+  type: t?.label ?? "",
+  qty: "",
+  unit: t?.unit ?? "lnft",
+  cost: t?.cost ?? 0,
+  color: "",
+  size: "",
+  sized: !!t?.sized,
+  source: "order",
+  product: null,
+});
 
 const productLabel = (p: Product) =>
   [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name;
@@ -518,33 +556,39 @@ export function Questionnaire({
           if (qty > 0) out.push(matLine(ex.product, qty));
         }
       } else if (q.kind === "product" && a.kind === "trims") {
-        // Trims / moldings — each row is a real product billed per its unit
-        // (lnft / each), with material + install, so the specific trim shows on
-        // the estimate and can be pulled from stock or ordered from a vendor.
+        // Trims / moldings — each row is a quick-picked type (with color/size) or
+        // a specific catalog product, billed per its unit (lnft/each), so the
+        // exact trim shows on the estimate and can be pulled from stock or ordered.
         for (const row of a.rows) {
-          const p = row.product;
           const qty = numv(row.qty);
-          if (!p || qty <= 0) continue;
+          if (qty <= 0 || (!row.type && !row.product)) continue;
+          const p = row.product;
+          const matCost = p ? p.materialRate : row.cost;
+          const desc =
+            p?.label ||
+            [row.type || "Trim", row.size ? `${row.size}"`.replace('""', '"') : "", row.color]
+              .filter(Boolean)
+              .join(" · ");
           out.push({
             room: null,
-            description: p.label || "Trim",
+            description: desc,
             category: "trim",
             measure_unit: "sqft",
             sqft: null,
             quantity: r2(qty),
             length_in: null,
             width_in: null,
-            unit: row.unit || p.unit || "lnft",
-            material_rate: sellAt(p.materialRate),
-            labor_rate: sellAt(p.laborRate),
-            material_cost: p.materialRate,
-            labor_cost: p.laborRate,
+            unit: row.unit || p?.unit || "lnft",
+            material_rate: sellAt(matCost),
+            labor_rate: p ? sellAt(p.laborRate) : 0,
+            material_cost: matCost,
+            labor_cost: p ? p.laborRate : 0,
             waste_pct: 0,
-            product_id: p.productId || null,
-            manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
-            style: p.style,
-            color: p.color,
-            from_stock: p.source === "stock",
+            product_id: p?.productId || null,
+            manufacturer: p?.source === "order" && p.vendor.trim() ? p.vendor.trim() : p?.manufacturer ?? null,
+            style: p?.style ?? null,
+            color: row.color || p?.color || null,
+            from_stock: row.source === "stock",
           });
         }
       } else if (q.kind === "choice" && a.kind === "choice_areas") {
@@ -614,7 +658,7 @@ export function Questionnaire({
     if (qq.kind === "product")
       return (
         (a?.kind === "product" && !!a.product) ||
-        (a?.kind === "trims" && a.rows.some((r) => r.product && numv(r.qty) > 0))
+        (a?.kind === "trims" && a.rows.some((r) => (r.product || r.type) && numv(r.qty) > 0))
       );
     return true; // yesno/number/choice/text are always "answerable"
   };
@@ -934,62 +978,108 @@ function QuestionBody({
   }
 
   if (q.kind === "product" && q.config.trim_list) {
-    // Keyed off the question config (not the answer kind) so the list always
-    // renders, even if an older saved answer had a different shape.
     const rows = answer?.kind === "trims" ? answer.rows : [];
     const upd = (rs: TrimRow[]) => set({ kind: "trims", rows: rs });
     const patch = (id: string, pp: Partial<TrimRow>) =>
       upd(rows.map((x) => (x.id === id ? { ...x, ...pp } : x)));
     return (
-      <div className="space-y-2">
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Add baseboard, quarter-round, cove base, stairnose, J-channel, transitions… each as its own product.
-          </p>
-        ) : null}
-        {rows.map((row) => {
-          const p = row.product;
-          return (
-            <div key={row.id} className="space-y-2 rounded-md border bg-muted/20 p-2.5">
-              <div className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <ProductPicker
-                    value={p?.productId ?? ""}
-                    initialLabel={p?.label ?? ""}
-                    label="Trim (catalog, or add a Versatrim / manufacturer item)"
-                    defaultCategory="trim"
-                    onPick={(prod) => patch(row.id, { product: prod ? toProductAns(prod) : null, unit: prod?.unit || row.unit })}
-                    onCreated={(prod) => patch(row.id, { product: toProductAns(prod), unit: prod.unit || row.unit })}
-                    onUseOnce={(input) => patch(row.id, { product: customToProductAns(input), unit: input.unit || row.unit })}
-                  />
-                </div>
-                <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => upd(rows.filter((x) => x.id !== row.id))}>
-                  <Trash2 className="size-4 text-destructive" />
-                </Button>
+      <div className="space-y-3">
+        {/* Quick-add: click the trims you need. */}
+        <div className="flex flex-wrap gap-1.5">
+          {TRIM_TYPES.map((t) => (
+            <button
+              key={t.label}
+              type="button"
+              onClick={() => upd([...rows, newTrimRow(t)])}
+              className="rounded-full border px-3 py-1.5 text-sm font-medium hover:border-primary hover:bg-primary/5"
+            >
+              <Plus className="mr-0.5 inline size-3.5" />
+              {t.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => upd([...rows, newTrimRow()])}
+            className="rounded-full border border-dashed px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            + Other
+          </button>
+        </div>
+
+        {rows.map((row) => (
+          <div key={row.id} className="space-y-2 rounded-md border bg-muted/20 p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <Input
+                value={row.type}
+                onChange={(e) => patch(row.id, { type: e.target.value })}
+                placeholder="Trim name"
+                className="h-10 max-w-[16rem] flex-1 text-base font-medium"
+              />
+              <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => upd(rows.filter((x) => x.id !== row.id))}>
+                <Trash2 className="size-4 text-destructive" />
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Qty</label>
+                <Input value={row.qty} onChange={(e) => patch(row.id, { qty: e.target.value })} inputMode="decimal" placeholder="0" className="h-10 w-20 text-base" />
               </div>
-              {p ? (
-                <div className="flex flex-wrap items-end gap-2">
-                  <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">Quantity</label>
-                    <Input value={row.qty} onChange={(e) => patch(row.id, { qty: e.target.value })} inputMode="decimal" placeholder="0" className="h-10 w-24 text-base" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-muted-foreground">Unit</label>
-                    <select value={row.unit} onChange={(e) => patch(row.id, { unit: e.target.value })} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
-                      <option value="lnft">linear ft</option>
-                      <option value="each">each</option>
-                      <option value="pc">pieces</option>
-                    </select>
-                  </div>
-                  <SourceToggle p={p} compact onChange={(np) => patch(row.id, { product: np })} />
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Unit</label>
+                <select value={row.unit} onChange={(e) => patch(row.id, { unit: e.target.value })} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
+                  <option value="lnft">linear ft</option>
+                  <option value="each">each</option>
+                  <option value="pc">pieces</option>
+                </select>
+              </div>
+              {row.sized ? (
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Size</label>
+                  <Input value={row.size} onChange={(e) => patch(row.id, { size: e.target.value })} placeholder='e.g. 3¼"' className="h-10 w-24 text-base" />
                 </div>
               ) : null}
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Color / finish</label>
+                <Input value={row.color} onChange={(e) => patch(row.id, { color: e.target.value })} placeholder="e.g. white" className="h-10 w-28 text-base" />
+              </div>
+              {!row.product ? (
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">$ / {row.unit}</label>
+                  <Input
+                    value={row.cost ? String(row.cost) : ""}
+                    onChange={(e) => patch(row.id, { cost: numv(e.target.value) })}
+                    inputMode="decimal"
+                    placeholder="0"
+                    className="h-10 w-20 text-base"
+                  />
+                </div>
+              ) : null}
+              <div className="inline-flex overflow-hidden rounded-md border">
+                <button type="button" onClick={() => patch(row.id, { source: "order" })}
+                  className={cn("px-2.5 py-2 text-sm font-medium", row.source === "order" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>Order</button>
+                <button type="button" onClick={() => patch(row.id, { source: "stock" })}
+                  className={cn("px-2.5 py-2 text-sm font-medium", row.source === "stock" ? "bg-amber-500 text-white" : "text-muted-foreground")}>Stock</button>
+              </div>
             </div>
-          );
-        })}
-        <Button type="button" variant="outline" size="sm" onClick={() => upd([...rows, newTrimRow()])}>
-          <Plus className="size-4" /> Add trim
-        </Button>
+            {/* Optional: attach a specific catalog / Versatrim product. */}
+            <details className="text-sm">
+              <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                {row.product ? `Catalog: ${row.product.label} — change` : "Find a specific product in the catalog"}
+              </summary>
+              <div className="mt-2">
+                <ProductPicker
+                  value={row.product?.productId ?? ""}
+                  initialLabel={row.product?.label ?? ""}
+                  label="Search the catalog (or add a Versatrim / manufacturer item)"
+                  defaultCategory="trim"
+                  onPick={(prod) => patch(row.id, { product: prod ? toProductAns(prod) : null, unit: prod?.unit || row.unit, type: row.type || (prod ? prod.name : row.type) })}
+                  onCreated={(prod) => patch(row.id, { product: toProductAns(prod), unit: prod.unit || row.unit })}
+                  onUseOnce={(input) => patch(row.id, { product: customToProductAns(input), unit: input.unit || row.unit })}
+                />
+              </div>
+            </details>
+          </div>
+        ))}
       </div>
     );
   }
