@@ -69,6 +69,7 @@ import { PrintButton } from "@/components/print-button";
 import { JobPrintDoc } from "./job-print";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
+import { JobTabs, JobTabPanel, type JobTab } from "./job-tabs";
 
 // Carpet padding is bought by the roll; the shop's standard roll covers this
 // many square yards (matches the estimate builder's roll math).
@@ -191,6 +192,14 @@ export default async function JobPage({
     job.site_zip,
   ].filter(Boolean);
 
+  // Which compartments this viewer gets. Crew (assigned) see just the work order
+  // and completion; staff get the full set.
+  const tabsToShow: JobTab[] = [
+    "work_order",
+    ...(canInstallerTools ? (["completion"] as JobTab[]) : []),
+    ...(isStaff ? (["warehouse", "money", "manage"] as JobTab[]) : []),
+  ];
+
   return (
     <>
       <JobPrintDoc org={org} job={job} assignedName={assignedName} />
@@ -307,6 +316,9 @@ export default async function JobPage({
         </Card>
       </div>
 
+      <JobTabs show={tabsToShow}>
+
+      <JobTabPanel tab="warehouse">
       {isStaff && job.scheduled_date ? (
         <form action={emailJobSchedule} className="mb-6">
           <input type="hidden" name="id" value={job.id} />
@@ -316,6 +328,9 @@ export default async function JobPage({
         </form>
       ) : null}
 
+      </JobTabPanel>
+
+      <JobTabPanel tab="work_order">
       {/* Work order scope */}
       <Card className="mb-6">
         <CardHeader>
@@ -427,6 +442,9 @@ export default async function JobPage({
         </CardContent>
       </Card>
 
+      </JobTabPanel>
+
+      <JobTabPanel tab="completion">
       {/* Job completion — read-only. The crew captures the sign-off, photos and
           any on-site payment on their My Work page; this is the office's view. */}
       {canInstallerTools ? (
@@ -584,6 +602,9 @@ export default async function JobPage({
         </Card>
       ) : null}
 
+      </JobTabPanel>
+
+      <JobTabPanel tab="work_order">
       {/* Measurements & diagrams — big & clear for the installers */}
       {job.customer_id ? (
         <Card className="mb-6 border-primary/30">
@@ -641,6 +662,9 @@ export default async function JobPage({
         </Card>
       ) : null}
 
+      </JobTabPanel>
+
+      <JobTabPanel tab="warehouse">
       {/* Site address — for accounts with multiple properties */}
       {isStaff && serviceAddresses.length > 0 ? (
         <Card className="mb-6">
@@ -762,6 +786,9 @@ export default async function JobPage({
       {/* Materials & sourcing (stock vs special-order) — staff only */}
       {jobMaterials ? <JobMaterialsCard data={jobMaterials} /> : null}
 
+      </JobTabPanel>
+
+      <JobTabPanel tab="money">
       {/* Crew pay (real subcontractor labor cost) — staff only */}
       {isStaff ? <JobLaborCard jobId={id} rows={jobLabor} crew={jobCrew} /> : null}
 
@@ -884,6 +911,9 @@ export default async function JobPage({
         </Card>
       ) : null}
 
+      </JobTabPanel>
+
+      <JobTabPanel tab="manage">
       {/* Staff editing */}
       {isStaff ? (
         <>
@@ -975,6 +1005,9 @@ export default async function JobPage({
           </div>
         </>
       ) : null}
+      </JobTabPanel>
+
+      </JobTabs>
     </div>
     </>
   );

@@ -599,7 +599,10 @@ export function EstimateBuilder({
         return;
       }
       toast.success("Estimate saved");
+      // "Save & view" opens the estimate; a plain "Save" returns to the
+      // customer's dashboard (the job's spine) — only ever on a successful save.
       if (thenView) router.push(`/estimates/${estimate.id}`);
+      else router.push(`/customers/${estimate.customer_id}`);
     });
 
   // Came from the smart builder's "Create & print" — open the print dialog once.

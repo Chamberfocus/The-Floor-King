@@ -147,7 +147,10 @@ export function InvoiceBuilder({
         return;
       }
       toast.success(opts.stash ? "Saved for later" : "Invoice saved");
+      // "Save for later" stashes to /saved; a plain save returns to the
+      // customer's dashboard (the job's spine) — only on a successful save.
       if (opts.stash) router.push("/saved");
+      else if (invoice.customer_id) router.push(`/customers/${invoice.customer_id}`);
       else router.refresh();
     });
 
