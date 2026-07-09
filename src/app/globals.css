@@ -186,3 +186,24 @@
     }
   }
 }
+
+/* Print: always a clean white sheet with black text, whatever the on-screen
+   theme is. Without this, the dark theme's page + app-shell background prints as
+   a solid black block behind the work order / invoices / estimates. The print
+   docs use borders and dark text (no background fills), so clearing backgrounds
+   just removes the dark app chrome and leaves a crisp white page. */
+@media print {
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    color-scheme: light !important;
+  }
+  *,
+  *::before,
+  *::after {
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }
+}
