@@ -13,6 +13,8 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import { InstallerCollect } from "../jobs/[id]/installer-collect";
 import { SatisfactionForm } from "../jobs/[id]/satisfaction-form";
 import { JobPhotos } from "../jobs/[id]/job-photos";
+import { JobScopeView } from "@/components/job-scope-view";
+import { ClipboardList } from "lucide-react";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
 
@@ -126,7 +128,7 @@ export default async function InstallerHomePage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {active.map(({ job, balance, hasInvoice, collectsBalance, satisfaction, photos }) => {
+            {active.map(({ job, balance, hasInvoice, collectsBalance, satisfaction, photos, scope }) => {
               const site = [job.site_street, job.site_city, job.site_state].filter(Boolean).join(", ");
               const canCollect = collectsBalance && hasInvoice && balance > 0;
               return (
@@ -160,6 +162,18 @@ export default async function InstallerHomePage() {
                     </Link>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    {/* The INSTALLATION work order — what to do, room by room. */}
+                    <details className="group" open>
+                      <summary className="flex cursor-pointer items-center gap-2 rounded-lg bg-primary/10 px-3 py-2.5 text-sm font-semibold text-primary hover:bg-primary/15">
+                        <ClipboardList className="size-4" />
+                        Installation work order
+                        <span className="ml-auto text-xs font-normal text-muted-foreground">tap to collapse</span>
+                      </summary>
+                      <div className="pt-3">
+                        <JobScopeView scope={scope} showPrices={!!job.show_prices} />
+                      </div>
+                    </details>
+
                     {canCollect ? (
                       <div className="[&>*]:mb-0">
                         <InstallerCollect jobId={job.id} hasInvoice={hasInvoice} balance={balance} />

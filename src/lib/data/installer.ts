@@ -1,8 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getJobOpenBalance } from "./invoices";
 import { getJobPhotos } from "./documents";
+import { buildJobScope, type JobScope } from "@/lib/job-scope";
 import type { JobSatisfaction } from "./jobs";
-import type { Job, CustomerDocument } from "@/lib/types";
+import type { Job, CustomerDocument, EstimateLineItem } from "@/lib/types";
 
 export interface InstallerJob {
   job: Job & { customer_name: string | null };
@@ -11,6 +12,8 @@ export interface InstallerJob {
   collectsBalance: boolean;
   satisfaction: JobSatisfaction | null;
   photos: (CustomerDocument & { url?: string | null })[];
+  /** The room-grouped INSTALLATION work order (never the staging pull sheet). */
+  scope: JobScope;
 }
 export interface InstallerHome {
   jobs: InstallerJob[];
@@ -38,6 +41,22 @@ export async function getInstallerHome(
     .order("scheduled_date", { ascending: true });
   const jobsRaw = (data ?? []) as (Job & { customer?: { full_name: string | null } | null })[];
   const jobIds = jobsRaw.map((j) => j.id);
+
+  // Scope (installation work order) for each job — grouped by room downstream.
+  const optionIds = jobsRaw.map((j) => j.option_id).filter(Boolean) as string[];
+  const linesByOption = new Map<string, EstimateLineItem[]>();
+  if (optionIds.length) {
+    const { data: lines } = await admin
+      .from("estimate_line_items")
+      .select("*")
+      .in("option_id", optionIds)
+      .order("position", { ascending: true });
+    for (const l of (lines ?? []) as EstimateLineItem[]) {
+      const arr = linesByOption.get(l.option_id) ?? [];
+      arr.push(l);
+      linesByOption.set(l.option_id, arr);
+    }
+  }
 
   const pay = { earned: 0, paid: 0, unpaid: 0 };
   if (jobIds.length) {
@@ -84,6 +103,10 @@ export async function getInstallerHome(
       collectsBalance: j.installer_collects_balance ?? globalCollects,
       satisfaction: satByJob.get(j.id) ?? null,
       photos,
+      scope: buildJobScope(
+        j.option_id ? (linesByOption.get(j.option_id) ?? []) : [],
+        j.notes ?? null,
+      ),
     });
   }
   return { jobs, pay, ratings };
