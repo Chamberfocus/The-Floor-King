@@ -14,6 +14,11 @@ export interface PickOption {
  * Type-to-search picker — replaces a dropdown for longer lists. Filters the
  * given options client-side. Works in native forms (set `name`) or controlled
  * (`value` + `onChange`).
+ *
+ * The menu renders INLINE (in normal flow) rather than as an absolute overlay, so
+ * it is never clipped by a scrollable/overflow ancestor — a short dialog used to
+ * cut it off, which looked like "type and nothing comes up". Expanding the picker
+ * grows its container; a scrollable dialog just scrolls to show it.
  */
 export function SearchPicker({
   name,
@@ -61,9 +66,7 @@ export function SearchPicker({
     const term = q.trim().toLowerCase();
     if (!term) return options.slice(0, 50);
     return options
-      .filter((o) =>
-        `${o.label} ${o.hint ?? ""}`.toLowerCase().includes(term),
-      )
+      .filter((o) => `${o.label} ${o.hint ?? ""}`.toLowerCase().includes(term))
       .slice(0, 50);
   }, [options, q]);
 
@@ -103,7 +106,7 @@ export function SearchPicker({
       </button>
 
       {open ? (
-        <div className="absolute z-30 mt-1 w-full min-w-52 rounded-md border bg-popover shadow-lg">
+        <div className="mt-1 w-full min-w-52 rounded-md border bg-popover shadow-sm">
           <div className="relative border-b p-2">
             <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -147,9 +150,7 @@ export function SearchPicker({
                 >
                   <span className="truncate">{o.label}</span>
                   {o.hint ? (
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {o.hint}
-                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{o.hint}</span>
                   ) : null}
                 </button>
               ))
