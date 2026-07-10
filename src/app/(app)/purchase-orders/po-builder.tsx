@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Save, Printer, Upload, Sparkles, Bookmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SegmentedField } from "@/components/ui/segmented-field";
@@ -305,9 +306,8 @@ export function PoBuilder({
           </label>
           <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="eta">Expected arrival (ETA)</Label>
-            <Input
+            <DateField
               id="eta"
-              type="date"
               value={etaDate}
               onChange={(e) => setEtaDate(e.target.value)}
             />

@@ -4,6 +4,7 @@ import { useActionState, useEffect } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { AddressFields } from "./address-fields";
 import {
@@ -56,12 +57,11 @@ export function CustomerForm({
 
         <div className="space-y-2">
           <Label htmlFor="phone">Phone</Label>
-          <Input
+          <PhoneInput
             id="phone"
             name="phone"
-            type="tel"
             defaultValue={customer?.phone ?? ""}
-            placeholder="(216) 555-0142"
+            placeholder="216-555-0142"
           />
         </div>
         <div className="space-y-2">

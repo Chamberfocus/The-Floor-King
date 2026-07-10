@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Users, UserPlus, Hammer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { cn } from "@/lib/utils";
@@ -102,7 +104,7 @@ export function QuickInstallForm({
           ) : (
             <div className="grid gap-2 sm:grid-cols-2">
               <Input placeholder="Full name *" value={nc.full_name} onChange={(e) => setNc({ ...nc, full_name: e.target.value })} className="sm:col-span-2" />
-              <Input placeholder="Phone" value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} />
+              <PhoneInput placeholder="Phone" value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} />
               <Input placeholder="Street" value={nc.street} onChange={(e) => setNc({ ...nc, street: e.target.value })} />
               <Input placeholder="City" value={nc.city} onChange={(e) => setNc({ ...nc, city: e.target.value })} />
               <div className="grid grid-cols-2 gap-2">
@@ -132,7 +134,7 @@ export function QuickInstallForm({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className={label}>Install date (if set)</label>
-              <Input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="mt-1" />
+              <DateField value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} className="mt-1" />
             </div>
             <div>
               <label className={label}>Arrival window</label>

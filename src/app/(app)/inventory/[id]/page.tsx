@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
@@ -235,10 +236,9 @@ export default async function InventoryItemPage({
             </div>
             <div>
               <Label htmlFor="stocked_since">In stock since</Label>
-              <Input
+              <DateField
                 id="stocked_since"
                 name="stocked_since"
-                type="date"
                 defaultValue={product.last_movement_at?.slice(0, 10) ?? ""}
                 className="w-36"
               />

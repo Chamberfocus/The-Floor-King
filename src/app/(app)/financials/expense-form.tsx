@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import {
   EXPENSE_CATEGORY_LABELS,
@@ -96,7 +97,7 @@ export function ExpenseForm({
       >
       <div className="space-y-1">
         <Label htmlFor="date">Date</Label>
-        <Input id="date" name="date" type="date" />
+        <DateField id="date" name="date" />
       </div>
       <div className="space-y-1">
         <Label>Category</Label>

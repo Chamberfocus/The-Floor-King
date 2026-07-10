@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Megaphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -48,13 +49,13 @@ export function PostToBoardButton({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="wanted_start">Wanted from</Label>
-                <Input id="wanted_start" type="date" name="wanted_start" className="mt-1" />
+                <DateField id="wanted_start" name="wanted_start" className="mt-1" />
               </div>
               <div>
                 <Label htmlFor="wanted_end">
                   Wanted by <span className="text-muted-foreground">(optional)</span>
                 </Label>
-                <Input id="wanted_end" type="date" name="wanted_end" className="mt-1" />
+                <DateField id="wanted_end" name="wanted_end" className="mt-1" />
               </div>
             </div>
             <div>

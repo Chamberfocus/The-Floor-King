@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { cn } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 import { startTracking, searchUntrackedProducts } from "./actions";
@@ -101,7 +102,7 @@ export function AddToInventoryForm() {
       </div>
       <div>
         <label className="mb-1 block text-xs text-muted-foreground">In stock since</label>
-        <Input name="stocked_since" type="date" className="w-36" />
+        <DateField name="stocked_since" className="w-36" />
       </div>
       <Button type="submit" disabled={!picked}>
         Track

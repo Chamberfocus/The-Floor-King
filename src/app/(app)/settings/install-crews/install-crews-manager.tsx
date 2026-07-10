@@ -6,6 +6,7 @@ import { Plus, Pencil, Phone, Mail, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import type { InstallCrew, CrewPayout } from "@/lib/data/install-crews";
@@ -209,7 +210,7 @@ function CrewForm({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">Phone</label>
-              <Input name="phone" defaultValue={crew?.phone ?? ""} placeholder="216-555-0101" inputMode="tel" />
+              <PhoneInput name="phone" defaultValue={crew?.phone ?? ""} placeholder="216-555-0101" />
             </div>
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">Email</label>

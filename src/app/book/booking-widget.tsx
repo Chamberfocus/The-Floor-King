@@ -4,6 +4,8 @@ import { useEffect, useState, useTransition } from "react";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { cn } from "@/lib/utils";
 import {
   APPOINTMENT_COLOR_CLASSES,
@@ -113,8 +115,7 @@ export function BookingWidget({
       {/* Date */}
       <section>
         <h2 className="mb-2 text-sm font-semibold">2. Pick a day</h2>
-        <Input
-          type="date"
+        <DateField
           value={date}
           min={today}
           onChange={(e) => setDate(e.target.value)}
@@ -163,7 +164,7 @@ export function BookingWidget({
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-          <Input
+          <PhoneInput
             placeholder="Phone"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}

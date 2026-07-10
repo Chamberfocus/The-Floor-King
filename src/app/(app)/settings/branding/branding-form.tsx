@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { createClient } from "@/lib/supabase/client";
 import type { OrgSettings } from "@/lib/types";
@@ -117,7 +118,7 @@ export function BrandingForm({ org }: { org: OrgSettings }) {
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="phone">Phone</Label>
-            <Input id="phone" name="phone" defaultValue={org.phone ?? ""} />
+            <PhoneInput id="phone" name="phone" defaultValue={org.phone ?? ""} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>

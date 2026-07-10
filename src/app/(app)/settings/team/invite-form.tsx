@@ -4,6 +4,7 @@ import { useActionState, useEffect } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { inviteTeamMember, type TeamFormState } from "./actions";
 import { POSITIONS } from "./positions";
@@ -53,12 +54,10 @@ export function InviteTeamForm() {
       </div>
       <div className="space-y-1">
         <Label htmlFor="phone">Phone number</Label>
-        <Input
+        <PhoneInput
           id="phone"
           name="phone"
-          type="tel"
-          inputMode="tel"
-          placeholder="(216) 555-1212"
+          placeholder="216-555-1212"
         />
       </div>
       <div className="space-y-1 sm:col-span-2">

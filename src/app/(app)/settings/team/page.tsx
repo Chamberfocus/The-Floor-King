@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PhoneInput } from "@/components/ui/phone-input";
 import {
   Card,
   CardContent,
@@ -162,11 +163,11 @@ export default async function TeamPage() {
                     className="flex items-center gap-1"
                   >
                     <input type="hidden" name="id" value={m.id} />
-                    <input
+                    <PhoneInput
                       name="phone"
                       defaultValue={m.phone ?? ""}
                       placeholder="Phone for sign-in"
-                      className="h-8 w-40 rounded-md border border-input bg-transparent px-2 text-sm"
+                      className="h-8 w-40 text-sm"
                     />
                     <input
                       name="pin"

@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import {
   Table,
   TableBody,
@@ -59,11 +60,11 @@ export default async function ScorecardPage({
       <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
         <div className="space-y-1">
           <label className="block text-xs text-muted-foreground">Completed from</label>
-          <Input type="date" name="start" defaultValue={sp.start ?? ""} />
+          <DateField name="start" defaultValue={sp.start ?? ""} />
         </div>
         <div className="space-y-1">
           <label className="block text-xs text-muted-foreground">To</label>
-          <Input type="date" name="end" defaultValue={sp.end ?? ""} />
+          <DateField name="end" defaultValue={sp.end ?? ""} />
         </div>
         <Button type="submit" variant="outline">Update</Button>
       </form>

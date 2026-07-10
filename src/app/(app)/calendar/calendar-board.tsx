@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
+import { PhoneInput } from "@/components/ui/phone-input";
 import {
   Dialog,
   DialogContent,
@@ -527,7 +529,7 @@ function NewApptDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">Date</label>
-              <Input type="date" name="date" defaultValue={slot.date} required />
+              <DateField name="date" defaultValue={slot.date} required />
             </div>
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">Time</label>
@@ -575,7 +577,7 @@ function NewApptDialog({
                 value={contactName}
                 onChange={(e) => setContactName(e.target.value)}
               />
-              <Input
+              <PhoneInput
                 placeholder="Phone"
                 value={contactPhone}
                 onChange={(e) => setContactPhone(e.target.value)}
@@ -685,8 +687,7 @@ function DetailDialog({
             {isPending ? "Confirm — set time & assign" : "Reschedule"}
           </p>
           <div className="grid grid-cols-2 gap-3">
-            <Input
-              type="date"
+            <DateField
               name="date"
               defaultValue={dayOf(appt.startsAt)}
               required={!isPending}

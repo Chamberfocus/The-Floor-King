@@ -7,6 +7,7 @@ import { Plus, Trash2, Check, CalendarClock, Package } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import type { SampleCheckout, Product } from "@/lib/types";
@@ -172,7 +173,7 @@ export function SamplesCard({
                     <Input
                       value={it.qty}
                       onChange={(e) => setItem(it.key, { qty: e.target.value })}
-                      inputMode="numeric"
+                      inputMode="decimal"
                       className="h-8 w-14"
                       aria-label="Quantity"
                     />
@@ -197,8 +198,7 @@ export function SamplesCard({
             <div className="flex flex-wrap items-end gap-2">
               <div>
                 <label className="mb-1 block text-xs text-muted-foreground">Return by</label>
-                <input
-                  type="date"
+                <DateField
                   value={due}
                   min={todayPlus(0)}
                   onChange={(e) => setDue(e.target.value)}
@@ -358,8 +358,7 @@ function ExtendButton({
   }
   return (
     <span className="inline-flex items-center gap-1">
-      <input
-        type="date"
+      <DateField
         value={val}
         min={todayPlus(0)}
         onChange={(e) => setVal(e.target.value)}

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { SearchPicker } from "@/components/ui/search-picker";
 import {
@@ -421,8 +422,7 @@ export function QuickActions({
                       <label className="mb-1 block text-xs text-muted-foreground">
                         Start date
                       </label>
-                      <input
-                        type="date"
+                      <DateField
                         name="start"
                         required
                         defaultValue={job.date ?? ""}
@@ -434,8 +434,7 @@ export function QuickActions({
                         End date{" "}
                         <span className="text-muted-foreground/70">(optional)</span>
                       </label>
-                      <input
-                        type="date"
+                      <DateField
                         name="end"
                         defaultValue={job.endDate ?? ""}
                         className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"

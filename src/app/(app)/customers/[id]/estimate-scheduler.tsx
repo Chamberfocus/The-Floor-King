@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { DateField } from "@/components/ui/date-field";
 import { toast } from "sonner";
 import { CalendarClock, Car, MapPin, Route } from "lucide-react";
 import {
@@ -212,7 +213,7 @@ export function EstimateScheduler({
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
                   Date
                 </label>
-                <input type="date" name="date" required className={fieldCls} />
+                <DateField name="date" required className={fieldCls} />
               </div>
 
               <div>

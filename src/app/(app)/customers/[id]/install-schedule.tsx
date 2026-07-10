@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DateField } from "@/components/ui/date-field";
 import { CalendarClock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -165,8 +166,7 @@ export function InstallSchedule({
             </div>
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">Start</label>
-              <input
-                type="date"
+              <DateField
                 name="start"
                 required
                 defaultValue={schedule.date ?? ""}
@@ -175,8 +175,7 @@ export function InstallSchedule({
             </div>
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">End</label>
-              <input
-                type="date"
+              <DateField
                 name="end"
                 defaultValue={schedule.endDate ?? ""}
                 className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"

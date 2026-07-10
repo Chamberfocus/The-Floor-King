@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { login, loginWithPhone, type LoginState } from "./actions";
@@ -80,13 +81,10 @@ export function LoginForm({ next }: { next: string }) {
           <input type="hidden" name="next" value={next} />
           <div className="space-y-2">
             <Label htmlFor="phone">Phone number</Label>
-            <Input
+            <PhoneInput
               id="phone"
               name="phone"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              placeholder="(216) 555-1212"
+              placeholder="216-555-1212"
               required
               autoFocus
             />

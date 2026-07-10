@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { CalendarPlus, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { SearchPicker } from "@/components/ui/search-picker";
 import {
@@ -100,13 +101,13 @@ export function AddDayOff({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="mb-1 block text-sm font-medium">From</label>
-                <Input type="date" name="start_date" required />
+                <DateField name="start_date" required />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">
                   To <span className="text-muted-foreground">(optional)</span>
                 </label>
-                <Input type="date" name="end_date" />
+                <DateField name="end_date" />
               </div>
             </div>
 

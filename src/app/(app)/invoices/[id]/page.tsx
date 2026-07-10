@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { DateField } from "@/components/ui/date-field";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Trash2, Send } from "lucide-react";
@@ -178,7 +179,7 @@ export default async function InvoicePage({
               <label className="mb-1 block text-xs text-muted-foreground">
                 Date
               </label>
-              <input name="paid_at" type="date" className={fieldClass} />
+              <DateField name="paid_at" className={fieldClass} />
             </div>
             <div className="sm:col-span-1">
               <label className="mb-1 block text-xs text-muted-foreground">

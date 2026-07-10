@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { formatMoney } from "@/lib/format";
 import { LABOR_BASIS_LABELS, type JobLabor, type LaborBasis } from "@/lib/types";
@@ -219,7 +220,7 @@ export function JobLaborCard({
               <label className="text-xs text-muted-foreground">
                 Paid on (if paid)
               </label>
-              <Input type="date" name="paid_on" className="w-44" />
+              <DateField name="paid_on" className="w-44" />
             </div>
           </div>
 

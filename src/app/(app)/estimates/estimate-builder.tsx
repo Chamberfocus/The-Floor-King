@@ -1067,6 +1067,8 @@ export function EstimateBuilder({
                             <div className="flex gap-1">
                               <input
                                 type="number"
+                                step="any"
+                                inputMode="decimal"
                                 min="0"
                                 value={line.len_ft}
                                 onChange={(e) =>
@@ -1077,6 +1079,8 @@ export function EstimateBuilder({
                               />
                               <input
                                 type="number"
+                                step="any"
+                                inputMode="decimal"
                                 min="0"
                                 value={line.len_in}
                                 onChange={(e) =>
@@ -1094,6 +1098,8 @@ export function EstimateBuilder({
                             <div className="flex gap-1">
                               <input
                                 type="number"
+                                step="any"
+                                inputMode="decimal"
                                 min="0"
                                 value={line.wid_ft}
                                 onChange={(e) =>
@@ -1104,6 +1110,8 @@ export function EstimateBuilder({
                               />
                               <input
                                 type="number"
+                                step="any"
+                                inputMode="decimal"
                                 min="0"
                                 value={line.wid_in}
                                 onChange={(e) =>

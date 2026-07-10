@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import {
   Table,
   TableBody,
@@ -90,11 +91,11 @@ export default async function FinancialsPage({
       <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
         <div className="space-y-1">
           <label className="block text-xs text-muted-foreground">From</label>
-          <Input type="date" name="start" defaultValue={start} />
+          <DateField name="start" defaultValue={start} />
         </div>
         <div className="space-y-1">
           <label className="block text-xs text-muted-foreground">To</label>
-          <Input type="date" name="end" defaultValue={end} />
+          <DateField name="end" defaultValue={end} />
         </div>
         <Button type="submit" variant="outline">
           Update

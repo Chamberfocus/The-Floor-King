@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Save, Printer, Sparkles, Bookmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SegmentedField } from "@/components/ui/segmented-field";
@@ -228,18 +229,16 @@ export function InvoiceBuilder({
           </div>
           <div className="space-y-2">
             <Label htmlFor="issue">Issue date</Label>
-            <Input
+            <DateField
               id="issue"
-              type="date"
               value={issueDate}
               onChange={(e) => setIssueDate(e.target.value)}
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="due">Due date</Label>
-            <Input
+            <DateField
               id="due"
-              type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />

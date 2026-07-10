@@ -4,6 +4,7 @@ import { useActionState, useEffect } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
@@ -73,19 +74,17 @@ export function JobForm({
         </div>
         <div className="space-y-2">
           <Label htmlFor="scheduled_date">Start date</Label>
-          <Input
+          <DateField
             id="scheduled_date"
             name="scheduled_date"
-            type="date"
             defaultValue={job.scheduled_date ?? ""}
           />
         </div>
         <div className="space-y-2">
           <Label htmlFor="scheduled_end">End date</Label>
-          <Input
+          <DateField
             id="scheduled_end"
             name="scheduled_end"
-            type="date"
             defaultValue={job.scheduled_end ?? ""}
           />
         </div>

@@ -1,6 +1,15 @@
+/** Parse an ISO value safely. A DATE-ONLY string ("YYYY-MM-DD") is read as LOCAL
+ *  midnight (not UTC), so a date never displays a day early in western time zones
+ *  — the classic off-by-one. Full timestamps parse normally. */
+export function parseLocalDate(iso: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(iso);
+}
+
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleDateString("en-US", {
+  return parseLocalDate(iso).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -9,7 +18,7 @@ export function formatDate(iso: string | null | undefined): string {
 
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleString("en-US", {
+  return parseLocalDate(iso).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",

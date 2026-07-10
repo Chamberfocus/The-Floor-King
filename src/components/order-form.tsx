@@ -6,6 +6,7 @@ import { Plus, Trash2, CheckCircle2, Send } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { formatMoney } from "@/lib/format";
@@ -161,7 +162,7 @@ export function OrderForm({
             </div>
             <div>
               <Label>Phone *</Label>
-              <Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" className="mt-1" />
+              <PhoneInput value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1" />
             </div>
             <div>
               <Label>Email</Label>
@@ -252,9 +253,9 @@ export function OrderForm({
                           <option value="15">15&apos; wide</option>
                         </select>
                         <span className="text-muted-foreground">×</span>
-                        <Input value={c.ft} onChange={(e) => update(i, { cuts: l.cuts.map((x, k) => (k === ci ? { ...x, ft: e.target.value } : x)) })} inputMode="numeric" placeholder="ft" className="h-9 w-16" />
+                        <Input value={c.ft} onChange={(e) => update(i, { cuts: l.cuts.map((x, k) => (k === ci ? { ...x, ft: e.target.value } : x)) })} inputMode="decimal" placeholder="ft" className="h-9 w-16" />
                         <span className="text-muted-foreground">ft</span>
-                        <Input value={c.in} onChange={(e) => update(i, { cuts: l.cuts.map((x, k) => (k === ci ? { ...x, in: e.target.value } : x)) })} inputMode="numeric" placeholder="in" className="h-9 w-16" />
+                        <Input value={c.in} onChange={(e) => update(i, { cuts: l.cuts.map((x, k) => (k === ci ? { ...x, in: e.target.value } : x)) })} inputMode="decimal" placeholder="in" className="h-9 w-16" />
                         <span className="text-muted-foreground">in</span>
                         {l.cuts.length > 1 ? (
                           <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove cut" onClick={() => update(i, { cuts: l.cuts.filter((_, k) => k !== ci) })}>
