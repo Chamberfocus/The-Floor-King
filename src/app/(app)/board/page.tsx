@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { MapPin, CalendarDays, Check } from "lucide-react";
+import { MapPin, CalendarDays, Check, Clock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
@@ -62,10 +62,32 @@ export default async function JobBoardPage() {
                       </div>
                       <div className="flex items-center gap-1.5">
                         <CalendarDays className="size-4" />
-                        {j.scheduled_date
-                          ? formatDate(j.scheduled_date)
-                          : "Flexible timing"}
+                        {j.scheduled_date ? (
+                          formatDate(j.scheduled_date)
+                        ) : j.board_wanted_start ? (
+                          <span>
+                            Wanted{" "}
+                            <span className="font-medium text-foreground">
+                              {formatDate(j.board_wanted_start)}
+                              {j.board_wanted_end
+                                ? ` – ${formatDate(j.board_wanted_end)}`
+                                : ""}
+                            </span>
+                          </span>
+                        ) : (
+                          "Flexible timing"
+                        )}
                       </div>
+                      {j.board_expected_days ? (
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="size-4" />
+                          Expected{" "}
+                          <span className="font-medium text-foreground">
+                            ~{j.board_expected_days} day
+                            {j.board_expected_days === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                      ) : null}
                       <div className="text-xs">
                         {JOB_DELIVERY_LABELS[j.delivery_type]}
                       </div>

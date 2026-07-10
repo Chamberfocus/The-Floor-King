@@ -727,6 +727,10 @@ export interface Job {
   staging_location?: string | null;
   warehouse_ready_at?: string | null;
   open_for_claim: boolean;
+  // Job-board target (migration 0088): when you want it done + expected days.
+  board_wanted_start?: string | null;
+  board_wanted_end?: string | null;
+  board_expected_days?: number | null;
   reminder_sent_at: string | null;
   show_prices?: boolean; // show prices on this work order
   installer_collects_balance?: boolean | null; // per-job override; null = inherit global

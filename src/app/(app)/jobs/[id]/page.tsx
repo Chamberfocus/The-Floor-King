@@ -70,6 +70,7 @@ import { InstallationWorkOrderDoc } from "./installation-wo";
 import { buildInstallScheduleProps } from "@/lib/data/install-schedule";
 import { InstallSchedule } from "@/app/(app)/customers/[id]/install-schedule";
 import { ScheduleInstallButton } from "./schedule-install-button";
+import { PostToBoardButton } from "./post-to-board-button";
 import { buildJobScope, lineSpec, PAD_ROLL_SQYD } from "@/lib/job-scope";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
@@ -378,12 +379,7 @@ export default async function JobPage({
                   </Button>
                 </form>
               ) : (
-                <form action={postJobToBoard}>
-                  <input type="hidden" name="id" value={job.id} />
-                  <Button type="submit" variant="outline">
-                    <Megaphone className="size-4" /> Post to job board
-                  </Button>
-                </form>
+                <PostToBoardButton jobId={job.id} defaultDays={installProps?.installEst?.days ?? null} />
               )}
               <Link href="/board" className="text-sm text-primary hover:underline">
                 View board →
@@ -392,6 +388,17 @@ export default async function JobPage({
             {job.open_for_claim ? (
               <p className="mt-2 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                 ✓ On the job board — installers can claim it.
+                {job.board_wanted_start || job.board_expected_days ? (
+                  <span className="font-normal text-muted-foreground">
+                    {" · "}
+                    {job.board_wanted_start
+                      ? `wanted ${formatDate(job.board_wanted_start)}${job.board_wanted_end ? `–${formatDate(job.board_wanted_end)}` : ""}`
+                      : ""}
+                    {job.board_expected_days
+                      ? `${job.board_wanted_start ? " · " : ""}~${job.board_expected_days} day${job.board_expected_days === 1 ? "" : "s"}`
+                      : ""}
+                  </span>
+                ) : null}
               </p>
             ) : null}
           </CardContent>

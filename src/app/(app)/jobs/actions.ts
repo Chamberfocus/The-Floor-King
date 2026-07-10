@@ -626,6 +626,22 @@ export async function postJobToBoard(formData: FormData): Promise<void> {
   if (!id) return;
   const supabase = await createClient();
   await supabase.from("jobs").update({ open_for_claim: true }).eq("id", id);
+  // Target window + expected duration for installers claiming it. Separate update
+  // so a pre-migration DB (columns not added yet) can't block posting.
+  const wantedStart = str(formData.get("wanted_start")) || null;
+  const wantedEnd = str(formData.get("wanted_end")) || null;
+  const daysRaw = str(formData.get("expected_days"));
+  const expectedDays = daysRaw ? Math.max(0, parseFloat(daysRaw)) || null : null;
+  if (wantedStart || wantedEnd || expectedDays) {
+    await supabase
+      .from("jobs")
+      .update({
+        board_wanted_start: wantedStart,
+        board_wanted_end: wantedEnd,
+        board_expected_days: expectedDays,
+      })
+      .eq("id", id);
+  }
   revalidatePath(`/jobs/${id}`);
   revalidatePath("/board");
 }
