@@ -144,10 +144,11 @@ export function InstallSchedule({
           </div>
         ) : null}
 
-        {/* Manual booking */}
-        <details className="border-t pt-3" open={!schedule.date && suggestions.length === 0}>
+        {/* Manual booking — every installer, always open until the job is booked
+            so you can pick anyone (not just the suggested next-available crews). */}
+        <details className="border-t pt-3" open={!schedule.date}>
           <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
-            {schedule.date ? "Reschedule manually" : "Schedule manually"}
+            {schedule.date ? "Reschedule manually" : "Pick any installer & date"}
           </summary>
           <form action={bookInstall} className="mt-2 flex flex-wrap items-end gap-2">
             <input type="hidden" name="job_id" value={jobId} />

@@ -47,7 +47,9 @@ const STEPS: StepDef[] = [
       !!j.scheduled_date,
     action: {
       label: "Schedule the install",
-      href: (j) => `/customers/${j.customer_id}#jobs`,
+      // Straight to the smart install scheduler (next-available crews + every
+      // installer), not just the customer file.
+      href: () => `/install-scheduler`,
     },
   },
   {
