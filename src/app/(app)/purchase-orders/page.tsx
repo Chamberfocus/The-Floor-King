@@ -8,9 +8,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { PoStatusBadge } from "@/components/po-status-badge";
 import { listPurchaseOrders } from "@/lib/data/purchase-orders";
+import { deletePurchaseOrder } from "./actions";
 import { poTotal } from "@/lib/po-calc";
 import {
   PO_SOURCE_BADGE,
@@ -135,13 +138,9 @@ export default async function PurchaseOrdersPage({
           {/* Phone: tappable cards */}
           <div className="space-y-2 md:hidden">
             {pos.map((po) => (
-              <Link
-                key={po.id}
-                href={`/purchase-orders/${po.id}`}
-                className="block rounded-lg border p-3 active:bg-muted/50"
-              >
+              <div key={po.id} className="rounded-lg border p-3">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
+                  <Link href={`/purchase-orders/${po.id}`} className="min-w-0 flex-1 active:opacity-70">
                     <div className="truncate font-medium">
                       {po.supplier || "Purchase order"}
                     </div>
@@ -150,19 +149,25 @@ export default async function PurchaseOrdersPage({
                       {(po.items ?? []).length === 1 ? "" : "s"}
                       {po.customer_name ? ` · ${po.customer_name}` : ""}
                     </div>
-                  </div>
+                  </Link>
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     <PoStatusBadge status={po.status} />
                     <SourceBadge source={po.source_type} />
                   </div>
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">
+                  <Link href={`/purchase-orders/${po.id}`} className="font-medium text-foreground">
                     {formatMoney(poTotal(po.items ?? []))}
-                  </span>
+                  </Link>
                   <span className="ml-auto">{formatDate(po.created_at)}</span>
+                  <form action={deletePurchaseOrder}>
+                    <input type="hidden" name="id" value={po.id} />
+                    <Button type="submit" variant="ghost" size="icon-sm" aria-label="Delete PO">
+                      <Trash2 className="size-4 text-destructive" />
+                    </Button>
+                  </form>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
           {/* Larger screens: table */}
@@ -176,6 +181,7 @@ export default async function PurchaseOrdersPage({
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Total cost</TableHead>
                   <TableHead className="text-right">Created</TableHead>
+                  <TableHead className="w-10"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -207,6 +213,14 @@ export default async function PurchaseOrdersPage({
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">
                       {formatDate(po.created_at)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <form action={deletePurchaseOrder}>
+                        <input type="hidden" name="id" value={po.id} />
+                        <Button type="submit" variant="ghost" size="icon-sm" aria-label="Delete PO">
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
+                      </form>
                     </TableCell>
                   </TableRow>
                 ))}
