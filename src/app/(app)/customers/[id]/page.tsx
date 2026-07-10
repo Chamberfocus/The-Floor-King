@@ -62,8 +62,6 @@ import {
 import { installDaysForJob } from "@/lib/scheduling";
 import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
 import { InstallSchedule } from "./install-schedule";
-import { getJobProgress } from "@/lib/job-progress";
-import { JobStepPopup } from "@/components/job-step-popup";
 import { CustomerDocuments } from "./customer-documents";
 import {
   listWorkflowStages,
@@ -361,11 +359,10 @@ export default async function CustomerPage({
 
   return (
     <div className="mx-auto max-w-5xl">
-      {schedulableJob ? (
-        <JobStepPopup
-          jobs={[{ ...getJobProgress(schedulableJob), title: schedulableJob.title }]}
-        />
-      ) : null}
+      {/* The guided spine (GuidedFlow) is the single source of "where this job
+          is" on the dashboard — the job-status next-step popup lived here too and
+          could show a second, conflicting progression, so it's removed. It still
+          appears on the job & installer pages, which have no spine. */}
       <Link
         href="/customers"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

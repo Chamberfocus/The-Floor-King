@@ -9,13 +9,15 @@ import type { StageAutoAction, LeadStage } from "@/lib/types";
 type DB = SupabaseClient<any, any, any>;
 
 /**
- * The pipeline is fully MANUAL: a customer only changes stage when a user
- * presses "ready for next stage" on the dashboard. This flag turns every
- * automatic stage-mover into a no-op (callers across estimates, invoices, jobs,
- * qualify and the portal keep calling them harmlessly). Flip to false to restore
- * event-driven auto-advance.
+ * Coupling switch for the pipeline. When false (the default), real job events —
+ * estimate approved, deposit paid, install booked, install completed, warehouse
+ * submitted — auto-advance the customer's workflow stage FORWARD to match, so
+ * the dashboard spine always reflects where the job actually is. It is strictly
+ * forward-only (never drags a customer back), and the manual "ready for next
+ * stage" button remains available as an override. Flip to true only to freeze
+ * the pipeline into fully-manual mode.
  */
-const AUTO_ADVANCE_DISABLED = true;
+const AUTO_ADVANCE_DISABLED = false;
 
 /**
  * Workflow automation runs with the service role so it works no matter who
@@ -206,6 +208,39 @@ export async function advanceFromAutoAction(
   const currentPos = current ? current.position : -Infinity;
   if (currentPos >= next.position) return; // already there or further along
   await applyMove(supabase, customerId, cust, next);
+}
+
+/**
+ * Advance a customer FORWARD to the first stage whose name matches `re`
+ * (forward-only — never drags backward). This wires job-lifecycle events to the
+ * matching pipeline stage for the back half of the pipeline ("Install Scheduled",
+ * "Installed – Follow-up"…), which carry no auto_action marker. Best-effort:
+ * no-op in manual mode or if no stage name matches (so a renamed stage set just
+ * falls back to no auto-advance rather than breaking).
+ */
+export async function advanceToNamedStage(
+  customerId: string,
+  re: RegExp,
+): Promise<void> {
+  if (AUTO_ADVANCE_DISABLED) return;
+  if (!customerId) return;
+  const supabase = engineDb();
+  if (!supabase) return;
+  const cust = await loadCustomer(supabase, customerId);
+  if (!cust) return;
+  const { data: stages } = await supabase
+    .from("workflow_stages")
+    .select("id, name, position, sla_hours, default_owner")
+    .order("position", { ascending: true });
+  const list = (stages ?? []) as StageRow[];
+  const target = list.find((s) => re.test((s.name ?? "").toLowerCase()));
+  if (!target) return;
+  const current = cust.workflow_stage_id
+    ? list.find((s) => s.id === cust.workflow_stage_id)
+    : null;
+  const currentPos = current ? current.position : -Infinity;
+  if (currentPos >= target.position) return; // already there or further along
+  await applyMove(supabase, customerId, cust, target);
 }
 
 /**

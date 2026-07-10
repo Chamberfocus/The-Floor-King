@@ -8,8 +8,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import {
   moveToAutoActionStage,
-  advanceFromAutoAction,
+  advanceToNamedStage,
 } from "@/lib/workflow-engine";
+
+// Back-half pipeline stages carry no auto_action marker, so job-lifecycle events
+// map to them by name (forward-only, best-effort).
+const STAGE_INSTALL_SCHEDULED = /install.*sched|sched.*install/;
+const STAGE_INSTALLED = /installed|follow/;
 import { prepareJobMaterialsFor } from "./material-actions";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getJobOpenBalance } from "@/lib/data/invoices";
@@ -176,8 +181,10 @@ export async function bookInstall(formData: FormData): Promise<void> {
     .select("customer_id")
     .eq("id", id)
     .maybeSingle();
+  // Install booked → move the customer to the "Install Scheduled" stage so the
+  // dashboard follows the job (forward-only; skips the mid "Waiting" stage).
   if (job?.customer_id)
-    await advanceFromAutoAction(job.customer_id as string, "schedule_install");
+    await advanceToNamedStage(job.customer_id as string, STAGE_INSTALL_SCHEDULED);
 
   // Scheduled → auto-submit to the warehouse (notifies the assigned person).
   await ensureWarehouseSubmitted(id);
@@ -545,8 +552,8 @@ export async function setJobStatus(formData: FormData): Promise<void> {
   const supabase = await createClient();
   await supabase.from("jobs").update({ status }).eq("id", id);
 
-  // Finishing the install advances the customer past the install stage, the
-  // same way every earlier event auto-advances the lifecycle.
+  // Finishing the install advances the customer to the "Installed – Follow-up"
+  // stage (collect balance / satisfaction), matching the real job state.
   if (status === "completed") {
     const { data: job } = await supabase
       .from("jobs")
@@ -554,7 +561,18 @@ export async function setJobStatus(formData: FormData): Promise<void> {
       .eq("id", id)
       .maybeSingle();
     if (job?.customer_id) {
-      await advanceFromAutoAction(job.customer_id as string, "schedule_install");
+      await advanceToNamedStage(job.customer_id as string, STAGE_INSTALLED);
+    }
+  }
+  // Starting the install advances to "Install Scheduled" if it lagged behind.
+  if (status === "in_progress") {
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("customer_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (job?.customer_id) {
+      await advanceToNamedStage(job.customer_id as string, STAGE_INSTALL_SCHEDULED);
     }
   }
 
