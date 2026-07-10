@@ -57,7 +57,11 @@ export default async function PurchaseOrdersPage({
   searchParams: Promise<{ status?: string; source?: string }>;
 }) {
   const { status = "all", source = "all" } = await searchParams;
-  const all = await listPurchaseOrders();
+  // Stock-replenishment POs have their own home under Inventory — keep them out
+  // of the job PO list (they use a different builder).
+  const all = (await listPurchaseOrders()).filter(
+    (po) => !(po as { is_stock?: boolean }).is_stock,
+  );
   const pos = all.filter(
     (po) =>
       (status === "all" || po.status === (status as PoStatus)) &&

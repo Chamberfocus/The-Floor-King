@@ -585,6 +585,76 @@ export async function receiveStockPOLine(formData: FormData): Promise<void> {
   revalidatePath("/warehouse");
 }
 
+/** Delete a stock PO, first undoing whatever it put into the system: any
+ *  still-on-order quantity, any received discrete stock, and any rolls/remnants
+ *  created from it. Leaves no phantom on-hand or on-order behind. */
+export async function deleteStockPO(formData: FormData): Promise<void> {
+  const poId = str(formData.get("po_id"));
+  if (!poId) return;
+  const { db, actorId } = await stockCtx();
+  const { data: po } = await db
+    .from("purchase_orders")
+    .select("status, is_stock")
+    .eq("id", poId)
+    .maybeSingle();
+  if (!po || !po.is_stock) return;
+  const ordered = po.status === "ordered";
+
+  const { data: items } = await db
+    .from("po_items")
+    .select("product_id, quantity, received_qty, unit")
+    .eq("po_id", poId);
+
+  for (const it of items ?? []) {
+    if (!it.product_id) continue;
+    const productId = it.product_id as string;
+    const outstanding = Math.max(0, (Number(it.quantity) || 0) - (Number(it.received_qty) || 0));
+    const received = Number(it.received_qty) || 0;
+    const { data: prod } = await db
+      .from("products")
+      .select("on_order, on_hand, stock_kind")
+      .eq("id", productId)
+      .maybeSingle();
+    if (!prod) continue;
+
+    // Remove any amount still on order.
+    if (ordered && outstanding > 0) {
+      await db
+        .from("products")
+        .update({ on_order: r2(Math.max(0, (Number(prod.on_order) || 0) - outstanding)) })
+        .eq("id", productId);
+    }
+    // Pull back any received discrete stock (rolled goods are undone by
+    // deleting the rolls below + resyncing).
+    if (received > 0 && prod.stock_kind !== "rolled") {
+      const next = r2(Math.max(0, (Number(prod.on_hand) || 0) - received));
+      await db.from("stock_movements").insert({
+        product_id: productId,
+        qty: -received,
+        kind: "adjust",
+        note: `Stock PO deleted · reversed ${received} ${it.unit || ""}`.trim(),
+        created_by: actorId,
+      });
+      await db
+        .from("products")
+        .update({ on_hand: next, last_movement_at: new Date().toISOString() })
+        .eq("id", productId);
+    }
+  }
+
+  // Delete rolls/remnants created from this PO, then resync those products.
+  const { data: rolls } = await db.from("stock_rolls").select("product_id").eq("source_po_id", poId);
+  const rolledProducts = new Set<string>((rolls ?? []).map((r) => r.product_id as string));
+  if (rolledProducts.size) await db.from("stock_rolls").delete().eq("source_po_id", poId);
+
+  await db.from("po_items").delete().eq("po_id", poId);
+  await db.from("purchase_orders").delete().eq("id", poId);
+  for (const pid of rolledProducts) await syncRolledOnHand(pid, db);
+
+  refreshStock();
+  redirect("/inventory");
+}
+
 /** Start tracking a catalog product (from the "add to inventory" picker). */
 export async function startTracking(formData: FormData): Promise<void> {
   const id = str(formData.get("product_id"));

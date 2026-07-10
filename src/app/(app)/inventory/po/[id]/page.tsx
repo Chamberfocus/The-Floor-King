@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { formatMoney } from "@/lib/format";
 import { ReorderAlerts } from "@/components/reorder-alert";
 import { StockPoEditor, type InitialItem } from "./stock-po-editor";
-import { receiveStockPOLine } from "../../actions";
+import { receiveStockPOLine, deleteStockPO } from "../../actions";
 
 export const metadata: Metadata = { title: "Stock PO" };
 export const dynamic = "force-dynamic";
@@ -181,6 +181,14 @@ export default async function StockPOPage({ params }: { params: Promise<{ id: st
           </div>
         </>
       )}
+
+      {/* Delete — undoes any on-order / received stock this PO added. */}
+      <form action={deleteStockPO} className="mt-8 flex justify-end border-t pt-4">
+        <input type="hidden" name="po_id" value={id} />
+        <Button type="submit" variant="destructive" size="sm">
+          <Trash2 className="size-3.5" /> Delete this PO
+        </Button>
+      </form>
     </div>
   );
 }

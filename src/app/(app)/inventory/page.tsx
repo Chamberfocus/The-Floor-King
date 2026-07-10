@@ -19,11 +19,13 @@ import {
   daysIdle,
   AGED_DAYS,
 } from "@/lib/data/inventory";
-import { newRemnants, searchStock } from "@/lib/data/stock-rolls";
+import { newRemnants, searchStock, listStockPOs } from "@/lib/data/stock-rolls";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { receiveStock, adjustStock, setClearance, createStockPO } from "./actions";
+import { receiveStock, adjustStock, setClearance, createStockPO, deleteStockPO } from "./actions";
 import { AddToInventoryForm } from "./add-to-inventory";
+import { Trash2, FileText } from "lucide-react";
 
 export const metadata: Metadata = { title: "Inventory" };
 
@@ -40,12 +42,14 @@ export default async function InventoryPage({
     redirect("/");
   const q = (await searchParams).q?.trim() ?? "";
 
-  const [items, summary, aged, remnantsToShelve, locHits] = await Promise.all([
+  const canStockPO = ["admin", "office", "warehouse"].includes(profile.role);
+  const [items, summary, aged, remnantsToShelve, locHits, stockPOs] = await Promise.all([
     listInventory(q),
     inventorySummary(),
     listAgedStock(),
     newRemnants(),
     q ? searchStock(q) : Promise.resolve([]),
+    canStockPO ? listStockPOs(createAdminClient()) : Promise.resolve([]),
   ]);
 
   return (
@@ -83,6 +87,62 @@ export default async function InventoryPage({
                   </Link>
                 </li>
               ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Stock replenishment POs — open + recent, with a way to delete them. */}
+      {stockPOs.length > 0 ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileText className="size-4 text-muted-foreground" /> Stock replenishment POs
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y text-sm">
+              {stockPOs.map((po) => {
+                const label =
+                  po.status === "draft"
+                    ? "Draft"
+                    : po.status === "ordered"
+                      ? "On order"
+                      : po.status === "received"
+                        ? "Received"
+                        : po.status;
+                return (
+                  <li key={po.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                    <Link href={`/inventory/po/${po.id}`} className="min-w-0 hover:underline">
+                      <span className="font-medium">{po.supplier || "Stock PO"}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {po.item_count} item{po.item_count === 1 ? "" : "s"}
+                        {po.total > 0 ? ` · ${formatMoney(po.total)}` : ""} · {formatDate(po.created_at)}
+                      </span>
+                    </Link>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-xs font-semibold",
+                          po.status === "draft"
+                            ? "bg-muted"
+                            : po.status === "ordered"
+                              ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                              : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+                        )}
+                      >
+                        {label}
+                      </span>
+                      <form action={deleteStockPO}>
+                        <input type="hidden" name="po_id" value={po.id} />
+                        <Button type="submit" variant="ghost" size="icon-sm" aria-label="Delete PO">
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
+                      </form>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </CardContent>
         </Card>

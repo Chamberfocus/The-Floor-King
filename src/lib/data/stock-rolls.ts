@@ -5,6 +5,52 @@ type Db = Awaited<ReturnType<typeof createClient>>;
 
 const round = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
+export interface StockPoRow {
+  id: string;
+  supplier: string | null;
+  status: string;
+  item_count: number;
+  total: number;
+  created_at: string;
+}
+
+/** Stock-replenishment POs (is_stock) with their line count + est. total, newest
+ *  first. Defensive (returns [] before migration 0086 adds the column). */
+export async function listStockPOs(dbArg?: Db): Promise<StockPoRow[]> {
+  try {
+    const db = dbArg ?? (await createClient());
+    const { data: pos } = await db
+      .from("purchase_orders")
+      .select("id, supplier, status, created_at")
+      .eq("is_stock", true)
+      .order("created_at", { ascending: false });
+    const rows = pos ?? [];
+    if (!rows.length) return [];
+    const ids = rows.map((r) => r.id as string);
+    const { data: items } = await db
+      .from("po_items")
+      .select("po_id, quantity, unit_cost")
+      .in("po_id", ids);
+    const agg = new Map<string, { count: number; total: number }>();
+    for (const it of items ?? []) {
+      const a = agg.get(it.po_id as string) ?? { count: 0, total: 0 };
+      a.count += 1;
+      a.total += (Number(it.quantity) || 0) * (Number(it.unit_cost) || 0);
+      agg.set(it.po_id as string, a);
+    }
+    return rows.map((r) => ({
+      id: r.id as string,
+      supplier: (r.supplier as string) ?? null,
+      status: (r.status as string) ?? "draft",
+      created_at: r.created_at as string,
+      item_count: agg.get(r.id as string)?.count ?? 0,
+      total: agg.get(r.id as string)?.total ?? 0,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /** Rolls + remnants for a product (available first, then depleted/scrapped). */
 export async function listRolls(
   productId: string,
