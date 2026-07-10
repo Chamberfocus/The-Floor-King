@@ -396,9 +396,7 @@ export function QuickActions({
                 </DialogDescription>
               </DialogHeader>
               {installScheduler ? (
-                <div className="-mx-2 max-h-[72vh] overflow-y-auto px-2">
-                  {installScheduler}
-                </div>
+                installScheduler
               ) : job ? (
                 <form action={bookInstall} className="space-y-3">
                   <input type="hidden" name="job_id" value={job.id} />

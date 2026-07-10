@@ -67,6 +67,9 @@ import { JobMaterialsCard } from "./job-materials-card";
 import { getOrgSettings } from "@/lib/data/org";
 import { PrintButton } from "@/components/print-button";
 import { InstallationWorkOrderDoc } from "./installation-wo";
+import { buildInstallScheduleProps } from "@/lib/data/install-schedule";
+import { InstallSchedule } from "@/app/(app)/customers/[id]/install-schedule";
+import { ScheduleInstallButton } from "./schedule-install-button";
 import { buildJobScope, lineSpec, PAD_ROLL_SQYD } from "@/lib/job-scope";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
@@ -213,6 +216,13 @@ export default async function JobPage({
     ...(isStaff ? (["warehouse", "money", "manage"] as JobTab[]) : []),
   ];
 
+  // Smart install scheduler for this job — opened from the "Schedule install"
+  // icon in the header (staff or the assigned installer).
+  const installProps =
+    canInstallerTools && job.customer_id
+      ? await buildInstallScheduleProps(job.id, job.customer_id)
+      : null;
+
   return (
     <>
       <InstallationWorkOrderDoc org={org} job={job} assignedName={assignedName} />
@@ -252,6 +262,14 @@ export default async function JobPage({
             on-site actions go big and full-width; Print tucks to the side. */}
         {isStaff || isAssignedToMe ? (
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            {installProps ? (
+              <div className="w-full sm:w-auto">
+                <ScheduleInstallButton
+                  scheduler={<InstallSchedule {...installProps} />}
+                  scheduled={!!job.scheduled_date}
+                />
+              </div>
+            ) : null}
             {job.status !== "in_progress" && job.status !== "completed" ? (
               <form action={setJobStatus} className="w-full sm:w-auto">
                 <input type="hidden" name="id" value={job.id} />

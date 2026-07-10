@@ -198,7 +198,7 @@ export function ProductPicker({
       {open ? (
         <div
           className={cn(
-            "absolute z-30 mt-1 rounded-md border bg-popover shadow-lg",
+            "absolute z-30 mt-1 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain rounded-md border bg-popover shadow-lg",
             fullWidth ? "w-full" : "w-[min(24rem,calc(100vw-2rem))]",
           )}
         >
