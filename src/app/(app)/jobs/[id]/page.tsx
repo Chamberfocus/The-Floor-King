@@ -66,41 +66,11 @@ import { JobLaborCard } from "./job-labor-card";
 import { JobMaterialsCard } from "./job-materials-card";
 import { getOrgSettings } from "@/lib/data/org";
 import { PrintButton } from "@/components/print-button";
-import { JobPrintDoc } from "./job-print";
+import { InstallationWorkOrderDoc } from "./installation-wo";
+import { buildJobScope, lineSpec, PAD_ROLL_SQYD } from "@/lib/job-scope";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
 import { JobTabs, JobTabPanel, type JobTab } from "./job-tabs";
-
-// Carpet padding is bought by the roll; the shop's standard roll covers this
-// many square yards (matches the estimate builder's roll math).
-const PAD_ROLL_SQYD = 30;
-/** Total inches → a tidy feet-and-inches label, e.g. 186 → 15' 6". */
-function ftIn(totalIn: number | null | undefined): string {
-  const t = Number(totalIn) || 0;
-  if (t <= 0) return "";
-  const ft = Math.floor(t / 12);
-  const inch = Math.round(t % 12);
-  return inch ? `${ft}' ${inch}"` : `${ft}'`;
-}
-/** What the crew needs per line: order quantity, cut size, and pad rolls. */
-function lineSpec(l: {
-  quantity: number | null;
-  unit: string | null;
-  measure_unit: string | null;
-  sqft: number | null;
-  length_in: number | null;
-  width_in: number | null;
-  category: string | null;
-}): { qty: string; cut: string; rolls: number } {
-  const q = Number(l.quantity) || 0;
-  const unit = l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft");
-  const qty = q > 0 ? `${Math.round(q * 100) / 100} ${unit}` : l.sqft ? `${l.sqft} sq ft` : "";
-  const cut =
-    l.length_in && l.width_in ? `${ftIn(l.width_in)} × ${ftIn(l.length_in)}` : "";
-  const sqyd = q > 0 ? (unit.toLowerCase().includes("yd") ? q : q / 9) : 0;
-  const rolls = l.category === "underlayment" && sqyd > 0 ? Math.ceil(sqyd / PAD_ROLL_SQYD) : 0;
-  return { qty, cut, rolls };
-}
 
 export async function generateMetadata({
   params,
@@ -180,6 +150,49 @@ export default async function JobPage({
   // Completion (photos, sign-off, balance) is captured by the crew on their My
   // Work page; the job page shows it read-only.
   const showPrices = !!job.show_prices;
+  // Room-grouped scope — the same source the printed installation work order uses.
+  const scope = buildJobScope(job.line_items, job.notes);
+  const renderLine = (l: (typeof job.line_items)[number]) => {
+    const spec = lineSpec(l);
+    const tags = [l.manufacturer, l.style, l.color, l.item_no ? `#${l.item_no}` : null]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <div key={l.id} className="flex items-start justify-between gap-4 py-2">
+        <div>
+          <div className="font-medium">
+            {l.description || "Line item"}
+            {tags ? (
+              <span className="ml-1 text-xs font-normal text-muted-foreground">{tags}</span>
+            ) : null}
+            {l.from_stock ? (
+              <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                From stock
+              </span>
+            ) : null}
+          </div>
+          {spec.qty || spec.cut || spec.rolls ? (
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              {spec.qty ? <span className="font-medium text-foreground">{spec.qty}</span> : null}
+              {spec.cut ? (
+                <span className="rounded bg-blue-100 px-2 py-0.5 font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                  ✂ Cut {spec.cut}
+                </span>
+              ) : null}
+              {spec.rolls ? (
+                <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+                  {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {showPrices ? (
+          <div className="shrink-0 text-muted-foreground">{formatMoney(lineTotal(l))}</div>
+        ) : null}
+      </div>
+    );
+  };
   const canInstallerTools = isStaff || isAssignedToMe;
   const jobPhotos = canInstallerTools ? await getJobPhotos(id) : [];
   const satisfaction = canInstallerTools ? await getJobSatisfaction(id) : null;
@@ -202,7 +215,7 @@ export default async function JobPage({
 
   return (
     <>
-      <JobPrintDoc org={org} job={job} assignedName={assignedName} />
+      <InstallationWorkOrderDoc org={org} job={job} assignedName={assignedName} />
       <JobStepPopup
         jobs={[{ ...progress, title: job.title, justCreated }]}
       />
@@ -337,80 +350,103 @@ export default async function JobPage({
           <CardTitle className="text-base">Work order — scope</CardTitle>
         </CardHeader>
         <CardContent>
-          {job.line_items.length === 0 ? (
+          {!scope.rooms.length &&
+          !scope.wholeJob.products.length &&
+          !scope.wholeJob.labor.length ? (
             <p className="text-sm text-muted-foreground">
               No scope attached. Link this job to an approved estimate to pull in
               the rooms and materials.
             </p>
           ) : (
-            <div className="space-y-4">
-              {(["mat", "labor"] as const).map((sec) => {
-                const secLines = job.line_items.filter(
-                  (l) => (sec === "labor") === (l.category === "labor"),
-                );
-                if (!secLines.length) return null;
-                return (
-                  <div key={sec}>
-                    <div className="mb-1 border-b pb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                      {sec === "labor" ? "Labor" : "Materials"}
-                    </div>
-                    <div className="divide-y text-sm">
-                      {secLines.map((l) => (
-                <div
-                  key={l.id}
-                  className="flex items-start justify-between gap-4 py-2"
-                >
-                  <div>
-                    <div className="font-medium">
-                      {l.room ? `${l.room} — ` : ""}
-                      {l.description || "Line item"}
-                      {l.from_stock ? (
-                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-                          From stock
-                        </span>
-                      ) : null}
-                    </div>
-                    {(() => {
-                      const spec = lineSpec(l);
-                      if (!spec.qty && !spec.cut && !spec.rolls) return null;
-                      return (
-                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                          {spec.qty ? <span className="font-medium text-foreground">{spec.qty}</span> : null}
-                          {spec.cut ? (
-                            <span className="rounded bg-blue-100 px-2 py-0.5 font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
-                              ✂ Cut {spec.cut}
-                            </span>
-                          ) : null}
-                          {spec.rolls ? (
-                            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
-                              {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd
-                            </span>
-                          ) : null}
-                        </div>
-                      );
-                    })()}
+            <div className="space-y-5">
+              {scope.conditions.length ? (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-500/40 dark:bg-amber-950/30">
+                  <div className="mb-1 text-xs font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                    Conditions &amp; prep — all areas
                   </div>
-                  {showPrices ? (
-                    <div className="shrink-0 text-muted-foreground">
-                      {formatMoney(lineTotal(l))}
+                  <ul className="list-disc space-y-0.5 pl-5 text-amber-900 dark:text-amber-200">
+                    {scope.conditions.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {scope.rooms.map((room) => (
+                <div key={room.name} className="rounded-lg border p-3">
+                  <div className="flex items-baseline justify-between gap-2 border-b pb-1">
+                    <div className="font-semibold">{room.name}</div>
+                    {room.sqft ? (
+                      <div className="text-xs tabular-nums text-muted-foreground">
+                        {Math.round(room.sqft)} sq ft
+                      </div>
+                    ) : null}
+                  </div>
+                  {room.prep.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {room.prep.map((p, i) => (
+                        <span
+                          key={i}
+                          className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+                        >
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {room.products.length ? (
+                    <div className="mt-2">
+                      <div className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        Product going in
+                      </div>
+                      <div className="divide-y text-sm">{room.products.map(renderLine)}</div>
+                    </div>
+                  ) : null}
+                  {room.labor.length ? (
+                    <div className="mt-2">
+                      <div className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        Prep &amp; labor
+                      </div>
+                      <div className="divide-y text-sm">{room.labor.map(renderLine)}</div>
                     </div>
                   ) : null}
                 </div>
-                      ))}
+              ))}
+
+              {scope.wholeJob.products.length || scope.wholeJob.labor.length ? (
+                <div className="rounded-lg border p-3">
+                  <div className="border-b pb-1 font-semibold">Whole job</div>
+                  {scope.wholeJob.products.length ? (
+                    <div className="mt-2">
+                      <div className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        Materials
+                      </div>
+                      <div className="divide-y text-sm">
+                        {scope.wholeJob.products.map(renderLine)}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  ) : null}
+                  {scope.wholeJob.labor.length ? (
+                    <div className="mt-2">
+                      <div className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        Labor &amp; prep
+                      </div>
+                      <div className="divide-y text-sm">
+                        {scope.wholeJob.labor.map(renderLine)}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {scope.freeText ? (
+                <div className="rounded-md bg-muted p-3 text-sm">
+                  <div className="mb-1 font-medium">Special instructions</div>
+                  <p className="whitespace-pre-wrap text-muted-foreground">{scope.freeText}</p>
+                </div>
+              ) : null}
             </div>
           )}
-          {job.notes ? (
-            <div className="mt-4 rounded-md bg-muted p-3 text-sm">
-              <div className="mb-1 font-medium">Notes for crew</div>
-              <p className="whitespace-pre-wrap text-muted-foreground">
-                {job.notes}
-              </p>
-            </div>
-          ) : null}
 
           {/* Staff work-order settings: prices + who collects the balance */}
           {isStaff ? (

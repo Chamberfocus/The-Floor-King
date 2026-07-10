@@ -628,22 +628,49 @@ export function Questionnaire({
     // that aren't line items but the crew needs on the work order.
     const conditions: string[] = [];
     const freeText: string[] = [];
+    // Format one flagged answer as "Label: value" (or "" if unanswered).
+    const condValue = (q: EstimateQuestion, a: Answer | undefined): string => {
+      if (q.kind === "choice" && a?.kind === "choice" && a.selected.length)
+        return a.selected.join(", ");
+      if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
+      return "";
+    };
     for (const q of questions) {
       if (!visible[q.id]) continue;
       const a = answers[q.id];
       if (q.kind === "text" && a?.kind === "text" && a.text.trim()) {
         freeText.push(`${q.label} ${a.text.trim()}`);
-      } else if (q.config.note && q.kind === "choice" && a?.kind === "choice" && a.selected.length) {
-        conditions.push(`${q.label}: ${a.selected.join(", ")}`);
-      } else if (q.config.note && q.kind === "yesno" && a?.kind === "yesno") {
-        conditions.push(`${q.label}: ${a.yes ? "Yes" : "No"}`);
+      } else if (q.config.note) {
+        const v = condValue(q, a);
+        if (v) conditions.push(`${q.label}: ${v}`);
+      }
+    }
+    // Per-room prep: a flagged room's own answer to a per-room condition, so the
+    // work order can show subfloor/moisture/etc. under that specific room.
+    const roomPrep = new Map<string, string[]>();
+    for (const q of questions) {
+      if (!visible[q.id] || !q.config.note || !q.config.per_room) continue;
+      for (const r of flaggedRooms) {
+        const ov = overrides[r.id]?.[q.id];
+        const v = condValue(q, ov);
+        if (!v) continue;
+        const rn = (r.name || "Room").trim();
+        const arr = roomPrep.get(rn) ?? [];
+        arr.push(`${q.label}: ${v}`);
+        roomPrep.set(rn, arr);
       }
     }
     const blocks: string[] = [];
     if (conditions.length) blocks.push(`Job conditions:\n${conditions.map((c) => `• ${c}`).join("\n")}`);
+    if (roomPrep.size)
+      blocks.push(
+        `Per-room prep:\n${[...roomPrep.entries()]
+          .map(([rn, items]) => `• ${rn} — ${items.join("; ")}`)
+          .join("\n")}`,
+      );
     if (freeText.length) blocks.push(freeText.join("\n"));
     return blocks.join("\n\n");
-  }, [questions, answers, visible]);
+  }, [questions, answers, visible, flaggedRooms, overrides]);
 
   const grand = lines.reduce((s, l) => s + (l.quantity ?? 0) * (l.material_rate + l.labor_rate), 0);
 
