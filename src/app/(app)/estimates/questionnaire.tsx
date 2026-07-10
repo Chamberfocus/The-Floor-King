@@ -473,7 +473,12 @@ export function Questionnaire({
       floorMapActive = true;
       allRooms.forEach((rm, i) => {
         const p = fa.byRoom[roomKey(rm.name, i)];
-        if (p && YD_CATS.has(p.category || "")) carpetArea += rm.sqft;
+        // A room "needs pad" only if it's getting carpet — matched by category or
+        // a yard-billed unit (so a mis-categorised carpet still counts, and hard
+        // surface never does). This carpet-only area is what padding bills on.
+        const isCarpet =
+          !!p && (p.category === "carpet" || (p.unit || "").toLowerCase().includes("yd"));
+        if (isCarpet) carpetArea += rm.sqft;
       });
     }
     for (const q of questions) {

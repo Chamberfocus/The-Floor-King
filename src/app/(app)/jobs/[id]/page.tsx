@@ -347,6 +347,57 @@ export default async function JobPage({
         </Card>
       </div>
 
+      {/* After the work order exists: choose how to get it installed. */}
+      {canSchedule &&
+      !job.scheduled_date &&
+      job.status !== "completed" &&
+      job.status !== "cancelled" ? (
+        <Card className="mb-6 border-primary/40 bg-primary/[0.04]">
+          <CardContent className="py-4">
+            <div className="mb-3 flex items-center gap-2">
+              <CalendarClock className="size-5 shrink-0 text-primary" />
+              <div>
+                <div className="font-semibold">Get it installed</div>
+                <div className="text-xs text-muted-foreground">
+                  Book a crew now, or post it to the job board for installers to claim.
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {installProps ? (
+                <ScheduleInstallButton
+                  scheduler={<InstallSchedule {...installProps} />}
+                  scheduled={false}
+                />
+              ) : null}
+              {job.open_for_claim ? (
+                <form action={unpostJobFromBoard}>
+                  <input type="hidden" name="id" value={job.id} />
+                  <Button type="submit" variant="outline">
+                    <Megaphone className="size-4" /> Remove from job board
+                  </Button>
+                </form>
+              ) : (
+                <form action={postJobToBoard}>
+                  <input type="hidden" name="id" value={job.id} />
+                  <Button type="submit" variant="outline">
+                    <Megaphone className="size-4" /> Post to job board
+                  </Button>
+                </form>
+              )}
+              <Link href="/board" className="text-sm text-primary hover:underline">
+                View board →
+              </Link>
+            </div>
+            {job.open_for_claim ? (
+              <p className="mt-2 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                ✓ On the job board — installers can claim it.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <JobTabs show={tabsToShow}>
 
       <JobTabPanel tab="warehouse">
