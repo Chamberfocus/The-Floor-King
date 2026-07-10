@@ -45,6 +45,16 @@ import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 const isLostStage = (s: { name: string }) =>
   /lost|declin|dead|cancel/.test(s.name.toLowerCase());
 
+/** The "on hold / waiting on the customer" park stage — reachable ANY time via
+ *  "Put on hold", but NOT a numbered step in the pipeline. Word-boundary matched
+ *  so mainline "Awaiting …" stages (a-WAITing — an approval / measuring step) are
+ *  never mistaken for the park stage. */
+const isParkStage = (s: { name: string }) =>
+  /\bwaiting\b|\bon hold\b|\bhold\b|\bpark/.test(s.name.toLowerCase());
+
+/** Stages that sit OUTSIDE the linear spine (dead deals + the on-hold park). */
+const isOffSpine = (s: { name: string }) => isLostStage(s) || isParkStage(s);
+
 type Step =
   | "contact"
   | "schedule_estimate"
@@ -82,7 +92,7 @@ function resolveStep(
 ): Step {
   if (!stage) return "contact";
   const sorted = [...stages].sort((a, b) => a.position - b.position);
-  const mainline = sorted.filter((s) => !isLostStage(s));
+  const mainline = sorted.filter((s) => !isOffSpine(s));
   const auto = stage.auto_action ?? "none";
   if (auto === "schedule_estimate") return "schedule_estimate";
   if (auto === "build_quote") return "build_quote";
@@ -123,9 +133,9 @@ function nextMainlineStage(
   stages: WorkflowStage[],
 ): WorkflowStage | null {
   const sorted = [...stages].sort((a, b) => a.position - b.position);
-  if (!stage) return sorted.find((s) => !isLostStage(s)) ?? null;
+  if (!stage) return sorted.find((s) => !isOffSpine(s)) ?? null;
   return (
-    sorted.find((s) => s.position > stage.position && !isLostStage(s)) ?? null
+    sorted.find((s) => s.position > stage.position && !isOffSpine(s)) ?? null
   );
 }
 
@@ -179,8 +189,9 @@ export async function GuidedFlow({
   jobSatisfaction: JobSatisfaction | null;
 }) {
   const sorted = [...stages].sort((a, b) => a.position - b.position);
-  const mainline = sorted.filter((s) => !isLostStage(s));
+  const mainline = sorted.filter((s) => !isOffSpine(s));
   const currentIsLost = currentStage ? isLostStage(currentStage) : false;
+  const currentIsPark = currentStage ? isParkStage(currentStage) : false;
   const currentIdx = currentStage
     ? mainline.findIndex((s) => s.id === currentStage.id)
     : -1;
@@ -190,8 +201,18 @@ export async function GuidedFlow({
   const Meta = STEP_META[step];
 
   const lostStage = sorted.find((s) => isLostStage(s)) ?? null;
-  const waitingStage =
-    sorted.find((s) => /wait|hold/.test(s.name.toLowerCase())) ?? null;
+  const waitingStage = sorted.find((s) => isParkStage(s)) ?? null;
+
+  // Resuming from hold should land where the job actually is: on the install
+  // stage if it's already booked, else back on the "schedule the install" step.
+  const scheduleStage = sorted.find((s) => s.auto_action === "schedule_install") ?? null;
+  const installScheduledStage =
+    sorted.find((s) => /install.*sched|sched.*install/.test(s.name.toLowerCase())) ?? null;
+  const hasScheduledJob = jobs.some(
+    (j) => j.scheduled_date && j.status !== "cancelled" && j.status !== "completed",
+  );
+  const resumeStage =
+    (hasScheduledJob ? installScheduledStage : scheduleStage) ?? nextStage;
 
   const activeEstimate =
     estimates.find((e) => e.status === "sent") ??
@@ -476,10 +497,12 @@ export async function GuidedFlow({
             {currentStage
               ? currentIsLost
                 ? currentStage.name
-                : `Stage ${currentIdx + 1} of ${mainline.length} · ${currentStage.name}`
+                : currentIsPark
+                  ? `On hold · ${currentStage.name}`
+                  : `Stage ${currentIdx + 1} of ${mainline.length} · ${currentStage.name}`
               : "Not started"}
           </span>
-          {nextStage && !currentIsLost ? (
+          {nextStage && !currentIsLost && !currentIsPark ? (
             <span className="text-muted-foreground">Next: {nextStage.name}</span>
           ) : null}
         </div>
@@ -526,7 +549,7 @@ export async function GuidedFlow({
             </span>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                {currentIsLost ? "This deal" : "Current stage"}
+                {currentIsLost ? "This deal" : currentIsPark ? "On hold" : "Current stage"}
               </p>
               <p className="text-lg font-bold tracking-tight">{Meta.title}</p>
             </div>
@@ -534,8 +557,35 @@ export async function GuidedFlow({
 
           {body}
 
+          {/* On hold — a one-tap resume back to where the job actually is. */}
+          {currentIsPark ? (
+            <div className="flex flex-wrap items-center gap-3 border-t pt-4">
+              {resumeStage ? (
+                <form action={advanceWorkflow}>
+                  <input type="hidden" name="id" value={customer.id} />
+                  <input type="hidden" name="to_stage" value={resumeStage.id} />
+                  <input type="hidden" name="to_user" value={owner ?? ""} />
+                  <SubmitButton size="lg" pendingText="Resuming…" confirm="Back in play">
+                    <Check className="size-4" /> Resume
+                    <span className="opacity-80">· {resumeStage.name}</span>
+                  </SubmitButton>
+                </form>
+              ) : null}
+              {lostStage ? (
+                <form action={advanceWorkflow}>
+                  <input type="hidden" name="id" value={customer.id} />
+                  <input type="hidden" name="to_stage" value={lostStage.id} />
+                  <input type="hidden" name="to_user" value={owner ?? ""} />
+                  <SubmitButton size="sm" variant="outline" pendingText="Saving…" confirm="Marked lost">
+                    <XCircle className="size-3.5" /> Mark lost / declined
+                  </SubmitButton>
+                </form>
+              ) : null}
+            </div>
+          ) : null}
+
           {/* Ready for next stage? — manual gate (nothing auto-advances) */}
-          {!currentIsLost && step !== "complete" ? (
+          {!currentIsLost && !currentIsPark && step !== "complete" ? (
             <div className="flex flex-wrap items-center gap-3 border-t pt-4">
               <AdvanceButton
                 customerId={customer.id}
