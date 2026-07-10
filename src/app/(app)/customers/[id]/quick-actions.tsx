@@ -82,6 +82,7 @@ export function QuickActions({
   showSwitcher = true,
   compact = false,
   redirectTo,
+  installScheduler = null,
 }: {
   customerId: string;
   stages: { id: string; name: string }[];
@@ -106,6 +107,9 @@ export function QuickActions({
   compact?: boolean;
   /** Where to navigate after an action (list rows pass their URL to stay put). */
   redirectTo?: string;
+  /** The smart install scheduler (suggested crews + estimate), rendered server-
+   *  side and shown inside the Install dialog. Null when there's no job yet. */
+  installScheduler?: React.ReactNode;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -223,7 +227,12 @@ export function QuickActions({
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent
+          className={cn(
+            "sm:max-w-lg",
+            view === "install" && installScheduler && "sm:max-w-2xl",
+          )}
+        >
           {view === "stage" ? (
             <>
               <DialogHeader>
@@ -377,14 +386,20 @@ export function QuickActions({
           ) : (
             <>
               <DialogHeader>
-                <DialogTitle>Install date</DialogTitle>
+                <DialogTitle>Schedule the install</DialogTitle>
                 <DialogDescription>
-                  {job
-                    ? "Set or change the install date and crew. Only installers are offered."
-                    : "No job yet."}
+                  {installScheduler
+                    ? "Book a suggested crew & date, or set it manually below."
+                    : job
+                      ? "Set or change the install date and crew. Only installers are offered."
+                      : "No job yet."}
                 </DialogDescription>
               </DialogHeader>
-              {job ? (
+              {installScheduler ? (
+                <div className="-mx-2 max-h-[72vh] overflow-y-auto px-2">
+                  {installScheduler}
+                </div>
+              ) : job ? (
                 <form action={bookInstall} className="space-y-3">
                   <input type="hidden" name="job_id" value={job.id} />
                   {redirectTo ? (

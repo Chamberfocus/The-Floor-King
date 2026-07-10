@@ -510,6 +510,9 @@ export default async function CustomerPage({
           job={quickJob}
           arrivalWindows={arrivalWindows}
           actions={prefs.quickActions}
+          installScheduler={
+            installScheduleProps ? <InstallSchedule {...installScheduleProps} /> : null
+          }
         />
       ) : null}
 
