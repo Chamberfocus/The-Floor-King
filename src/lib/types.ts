@@ -253,6 +253,7 @@ export interface Activity {
 // maps into estimate line items (so the flow + pricing are code-free to edit).
 export type EstimateQuestionKind =
   | "areas" // list rooms with measurements → the area that feeds quantities
+  | "floor_map" // assign a flooring product to each measured room (mixed jobs)
   | "product" // pick a catalog product → a material line (unit-correct)
   | "yesno" // toggle → optionally emit one line
   | "number" // a count/amount → qty × rate line (optional rate choices)

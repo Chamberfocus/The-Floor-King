@@ -68,6 +68,7 @@ const rowSqft = (r: AreaRow): number =>
   numv(r.override) > 0 ? numv(r.override) : r2(feetIn(r.lf, r.li) * feetIn(r.wf, r.wi));
 interface ProductAns {
   productId: string; label: string; unit: string;
+  category: string | null;   // catalog category → per-product billing (yd vs ft)
   materialRate: number; laborRate: number;
   manufacturer: string | null; style: string | null; color: string | null;
   supplierName: string | null;
@@ -110,6 +111,7 @@ const TRIM_TYPES: { label: string; unit: string; cost: number; sized?: boolean }
 ];
 type Answer =
   | { kind: "areas"; rooms: AreaRow[] }
+  | { kind: "floor_map"; byRoom: Record<string, ProductAns | null> }
   | { kind: "product"; product: ProductAns | null; extras: ExtraPad[] }
   | { kind: "trims"; rows: TrimRow[] }
   | { kind: "yesno"; yes: boolean }
@@ -136,6 +138,10 @@ const newTrimRow = (t?: { label: string; unit: string; cost: number; sized?: boo
 
 const productLabel = (p: Product) =>
   [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name;
+/** Stable key for a measured room in the floor-map (survives resume — the row
+ *  id is regenerated each session, so key by name, falling back to position). */
+const roomKey = (name: string, i: number): string =>
+  (name || "").trim().toLowerCase() || `room-${i}`;
 /** Build the answer shape for a picked catalog product (defaults to Order). */
 function toProductAns(p: Product): ProductAns {
   const supplier = (p as Product & { supplier?: string | null }).supplier ?? null;
@@ -143,6 +149,7 @@ function toProductAns(p: Product): ProductAns {
     productId: p.id,
     label: productLabel(p),
     unit: p.unit || "sqft",
+    category: p.category ?? null,
     materialRate: Number(p.material_rate) || 0,
     laborRate: Number(p.labor_rate) || 0,
     manufacturer: p.manufacturer,
@@ -171,6 +178,7 @@ function customToProductAns(input: CustomProductInput): ProductAns {
     productId: "",
     label,
     unit: input.unit.trim() || "sqft",
+    category: input.category || null,
     materialRate: numOr0(input.material_rate),
     laborRate: numOr0(input.labor_rate),
     manufacturer: input.manufacturer.trim() || null,
@@ -231,6 +239,7 @@ export function Questionnaire({
     for (const q of questions) {
       if (q.kind === "areas")
         init[q.id] = { kind: "areas", rooms: savedAreas.length ? savedAreas.map(savedToRow) : [newRow()] };
+      else if (q.kind === "floor_map") init[q.id] = { kind: "floor_map", byRoom: {} };
       else if (q.kind === "product")
         init[q.id] = q.config.trim_list
           ? { kind: "trims", rows: [] }
@@ -453,11 +462,107 @@ export function Questionnaire({
 
   const lines: SmartLine[] = useMemo(() => {
     const out: SmartLine[] = [];
+    // If a floor-map assigns products per room, the area that gets CARPET (billed
+    // by the yard) drives padding — so a mixed job doesn't buy pad for the LVP.
+    let carpetArea = 0;
+    let floorMapActive = false;
+    for (const q of questions) {
+      if (q.kind !== "floor_map" || !visible[q.id]) continue;
+      const fa = answers[q.id];
+      if (fa?.kind !== "floor_map") continue;
+      floorMapActive = true;
+      allRooms.forEach((rm, i) => {
+        const p = fa.byRoom[roomKey(rm.name, i)];
+        if (p && YD_CATS.has(p.category || "")) carpetArea += rm.sqft;
+      });
+    }
     for (const q of questions) {
       if (!visible[q.id]) continue; // hidden by conditional logic → no line
       const a = answers[q.id];
       if (!a) continue;
-      if (q.kind === "product" && a.kind === "product") {
+      if (q.kind === "floor_map" && a.kind === "floor_map") {
+        // Each measured room → its own product, billed in that product's unit.
+        // Install labor is bundled per product (one line carrying its total area),
+        // priced from a per-type install rate (carpet by the yard, hard surface by
+        // the foot) since catalog flooring carries no labor rate of its own.
+        const fcfg = q.config as { install_yd?: number; install_ft?: number };
+        const instYd = fcfg.install_yd != null ? fcfg.install_yd : 6;
+        const instFt = fcfg.install_ft != null ? fcfg.install_ft : 2;
+        const byProd = new Map<
+          string,
+          { p: ProductAns; wantYd: boolean; sqft: number }
+        >();
+        allRooms.forEach((rm, i) => {
+          const p = a.byRoom[roomKey(rm.name, i)];
+          if (!p || rm.sqft <= 0) return;
+          const cat = p.category || "other";
+          const b = billing(cat);
+          const defWaste = profileFor(cat)?.waste ?? 0;
+          const waste = p.wastePct != null ? p.wastePct : defWaste;
+          const adj = rm.sqft * (1 + waste / 100);
+          let qty: number;
+          if (p.sqftPerBox && p.sqftPerBox > 0) {
+            const boxes = Math.ceil(adj / p.sqftPerBox);
+            qty = b.wantYd ? r2((boxes * p.sqftPerBox) / 9) : boxes * p.sqftPerBox;
+          } else {
+            qty = Math.ceil(b.wantYd ? adj / 9 : adj);
+          }
+          if (qty > 0)
+            out.push({
+              room: rm.name || null,
+              description: p.label || cat,
+              category: cat,
+              measure_unit: b.measureUnit,
+              sqft: rm.sqft,
+              quantity: qty,
+              length_in: rm.lenIn,
+              width_in: rm.widIn,
+              unit: b.unitLabel,
+              material_rate: sellAt(rateFor(p.materialRate, p.unit, b.wantYd)),
+              labor_rate: 0,
+              material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
+              labor_cost: 0,
+              waste_pct: 0,
+              product_id: p.productId || null,
+              manufacturer:
+                p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+              style: p.style,
+              color: p.color,
+              from_stock: p.source === "stock",
+            });
+          // Accumulate install labor per distinct product.
+          const key = `${p.productId || p.label}|${p.laborRate}`;
+          const agg = byProd.get(key) ?? { p, wantYd: b.wantYd, sqft: 0 };
+          agg.sqft += rm.sqft;
+          byProd.set(key, agg);
+        });
+        for (const { p, wantYd, sqft } of byProd.values()) {
+          // Prefer the product's own labor rate if set, else the per-type default.
+          const lr = rateFor(p.laborRate, p.unit, wantYd) || (wantYd ? instYd : instFt);
+          if (lr <= 0 || sqft <= 0) continue;
+          out.push({
+            room: null,
+            description: `Installation — ${(p.label || "flooring").toLowerCase()}`,
+            category: "labor",
+            measure_unit: wantYd ? "sqyd" : "sqft",
+            sqft: r2(sqft),
+            quantity: wantYd ? Math.ceil(sqft / 9) : Math.ceil(sqft),
+            length_in: null,
+            width_in: null,
+            unit: wantYd ? "sq yd" : "sq ft",
+            material_rate: 0,
+            labor_rate: sellAt(lr),
+            material_cost: 0,
+            labor_cost: lr,
+            waste_pct: 0,
+            product_id: null,
+            manufacturer: null,
+            style: null,
+            color: null,
+            from_stock: false,
+          });
+        }
+      } else if (q.kind === "product" && a.kind === "product") {
         const cat = q.config.category || "other";
         const b = billing(cat);
         // Editable waste per product (falls back to the category default). Baked
@@ -507,6 +612,10 @@ export function Questionnaire({
         if (a.product) {
           const p = a.product;
           const boxed = !!(p.sqftPerBox && p.sqftPerBox > 0);
+          // Padding only covers the CARPET rooms once a floor-map is in play, so a
+          // mixed job doesn't buy pad for the hard-surface areas.
+          const coverSf =
+            cat === "underlayment" && floorMapActive && carpetArea > 0 ? carpetArea : totalSqft;
           // Flooring is itemized PER ROOM (name + sq ft + L×W) so the sizes you
           // measured show on the estimate & work order. Boxed goods bill as ONE
           // full-carton line (so the charge = the boxes bought); pad / trim /
@@ -518,19 +627,19 @@ export function Questionnaire({
               const qty = qtyForProduct(rm.sqft, p);
               if (qty > 0) out.push(matLine(p, qty, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
             }
-          } else if (totalSqft > 0) {
-            out.push(matLine(p, qtyForProduct(totalSqft, p), { sqft: totalSqft }));
+          } else if (coverSf > 0) {
+            out.push(matLine(p, qtyForProduct(coverSf, p), { sqft: coverSf }));
           }
           // Install labor — bundled, with the total area recorded.
           const lr = rateFor(p.laborRate, p.unit, b.wantYd);
-          if (lr > 0 && totalSqft > 0) {
-            const laborQty = b.wantYd ? Math.ceil(totalSqft / 9) : Math.ceil(totalSqft);
+          if (lr > 0 && coverSf > 0) {
+            const laborQty = b.wantYd ? Math.ceil(coverSf / 9) : Math.ceil(coverSf);
             out.push({
               room: null,
               description: `Installation — ${(p.label || cat).toLowerCase()}`,
               category: "labor",
               measure_unit: b.measureUnit,
-              sqft: r2(totalSqft),
+              sqft: r2(coverSf),
               quantity: laborQty,
               length_in: null,
               width_in: null,
@@ -682,6 +791,8 @@ export function Questionnaire({
   const answered = (qq: EstimateQuestion): boolean => {
     const a = answers[qq.id];
     if (qq.kind === "areas") return a?.kind === "areas" && a.rooms.some((r) => rowSqft(r) > 0);
+    if (qq.kind === "floor_map")
+      return a?.kind === "floor_map" && Object.values(a.byRoom).some(Boolean);
     if (qq.kind === "product")
       return (
         (a?.kind === "product" && !!a.product) ||
@@ -791,6 +902,7 @@ export function Questionnaire({
               overrides={overrides}
               setRoomOverride={setRoomOverride}
               jobAnswers={answers}
+              floorRooms={allRooms}
             />
           </CardContent>
         </Card>
@@ -866,6 +978,7 @@ function QuestionBody({
   overrides = {},
   setRoomOverride,
   jobAnswers = {},
+  floorRooms = [],
 }: {
   q: EstimateQuestion;
   answer: Answer | undefined;
@@ -876,6 +989,7 @@ function QuestionBody({
   overrides?: Record<string, Record<string, Answer>>;
   setRoomOverride?: (roomId: string, qid: string, a: Answer) => void;
   jobAnswers?: Record<string, Answer>;
+  floorRooms?: { name: string; sqft: number; lenIn: number | null; widIn: number | null }[];
 }) {
   if (q.kind === "areas" && answer?.kind === "areas") {
     const rooms = answer.rooms;
@@ -1000,6 +1114,88 @@ function QuestionBody({
             <span className="ml-1 font-semibold text-primary tabular-nums">· {r2(total / 9)} sq yd</span>
           </span>
         </div>
+      </div>
+    );
+  }
+
+  if (q.kind === "floor_map" && answer?.kind === "floor_map") {
+    const byRoom = answer.byRoom;
+    const setRoom = (key: string, prod: ProductAns | null) =>
+      set({ kind: "floor_map", byRoom: { ...byRoom, [key]: prod } });
+    const fillEmpty = (prod: ProductAns | null) => {
+      if (!prod) return;
+      const nb = { ...byRoom };
+      floorRooms.forEach((rm, i) => {
+        const k = roomKey(rm.name, i);
+        if (!nb[k]) nb[k] = prod;
+      });
+      set({ kind: "floor_map", byRoom: nb });
+    };
+    if (!floorRooms.length) {
+      return (
+        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+          Add your rooms in the areas step first — then pick what goes in each one.
+        </p>
+      );
+    }
+    return (
+      <div className="space-y-3">
+        <div className="rounded-md border border-dashed p-2.5">
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Same product in most rooms? Fill the empty ones
+          </div>
+          <ProductPicker
+            value=""
+            label=""
+            onPick={(prod) => fillEmpty(prod ? toProductAns(prod) : null)}
+            onCreated={(prod) => fillEmpty(toProductAns(prod))}
+            onUseOnce={(input) => fillEmpty(customToProductAns(input))}
+          />
+        </div>
+        {floorRooms.map((rm, i) => {
+          const key = roomKey(rm.name, i);
+          const p = byRoom[key] ?? null;
+          const cat = p?.category || "other";
+          const b = billing(cat);
+          return (
+            <div key={key} className="rounded-lg border p-3">
+              <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                <span className="font-medium">{rm.name || `Room ${i + 1}`}</span>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {Math.round(rm.sqft)} sq ft
+                  {p ? (
+                    <button
+                      type="button"
+                      onClick={() => setRoom(key, null)}
+                      className="ml-2 text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    >
+                      clear
+                    </button>
+                  ) : null}
+                </span>
+              </div>
+              <ProductPicker
+                value={p?.productId ?? ""}
+                initialLabel={p?.label ?? ""}
+                label="Product for this room"
+                onPick={(prod) => setRoom(key, prod ? toProductAns(prod) : null)}
+                onCreated={(prod) => setRoom(key, toProductAns(prod))}
+                onUseOnce={(input) => setRoom(key, customToProductAns(input))}
+              />
+              {p ? (
+                <div className="mt-1.5 text-xs text-muted-foreground">
+                  {p.label} · sells{" "}
+                  {formatMoney(sellAt(rateFor(p.materialRate, p.unit, b.wantYd)))}/{b.unitLabel}
+                  {q.config.ask_source ? (
+                    <span className="mt-1.5 block">
+                      <SourceToggle p={p} compact onChange={(np) => setRoom(key, np)} />
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     );
   }
