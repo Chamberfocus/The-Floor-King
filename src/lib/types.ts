@@ -425,8 +425,11 @@ export interface Product {
   active: boolean;
   track_stock: boolean;
   on_hand: number;
+  on_order?: number; // placed on a stock PO, not yet received
   reorder_point: number;
   bin_location: string | null;
+  stock_kind?: StockKind; // discrete (counted) | rolled (measured)
+  reserved?: number;
   clearance: boolean;
   clearance_price: number | null;
   last_movement_at: string | null;
@@ -434,25 +437,59 @@ export interface Product {
   updated_at: string;
 }
 
-export type StockMovementKind = "receive" | "pull" | "adjust" | "return";
+export type StockKind = "discrete" | "rolled";
 
-export const STOCK_MOVEMENT_LABELS: Record<StockMovementKind, string> = {
+export type StockMovementKind =
+  | "receive"
+  | "pull"
+  | "adjust"
+  | "return"
+  | "reserve"
+  | "release";
+
+export const STOCK_MOVEMENT_LABELS: Record<string, string> = {
   receive: "Received",
-  pull: "Pulled for job",
+  pull: "Pulled / cut for job",
   adjust: "Adjustment",
   return: "Returned to stock",
+  reserve: "Reserved for job",
+  release: "Reservation released",
 };
 
 export interface StockMovement {
   id: string;
   product_id: string;
   qty: number;
-  kind: StockMovementKind;
+  kind: string;
   job_id: string | null;
   customer_id: string | null;
+  roll_id?: string | null;
   note: string | null;
   created_by: string | null;
   created_at: string;
+}
+
+/** A physical roll OR a remnant (offcut) of a rolled product. */
+export interface StockRoll {
+  id: string;
+  product_id: string;
+  kind: "roll" | "remnant";
+  unit: string; // sqyd | lnft
+  width_ft: number | null;
+  initial_qty: number;
+  remaining_qty: number;
+  location: string | null;
+  status: "available" | "depleted" | "scrapped";
+  usable: boolean | null;
+  needs_shelving: boolean;
+  source_roll_id: string | null;
+  source_po_id: string | null;
+  job_id: string | null;
+  scrap_reason: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface EstimateLineItem {

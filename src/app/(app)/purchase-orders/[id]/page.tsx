@@ -15,6 +15,7 @@ import { PO_SOURCE_BADGE, PO_SOURCE_LABELS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import { PoBuilder } from "../po-builder";
+import { ReorderAlerts } from "@/components/reorder-alert";
 import { deletePurchaseOrder } from "../actions";
 
 export const metadata: Metadata = { title: "Purchase Order" };
@@ -82,6 +83,11 @@ export default async function PurchaseOrderPage({
           </p>
         </div>
         <PrintButton label="Print PO" />
+      </div>
+
+      {/* Notify-only: flag line products we already hold remnants/rolls of. */}
+      <div className="mb-4">
+        <ReorderAlerts productIds={(po.items ?? []).map((i) => i.product_id).filter(Boolean) as string[]} />
       </div>
 
       <PoBuilder po={po} products={products} suppliers={suppliers} />

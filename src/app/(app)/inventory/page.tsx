@@ -19,9 +19,10 @@ import {
   daysIdle,
   AGED_DAYS,
 } from "@/lib/data/inventory";
-import { formatMoney } from "@/lib/format";
+import { newRemnants, searchStock } from "@/lib/data/stock-rolls";
+import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { receiveStock, adjustStock, setClearance } from "./actions";
+import { receiveStock, adjustStock, setClearance, createStockPO } from "./actions";
 import { AddToInventoryForm } from "./add-to-inventory";
 
 export const metadata: Metadata = { title: "Inventory" };
@@ -39,10 +40,12 @@ export default async function InventoryPage({
     redirect("/");
   const q = (await searchParams).q?.trim() ?? "";
 
-  const [items, summary, aged] = await Promise.all([
+  const [items, summary, aged, remnantsToShelve, locHits] = await Promise.all([
     listInventory(q),
     inventorySummary(),
     listAgedStock(),
+    newRemnants(),
+    q ? searchStock(q) : Promise.resolve([]),
   ]);
 
   return (
@@ -50,7 +53,40 @@ export default async function InventoryPage({
       <PageHeader
         title="Inventory"
         description="Track what's in stock, receive deliveries, and pull material for jobs."
-      />
+      >
+        <form action={createStockPO}>
+          <Button type="submit">
+            <Boxes className="size-4" /> New stock PO
+          </Button>
+        </form>
+      </PageHeader>
+
+      {/* New remnants awaiting a location + reusability call */}
+      {remnantsToShelve.length > 0 ? (
+        <Card className="mb-6 border-amber-400 bg-amber-50 dark:border-amber-500/50 dark:bg-amber-950/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="size-4" /> New remnants to shelve ({remnantsToShelve.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y text-sm">
+              {remnantsToShelve.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <span>
+                    <span className="font-medium">{r.product_name}</span>{" "}
+                    <span className="tabular-nums text-muted-foreground">{r.remaining_qty} {r.unit}</span>
+                    <span className="ml-1 text-xs text-muted-foreground">· cut {formatDate(r.created_at)}</span>
+                  </span>
+                  <Link href={`/inventory/${r.product_id}`} className="text-sm font-medium text-primary hover:underline">
+                    Give location & mark usable →
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <SummaryCard icon={Boxes} tint="bg-zinc-200 text-zinc-700" label="Tracked items" value={summary.trackedCount} />
@@ -138,11 +174,35 @@ export default async function InventoryPage({
       ) : null}
 
       <form method="get" className="mb-4 flex max-w-sm gap-2">
-        <Input name="q" defaultValue={q} placeholder="Search stock…" />
+        <Input name="q" defaultValue={q} placeholder="Search product or location…" />
         <Button type="submit" variant="outline">
           Search
         </Button>
       </form>
+
+      {/* Location search — rolls/remnants matching the product or a location. */}
+      {q && locHits.length > 0 ? (
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="text-base">Rolls &amp; remnants matching &ldquo;{q}&rdquo; ({locHits.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y text-sm">
+              {locHits.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <span>
+                    <span className="font-medium">{r.product_name}</span>{" "}
+                    <span className="tabular-nums text-muted-foreground">{r.remaining_qty} {r.unit}</span>{" "}
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs">{r.kind}</span>
+                    <span className="ml-1 text-xs text-muted-foreground">📍 {r.location || "no location"}</span>
+                  </span>
+                  <Link href={`/inventory/${r.product_id}`} className="text-primary hover:underline">Open</Link>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {items.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">

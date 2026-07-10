@@ -12,7 +12,9 @@ import { PageHeader } from "@/components/page-header";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { requireProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import Link from "next/link";
 import { listWarehouseJobs } from "@/lib/data/jobs";
+import { newRemnants } from "@/lib/data/stock-rolls";
 import { getJobMaterials } from "@/lib/data/job-materials";
 import { listOrders } from "@/lib/data/orders";
 import { reportOrderStock } from "../orders/actions";
@@ -71,6 +73,7 @@ export default async function WarehousePage() {
   // pull-vs-order, POs), which the warehouse role's own RLS can't reach.
   const wh = createAdminClient();
   const jobsRaw = await listWarehouseJobs(wh);
+  const remnantsToShelve = await newRemnants(wh);
   // The real sourcing (pull-from-stock vs order, with cut sizes) per job.
   const sourcedArr = await Promise.all(jobsRaw.map((j) => getJobMaterials(j.id, wh)));
   const sourced = new Map(jobsRaw.map((j, i) => [j.id, sourcedArr[i]]));
@@ -109,6 +112,28 @@ export default async function WarehousePage() {
         title="Warehouse"
         description="Materials to prep, stage, and deliver for upcoming jobs."
       />
+
+      {/* New remnants to shelve — give each a location + a reusability call. */}
+      {remnantsToShelve.length > 0 ? (
+        <div className="mb-6 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-500/50 dark:bg-amber-950/30">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-300">
+            <MapPin className="size-4" /> New remnants to shelve ({remnantsToShelve.length})
+          </div>
+          <ul className="mt-2 divide-y text-sm">
+            {remnantsToShelve.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-2 py-2">
+                <span>
+                  <span className="font-medium">{r.product_name}</span>{" "}
+                  <span className="tabular-nums text-muted-foreground">{r.remaining_qty} {r.unit}</span>
+                </span>
+                <Link href={`/inventory/${r.product_id}`} className="font-medium text-primary hover:underline">
+                  Locate &amp; mark →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {/* New client orders — flag stock right away so the office can decide */}
       {stockChecks.length > 0 ? (

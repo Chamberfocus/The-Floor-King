@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getProduct, listMovements } from "@/lib/data/inventory";
-import { STOCK_MOVEMENT_LABELS, type StockMovementKind } from "@/lib/types";
+import { listRolls } from "@/lib/data/stock-rolls";
+import { STOCK_MOVEMENT_LABELS } from "@/lib/types";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -23,6 +24,11 @@ import {
   adjustStock,
   setStockSettings,
   setClearance,
+  receiveRoll,
+  pullRoll,
+  shelveRoll,
+  setRemnantUsable,
+  countRoll,
 } from "../actions";
 
 export const metadata: Metadata = { title: "Stock item" };
@@ -40,6 +46,10 @@ export default async function InventoryItemPage({
   if (!product) notFound();
   const movements = await listMovements(id);
   const low = product.reorder_point > 0 && product.on_hand <= product.reorder_point;
+  const rolled = product.stock_kind === "rolled";
+  const rolls = rolled ? await listRolls(id) : [];
+  const liveRolls = rolls.filter((r) => r.status === "available");
+  const onOrder = product.on_order ?? 0;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -60,35 +70,141 @@ export default async function InventoryItemPage({
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="py-4">
-            <div className="text-xs text-muted-foreground">On hand</div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              In stock {rolled ? <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">rolled</span> : null}
+            </div>
             <div className={cn("text-2xl font-bold", low && "text-destructive")}>
               {product.on_hand} {product.unit}
             </div>
+            {rolled ? (
+              <div className="text-xs text-muted-foreground">
+                {liveRolls.filter((r) => r.kind === "roll").length} roll(s) · {liveRolls.filter((r) => r.kind === "remnant").length} remnant(s)
+              </div>
+            ) : null}
             {low ? <div className="text-xs font-medium text-destructive">Low — reorder</div> : null}
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
-            <div className="text-xs text-muted-foreground">Value (at cost)</div>
+            <div className="text-xs text-muted-foreground">On order</div>
             <div className="text-2xl font-bold">
-              {formatMoney(product.on_hand * (product.material_rate || 0))}
+              {onOrder} {onOrder ? product.unit : ""}
             </div>
+            <div className="text-xs text-muted-foreground">value {formatMoney(product.on_hand * (product.material_rate || 0))}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
-            <div className="text-xs text-muted-foreground">Bin</div>
+            <div className="text-xs text-muted-foreground">Bin / location</div>
             <div className="text-2xl font-bold">{product.bin_location ?? "—"}</div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Actions */}
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
-        <ActionCard title="Receive" action={receiveStock} id={product.id} field="qty" label="Quantity received" cta="Receive" />
-        <ActionCard title="Pull for job" action={pullStock} id={product.id} field="qty" label="Quantity pulled" cta="Pull" jobField />
-        <ActionCard title="Set counted total" action={adjustStock} id={product.id} field="counted" label="Counted on hand" cta="Set" />
-      </div>
+      {/* Actions — discrete items count in whole units; rolled goods are per-roll. */}
+      {!rolled ? (
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <ActionCard title="Receive" action={receiveStock} id={product.id} field="qty" label="Quantity received" cta="Receive" />
+          <ActionCard title="Pull for job" action={pullStock} id={product.id} field="qty" label="Quantity pulled" cta="Pull" jobField />
+          <ActionCard title="Set counted total" action={adjustStock} id={product.id} field="counted" label="Counted on hand" cta="Set" />
+        </div>
+      ) : (
+        <Card className="mt-4">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base">Rolls &amp; remnants</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Receive a new roll */}
+            <form action={receiveRoll} className="flex flex-wrap items-end gap-2 rounded-md border border-dashed p-2.5">
+              <input type="hidden" name="product_id" value={product.id} />
+              <div>
+                <Label htmlFor="rr-qty">Receive roll</Label>
+                <Input id="rr-qty" name="qty" type="number" step="0.01" min="0" placeholder="yardage" className="w-28" />
+              </div>
+              <div>
+                <Label htmlFor="rr-unit">Unit</Label>
+                <select id="rr-unit" name="unit" defaultValue={product.unit?.includes("yd") ? "sqyd" : product.unit === "lnft" ? "lnft" : "sqyd"} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
+                  <option value="sqyd">sq yd</option>
+                  <option value="lnft">ln ft</option>
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="rr-w">Width (ft)</Label>
+                <Input id="rr-w" name="width_ft" type="number" step="0.01" min="0" placeholder="12" className="w-20" />
+              </div>
+              <div>
+                <Label htmlFor="rr-loc">Location</Label>
+                <Input id="rr-loc" name="location" placeholder="Rack 3, Bay B" className="w-36" />
+              </div>
+              <Button type="submit" variant="outline">Add roll</Button>
+            </form>
+
+            {liveRolls.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No rolls or remnants on hand.</p>
+            ) : (
+              <ul className="space-y-2">
+                {liveRolls.map((r) => (
+                  <li key={r.id} className={cn("rounded-md border p-2.5", r.kind === "remnant" && "border-amber-300 bg-amber-50/40 dark:bg-amber-500/5")}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm">
+                        <span className="font-semibold tabular-nums">{r.remaining_qty} {r.unit}</span>{" "}
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">{r.kind === "remnant" ? "Remnant" : "Roll"}</span>
+                        {r.needs_shelving ? <span className="ml-1 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-800">needs shelving</span> : null}
+                        {r.width_ft ? <span className="ml-1 text-xs text-muted-foreground">{r.width_ft}ft wide</span> : null}
+                        <span className="ml-1 text-xs text-muted-foreground">📍 {r.location || "no location"}</span>
+                        {r.kind === "remnant" && r.usable === true ? <span className="ml-1 text-xs font-medium text-emerald-600">usable</span> : null}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-end gap-2">
+                      {/* Cut / pull */}
+                      <form action={pullRoll} className="flex items-end gap-1">
+                        <input type="hidden" name="roll_id" value={r.id} />
+                        <div>
+                          <Label className="text-[11px]">Cut</Label>
+                          <Input name="cut" type="number" step="0.01" min="0" placeholder="0" className="h-9 w-20 text-sm" />
+                        </div>
+                        <div>
+                          <Label className="text-[11px]">Offcut→remnant</Label>
+                          <Input name="offcut" type="number" step="0.01" min="0" placeholder="0" className="h-9 w-24 text-sm" />
+                        </div>
+                        <Input name="job_id" placeholder="job id" className="h-9 w-24 text-sm" />
+                        <Button type="submit" size="sm" variant="outline">Cut</Button>
+                      </form>
+                      {/* Location / shelve */}
+                      <form action={shelveRoll} className="flex items-end gap-1">
+                        <input type="hidden" name="roll_id" value={r.id} />
+                        <Input name="location" defaultValue={r.location ?? ""} placeholder="location" className="h-9 w-32 text-sm" />
+                        <Button type="submit" size="sm" variant="ghost">Locate</Button>
+                      </form>
+                      {/* Count */}
+                      <form action={countRoll} className="flex items-end gap-1">
+                        <input type="hidden" name="roll_id" value={r.id} />
+                        <Input name="counted" type="number" step="0.01" min="0" placeholder="count" className="h-9 w-20 text-sm" />
+                        <Button type="submit" size="sm" variant="ghost">Set</Button>
+                      </form>
+                      {/* Reusability (remnants) */}
+                      {r.kind === "remnant" ? (
+                        <div className="flex items-end gap-1">
+                          {(["usable", "not", "scrap"] as const).map((call) => (
+                            <form key={call} action={setRemnantUsable}>
+                              <input type="hidden" name="roll_id" value={r.id} />
+                              <input type="hidden" name="call" value={call} />
+                              {call === "scrap" ? <input type="hidden" name="reason" value="Not worth keeping" /> : null}
+                              <Button type="submit" size="sm" variant={call === "usable" ? "outline" : "ghost"}>
+                                {call === "usable" ? "Usable" : call === "not" ? "Not usable" : "Scrap"}
+                              </Button>
+                            </form>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Settings */}
       <Card className="mt-4">
@@ -102,6 +218,13 @@ export default async function InventoryItemPage({
               <input type="checkbox" name="track_stock" defaultChecked={product.track_stock} className="size-4" />
               Track this product
             </label>
+            <div>
+              <Label htmlFor="stock_kind">Type</Label>
+              <select id="stock_kind" name="stock_kind" defaultValue={product.stock_kind ?? "discrete"} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
+                <option value="discrete">Discrete (count units)</option>
+                <option value="rolled">Rolled / measured (yardage)</option>
+              </select>
+            </div>
             <div>
               <Label htmlFor="reorder_point">Reorder at</Label>
               <Input id="reorder_point" name="reorder_point" type="number" step="0.01" min="0" defaultValue={product.reorder_point} className="w-24" />
@@ -173,7 +296,7 @@ export default async function InventoryItemPage({
                 <li key={m.id} className="flex items-center justify-between gap-3 py-2">
                   <div>
                     <span className="font-medium">
-                      {STOCK_MOVEMENT_LABELS[m.kind as StockMovementKind] ?? m.kind}
+                      {STOCK_MOVEMENT_LABELS[m.kind] ?? m.kind}
                     </span>
                     {m.note ? <span className="text-muted-foreground"> — {m.note}</span> : null}
                     <div className="text-xs text-muted-foreground">{formatDate(m.created_at)}</div>
