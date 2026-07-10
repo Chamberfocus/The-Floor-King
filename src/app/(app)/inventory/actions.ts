@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
-import { syncRolledOnHand } from "@/lib/data/stock-rolls";
+import { syncRolledOnHand, reorderAlertsFor, type ReorderAlert } from "@/lib/data/stock-rolls";
 import type { Product, StockMovementKind } from "@/lib/types";
 
 const STOCK_ROLES: ("admin" | "office" | "warehouse")[] = ["admin", "office", "warehouse"];
@@ -369,42 +369,107 @@ export async function createStockPO(formData: FormData): Promise<void> {
   if (po?.id) redirect(`/inventory/po/${po.id}`);
 }
 
-export async function addStockPOLine(formData: FormData): Promise<void> {
-  const poId = str(formData.get("po_id"));
-  const qty = Math.abs(numv(formData.get("quantity")));
-  if (!poId || qty <= 0) return;
-  const { db } = await stockCtx();
-  const { count } = await db.from("po_items").select("id", { count: "exact", head: true }).eq("po_id", poId);
-  await db.from("po_items").insert({
-    po_id: poId,
-    product_id: str(formData.get("product_id")) || null,
-    position: count ?? 0,
-    description: str(formData.get("description")) || "Item",
-    quantity: qty,
-    unit: str(formData.get("unit")) || "each",
-    unit_cost: numv(formData.get("unit_cost")) || null,
-  });
-  revalidatePath(`/inventory/po/${poId}`);
+/** One editable line coming from the client-side stock-PO grid. */
+export interface StockPoLineInput {
+  id?: string | null;
+  product_id: string | null;
+  description: string;
+  quantity: string | number;
+  unit: string;
+  unit_cost: string | number | null;
 }
 
-export async function removeStockPOLine(formData: FormData): Promise<void> {
-  const poId = str(formData.get("po_id"));
-  const itemId = str(formData.get("item_id"));
-  if (!itemId) return;
-  const { db } = await stockCtx();
-  await db.from("po_items").delete().eq("id", itemId);
-  revalidatePath(`/inventory/po/${poId}`);
+/** Live NOTIFY-ONLY reorder alerts for the products currently in the grid.
+ *  Lets the buyer see "you already hold a remnant" the moment a product is added,
+ *  before anything is saved. No quantity math. */
+export async function getReorderAlerts(
+  productIds: string[],
+): Promise<Record<string, ReorderAlert>> {
+  await assertRole(STOCK_ROLES);
+  const ids = [...new Set((productIds ?? []).filter(Boolean))];
+  if (!ids.length) return {};
+  try {
+    return await reorderAlertsFor(ids, createAdminClient());
+  } catch {
+    return {};
+  }
 }
 
-/** Place the stock PO: status → ordered, and each line's qty goes ON ORDER. */
-export async function placeStockPO(formData: FormData): Promise<void> {
-  const poId = str(formData.get("po_id"));
-  if (!poId) return;
+/** Reconcile the whole set of draft lines in one shot (insert / update / delete)
+ *  so the builder edits everything on screen and saves once — no per-line reloads. */
+async function writeDraftLines(
+  poId: string,
+  items: StockPoLineInput[],
+): Promise<{ error?: string }> {
+  const { db } = await stockCtx();
+  const { data: po } = await db
+    .from("purchase_orders")
+    .select("status, is_stock")
+    .eq("id", poId)
+    .maybeSingle();
+  if (!po || !po.is_stock) return { error: "Not a stock PO." };
+  if (po.status !== "draft") return { error: "This PO is already placed — receive it instead." };
+
+  // Keep only rows with a product + a positive quantity.
+  const valid = (items ?? [])
+    .map((it) => ({
+      id: it.id || null,
+      product_id: it.product_id || null,
+      description: (it.description || "").trim() || "Item",
+      quantity: Math.abs(Number(it.quantity) || 0),
+      unit: (it.unit || "each").trim() || "each",
+      unit_cost: it.unit_cost === "" || it.unit_cost == null ? null : Number(it.unit_cost) || null,
+    }))
+    .filter((it) => it.product_id && it.quantity > 0);
+
+  const { data: existing } = await db.from("po_items").select("id").eq("po_id", poId);
+  const existingIds = new Set((existing ?? []).map((e) => e.id as string));
+  const keptIds = new Set(valid.filter((v) => v.id && existingIds.has(v.id)).map((v) => v.id as string));
+  const toDelete = [...existingIds].filter((id) => !keptIds.has(id));
+  if (toDelete.length) await db.from("po_items").delete().in("id", toDelete);
+
+  let pos = 0;
+  for (const it of valid) {
+    const row = {
+      po_id: poId,
+      product_id: it.product_id,
+      position: pos++,
+      description: it.description,
+      quantity: it.quantity,
+      unit: it.unit,
+      unit_cost: it.unit_cost,
+    };
+    if (it.id && existingIds.has(it.id)) await db.from("po_items").update(row).eq("id", it.id);
+    else await db.from("po_items").insert(row);
+  }
+  return {};
+}
+
+/** Save the full draft grid (supplier + all lines) without placing it. */
+export async function saveStockPO(
+  poId: string,
+  input: { supplier?: string; items: StockPoLineInput[] },
+): Promise<{ error?: string }> {
+  if (!poId) return { error: "Missing PO." };
+  const { db } = await stockCtx();
+  if (input.supplier !== undefined) {
+    await db.from("purchase_orders").update({ supplier: input.supplier.trim() || null }).eq("id", poId);
+  }
+  const res = await writeDraftLines(poId, input.items);
+  revalidatePath(`/inventory/po/${poId}`);
+  revalidatePath("/inventory");
+  return res;
+}
+
+/** Move each line's quantity onto ON ORDER and flip the PO to "ordered". */
+async function placeDraft(poId: string): Promise<{ error?: string }> {
   const { db } = await stockCtx();
   const { data: po } = await db.from("purchase_orders").select("status, is_stock").eq("id", poId).maybeSingle();
-  if (!po || po.status !== "draft") return; // only place a draft once
+  if (!po || !po.is_stock) return { error: "Not a stock PO." };
+  if (po.status !== "draft") return { error: "Already placed." };
   const { data: items } = await db.from("po_items").select("product_id, quantity").eq("po_id", poId);
-  for (const it of items ?? []) {
+  if (!items?.length) return { error: "Add at least one line first." };
+  for (const it of items) {
     if (!it.product_id) continue;
     const { data: p } = await db.from("products").select("on_order").eq("id", it.product_id).maybeSingle();
     if (!p) continue;
@@ -414,8 +479,25 @@ export async function placeStockPO(formData: FormData): Promise<void> {
       .eq("id", it.product_id);
   }
   await db.from("purchase_orders").update({ status: "ordered" }).eq("id", poId);
+  return {};
+}
+
+/** Save the grid, then place the order — one click from the builder. */
+export async function saveAndPlaceStockPO(
+  poId: string,
+  input: { supplier?: string; items: StockPoLineInput[] },
+): Promise<{ error?: string }> {
+  if (!poId) return { error: "Missing PO." };
+  const { db } = await stockCtx();
+  if (input.supplier !== undefined) {
+    await db.from("purchase_orders").update({ supplier: input.supplier.trim() || null }).eq("id", poId);
+  }
+  const saved = await writeDraftLines(poId, input.items);
+  if (saved.error) return saved;
+  const placed = await placeDraft(poId);
   revalidatePath(`/inventory/po/${poId}`);
   revalidatePath("/inventory");
+  return placed;
 }
 
 /** Receive some (or all) of one stock-PO line: on-order → in-stock (rolled = a roll). */
