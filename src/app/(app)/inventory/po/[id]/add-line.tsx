@@ -24,17 +24,18 @@ export function AddStockPOLine({ poId }: { poId: string }) {
         value={picked?.id ?? ""}
         initialLabel={picked ? [picked.manufacturer, picked.name].filter(Boolean).join(" ") : ""}
         label="Product to restock"
+        fullWidth
         onPick={(p) => setPicked(p)}
         onCreated={(p) => setPicked(p)}
       />
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">Qty</label>
-          <Input name="quantity" inputMode="decimal" placeholder="0" className="h-10 w-24 text-base" />
+          <Input name="quantity" inputMode="decimal" placeholder="0" className="h-11 w-28 text-base" />
         </div>
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">Unit</label>
-          <select name="unit" defaultValue={picked?.unit || "each"} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
+          <select name="unit" defaultValue={picked?.unit || "each"} className="h-11 rounded-md border border-input bg-transparent px-2 text-base">
             <option value="each">each</option>
             <option value="sqyd">sq yd</option>
             <option value="lnft">ln ft</option>
@@ -44,9 +45,9 @@ export function AddStockPOLine({ poId }: { poId: string }) {
         </div>
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">$ / unit</label>
-          <Input name="unit_cost" inputMode="decimal" placeholder="cost" className="h-10 w-24 text-base" />
+          <Input name="unit_cost" inputMode="decimal" placeholder="cost" className="h-11 w-28 text-base" />
         </div>
-        <Button type="submit" size="sm" disabled={!picked}>
+        <Button type="submit" size="sm" disabled={!picked} className="h-11">
           <Plus className="size-4" /> Add
         </Button>
       </div>

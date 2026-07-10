@@ -44,6 +44,7 @@ export function ProductPicker({
   initialLabel = "",
   label = "Material (from catalog)",
   defaultCategory,
+  fullWidth = false,
   onPick,
   onCreated,
   onUseOnce,
@@ -52,6 +53,8 @@ export function ProductPicker({
   initialLabel?: string;
   label?: string;
   defaultCategory?: string;
+  /** Make the search field + results span the full container (roomier typing). */
+  fullWidth?: boolean;
   onPick: (product: Product | null) => void;
   onCreated: (product: Product) => void;
   /** Add a one-off product to this estimate only, without saving to the catalog. */
@@ -155,7 +158,7 @@ export function ProductPicker({
       <label className="mb-1 block text-xs text-muted-foreground">
         {label}
       </label>
-      <div className="relative w-full sm:w-72">
+      <div className={cn("relative w-full", fullWidth ? "" : "sm:w-72")}>
         <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
           value={q}
@@ -170,7 +173,7 @@ export function ProductPicker({
           }}
           onKeyDown={onKeyDown}
           placeholder="Type a product name…"
-          className={cn(inputSm, "w-full pl-8 pr-7")}
+          className={cn(inputSm, "w-full pl-8 pr-7", fullWidth && "h-11 text-base")}
         />
         {value ? (
           <button
@@ -193,7 +196,12 @@ export function ProductPicker({
       </div>
 
       {open ? (
-        <div className="absolute z-30 mt-1 w-[min(24rem,calc(100vw-2rem))] rounded-md border bg-popover shadow-lg">
+        <div
+          className={cn(
+            "absolute z-30 mt-1 rounded-md border bg-popover shadow-lg",
+            fullWidth ? "w-full" : "w-[min(24rem,calc(100vw-2rem))]",
+          )}
+        >
           {adding ? (
             <AddProductForm
               initialName={q}
