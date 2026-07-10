@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   LayoutGrid,
   User,
@@ -81,6 +81,19 @@ export function CustomerTabs({
     : (tabs[0] ?? "overview");
   const [active, setActive] = useState<CustomerTab>(initial);
   const navRef = useRef<HTMLElement>(null);
+
+  // Deep-link / jump support: a #tab in the URL (from a snapshot link or a
+  // post-action redirect like #jobs) focuses that tab. Keeps everything in the
+  // customer's context instead of leaving the page.
+  useEffect(() => {
+    const applyHash = () => {
+      const h = window.location.hash.replace("#", "");
+      if (h && tabs.includes(h as CustomerTab)) setActive(h as CustomerTab);
+    };
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, [tabs]);
 
   const pick = (key: CustomerTab) => {
     setActive(key);
@@ -169,17 +182,21 @@ export function TabColumn({
   return <div className={className}>{children}</div>;
 }
 
-/** Show its children on Overview and on its own tab; hide otherwise. */
+/** Show its children on its own tab, and on Overview unless `overview={false}`.
+ *  Heavy full lists pass `overview={false}` so Overview stays a scannable
+ *  summary instead of dumping the whole file. */
 export function TabSection({
   tab,
+  overview = true,
   children,
 }: {
   tab: CustomerTab;
+  overview?: boolean;
   children: React.ReactNode;
 }) {
   const active = useContext(TabCtx);
-  if (active !== "overview" && active !== tab) return null;
-  return <>{children}</>;
+  if (active === "overview") return overview ? <>{children}</> : null;
+  return active === tab ? <>{children}</> : null;
 }
 
 /**
@@ -190,14 +207,17 @@ export function TabCollapse({
   tab,
   title,
   defaultOpen = false,
+  overview = true,
   children,
 }: {
   tab: CustomerTab;
   title: string;
   defaultOpen?: boolean;
+  overview?: boolean;
   children: React.ReactNode;
 }) {
   const active = useContext(TabCtx);
+  if (active === "overview" && !overview) return null;
   if (active !== "overview" && active !== tab) return null;
   const open = tab !== "overview" && active === tab ? true : defaultOpen;
   return (

@@ -27,7 +27,6 @@ import {
 } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { StageBadge } from "@/components/stage-badge";
-import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import {
   getCustomer,
   listActivities,
@@ -37,7 +36,6 @@ import {
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer } from "@/lib/data/jobs";
 import { createJob } from "@/app/(app)/jobs/actions";
-import { JobStatusBadge } from "@/components/job-status-badge";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
 import { listCustomerMessages } from "@/lib/data/messages";
 import { listCustomerDocuments } from "@/lib/data/documents";
@@ -69,11 +67,20 @@ import {
 } from "@/lib/data/workflow";
 import { listQualifyingQuestions } from "@/lib/data/qualifying";
 import { createInvoice } from "@/app/(app)/invoices/actions";
-import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
-import { optionTotals } from "@/lib/estimate-calc";
+import { optionTotals, lineTotal } from "@/lib/estimate-calc";
+import { buildJobScope } from "@/lib/job-scope";
+import {
+  EstimateRow,
+  WorkOrderRow,
+  InvoiceRow,
+  type EstimateRowData,
+  type WorkOrderRowData,
+  type InvoiceRowData,
+} from "./customer-record-rows";
 import { invoiceTotals } from "@/lib/invoice-calc";
 import {
   type ActivityType,
+  type EstimateLineItem,
   LEAD_SOURCE_LABELS,
   SALES_ROLES,
   INSTALL_ROLES,
@@ -111,6 +118,7 @@ import { CustomerSettingsMenu } from "./customer-settings-menu";
 import { QualifyDialog } from "./qualify-dialog";
 import { QuickActions } from "./quick-actions";
 import { getUserPreferences } from "@/lib/data/preferences";
+import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
 
 export async function generateMetadata({
@@ -185,6 +193,7 @@ export default async function CustomerPage({
     null;
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
+    ...jobs.map((j) => j.assigned_to ?? ""),
     customer.assigned_to ?? "",
     customer.created_by ?? "",
     customer.workflow_owner_id ?? "",
@@ -356,6 +365,76 @@ export default async function CustomerPage({
   const overdue =
     !!customer.next_action_due &&
     new Date(customer.next_action_due).getTime() < Date.now();
+
+  // --- In-context record rows: click any estimate / work order / invoice to
+  //     expand it in place (never leave the customer). Data is already loaded. ---
+  // Pull each work order's line items straight from its option (robust even if
+  // the estimate isn't in this customer's list), so the inline installation
+  // scope is never wrongly empty.
+  const optionLines = new Map<string, EstimateLineItem[]>();
+  const jobOptionIds = [...new Set(jobs.map((j) => j.option_id).filter(Boolean) as string[])];
+  if (jobOptionIds.length) {
+    const supabase = await createClient();
+    const { data: jobLines } = await supabase
+      .from("estimate_line_items")
+      .select("*")
+      .in("option_id", jobOptionIds)
+      .order("position", { ascending: true });
+    for (const l of (jobLines ?? []) as EstimateLineItem[]) {
+      const arr = optionLines.get(l.option_id) ?? [];
+      arr.push(l);
+      optionLines.set(l.option_id, arr);
+    }
+  }
+
+  const estimateRows: EstimateRowData[] = estimates.map((e) => {
+    const opts = e.options ?? [];
+    const opt =
+      (e.accepted_option_id && opts.find((o) => o.id === e.accepted_option_id)) || opts[0];
+    const lines = opt?.line_items ?? [];
+    return {
+      id: e.id,
+      title: e.title || "Estimate",
+      status: e.status,
+      total: opt ? optionTotals(lines, e.tax_rate).total : 0,
+      optionName: opts.length > 1 ? (opt?.name ?? null) : null,
+      lines: lines.map((l) => ({
+        id: l.id,
+        label: [l.room, l.description].filter(Boolean).join(" — ") || "Line item",
+        amount: lineTotal(l),
+      })),
+    };
+  });
+
+  const workOrderRows: WorkOrderRowData[] = jobs.map((j) => ({
+    id: j.id,
+    title: j.title || "Work order",
+    status: j.status,
+    scheduledDate: j.scheduled_date ?? null,
+    crewName: j.assigned_to ? (names[j.assigned_to] ?? null) : null,
+    showPrices: !!j.show_prices,
+    scope: buildJobScope(
+      j.option_id ? (optionLines.get(j.option_id) ?? []) : [],
+      j.notes ?? null,
+    ),
+  }));
+
+  const invoiceRows: InvoiceRowData[] = invoices.map((inv) => {
+    const t = invoiceTotals(inv.items ?? [], inv.tax_rate, amountPaid(inv));
+    return {
+      id: inv.id,
+      number: inv.number || "Invoice",
+      status: inv.status,
+      balance: t.balance,
+      total: t.total,
+      paid: amountPaid(inv),
+      lines: (inv.items ?? []).map((it) => ({
+        id: it.id,
+        label: it.description || "Item",
+        amount: (Number(it.quantity) || 0) * (Number(it.rate) || 0),
+      })),
+    };
+  });
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -566,6 +645,39 @@ export default async function CustomerPage({
 
               {/* Right: money + due rail */}
               <aside className="space-y-4">
+                {/* Snapshot — jump straight to any record's tab (in-context). */}
+                <div className="rounded-lg border bg-card p-5 shadow-sm">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Records
+                  </p>
+                  <ul className="space-y-1.5 text-sm">
+                    <li>
+                      <a href="#estimates" className="flex items-center justify-between rounded-md px-1.5 py-1.5 hover:bg-muted">
+                        <span className="inline-flex items-center gap-2">
+                          <FileText className="size-4 text-muted-foreground" /> Estimates
+                        </span>
+                        <span className="font-semibold tabular-nums">{estimateRows.length}</span>
+                      </a>
+                    </li>
+                    <li>
+                      <a href="#jobs" className="flex items-center justify-between rounded-md px-1.5 py-1.5 hover:bg-muted">
+                        <span className="inline-flex items-center gap-2">
+                          <Wrench className="size-4 text-muted-foreground" /> Work orders
+                        </span>
+                        <span className="font-semibold tabular-nums">{workOrderRows.length}</span>
+                      </a>
+                    </li>
+                    <li>
+                      <a href="#invoices" className="flex items-center justify-between rounded-md px-1.5 py-1.5 hover:bg-muted">
+                        <span className="inline-flex items-center gap-2">
+                          <Receipt className="size-4 text-muted-foreground" /> Invoices
+                        </span>
+                        <span className="font-semibold tabular-nums">{invoiceRows.length}</span>
+                      </a>
+                    </li>
+                  </ul>
+                </div>
+
                 <div className="rounded-lg border bg-card p-5 shadow-sm">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Money
@@ -689,8 +801,8 @@ export default async function CustomerPage({
         ) : null}
 
         <TabGrid>
-        {/* Left: stage automations + contact */}
-        <TabColumn show={["overview", "contact"]} className="space-y-6">
+        {/* Left: contact & property (its own tab — Overview stays a summary) */}
+        <TabColumn show={["contact"]} className="space-y-6">
           <TabSection tab="contact">
             {customer.qualified ? (
               <Card>
@@ -732,25 +844,26 @@ export default async function CustomerPage({
           </TabSection>
         </TabColumn>
 
-        {/* Right: chat + estimates + activity timeline */}
+        {/* Right: the records — one focused section per tab */}
         <TabColumn
-          show={["overview", "estimates", "jobs", "invoices", "materials", "files", "messages", "activity"]}
+          show={["estimates", "jobs", "invoices", "materials", "files", "messages", "activity"]}
           className="space-y-6 lg:col-span-2"
         >
-          {/* AI follow-up drafting */}
+          {/* Chat + AI follow-up draft — Messages tab */}
+          <TabCollapse
+            tab="messages"
+            title={`Messages${messages.length ? ` (${messages.length})` : ""}`}
+          >
+            <CustomerChat customerId={customer.id} messages={messages} />
+          </TabCollapse>
           {!customer.cancelled_at ? (
-            <TabCollapse tab="overview" title="AI follow-up draft">
+            <TabCollapse tab="messages" title="AI follow-up draft">
               <AiFollowup customerId={customer.id} />
             </TabCollapse>
           ) : null}
 
-          {/* Chat */}
-          <TabCollapse tab="messages" title={`Messages${messages.length ? ` (${messages.length})` : ""}`}>
-            <CustomerChat customerId={customer.id} messages={messages} />
-          </TabCollapse>
-
           {/* Estimates */}
-          <TabSection tab="estimates">
+          <TabSection tab="estimates" overview={false}>
           <Card id="estimates" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
@@ -768,52 +881,23 @@ export default async function CustomerPage({
               )}
             </CardHeader>
             <CardContent>
-              {estimates.length === 0 ? (
+              {estimateRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   No estimates yet. Click &ldquo;Build estimate&rdquo; to build a quote.
                 </p>
               ) : (
-                <ul className="divide-y text-sm">
-                  {estimates.map((e) => {
-                    const opts = e.options ?? [];
-                    const opt =
-                      (e.accepted_option_id &&
-                        opts.find((o) => o.id === e.accepted_option_id)) ||
-                      opts[0];
-                    const total = opt
-                      ? optionTotals(opt.line_items ?? [], e.tax_rate).total
-                      : 0;
-                    return (
-                      <li
-                        key={e.id}
-                        className="flex items-center justify-between gap-3 py-2"
-                      >
-                        <Link
-                          href={`/estimates/${e.id}`}
-                          className="flex min-w-0 items-center gap-2 hover:underline"
-                        >
-                          <FileText className="size-4 shrink-0 text-muted-foreground" />
-                          <span className="truncate">
-                            {e.title || "Estimate"}
-                          </span>
-                        </Link>
-                        <div className="flex shrink-0 items-center gap-3">
-                          <EstimateStatusBadge status={e.status} />
-                          <span className="font-medium">
-                            {formatMoney(total)}
-                          </span>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <div className="space-y-2">
+                  {estimateRows.map((e) => (
+                    <EstimateRow key={e.id} e={e} />
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
           </TabSection>
 
-          {/* Samples */}
-          <TabSection tab="overview">
+          {/* Samples — a sales tool, lives under Contact (off Overview) */}
+          <TabSection tab="contact" overview={false}>
             <SamplesCard
               customerId={customer.id}
               checkouts={sampleCheckouts}
@@ -823,11 +907,11 @@ export default async function CustomerPage({
             />
           </TabSection>
 
-          {/* Jobs */}
-          <TabSection tab="jobs">
+          {/* Work orders (jobs) */}
+          <TabSection tab="jobs" overview={false}>
           <Card id="jobs" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">Jobs</CardTitle>
+              <CardTitle className="text-base">Work orders</CardTitle>
               <form action={createJob} className="flex items-center gap-2">
                 <input type="hidden" name="customer_id" value={customer.id} />
                 {serviceAddresses.length > 0 ? (
@@ -849,41 +933,25 @@ export default async function CustomerPage({
                 </SubmitButton>
               </form>
             </CardHeader>
-            <CardContent>
-              {jobs.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No jobs yet.</p>
+            <CardContent className="space-y-4">
+              {workOrderRows.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No work orders yet.</p>
               ) : (
-                <ul className="divide-y text-sm">
-                  {jobs.map((j) => (
-                    <li
-                      key={j.id}
-                      className="flex items-center justify-between gap-3 py-2"
-                    >
-                      <Link
-                        href={`/jobs/${j.id}`}
-                        className="flex min-w-0 items-center gap-2 hover:underline"
-                      >
-                        <Wrench className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{j.title || "Job"}</span>
-                      </Link>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <JobStatusBadge status={j.status} />
-                        {j.scheduled_date ? (
-                          <span className="text-muted-foreground">
-                            {formatDate(j.scheduled_date)}
-                          </span>
-                        ) : null}
-                      </div>
-                    </li>
+                <div className="space-y-2">
+                  {workOrderRows.map((j) => (
+                    <WorkOrderRow key={j.id} j={j} />
                   ))}
-                </ul>
+                </div>
               )}
+              {/* Measurements belong with the work — moved here so it stops
+                  leaking onto every tab. */}
+              <CustomerAreasCard customerId={customer.id} areas={customerAreas} />
             </CardContent>
           </Card>
           </TabSection>
 
           {/* Materials & Orders — POs + stock for this customer */}
-          <TabSection tab="materials">
+          <TabSection tab="materials" overview={false}>
             <CustomerOrdersCard
               customerId={customer.id}
               pos={customerPOs}
@@ -892,7 +960,7 @@ export default async function CustomerPage({
           </TabSection>
 
           {/* Invoices */}
-          <TabSection tab="invoices">
+          <TabSection tab="invoices" overview={false}>
           <Card id="invoices" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Invoices</CardTitle>
@@ -904,40 +972,14 @@ export default async function CustomerPage({
               </form>
             </CardHeader>
             <CardContent>
-              {invoices.length === 0 ? (
+              {invoiceRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No invoices yet.</p>
               ) : (
-                <ul className="divide-y text-sm">
-                  {invoices.map((inv) => {
-                    const t = invoiceTotals(
-                      inv.items ?? [],
-                      inv.tax_rate,
-                      amountPaid(inv),
-                    );
-                    return (
-                      <li
-                        key={inv.id}
-                        className="flex items-center justify-between gap-3 py-2"
-                      >
-                        <Link
-                          href={`/invoices/${inv.id}`}
-                          className="flex min-w-0 items-center gap-2 hover:underline"
-                        >
-                          <Receipt className="size-4 shrink-0 text-muted-foreground" />
-                          <span className="truncate">
-                            {inv.number || "Invoice"}
-                          </span>
-                        </Link>
-                        <div className="flex shrink-0 items-center gap-3">
-                          <InvoiceStatusBadge status={inv.status} />
-                          <span className="font-medium">
-                            {formatMoney(t.balance)} due
-                          </span>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <div className="space-y-2">
+                  {invoiceRows.map((inv) => (
+                    <InvoiceRow key={inv.id} inv={inv} />
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -951,8 +993,6 @@ export default async function CustomerPage({
           >
             <CustomerDocuments customerId={customer.id} documents={documents} />
           </TabCollapse>
-
-          <CustomerAreasCard customerId={customer.id} areas={customerAreas} />
 
           {/* Activity */}
           <TabCollapse tab="activity" title="Activity history">

@@ -11,7 +11,6 @@ import {
   ClipboardCheck,
   ArrowRight,
   Check,
-  ChevronRight,
   PauseCircle,
   XCircle,
   Ruler,
@@ -35,6 +34,7 @@ import type { JobSatisfaction } from "@/lib/data/jobs";
 import { advanceWorkflow } from "../actions";
 import { EstimateScheduler } from "./estimate-scheduler";
 import { InstallSchedule, type InstallScheduleProps } from "./install-schedule";
+import { StageSpine } from "./stage-spine";
 import { JobMaterialsCard } from "@/app/(app)/jobs/[id]/job-materials-card";
 import { SatisfactionForm } from "@/app/(app)/jobs/[id]/satisfaction-form";
 import { setEstimateStatus } from "@/app/(app)/estimates/actions";
@@ -506,38 +506,17 @@ export async function GuidedFlow({
             <span className="text-muted-foreground">Next: {nextStage.name}</span>
           ) : null}
         </div>
-        <div className="overflow-x-auto pb-1">
-          <ol className="flex min-w-max items-center gap-1">
-            {mainline.map((s, i) => {
-              const done = currentIdx >= 0 && i < currentIdx;
-              const active = currentIdx === i;
-              return (
-                <li key={s.id} className="flex items-center gap-1">
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium",
-                      active
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : done
-                          ? "bg-primary/15 text-primary"
-                          : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {done ? (
-                      <Check className="size-3" />
-                    ) : (
-                      <span className="tabular-nums opacity-70">{i + 1}</span>
-                    )}
-                    {s.name}
-                  </span>
-                  {i < mainline.length - 1 ? (
-                    <ChevronRight className="size-3 shrink-0 text-muted-foreground/40" />
-                  ) : null}
-                </li>
-              );
-            })}
-          </ol>
-        </div>
+        <StageSpine
+          stages={mainline.map((s, i) => ({
+            name: s.name,
+            state:
+              currentIdx >= 0 && i < currentIdx
+                ? "done"
+                : currentIdx === i
+                  ? "active"
+                  : "upcoming",
+          }))}
+        />
       </div>
 
       {/* The current stage — its real tool + the "ready for next" gate */}
