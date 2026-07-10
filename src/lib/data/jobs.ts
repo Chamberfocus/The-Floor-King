@@ -369,6 +369,50 @@ export async function listWarehouseJobs(
   return rows;
 }
 
+export interface ActiveInstallJob {
+  id: string;
+  title: string | null;
+  customer_name: string | null;
+  scheduled_date: string | null;
+  installer_name: string | null;
+  open_for_claim: boolean;
+  status: string;
+}
+
+/** Scheduled / in-progress installs — for the dashboard "reassign / repost to
+ *  board" card when an assigned installer falls through mid-job. */
+export async function listActiveInstallJobs(): Promise<ActiveInstallJob[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("jobs")
+    .select("id, title, scheduled_date, assigned_to, open_for_claim, status, customer:customers(full_name)")
+    .in("status", ["scheduled", "in_progress"])
+    .order("scheduled_date", { ascending: true });
+  const rows = (data ?? []) as (Job & { customer?: { full_name: string | null } | { full_name: string | null }[] | null })[];
+  const ids = [...new Set(rows.map((r) => r.assigned_to).filter(Boolean) as string[])];
+  const nameById = new Map<string, string>();
+  if (ids.length) {
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", ids);
+    for (const p of profs ?? [])
+      nameById.set(p.id as string, (p.full_name as string) || (p.email as string) || "Installer");
+  }
+  return rows.map((r) => {
+    const cust = Array.isArray(r.customer) ? r.customer[0] : r.customer;
+    return {
+      id: r.id,
+      title: r.title,
+      customer_name: cust?.full_name ?? null,
+      scheduled_date: r.scheduled_date,
+      installer_name: r.assigned_to ? (nameById.get(r.assigned_to) ?? null) : null,
+      open_for_claim: !!r.open_for_claim,
+      status: r.status,
+    };
+  });
+}
+
 export async function getActiveJobCount(): Promise<number> {
   const supabase = await createClient();
   const { count } = await supabase

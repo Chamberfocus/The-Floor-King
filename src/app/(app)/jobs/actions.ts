@@ -655,6 +655,27 @@ export async function unpostJobFromBoard(formData: FormData): Promise<void> {
   revalidatePath("/board");
 }
 
+/** Repost a job to the board MID-JOB — the assigned installer fell through, so
+ *  clear the installer/crew and reopen it for anyone to claim, keeping the
+ *  scheduled date as the target. Works from any status. */
+export async function repostJobToBoard(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  await supabase
+    .from("jobs")
+    .update({ open_for_claim: true, assigned_to: null, assigned_crew_id: null })
+    .eq("id", id);
+  revalidateJobEverywhere(id, (job?.customer_id as string | null) ?? null);
+  revalidatePath("/board");
+  revalidatePath("/dashboard");
+}
+
 /** An installer signals they can do an open job. */
 export async function applyToJob(formData: FormData): Promise<void> {
   const jobId = str(formData.get("job_id"));

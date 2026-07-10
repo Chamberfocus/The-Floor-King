@@ -9,6 +9,8 @@ import {
   Plus,
   AlertTriangle,
   Truck,
+  Hammer,
+  Megaphone,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -18,15 +20,18 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getDashboardCounts, listMyQueue } from "@/lib/data/customers";
 import { getTodayTasks } from "@/lib/data/day-tasks";
 import { myStopsToday } from "@/lib/data/my-stops";
 import { TodaysStopsList } from "@/components/todays-stops-list";
-import { getActiveJobCount } from "@/lib/data/jobs";
+import { getActiveJobCount, listActiveInstallJobs } from "@/lib/data/jobs";
 import { getOutstandingInvoiceCount } from "@/lib/data/invoices";
+import { repostJobToBoard } from "../jobs/actions";
 import { STAGE_COLOR_BADGE } from "@/lib/types";
+import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { DayBriefing } from "./day-briefing";
 import { AskBusiness } from "./ask-business";
@@ -43,6 +48,7 @@ export default async function DashboardPage() {
   const queue = await listMyQueue(profile.id);
   const todayTasks = await getTodayTasks();
   const myStops = await myStopsToday();
+  const activeInstalls = await listActiveInstallJobs();
   const nowMs = Date.now();
   const overdueCount = queue.filter(
     (q) => q.next_action_due && new Date(q.next_action_due).getTime() < nowMs,
@@ -157,6 +163,55 @@ export default async function DashboardPage() {
           );
         })}
       </div>
+
+      {activeInstalls.length > 0 ? (
+        <Card className="mt-6">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Hammer className="size-4 text-primary" /> Scheduled installs
+            </CardTitle>
+            <Link href="/board" className="text-xs text-primary hover:underline">
+              Job board →
+            </Link>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Installer can&apos;t make it? Repost the job to the board so someone else can
+              claim it — even mid-job.
+            </p>
+            <ul className="divide-y">
+              {activeInstalls.map((j) => (
+                <li key={j.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                  <Link href={`/jobs/${j.id}`} className="min-w-0 hover:underline">
+                    <span className="font-medium">{j.customer_name || j.title || "Job"}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {j.scheduled_date ? formatDate(j.scheduled_date) : "Not dated"}
+                      {j.installer_name ? ` · ${j.installer_name}` : " · unassigned"}
+                    </span>
+                  </Link>
+                  {j.open_for_claim ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+                      <Megaphone className="size-3" /> On the board
+                    </span>
+                  ) : (
+                    <form action={repostJobToBoard}>
+                      <input type="hidden" name="id" value={j.id} />
+                      <SubmitButton
+                        size="sm"
+                        variant="outline"
+                        pendingText="Reposting…"
+                        confirm="Reposted to the board"
+                      >
+                        <Megaphone className="size-3.5" /> Repost to board
+                      </SubmitButton>
+                    </form>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card className="mt-6">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
