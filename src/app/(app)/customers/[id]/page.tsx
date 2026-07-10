@@ -640,6 +640,9 @@ export default async function CustomerPage({
                   repOptions={repOptions}
                   installScheduleProps={installScheduleProps}
                   jobSatisfaction={guidedSatisfaction}
+                  hasActivity={activities.length > 0}
+                  estimateBooked={!!estimateAppointment}
+                  isOwner={profile.role === "admin"}
                 />
               </div>
 

@@ -9,6 +9,7 @@ import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import {
   moveToAutoActionStage,
   advanceToNamedStage,
+  advanceFromAutoAction,
 } from "@/lib/workflow-engine";
 
 // Back-half pipeline stages carry no auto_action marker, so job-lifecycle events
@@ -403,6 +404,12 @@ export async function createJob(formData: FormData): Promise<void> {
     .select("id")
     .single();
   if (error || !job) return;
+
+  // Close the coupling gap: a work order now EXISTS, so nudge the customer spine
+  // forward off the deposit stage (→ Ordering Materials), forward-only. This is
+  // the same kind of coupling booking/completing already do — so the dashboard
+  // reflects that the work order was created.
+  await advanceFromAutoAction(customerId, "collect_deposit");
 
   revalidatePath("/jobs");
   revalidatePath(`/customers/${customerId}`);

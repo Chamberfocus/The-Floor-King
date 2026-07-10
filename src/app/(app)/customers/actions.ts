@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { advanceFromFirstStage, deriveLeadStage } from "@/lib/workflow-engine";
+import { requireProfile } from "@/lib/auth";
 import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
 import { listCustomers } from "@/lib/data/customers";
 import {
@@ -304,6 +305,83 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
   refreshCustomerViews(id);
   revalidatePath("/pipeline");
   // Redirect back so the command-center form closes and the new stage shows.
+  redirect(redirectTo ?? `/customers/${id}`);
+}
+
+/**
+ * OWNER-ONLY override of the action-gate: advance a step whose action isn't
+ * complete, for a genuine exception. Requires a reason and is fully LOGGED —
+ * who (user_id), when (created_at), which step (from/to stage + label), and why
+ * (reason) — in both the handoff trail and the activity feed. Non-owners no-op.
+ */
+export async function overrideAdvanceWorkflow(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const toStageId = str(formData.get("to_stage"));
+  const toUser = nullable(formData.get("to_user"));
+  const reason = str(formData.get("reason")).trim();
+  const stepLabel = str(formData.get("step_label"));
+  const redirectTo = nullable(formData.get("redirect_to"));
+  if (!id || !toStageId || !reason) return;
+
+  const profile = await requireProfile();
+  if (profile.role !== "admin") return; // owner-only
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("workflow_stage_id, workflow_owner_id, full_name")
+    .eq("id", id)
+    .maybeSingle();
+  const { data: allStages } = await supabase
+    .from("workflow_stages")
+    .select("position, auto_action, name");
+  const { data: stage } = await supabase
+    .from("workflow_stages")
+    .select("name, position, sla_hours, next_action")
+    .eq("id", toStageId)
+    .maybeSingle();
+
+  const due =
+    stage?.sla_hours && stage.sla_hours > 0
+      ? new Date(Date.now() + stage.sla_hours * 3600 * 1000).toISOString()
+      : null;
+  const leadStage = stage
+    ? deriveLeadStage({ name: stage.name, position: stage.position }, allStages ?? [])
+    : undefined;
+
+  const { error } = await supabase
+    .from("customers")
+    .update({
+      workflow_stage_id: toStageId,
+      workflow_owner_id: toUser,
+      next_action_due: leadStage === "lost" ? null : due,
+      ...(leadStage ? { stage: leadStage } : {}),
+    })
+    .eq("id", id);
+  if (error) return;
+
+  // Audit trail — logged twice for visibility: the handoff record + the feed.
+  await supabase.from("handoffs").insert({
+    customer_id: id,
+    from_stage_id: cust?.workflow_stage_id ?? null,
+    to_stage_id: toStageId,
+    from_user: cust?.workflow_owner_id ?? null,
+    to_user: toUser,
+    note: `OWNER OVERRIDE — skipped "${stepLabel || "step"}": ${reason}`,
+  });
+  await supabase.from("activities").insert({
+    customer_id: id,
+    user_id: user?.id ?? null,
+    type: "system",
+    body: `⚠ Owner override by ${profile.full_name ?? "owner"} — advanced past "${stepLabel || stage?.name || "step"}" without completing it. Reason: ${reason}`,
+  });
+
+  refreshCustomerViews(id);
+  revalidatePath("/pipeline");
   redirect(redirectTo ?? `/customers/${id}`);
 }
 

@@ -256,6 +256,7 @@ export interface WarehouseJob extends JobListRow {
   materials: WarehouseMaterial[];
   crew_name: string | null; // who's doing the install (crew or assigned installer)
   warehouse_assignee_name: string | null; // warehouse person assigned to prep it
+  customer_stage_id: string | null; // customer's workflow stage — for the shared flow badge
 }
 
 export async function listWarehouseJobs(
@@ -268,11 +269,11 @@ export async function listWarehouseJobs(
   const supabase = dbArg ?? (await createClient());
   const { data } = await supabase
     .from("jobs")
-    .select("*, customer:customers(full_name)")
+    .select("*, customer:customers(full_name, workflow_stage_id)")
     .in("status", ["unscheduled", "scheduled", "in_progress"])
     .order("scheduled_date", { ascending: true });
   const jobs = (data ?? []) as (Job & {
-    customer?: { full_name: string | null } | null;
+    customer?: { full_name: string | null; workflow_stage_id: string | null } | null;
     assigned_to?: string | null;
     assigned_crew_id?: string | null;
     warehouse_assigned_to?: string | null;
@@ -283,6 +284,7 @@ export async function listWarehouseJobs(
     materials: [],
     crew_name: null,
     warehouse_assignee_name: null,
+    customer_stage_id: j.customer?.workflow_stage_id ?? null,
   }));
 
   // Resolve who's doing each job so the warehouse can see the installer/crew:

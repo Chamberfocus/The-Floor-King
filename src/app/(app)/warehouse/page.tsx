@@ -14,6 +14,8 @@ import { requireProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
 import { listWarehouseJobs } from "@/lib/data/jobs";
+import { listWorkflowStages } from "@/lib/data/workflow";
+import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { newRemnants } from "@/lib/data/stock-rolls";
 import { getJobMaterials } from "@/lib/data/job-materials";
 import { listOrders } from "@/lib/data/orders";
@@ -73,6 +75,7 @@ export default async function WarehousePage() {
   // pull-vs-order, POs), which the warehouse role's own RLS can't reach.
   const wh = createAdminClient();
   const jobsRaw = await listWarehouseJobs(wh);
+  const flowStages = await listWorkflowStages();
   const remnantsToShelve = await newRemnants(wh);
   // The real sourcing (pull-from-stock vs order, with cut sizes) per job.
   const sourcedArr = await Promise.all(jobsRaw.map((j) => getJobMaterials(j.id, wh)));
@@ -232,10 +235,18 @@ export default async function WarehousePage() {
               <Card key={j.id}>
                 <CardHeader className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <CardTitle className="text-base">
-                      {j.customer_name ?? "Customer"}
-                      {j.title ? ` — ${j.title}` : ""}
-                    </CardTitle>
+                    <div className="min-w-0">
+                      <CardTitle className="text-base">
+                        {j.customer_name ?? "Customer"}
+                        {j.title ? ` — ${j.title}` : ""}
+                      </CardTitle>
+                      <div className="mt-1">
+                        <FlowPositionBadge
+                          stage={flowStages.find((s) => s.id === j.customer_stage_id) ?? null}
+                          stages={flowStages}
+                        />
+                      </div>
+                    </div>
                     <div className="flex items-center gap-2">
                       {stagedSet.has(j.warehouse_status) ? (
                         <span className="rounded-md bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">Staged ✓</span>

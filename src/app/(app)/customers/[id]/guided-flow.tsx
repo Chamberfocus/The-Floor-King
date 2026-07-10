@@ -14,6 +14,7 @@ import {
   PauseCircle,
   XCircle,
   Ruler,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
@@ -35,109 +36,46 @@ import { advanceWorkflow } from "../actions";
 import { EstimateScheduler } from "./estimate-scheduler";
 import { InstallSchedule, type InstallScheduleProps } from "./install-schedule";
 import { StageSpine } from "./stage-spine";
+import {
+  stepGate,
+  resolveFlowStep,
+  nextMainlineStage,
+  isLostStage,
+  isParkStage,
+  isOffSpine,
+  STEP_TITLES,
+  type FlowFacts,
+  type FlowStep,
+} from "@/lib/job-flow";
+import { OwnerOverride } from "./owner-override";
 import { JobMaterialsCard } from "@/app/(app)/jobs/[id]/job-materials-card";
 import { SatisfactionForm } from "@/app/(app)/jobs/[id]/satisfaction-form";
 import { setEstimateStatus } from "@/app/(app)/estimates/actions";
 import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 
-/** Off-ramp stages (dead deals) live outside the linear spine. */
-const isLostStage = (s: { name: string }) =>
-  /lost|declin|dead|cancel/.test(s.name.toLowerCase());
+// Step vocabulary, step resolution, off-spine detection, and next-stage all come
+// from the ONE shared source (@/lib/job-flow) so every page agrees.
+type Step = FlowStep;
 
-/** The "on hold / waiting on the customer" park stage — reachable ANY time via
- *  "Put on hold", but NOT a numbered step in the pipeline. Word-boundary matched
- *  so mainline "Awaiting …" stages (a-WAITing — an approval / measuring step) are
- *  never mistaken for the park stage. */
-const isParkStage = (s: { name: string }) =>
-  /\bwaiting\b|\bon hold\b|\bhold\b|\bpark/.test(s.name.toLowerCase());
-
-/** Stages that sit OUTSIDE the linear spine (dead deals + the on-hold park). */
-const isOffSpine = (s: { name: string }) => isLostStage(s) || isParkStage(s);
-
-type Step =
-  | "contact"
-  | "schedule_estimate"
-  | "estimate_booked"
-  | "build_quote"
-  | "approve"
-  | "collect_deposit"
-  | "materials"
-  | "schedule_install"
-  | "waiting"
-  | "await_install"
-  | "followup"
-  | "complete"
-  | "generic";
-
-const STEP_META: Record<Step, { icon: typeof Phone; title: string }> = {
-  contact: { icon: Phone, title: "Reach out & set the estimate" },
-  schedule_estimate: { icon: CalendarClock, title: "Schedule the estimate" },
-  estimate_booked: { icon: Ruler, title: "Measure & meet the customer" },
-  build_quote: { icon: FileText, title: "Build & send the quote" },
-  approve: { icon: ClipboardCheck, title: "Get the quote approved" },
-  collect_deposit: { icon: DollarSign, title: "Collect the deposit" },
-  materials: { icon: Boxes, title: "Order & prep materials" },
-  schedule_install: { icon: Hammer, title: "Schedule the install" },
-  waiting: { icon: PauseCircle, title: "Waiting on the customer" },
-  await_install: { icon: CalendarClock, title: "Install scheduled" },
-  followup: { icon: Receipt, title: "Sign-off & collect the balance" },
-  complete: { icon: CheckCircle2, title: "Job complete" },
-  generic: { icon: ArrowRight, title: "Next step" },
+const STEP_ICON: Record<Step, typeof Phone> = {
+  contact: Phone,
+  schedule_estimate: CalendarClock,
+  estimate_booked: Ruler,
+  build_quote: FileText,
+  approve: ClipboardCheck,
+  collect_deposit: DollarSign,
+  materials: Boxes,
+  schedule_install: Hammer,
+  waiting: PauseCircle,
+  await_install: CalendarClock,
+  followup: Receipt,
+  complete: CheckCircle2,
+  generic: ArrowRight,
 };
-
-function resolveStep(
-  stage: WorkflowStage | null,
-  stages: WorkflowStage[],
-): Step {
-  if (!stage) return "contact";
-  const sorted = [...stages].sort((a, b) => a.position - b.position);
-  const mainline = sorted.filter((s) => !isOffSpine(s));
-  const auto = stage.auto_action ?? "none";
-  if (auto === "schedule_estimate") return "schedule_estimate";
-  if (auto === "build_quote") return "build_quote";
-  if (auto === "collect_deposit") return "collect_deposit";
-  if (auto === "schedule_install") return "schedule_install";
-
-  const name = stage.name.toLowerCase();
-  const first = mainline[0];
-  const last = mainline[mainline.length - 1];
-  if (first && stage.id === first.id) return "contact";
-  if (last && stage.id === last.id) return "complete";
-  // Order matters: "Awaiting Customer Response" contains "wait", so approve and
-  // follow-up must be tested before the waiting/park check.
-  if (/follow|installed|satisf/.test(name)) return "followup";
-  if (/response|approv/.test(name)) return "approve";
-  if (/wait|hold/.test(name)) return "waiting";
-  if (/install/.test(name)) return "await_install";
-  if (/material|order|warehouse|stag/.test(name)) return "materials";
-  if (/estimate|measur/.test(name)) return "estimate_booked";
-
-  // Position fallback: classify by where the stage sits between the stable
-  // auto_action anchors (works even if the stage was renamed).
-  const posOf = (aa: string) =>
-    sorted.find((s) => s.auto_action === aa)?.position ?? null;
-  const pB = posOf("build_quote");
-  const pD = posOf("collect_deposit");
-  const pI = posOf("schedule_install");
-  if (pB != null && pD != null && stage.position > pB && stage.position < pD)
-    return "approve";
-  if (pD != null && pI != null && stage.position > pD && stage.position < pI)
-    return "materials";
-  return "generic";
-}
-
-/** The next stage on the happy path — skips Lost/Declined off-ramps. */
-function nextMainlineStage(
-  stage: WorkflowStage | null,
-  stages: WorkflowStage[],
-): WorkflowStage | null {
-  const sorted = [...stages].sort((a, b) => a.position - b.position);
-  if (!stage) return sorted.find((s) => !isOffSpine(s)) ?? null;
-  return (
-    sorted.find((s) => s.position > stage.position && !isOffSpine(s)) ?? null
-  );
-}
+const STEP_META: Record<Step, { icon: typeof Phone; title: string }> = Object.fromEntries(
+  (Object.keys(STEP_ICON) as Step[]).map((k) => [k, { icon: STEP_ICON[k], title: STEP_TITLES[k] }]),
+) as Record<Step, { icon: typeof Phone; title: string }>;
 
 /** Bold "ready for next stage" gate — the only way a job advances (manual). */
 function AdvanceButton({
@@ -146,12 +84,14 @@ function AdvanceButton({
   nextStage,
   label,
   size = "lg",
+  disabled = false,
 }: {
   customerId: string;
   ownerId: string | null;
   nextStage: WorkflowStage | null;
   label?: string;
   size?: "sm" | "lg";
+  disabled?: boolean;
 }) {
   if (!nextStage) return null;
   return (
@@ -159,7 +99,12 @@ function AdvanceButton({
       <input type="hidden" name="id" value={customerId} />
       <input type="hidden" name="to_stage" value={nextStage.id} />
       <input type="hidden" name="to_user" value={ownerId ?? ""} />
-      <SubmitButton size={size} pendingText="Advancing…" confirm="Moved to the next stage">
+      <SubmitButton
+        size={size}
+        disabled={disabled}
+        pendingText="Advancing…"
+        confirm="Moved to the next stage"
+      >
         <Check className="size-4" /> {label ?? "Ready for next stage"}
         <span className="opacity-80">· {nextStage.name}</span>
       </SubmitButton>
@@ -177,6 +122,9 @@ export async function GuidedFlow({
   repOptions,
   installScheduleProps,
   jobSatisfaction,
+  hasActivity,
+  estimateBooked,
+  isOwner,
 }: {
   customer: Customer;
   stages: WorkflowStage[];
@@ -187,6 +135,11 @@ export async function GuidedFlow({
   repOptions: { id: string; name: string }[];
   installScheduleProps: InstallScheduleProps | null;
   jobSatisfaction: JobSatisfaction | null;
+  /** Real signals for the soft steps (contact/measure), passed from the file. */
+  hasActivity: boolean;
+  estimateBooked: boolean;
+  /** Only the owner may override a blocked step. */
+  isOwner: boolean;
 }) {
   const sorted = [...stages].sort((a, b) => a.position - b.position);
   const mainline = sorted.filter((s) => !isOffSpine(s));
@@ -195,7 +148,7 @@ export async function GuidedFlow({
   const currentIdx = currentStage
     ? mainline.findIndex((s) => s.id === currentStage.id)
     : -1;
-  const step = resolveStep(currentStage, stages);
+  const step = resolveFlowStep(currentStage, stages);
   const nextStage = nextMainlineStage(currentStage, stages);
   const owner = customer.workflow_owner_id ?? null;
   const Meta = STEP_META[step];
@@ -232,6 +185,24 @@ export async function GuidedFlow({
       bal: invoiceTotals(i.items ?? [], i.tax_rate, amountPaid(i)).balance,
     }))
     .filter((x) => x.bal > 0.005);
+
+  // The action-gate: read the REAL records to decide whether THIS step's action
+  // is done. Strict — advancing is blocked (with a clear reason) until it is.
+  const facts: FlowFacts = {
+    hasActivity,
+    estimateBooked,
+    hasEstimate: estimates.length > 0,
+    estimateSent: estimates.some((e) => e.status === "sent" || e.status === "approved"),
+    estimateApproved: !!approvedEstimate,
+    depositPaid: invoices.some((i) => amountPaid(i) > 0),
+    workOrderExists: jobs.length > 0,
+    materialsStaged: jobs.some((j) => !!j.warehouse_ready_at),
+    installBooked: !!activeJob?.scheduled_date,
+    installComplete: jobs.some((j) => j.status === "completed"),
+    balancePaid: openInvoices.length === 0,
+    satisfactionSigned: !!jobSatisfaction,
+  };
+  const gate = stepGate(step, facts);
 
   // ---- Per-stage inline body (the REAL tool, wired to real data) -----------
   let body: React.ReactNode = null;
@@ -563,14 +534,48 @@ export async function GuidedFlow({
             </div>
           ) : null}
 
-          {/* Ready for next stage? — manual gate (nothing auto-advances) */}
+          {/* Action-gated advance — strict: the step's action must be done first,
+              and it says exactly what's still needed if not. */}
           {!currentIsLost && !currentIsPark && step !== "complete" ? (
-            <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-              <AdvanceButton
-                customerId={customer.id}
-                ownerId={owner}
-                nextStage={nextStage}
-              />
+            <div className="space-y-3 border-t pt-4">
+              {gate.done ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                    <CheckCircle2 className="size-3.5" /> Step done
+                  </span>
+                  <AdvanceButton
+                    customerId={customer.id}
+                    ownerId={owner}
+                    nextStage={nextStage}
+                  />
+                </div>
+              ) : (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-amber-950/30">
+                  <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-300">
+                    <AlertTriangle className="size-4" /> Finish this step to advance
+                  </div>
+                  <p className="mt-0.5 text-sm text-amber-900 dark:text-amber-200">{gate.reason}</p>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <AdvanceButton
+                      customerId={customer.id}
+                      ownerId={owner}
+                      nextStage={nextStage}
+                      size="sm"
+                      disabled
+                    />
+                    {isOwner && nextStage ? (
+                      <OwnerOverride
+                        customerId={customer.id}
+                        toStageId={nextStage.id}
+                        toUser={owner}
+                        stepLabel={Meta.title}
+                        blockedReason={gate.reason ?? ""}
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              )}
+
               <details className="text-sm">
                 <summary className="cursor-pointer list-none text-muted-foreground hover:text-foreground">
                   Not yet?

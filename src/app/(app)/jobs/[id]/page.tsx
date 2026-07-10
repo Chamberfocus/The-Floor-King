@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { JobStatusBadge } from "@/components/job-status-badge";
+import { FlowPositionBadge } from "@/components/flow-position-badge";
+import { listWorkflowStages } from "@/lib/data/workflow";
 import {
   getJob,
   listAssignableUsers,
@@ -103,6 +105,12 @@ export default async function JobPage({
   const progress = getJobProgress(job);
 
   const org = await getOrgSettings();
+  // Same flow position the customer dashboard shows — from the ONE shared source.
+  const flowStages = await listWorkflowStages();
+  const flowStage =
+    (job.customer?.workflow_stage_id
+      ? flowStages.find((s) => s.id === job.customer!.workflow_stage_id)
+      : null) ?? null;
   const users = isStaff ? await listAssignableUsers() : [];
   const names = job.assigned_to ? await getProfileNames([job.assigned_to]) : {};
   const assignedName = job.assigned_to ? names[job.assigned_to] : null;
@@ -240,11 +248,12 @@ export default async function JobPage({
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">
               {job.title || "Job"}
             </h1>
             <JobStatusBadge status={job.status} />
+            <FlowPositionBadge stage={flowStage} stages={flowStages} />
           </div>
           <p className="text-sm text-muted-foreground">
             {isStaff && job.customer ? (

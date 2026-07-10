@@ -14,6 +14,8 @@ export interface InstallerJob {
   photos: (CustomerDocument & { url?: string | null })[];
   /** The room-grouped INSTALLATION work order (never the staging pull sheet). */
   scope: JobScope;
+  /** The customer's current workflow stage id — for the shared flow-position badge. */
+  customerStageId: string | null;
 }
 export interface InstallerHome {
   jobs: InstallerJob[];
@@ -35,11 +37,11 @@ export async function getInstallerHome(
   const admin = createAdminClient();
   const { data } = await admin
     .from("jobs")
-    .select("*, customer:customers(full_name)")
+    .select("*, customer:customers(full_name, workflow_stage_id)")
     .eq("assigned_to", userId)
     .in("status", ["unscheduled", "scheduled", "in_progress", "completed"])
     .order("scheduled_date", { ascending: true });
-  const jobsRaw = (data ?? []) as (Job & { customer?: { full_name: string | null } | null })[];
+  const jobsRaw = (data ?? []) as (Job & { customer?: { full_name: string | null; workflow_stage_id: string | null } | null })[];
   const jobIds = jobsRaw.map((j) => j.id);
 
   // Scope (installation work order) for each job — grouped by room downstream.
@@ -107,6 +109,7 @@ export async function getInstallerHome(
         j.option_id ? (linesByOption.get(j.option_id) ?? []) : [],
         j.notes ?? null,
       ),
+      customerStageId: j.customer?.workflow_stage_id ?? null,
     });
   }
   return { jobs, pay, ratings };

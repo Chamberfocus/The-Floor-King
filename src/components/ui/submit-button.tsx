@@ -23,6 +23,7 @@ export function SubmitButton({
   variant,
   size,
   className,
+  disabled = false,
 }: {
   children: React.ReactNode;
   pendingText?: string;
@@ -31,6 +32,8 @@ export function SubmitButton({
   variant?: Variant;
   size?: Size;
   className?: string;
+  /** Disable independently of the pending state (e.g. a blocked action-gate). */
+  disabled?: boolean;
 }) {
   const { pending } = useFormStatus();
   const wasPending = useRef(false);
@@ -43,7 +46,7 @@ export function SubmitButton({
   return (
     <Button
       type="submit"
-      disabled={pending}
+      disabled={pending || disabled}
       variant={variant}
       size={size}
       className={className}

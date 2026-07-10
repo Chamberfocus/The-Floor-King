@@ -14,6 +14,8 @@ import { InstallerCollect } from "../jobs/[id]/installer-collect";
 import { SatisfactionForm } from "../jobs/[id]/satisfaction-form";
 import { JobPhotos } from "../jobs/[id]/job-photos";
 import { JobScopeView } from "@/components/job-scope-view";
+import { FlowPositionBadge } from "@/components/flow-position-badge";
+import { listWorkflowStages } from "@/lib/data/workflow";
 import { ClipboardList } from "lucide-react";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
@@ -49,6 +51,7 @@ export default async function InstallerHomePage() {
 
   const settings = await getBusinessSettings();
   const home = await getInstallerHome(profile.id, settings.installer_collects_balance);
+  const flowStages = await listWorkflowStages();
   const active = home.jobs.filter((j) => j.job.status !== "completed");
   const doneCount = home.jobs.length - active.length;
 
@@ -128,7 +131,7 @@ export default async function InstallerHomePage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {active.map(({ job, balance, hasInvoice, collectsBalance, satisfaction, photos, scope }) => {
+            {active.map(({ job, balance, hasInvoice, collectsBalance, satisfaction, photos, scope, customerStageId }) => {
               const site = [job.site_street, job.site_city, job.site_state].filter(Boolean).join(", ");
               const canCollect = collectsBalance && hasInvoice && balance > 0;
               return (
@@ -156,6 +159,12 @@ export default async function InstallerHomePage() {
                         </div>
                       </div>
                       <JobStatusBadge status={job.status} />
+                    </div>
+                    <div className="mt-1">
+                      <FlowPositionBadge
+                        stage={flowStages.find((s) => s.id === customerStageId) ?? null}
+                        stages={flowStages}
+                      />
                     </div>
                     <Link href={`/jobs/${job.id}`} className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary">
                       Open work order <ChevronRight className="size-3" />
