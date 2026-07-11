@@ -11,11 +11,8 @@ import { buildInstallScheduleProps } from "@/lib/data/install-schedule";
 import { listAssignableUsers } from "@/lib/data/jobs";
 import { listInstallCrews } from "@/lib/data/install-crews";
 import { INSTALL_ROLES } from "@/lib/types";
-import {
-  InstallerCalendar,
-  type CalEvent,
-  type CalResource,
-} from "./installer-calendar";
+import type { CalEvent, CalResource } from "./installer-calendar";
+import { InstallerGrid } from "./installer-grid";
 import { SchedulerTabs, ClientScheduleRow } from "./scheduler-ui";
 
 export const metadata: Metadata = { title: "Install Scheduler" };
@@ -226,7 +223,7 @@ export default async function InstallSchedulerPage() {
         needsCount={needsProps.length}
         list={list}
         calendar={
-          <InstallerCalendar events={calEvents} resources={calResources} canEdit />
+          <InstallerGrid events={calEvents} resources={calResources} canEdit />
         }
       />
     </div>

@@ -322,6 +322,9 @@ async function alertReschedule(
 export async function rescheduleInstall(
   jobId: string,
   newDate: string,
+  /** Optional target row on the installer grid: a user id, `crew:<id>`, or
+   *  "unassigned". Staff only — reassigns the job to that installer/crew. */
+  resourceId?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!jobId || !/^\d{4}-\d{2}-\d{2}$/.test(newDate))
     return { ok: false, error: "Missing job or a valid date." };
@@ -352,8 +355,27 @@ export async function rescheduleInstall(
   if (!isStaff && !isAssigned)
     return { ok: false, error: "You can only move installs assigned to you." };
 
+  // Reassignment (installer grid): only staff may change WHO the job is on.
+  let newInstaller = (job.assigned_to as string | null) ?? null;
+  let newCrew = (job.assigned_crew_id as string | null) ?? null;
+  let reassigned = false;
+  if (resourceId != null && isStaff) {
+    if (resourceId === "unassigned") {
+      newInstaller = null;
+      newCrew = null;
+    } else if (resourceId.startsWith("crew:")) {
+      newCrew = resourceId.slice(5);
+      newInstaller = null;
+    } else {
+      newInstaller = resourceId;
+    }
+    reassigned =
+      newInstaller !== ((job.assigned_to as string | null) ?? null) ||
+      newCrew !== ((job.assigned_crew_id as string | null) ?? null);
+  }
+
   const oldStart = (job.scheduled_date as string | null) ?? null;
-  if (oldStart === newDate) return { ok: true }; // dropped on the same day
+  if (oldStart === newDate && !reassigned) return { ok: true }; // nothing changed
   const oldEnd = (job.scheduled_end as string | null) || oldStart;
   let newEnd = newDate;
   if (oldStart && oldEnd) {
@@ -365,15 +387,20 @@ export async function rescheduleInstall(
   }
   await admin
     .from("jobs")
-    .update({ scheduled_date: newDate, scheduled_end: newEnd, status: "scheduled" })
+    .update({
+      scheduled_date: newDate,
+      scheduled_end: newEnd,
+      status: "scheduled",
+      ...(reassigned ? { assigned_to: newInstaller, assigned_crew_id: newCrew } : {}),
+    })
     .eq("id", jobId);
 
   after(async () => {
     try {
       await alertReschedule(admin, {
         customerId: (job.customer_id as string | null) ?? null,
-        installerId: (job.assigned_to as string | null) ?? null,
-        crewId: (job.assigned_crew_id as string | null) ?? null,
+        installerId: newInstaller,
+        crewId: newCrew,
         title: (job.title as string | null) ?? null,
         window: (job.arrival_window as string | null) ?? null,
         newDate,
