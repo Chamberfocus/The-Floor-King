@@ -686,9 +686,14 @@ export async function repostJobToBoard(formData: FormData): Promise<void> {
     .from("jobs")
     .update({ open_for_claim: true, assigned_to: null, assigned_crew_id: null })
     .eq("id", id);
-  // Reposting because the installer fell through → open it to EVERYONE (clear any
-  // prior targeting). Separate/guarded so a pre-migration DB can't block it.
-  await supabase.from("jobs").update({ board_installer_ids: null }).eq("id", id);
+  // Reposting clears the fallen-through installer and reopens it. Target specific
+  // installers if chosen, else everyone. Separate/guarded so a pre-migration DB
+  // can't block it.
+  const installerIds = formData.getAll("installer_ids").map(String).filter(Boolean);
+  await supabase
+    .from("jobs")
+    .update({ board_installer_ids: installerIds.length ? installerIds : null })
+    .eq("id", id);
   revalidateJobEverywhere(id, (job?.customer_id as string | null) ?? null);
   revalidatePath("/board");
   revalidatePath("/dashboard");

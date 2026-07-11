@@ -20,16 +20,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
-import { SubmitButton } from "@/components/ui/submit-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getDashboardCounts, listMyQueue } from "@/lib/data/customers";
 import { getTodayTasks } from "@/lib/data/day-tasks";
 import { myStopsToday } from "@/lib/data/my-stops";
 import { TodaysStopsList } from "@/components/todays-stops-list";
-import { getActiveJobCount, listActiveInstallJobs } from "@/lib/data/jobs";
+import { getActiveJobCount, listActiveInstallJobs, listAssignableUsers } from "@/lib/data/jobs";
 import { getOutstandingInvoiceCount } from "@/lib/data/invoices";
-import { repostJobToBoard } from "../jobs/actions";
+import { RepostToBoardButton } from "./repost-to-board-button";
 import { STAGE_COLOR_BADGE } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -49,6 +48,11 @@ export default async function DashboardPage() {
   const todayTasks = await getTodayTasks();
   const myStops = await myStopsToday();
   const activeInstalls = await listActiveInstallJobs();
+  const installerOptions = activeInstalls.length
+    ? (await listAssignableUsers())
+        .filter((u) => u.role === "crew")
+        .map((u) => ({ id: u.id, name: u.name }))
+    : [];
   const nowMs = Date.now();
   const overdueCount = queue.filter(
     (q) => q.next_action_due && new Date(q.next_action_due).getTime() < nowMs,
@@ -194,17 +198,7 @@ export default async function DashboardPage() {
                       <Megaphone className="size-3" /> On the board
                     </span>
                   ) : (
-                    <form action={repostJobToBoard}>
-                      <input type="hidden" name="id" value={j.id} />
-                      <SubmitButton
-                        size="sm"
-                        variant="outline"
-                        pendingText="Reposting…"
-                        confirm="Reposted to the board"
-                      >
-                        <Megaphone className="size-3.5" /> Repost to board
-                      </SubmitButton>
-                    </form>
+                    <RepostToBoardButton jobId={j.id} installers={installerOptions} />
                   )}
                 </li>
               ))}
