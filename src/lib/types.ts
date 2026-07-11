@@ -109,7 +109,10 @@ export const SALES_ROLES: UserRole[] = [
   "sales_manager",
   "salesman",
 ];
-export const INSTALL_ROLES: UserRole[] = ["admin", "crew"];
+// Installers are the field crew. Admins/office are managers — they can still
+// book & reschedule installs, but they are NOT themselves installers, so they
+// don't appear as installer resources (grid rows, pickers, availability).
+export const INSTALL_ROLES: UserRole[] = ["crew"];
 export const SCHEDULER_ROLES: UserRole[] = ["admin", "office", "scheduler"];
 /** Who sees the Team Schedule / work-days board — office, sales, warehouse,
  *  admin. Installers (crew) are excluded. */
