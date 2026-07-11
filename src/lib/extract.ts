@@ -254,16 +254,18 @@ const PRICE_SCHEMA = `Return ONLY a JSON object — no prose, no code fences:
   "notes": string|null          // size / coverage / width / warranty if shown (e.g. "7\\" x 48\\", 23.8 sf/box, 12' wide")
 } ] }
 
-PRICE — pick OUR cost, never retail:
-- If a row shows MULTIPLE prices, choose the dealer/net/your-cost one. Prefer, in order:
-  "Your Cost" → "Dealer" → "Net" → "Cost" → "Unit Cost"  OVER  "MSRP" / "Retail" / "List" / a generic "Price".
+PRICE — record OUR per-unit cost using the RIGHT price tier for the product. NEVER use MSRP / Retail / List / "Suggested".
+- CARPET (broadloom): use the CUT price (a.k.a. "cut", "cut order", "cut length", "cut/yd" price) — the cost per yard when we cut a piece off the roll — NOT the full-ROLL price. Carpet unit is "sqyd" (per SY) unless the sheet clearly prices carpet per SF. If only ONE carpet price is shown, use it.
+- HARD SURFACE (lvp, hardwood, laminate, tile, vinyl — planks, boards, and tile generally): use the CARTON price (a.k.a. "carton", "ctn", "box", "per box/carton" price) — the cost when buying FULL cartons — NOT the pallet price and NOT the single-piece / broken-carton / "each" price.
+  • material_rate for hard surface MUST be PER SQUARE FOOT ("sqft"). If the carton price is given as a DOLLAR AMOUNT PER CARTON/BOX together with a coverage (e.g. "23.8 sf/ctn", "20 sqft per box"), DIVIDE to get per-sqft: per_sqft = carton_price ÷ sqft_per_carton, rounded to 2 decimals, and put the carton size in "notes". If the carton price is ALREADY shown per sqft, use it as-is.
+  • Example: a row reading "Coretec Plus HD — Honey Oak … $45.62/carton … 23.8 sf/ctn" → material_rate = 1.92 (45.62 ÷ 23.8), unit "sqft", notes "23.8 sf/carton".
+- If none of the columns is clearly labeled cut/carton, choose OUR cost — prefer "Your Cost" → "Dealer" → "Net" → "Cost" → "Unit Cost" over a generic "Price", and never take Retail/MSRP/List.
 - The price is PER UNIT, never the extended/line total. Strip $ and commas → a plain number.
-- If priced per box/carton with a coverage (sf/box), record the price AS SHOWN and put the coverage in notes. Do NOT invent a per-sqft conversion.
 
 UNIT:
 - carpet & pad → "sqyd" (per SY) unless the sheet clearly prices per SF.
 - planks / boards / tile → "sqft".  trim / molding / transitions → "lnft".  accessories → "each".
-- Honor the sheet's own unit-of-measure column when present.
+- Honor the sheet's own unit-of-measure column when present, EXCEPT do not leave hard-surface priced per carton — always convert it to per-sqft as above.
 
 NAME & FIELDS — separate signal from codes:
 - Build "name" so a person reads it cleanly: e.g. "Shaw Coretec Plus HD — Honey Oak". Keep raw item/style NUMBERS out of "name" (put them in "sku").

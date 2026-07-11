@@ -39,13 +39,17 @@ interface RawRow {
   notes?: string | null;
 }
 
-/** Insert parsed rows into products. Returns how many were inserted. */
+/** Insert (or update-by-name) parsed rows into products. Returns how many rows
+ *  were written. Uses the same import_products RPC as the foreground importer so
+ *  update-mode de-duplicates by name; falls back to a plain insert if the RPC
+ *  isn't present. Optionally stamps a supplier on rows that don't have one. */
 async function insertProducts(
   admin: ReturnType<typeof createAdminClient>,
   rows: RawRow[],
+  opts: { update?: boolean; supplier?: string } = {},
 ): Promise<number> {
   const cats = new Set<string>(PRODUCT_CATEGORY_ORDER);
-  const insertRows = (rows ?? [])
+  const items = (rows ?? [])
     .filter((r) => r.name?.trim())
     .map((r) => ({
       name: r.name!.trim(),
@@ -55,16 +59,62 @@ async function insertProducts(
       unit: r.unit || "sqft",
       material_rate: Number(r.material_rate) || 0,
       labor_rate: Number(r.labor_rate) || 0,
-      sku: r.sku || null,
-      manufacturer: r.manufacturer || null,
-      style: r.style || null,
-      color: r.color || null,
-      notes: r.notes || null,
+      sku: r.sku || "",
+      manufacturer: r.manufacturer || "",
+      style: r.style || "",
+      color: r.color || "",
+      notes: r.notes || "",
     }));
-  if (!insertRows.length) return 0;
-  const { error } = await admin.from("products").insert(insertRows);
-  if (error) throw new Error(error.message);
-  return insertRows.length;
+  if (!items.length) return 0;
+
+  // Preferred: bulk RPC (insert new, update existing by name when do_update).
+  const { data, error } = await admin.rpc("import_products", {
+    items,
+    do_update: opts.update ?? false,
+  });
+  let count: number;
+  if (
+    error &&
+    (error.code === "PGRST202" ||
+      error.code === "42883" ||
+      /import_products|function|schema cache/i.test(error.message))
+  ) {
+    // RPC missing → plain insert fallback.
+    const toNull = (v: string) => (v && v.trim() ? v.trim() : null);
+    const insertRows = items.map((it) => ({
+      name: it.name,
+      category: it.category,
+      unit: it.unit,
+      material_rate: it.material_rate,
+      labor_rate: it.labor_rate,
+      sku: toNull(it.sku),
+      manufacturer: toNull(it.manufacturer),
+      style: toNull(it.style),
+      color: toNull(it.color),
+      notes: toNull(it.notes),
+    }));
+    const { error: insErr } = await admin.from("products").insert(insertRows);
+    if (insErr) throw new Error(insErr.message);
+    count = insertRows.length;
+  } else if (error) {
+    throw new Error(error.message);
+  } else {
+    count = (data as number) ?? items.length;
+  }
+
+  // Stamp the supplier where it's blank (a price list is one vendor).
+  const supplier = opts.supplier?.trim();
+  if (supplier) {
+    const names = [...new Set(items.map((it) => it.name))];
+    for (let i = 0; i < names.length; i += 200) {
+      await admin
+        .from("products")
+        .update({ supplier })
+        .in("name", names.slice(i, i + 200))
+        .or("supplier.is.null,supplier.eq.");
+    }
+  }
+  return count;
 }
 
 /**
@@ -90,7 +140,7 @@ export async function processImportJobBatch(
     .eq("id", jobId)
     .or(`status.eq.queued,and(status.eq.processing,updated_at.lt.${staleIso})`)
     .select(
-      "id, chunks, processed_chunks, imported_count, total_chunks, storage_path, storage_mime",
+      "id, chunks, rows, do_update, supplier, processed_chunks, imported_count, total_chunks, storage_path, storage_mime",
     )
     .maybeSingle();
   if (!job) {
@@ -106,10 +156,40 @@ export async function processImportJobBatch(
   }
 
   const chunks: string[] = Array.isArray(job.chunks) ? job.chunks : [];
+  const prebuilt: RawRow[] = Array.isArray(job.rows) ? job.rows : [];
+  const writeOpts = {
+    update: !!job.do_update,
+    supplier: (job.supplier as string | null) ?? undefined,
+  };
   let processed = job.processed_chunks ?? 0;
   let imported = job.imported_count ?? 0;
 
   try {
+    // Reviewed-rows path: products were already parsed & priced in the browser.
+    // Insert them in durable batches so a large list can't time out — nothing
+    // to re-extract, so this is fast and can't lose the reviewed data.
+    if (prebuilt.length) {
+      const BATCH = 500;
+      while (processed < prebuilt.length) {
+        const batch = prebuilt.slice(processed, processed + BATCH);
+        imported += await insertProducts(admin, batch, writeOpts);
+        processed += batch.length;
+        await admin
+          .from("import_jobs")
+          .update({
+            status: processed < prebuilt.length ? "processing" : "done",
+            processed_chunks: Math.min(
+              job.total_chunks || 1,
+              Math.ceil(processed / BATCH),
+            ),
+            imported_count: imported,
+            updated_at: nowIso(),
+          })
+          .eq("id", jobId);
+      }
+      return { done: true };
+    }
+
     // Image / scanned doc path: a single extract via signed URL.
     if (job.storage_path && chunks.length === 0) {
       const { data: signed } = await admin.storage
@@ -124,7 +204,7 @@ export async function processImportJobBatch(
             ? "application/pdf"
             : "image/jpeg"),
       });
-      imported += await insertProducts(admin, rows ?? []);
+      imported += await insertProducts(admin, rows ?? [], writeOpts);
       await admin
         .from("import_jobs")
         .update({
@@ -154,7 +234,7 @@ export async function processImportJobBatch(
         return { done: false };
       }
       const rows = await extractPriceList({ text: chunks[processed] });
-      imported += await insertProducts(admin, rows ?? []);
+      imported += await insertProducts(admin, rows ?? [], writeOpts);
       processed += 1;
       await admin
         .from("import_jobs")

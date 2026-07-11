@@ -143,8 +143,15 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
   const iMfg = col("sellingcompanyname", "manufacturer", "mfg", "mfr", "brand", "vendor", "supplier", "make", "mill");
   const iCat = col("category", "prodtype", "producttype", "type", "flooringtype", "productcategory");
   const iUnit = col("unitofmeasure", "unit", "uom", "priceper", "sellunit");
-  // Prefer OUR cost over retail when several price columns exist: dealer / net /
-  // your-cost win; a generic "price", "list", or "msrp" is the last resort.
+  // Tier-specific price columns, so we can pick the RIGHT one per product:
+  //   carpet → CUT price (not roll); hard surface → CARTON price (not pallet/piece).
+  const iCut = col("cutprice", "cut", "cutorder", "cutlength", "cutcost", "cutyd", "cutperyd", "priceperyard", "cutyard");
+  const iRoll = col("rollprice", "roll", "fullroll", "rollcost");
+  const iCarton = col("cartonprice", "carton", "ctn", "boxprice", "box", "perbox", "percarton", "priceperbox", "pricepercarton", "cartoncost", "boxcost");
+  // (pallet / piece / broken-carton columns are deliberately NOT selected —
+  //  we never want the pallet or single-piece tier.)
+  // Fallback generic price: prefer OUR cost over retail when several exist;
+  // a generic "price", "list", or "msrp" is the last resort.
   const iPrice = col(
     "yourcost", "yourprice", "dealerprice", "dealernet", "dealercost", "dealer",
     "netprice", "net", "unitcost", "materialcost", "cost", "materialrate",
@@ -153,12 +160,55 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
   );
   const iLabor = col("laborrate", "labor", "labour", "laborprice", "laborcost", "install", "installrate", "installprice");
   const iSize = col("size", "dimensions", "sqftperbox");
+  // Coverage (sf per carton/box) — used to convert a per-carton dollar price to per-sqft.
+  const iCoverage = col("sqftperbox", "sqftpercarton", "sfperbox", "sfpercarton", "sfctn", "sfbox", "coverage", "boxcoverage", "cartoncoverage");
   const iNotes = col("notes", "note", "comments", "comment", "remarks");
 
-  // Need a price column AND a way to name the product, else it's not something
-  // we can safely parse without the AI.
+  const HARD = new Set(["lvp", "hardwood", "laminate", "tile", "vinyl"]);
+  // Pick the correct price column + how to interpret it, per row's category.
+  const priceFor = (
+    category: string,
+    get: (i: number) => string,
+  ): { rate: number | null; note: string | null } => {
+    // Choose the tier column that applies to this product.
+    let idx = iPrice;
+    let fromCarton = false;
+    if (category === "carpet") {
+      idx = iCut >= 0 ? iCut : iRoll >= 0 ? iRoll : iPrice;
+    } else if (HARD.has(category)) {
+      if (iCarton >= 0) {
+        idx = iCarton;
+        fromCarton = true; // a carton column may be a per-carton total
+      } else {
+        idx = iPrice; // avoid pallet/piece — never prefer them
+      }
+    }
+    if (idx < 0) idx = iPrice;
+    let rate = toNum(get(idx));
+    let note: string | null = null;
+    // Hard surface priced per carton with a coverage → normalize to per-sqft.
+    if (fromCarton && rate != null && iCoverage >= 0) {
+      const cov = toNum(get(iCoverage));
+      // Only divide when it clearly looks like a per-carton lump (price well
+      // above a plausible per-sqft cost). Leave already-per-sqft prices alone.
+      if (cov && cov > 1 && rate > cov * 0.5 && rate > 8) {
+        rate = Math.round((rate / cov) * 100) / 100;
+        note = `${cov} sf/carton`;
+      }
+    }
+    return { rate, note };
+  };
+
+  // Need SOME price column AND a way to name the product, else it's not
+  // something we can safely parse without the AI.
+  const hasPrice = iPrice >= 0 || iCut >= 0 || iRoll >= 0 || iCarton >= 0;
   const canName = iName >= 0 || iStyleName >= 0 || iStyleNum >= 0;
-  if (iPrice < 0 || !canName) return null;
+  if (!hasPrice || !canName) return null;
+
+  // Unit for a category when the sheet has no unit column: carpet is per-yard,
+  // trim is linear, everything else is per-sqft.
+  const unitForCategory = (c: string) =>
+    c === "carpet" ? "sqyd" : c === "trim" ? "lnft" : "sqft";
 
   const rows: PriceRow[] = [];
   for (let r = 1; r < lines.length; r++) {
@@ -175,18 +225,24 @@ export function parseStructuredRows(text: string): PriceRow[] | null {
     }
     if (!name) continue;
 
+    const category = mapCategory(get(iCat));
+    const { rate, note: priceNote } = priceFor(category, get);
     const sizeNote = get(iSize);
+    const notes =
+      get(iNotes) ||
+      [priceNote, sizeNote ? `Size: ${sizeNote}` : null].filter(Boolean).join(" · ") ||
+      null;
     rows.push({
       name,
-      category: mapCategory(get(iCat)),
-      unit: normUnit(get(iUnit)),
+      category,
+      unit: iUnit >= 0 ? normUnit(get(iUnit)) : unitForCategory(category),
       sku: get(iStyleNum) || null,
-      material_rate: toNum(get(iPrice)),
+      material_rate: rate,
       labor_rate: iLabor >= 0 ? toNum(get(iLabor)) : null,
       manufacturer: get(iMfg) || null,
       style: styleName || null,
       color: colorName || null,
-      notes: get(iNotes) || (sizeNote ? `Size: ${sizeNote}` : null),
+      notes,
     });
   }
   return rows.length ? rows : null;

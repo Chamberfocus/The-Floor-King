@@ -318,6 +318,48 @@ export async function startPriceListImport(input: {
   return { error: null, jobId: job.id, chunks: total };
 }
 
+/**
+ * Queue ALREADY-REVIEWED rows to import in the background. The browser has
+ * extracted, priced, and (optionally) hand-corrected the products in the review
+ * grid; we hand the whole set to the server as one durable job so it can't be
+ * lost by a navigation, refresh, or timeout — the app-wide banner shows progress
+ * and pops a confirmation when it's done.
+ */
+export async function startRowsImport(
+  rows: PriceRow[],
+  opts: { update?: boolean; supplier?: string; label?: string } = {},
+): Promise<StartImportResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
+
+  const clean = (rows ?? []).filter((r) => r.name?.trim());
+  if (!clean.length) return { error: "Nothing to import." };
+
+  const batches = Math.max(1, Math.ceil(clean.length / 500));
+  const { data: job, error } = await supabase
+    .from("import_jobs")
+    .insert({
+      kind: "price_list",
+      label: opts.label || "Price list",
+      status: "queued",
+      total_chunks: batches,
+      chunks: [],
+      rows: clean,
+      do_update: opts.update ?? false,
+      supplier: opts.supplier?.trim() || null,
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
+  if (error || !job) return { error: error?.message || "Couldn't queue import." };
+
+  after(() => triggerImportProcessing(job.id));
+  return { error: null, jobId: job.id, chunks: batches };
+}
+
 /** Snapshot of import jobs for the live progress banner. */
 export async function getImportJobsState(
   sinceIso: string,

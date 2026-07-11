@@ -1,30 +1,19 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import { toast } from "sonner";
 import {
   FileUp,
-  X,
   Trash2,
   Sparkles,
   Download,
-  CheckCircle2,
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
   RotateCcw,
 } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { cn } from "@/lib/utils";
@@ -43,7 +32,7 @@ import {
 import type { PriceRow } from "@/lib/extract";
 import {
   parsePriceList,
-  importProducts,
+  startRowsImport,
   extractStoragePdfText,
 } from "./import-actions";
 
@@ -117,7 +106,6 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   // import
   const [updateMode, setUpdateMode] = useState(false);
   const [importing, startImport] = useTransition();
-  const [done, setDone] = useState<number | null>(null);
 
   const reset = () => {
     setSource(null);
@@ -377,6 +365,10 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
 
   const finalRows = applyDefaults(grid ? buildFromGrid() : (rows ?? []));
 
+  // Import runs in the BACKGROUND: we hand the reviewed rows to a durable server
+  // job (survives navigation / refresh / timeout) and let the app-wide banner
+  // show progress + pop the "Import complete" confirmation. This is what makes
+  // the import bulletproof — the data can't be lost mid-import anymore.
   const doImport = () =>
     startImport(async () => {
       const built = applyDefaults(grid ? buildFromGrid() : rows ?? []);
@@ -384,15 +376,18 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
         toast.error("Nothing to import yet.");
         return;
       }
-      const res = await importProducts(built, {
+      const res = await startRowsImport(built, {
         update: updateMode,
         supplier: defSupplier.trim() || undefined,
+        label: source?.name || "Price list",
       });
       if (res.error) {
         toast.error(res.error);
         return;
       }
-      setDone(res.count ?? built.length);
+      toast.success(
+        `Importing ${built.length} product${built.length === 1 ? "" : "s"} in the background — keep working. We'll pop up when it's done.`,
+      );
       reset();
     });
 
@@ -900,25 +895,6 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
           ) : null}
         </div>
       ) : null}
-
-      {/* Success */}
-      <Dialog open={done !== null} onOpenChange={(o) => !o && setDone(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <div className="mb-1 flex items-center gap-2">
-              <CheckCircle2 className="size-6 text-primary" />
-              <DialogTitle>Import complete</DialogTitle>
-            </div>
-            <DialogDescription>
-              Added <strong className="text-foreground">{done} product{done === 1 ? "" : "s"}</strong> to your catalog.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDone(null)}>Import another</Button>
-            <Link href="/catalog" className={buttonVariants()}>View catalog</Link>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
