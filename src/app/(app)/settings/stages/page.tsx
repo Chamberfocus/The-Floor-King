@@ -11,6 +11,7 @@ import { requireProfile } from "@/lib/auth";
 import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
 import { AddStageForm } from "./add-stage-form";
 import { StageList } from "./stage-list";
+import { ResyncStagesButton } from "./resync-button";
 
 export const metadata: Metadata = { title: "Workflow stages" };
 
@@ -29,6 +30,15 @@ export default async function StagesPage() {
         title="Workflow stages"
         description="The steps every client moves through, and the default person who owns each step."
       />
+
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 p-3">
+        <p className="text-sm text-muted-foreground">
+          Changed your stages? Re-align every existing customer to them — places
+          anyone missing a stage and refreshes the dashboard. Doesn&apos;t move
+          anyone&apos;s real progress.
+        </p>
+        <ResyncStagesButton />
+      </div>
 
       <Card className="mb-6">
         <CardHeader>
