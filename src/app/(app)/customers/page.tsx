@@ -24,6 +24,7 @@ export default async function CustomersPage({
     stage?: string;
     owner?: string;
     stuck?: string;
+    view?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -49,10 +50,30 @@ export default async function CustomersPage({
     .filter((s) => /closed/i.test(s.name))
     .map((s) => s.id);
 
+  // Active | Closed | All. Default active (hide closed). A name search always
+  // spans everyone, so you can find a past customer even if they're closed.
+  const view: "active" | "closed" | "all" = ["closed", "all"].includes(
+    sp.view ?? "",
+  )
+    ? (sp.view as "closed" | "all")
+    : "active";
+  let workflowStageIds: string[] | undefined;
+  let excludeWorkflowStageIds: string[] | undefined;
+  if (stage) {
+    workflowStageIds = [stage];
+  } else if (!q) {
+    // Only the Active/Closed toggle constrains stages — a name search always
+    // spans everyone (including closed).
+    if (view === "closed")
+      workflowStageIds = closedStageIds.length ? closedStageIds : undefined;
+    else if (view === "active" && closedStageIds.length)
+      excludeWorkflowStageIds = closedStageIds;
+  }
+
   const customers = await listCustomers({
     search: q,
-    workflowStageId: stage,
-    excludeWorkflowStageIds: stage ? undefined : closedStageIds,
+    workflowStageIds,
+    excludeWorkflowStageIds,
     assignedTo: unassignedOnly ? undefined : owner,
     unassignedOnly,
     stuckOnly: stuck,
@@ -94,6 +115,7 @@ export default async function CustomersPage({
       if (stage) params.set("stage", stage);
       if (owner) params.set("owner", owner);
       if (stuck) params.set("stuck", "1");
+      if (view !== "active") params.set("view", view);
       const qs = params.toString();
       return qs ? `/customers?${qs}` : "/customers";
     })(),
@@ -106,9 +128,27 @@ export default async function CustomersPage({
     if (stage) params.set("stage", stage);
     if (owner) params.set("owner", owner);
     if (!stuck) params.set("stuck", "1");
+    if (view !== "active") params.set("view", view);
     const qs = params.toString();
     return qs ? `/customers?${qs}` : "/customers";
   })();
+
+  // Active | Closed | All tabs — preserve search/owner/stuck, drop the specific
+  // stage filter (the tab is the high-level stage control).
+  const viewHref = (v: "active" | "closed" | "all") => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (owner) params.set("owner", owner);
+    if (stuck) params.set("stuck", "1");
+    if (v !== "active") params.set("view", v);
+    const qs = params.toString();
+    return qs ? `/customers?${qs}` : "/customers";
+  };
+  const VIEWS: { v: "active" | "closed" | "all"; label: string }[] = [
+    { v: "active", label: "Active" },
+    { v: "closed", label: "Closed" },
+    { v: "all", label: "All" },
+  ];
 
   return (
     <div>
@@ -128,6 +168,23 @@ export default async function CustomersPage({
           </Link>
         </div>
       </PageHeader>
+
+      {/* Active | Closed | All */}
+      <div className="mb-4 inline-flex rounded-lg border p-0.5">
+        {VIEWS.map((t) => (
+          <Link
+            key={t.v}
+            href={viewHref(t.v)}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              view === t.v && !stage
+                ? "bg-primary text-primary-foreground"
+                : "text-foreground hover:bg-muted"
+            }`}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </div>
 
       {/* Search + filter (works without JavaScript) */}
       <form method="get" className="mb-4 flex flex-wrap items-center gap-2">
