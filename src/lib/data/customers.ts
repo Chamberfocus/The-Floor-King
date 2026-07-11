@@ -112,6 +112,8 @@ export async function listCustomers(
     stages?: LeadStage[];
     /** Detailed workflow stage id (the 13-stage builder). */
     workflowStageId?: string;
+    /** Workflow stage ids to hide (e.g. "Closed") — keeps null-stage rows. */
+    excludeWorkflowStageIds?: string[];
     assignedTo?: string;
     unassignedOnly?: boolean;
     stuckOnly?: boolean;
@@ -125,6 +127,10 @@ export async function listCustomers(
 
   if (opts.workflowStageId)
     query = query.eq("workflow_stage_id", opts.workflowStageId);
+  if (opts.excludeWorkflowStageIds?.length)
+    query = query.or(
+      `workflow_stage_id.is.null,workflow_stage_id.not.in.(${opts.excludeWorkflowStageIds.join(",")})`,
+    );
   if (opts.stage) query = query.eq("stage", opts.stage);
   if (opts.stages?.length) query = query.in("stage", opts.stages);
   if (opts.unassignedOnly) query = query.is("assigned_to", null);

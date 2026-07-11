@@ -42,17 +42,24 @@ export default async function CustomersPage({
   const owner = isAdmin ? sp.owner?.trim() || undefined : undefined;
   const unassignedOnly = owner === "unassigned";
 
+  // Load stages first so we can hide "Closed" customers from the active list by
+  // default (they're still reachable by picking Closed in the stage filter).
+  const stages = await listWorkflowStages();
+  const closedStageIds = stages
+    .filter((s) => /closed/i.test(s.name))
+    .map((s) => s.id);
+
   const customers = await listCustomers({
     search: q,
     workflowStageId: stage,
+    excludeWorkflowStageIds: stage ? undefined : closedStageIds,
     assignedTo: unassignedOnly ? undefined : owner,
     unassignedOnly,
     stuckOnly: stuck,
   });
 
   // Shared data for per-row quick actions — fetched once for the whole list.
-  const [stages, members, schedSettings, prefs, contexts] = await Promise.all([
-    listWorkflowStages(),
+  const [members, schedSettings, prefs, contexts] = await Promise.all([
     listHandoffMembers(),
     getSchedulingSettings(),
     getUserPreferences(),
