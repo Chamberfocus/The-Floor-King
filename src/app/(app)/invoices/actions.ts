@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   invoiceTotals,
   type SaveInvoiceInput,
@@ -436,14 +437,49 @@ export async function emailInvoice(formData: FormData): Promise<void> {
   redirect(`/invoices/${id}`);
 }
 
+/**
+ * Permanently delete an invoice and everything attached to it: its line items
+ * and ALL recorded payments (both cascade via their foreign keys). Any order
+ * that pointed at it is unlinked automatically, and the linked job's balance,
+ * the customer file, and the money views are all refreshed so the whole app
+ * reflects the removal. Staff only; runs with the service role so it can never
+ * silently fail on RLS.
+ */
 export async function deleteInvoice(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
-  const customerId = str(formData.get("customer_id"));
+  let customerId = str(formData.get("customer_id"));
   if (!id) return;
+
+  // Must be signed-in staff.
   const supabase = await createClient();
-  await supabase.from("invoices").delete().eq("id", id);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!me || (me.role as string) === "customer") return;
+
+  const admin = createAdminClient();
+  // Find what the invoice touches before removing it.
+  const { data: inv } = await admin
+    .from("invoices")
+    .select("customer_id, job_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (inv) {
+    if (!customerId) customerId = (inv.customer_id as string | null) ?? "";
+    const jobId = (inv.job_id as string | null) ?? null;
+    // invoice_items + payments cascade; orders.invoice_id is set null by the FK.
+    await admin.from("invoices").delete().eq("id", id);
+    if (jobId) revalidatePath(`/jobs/${jobId}`);
+  }
+
   refreshMoneyViews();
+  revalidatePath("/orders");
   if (customerId) revalidatePath(`/customers/${customerId}`);
-  if (customerId) redirect(`/customers/${customerId}`);
-  redirect("/invoices");
+  redirect(customerId ? `/customers/${customerId}` : "/invoices");
 }

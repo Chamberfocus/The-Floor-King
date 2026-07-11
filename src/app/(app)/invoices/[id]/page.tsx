@@ -200,13 +200,22 @@ export default async function InvoicePage({
         </CardContent>
       </Card>
 
-      <form action={deleteInvoice} className="mt-4 flex justify-end print:hidden">
-        <input type="hidden" name="id" value={invoice.id} />
-        <input type="hidden" name="customer_id" value={invoice.customer_id} />
-        <Button type="submit" variant="destructive" size="sm">
-          <Trash2 className="size-3.5" /> Delete invoice
-        </Button>
-      </form>
+      <details className="mt-4 ml-auto w-fit print:hidden">
+        <summary className="cursor-pointer list-none text-right text-xs text-muted-foreground hover:text-destructive [&::-webkit-details-marker]:hidden">
+          Delete invoice
+        </summary>
+        <form action={deleteInvoice} className="mt-2 flex flex-col items-end gap-2">
+          <input type="hidden" name="id" value={invoice.id} />
+          <input type="hidden" name="customer_id" value={invoice.customer_id} />
+          <span className="max-w-xs text-right text-xs text-muted-foreground">
+            Permanently delete this invoice and all its recorded payments. Any
+            order linked to it is unlinked. This can&apos;t be undone.
+          </span>
+          <Button type="submit" variant="destructive" size="sm">
+            <Trash2 className="size-3.5" /> Delete invoice &amp; payments
+          </Button>
+        </form>
+      </details>
     </div>
   );
 }
