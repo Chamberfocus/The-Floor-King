@@ -1,19 +1,29 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import {
   FileUp,
   Trash2,
   Sparkles,
   Download,
+  CheckCircle2,
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
   RotateCcw,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { cn } from "@/lib/utils";
@@ -32,7 +42,7 @@ import {
 import type { PriceRow } from "@/lib/extract";
 import {
   parsePriceList,
-  startRowsImport,
+  importProducts,
   extractStoragePdfText,
 } from "./import-actions";
 
@@ -106,6 +116,7 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   // import
   const [updateMode, setUpdateMode] = useState(false);
   const [importing, startImport] = useTransition();
+  const [done, setDone] = useState<number | null>(null);
 
   const reset = () => {
     setSource(null);
@@ -365,10 +376,10 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
 
   const finalRows = applyDefaults(grid ? buildFromGrid() : (rows ?? []));
 
-  // Import runs in the BACKGROUND: we hand the reviewed rows to a durable server
-  // job (survives navigation / refresh / timeout) and let the app-wide banner
-  // show progress + pop the "Import complete" confirmation. This is what makes
-  // the import bulletproof — the data can't be lost mid-import anymore.
+  // Import DIRECTLY and synchronously — one server call, no background worker,
+  // no self-fetch, no deployment-protection wall. The reviewed rows go to the
+  // server in a single request and land immediately; on error we keep the rows
+  // so you can retry. This is the reliable path.
   const doImport = () =>
     startImport(async () => {
       const built = applyDefaults(grid ? buildFromGrid() : rows ?? []);
@@ -376,18 +387,20 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
         toast.error("Nothing to import yet.");
         return;
       }
-      const res = await startRowsImport(built, {
+      const res = await importProducts(built, {
         update: updateMode,
         supplier: defSupplier.trim() || undefined,
-        label: source?.name || "Price list",
       });
       if (res.error) {
-        toast.error(res.error);
+        // Keep the reviewed rows on screen so nothing is lost — just retry.
+        toast.error(
+          res.count
+            ? `Imported ${res.count}, then hit an error: ${res.error}`
+            : res.error,
+        );
         return;
       }
-      toast.success(
-        `Importing ${built.length} product${built.length === 1 ? "" : "s"} in the background — keep working. We'll pop up when it's done.`,
-      );
+      setDone(res.count ?? built.length);
       reset();
     });
 
@@ -895,6 +908,33 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
           ) : null}
         </div>
       ) : null}
+
+      {/* Success */}
+      <Dialog open={done !== null} onOpenChange={(o) => !o && setDone(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="mb-1 flex items-center gap-2">
+              <CheckCircle2 className="size-6 text-primary" />
+              <DialogTitle>Import complete</DialogTitle>
+            </div>
+            <DialogDescription>
+              Added{" "}
+              <strong className="text-foreground">
+                {done} product{done === 1 ? "" : "s"}
+              </strong>{" "}
+              to your catalog.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDone(null)}>
+              Import another
+            </Button>
+            <Link href="/catalog" className={buttonVariants()}>
+              View catalog
+            </Link>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

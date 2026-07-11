@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   extractPriceList,
   getLastExtractError,
@@ -318,48 +319,6 @@ export async function startPriceListImport(input: {
   return { error: null, jobId: job.id, chunks: total };
 }
 
-/**
- * Queue ALREADY-REVIEWED rows to import in the background. The browser has
- * extracted, priced, and (optionally) hand-corrected the products in the review
- * grid; we hand the whole set to the server as one durable job so it can't be
- * lost by a navigation, refresh, or timeout — the app-wide banner shows progress
- * and pops a confirmation when it's done.
- */
-export async function startRowsImport(
-  rows: PriceRow[],
-  opts: { update?: boolean; supplier?: string; label?: string } = {},
-): Promise<StartImportResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "You must be signed in." };
-
-  const clean = (rows ?? []).filter((r) => r.name?.trim());
-  if (!clean.length) return { error: "Nothing to import." };
-
-  const batches = Math.max(1, Math.ceil(clean.length / 500));
-  const { data: job, error } = await supabase
-    .from("import_jobs")
-    .insert({
-      kind: "price_list",
-      label: opts.label || "Price list",
-      status: "queued",
-      total_chunks: batches,
-      chunks: [],
-      rows: clean,
-      do_update: opts.update ?? false,
-      supplier: opts.supplier?.trim() || null,
-      created_by: user.id,
-    })
-    .select("id")
-    .single();
-  if (error || !job) return { error: error?.message || "Couldn't queue import." };
-
-  after(() => triggerImportProcessing(job.id));
-  return { error: null, jobId: job.id, chunks: batches };
-}
-
 /** Snapshot of import jobs for the live progress banner. */
 export async function getImportJobsState(
   sinceIso: string,
@@ -376,94 +335,120 @@ export interface ImportResult {
   count?: number;
 }
 
+/**
+ * Import reviewed products DIRECTLY and synchronously — one request, no
+ * background worker, no self-calls, no polling. This is the reliable path: it
+ * verifies the caller is staff, then writes with the service-role client so a
+ * stale session or RLS can never silently swallow the rows. Everything is
+ * wrapped so the action can never throw (a thrown Server Action is what can
+ * bounce the page). Returns a clear count or a clear error — nothing in between.
+ */
 export async function importProducts(
   rows: PriceRow[],
   opts: { update?: boolean; supplier?: string } = {},
 ): Promise<ImportResult> {
-  const valid = (rows ?? []).filter((r) => r.name?.trim());
-  if (!valid.length) return { error: "Nothing to import." };
+  try {
+    const valid = (rows ?? []).filter((r) => r.name?.trim());
+    if (!valid.length) return { error: "Nothing to import." };
 
-  const cats = new Set<string>(PRODUCT_CATEGORY_ORDER);
-  const items = valid.map((r) => ({
-    name: r.name.trim(),
-    category: (cats.has(r.category) ? r.category : "other") as ProductCategory,
-    unit: r.unit || "sqft",
-    material_rate: Number(r.material_rate) || 0,
-    labor_rate: Number(r.labor_rate) || 0,
-    sku: r.sku || "",
-    manufacturer: r.manufacturer || "",
-    style: r.style || "",
-    color: r.color || "",
-    notes: r.notes || "",
-  }));
+    // Must be signed-in staff.
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Your session expired — please sign in again." };
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (!profile || profile.role === "customer")
+      return { error: "You don't have permission to import products." };
 
-  const supabase = await createClient();
-
-  // Preferred path: one bulk RPC call that inserts new products and (when
-  // update=true) updates any product whose name already matches — no
-  // duplicates. Requires migration 0039. If that migration hasn't been run,
-  // the RPC is missing; we fall back to a plain insert so imports still work.
-  let count = 0;
-  let rpcUnavailable = false;
-  for (let i = 0; i < items.length; i += 1000) {
-    const batch = items.slice(i, i + 1000);
-    const { data, error } = await supabase.rpc("import_products", {
-      items: batch,
-      do_update: opts.update ?? false,
-    });
-    if (error) {
-      // Function not found / not yet created → fall back to direct insert.
-      if (
-        error.code === "PGRST202" ||
-        error.code === "42883" ||
-        /import_products|function|schema cache/i.test(error.message)
-      ) {
-        rpcUnavailable = true;
-        break;
-      }
-      return { error: error.message, count };
-    }
-    count += (data as number) ?? batch.length;
-  }
-
-  if (rpcUnavailable) {
-    // Direct insert fallback. Empty strings → null for cleaner rows.
-    const toNull = (v: string) => (v && v.trim() ? v.trim() : null);
-    const insertRows = items.map((it) => ({
-      name: it.name,
-      category: it.category,
-      unit: it.unit,
-      material_rate: it.material_rate,
-      labor_rate: it.labor_rate,
-      sku: toNull(it.sku),
-      manufacturer: toNull(it.manufacturer),
-      style: toNull(it.style),
-      color: toNull(it.color),
-      notes: toNull(it.notes),
+    const cats = new Set<string>(PRODUCT_CATEGORY_ORDER);
+    const items = valid.map((r) => ({
+      name: r.name.trim(),
+      category: (cats.has(r.category) ? r.category : "other") as ProductCategory,
+      unit: r.unit || "sqft",
+      material_rate: Number(r.material_rate) || 0,
+      labor_rate: Number(r.labor_rate) || 0,
+      sku: r.sku || "",
+      manufacturer: r.manufacturer || "",
+      style: r.style || "",
+      color: r.color || "",
+      notes: r.notes || "",
     }));
-    count = 0;
-    for (let i = 0; i < insertRows.length; i += 500) {
-      const batch = insertRows.slice(i, i + 500);
-      const { error } = await supabase.from("products").insert(batch);
-      if (error) return { error: error.message, count };
-      count += batch.length;
-    }
-  }
 
-  // Stamp the supplier on the imported products (a price list is one vendor).
-  // Set only where it's blank, so we don't overwrite a product already tagged.
-  const supplier = opts.supplier?.trim();
-  if (supplier) {
-    const names = [...new Set(items.map((it) => it.name))];
-    for (let i = 0; i < names.length; i += 200) {
-      await supabase
-        .from("products")
-        .update({ supplier })
-        .in("name", names.slice(i, i + 200))
-        .or("supplier.is.null,supplier.eq.");
-    }
-  }
+    // Service-role client: the caller is verified staff above, so bypass RLS to
+    // guarantee the write lands (no silent RLS/session failures).
+    const admin = createAdminClient();
 
-  revalidatePath("/catalog");
-  return { error: null, count };
+    // Preferred path: one bulk RPC that inserts new products and (when
+    // update=true) updates any product whose name already matches — no
+    // duplicates. If the RPC isn't present, fall back to a plain insert.
+    let count = 0;
+    let rpcUnavailable = false;
+    for (let i = 0; i < items.length; i += 1000) {
+      const batch = items.slice(i, i + 1000);
+      const { data, error } = await admin.rpc("import_products", {
+        items: batch,
+        do_update: opts.update ?? false,
+      });
+      if (error) {
+        if (
+          error.code === "PGRST202" ||
+          error.code === "42883" ||
+          /import_products|function|schema cache/i.test(error.message)
+        ) {
+          rpcUnavailable = true;
+          break;
+        }
+        return { error: error.message, count };
+      }
+      count += (data as number) ?? batch.length;
+    }
+
+    if (rpcUnavailable) {
+      const toNull = (v: string) => (v && v.trim() ? v.trim() : null);
+      const insertRows = items.map((it) => ({
+        name: it.name,
+        category: it.category,
+        unit: it.unit,
+        material_rate: it.material_rate,
+        labor_rate: it.labor_rate,
+        sku: toNull(it.sku),
+        manufacturer: toNull(it.manufacturer),
+        style: toNull(it.style),
+        color: toNull(it.color),
+        notes: toNull(it.notes),
+      }));
+      count = 0;
+      for (let i = 0; i < insertRows.length; i += 500) {
+        const batch = insertRows.slice(i, i + 500);
+        const { error } = await admin.from("products").insert(batch);
+        if (error) return { error: error.message, count };
+        count += batch.length;
+      }
+    }
+
+    // Stamp the supplier where it's blank (a price list is one vendor).
+    const supplier = opts.supplier?.trim();
+    if (supplier) {
+      const names = [...new Set(items.map((it) => it.name))];
+      for (let i = 0; i < names.length; i += 200) {
+        await admin
+          .from("products")
+          .update({ supplier })
+          .in("name", names.slice(i, i + 200))
+          .or("supplier.is.null,supplier.eq.");
+      }
+    }
+
+    revalidatePath("/catalog");
+    return { error: null, count };
+  } catch (e) {
+    return {
+      error: e instanceof Error ? e.message : "Import failed unexpectedly.",
+    };
+  }
 }
