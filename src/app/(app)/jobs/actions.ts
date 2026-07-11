@@ -6,6 +6,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { sendSms } from "@/lib/sms";
+import { addDaysYmd } from "@/lib/scheduling";
+import { to12 } from "@/lib/format";
 import {
   moveToAutoActionStage,
   advanceToNamedStage,
@@ -214,6 +217,176 @@ export async function bookInstall(formData: FormData): Promise<void> {
     revalidatePath(redirectTo);
     redirect(redirectTo);
   }
+}
+
+/** Alert the customer AND the assigned installer/crew that an install moved.
+ *  Best-effort: every send is guarded so one failure never blocks the others. */
+async function alertReschedule(
+  admin: ReturnType<typeof createAdminClient>,
+  o: {
+    customerId: string | null;
+    installerId: string | null;
+    crewId: string | null;
+    title: string | null;
+    window: string | null;
+    newDate: string;
+    actorId: string;
+  },
+): Promise<void> {
+  const nice = new Date(`${o.newDate}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+  const win = o.window
+    ? o.window.split("-").map((t) => to12(t.trim())).join("–")
+    : null;
+
+  // Customer: portal message + email + text.
+  if (o.customerId) {
+    const { data: c } = await admin
+      .from("customers")
+      .select("full_name, email, phone")
+      .eq("id", o.customerId)
+      .maybeSingle();
+    const first = (c?.full_name as string | null)?.split(" ")[0] ?? "there";
+    const line = `Your installation has been rescheduled to ${nice}${win ? ` (arriving ${win})` : ""}.`;
+    await admin
+      .from("messages")
+      .insert({
+        customer_id: o.customerId,
+        channel: "client",
+        author_id: o.actorId,
+        body: `📅 ${line}`,
+      })
+      .then(() => {}, () => {});
+    if (c?.email)
+      await sendEmail({
+        to: c.email as string,
+        subject: "Your installation date has changed",
+        html: emailLayout(
+          "Installation rescheduled",
+          `<p>Hi ${first},</p><p>${line}</p><p>If this doesn't work for you, just reply and we'll sort it out.</p>`,
+          { label: "View your project", url: `${siteUrl()}/portal` },
+        ),
+      }).catch(() => {});
+    if (c?.phone)
+      await sendSms(c.phone as string, `Cleveland Floor King: ${line}`).catch(
+        () => {},
+      );
+  }
+
+  // Installer (app login) and/or managed crew.
+  const label = o.title || "an install";
+  const instLine = `Install "${label}" was moved to ${nice}${win ? ` (${win})` : ""}.`;
+  if (o.installerId) {
+    const { data: p } = await admin
+      .from("profiles")
+      .select("email, phone")
+      .eq("id", o.installerId)
+      .maybeSingle();
+    if (p?.email)
+      await sendEmail({
+        to: p.email as string,
+        subject: "Install rescheduled",
+        html: emailLayout("Install rescheduled", `<p>${instLine}</p>`, {
+          label: "Open my schedule",
+          url: `${siteUrl()}/installer`,
+        }),
+      }).catch(() => {});
+    if (p?.phone)
+      await sendSms(p.phone as string, `Floor King: ${instLine}`).catch(() => {});
+  }
+  if (o.crewId) {
+    const { data: cr } = await admin
+      .from("install_crews")
+      .select("email, phone")
+      .eq("id", o.crewId)
+      .maybeSingle();
+    if (cr?.email)
+      await sendEmail({
+        to: cr.email as string,
+        subject: "Install rescheduled",
+        html: emailLayout("Install rescheduled", `<p>${instLine}</p>`),
+      }).catch(() => {});
+    if (cr?.phone)
+      await sendSms(cr.phone as string, `Floor King: ${instLine}`).catch(() => {});
+  }
+}
+
+/** Move a booked install to a new date (drag-to-reschedule on the calendar).
+ *  Preserves the job's duration, then alerts BOTH the customer and the assigned
+ *  installer/crew. Staff can move any install; an installer can move one assigned
+ *  to them. Alerts run after the response so the move feels instant. */
+export async function rescheduleInstall(
+  jobId: string,
+  newDate: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!jobId || !/^\d{4}-\d{2}-\d{2}$/.test(newDate))
+    return { ok: false, error: "Missing job or a valid date." };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Please sign in again." };
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  const role = (me?.role as string) ?? "";
+
+  const admin = createAdminClient();
+  const { data: job } = await admin
+    .from("jobs")
+    .select(
+      "id, title, customer_id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end, arrival_window",
+    )
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job) return { ok: false, error: "Job not found." };
+
+  const isStaff = ["admin", "office", "scheduler"].includes(role);
+  const isAssigned = !!job.assigned_to && job.assigned_to === user.id;
+  if (!isStaff && !isAssigned)
+    return { ok: false, error: "You can only move installs assigned to you." };
+
+  const oldStart = (job.scheduled_date as string | null) ?? null;
+  if (oldStart === newDate) return { ok: true }; // dropped on the same day
+  const oldEnd = (job.scheduled_end as string | null) || oldStart;
+  let newEnd = newDate;
+  if (oldStart && oldEnd) {
+    const span = Math.max(
+      0,
+      Math.round((Date.parse(oldEnd) - Date.parse(oldStart)) / 86_400_000),
+    );
+    newEnd = addDaysYmd(newDate, span);
+  }
+  await admin
+    .from("jobs")
+    .update({ scheduled_date: newDate, scheduled_end: newEnd, status: "scheduled" })
+    .eq("id", jobId);
+
+  after(async () => {
+    try {
+      await alertReschedule(admin, {
+        customerId: (job.customer_id as string | null) ?? null,
+        installerId: (job.assigned_to as string | null) ?? null,
+        crewId: (job.assigned_crew_id as string | null) ?? null,
+        title: (job.title as string | null) ?? null,
+        window: (job.arrival_window as string | null) ?? null,
+        newDate,
+        actorId: user.id,
+      });
+    } catch {
+      /* alerts are best-effort */
+    }
+  });
+
+  revalidateJobEverywhere(jobId, (job.customer_id as string | null) ?? null);
+  revalidatePath("/install-scheduler");
+  revalidatePath("/installer");
+  return { ok: true };
 }
 
 /** Set / change the install arrival window on a job (independent of booking). */

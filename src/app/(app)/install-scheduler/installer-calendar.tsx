@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, CalendarDays, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { to12 } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { rescheduleInstall } from "@/app/(app)/jobs/actions";
 
 export interface CalEvent {
   id: string;
@@ -26,6 +29,12 @@ export interface CalResource {
 }
 
 type View = "month" | "week" | "day";
+type Drag = {
+  move: (jobId: string, ymd: string) => void;
+  dragOver: string | null;
+  setDragOver: (k: string | null) => void;
+  pending: boolean;
+};
 
 const ymd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
@@ -57,18 +66,40 @@ const windowLabel = (w: string | null) =>
 export function InstallerCalendar({
   events,
   resources,
+  canEdit = false,
+  hideFilter = false,
 }: {
   events: CalEvent[];
   resources: CalResource[];
+  /** Allow drag-to-reschedule (staff, or an installer moving their own installs). */
+  canEdit?: boolean;
+  /** Hide the installer filter (e.g. an installer only sees their own). */
+  hideFilter?: boolean;
 }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
   const [view, setView] = useState<View>("month");
   const [anchor, setAnchor] = useState<Date>(() => new Date());
   const [filter, setFilter] = useState<string>("all");
+  const [dragOver, setDragOver] = useState<string | null>(null);
 
   const shown = useMemo(
     () => (filter === "all" ? events : events.filter((e) => e.resourceId === filter)),
     [events, filter],
   );
+
+  // Drag-to-reschedule: drop a job on a day → move it there + alert everyone.
+  const moveJob = (jobId: string, ymdTarget: string) =>
+    startTransition(async () => {
+      const res = await rescheduleInstall(jobId, ymdTarget);
+      if (res.ok) {
+        toast.success("Install moved — customer & installer notified.");
+        router.refresh();
+      } else {
+        toast.error(res.error || "Couldn't move that install.");
+      }
+    });
+  const drag = canEdit ? { move: moveJob, dragOver, setDragOver, pending } : null;
 
   // Events overlapping a given day (multi-day jobs show on each covered day).
   const onDay = (day: Date) => {
@@ -122,19 +153,21 @@ export function InstallerCalendar({
 
           <div className="ml-auto flex items-center gap-2">
             {/* Installer filter */}
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              aria-label="Filter by installer"
-              className="h-8 max-w-44 rounded-md border border-input bg-transparent px-2 text-sm"
-            >
-              <option value="all">All installers</option>
-              {resources.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+            {!hideFilter && resources.length > 1 ? (
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                aria-label="Filter by installer"
+                className="h-8 max-w-44 rounded-md border border-input bg-transparent px-2 text-sm"
+              >
+                <option value="all">All installers</option>
+                {resources.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             {/* View toggle */}
             <div className="inline-flex overflow-hidden rounded-md border">
               {(["day", "week", "month"] as View[]).map((v) => (
@@ -155,12 +188,18 @@ export function InstallerCalendar({
         </div>
 
         {view === "month" ? (
-          <MonthView anchor={anchor} onDay={onDay} filter={filter} />
+          <MonthView anchor={anchor} onDay={onDay} filter={filter} drag={drag} />
         ) : view === "week" ? (
-          <WeekView anchor={anchor} onDay={onDay} filter={filter} />
+          <WeekView anchor={anchor} onDay={onDay} filter={filter} drag={drag} />
         ) : (
           <DayView anchor={anchor} onDay={onDay} filter={filter} />
         )}
+        {canEdit ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Tip: drag an install to another day to reschedule it — the customer
+            and installer are notified automatically.
+          </p>
+        ) : null}
 
         {events.length === 0 ? (
           <p className="mt-3 text-center text-sm text-muted-foreground">
@@ -172,17 +211,37 @@ export function InstallerCalendar({
   );
 }
 
-function Chip({ e, showInstaller }: { e: CalEvent; showInstaller: boolean }) {
+function Chip({
+  e,
+  showInstaller,
+  canDrag = false,
+}: {
+  e: CalEvent;
+  showInstaller: boolean;
+  canDrag?: boolean;
+}) {
   const hue = hueOf(e.resourceId);
   const wl = windowLabel(e.window);
   return (
     <Link
       href={e.customerId ? `/customers/${e.customerId}#jobs` : "#"}
+      draggable={canDrag}
+      onDragStart={
+        canDrag
+          ? (ev) => {
+              ev.dataTransfer.setData("text/plain", e.id);
+              ev.dataTransfer.effectAllowed = "move";
+            }
+          : undefined
+      }
       style={{
         background: `hsl(${hue} 65% 50% / 0.14)`,
         borderLeft: `3px solid hsl(${hue} 60% 48%)`,
       }}
-      className="block rounded px-1.5 py-1 text-left leading-tight hover:brightness-95 dark:hover:brightness-125"
+      className={cn(
+        "block rounded px-1.5 py-1 text-left leading-tight hover:brightness-95 dark:hover:brightness-125",
+        canDrag && "cursor-move",
+      )}
       title={`${e.name}${wl ? ` · ${wl}` : ""}${e.city ? ` · ${e.city}` : ""} — ${e.resourceName}`}
     >
       <div className="truncate text-xs font-medium text-foreground">{e.name}</div>
@@ -203,10 +262,12 @@ function MonthView({
   anchor,
   onDay,
   filter,
+  drag,
 }: {
   anchor: Date;
   onDay: (d: Date) => CalEvent[];
   filter: string;
+  drag: Drag | null;
 }) {
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const gridStart = startOfWeek(first);
@@ -231,10 +292,23 @@ function MonthView({
             return (
               <div
                 key={i}
+                onDragOver={drag ? (ev) => { ev.preventDefault(); drag.setDragOver(k); } : undefined}
+                onDragLeave={drag ? () => drag.setDragOver(null) : undefined}
+                onDrop={
+                  drag
+                    ? (ev) => {
+                        ev.preventDefault();
+                        const id = ev.dataTransfer.getData("text/plain");
+                        drag.setDragOver(null);
+                        if (id) drag.move(id, k);
+                      }
+                    : undefined
+                }
                 className={cn(
                   "min-h-24 border-b border-r p-1 align-top",
                   i % 7 === 0 && "border-l",
                   !inMonth && "bg-muted/30",
+                  drag?.dragOver === k && "ring-2 ring-inset ring-primary",
                 )}
               >
                 <div
@@ -251,7 +325,7 @@ function MonthView({
                 </div>
                 <div className="space-y-0.5">
                   {evs.slice(0, 3).map((e) => (
-                    <Chip key={e.id} e={e} showInstaller={filter === "all"} />
+                    <Chip key={e.id} e={e} showInstaller={filter === "all"} canDrag={!!drag} />
                   ))}
                   {evs.length > 3 ? (
                     <div className="px-1 text-[10px] text-muted-foreground">
@@ -272,10 +346,12 @@ function WeekView({
   anchor,
   onDay,
   filter,
+  drag,
 }: {
   anchor: Date;
   onDay: (d: Date) => CalEvent[];
   filter: string;
+  drag: Drag | null;
 }) {
   const start = startOfWeek(anchor);
   const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
@@ -287,7 +363,25 @@ function WeekView({
           const k = ymd(day);
           const evs = onDay(day);
           return (
-            <div key={i} className="rounded-md border">
+            <div
+              key={i}
+              onDragOver={drag ? (ev) => { ev.preventDefault(); drag.setDragOver(k); } : undefined}
+              onDragLeave={drag ? () => drag.setDragOver(null) : undefined}
+              onDrop={
+                drag
+                  ? (ev) => {
+                      ev.preventDefault();
+                      const id = ev.dataTransfer.getData("text/plain");
+                      drag.setDragOver(null);
+                      if (id) drag.move(id, k);
+                    }
+                  : undefined
+              }
+              className={cn(
+                "rounded-md border",
+                drag?.dragOver === k && "ring-2 ring-inset ring-primary",
+              )}
+            >
               <div
                 className={cn(
                   "border-b px-2 py-1 text-center text-xs font-medium",
@@ -299,7 +393,7 @@ function WeekView({
               </div>
               <div className="min-h-32 space-y-1 p-1">
                 {evs.map((e) => (
-                  <Chip key={e.id} e={e} showInstaller={filter === "all"} />
+                  <Chip key={e.id} e={e} showInstaller={filter === "all"} canDrag={!!drag} />
                 ))}
               </div>
             </div>

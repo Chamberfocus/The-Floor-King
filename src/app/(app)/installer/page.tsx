@@ -5,7 +5,12 @@ import { Star, Wallet, MapPin, CalendarDays, ClipboardCheck, Camera, ChevronRigh
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 import { getInstallerHome } from "@/lib/data/installer";
+import {
+  InstallerCalendar,
+  type CalEvent,
+} from "../install-scheduler/installer-calendar";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -55,6 +60,49 @@ export default async function InstallerHomePage() {
   const active = home.jobs.filter((j) => j.job.status !== "completed");
   const doneCount = home.jobs.length - active.length;
 
+  // My install calendar — only the installs assigned to me (RLS enforces this).
+  const since = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 120);
+    return d.toISOString().slice(0, 10);
+  })();
+  const supabase = await createClient();
+  const { data: myRows } = await supabase
+    .from("jobs")
+    .select(
+      "id, title, customer_id, scheduled_date, scheduled_end, arrival_window, site_city, status, customer:customers(full_name)",
+    )
+    .eq("assigned_to", profile.id)
+    .not("scheduled_date", "is", null)
+    .gte("scheduled_date", since)
+    .order("scheduled_date", { ascending: true });
+  const myEvents: CalEvent[] = ((myRows ?? []) as unknown[]).map((row) => {
+    const r = row as {
+      id: string;
+      title: string | null;
+      customer_id: string | null;
+      scheduled_date: string;
+      scheduled_end: string | null;
+      arrival_window: string | null;
+      site_city: string | null;
+      status: string | null;
+      customer?: { full_name: string | null }[] | { full_name: string | null } | null;
+    };
+    const cust = Array.isArray(r.customer) ? r.customer[0] : r.customer;
+    return {
+      id: r.id,
+      name: cust?.full_name ?? r.title ?? "Install",
+      customerId: r.customer_id,
+      date: r.scheduled_date,
+      endDate: r.scheduled_end ?? null,
+      window: r.arrival_window ?? null,
+      resourceId: profile.id,
+      resourceName: "You",
+      city: r.site_city ?? null,
+      status: r.status ?? null,
+    };
+  });
+
   return (
     <div className="mx-auto max-w-3xl space-y-5 pb-16">
       <JobStepPopup
@@ -64,6 +112,14 @@ export default async function InstallerHomePage() {
         }))}
       />
       <PageHeader title={`Hi, ${profile.full_name?.split(" ")[0] || "there"}`} description="Your jobs, pay, and sign-offs — all in one place." />
+
+      {/* My install calendar — my assigned installs only. */}
+      <section>
+        <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
+          <CalendarDays className="size-4 text-primary" /> My install calendar
+        </h2>
+        <InstallerCalendar events={myEvents} resources={[]} hideFilter canEdit />
+      </section>
 
       {/* Pay + ratings summary */}
       <div className="grid gap-3 sm:grid-cols-2">

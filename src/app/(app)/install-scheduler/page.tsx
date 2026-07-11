@@ -146,7 +146,7 @@ export default async function InstallSchedulerPage() {
 
       <section className="mb-8">
         <h2 className="mb-3 text-lg font-bold">Install calendar</h2>
-        <InstallerCalendar events={calEvents} resources={calResources} />
+        <InstallerCalendar events={calEvents} resources={calResources} canEdit />
       </section>
 
       {jobs.length === 0 ? (
