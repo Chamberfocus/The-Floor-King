@@ -158,7 +158,9 @@ export function stepGate(step: FlowStep, f: FlowFacts): StepGate {
     case "schedule_estimate":
       return f.estimateBooked ? OK : block("Book the in-home estimate or showroom visit to advance.");
     case "estimate_booked":
-      return f.hasEstimate ? OK : block("Build the estimate first — you need the numbers to advance.");
+      // "Measure & meet" — the estimate is built at the NEXT stage, and there's
+      // no digital record of a measurement, so this soft step advances freely.
+      return OK;
     case "build_quote":
       return f.estimateSent ? OK : block("Send the quote to the customer to advance.");
     case "approve":
