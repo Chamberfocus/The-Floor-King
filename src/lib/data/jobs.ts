@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { jobMaterialType, type MaterialType } from "@/lib/job-scope";
 import type {
   Customer,
   EstimateLineItem,
@@ -171,17 +173,66 @@ export async function listJobFiles(
   return out;
 }
 
-export async function listOpenJobs(): Promise<JobListRow[]> {
+export interface OpenJobRow extends JobListRow {
+  /** carpet | hard | both | null — derived from the job's line items. */
+  materialType: MaterialType;
+}
+
+/**
+ * Jobs on the board. When a non-staff viewer is passed, only jobs targeted to
+ * everyone (no board_installer_ids) or to THEM are returned — so a post can be
+ * aimed at specific installers. Each row is tagged carpet / hard / both.
+ */
+export async function listOpenJobs(
+  viewer?: { id: string; isStaff: boolean },
+): Promise<OpenJobRow[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("jobs")
     .select("*, customer:customers(full_name)")
     .eq("open_for_claim", true)
     .order("created_at", { ascending: false });
-  const rows = (data ?? []) as (Job & {
+  let rows = (data ?? []) as (Job & {
     customer?: { full_name: string | null } | null;
+    board_installer_ids?: string[] | null;
   })[];
-  return rows.map((r) => ({ ...r, customer_name: r.customer?.full_name ?? null }));
+
+  // Targeting: a crew viewer only sees untargeted jobs, or ones aimed at them.
+  if (viewer && !viewer.isStaff) {
+    rows = rows.filter((r) => {
+      const t = r.board_installer_ids;
+      return !t || t.length === 0 || t.includes(viewer.id);
+    });
+  }
+
+  // Material type from the line items (categories) — read with the service role
+  // so an installer, whose RLS can't reach estimate lines, still sees the type.
+  const optionIds = [...new Set(rows.map((r) => r.option_id).filter(Boolean) as string[])];
+  const typeByOption = new Map<string, MaterialType>();
+  if (optionIds.length) {
+    try {
+      const admin = createAdminClient();
+      const { data: lines } = await admin
+        .from("estimate_line_items")
+        .select("option_id, category")
+        .in("option_id", optionIds);
+      const byOpt = new Map<string, { category: string | null }[]>();
+      for (const l of lines ?? []) {
+        const arr = byOpt.get(l.option_id as string) ?? [];
+        arr.push({ category: (l.category as string) ?? null });
+        byOpt.set(l.option_id as string, arr);
+      }
+      for (const [oid, items] of byOpt) typeByOption.set(oid, jobMaterialType(items));
+    } catch {
+      /* leave material type null if unreadable */
+    }
+  }
+
+  return rows.map((r) => ({
+    ...r,
+    customer_name: r.customer?.full_name ?? null,
+    materialType: r.option_id ? (typeByOption.get(r.option_id) ?? null) : null,
+  }));
 }
 
 /** Warehouse-role team members, for assigning who preps a job. */

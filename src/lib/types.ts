@@ -731,6 +731,9 @@ export interface Job {
   board_wanted_start?: string | null;
   board_wanted_end?: string | null;
   board_expected_days?: number | null;
+  // Job-board targeting (migration 0089): null/empty = everyone; else only these
+  // installer ids see it on the board.
+  board_installer_ids?: string[] | null;
   reminder_sent_at: string | null;
   show_prices?: boolean; // show prices on this work order
   installer_collects_balance?: boolean | null; // per-job override; null = inherit global

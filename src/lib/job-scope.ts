@@ -32,6 +32,29 @@ export function lineSpec(l: {
   return { qty, cut, rolls };
 }
 
+/** Whether a job is carpet, hard surface, or both — from its line items. */
+export type MaterialType = "carpet" | "hard" | "both" | null;
+const HARD_CATS = new Set(["lvp", "hardwood", "laminate", "tile", "vinyl"]);
+export const MATERIAL_TYPE_LABEL: Record<"carpet" | "hard" | "both", string> = {
+  carpet: "Carpet",
+  hard: "Hard surface",
+  both: "Carpet & hard surface",
+};
+
+export function jobMaterialType(lineItems: { category: string | null }[]): MaterialType {
+  let carpet = false;
+  let hard = false;
+  for (const l of lineItems) {
+    const c = (l.category || "").toLowerCase();
+    if (c === "carpet") carpet = true;
+    else if (HARD_CATS.has(c)) hard = true;
+  }
+  if (carpet && hard) return "both";
+  if (carpet) return "carpet";
+  if (hard) return "hard";
+  return null;
+}
+
 const isLabor = (l: EstimateLineItem) => l.category === "labor";
 /** Money-only flat lines (discounts, fees) don't belong on a work order. */
 const isMoneyFlat = (l: EstimateLineItem) => l.line_type === "flat" && l.category !== "labor";

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listOpenJobs, getMyApplicationJobIds } from "@/lib/data/jobs";
 import { JOB_DELIVERY_LABELS } from "@/lib/types";
+import { MATERIAL_TYPE_LABEL } from "@/lib/job-scope";
 import { formatDate } from "@/lib/format";
 import { applyToJob, withdrawApplication } from "../jobs/actions";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
@@ -18,9 +19,14 @@ export default async function JobBoardPage() {
   const isStaff = profile.role === "admin" || profile.role === "office";
 
   const [jobs, appliedIds] = await Promise.all([
-    listOpenJobs(),
+    listOpenJobs({ id: profile.id, isStaff }),
     getMyApplicationJobIds(),
   ]);
+  const MATERIAL_TINT: Record<"carpet" | "hard" | "both", string> = {
+    carpet: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+    hard: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+    both: "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300",
+  };
   const applied = new Set(appliedIds);
 
   return (
@@ -49,12 +55,27 @@ export default async function JobBoardPage() {
               <Card key={j.id} className="flex flex-col">
                 <CardContent className="flex flex-1 flex-col gap-3 pt-6">
                   <div>
-                    <Link
-                      href={`/jobs/${j.id}`}
-                      className="text-lg font-semibold hover:underline"
-                    >
-                      {j.title || "Flooring job"}
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`/jobs/${j.id}`}
+                        className="text-lg font-semibold hover:underline"
+                      >
+                        {j.title || "Flooring job"}
+                      </Link>
+                      {j.materialType ? (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${MATERIAL_TINT[j.materialType]}`}
+                        >
+                          {MATERIAL_TYPE_LABEL[j.materialType]}
+                        </span>
+                      ) : null}
+                      {isStaff && j.board_installer_ids && j.board_installer_ids.length ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                          🎯 {j.board_installer_ids.length} installer
+                          {j.board_installer_ids.length === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
+                    </div>
                     <div className="mt-1 space-y-1 text-sm text-muted-foreground">
                       <div className="flex items-center gap-1.5">
                         <MapPin className="size-4" />

@@ -388,7 +388,13 @@ export default async function JobPage({
                   </Button>
                 </form>
               ) : (
-                <PostToBoardButton jobId={job.id} defaultDays={installProps?.installEst?.days ?? null} />
+                <PostToBoardButton
+                  jobId={job.id}
+                  defaultDays={installProps?.installEst?.days ?? null}
+                  installers={users
+                    .filter((u) => u.role === "crew")
+                    .map((u) => ({ id: u.id, name: u.name }))}
+                />
               )}
               <Link href="/board" className="text-sm text-primary hover:underline">
                 View board →
