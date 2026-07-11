@@ -23,7 +23,7 @@ const CAP_KEYS = [
 ] as const;
 
 /** Merge global settings with an installer's non-null overrides. */
-function mergeInstaller(
+export function mergeInstaller(
   global: SchedulingSettings,
   ov: Record<string, unknown> | undefined,
 ): SchedulingSettings {
@@ -36,7 +36,7 @@ function mergeInstaller(
   return merged;
 }
 
-const DEFAULTS: SchedulingSettings = {
+export const SCHEDULING_DEFAULTS: SchedulingSettings = {
   id: "default",
   work_days: "1,2,3,4,5,6",
   day_start: "09:00",
@@ -67,7 +67,7 @@ export async function getSchedulingSettings(): Promise<SchedulingSettings> {
     .select("*")
     .eq("id", "default")
     .maybeSingle();
-  return { ...DEFAULTS, ...(data ?? {}) } as SchedulingSettings;
+  return { ...SCHEDULING_DEFAULTS, ...(data ?? {}) } as SchedulingSettings;
 }
 
 export interface InstallerProfile {

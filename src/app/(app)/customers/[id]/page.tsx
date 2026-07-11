@@ -60,6 +60,7 @@ import {
 import { installDaysForJob } from "@/lib/scheduling";
 import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
 import { InstallSchedule } from "./install-schedule";
+import { listInstallPreferences } from "@/lib/data/install-availability";
 import { CustomerDocuments } from "./customer-documents";
 import {
   listWorkflowStages,
@@ -324,6 +325,9 @@ export default async function CustomerPage({
       crewOptions,
       currentCrew: jobCrew,
       arrivalWindows,
+      preferences: (await listInstallPreferences(schedulableJob.id)).map(
+        (p) => p.preferred_date,
+      ),
     };
   }
 

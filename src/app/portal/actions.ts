@@ -2,9 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { moveToAutoActionStage } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
+import { getInstallAvailability } from "@/lib/data/install-availability";
+import { formatDate } from "@/lib/format";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -68,6 +71,70 @@ export async function portalSendMessage(formData: FormData): Promise<void> {
       "New customer message",
       `<p>${(prof?.full_name as string) ?? "A customer"} sent a message:</p><p>${body}</p>`,
       { label: "Open in CRM", url: `${siteUrl()}/customers/${customerId}` },
+    ),
+  });
+
+  revalidatePath("/portal");
+}
+
+/**
+ * The customer submits PREFERRED install dates — a request, NOT a confirmation.
+ * Writes only to install_preferences (+ install_prefs_at); NEVER touches
+ * jobs.scheduled_date. Re-validates ownership and availability server-side so a
+ * stale/tampered pick can't slip a full day through. The office confirms later.
+ */
+export async function portalSubmitInstallPreferences(formData: FormData): Promise<void> {
+  const jobId = str(formData.get("job_id"));
+  if (!jobId) return;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("customer_id, full_name")
+    .eq("id", user.id)
+    .maybeSingle();
+  const customerId = prof?.customer_id as string | null;
+  if (!customerId) return;
+
+  const admin = createAdminClient();
+  // Ownership + not-yet-confirmed guard.
+  const { data: job } = await admin
+    .from("jobs")
+    .select("customer_id, scheduled_date, title")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job || job.customer_id !== customerId || job.scheduled_date) return;
+
+  // Re-validate the picks against real availability — drop anything not open.
+  const avail = await getInstallAvailability(jobId);
+  const open = new Set(avail?.availableStarts ?? []);
+  const dates = [...new Set(formData.getAll("dates").map(String).filter(Boolean))]
+    .filter((d) => open.has(d))
+    .slice(0, 3);
+  if (!dates.length) return;
+
+  await admin.from("install_preferences").delete().eq("job_id", jobId);
+  await admin.from("install_preferences").insert(
+    dates.map((d, i) => ({ job_id: jobId, rank: i + 1, preferred_date: d })),
+  );
+  await admin.from("jobs").update({ install_prefs_at: new Date().toISOString() }).eq("id", jobId);
+
+  // Notify the office — this is a request awaiting their confirmation.
+  const ranked = dates
+    .map((d, i) => `${i + 1}) <strong>${formatDate(d)}</strong>`)
+    .join("<br/>");
+  await sendEmail({
+    to: ownerEmail(),
+    subject: `Install date request — ${(prof?.full_name as string) ?? "customer"}`,
+    html: emailLayout(
+      "A customer requested install dates",
+      `<p>${(prof?.full_name as string) ?? "A customer"} submitted preferred install dates${
+        job.title ? ` for &ldquo;${job.title}&rdquo;` : ""
+      } — please confirm one and assign an installer.</p><p>${ranked}</p>`,
+      { label: "Open customer", url: `${siteUrl()}/customers/${customerId}` },
     ),
   });
 

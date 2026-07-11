@@ -21,7 +21,13 @@ import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { portalSendMessage } from "./actions";
 import { optionTotals } from "@/lib/estimate-calc";
 import { invoiceTotals } from "@/lib/invoice-calc";
-import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { formatDate, formatDateTime, formatMoney, to12 } from "@/lib/format";
+import {
+  getInstallAvailability,
+  listInstallPreferences,
+} from "@/lib/data/install-availability";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { InstallPreferencePicker } from "./install-preference-picker";
 
 export const metadata: Metadata = { title: "My account" };
 
@@ -48,6 +54,43 @@ export default async function PortalHome() {
     listCustomerCheckouts(profile.customer_id),
   ]);
   const samplesOut = sampleCheckouts.filter((c) => c.status === "out");
+
+  // Install scheduling: for active jobs with no confirmed date, load real
+  // availability + any preferences the client already submitted. For confirmed
+  // jobs, resolve the installer's name (they get to see it once we book it).
+  const activeJobs = jobs.filter(
+    (j) => j.status !== "completed" && j.status !== "cancelled",
+  );
+  const schedByJob = new Map<
+    string,
+    { days: number; availableStarts: string[]; existing: string[] }
+  >();
+  for (const j of activeJobs) {
+    if (j.scheduled_date) continue;
+    const avail = await getInstallAvailability(j.id);
+    const existing = (await listInstallPreferences(j.id)).map((p) => p.preferred_date);
+    schedByJob.set(j.id, {
+      days: avail?.days ?? 0,
+      availableStarts: avail?.availableStarts ?? [],
+      existing,
+    });
+  }
+  const installerNameById = new Map<string, string>();
+  const confirmedInstallerIds = [
+    ...new Set(
+      activeJobs
+        .filter((j) => j.scheduled_date && j.assigned_to)
+        .map((j) => j.assigned_to as string),
+    ),
+  ];
+  if (confirmedInstallerIds.length) {
+    const { data: profs } = await createAdminClient()
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", confirmedInstallerIds);
+    for (const p of profs ?? [])
+      installerNameById.set(p.id as string, (p.full_name as string) ?? "Your installer");
+  }
 
   return (
     <div className="space-y-6">
@@ -206,23 +249,49 @@ export default async function PortalHome() {
               Nothing scheduled yet.
             </p>
           ) : (
-            <ul className="divide-y text-sm">
-              {jobs.map((j) => (
-                <li
-                  key={j.id}
-                  className="flex items-center justify-between gap-3 py-3"
-                >
-                  <span className="font-medium">{j.title || "Job"}</span>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <JobStatusBadge status={j.status} />
-                    <span className="text-muted-foreground">
-                      {j.scheduled_date
-                        ? formatDate(j.scheduled_date)
-                        : "To be scheduled"}
-                    </span>
-                  </div>
-                </li>
-              ))}
+            <ul className="divide-y">
+              {jobs.map((j) => {
+                const sched = schedByJob.get(j.id);
+                const window = j.arrival_window
+                  ? j.arrival_window
+                      .split("-")
+                      .map((t) => to12(t.trim()))
+                      .join("–")
+                  : null;
+                const installer = j.assigned_to
+                  ? installerNameById.get(j.assigned_to)
+                  : null;
+                return (
+                  <li key={j.id} className="space-y-3 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium">{j.title || "Your installation"}</span>
+                      <JobStatusBadge status={j.status} />
+                    </div>
+
+                    {j.scheduled_date ? (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                        <div className="font-semibold text-emerald-800 dark:text-emerald-300">
+                          ✓ Confirmed installation
+                        </div>
+                        <div className="mt-0.5">
+                          <span className="font-medium">{formatDate(j.scheduled_date)}</span>
+                          {window ? ` · arriving ${window}` : ""}
+                          {installer ? ` · with ${installer}` : ""}
+                        </div>
+                      </div>
+                    ) : sched ? (
+                      <InstallPreferencePicker
+                        jobId={j.id}
+                        days={sched.days}
+                        availableStarts={sched.availableStarts}
+                        existing={sched.existing}
+                      />
+                    ) : (
+                      <p className="text-sm text-muted-foreground">To be scheduled.</p>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>

@@ -4,6 +4,7 @@ import { getSchedulingSettings, getInstallerSuggestions } from "@/lib/data/sched
 import { installDaysForJob } from "@/lib/scheduling";
 import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
 import { parseArrivalWindows } from "@/lib/format";
+import { listInstallPreferences } from "@/lib/data/install-availability";
 import { INSTALL_ROLES } from "@/lib/types";
 import type { InstallScheduleProps } from "@/app/(app)/customers/[id]/install-schedule";
 
@@ -64,5 +65,6 @@ export async function buildInstallScheduleProps(
     crewOptions,
     currentCrew: jobCrew,
     arrivalWindows: parseArrivalWindows(settings.arrival_windows),
+    preferences: (await listInstallPreferences(jobId)).map((p) => p.preferred_date),
   };
 }

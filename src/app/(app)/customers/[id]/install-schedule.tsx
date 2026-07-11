@@ -26,6 +26,8 @@ export interface InstallScheduleProps {
   crewOptions: { value: string; label: string }[];
   currentCrew: { id: string; name: string; kind: string; phone: string | null } | null;
   arrivalWindows: ArrivalWindow[];
+  /** The customer's requested install dates (rank order) — a request to confirm. */
+  preferences?: string[];
 }
 
 /**
@@ -44,6 +46,7 @@ export function InstallSchedule({
   crewOptions,
   currentCrew,
   arrivalWindows,
+  preferences = [],
 }: InstallScheduleProps) {
   const redirectTo = `/customers/${customerId}#jobs`;
   const windowLabel = schedule.window
@@ -59,6 +62,23 @@ export function InstallSchedule({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* The customer's requested dates (a request — confirm one below). */}
+        {!schedule.date && preferences.length ? (
+          <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
+            <div className="font-semibold text-primary">Customer requested these dates</div>
+            <ol className="mt-1 space-y-0.5">
+              {preferences.map((d, i) => (
+                <li key={d}>
+                  <span className="font-medium">{i + 1}.</span> {formatDate(d)}
+                </li>
+              ))}
+            </ol>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Confirm one below (assign the installer) to make it official.
+            </p>
+          </div>
+        ) : null}
+
         {/* Current status */}
         <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
           {schedule.date ? (
