@@ -156,7 +156,8 @@ export async function bookInstall(formData: FormData): Promise<void> {
   const id = str(formData.get("job_id"));
   const installer = str(formData.get("installer_id"));
   const start = str(formData.get("start"));
-  const end = str(formData.get("end")) || start;
+  let end = str(formData.get("end")) || start;
+  if (end < start) end = start; // never store an end date before the start
   const arrivalWindow = str(formData.get("arrival_window"));
   if (!id || !start) return;
   const supabase = await createClient();

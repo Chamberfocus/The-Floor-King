@@ -102,10 +102,15 @@ export function InstallerCalendar({
   const drag = canEdit ? { move: moveJob, dragOver, setDragOver, pending } : null;
 
   // Events overlapping a given day (multi-day jobs show on each covered day).
+  // Guard against bad data where the end date is before the start — clamp the
+  // effective end to the start so the job still shows on its start day.
   const onDay = (day: Date) => {
     const k = ymd(day);
     return shown
-      .filter((e) => e.date <= k && (e.endDate || e.date) >= k)
+      .filter((e) => {
+        const end = e.endDate && e.endDate >= e.date ? e.endDate : e.date;
+        return e.date <= k && end >= k;
+      })
       .sort((a, b) => (a.window || "99").localeCompare(b.window || "99"));
   };
 
