@@ -115,14 +115,18 @@ export default async function InstallSchedulerPage() {
     };
   });
   const installRoles = INSTALL_ROLES as unknown as string[];
+  const installerList = installerUsers.filter((u) => installRoles.includes(u.role));
+  // A team installer (login) auto-gets a mirror "employee" crew for payouts —
+  // drop those from the grid so each person appears ONCE (by name).
+  const installerNames = new Set(installerList.map((u) => u.name.trim().toLowerCase()));
   const calResources: CalResource[] = [
-    ...installerUsers
-      .filter((u) => installRoles.includes(u.role))
-      .map((u) => ({ id: u.id, name: u.name })),
-    ...crews.map((c) => ({
-      id: `crew:${c.id}`,
-      name: `${c.name}${c.kind === "subcontractor" ? " (sub)" : ""}`,
-    })),
+    ...installerList.map((u) => ({ id: u.id, name: u.name })),
+    ...crews
+      .filter((c) => !installerNames.has((c.name || "").trim().toLowerCase()))
+      .map((c) => ({
+        id: `crew:${c.id}`,
+        name: `${c.name}${c.kind === "subcontractor" ? " (sub)" : ""}`,
+      })),
   ];
   if (calEvents.some((e) => e.resourceId === "unassigned"))
     calResources.push({ id: "unassigned", name: "Unassigned" });

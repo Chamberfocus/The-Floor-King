@@ -12,7 +12,6 @@ import {
   Target,
   CalendarRange,
   DollarSign,
-  HardHat,
   Layers,
   SlidersHorizontal,
 } from "lucide-react";
@@ -92,14 +91,8 @@ const SECTIONS = [
   {
     href: "/settings/team",
     icon: UserCog,
-    title: "Team",
-    desc: "Logins, roles, job titles, and home bases.",
-  },
-  {
-    href: "/settings/install-crews",
-    icon: HardHat,
-    title: "Install Crews",
-    desc: "Your subcontractor and employee install crews — assignable on jobs, even without an app login.",
+    title: "Team & installers",
+    desc: "Everyone in one place — logins & roles for staff/installers, plus subcontractor crews (no login needed).",
   },
   {
     href: "/settings/samples",

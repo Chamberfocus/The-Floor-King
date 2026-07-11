@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { CalendarClock } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
 import {
   Card,
@@ -11,11 +13,13 @@ import { PageHeader } from "@/components/page-header";
 import { redirect } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
 import { listTeamMembers } from "@/lib/data/team";
+import { listInstallCrews, getCrewPayoutTotals } from "@/lib/data/install-crews";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { InviteTeamForm } from "./invite-form";
 import { RoleSelect } from "./role-select";
 import { RemoveMember } from "./remove-member";
 import { ActiveToggle } from "./active-toggle";
+import { InstallCrewsManager } from "../install-crews/install-crews-manager";
 import {
   setMemberTitle,
   setMemberHome,
@@ -33,12 +37,25 @@ export default async function TeamPage() {
   const adminCount = members.filter((m) => m.role === "admin").length;
   const settings = await getBusinessSettings();
   const installerCollects = settings.installer_collects_balance;
+  // Subcontractor installers with NO app login (real subs) — managed right here
+  // so employees + subs live on one page. Employees who also got a mirror crew
+  // are filtered out so nobody is duplicated.
+  const memberNames = new Set(
+    members.map((m) => (m.full_name ?? "").trim().toLowerCase()),
+  );
+  const [allCrews, payouts] = await Promise.all([
+    listInstallCrews(),
+    getCrewPayoutTotals(),
+  ]);
+  const subCrews = allCrews.filter(
+    (c) => !memberNames.has((c.name ?? "").trim().toLowerCase()),
+  );
 
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
-        title="Team"
-        description="Create logins for your office staff, installers, and warehouse crew."
+        title="Team & installers"
+        description="Everyone in one place — office staff, installer logins, and subcontractor crews."
       />
 
       <Card className="mb-6">
@@ -184,6 +201,37 @@ export default async function TeamPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Scheduling capacity per installer */}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CalendarClock className="size-4 text-primary" /> Installer scheduling
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-md text-sm text-muted-foreground">
+            Set each installer&apos;s work days and daily capacity — that&apos;s
+            what powers next-available suggestions and the install grid.
+          </p>
+          <Link
+            href="/settings/scheduling"
+            className="shrink-0 rounded-md bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary/20"
+          >
+            Scheduling settings →
+          </Link>
+        </CardContent>
+      </Card>
+
+      {/* Subcontractor installers (no app login) */}
+      <div className="mt-8">
+        <h2 className="mb-1 text-lg font-bold">Subcontractor installers</h2>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Crews you assign jobs to that don&apos;t have an app login. People above
+          with a login don&apos;t need one here.
+        </p>
+        <InstallCrewsManager initial={subCrews} payouts={payouts} />
+      </div>
     </div>
   );
 }

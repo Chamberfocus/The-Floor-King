@@ -37,13 +37,8 @@ const RANGES: { label: string; days: number }[] = [
   { label: "4 weeks", days: 28 },
 ];
 
-/**
- * Installer-centric schedule grid: installers down the left, dates across the
- * top, each customer's install in the [installer × date] cell. Week-at-a-time by
- * default with 2/4-week and custom ranges. Drag a job to a different cell to
- * move its date AND/OR reassign it to that installer — the customer and
- * installer are notified automatically.
- */
+type Move = (jobId: string, day: Date, resId: string) => void;
+
 export function InstallerGrid({
   events,
   resources,
@@ -67,21 +62,20 @@ export function InstallerGrid({
     () => Array.from({ length: days }, (_, i) => addDays(start, i)),
     [start, days],
   );
+  // Split the range into CALENDAR WEEKS so multiple weeks stack vertically
+  // (each week is its own block) instead of scrolling off to the right.
+  const weeks = useMemo(() => {
+    const out: Date[][] = [];
+    for (const d of cols) {
+      if (out.length === 0 || d.getDay() === 0) out.push([]);
+      out[out.length - 1].push(d);
+    }
+    return out;
+  }, [cols]);
+
   const rows = filter === "all" ? resources : resources.filter((r) => r.id === filter);
-  const todayK = ymd(new Date());
 
-  const cellEvents = (resId: string, day: Date) => {
-    const k = ymd(day);
-    return events
-      .filter((e) => {
-        if (e.resourceId !== resId) return false;
-        const end = e.endDate && e.endDate >= e.date ? e.endDate : e.date;
-        return e.date <= k && end >= k;
-      })
-      .sort((a, b) => (a.window || "99").localeCompare(b.window || "99"));
-  };
-
-  const move = (jobId: string, day: Date, resId: string) =>
+  const move: Move = (jobId, day, resId) =>
     startTransition(async () => {
       const res = await rescheduleInstall(jobId, ymd(day), resId);
       if (res.ok) {
@@ -96,7 +90,7 @@ export function InstallerGrid({
   const pickRange = (n: number) => {
     setCustom(false);
     setDays(n);
-    setStart((s) => (n === 7 ? startOfWeek(s) : s));
+    setStart((s) => (n === 7 ? startOfWeek(s) : startOfWeek(s)));
   };
   const applyCustom = () => {
     if (!from || !to) return;
@@ -127,7 +121,7 @@ export function InstallerGrid({
               size="sm"
               onClick={() => {
                 setCustom(false);
-                setStart(days === 7 ? startOfWeek(new Date()) : new Date());
+                setStart(startOfWeek(new Date()));
               }}
             >
               Today
@@ -210,127 +204,27 @@ export function InstallerGrid({
           </div>
         ) : null}
 
-        {/* Grid */}
         {rows.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
             No installers yet. Add team installers or crews to see the grid.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <div
-              className="grid text-sm"
-              style={{
-                gridTemplateColumns: `minmax(120px,150px) repeat(${days}, minmax(116px,1fr))`,
-              }}
-            >
-              {/* Header row */}
-              <div className="sticky left-0 z-20 flex items-center gap-1 border-b border-r bg-muted px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                <Users className="size-3.5" /> Installer
-              </div>
-              {cols.map((d) => {
-                const k = ymd(d);
-                return (
-                  <div
-                    key={k}
-                    className={cn(
-                      "border-b border-r px-1 py-1.5 text-center text-xs font-medium",
-                      k === todayK ? "bg-primary/10 text-primary" : "bg-muted/40 text-muted-foreground",
-                    )}
-                  >
-                    <div>{DOW[d.getDay()]}</div>
-                    <div className="text-foreground">
-                      {d.getMonth() + 1}/{d.getDate()}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Body rows */}
-              {rows.map((r) => {
-                const hue = hueOf(r.id);
-                return (
-                  <div key={r.id} className="contents">
-                    <div
-                      className="sticky left-0 z-10 flex items-center border-b border-r bg-card px-2 py-1.5"
-                      style={{ borderLeft: `3px solid hsl(${hue} 60% 48%)` }}
-                    >
-                      <span className="truncate text-xs font-semibold">{r.name}</span>
-                    </div>
-                    {cols.map((d) => {
-                      const k = ymd(d);
-                      const cellKey = `${r.id}|${k}`;
-                      const evs = cellEvents(r.id, d);
-                      return (
-                        <div
-                          key={cellKey}
-                          onDragOver={
-                            canEdit
-                              ? (ev) => {
-                                  ev.preventDefault();
-                                  setDragOver(cellKey);
-                                }
-                              : undefined
-                          }
-                          onDragLeave={canEdit ? () => setDragOver(null) : undefined}
-                          onDrop={
-                            canEdit
-                              ? (ev) => {
-                                  ev.preventDefault();
-                                  const id = ev.dataTransfer.getData("text/plain");
-                                  setDragOver(null);
-                                  if (id) move(id, d, r.id);
-                                }
-                              : undefined
-                          }
-                          className={cn(
-                            "min-h-14 space-y-0.5 border-b border-r p-1 align-top",
-                            k === todayK && "bg-primary/5",
-                            dragOver === cellKey && "ring-2 ring-inset ring-primary",
-                          )}
-                        >
-                          {evs.map((e) => {
-                            const wl = windowLabel(e.window);
-                            return (
-                              <Link
-                                key={e.id}
-                                href={e.customerId ? `/customers/${e.customerId}#jobs` : "#"}
-                                draggable={canEdit}
-                                onDragStart={
-                                  canEdit
-                                    ? (dev) => {
-                                        dev.dataTransfer.setData("text/plain", e.id);
-                                        dev.dataTransfer.effectAllowed = "move";
-                                      }
-                                    : undefined
-                                }
-                                style={{
-                                  background: `hsl(${hue} 65% 50% / 0.16)`,
-                                  borderLeft: `3px solid hsl(${hue} 60% 48%)`,
-                                }}
-                                className={cn(
-                                  "block rounded px-1 py-0.5 leading-tight hover:brightness-95 dark:hover:brightness-125",
-                                  canEdit && "cursor-move",
-                                )}
-                                title={`${e.name}${wl ? ` · ${wl}` : ""}${e.city ? ` · ${e.city}` : ""}`}
-                              >
-                                <div className="truncate text-xs font-medium text-foreground">
-                                  {e.name}
-                                </div>
-                                {wl ? (
-                                  <div className="truncate text-[10px] text-muted-foreground">
-                                    {wl}
-                                  </div>
-                                ) : null}
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
+          // Weeks stack vertically — each is its own block, so 2/3/4 weeks read
+          // top-to-bottom instead of scrolling to the right.
+          <div className="space-y-4">
+            {weeks.map((week, wi) => (
+              <WeekBlock
+                key={wi}
+                cols={week}
+                rows={rows}
+                events={events}
+                canEdit={canEdit}
+                move={move}
+                dragOver={dragOver}
+                setDragOver={setDragOver}
+                showWeekLabel={weeks.length > 1}
+              />
+            ))}
           </div>
         )}
         {canEdit ? (
@@ -341,5 +235,162 @@ export function InstallerGrid({
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function WeekBlock({
+  cols,
+  rows,
+  events,
+  canEdit,
+  move,
+  dragOver,
+  setDragOver,
+  showWeekLabel,
+}: {
+  cols: Date[];
+  rows: CalResource[];
+  events: CalEvent[];
+  canEdit: boolean;
+  move: Move;
+  dragOver: string | null;
+  setDragOver: (k: string | null) => void;
+  showWeekLabel: boolean;
+}) {
+  const todayK = ymd(new Date());
+  const cellEvents = (resId: string, day: Date) => {
+    const k = ymd(day);
+    return events
+      .filter((e) => {
+        if (e.resourceId !== resId) return false;
+        const end = e.endDate && e.endDate >= e.date ? e.endDate : e.date;
+        return e.date <= k && end >= k;
+      })
+      .sort((a, b) => (a.window || "99").localeCompare(b.window || "99"));
+  };
+  const n = cols.length;
+  return (
+    <div>
+      {showWeekLabel ? (
+        <div className="mb-1 text-xs font-semibold text-muted-foreground">
+          Week of{" "}
+          {cols[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+        </div>
+      ) : null}
+      <div className="overflow-x-auto rounded-md border">
+        <div
+          className="grid text-sm"
+          style={{ gridTemplateColumns: `minmax(110px,140px) repeat(${n}, minmax(104px,1fr))` }}
+        >
+          {/* Header */}
+          <div className="sticky left-0 z-20 flex items-center gap-1 border-b border-r bg-muted px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+            <Users className="size-3.5" /> Installer
+          </div>
+          {cols.map((d) => {
+            const k = ymd(d);
+            return (
+              <div
+                key={k}
+                className={cn(
+                  "border-b border-r px-1 py-1.5 text-center text-xs font-medium last:border-r-0",
+                  k === todayK ? "bg-primary/10 text-primary" : "bg-muted/40 text-muted-foreground",
+                )}
+              >
+                <div>{DOW[d.getDay()]}</div>
+                <div className="text-foreground">
+                  {d.getMonth() + 1}/{d.getDate()}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Rows */}
+          {rows.map((r) => {
+            const hue = hueOf(r.id);
+            return (
+              <div key={r.id} className="contents">
+                <div
+                  className="sticky left-0 z-10 flex items-center border-b border-r bg-card px-2 py-1.5"
+                  style={{ borderLeft: `3px solid hsl(${hue} 60% 48%)` }}
+                >
+                  <span className="truncate text-xs font-semibold">{r.name}</span>
+                </div>
+                {cols.map((d) => {
+                  const k = ymd(d);
+                  const cellKey = `${r.id}|${k}`;
+                  const evs = cellEvents(r.id, d);
+                  return (
+                    <div
+                      key={cellKey}
+                      onDragOver={
+                        canEdit
+                          ? (ev) => {
+                              ev.preventDefault();
+                              setDragOver(cellKey);
+                            }
+                          : undefined
+                      }
+                      onDragLeave={canEdit ? () => setDragOver(null) : undefined}
+                      onDrop={
+                        canEdit
+                          ? (ev) => {
+                              ev.preventDefault();
+                              const id = ev.dataTransfer.getData("text/plain");
+                              setDragOver(null);
+                              if (id) move(id, d, r.id);
+                            }
+                          : undefined
+                      }
+                      className={cn(
+                        "min-h-14 space-y-0.5 border-b border-r p-1 align-top last:border-r-0",
+                        k === todayK && "bg-primary/5",
+                        dragOver === cellKey && "ring-2 ring-inset ring-primary",
+                      )}
+                    >
+                      {evs.map((e) => {
+                        const wl = windowLabel(e.window);
+                        return (
+                          <Link
+                            key={e.id}
+                            href={e.customerId ? `/customers/${e.customerId}#jobs` : "#"}
+                            draggable={canEdit}
+                            onDragStart={
+                              canEdit
+                                ? (dev) => {
+                                    dev.dataTransfer.setData("text/plain", e.id);
+                                    dev.dataTransfer.effectAllowed = "move";
+                                  }
+                                : undefined
+                            }
+                            style={{
+                              background: `hsl(${hue} 65% 50% / 0.16)`,
+                              borderLeft: `3px solid hsl(${hue} 60% 48%)`,
+                            }}
+                            className={cn(
+                              "block rounded px-1 py-0.5 leading-tight hover:brightness-95 dark:hover:brightness-125",
+                              canEdit && "cursor-move",
+                            )}
+                            title={`${e.name}${wl ? ` · ${wl}` : ""}${e.city ? ` · ${e.city}` : ""}`}
+                          >
+                            <div className="truncate text-xs font-medium text-foreground">
+                              {e.name}
+                            </div>
+                            {wl ? (
+                              <div className="truncate text-[10px] text-muted-foreground">
+                                {wl}
+                              </div>
+                            ) : null}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
