@@ -187,11 +187,15 @@ export default async function OrdersPage() {
             <summary className="cursor-pointer list-none text-xs text-muted-foreground hover:text-destructive [&::-webkit-details-marker]:hidden">
               Delete order
             </summary>
-            <form action={deleteOrder} className="mt-2 flex items-center justify-end gap-2">
+            <form action={deleteOrder} className="mt-2 flex flex-col items-end gap-2">
               <input type="hidden" name="order_id" value={o.id} />
-              <span className="text-xs text-muted-foreground">Permanently remove this order?</span>
+              <span className="max-w-xs text-right text-xs text-muted-foreground">
+                Permanently delete this order and everything it created —
+                {o.job_id ? " its warehouse job," : ""} its invoice &amp; payments,
+                and any purchase orders. This can&apos;t be undone.
+              </span>
               <Button type="submit" size="sm" variant="destructive">
-                <Trash2 className="size-3.5" /> Delete
+                <Trash2 className="size-3.5" /> Delete everything
               </Button>
             </form>
           </details>

@@ -249,18 +249,54 @@ export async function createInvoiceFromOrder(
   if (invId) redirect(`/invoices/${invId}`);
 }
 
-/** Permanently remove an unwanted order (and its line items) from the tab.
- *  Any job/invoice already spawned from it is left untouched. Admin/office only. */
+/** Permanently remove an order AND everything it spawned: the warehouse job it
+ *  created (and that job's staging files, labor, and satisfaction sign-off), the
+ *  invoice (with its line items and payments), and any purchase orders raised
+ *  for it. Physical inventory (rolls / remnants / stock movements) and uploaded
+ *  documents are kept — those are real-world records, not order paperwork.
+ *  Admin/office only. */
 export async function deleteOrder(formData: FormData): Promise<void> {
   await assertRole(["admin", "office"]);
   const orderId = str(formData.get("order_id"));
   if (!orderId) return;
+
   // Elevated: sidestep any gap in orders' RLS delete policy (public orders have
-  // no customer/owner). Items first, then the order row.
+  // no customer/owner), and reach the spawned job/invoice/POs.
   const admin = createAdminClient();
+
+  // Find what this order spawned BEFORE deleting anything.
+  const { data: order } = await admin
+    .from("orders")
+    .select("job_id, invoice_id")
+    .eq("id", orderId)
+    .maybeSingle();
+  const jobId = (order?.job_id as string | null) ?? null;
+  const invoiceId = (order?.invoice_id as string | null) ?? null;
+
+  // Purchase orders + invoices tied to the spawned job. These must go first:
+  // their job_id is ON DELETE SET NULL, so once the job is gone we can no longer
+  // find them. po_items / invoice_items / payments cascade with their parent.
+  if (jobId) {
+    await admin.from("purchase_orders").delete().eq("job_id", jobId);
+    await admin.from("invoices").delete().eq("job_id", jobId);
+  }
+  // The invoice the order links to directly (belt-and-suspenders if it wasn't
+  // caught by the job match above).
+  if (invoiceId) await admin.from("invoices").delete().eq("id", invoiceId);
+
+  // The job itself — cascades job_files, job_labor, job_satisfaction, and
+  // job_applications; unlinks documents/inventory (kept on purpose).
+  if (jobId) await admin.from("jobs").delete().eq("id", jobId);
+
+  // Finally the order and its line items (order_items also cascades on the order
+  // delete; we clear it explicitly to be safe).
   await admin.from("order_items").delete().eq("order_id", orderId);
   await admin.from("orders").delete().eq("id", orderId);
+
   revalidatePath("/orders");
+  revalidatePath("/invoices");
+  revalidatePath("/purchase-orders");
+  revalidatePath("/jobs");
 }
 
 export async function declineOrder(formData: FormData): Promise<void> {
