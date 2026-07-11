@@ -39,6 +39,8 @@ export default async function InstallSchedulerPage() {
     .from("jobs")
     .select("id, title, customer_id, scheduled_date, site_city, customer:customers(full_name)")
     .in("status", ["unscheduled", "scheduled", "in_progress"])
+    // Cash-and-carry orders are pickup-only — they never need an install date.
+    .or("delivery_type.is.null,delivery_type.neq.cash_carry")
     .order("scheduled_date", { ascending: true, nullsFirst: true });
   const jobs = ((data ?? []) as unknown[]).map((r) => {
     const j = r as Row & { customer?: { full_name: string | null }[] | { full_name: string | null } | null };
@@ -64,6 +66,7 @@ export default async function InstallSchedulerPage() {
       )
       .not("scheduled_date", "is", null)
       .gte("scheduled_date", since)
+      .or("delivery_type.is.null,delivery_type.neq.cash_carry")
       .order("scheduled_date", { ascending: true }),
     listAssignableUsers(),
     listInstallCrews({ activeOnly: false }),

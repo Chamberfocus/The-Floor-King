@@ -10,13 +10,7 @@ import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
 import { getSchedulingSettings } from "@/lib/data/scheduling";
 import { getUserPreferences } from "@/lib/data/preferences";
 import { requireProfile } from "@/lib/auth";
-import {
-  LEAD_STAGE_LABELS,
-  LEAD_STAGE_ORDER,
-  SALES_ROLES,
-  INSTALL_ROLES,
-  type LeadStage,
-} from "@/lib/types";
+import { SALES_ROLES, INSTALL_ROLES } from "@/lib/types";
 import { parseArrivalWindows } from "@/lib/format";
 import { CustomerList, type ListShared } from "./customer-list";
 
@@ -34,9 +28,9 @@ export default async function CustomersPage({
 }) {
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
-  const stageParam = sp.stage as LeadStage | undefined;
-  const stage =
-    stageParam && LEAD_STAGE_ORDER.includes(stageParam) ? stageParam : undefined;
+  // The stage filter is now a detailed workflow stage id (the 13-stage builder),
+  // not the collapsed 6-bucket lead stage.
+  const stage = sp.stage?.trim() || undefined;
   // "Stuck only" — clients past their stage's time limit. Available to everyone
   // (RLS already scopes reps to their own book).
   const stuck = sp.stuck === "1";
@@ -50,7 +44,7 @@ export default async function CustomersPage({
 
   const customers = await listCustomers({
     search: q,
-    stage,
+    workflowStageId: stage,
     assignedTo: unassignedOnly ? undefined : owner,
     unassignedOnly,
     stuckOnly: stuck,
@@ -68,6 +62,8 @@ export default async function CustomersPage({
     stages: stages.map((s) => ({
       id: s.id,
       name: s.name,
+      color: s.color ?? "zinc",
+      position: s.position ?? 0,
       auto_action: s.auto_action ?? null,
       owner_duty: s.owner_duty ?? null,
     })),
@@ -138,16 +134,13 @@ export default async function CustomersPage({
           />
         </div>
         <SearchPicker
-          className="w-44"
+          className="w-52"
           name="stage"
           defaultValue={stage ?? ""}
           placeholder="All stages"
           options={[
             { value: "", label: "All stages" },
-            ...LEAD_STAGE_ORDER.map((s) => ({
-              value: s,
-              label: LEAD_STAGE_LABELS[s],
-            })),
+            ...stages.map((s) => ({ value: s.id, label: s.name })),
           ]}
         />
         {isAdmin ? (

@@ -19,6 +19,7 @@ import {
   LEAD_SOURCE_LABELS,
   DUTY_ROLES,
   DUTY_LABELS,
+  STAGE_COLOR_BADGE,
   inferStageDuty,
   type Customer,
 } from "@/lib/types";
@@ -31,6 +32,8 @@ export interface ListShared {
   stages: {
     id: string;
     name: string;
+    color: string;
+    position: number;
     auto_action: string | null;
     owner_duty: string | null;
   }[];
@@ -124,6 +127,25 @@ function assignedName(c: Customer, shared: ListShared): string {
   );
 }
 
+/** The customer's ACTUAL detailed workflow stage (the 13-stage builder),
+ *  colored by that stage's own color. Falls back to the lead-stage bucket only
+ *  if the customer somehow has no workflow stage. */
+function DetailedStageBadge({ c, shared }: { c: Customer; shared: ListShared }) {
+  const wf = shared.stages.find((s) => s.id === c.workflow_stage_id);
+  if (!wf) return <StageBadge stage={c.stage} />;
+  const cls = STAGE_COLOR_BADGE[wf.color] ?? STAGE_COLOR_BADGE.zinc;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",
+        cls,
+      )}
+    >
+      {wf.name}
+    </span>
+  );
+}
+
 /** Flag for a client sitting past its stage's time limit. */
 function StuckBadge() {
   return (
@@ -172,7 +194,7 @@ function DesktopRow({
         ) : null}
         <TableCell>
           <div className="flex flex-wrap items-center gap-1.5">
-            <StageBadge stage={c.stage} />
+            <DetailedStageBadge c={c} shared={shared} />
             {overdue ? <StuckBadge /> : null}
           </div>
         </TableCell>
@@ -241,7 +263,7 @@ function MobileCard({
         </Link>
         <div className="flex shrink-0 items-center gap-2">
           {overdue ? <StuckBadge /> : null}
-          <StageBadge stage={c.stage} />
+          <DetailedStageBadge c={c} shared={shared} />
           {hasActions ? (
             <ExpandToggle open={open} onClick={() => setOpen((v) => !v)} />
           ) : null}

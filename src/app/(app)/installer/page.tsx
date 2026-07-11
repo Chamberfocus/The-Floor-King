@@ -75,6 +75,7 @@ export default async function InstallerHomePage() {
     .eq("assigned_to", profile.id)
     .not("scheduled_date", "is", null)
     .gte("scheduled_date", since)
+    .or("delivery_type.is.null,delivery_type.neq.cash_carry")
     .order("scheduled_date", { ascending: true });
   const myEvents: CalEvent[] = ((myRows ?? []) as unknown[]).map((row) => {
     const r = row as {

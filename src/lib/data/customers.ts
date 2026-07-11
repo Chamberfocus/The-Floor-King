@@ -110,6 +110,8 @@ export async function listCustomers(
     search?: string;
     stage?: LeadStage;
     stages?: LeadStage[];
+    /** Detailed workflow stage id (the 13-stage builder). */
+    workflowStageId?: string;
     assignedTo?: string;
     unassignedOnly?: boolean;
     stuckOnly?: boolean;
@@ -121,6 +123,8 @@ export async function listCustomers(
     .select("*")
     .order("updated_at", { ascending: false });
 
+  if (opts.workflowStageId)
+    query = query.eq("workflow_stage_id", opts.workflowStageId);
   if (opts.stage) query = query.eq("stage", opts.stage);
   if (opts.stages?.length) query = query.in("stage", opts.stages);
   if (opts.unassignedOnly) query = query.is("assigned_to", null);
