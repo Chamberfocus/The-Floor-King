@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ArrowLeft, Trash2, ReceiptText } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { PoStatusBadge } from "@/components/po-status-badge";
 import { getPurchaseOrder } from "@/lib/data/purchase-orders";
+import { getBillForPO } from "@/lib/data/bills";
+import { createBillFromPO } from "@/app/(app)/bills/actions";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { listProducts } from "@/lib/data/products";
@@ -29,6 +31,7 @@ export default async function PurchaseOrderPage({
   const { id } = await params;
   const po = await getPurchaseOrder(id);
   if (!po) notFound();
+  const existingBill = await getBillForPO(po.id);
 
   const [products, customer, suppliers, org] = await Promise.all([
     listProducts({ activeOnly: true }),
@@ -82,7 +85,24 @@ export default async function PurchaseOrderPage({
             ) : null}
           </p>
         </div>
-        <PrintButton label="Print PO" />
+        <div className="flex items-center gap-2">
+          {existingBill ? (
+            <Link
+              href={`/bills/${existingBill.id}`}
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              <ReceiptText className="size-4" /> View bill
+            </Link>
+          ) : (
+            <form action={createBillFromPO}>
+              <input type="hidden" name="po_id" value={po.id} />
+              <Button type="submit" size="sm">
+                <ReceiptText className="size-4" /> Convert to bill
+              </Button>
+            </form>
+          )}
+          <PrintButton label="Print PO" />
+        </div>
       </div>
 
       {/* Notify-only: flag line products we already hold remnants/rolls of. */}

@@ -21,6 +21,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getBusinessPulse } from "@/lib/data/pulse";
 import { getPipelineForecast } from "@/lib/data/finance";
+import { getAPSummary } from "@/lib/data/bills";
 import { buildInsights, type InsightTone } from "@/lib/insights";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -59,9 +60,10 @@ export default async function PulsePage() {
   const profile = await requireProfile();
   if (profile.role !== "admin") redirect("/");
 
-  const [pulse, forecast] = await Promise.all([
+  const [pulse, forecast, ap] = await Promise.all([
     getBusinessPulse(),
     getPipelineForecast(),
+    getAPSummary(),
   ]);
   const insights = buildInsights(pulse);
   const target = pulse.settings.target_gross_margin_pct;
@@ -158,6 +160,33 @@ export default async function PulsePage() {
               )}
             >
               {formatMoney(pulse.ar.d90plus)} is 90+ days overdue
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              You owe (AP)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-semibold">
+              {formatMoney(ap.outstanding)}
+            </div>
+            <p
+              className={cn(
+                "mt-1 text-xs",
+                ap.overdue > 0 ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {ap.overdue > 0
+                ? `${formatMoney(ap.overdue)} overdue`
+                : `${ap.openCount} open bill${ap.openCount === 1 ? "" : "s"}`}
+              {" · "}
+              <Link href="/bills" className="hover:underline">
+                view bills
+              </Link>
             </p>
           </CardContent>
         </Card>
