@@ -431,6 +431,108 @@ export async function extractOrderDocument(opts: {
 }
 
 // ===========================================================================
+// VENDOR BILLS / INVOICES  (accounts payable)
+// ===========================================================================
+
+export interface ExtractedBillItem {
+  description: string;
+  quantity: number | null;
+  unit: string | null;
+  unit_cost: number | null;
+  amount: number | null;
+}
+export interface ExtractedBill {
+  vendor: string | null;
+  bill_number: string | null;
+  bill_date: string | null;
+  due_date: string | null;
+  terms: string | null;
+  items: ExtractedBillItem[];
+  subtotal: number | null;
+  tax: number | null;
+  freight: number | null;
+  total: number | null;
+}
+
+const BILL_SYSTEM = `You are a meticulous accounts-payable clerk for a flooring company (Cleveland Floor King). You read a VENDOR BILL / INVOICE — a document where a supplier is charging US — and extract it precisely for our books. Accuracy is critical: this feeds the financials, so every number must be exact and every total must reconcile.`;
+
+const BILL_SCHEMA = `Return ONLY a JSON object (no prose, no code fences):
+{
+  "vendor": string|null,          // the company charging US (supplier/mill/distributor) — from the letterhead / "From" / "Remit to". NOT our own company.
+  "bill_number": string|null,     // the invoice / bill number
+  "bill_date": "YYYY-MM-DD"|null,  // the invoice/bill date
+  "due_date": "YYYY-MM-DD"|null,   // payment due date if shown
+  "terms": string|null,           // payment terms exactly as written: "Net 30", "2% 10 Net 30", "Due on receipt", ...
+  "items": [ {
+    "description": string,        // the line description (product/service). Include style/color/item# if shown.
+    "quantity": number|null,
+    "unit": string|null,          // sf, sy, box, ctn, ea, roll, lf...
+    "unit_cost": number|null,     // price per unit
+    "amount": number|null         // the extended line total
+  } ],
+  "subtotal": number|null,
+  "tax": number|null,
+  "freight": number|null,         // freight / shipping / delivery / fuel surcharge if shown as its own charge
+  "total": number|null            // the grand total we owe
+}
+RULES:
+- The VENDOR is who is billing us — do NOT return the "Bill to"/"Ship to" (that's us, Cleveland Floor King / The Floor King).
+- Strip $ and commas → plain numbers. quantity/unit_cost/amount are PER LINE; total is the grand total.
+- If a line shows only an extended amount (no qty/unit price), fill "amount" and leave quantity/unit_cost null.
+- Put freight/shipping and tax in their OWN fields, NOT as product line items.
+- Ignore remit-to addresses, boilerplate, and terms legalese (beyond the terms string). Capture EVERY product/charge line.
+- Prefer the document's own printed totals. Line amounts + freight + tax should reconcile to the total.`;
+
+/** Read a vendor bill/invoice (PDF or image) into a structured bill for AP. */
+export async function extractBill(opts: {
+  base64?: string;
+  url?: string;
+  mediaType?: string;
+}): Promise<ExtractedBill | null> {
+  lastExtractError = null;
+  if (!process.env.ANTHROPIC_API_KEY) {
+    lastExtractError = "No AI key set (ANTHROPIC_API_KEY).";
+    return null;
+  }
+  const block = fileBlock(opts);
+  if (!block) return null;
+
+  const text = await callModel({
+    system: BILL_SYSTEM,
+    content: [block, { type: "text", text: BILL_SCHEMA }],
+    maxTokens: 8000,
+  });
+  if (!text) return null;
+
+  const whole = parseWholeObject(text);
+  const items: ExtractedBillItem[] = extractRows(text, "items")
+    .map((o) => ({
+      description: coerceStr(o.description) ?? "",
+      quantity: coerceNum(o.quantity),
+      unit: coerceStr(o.unit),
+      unit_cost: coerceNum(o.unit_cost),
+      amount: coerceNum(o.amount),
+    }))
+    .filter((it) => it.description || it.amount != null);
+  if (!whole && !items.length) {
+    if (!lastExtractError) lastExtractError = "Couldn't read that bill.";
+    return null;
+  }
+  return {
+    vendor: coerceStr(whole?.vendor),
+    bill_number: coerceStr(whole?.bill_number),
+    bill_date: coerceStr(whole?.bill_date),
+    due_date: coerceStr(whole?.due_date),
+    terms: coerceStr(whole?.terms),
+    items,
+    subtotal: coerceNum(whole?.subtotal),
+    tax: coerceNum(whole?.tax),
+    freight: coerceNum(whole?.freight),
+    total: coerceNum(whole?.total),
+  };
+}
+
+// ===========================================================================
 // JOB NOTES → STRUCTURED ESTIMATE  (typed text OR a photo of handwritten notes)
 // ===========================================================================
 

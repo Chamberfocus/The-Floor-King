@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { extractBill, getLastExtractError, type ExtractedBill } from "@/lib/extract";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -41,6 +42,117 @@ function refreshAP() {
   revalidatePath("/bills");
   revalidatePath("/pulse");
   revalidatePath("/purchase-orders");
+}
+
+/** Read an uploaded vendor bill/invoice (PDF or image already in storage) into a
+ *  structured bill so the user reviews & confirms instead of retyping. */
+export async function extractBillFromUpload(
+  storagePath: string,
+  storageMime: string,
+): Promise<{ error: string | null; bill?: ExtractedBill }> {
+  if (!storagePath) return { error: "No file uploaded." };
+  const ctx = await staffClient();
+  if (!ctx) return { error: "You must be signed in." };
+  if (!process.env.ANTHROPIC_API_KEY)
+    return { error: "Reading bills needs the AI key (ANTHROPIC_API_KEY in Vercel)." };
+
+  const { data: signed } = await ctx.supabase.storage
+    .from("documents")
+    .createSignedUrl(storagePath, 600);
+  if (!signed?.signedUrl) return { error: "Couldn't open the uploaded file." };
+
+  const isPdf =
+    storagePath.toLowerCase().endsWith(".pdf") || storageMime.includes("pdf");
+  const bill = await extractBill({
+    url: signed.signedUrl,
+    mediaType: storageMime || (isPdf ? "application/pdf" : "image/jpeg"),
+  });
+  if (!bill)
+    return {
+      error:
+        getLastExtractError() ||
+        "Couldn't read that bill — try a clearer scan or enter it by hand.",
+    };
+  return { error: null, bill };
+}
+
+export interface ImportBillInput {
+  vendor: string;
+  bill_number: string;
+  bill_date: string;
+  due_date: string;
+  terms: string;
+  memo: string;
+  items: {
+    description: string;
+    quantity: number | null;
+    unit: string;
+    unit_cost: number | null;
+  }[];
+}
+
+/** Create a Bill from reviewed, imported data. Matches an existing supplier by
+ *  name so the bill ties into the vendor. Returns the new bill id to open. */
+export async function createBillFromImport(
+  input: ImportBillInput,
+): Promise<{ ok: boolean; billId?: string; error?: string }> {
+  const ctx = await staffClient();
+  if (!ctx) return { ok: false, error: "You must be signed in." };
+  const { supabase, userId } = ctx;
+
+  const items = (input.items ?? []).filter(
+    (i) => i.description?.trim() || (i.unit_cost ?? 0) !== 0,
+  );
+  if (!input.vendor?.trim() && !items.length)
+    return { ok: false, error: "Nothing to import — no vendor or line items found." };
+
+  // Link to an existing supplier if the name matches.
+  let supplierId: string | null = null;
+  if (input.vendor?.trim()) {
+    const { data: sup } = await supabase
+      .from("suppliers")
+      .select("id")
+      .ilike("name", input.vendor.trim())
+      .limit(1)
+      .maybeSingle();
+    supplierId = (sup?.id as string) ?? null;
+  }
+
+  const billDate = input.bill_date || ymd(new Date());
+  const terms = input.terms || "net_30";
+  const dueDate = input.due_date || addDaysYmd(billDate, termDays(terms));
+
+  const { data: bill, error } = await supabase
+    .from("bills")
+    .insert({
+      supplier: input.vendor?.trim() || null,
+      supplier_id: supplierId,
+      bill_number: input.bill_number?.trim() || null,
+      bill_date: billDate,
+      due_date: dueDate,
+      terms,
+      memo: input.memo?.trim() || null,
+      created_by: userId,
+    })
+    .select("id")
+    .single();
+  if (error || !bill) return { ok: false, error: error?.message || "Couldn't create the bill." };
+
+  if (items.length) {
+    await supabase.from("bill_items").insert(
+      items.map((it, i) => ({
+        bill_id: bill.id,
+        position: i,
+        description: it.description?.trim() || "",
+        quantity: it.quantity,
+        unit: it.unit || "ea",
+        unit_cost: it.unit_cost,
+      })),
+    );
+  }
+
+  refreshAP();
+  return { ok: true, billId: bill.id as string };
 }
 
 /** Turn a purchase order into a Bill (accounts payable): copies the vendor and

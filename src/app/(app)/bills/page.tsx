@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Receipt, AlertTriangle } from "lucide-react";
+import { Receipt, AlertTriangle, FileUp } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { requireProfile } from "@/lib/auth";
 import { listBills, getAPSummary, type BillStatus } from "@/lib/data/bills";
@@ -28,7 +29,11 @@ export default async function BillsPage() {
       <PageHeader
         title="Bills"
         description="What you owe your vendors — created from purchase orders, paid down over time."
-      />
+      >
+        <Link href="/bills/import" className={buttonVariants({ size: "lg" })}>
+          <FileUp className="size-4" /> Import bill
+        </Link>
+      </PageHeader>
 
       {/* AP summary */}
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
