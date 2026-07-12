@@ -10,6 +10,7 @@ import { JOB_DELIVERY_LABELS } from "@/lib/types";
 import { MATERIAL_TYPE_LABEL } from "@/lib/job-scope";
 import { formatDate } from "@/lib/format";
 import { applyToJob, withdrawApplication } from "../jobs/actions";
+import { EditWantedDatesButton } from "../jobs/[id]/edit-wanted-dates-button";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 
 export const metadata: Metadata = { title: "Job Board" };
@@ -147,7 +148,16 @@ export default async function JobBoardPage() {
                           </Button>
                         </form>
                       )
-                    ) : null}
+                    ) : (
+                      <EditWantedDatesButton
+                        jobId={j.id}
+                        wantedStart={j.board_wanted_start}
+                        wantedEnd={j.board_wanted_end}
+                        expectedDays={j.board_expected_days}
+                        size="lg"
+                        label="Edit dates"
+                      />
+                    )}
                   </div>
                 </CardContent>
               </Card>

@@ -73,6 +73,7 @@ import { buildInstallScheduleProps } from "@/lib/data/install-schedule";
 import { InstallSchedule } from "@/app/(app)/customers/[id]/install-schedule";
 import { ScheduleInstallButton } from "./schedule-install-button";
 import { PostToBoardButton } from "./post-to-board-button";
+import { EditWantedDatesButton } from "./edit-wanted-dates-button";
 import { buildJobScope, lineSpec, PAD_ROLL_SQYD } from "@/lib/job-scope";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
@@ -415,6 +416,17 @@ export default async function JobPage({
                   </span>
                 ) : null}
               </p>
+            ) : null}
+            {job.open_for_claim || job.assigned_to ? (
+              <div className="mt-2">
+                <EditWantedDatesButton
+                  jobId={job.id}
+                  wantedStart={job.board_wanted_start}
+                  wantedEnd={job.board_wanted_end}
+                  expectedDays={job.board_expected_days}
+                  assigned={!!job.assigned_to}
+                />
+              </div>
             ) : null}
           </CardContent>
         </Card>

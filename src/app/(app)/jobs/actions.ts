@@ -862,6 +862,81 @@ export async function postJobToBoard(formData: FormData): Promise<void> {
   revalidatePath("/board");
 }
 
+/** Change the dates the customer wants the job done. Works whether the job is on
+ *  the board OR already sent to an installer. If an installer/crew is on it, they
+ *  get a text/email about the new requested window. */
+export async function updateWantedDates(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const supabase = await createClient();
+  const wantedStart = str(formData.get("wanted_start")) || null;
+  const wantedEnd = str(formData.get("wanted_end")) || null;
+  const daysRaw = str(formData.get("expected_days"));
+  const expectedDays = daysRaw ? Math.max(0, parseFloat(daysRaw)) || null : null;
+  await supabase
+    .from("jobs")
+    .update({
+      board_wanted_start: wantedStart,
+      board_wanted_end: wantedEnd,
+      board_expected_days: expectedDays,
+    })
+    .eq("id", id);
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("customer_id, assigned_to, assigned_crew_id, title")
+    .eq("id", id)
+    .maybeSingle();
+
+  // Tell the assigned installer/crew about the new requested window (best-effort).
+  if (job && (wantedStart || wantedEnd) && (job.assigned_to || job.assigned_crew_id)) {
+    const fmt = (d: string) =>
+      new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const win = wantedStart
+      ? `${fmt(wantedStart)}${wantedEnd ? ` – ${fmt(wantedEnd)}` : ""}`
+      : "updated";
+    const line = `Requested dates for "${(job.title as string) || "an install"}" changed to ${win}.`;
+    try {
+      if (job.assigned_to) {
+        const { data: p } = await supabase
+          .from("profiles")
+          .select("email, phone")
+          .eq("id", job.assigned_to)
+          .maybeSingle();
+        if (p?.email)
+          await sendEmail({
+            to: p.email as string,
+            subject: "Requested install dates changed",
+            html: emailLayout("Requested dates updated", `<p>${line}</p>`, {
+              label: "Open my schedule",
+              url: `${siteUrl()}/installer`,
+            }),
+          }).catch(() => {});
+        if (p?.phone) await sendSms(p.phone as string, `Floor King: ${line}`).catch(() => {});
+      }
+      if (job.assigned_crew_id) {
+        const { data: cr } = await supabase
+          .from("install_crews")
+          .select("email, phone")
+          .eq("id", job.assigned_crew_id)
+          .maybeSingle();
+        if (cr?.email)
+          await sendEmail({
+            to: cr.email as string,
+            subject: "Requested install dates changed",
+            html: emailLayout("Requested dates updated", `<p>${line}</p>`),
+          }).catch(() => {});
+        if (cr?.phone) await sendSms(cr.phone as string, `Floor King: ${line}`).catch(() => {});
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  revalidateJobEverywhere(id, (job?.customer_id as string | null) ?? null);
+  revalidatePath("/board");
+}
+
 export async function unpostJobFromBoard(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   if (!id) return;
