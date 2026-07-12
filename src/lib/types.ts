@@ -1164,6 +1164,8 @@ export interface BusinessSettings {
   sample_default_deposit: number;
   sample_max_out: number; // 0 = no limit
   installer_collects_balance: boolean; // installers can collect the balance on site
+  notify_staff: boolean; // texts/emails to staff, installers, warehouse, sales
+  notify_customers: boolean; // texts/emails to customers (off until ready)
   updated_at: string;
 }
 

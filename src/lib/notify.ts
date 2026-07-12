@@ -49,6 +49,9 @@ export async function sendEmail(opts: {
     process.env.NOTIFY_FROM_EMAIL ||
     `${COMPANY_NAME} <onboarding@resend.dev>`;
   if (!key || !opts.to) return false;
+  // Master switches: never email a customer while customer notifications are off.
+  const { notifyAllowed } = await import("@/lib/notify-gate");
+  if (!(await notifyAllowed({ email: opts.to }))) return false;
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",

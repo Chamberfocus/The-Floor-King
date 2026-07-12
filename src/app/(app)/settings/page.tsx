@@ -8,6 +8,7 @@ import {
   ShoppingCart,
   GitBranch,
   UserCog,
+  BellRing,
   Truck,
   Target,
   CalendarRange,
@@ -87,6 +88,12 @@ const SECTIONS = [
     icon: GitBranch,
     title: "Workflow stages",
     desc: "The pipeline stages a customer moves through.",
+  },
+  {
+    href: "/settings/notifications",
+    icon: BellRing,
+    title: "Notifications",
+    desc: "Master switches for staff vs. customer texts & emails.",
   },
   {
     href: "/settings/team",

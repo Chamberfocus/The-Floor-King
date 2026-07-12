@@ -8,6 +8,9 @@ export async function sendSms(to: string, body: string): Promise<boolean> {
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM;
   if (!sid || !token || !from || !to) return false;
+  // Master switches: never text a customer while customer notifications are off.
+  const { notifyAllowed } = await import("@/lib/notify-gate");
+  if (!(await notifyAllowed({ phone: to }))) return false;
 
   // Normalize to E.164-ish (US default) if a bare 10-digit number is given.
   let dest = to.replace(/[^\d+]/g, "");

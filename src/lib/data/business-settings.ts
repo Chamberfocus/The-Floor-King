@@ -10,6 +10,8 @@ const DEFAULTS: BusinessSettings = {
   sample_default_deposit: 0,
   sample_max_out: 0,
   installer_collects_balance: false,
+  notify_staff: true,
+  notify_customers: false,
   updated_at: "",
 };
 
