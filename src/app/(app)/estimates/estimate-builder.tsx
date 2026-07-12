@@ -93,6 +93,21 @@ function isLaborLine(l: LineState): boolean {
   return laborish > 0 && materialish === 0;
 }
 
+/** Subfloor / underlayment sheet goods — priced by the sheet, valid under carpet
+ *  or hard surface. "Confirm on site" leaves the count/price to fill in later. */
+const SUBFLOOR_OPTIONS = [
+  '1/4" Plywood',
+  '3/8" Plywood',
+  '1/2" Plywood',
+  '3/4" Plywood',
+  "Custom",
+  "Confirm on job site",
+] as const;
+/** A subfloor line is underlayment priced by the sheet. */
+function isSubfloor(l: LineState): boolean {
+  return l.category === "underlayment" && l.unit === "sheet";
+}
+
 // Typical material waste by category (%), used as a smart default on pick.
 const WASTE_BY_CATEGORY: Record<string, number> = {
   carpet: 10,
@@ -354,11 +369,39 @@ export function EstimateBuilder({
     setOptions((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== oi) : prev));
 
   const addLine = (oi: number, asLabor = false) => {
-    const line: LineState = asLabor ? { ...emptyLine(), category: "labor" } : emptyLine();
+    // Carry the manufacturer forward from the last material line so multiple cuts
+    // of the same carpet don't need it retyped (the catalog fills it when picked).
+    let manufacturer = "";
+    if (!asLabor) {
+      const prevMat = [...(options[oi]?.lines ?? [])]
+        .reverse()
+        .find((l) => !isLaborLine(l) && l.manufacturer.trim());
+      manufacturer = prevMat?.manufacturer ?? "";
+    }
+    const line: LineState = asLabor
+      ? { ...emptyLine(), category: "labor" }
+      : { ...emptyLine(), manufacturer };
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
     setOpenLines((s) => new Set(s).add(line.key)); // open the new line for editing
+  };
+
+  /** Add a subfloor line (underlayment, priced by the sheet). */
+  const addSubfloor = (oi: number, label: string) => {
+    const confirm = label === "Confirm on job site";
+    const line: LineState = {
+      ...emptyLine(),
+      category: "underlayment",
+      unit: "sheet",
+      line_type: "installed",
+      description: confirm ? "Subfloor — confirm thickness & sheets on site" : `Subfloor — ${label}`,
+      quantity: confirm ? "" : "1",
+    };
+    setOptions((prev) =>
+      prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
+    );
+    setOpenLines((s) => new Set(s).add(line.key));
   };
 
   const removeLine = (oi: number, li: number) =>
@@ -932,45 +975,59 @@ export function EstimateBuilder({
                       />
                     </div>
 
-                    <details className="mt-2 rounded-md border bg-card [&_summary]:list-none">
-                    <summary className="cursor-pointer px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
-                      Catalog details (manufacturer, style, color, item #)
-                    </summary>
-                    <div className="grid grid-cols-2 gap-2 border-t p-2.5 sm:grid-cols-4">
-                      <Input
-                        value={line.manufacturer}
-                        onChange={(e) =>
-                          updateLine(oi, li, { manufacturer: e.target.value })
-                        }
-                        placeholder="Manufacturer"
-                        className="h-9"
-                      />
-                      <Input
-                        value={line.style}
-                        onChange={(e) =>
-                          updateLine(oi, li, { style: e.target.value })
-                        }
-                        placeholder="Style"
-                        className="h-9"
-                      />
-                      <Input
-                        value={line.color}
-                        onChange={(e) =>
-                          updateLine(oi, li, { color: e.target.value })
-                        }
-                        placeholder="Color"
-                        className="h-9"
-                      />
-                      <Input
-                        value={line.item_no}
-                        onChange={(e) =>
-                          updateLine(oi, li, { item_no: e.target.value })
-                        }
-                        placeholder="Item #"
-                        className="h-9"
-                      />
-                    </div>
-                    </details>
+                    {/* Manufacturer + Color visible for material lines (color
+                        matters for carpet). Manufacturer auto-fills from the
+                        catalog on pick and carries to new cuts. */}
+                    {!isLaborLine(line) && !isSubfloor(line) ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">
+                            Manufacturer
+                          </label>
+                          <Input
+                            value={line.manufacturer}
+                            onChange={(e) =>
+                              updateLine(oi, li, { manufacturer: e.target.value })
+                            }
+                            placeholder="e.g. Shaw"
+                            className="h-9"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">
+                            Color
+                          </label>
+                          <Input
+                            value={line.color}
+                            onChange={(e) => updateLine(oi, li, { color: e.target.value })}
+                            placeholder={line.category === "carpet" ? "e.g. Seagull" : "Color / finish"}
+                            className="h-9"
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {!isSubfloor(line) ? (
+                      <details className="mt-2 rounded-md border bg-card [&_summary]:list-none">
+                        <summary className="cursor-pointer px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
+                          More catalog details (style, item #)
+                        </summary>
+                        <div className="grid grid-cols-2 gap-2 border-t p-2.5">
+                          <Input
+                            value={line.style}
+                            onChange={(e) => updateLine(oi, li, { style: e.target.value })}
+                            placeholder="Style"
+                            className="h-9"
+                          />
+                          <Input
+                            value={line.item_no}
+                            onChange={(e) => updateLine(oi, li, { item_no: e.target.value })}
+                            placeholder="Item #"
+                            className="h-9"
+                          />
+                        </div>
+                      </details>
+                    ) : null}
 
                     <div className="mt-2 flex flex-wrap items-end gap-2">
                       <div>
@@ -1058,7 +1115,28 @@ export function EstimateBuilder({
                         </div>
                       ) : null}
 
-                      {line.line_type !== "flat" ? (
+                      {/* Subfloor: priced by the sheet — # sheets replaces L×W. */}
+                      {isSubfloor(line) ? (
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">
+                            # Sheets
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            inputMode="decimal"
+                            value={line.quantity}
+                            onChange={(e) =>
+                              updateLine(oi, li, { quantity: e.target.value })
+                            }
+                            placeholder="sheets"
+                            className={cn(inputSm, "w-20")}
+                          />
+                        </div>
+                      ) : null}
+
+                      {line.line_type !== "flat" && !isSubfloor(line) ? (
                         <>
                           <div>
                             <label className="mb-1 block text-xs text-muted-foreground">
@@ -1242,7 +1320,11 @@ export function EstimateBuilder({
 
                       {line.line_type === "installed" ? (
                         <LabeledNumber
-                          label={`Installed /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`}
+                          label={
+                            isSubfloor(line)
+                              ? "$ / sheet (installed)"
+                              : `Installed /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`
+                          }
                           prefix="$"
                           value={line.installed_rate}
                           onChange={(v) =>
@@ -1288,14 +1370,41 @@ export function EstimateBuilder({
                     </div>
                   );
                 })}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => addLine(oi, section === "labor")}
-                      >
-                        <Plus className="size-3.5" /> Add {section === "labor" ? "labor" : "material"}
-                      </Button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => addLine(oi, section === "labor")}
+                        >
+                          <Plus className="size-3.5" /> Add {section === "labor" ? "labor" : "material"}
+                        </Button>
+                        {section !== "labor" ? (
+                          <details className="relative [&_summary]:list-none">
+                            <summary className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2.5 py-1.5 text-sm font-medium hover:bg-muted">
+                              <Plus className="size-3.5" /> Add subfloor
+                            </summary>
+                            <div className="absolute z-20 mt-1 w-56 rounded-md border bg-popover p-1 shadow-md">
+                              <div className="px-2 py-1 text-xs text-muted-foreground">
+                                Plywood, priced by the sheet
+                              </div>
+                              {SUBFLOOR_OPTIONS.map((opt) => (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={(e) => {
+                                    addSubfloor(oi, opt);
+                                    (e.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+                                  }}
+                                  className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                                >
+                                  {opt}
+                                </button>
+                              ))}
+                            </div>
+                          </details>
+                        ) : null}
+                      </div>
                     </div>
                   );
                 })}
