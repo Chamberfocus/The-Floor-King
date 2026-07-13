@@ -236,7 +236,8 @@ export default async function InstallerHomePage() {
                         <span className="ml-auto text-xs font-normal text-muted-foreground">tap to collapse</span>
                       </summary>
                       <div className="pt-3">
-                        <JobScopeView scope={scope} showPrices={!!job.show_prices} />
+                        {/* Installers never see estimate/job prices. */}
+                        <JobScopeView scope={scope} showPrices={false} />
                       </div>
                     </details>
 

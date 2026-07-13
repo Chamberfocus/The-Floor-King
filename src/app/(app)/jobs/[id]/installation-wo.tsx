@@ -101,6 +101,7 @@ export function InstallationWorkOrderDoc({
   assignedName,
   collectOnSite = null,
   expectedDays = null,
+  showPrices = false,
 }: {
   org: OrgSettings;
   job: JobDetail;
@@ -109,9 +110,10 @@ export function InstallationWorkOrderDoc({
   collectOnSite?: number | null;
   /** Expected install duration in days. */
   expectedDays?: number | null;
+  /** Show prices on the work order — staff only; installers never see them. */
+  showPrices?: boolean;
 }) {
   const scope = buildJobScope(job.line_items, job.notes);
-  const showPrices = !!job.show_prices;
   const totalSqft = scope.rooms.reduce((s, r) => s + (r.sqft ?? 0), 0);
 
   const site = [

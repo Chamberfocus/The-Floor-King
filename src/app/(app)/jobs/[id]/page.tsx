@@ -162,7 +162,9 @@ export default async function JobPage({
 
   // Completion (photos, sign-off, balance) is captured by the crew on their My
   // Work page; the job page shows it read-only.
-  const showPrices = !!job.show_prices;
+  // Prices are for staff only — installers never see estimate/job financials
+  // (the COD balance to collect is handled separately).
+  const showPrices = isStaff && !!job.show_prices;
   // Room-grouped scope — the same source the printed installation work order uses.
   const scope = buildJobScope(job.line_items, job.notes);
   const renderLine = (l: (typeof job.line_items)[number]) => {
@@ -246,6 +248,7 @@ export default async function JobPage({
         assignedName={assignedName}
         collectOnSite={woCollectBalance}
         expectedDays={installProps?.installEst?.days ?? null}
+        showPrices={showPrices}
       />
       <JobStepPopup
         jobs={[{ ...progress, title: job.title, justCreated }]}
