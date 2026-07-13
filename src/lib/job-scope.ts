@@ -1,4 +1,4 @@
-import type { EstimateLineItem } from "@/lib/types";
+import { isRollGoodCategory, type EstimateLineItem } from "@/lib/types";
 
 // Carpet padding is bought by the roll; the shop's standard roll covers this
 // many square yards (matches the estimate builder's roll math).
@@ -26,7 +26,12 @@ export function lineSpec(l: {
   const q = Number(l.quantity) || 0;
   const unit = l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft");
   const qty = q > 0 ? `${Math.round(q * 100) / 100} ${unit}` : l.sqft ? `${l.sqft} sq ft` : "";
-  const cut = l.length_in && l.width_in ? `${ftIn(l.width_in)} × ${ftIn(l.length_in)}` : "";
+  // Cuts only apply to roll goods (carpet / sheet vinyl). Hard surface is sold
+  // by the square foot in cartons and never has a cut size.
+  const cut =
+    isRollGoodCategory(l.category) && l.length_in && l.width_in
+      ? `${ftIn(l.width_in)} × ${ftIn(l.length_in)}`
+      : "";
   const sqyd = q > 0 ? (unit.toLowerCase().includes("yd") ? q : q / 9) : 0;
   const rolls = l.category === "underlayment" && sqyd > 0 ? Math.ceil(sqyd / PAD_ROLL_SQYD) : 0;
   return { qty, cut, rolls };

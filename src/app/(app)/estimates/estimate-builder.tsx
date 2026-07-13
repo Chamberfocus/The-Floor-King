@@ -30,6 +30,7 @@ import {
   type Product,
   type Customer,
   type OrgSettings,
+  isRollGoodCategory,
 } from "@/lib/types";
 import { saveEstimate } from "./actions";
 import { writeScopeDescription } from "./ai-actions";
@@ -545,8 +546,10 @@ export function EstimateBuilder({
       .includes("yd")
       ? "sqyd"
       : "sqft";
+    // Roll goods (carpet + sheet vinyl) are quoted by the square yard; hard
+    // surface follows its catalog unit (square foot).
     const measure_unit: MeasureUnit =
-      p.category === "carpet" ? "sqyd" : catalogUnit;
+      isRollGoodCategory(p.category) ? "sqyd" : catalogUnit;
     const factor =
       measure_unit === catalogUnit ? 1 : measure_unit === "sqyd" ? 9 : 1 / 9;
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
@@ -1114,8 +1117,9 @@ export function EstimateBuilder({
                         </div>
                       ) : null}
 
-                      {/* Order as roll — PO shows one roll; work order keeps the cuts */}
-                      {line.line_type !== "flat" && line.category !== "labor" && !line.from_stock ? (
+                      {/* Order as roll — PO shows one roll; work order keeps the cuts.
+                          Roll goods only (carpet / sheet vinyl); hard surface has no cuts. */}
+                      {line.line_type !== "flat" && line.category !== "labor" && !line.from_stock && isRollGoodCategory(line.category) ? (
                         <div>
                           <label className="mb-1 block text-xs text-muted-foreground">Order as</label>
                           <div className="flex items-center gap-2">
@@ -1176,6 +1180,10 @@ export function EstimateBuilder({
 
                       {line.line_type !== "flat" && !isSubfloor(line) ? (
                         <>
+                          {/* L×W cut dimensions — roll goods only (carpet / sheet
+                              vinyl). Hard surface is measured in square feet. */}
+                          {isRollGoodCategory(line.category) ? (
+                          <>
                           <div>
                             <label className="mb-1 block text-xs text-muted-foreground">
                               Length (ft / in)
@@ -1238,6 +1246,8 @@ export function EstimateBuilder({
                               />
                             </div>
                           </div>
+                          </>
+                          ) : null}
                           <div className="flex items-end gap-2">
                             <LabeledNumber
                               label="Sq ft"
@@ -1253,9 +1263,11 @@ export function EstimateBuilder({
                               onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
                             />
                           </div>
-                          <div className="pb-2 text-xs text-muted-foreground">
-                            {(num(line.sqft) / 9).toFixed(1)} sq yd
-                          </div>
+                          {isRollGoodCategory(line.category) ? (
+                            <div className="pb-2 text-xs text-muted-foreground">
+                              {(num(line.sqft) / 9).toFixed(1)} sq yd
+                            </div>
+                          ) : null}
                           <LabeledNumber
                             label={`Qty${line.unit ? ` (${line.unit})` : ""}`}
                             value={line.quantity}

@@ -391,6 +391,20 @@ export type ProductCategory =
   | "labor"
   | "other";
 
+/**
+ * Roll goods — carpet and sheet vinyl — come off a wide roll, are sold by the
+ * square yard, and are cut to size (so each piece has a cut dimension). Hard
+ * surface (LVP, hardwood, laminate, tile) ships in cartons, is sold by the
+ * square foot, and has NO cuts. This distinction drives cut/roll UI and the
+ * work-order cut sizes.
+ */
+export const ROLL_GOOD_CATEGORIES: ProductCategory[] = ["carpet", "vinyl"];
+export function isRollGoodCategory(
+  category: string | null | undefined,
+): boolean {
+  return category === "carpet" || category === "vinyl";
+}
+
 export type EstimateStatus =
   | "draft"
   | "sent"
