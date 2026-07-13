@@ -405,6 +405,43 @@ export function isRollGoodCategory(
   return category === "carpet" || category === "vinyl";
 }
 
+/** Hard surface — LVP, hardwood, laminate, tile — ships in cartons, sold by the
+ *  square foot, no cuts. The boxed-goods counterpart to roll goods. */
+export const HARD_SURFACE_CATEGORIES: ProductCategory[] = [
+  "lvp",
+  "hardwood",
+  "laminate",
+  "tile",
+];
+export function isHardSurfaceCategory(
+  category: string | null | undefined,
+): boolean {
+  return (
+    category === "lvp" ||
+    category === "hardwood" ||
+    category === "laminate" ||
+    category === "tile"
+  );
+}
+
+/**
+ * THE single classifier the field documents (staging sheet, work order, PO)
+ * branch on, so carpet and hard-surface jobs always produce product-appropriate
+ * content. "roll" = carpet/sheet vinyl (sq yd, cuts, pad); "hard" = boxed goods
+ * (sq ft → cartons, lot/dye, subfloor prep); the rest are accessories/labor.
+ */
+export type MaterialClass = "roll" | "hard" | "pad" | "trim" | "labor" | "other";
+export function materialClass(
+  category: string | null | undefined,
+): MaterialClass {
+  if (isRollGoodCategory(category)) return "roll";
+  if (isHardSurfaceCategory(category)) return "hard";
+  if (category === "underlayment") return "pad";
+  if (category === "trim") return "trim";
+  if (category === "labor") return "labor";
+  return "other";
+}
+
 export type EstimateStatus =
   | "draft"
   | "sent"
@@ -540,6 +577,7 @@ export interface EstimateLineItem {
   margin_pct?: number | null; // per-line margin override (%); null = follow overall
   order_as_roll?: boolean; // PO shows one roll; work order keeps the cut sizes
   roll_width_ft?: number | null; // broadloom width (12 / 15) for the roll math
+  sqft_per_box?: number | null; // hard surface: coverage per carton → carton count
 }
 
 export interface EstimateOption {
@@ -860,6 +898,12 @@ export interface PoItem {
   for_job_id: string | null;
   for_customer_id: string | null;
   note: string | null;
+  // Vendor-unit helpers: product category (for carpet-vs-hard rendering), hard
+  // surface → carton count = ceil(qty / sqft_per_box); carpet → broadloom roll
+  // width. Null when not applicable.
+  category: string | null;
+  sqft_per_box: number | null;
+  roll_width_ft: number | null;
 }
 
 // Where a PO's materials come from. Manufacturer/Distributor = an outside order;

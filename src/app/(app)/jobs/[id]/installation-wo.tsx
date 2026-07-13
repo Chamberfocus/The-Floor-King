@@ -4,15 +4,31 @@ import { formatDate, formatMoney, to12 } from "@/lib/format";
 import {
   JOB_STATUS_LABELS,
   JOB_DELIVERY_LABELS,
+  isHardSurfaceCategory,
   type EstimateLineItem,
   type OrgSettings,
 } from "@/lib/types";
-import { buildJobScope, lineSpec, PAD_ROLL_SQYD, type ScopeRoom } from "@/lib/job-scope";
+import {
+  buildJobScope,
+  jobMaterialType,
+  lineSpec,
+  MATERIAL_TYPE_LABEL,
+  PAD_ROLL_SQYD,
+  type ScopeRoom,
+} from "@/lib/job-scope";
 import type { JobDetail } from "@/lib/data/jobs";
 
 /** One scope line, rendered the same in every section of the work order. */
 function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean }) {
   const spec = lineSpec(l);
+  // Hard surface installs by the carton — show the box count so the crew knows
+  // how many to open, with the sq-ft basis.
+  const spb = Number(l.sqft_per_box) || 0;
+  const sf = Number(l.quantity) || Number(l.sqft) || 0;
+  const cartons =
+    isHardSurfaceCategory(l.category) && spb > 0 && sf > 0
+      ? Math.ceil(sf / spb)
+      : 0;
   return (
     <tr className="border-b align-top">
       <td className="py-1 pr-2">
@@ -30,6 +46,12 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
         {spec.rolls ? (
           <span className="text-gray-600">
             {"  "}· {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd
+          </span>
+        ) : null}
+        {cartons ? (
+          <span className="font-semibold text-gray-700">
+            {"  "}📦 {cartons} carton{cartons === 1 ? "" : "s"}
+            <span className="font-normal text-gray-500"> ({spb} sq ft/box)</span>
           </span>
         ) : null}
       </td>
@@ -115,6 +137,10 @@ export function InstallationWorkOrderDoc({
 }) {
   const scope = buildJobScope(job.line_items, job.notes);
   const totalSqft = scope.rooms.reduce((s, r) => s + (r.sqft ?? 0), 0);
+  const matType = jobMaterialType(job.line_items);
+  const hasRoll = matType === "carpet" || matType === "both";
+  const hasHard = matType === "hard" || matType === "both";
+  const hasHardwood = job.line_items.some((l) => l.category === "hardwood");
 
   const site = [
     job.site_street,
@@ -135,6 +161,7 @@ export function InstallationWorkOrderDoc({
     : null;
 
   const facts: [string, string | null][] = [
+    ["Job type", matType ? MATERIAL_TYPE_LABEL[matType] : null],
     ["Installer / crew", assignedName ?? null],
     ["Arrival", windowLabel],
     ["Expected", expectedDays ? `${expectedDays} day${expectedDays === 1 ? "" : "s"}` : null],
@@ -227,6 +254,33 @@ export function InstallationWorkOrderDoc({
               <li key={i}>{c}</li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {/* Product-specific install reminders — carpet vs hard surface work differ. */}
+      {hasRoll || hasHard ? (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {hasRoll ? (
+            <div className="break-inside-avoid rounded border border-gray-300 p-2 text-xs">
+              <div className="mb-0.5 font-semibold">Carpet / sheet vinyl</div>
+              <ul className="list-disc pl-4 text-gray-700">
+                <li>Plan seams &amp; pile direction before cutting — keep direction consistent room to room.</li>
+                <li>Verify tackless is secured (concrete vs wood) and pad seams are offset from carpet seams.</li>
+                <li>Match cut sizes on this order; save usable remnants.</li>
+              </ul>
+            </div>
+          ) : null}
+          {hasHard ? (
+            <div className="break-inside-avoid rounded border border-gray-300 p-2 text-xs">
+              <div className="mb-0.5 font-semibold">Hard surface</div>
+              <ul className="list-disc pl-4 text-gray-700">
+                <li>Confirm subfloor prep &amp; moisture per room (below) before laying.</li>
+                <li>Dry-fit / rack from multiple cartons; verify all boxes are the same lot / dye lot.</li>
+                {hasHardwood ? <li>Hardwood: confirm acclimation is complete before install.</li> : null}
+                <li>Set transitions &amp; molding per area as specified.</li>
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

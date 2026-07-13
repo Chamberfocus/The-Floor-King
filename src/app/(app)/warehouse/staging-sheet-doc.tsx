@@ -1,6 +1,11 @@
 import { PrintLetterhead } from "@/components/print-letterhead";
 import { formatDate } from "@/lib/format";
-import { JOB_DELIVERY_LABELS, isRollGoodCategory, type OrgSettings } from "@/lib/types";
+import {
+  JOB_DELIVERY_LABELS,
+  isRollGoodCategory,
+  isHardSurfaceCategory,
+  type OrgSettings,
+} from "@/lib/types";
 import { ftIn } from "@/lib/job-scope";
 import type { WarehouseJob } from "@/lib/data/jobs";
 import type { JobMaterialLine } from "@/lib/data/job-materials";
@@ -97,12 +102,31 @@ export function StagingSheetDoc({
             </thead>
             <tbody>
               {lines.map((m) => {
-                const qty =
-                  m.qty > 0 ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim() : "";
-                // Cut to size applies to roll goods (carpet / sheet vinyl).
+                const isHard = isHardSurfaceCategory(m.category);
+                const isRoll = isRollGoodCategory(m.category);
+                // Hard surface pulls by the CARTON; show the sq-ft basis so the
+                // count is verifiable. Roll goods pull by the sq yd (+ cut).
+                const cartons =
+                  isHard && m.sqftPerBox && m.sqftPerBox > 0
+                    ? Math.ceil(m.qty / m.sqftPerBox)
+                    : 0;
+                const qtyMain = cartons
+                  ? `${cartons} carton${cartons === 1 ? "" : "s"}`
+                  : m.qty > 0
+                    ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim()
+                    : "";
+                const qtySub = cartons
+                  ? `${Math.round(m.qty * 100) / 100} sq ft ÷ ${m.sqftPerBox}/box`
+                  : isHard
+                    ? "⚠ set sq ft/box"
+                    : "";
                 const cut =
-                  isRollGoodCategory(m.category) && m.lengthIn && m.widthIn
+                  isRoll && m.lengthIn && m.widthIn
                     ? `${ftIn(m.widthIn)} × ${ftIn(m.lengthIn)}`
+                    : "";
+                const rollNote =
+                  isRoll && m.orderAsRoll && m.rollWidthFt
+                    ? `${m.rollWidthFt} ft roll`
                     : "";
                 const idTags = [m.manufacturer, m.color].filter(Boolean).join(" · ");
                 const sourceLabel =
@@ -110,7 +134,7 @@ export function StagingSheetDoc({
                     ? "Pull from stock"
                     : m.status === "arrived"
                       ? "Ordered ✓ arrived"
-                      : `Order${m.supplier ? ` · ${m.supplier}` : ""}`;
+                      : `⏳ Order${m.supplier ? ` · ${m.supplier}` : ""} — not yet in`;
                 return (
                   <tr key={m.lineId} className="border-b align-top">
                     <td className="py-1.5 pr-2">
@@ -124,11 +148,17 @@ export function StagingSheetDoc({
                       ) : null}
                     </td>
                     <td className="py-1.5 px-2 text-xs text-gray-600">{sourceLabel}</td>
-                    <td className="py-1.5 px-2 whitespace-nowrap font-semibold tabular-nums">
-                      {cut ? `✂ ${cut}` : <span className="text-gray-300">—</span>}
+                    <td className="py-1.5 px-2 whitespace-nowrap tabular-nums">
+                      {cut ? <span className="font-semibold">✂ {cut}</span> : null}
+                      {cut && rollNote ? " · " : null}
+                      {rollNote ? <span className="text-gray-600">{rollNote}</span> : null}
+                      {!cut && !rollNote ? <span className="text-gray-300">—</span> : null}
                     </td>
-                    <td className="py-1.5 pl-2 text-right tabular-nums text-gray-600">
-                      {qty}
+                    <td className="py-1.5 pl-2 text-right align-top tabular-nums text-gray-700">
+                      <div className="font-semibold">{qtyMain}</div>
+                      {qtySub ? (
+                        <div className="text-[11px] font-normal text-gray-500">{qtySub}</div>
+                      ) : null}
                     </td>
                   </tr>
                 );
@@ -141,6 +171,14 @@ export function StagingSheetDoc({
           </p>
         )}
       </div>
+
+      {lines.some((m) => isHardSurfaceCategory(m.category)) ? (
+        <div className="mt-3 break-inside-avoid rounded border-2 border-black p-2 text-sm">
+          <span className="font-semibold">⚠ Lot / dye lot:</span> verify all cartons
+          for each product are the <span className="font-semibold">same lot / dye lot</span>{" "}
+          before staging. Do not mix lots.
+        </div>
+      ) : null}
 
       {job.notes ? (
         <div className="mt-4 break-inside-avoid text-sm">

@@ -175,6 +175,7 @@ export async function saveEstimate(
         margin_pct: toNumOrNull(line.margin_pct ?? null),
         order_as_roll: !!line.order_as_roll,
         roll_width_ft: toNumOrNull(line.roll_width_ft ?? null),
+        sqft_per_box: toNumOrNull(line.sqft_per_box ?? null),
       }));
       const { error: lineError } = await supabase
         .from("estimate_line_items")

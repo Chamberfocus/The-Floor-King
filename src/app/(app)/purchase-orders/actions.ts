@@ -422,13 +422,25 @@ export async function savePurchaseOrder(
       for_job_id: it.for_job_id || null,
       for_customer_id: it.for_customer_id || null,
       note: it.note || null,
+      category: it.category || null,
+      sqft_per_box: toNumOrNull(it.sqft_per_box ?? null),
+      roll_width_ft: toNumOrNull(it.roll_width_ft ?? null),
     }));
     let { error: insertError } = await supabase.from("po_items").insert(rows);
     if (insertError) {
-      // Fallback for before the attribution migration (0097) is run — save the
-      // line items without the new columns so PO saving never breaks.
+      // Fallback for before the newer migrations (0097 attribution / 0098 units)
+      // are run — save the line items without the new columns so PO saving never
+      // breaks.
       const legacy = rows.map(
-        ({ for_job_id: _j, for_customer_id: _c, note: _n, ...r }) => r,
+        ({
+          for_job_id: _j,
+          for_customer_id: _c,
+          note: _n,
+          category: _cat,
+          sqft_per_box: _s,
+          roll_width_ft: _r,
+          ...r
+        }) => r,
       );
       ({ error: insertError } = await supabase.from("po_items").insert(legacy));
     }

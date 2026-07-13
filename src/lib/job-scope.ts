@@ -1,4 +1,8 @@
-import { isRollGoodCategory, type EstimateLineItem } from "@/lib/types";
+import {
+  isRollGoodCategory,
+  isHardSurfaceCategory,
+  type EstimateLineItem,
+} from "@/lib/types";
 
 // Carpet padding is bought by the roll; the shop's standard roll covers this
 // many square yards (matches the estimate builder's roll math).
@@ -37,25 +41,26 @@ export function lineSpec(l: {
   return { qty, cut, rolls };
 }
 
-/** Whether a job is carpet, hard surface, or both — from its line items. */
+/** Whether a job is roll goods (carpet + sheet vinyl), hard surface, or both —
+ *  from its line items. Sheet vinyl is a ROLL GOOD (sold by the sq yd, cut to
+ *  size), NOT hard surface — the single source of truth is isRollGoodCategory /
+ *  isHardSurfaceCategory in types.ts. */
 export type MaterialType = "carpet" | "hard" | "both" | null;
-const HARD_CATS = new Set(["lvp", "hardwood", "laminate", "tile", "vinyl"]);
 export const MATERIAL_TYPE_LABEL: Record<"carpet" | "hard" | "both", string> = {
-  carpet: "Carpet",
+  carpet: "Carpet / sheet vinyl",
   hard: "Hard surface",
-  both: "Carpet & hard surface",
+  both: "Roll goods & hard surface",
 };
 
 export function jobMaterialType(lineItems: { category: string | null }[]): MaterialType {
-  let carpet = false;
+  let roll = false;
   let hard = false;
   for (const l of lineItems) {
-    const c = (l.category || "").toLowerCase();
-    if (c === "carpet") carpet = true;
-    else if (HARD_CATS.has(c)) hard = true;
+    if (isRollGoodCategory(l.category)) roll = true;
+    else if (isHardSurfaceCategory(l.category)) hard = true;
   }
-  if (carpet && hard) return "both";
-  if (carpet) return "carpet";
+  if (roll && hard) return "both";
+  if (roll) return "carpet";
   if (hard) return "hard";
   return null;
 }

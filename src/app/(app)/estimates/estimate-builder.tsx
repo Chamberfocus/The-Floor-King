@@ -31,6 +31,7 @@ import {
   type Customer,
   type OrgSettings,
   isRollGoodCategory,
+  isHardSurfaceCategory,
 } from "@/lib/types";
 import { saveEstimate } from "./actions";
 import { writeScopeDescription } from "./ai-actions";
@@ -72,6 +73,7 @@ interface LineState {
   margin_pct: string; // per-line margin override (%); "" = follow the overall
   order_as_roll: boolean; // PO shows a roll; work order keeps the cuts
   roll_width_ft: string; // 12 or 15 (broadloom width)
+  sqft_per_box: string; // hard surface: coverage per carton → box count
 }
 
 const round2s = (n: number) => String(Math.round(n * 100) / 100);
@@ -280,6 +282,7 @@ export function EstimateBuilder({
     margin_pct: "",
     order_as_roll: false,
     roll_width_ft: "",
+    sqft_per_box: "",
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -331,6 +334,7 @@ export function EstimateBuilder({
         margin_pct: l.margin_pct != null ? String(l.margin_pct) : "",
         order_as_roll: !!l.order_as_roll,
         roll_width_ft: l.roll_width_ft != null ? String(l.roll_width_ft) : "",
+        sqft_per_box: l.sqft_per_box != null ? String(l.sqft_per_box) : "",
       })),
     }));
     return initial.length
@@ -708,6 +712,7 @@ export function EstimateBuilder({
         margin_pct: l.margin_pct || null,
         order_as_roll: l.order_as_roll,
         roll_width_ft: l.roll_width_ft || null,
+        sqft_per_box: l.sqft_per_box || null,
       })),
     })),
     target_margin: num(overallMargin) || null,
@@ -1318,6 +1323,21 @@ export function EstimateBuilder({
                           {isRollGoodCategory(line.category) ? (
                             <div className="pb-2 text-xs text-muted-foreground">
                               {(num(line.sqft) / 9).toFixed(1)} sq yd
+                            </div>
+                          ) : null}
+                          {isHardSurfaceCategory(line.category) ? (
+                            <div className="flex items-end gap-2">
+                              <LabeledNumber
+                                label="Sq ft / box"
+                                width="w-24"
+                                value={line.sqft_per_box}
+                                onChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
+                              />
+                              {num(line.sqft_per_box) > 0 && num(line.sqft) > 0 ? (
+                                <div className="pb-2 text-xs font-medium text-muted-foreground">
+                                  = {Math.ceil(num(line.sqft) / num(line.sqft_per_box))} cartons
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
                           <LabeledNumber

@@ -3,6 +3,8 @@ import { formatDate, formatMoney } from "@/lib/format";
 import {
   PO_STATUS_LABELS,
   PO_SOURCE_LABELS,
+  isHardSurfaceCategory,
+  isRollGoodCategory,
   type Customer,
   type OrgSettings,
   type PoItem,
@@ -18,10 +20,23 @@ function itemLabel(it: PoItem): string {
   return extra ? `${base} — ${extra}` : base;
 }
 
+/** Whether a PO line is hard surface / roll good — from the stored category,
+ *  falling back to the unit-helper columns for older lines with no category. */
+function poLineIsHard(it: PoItem): boolean {
+  if (it.category) return isHardSurfaceCategory(it.category);
+  return it.sqft_per_box != null && it.sqft_per_box > 0;
+}
+function poLineIsRoll(it: PoItem): boolean {
+  if (it.category) return isRollGoodCategory(it.category);
+  return (it.roll_width_ft != null && it.roll_width_ft > 0) ||
+    (it.unit || "").toLowerCase().includes("yd");
+}
+
 /**
- * The print-only PURCHASE ORDER — letterhead, who we're ordering from, where it
- * ships, and the line items with costs and a total. This is what you hand or
- * send to the vendor.
+ * The print-only PURCHASE ORDER — vendor-ready and unit-correct. Hard surface is
+ * ordered in CARTONS (with the sq-ft basis shown so the count is verifiable);
+ * carpet/sheet vinyl is ordered by the square yard with the broadloom roll width.
+ * A lot/dye-lot reminder prints on any hard-surface order.
  */
 export function PoPrintDoc({
   org,
@@ -37,6 +52,7 @@ export function PoPrintDoc({
     (s, it) => s + (it.quantity ?? 0) * (it.unit_cost ?? 0),
     0,
   );
+  const hasHard = items.some(poLineIsHard);
 
   return (
     <div className="hidden text-black print:block">
@@ -47,7 +63,7 @@ export function PoPrintDoc({
           <>
             <div className="text-xs">Date {formatDate(po.created_at)}</div>
             {po.eta_date ? (
-              <div className="text-xs">ETA {formatDate(po.eta_date)}</div>
+              <div className="text-xs font-medium">Needed by {formatDate(po.eta_date)}</div>
             ) : null}
             <div className="text-xs">
               Status: {PO_STATUS_LABELS[po.status]}
@@ -86,22 +102,44 @@ export function PoPrintDoc({
         <thead>
           <tr className="border-b text-left text-[11px] text-gray-500">
             <th className="py-1 pr-2 font-medium">Item</th>
-            <th className="py-1 px-2 text-right font-medium">Qty</th>
+            <th className="py-1 px-2 text-right font-medium">Order qty</th>
             <th className="py-1 px-2 text-right font-medium">Unit cost</th>
             <th className="py-1 pl-2 text-right font-medium">Amount</th>
           </tr>
         </thead>
         <tbody>
           {items.map((it) => {
-            const amount = (it.quantity ?? 0) * (it.unit_cost ?? 0);
+            const qty = it.quantity ?? 0;
+            const amount = qty * (it.unit_cost ?? 0);
+            const isHard = poLineIsHard(it);
+            const isRoll = poLineIsRoll(it);
+            const spb = it.sqft_per_box ?? 0;
+            // Hard surface: order in whole cartons; show the sq-ft basis so the
+            // count is verifiable. Carpet: yards + broadloom roll width.
+            const cartons = isHard && spb > 0 ? Math.ceil(qty / spb) : 0;
+            const orderQty = cartons
+              ? `${cartons} carton${cartons === 1 ? "" : "s"}`
+              : `${Math.round(qty * 100) / 100} ${it.unit ?? ""}`.trim();
+            const basis = cartons
+              ? `${Math.round(qty * 100) / 100} sq ft ÷ ${spb}/box`
+              : isHard
+                ? "⚠ set sq ft/box for carton count"
+                : isRoll && it.roll_width_ft
+                  ? `${it.roll_width_ft} ft broadloom roll`
+                  : "";
             return (
               <tr key={it.id} className="border-b align-top">
-                <td className="py-1 pr-2">{itemLabel(it)}</td>
-                <td className="py-1 px-2 text-right tabular-nums text-gray-600">
-                  {it.quantity ?? ""} {it.unit}
+                <td className="py-1 pr-2">
+                  {itemLabel(it)}
+                  {basis ? (
+                    <span className="block text-[11px] text-gray-500">{basis}</span>
+                  ) : null}
+                </td>
+                <td className="py-1 px-2 text-right font-medium tabular-nums text-gray-700">
+                  {orderQty}
                 </td>
                 <td className="py-1 px-2 text-right tabular-nums text-gray-600">
-                  {it.unit_cost != null ? formatMoney(it.unit_cost) : ""}
+                  {it.unit_cost != null ? `${formatMoney(it.unit_cost)}/${it.unit ?? ""}`.trim() : ""}
                 </td>
                 <td className="py-1 pl-2 text-right tabular-nums">
                   {formatMoney(amount)}
@@ -125,6 +163,14 @@ export function PoPrintDoc({
           <span>{formatMoney(total)}</span>
         </div>
       </div>
+
+      {hasHard ? (
+        <div className="mt-4 break-inside-avoid rounded border-2 border-black p-2 text-sm">
+          <span className="font-semibold">⚠ Lot / dye lot:</span> confirm every
+          carton ships from the <span className="font-semibold">same lot / dye lot</span>.
+          Mixed lots show as color variation on the finished floor.
+        </div>
+      ) : null}
 
       {po.notes ? (
         <div className="mt-6 break-inside-avoid text-sm">

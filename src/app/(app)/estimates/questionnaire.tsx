@@ -37,7 +37,8 @@ const numv = (v: string) => {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 // Carpet & pad bill per sq yd; everything else per sq ft.
-const YD_CATS = new Set(["carpet", "underlayment"]);
+// Roll goods bill by the square yard: carpet, sheet vinyl, and pad (underlayment).
+const YD_CATS = new Set(["carpet", "vinyl", "underlayment"]);
 function billing(category: string) {
   const wantYd = YD_CATS.has(category);
   return { wantYd, measureUnit: wantYd ? ("sqyd" as const) : ("sqft" as const), unitLabel: wantYd ? "sq yd" : "sq ft" };
@@ -473,11 +474,10 @@ export function Questionnaire({
       floorMapActive = true;
       allRooms.forEach((rm, i) => {
         const p = fa.byRoom[roomKey(rm.name, i)];
-        // A room "needs pad" only if it's getting carpet — matched by category or
-        // a yard-billed unit (so a mis-categorised carpet still counts, and hard
-        // surface never does). This carpet-only area is what padding bills on.
-        const isCarpet =
-          !!p && (p.category === "carpet" || (p.unit || "").toLowerCase().includes("yd"));
+        // A room "needs pad" only if it's getting CARPET — strictly by category.
+        // Sheet vinyl is a roll good (sq yd) but takes NO pad, so the old
+        // "yard-billed unit" fallback is intentionally gone.
+        const isCarpet = !!p && p.category === "carpet";
         if (isCarpet) carpetArea += rm.sqft;
       });
     }
@@ -534,6 +534,7 @@ export function Questionnaire({
               style: p.style,
               color: p.color,
               from_stock: p.source === "stock",
+              sqft_per_box: p.sqftPerBox ?? null,
             });
           // Accumulate install labor per distinct product.
           const key = `${p.productId || p.label}|${p.laborRate}`;
@@ -601,6 +602,7 @@ export function Questionnaire({
           style: p.style,
           color: p.color,
           from_stock: p.source === "stock",
+          sqft_per_box: p.sqftPerBox ?? null,
         });
         // Quantity to order/charge for `sf` sq ft of a product. Waste is baked
         // in; if a box size is set we snap UP to whole cartons so you charge for

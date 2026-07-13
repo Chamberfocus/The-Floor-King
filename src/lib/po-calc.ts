@@ -34,6 +34,9 @@ export interface SavePoItemInput {
   for_job_id?: string | null;
   for_customer_id?: string | null;
   note?: string | null;
+  category?: string | null;
+  sqft_per_box?: string | number | null;
+  roll_width_ft?: string | number | null;
 }
 
 export interface SavePoInput {

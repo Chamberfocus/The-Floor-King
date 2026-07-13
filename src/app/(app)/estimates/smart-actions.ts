@@ -105,6 +105,7 @@ export interface SmartLine {
   style: string | null;
   color: string | null;
   from_stock?: boolean; // pulled from stock → kept off the PO
+  sqft_per_box?: number | null; // hard surface: coverage per carton
 }
 
 export interface SmartEstimateInput {
@@ -211,6 +212,7 @@ export async function createSmartEstimate(
     style: l.style || null,
     color: l.color || null,
     from_stock: !!l.from_stock,
+    sqft_per_box: l.sqft_per_box && l.sqft_per_box > 0 ? l.sqft_per_box : null,
   }));
   const { error: lineErr } = await supabase
     .from("estimate_line_items")

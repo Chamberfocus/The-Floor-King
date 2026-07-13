@@ -225,9 +225,20 @@ async function createPOForLines(
         style: l.style ?? null,
         color: l.color ?? null,
         item_no: l.item_no ?? null,
+        // Vendor units: hard surface orders in cartons, carpet by the roll.
+        category: l.category ?? null,
+        sqft_per_box: l.sqft_per_box ?? null,
+        roll_width_ft: l.roll_width_ft ?? null,
       };
     });
-    await db.from("po_items").insert(items);
+    const { error: itemErr } = await db.from("po_items").insert(items);
+    if (itemErr) {
+      // Fallback for before migration 0098 (po_items units) is run.
+      const legacy = items.map(
+        ({ category: _c, sqft_per_box: _s, roll_width_ft: _r, ...rest }) => rest,
+      );
+      await db.from("po_items").insert(legacy);
+    }
   }
 }
 

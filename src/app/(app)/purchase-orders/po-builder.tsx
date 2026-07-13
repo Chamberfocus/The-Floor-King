@@ -43,6 +43,9 @@ interface ItemState {
   for_job_id: string;
   for_customer_id: string;
   note: string;
+  category: string;
+  sqft_per_box: string;
+  roll_width_ft: string;
 }
 
 const inputSm =
@@ -82,6 +85,9 @@ export function PoBuilder({
     for_job_id: "",
     for_customer_id: "",
     note: "",
+    category: "",
+    sqft_per_box: "",
+    roll_width_ft: "",
   });
 
   const [supplier, setSupplier] = useState(po.supplier ?? "");
@@ -108,6 +114,9 @@ export function PoBuilder({
       for_job_id: it.for_job_id ?? "",
       for_customer_id: it.for_customer_id ?? "",
       note: it.note ?? "",
+      category: it.category ?? "",
+      sqft_per_box: it.sqft_per_box != null ? String(it.sqft_per_box) : "",
+      roll_width_ft: it.roll_width_ft != null ? String(it.roll_width_ft) : "",
     }));
     return initial.length ? initial : [emptyItem()];
   });
@@ -172,6 +181,9 @@ export function PoBuilder({
       for_job_id: "",
       for_customer_id: "",
       note: "",
+      category: "",
+      sqft_per_box: "",
+      roll_width_ft: "",
     }));
     setItems((prev) => {
       const kept = prev.filter(
@@ -214,6 +226,9 @@ export function PoBuilder({
           for_job_id: it.for_job_id || null,
           for_customer_id: it.for_customer_id || null,
           note: it.note || null,
+          category: it.category || null,
+          sqft_per_box: it.sqft_per_box || null,
+          roll_width_ft: it.roll_width_ft || null,
         })),
       };
       const res = await savePurchaseOrder(po.id, input);
