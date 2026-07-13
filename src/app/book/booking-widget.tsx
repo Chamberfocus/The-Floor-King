@@ -205,6 +205,13 @@ export function BookingWidget({
       <p className="text-center text-xs text-muted-foreground">
         This sends a request. We&apos;ll confirm your exact time shortly.
       </p>
+      <p className="text-center text-[11px] leading-snug text-muted-foreground">
+        By providing your phone number and requesting an appointment, you agree to
+        receive text messages from Cleveland Floor King about your estimate,
+        appointment, and installation. Msg &amp; data rates may apply. Msg frequency
+        varies. Consent is not a condition of purchase. Reply STOP to opt out, HELP
+        for help.
+      </p>
     </div>
   );
 }

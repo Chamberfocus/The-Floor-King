@@ -307,6 +307,15 @@ export function OrderForm({
           <Send className="size-4" /> {pending ? "Sending…" : "Submit order"}
         </Button>
       </div>
+      {requireContact ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          By providing your phone number and submitting this order, you agree to
+          receive text messages from Cleveland Floor King about your order, pickup,
+          and installation. Msg &amp; data rates may apply. Msg frequency varies.
+          Consent is not a condition of purchase. Reply STOP to opt out, HELP for
+          help.
+        </p>
+      ) : null}
     </div>
   );
 }
