@@ -37,18 +37,42 @@ export async function updateServiceAddress(formData: FormData): Promise<void> {
   const customerId = str(formData.get("customer_id"));
   if (!id) return;
   const supabase = await createClient();
+  const street = str(formData.get("street")) || null;
+  const city = str(formData.get("city")) || null;
+  const state = str(formData.get("state")) || null;
+  const zip = str(formData.get("zip")) || null;
   await supabase
     .from("service_addresses")
     .update({
       label: str(formData.get("label")) || null,
-      street: str(formData.get("street")) || null,
-      city: str(formData.get("city")) || null,
-      state: str(formData.get("state")) || null,
-      zip: str(formData.get("zip")) || null,
+      street,
+      city,
+      state,
+      zip,
       notes: str(formData.get("notes")) || null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
+
+  // This is a PROJECT (job-site) address — distinct from the customer's BILLING
+  // address (edited on the customer record). Correcting it should flow to the
+  // jobs that use it and are still active, so the work order, staging sheet, and
+  // driving list show the right place. Completed jobs keep their historical site.
+  const { data: activeJobs } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("service_address_id", id)
+    .neq("status", "completed");
+  if (activeJobs && activeJobs.length) {
+    await supabase
+      .from("jobs")
+      .update({ site_street: street, site_city: city, site_state: state, site_zip: zip })
+      .eq("service_address_id", id)
+      .neq("status", "completed");
+    for (const j of activeJobs) revalidatePath(`/jobs/${j.id}`);
+    revalidatePath("/jobs");
+    revalidatePath("/warehouse");
+  }
   if (customerId) revalidatePath(`/customers/${customerId}`);
 }
 

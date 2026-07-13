@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAppointmentType } from "@/lib/data/booking";
+import { advanceFromAutoAction } from "@/lib/workflow-engine";
 import { parseHm, hmFromMinutes, isoAt } from "@/lib/booking";
 import { sendEmail, emailLayout } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
@@ -206,7 +207,7 @@ export async function rescheduleAppointment(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const { data: appt } = await supabase
     .from("appointments")
-    .select("type_id, starts_at, ends_at")
+    .select("type_id, starts_at, ends_at, customer_id")
     .eq("id", id)
     .maybeSingle();
   let duration = 45;
@@ -234,6 +235,8 @@ export async function rescheduleAppointment(formData: FormData): Promise<void> {
   await supabase.from("appointments").update(update).eq("id", id);
   await syncAppointmentToGoogle(id);
   revalidatePath("/calendar");
+  revalidatePath("/schedule");
+  if (appt?.customer_id) revalidatePath(`/customers/${appt.customer_id}`);
 }
 
 /** Change an appointment's status (completed / cancelled / no_show). */
@@ -244,10 +247,17 @@ export async function setAppointmentStatus(formData: FormData): Promise<void> {
   const allowed = ["scheduled", "completed", "cancelled", "no_show"];
   if (!allowed.includes(status)) return;
   const supabase = await createClient();
+  const { data: appt } = await supabase
+    .from("appointments")
+    .select("customer_id")
+    .eq("id", id)
+    .maybeSingle();
   await supabase.from("appointments").update({ status }).eq("id", id);
   // Cancelled → the sync removes it from Google; others just refresh the event.
   await syncAppointmentToGoogle(id);
   revalidatePath("/calendar");
+  revalidatePath("/schedule");
+  if (appt?.customer_id) revalidatePath(`/customers/${appt.customer_id}`);
 }
 
 /** Confirm a client request: pending → scheduled, assign a rep, notify. */
@@ -313,15 +323,32 @@ export async function confirmRequest(formData: FormData): Promise<void> {
   }
   await notifyCustomerConfirmed(name, email, phone, typeName, whenText);
 
+  // Confirming a booked estimate moves the lead out of the "schedule estimate"
+  // stage (forward-only; no-op for other appt kinds/stages), same as the
+  // estimate booking path — so the pipeline follows through.
+  if (appt.customer_id) {
+    await advanceFromAutoAction(appt.customer_id as string, "schedule_estimate");
+    revalidatePath(`/customers/${appt.customer_id}`);
+  }
   revalidatePath("/calendar");
+  revalidatePath("/schedule");
+  revalidatePath("/pipeline");
+  revalidatePath("/dashboard");
 }
 
 export async function deleteAppointment(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   if (!id) return;
   const supabase = await createClient();
+  const { data: appt } = await supabase
+    .from("appointments")
+    .select("customer_id")
+    .eq("id", id)
+    .maybeSingle();
   // Pull the Google event first — after the row is gone we can't find it.
   await removeAppointmentFromGoogle(id);
   await supabase.from("appointments").delete().eq("id", id);
   revalidatePath("/calendar");
+  revalidatePath("/schedule");
+  if (appt?.customer_id) revalidatePath(`/customers/${appt.customer_id}`);
 }

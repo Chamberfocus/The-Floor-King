@@ -20,6 +20,21 @@ import type {
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
 /** Money changed → refresh every view that reports on money. */
+/** Refresh the customer file and the linked job page (which show the invoice's
+ *  balance / "collect balance") after an invoice/payment change. */
+async function revalidateInvoiceLinks(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  invoiceId: string,
+) {
+  const { data: inv } = await supabase
+    .from("invoices")
+    .select("customer_id, job_id")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  if (inv?.customer_id) revalidatePath(`/customers/${inv.customer_id}`);
+  if (inv?.job_id) revalidatePath(`/jobs/${inv.job_id}`);
+}
+
 function refreshMoneyViews() {
   revalidatePath("/invoices");
   revalidatePath("/dashboard");
@@ -340,7 +355,10 @@ export async function saveInvoice(
 
   await recomputeStatus(supabase, invoiceId);
   revalidatePath(`/invoices/${invoiceId}`);
-  revalidatePath("/invoices");
+  // Editing line items changes totals → refresh revenue/AR views and the
+  // customer file + linked job balance too.
+  await revalidateInvoiceLinks(supabase, invoiceId);
+  refreshMoneyViews();
   return { error: null };
 }
 
@@ -368,7 +386,7 @@ export async function recordPayment(formData: FormData): Promise<void> {
   // Intelligent flow: a deposit recorded while at "collect deposit" → order materials.
   const { data: inv } = await supabase
     .from("invoices")
-    .select("customer_id")
+    .select("customer_id, job_id")
     .eq("id", invoiceId)
     .maybeSingle();
   if (inv?.customer_id) {
@@ -378,6 +396,8 @@ export async function recordPayment(formData: FormData): Promise<void> {
     );
     revalidatePath(`/customers/${inv.customer_id}`);
   }
+  // The job page shows this invoice's open balance / "collect balance" — refresh it.
+  if (inv?.job_id) revalidatePath(`/jobs/${inv.job_id}`);
 
   revalidatePath(`/invoices/${invoiceId}`);
   refreshMoneyViews();
@@ -391,6 +411,7 @@ export async function deletePayment(formData: FormData): Promise<void> {
   await supabase.from("payments").delete().eq("id", id);
   await recomputeStatus(supabase, invoiceId);
   revalidatePath(`/invoices/${invoiceId}`);
+  await revalidateInvoiceLinks(supabase, invoiceId);
   refreshMoneyViews();
 }
 
@@ -401,6 +422,7 @@ export async function setInvoiceStatus(formData: FormData): Promise<void> {
   const supabase = await createClient();
   await supabase.from("invoices").update({ status }).eq("id", id);
   revalidatePath(`/invoices/${id}`);
+  await revalidateInvoiceLinks(supabase, id);
   refreshMoneyViews();
 }
 

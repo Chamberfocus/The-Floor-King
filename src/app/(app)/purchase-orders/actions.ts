@@ -11,6 +11,50 @@ import { reconcilePoStock, reverseReceivedPOs } from "@/lib/po-stock";
 import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
 import type { EstimateLineItem, PoSourceType, PoStatus } from "@/lib/types";
 
+type PoDb = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Tell the customer (portal message + email) their materials were ordered.
+ * Shared by the PO builder save AND the quick status button so both do the same
+ * customer-facing follow-through. Returns the customer id (for revalidation).
+ */
+async function notifyPoOrdered(supabase: PoDb, poId: string): Promise<string | null> {
+  const { data: po } = await supabase
+    .from("purchase_orders")
+    .select("customer_id")
+    .eq("id", poId)
+    .maybeSingle();
+  const customerId = (po?.customer_id as string | null) ?? null;
+  if (!customerId) return null;
+  const { data: c } = await supabase
+    .from("customers")
+    .select("full_name, email")
+    .eq("id", customerId)
+    .maybeSingle();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (c?.email) {
+    await sendEmail({
+      to: c.email as string,
+      subject: "Your materials are on order",
+      html: emailLayout(
+        "Materials ordered ✅",
+        `<p>Hi ${(c.full_name as string)?.split(" ")[0] ?? "there"},</p>
+         <p>Good news — the materials for your project have been ordered. We'll let you know as soon as they arrive and we can schedule your install.</p>`,
+        { label: "View your project", url: `${siteUrl()}/portal` },
+      ),
+    });
+  }
+  await supabase.from("messages").insert({
+    customer_id: customerId,
+    channel: "client",
+    author_id: user?.id ?? null,
+    body: "📦 Your materials have been ordered. We'll update you when they arrive.",
+  });
+  return customerId;
+}
+
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
 }
@@ -345,38 +389,8 @@ export async function savePurchaseOrder(
   }
 
   // When a PO is newly marked "ordered", let the customer know.
-  if (
-    before?.status !== "ordered" &&
-    input.status === "ordered" &&
-    before?.customer_id
-  ) {
-    const customerId = before.customer_id as string;
-    const { data: c } = await supabase
-      .from("customers")
-      .select("full_name, email")
-      .eq("id", customerId)
-      .maybeSingle();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (c?.email) {
-      await sendEmail({
-        to: c.email as string,
-        subject: "Your materials are on order",
-        html: emailLayout(
-          "Materials ordered ✅",
-          `<p>Hi ${(c.full_name as string)?.split(" ")[0] ?? "there"},</p>
-           <p>Good news — the materials for your project have been ordered. We'll let you know as soon as they arrive and we can schedule your install.</p>`,
-          { label: "View your project", url: `${siteUrl()}/portal` },
-        ),
-      });
-    }
-    await supabase.from("messages").insert({
-      customer_id: customerId,
-      channel: "client",
-      author_id: user?.id ?? null,
-      body: "📦 Your materials have been ordered. We'll update you when they arrive.",
-    });
+  if (before?.status !== "ordered" && input.status === "ordered" && before?.customer_id) {
+    await notifyPoOrdered(supabase, poId);
   }
 
   // Crash-safe: insert new items first, then delete the old ones, so a failed
@@ -428,6 +442,7 @@ export async function savePurchaseOrder(
   revalidatePath("/purchase-orders");
   revalidatePath("/inventory");
   revalidatePath("/warehouse");
+  if (before?.customer_id) revalidatePath(`/customers/${before.customer_id}`);
   return { error: null };
 }
 
@@ -443,7 +458,7 @@ export async function setPurchaseOrderStatus(
   // "received" — re-saving "received" must not double-count.
   const { data: cur } = await supabase
     .from("purchase_orders")
-    .select("status")
+    .select("status, customer_id")
     .eq("id", id)
     .maybeSingle();
   const prev = cur?.status as PoStatus | undefined;
@@ -451,10 +466,17 @@ export async function setPurchaseOrderStatus(
   await supabase.from("purchase_orders").update({ status }).eq("id", id);
   await reconcilePoStock(supabase, id, prev, status);
 
+  // Same customer-facing follow-through the PO builder does when it hits
+  // "ordered" — the status button was silently skipping it.
+  if (prev !== "ordered" && status === "ordered") {
+    await notifyPoOrdered(supabase, id);
+  }
+
   revalidatePath(`/purchase-orders/${id}`);
   revalidatePath("/purchase-orders");
   revalidatePath("/inventory");
   revalidatePath("/warehouse");
+  if (cur?.customer_id) revalidatePath(`/customers/${cur.customer_id}`);
 }
 
 export async function deletePurchaseOrder(formData: FormData): Promise<void> {

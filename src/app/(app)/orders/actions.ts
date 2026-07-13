@@ -123,6 +123,9 @@ export async function approveOrder(formData: FormData): Promise<void> {
 
   revalidatePath("/orders");
   revalidatePath("/warehouse");
+  revalidatePath("/jobs");
+  revalidatePath("/board");
+  revalidatePath("/dashboard");
   revalidatePath(`/customers/${customerId}`);
 }
 
@@ -230,6 +233,8 @@ export async function notifyCustomerStock(formData: FormData): Promise<void> {
     .update({ customer_stock_notified_at: new Date().toISOString() })
     .eq("id", orderId);
   revalidatePath("/orders");
+  revalidatePath("/portal");
+  if (order.customer_id) revalidatePath(`/customers/${order.customer_id}`);
 }
 
 /** Build a draft invoice from an approved order — you set the trade prices. */
@@ -244,8 +249,14 @@ export async function createInvoiceFromOrder(
     data: { user },
   } = await supabase.auth.getUser();
   const invId = await buildInvoiceFromOrder(supabase, orderId, user?.id ?? null);
+  const { data: ord } = await supabase
+    .from("orders")
+    .select("customer_id")
+    .eq("id", orderId)
+    .maybeSingle();
   revalidatePath("/orders");
   revalidatePath("/invoices");
+  if (ord?.customer_id) revalidatePath(`/customers/${ord.customer_id}`);
   if (invId) redirect(`/invoices/${invId}`);
 }
 

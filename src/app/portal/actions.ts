@@ -75,6 +75,7 @@ export async function portalSendMessage(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/portal");
+  revalidatePath(`/customers/${customerId}`);
 }
 
 /**
@@ -139,6 +140,25 @@ export async function portalSubmitInstallPreferences(formData: FormData): Promis
   });
 
   revalidatePath("/portal");
+  revalidatePath(`/customers/${customerId}`);
+}
+
+/** A customer's portal action on an estimate must propagate to the staff-facing
+ *  estimate/pipeline/dashboard/customer views, not just the portal. */
+async function revalidateEstimateStaffViews(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  estimateId: string,
+) {
+  const { data: e } = await supabase
+    .from("estimates")
+    .select("customer_id")
+    .eq("id", estimateId)
+    .maybeSingle();
+  revalidatePath(`/estimates/${estimateId}`);
+  revalidatePath("/estimates");
+  revalidatePath("/pipeline");
+  revalidatePath("/dashboard");
+  if (e?.customer_id) revalidatePath(`/customers/${e.customer_id}`);
 }
 
 export async function portalApproveEstimate(formData: FormData): Promise<void> {
@@ -202,6 +222,7 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
   }
   revalidatePath(`/portal/estimates/${id}`);
   revalidatePath("/portal");
+  await revalidateEstimateStaffViews(supabase, id);
 }
 
 export async function portalDeclineEstimate(formData: FormData): Promise<void> {
@@ -221,6 +242,7 @@ export async function portalDeclineEstimate(formData: FormData): Promise<void> {
   );
   revalidatePath(`/portal/estimates/${id}`);
   revalidatePath("/portal");
+  await revalidateEstimateStaffViews(supabase, id);
 }
 
 export async function portalRequestChanges(formData: FormData): Promise<void> {
@@ -243,4 +265,5 @@ export async function portalRequestChanges(formData: FormData): Promise<void> {
   );
   revalidatePath(`/portal/estimates/${id}`);
   revalidatePath("/portal");
+  await revalidateEstimateStaffViews(supabase, id);
 }

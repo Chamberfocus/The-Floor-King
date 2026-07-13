@@ -146,12 +146,10 @@ export async function moveToAutoActionStage(
   customerId: string,
   autoAction: StageAutoAction,
 ): Promise<void> {
-  // MANUAL-ONLY PIPELINE: stage advancement happens exclusively when a user
-  // presses "ready for next stage" on the customer dashboard (advanceWorkflow).
-  // Auto-advance is disabled everywhere — including the customer portal — so a
-  // job never moves stage on its own. Callers stay in place (harmless no-op);
-  // re-enable by removing this guard. deriveLeadStage below is still used by the
-  // manual advance to keep the legacy lead_stage in lock-step.
+  // Auto-advance IS enabled (AUTO_ADVANCE_DISABLED = false): booking an install,
+  // approving/sending an estimate, recording a deposit, and completing a job all
+  // move the customer's stage forward automatically (forward-only). Flip
+  // AUTO_ADVANCE_DISABLED to true to revert to a manual-only pipeline.
   if (AUTO_ADVANCE_DISABLED) return;
   if (!customerId) return;
   const supabase = engineDb();

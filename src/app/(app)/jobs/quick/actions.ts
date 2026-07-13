@@ -109,5 +109,13 @@ export async function createQuickInstall(
   revalidatePath("/board");
   revalidatePath("/customers");
   revalidatePath(`/customers/${customerId}`);
+  // A quick install can be scheduled + assigned to an installer — surface it on
+  // the installer's My Work, the warehouse queue, the scheduler, and the boards.
+  revalidatePath("/installer");
+  revalidatePath("/install-scheduler");
+  revalidatePath("/warehouse");
+  revalidatePath("/jobs/calendar");
+  revalidatePath("/pipeline");
+  revalidatePath("/dashboard");
   return { error: null, ok: true, jobId: job.id as string };
 }

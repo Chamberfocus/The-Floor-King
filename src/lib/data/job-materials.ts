@@ -91,12 +91,12 @@ export async function getJobMaterials(
   ] as string[];
   const prodById = new Map<
     string,
-    { name: string; track_stock: boolean; on_hand: number; reserved: number; material_rate: number; supplier: string | null }
+    { name: string; track_stock: boolean; on_hand: number; reserved: number; material_rate: number; supplier: string | null; category: string | null }
   >();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, track_stock, on_hand, reserved, material_rate, supplier")
+      .select("id, name, track_stock, on_hand, reserved, material_rate, supplier, category")
       .in("id", productIds);
     for (const p of prods ?? []) {
       prodById.set(p.id as string, {
@@ -106,6 +106,7 @@ export async function getJobMaterials(
         reserved: Number(p.reserved) || 0,
         material_rate: Number(p.material_rate) || 0,
         supplier: (p.supplier as string) || null,
+        category: (p.category as string) || null,
       });
     }
   }
@@ -176,7 +177,10 @@ export async function getJobMaterials(
       productId: l.product_id,
       productName: p?.name ?? null,
       supplier: p?.supplier ?? l.manufacturer ?? null,
-      category: l.category ?? null,
+      // Prefer the product's LIVE category so re-categorizing a product (e.g.
+      // roll-good ↔ hard-surface) corrects the cut logic on existing jobs;
+      // fall back to the line's snapshot for one-off/manual lines.
+      category: p?.category ?? l.category ?? null,
       lengthIn: l.length_in ?? null,
       widthIn: l.width_in ?? null,
       qty,

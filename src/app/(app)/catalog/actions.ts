@@ -134,6 +134,7 @@ export async function updateProduct(
   if (error) return { error: error.message };
 
   revalidatePath("/catalog");
+  revalidatePath("/inventory");
   return { error: null, ok: true };
 }
 

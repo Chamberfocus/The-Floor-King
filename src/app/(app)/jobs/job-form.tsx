@@ -59,7 +59,7 @@ export function JobForm({
           />
         </div>
         <div className="space-y-2">
-          <Label>Assigned crew</Label>
+          <Label>Assigned installer</Label>
           <SearchPicker
             name="assigned_to"
             defaultValue={job.assigned_to ?? ""}
@@ -68,7 +68,9 @@ export function JobForm({
             options={users.map((u) => ({
               value: u.id,
               label: u.name,
-              hint: u.role,
+              // Phone disambiguates look-alike names (e.g. two "Ronald"s); the
+              // crew link stays in sync via updateJob's ensureCrewForProfile.
+              hint: u.phone ?? u.role,
             }))}
           />
         </div>

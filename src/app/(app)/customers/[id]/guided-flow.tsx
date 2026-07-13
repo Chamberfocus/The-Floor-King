@@ -159,8 +159,12 @@ export async function GuidedFlow({
   // Resuming from hold should land where the job actually is: on the install
   // stage if it's already booked, else back on the "schedule the install" step.
   const scheduleStage = sorted.find((s) => s.auto_action === "schedule_install") ?? null;
+  // Must match "Install Scheduled" but NOT the earlier "Installation Needs
+  // Scheduled" (both contain install+scheduled) — same exclusion as
+  // STAGE_INSTALL_SCHEDULED in jobs/actions.ts, or resume-from-hold lands the
+  // customer on the wrong stage.
   const installScheduledStage =
-    sorted.find((s) => /install.*sched|sched.*install/.test(s.name.toLowerCase())) ?? null;
+    sorted.find((s) => /^(?!.*\bneeds\b).*install.*sched/.test(s.name.toLowerCase())) ?? null;
   const hasScheduledJob = jobs.some(
     (j) => j.scheduled_date && j.status !== "cancelled" && j.status !== "completed",
   );

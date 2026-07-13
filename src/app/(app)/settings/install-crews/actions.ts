@@ -40,6 +40,29 @@ export async function saveInstallCrew(formData: FormData): Promise<Result> {
     : await supabase.from("install_crews").insert({ ...row, created_by: user?.id ?? null });
   if (res.error) return { error: res.error.message };
 
+  // If this crew is linked to a login installer, keep the profile's name/phone in
+  // sync so the installer page, job pages, and calendar (which read the profile,
+  // not the crew) don't show a stale name after a rename. select("*") is
+  // migration-safe (profile_id column may not exist yet).
+  if (id) {
+    const { data: crew } = await supabase
+      .from("install_crews")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    const profileId =
+      (crew as { profile_id?: string | null } | null)?.profile_id ?? null;
+    if (profileId) {
+      await supabase
+        .from("profiles")
+        .update({ full_name: name, phone: row.phone })
+        .eq("id", profileId);
+      revalidatePath("/installer");
+      revalidatePath("/install-scheduler");
+      revalidatePath("/jobs");
+    }
+  }
+
   revalidatePath("/settings/install-crews");
   return { error: null };
 }

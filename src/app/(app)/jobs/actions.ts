@@ -789,12 +789,32 @@ export async function updateJob(
   if (str(formData.get("scheduled_date")))
     await ensureWarehouseSubmitted(id);
 
+  // Keep the install crew in lockstep with the installer set here, so pay,
+  // warehouse and the install calendar (which read assigned_crew_id) don't
+  // point at the old installer — same sync bookInstall / setJobCrew do.
+  const assignedTo = nullable(formData.get("assigned_to"));
+  if (assignedTo) {
+    const crewId = await ensureCrewForProfile(supabase, assignedTo as string);
+    if (crewId)
+      await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", id);
+  }
+
   const { data: job } = await supabase
     .from("jobs")
     .select("customer_id")
     .eq("id", id)
     .maybeSingle();
-  revalidateJobEverywhere(id, job?.customer_id as string | null);
+  const customerId = (job?.customer_id as string | null) ?? null;
+  // Completing / starting a job here advances the pipeline stage too, matching
+  // the quick-status path (otherwise the dashboard/pipeline stay behind).
+  const newStatus = str(formData.get("status"));
+  if (customerId) {
+    if (newStatus === "completed")
+      await advanceToNamedStage(customerId, STAGE_INSTALLED);
+    else if (newStatus === "in_progress")
+      await advanceToNamedStage(customerId, STAGE_INSTALL_SCHEDULED);
+  }
+  revalidateJobEverywhere(id, customerId);
   return { error: null, ok: true };
 }
 
@@ -841,34 +861,24 @@ export async function setJobStatus(formData: FormData): Promise<void> {
   const supabase = await createClient();
   await supabase.from("jobs").update({ status }).eq("id", id);
 
-  // Finishing the install advances the customer to the "Installed – Follow-up"
-  // stage (collect balance / satisfaction), matching the real job state.
-  if (status === "completed") {
-    const { data: job } = await supabase
-      .from("jobs")
-      .select("customer_id")
-      .eq("id", id)
-      .maybeSingle();
-    if (job?.customer_id) {
-      await advanceToNamedStage(job.customer_id as string, STAGE_INSTALLED);
-    }
-  }
-  // Starting the install advances to "Install Scheduled" if it lagged behind.
-  if (status === "in_progress") {
-    const { data: job } = await supabase
-      .from("jobs")
-      .select("customer_id")
-      .eq("id", id)
-      .maybeSingle();
-    if (job?.customer_id) {
-      await advanceToNamedStage(job.customer_id as string, STAGE_INSTALL_SCHEDULED);
-    }
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  const customerId = (job?.customer_id as string | null) ?? null;
+  if (customerId) {
+    // Finishing advances to "Installed – Follow-up"; starting advances to
+    // "Install Scheduled" if it lagged (both forward-only).
+    if (status === "completed")
+      await advanceToNamedStage(customerId, STAGE_INSTALLED);
+    else if (status === "in_progress")
+      await advanceToNamedStage(customerId, STAGE_INSTALL_SCHEDULED);
   }
 
-  revalidatePath(`/jobs/${id}`);
-  revalidatePath("/jobs");
-  revalidatePath("/dashboard");
-  revalidatePath("/pipeline");
+  // Fan out to every view that shows the job (installer, warehouse, board,
+  // calendar, pipeline, dashboard, customer file) — not just the jobs list.
+  revalidateJobEverywhere(id, customerId);
 }
 
 /** Email the customer their scheduled install date. */
@@ -1127,6 +1137,11 @@ export async function assignInstaller(formData: FormData): Promise<void> {
     if (crewId)
       await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", jobId);
   }
+  // Claiming a job off the board = it's scheduled: advance the pipeline stage and
+  // auto-submit to the warehouse, same as the smart-scheduler (bookInstall) path.
+  if (cur?.customer_id)
+    await advanceToNamedStage(cur.customer_id as string, STAGE_INSTALL_SCHEDULED);
+  await ensureWarehouseSubmitted(jobId);
   revalidateJobEverywhere(jobId, cur?.customer_id as string | null);
 }
 
@@ -1651,8 +1666,9 @@ export async function deleteJob(formData: FormData): Promise<void> {
   const supabase = await createClient();
   await supabase.from("jobs").delete().eq("id", id);
 
-  revalidatePath("/jobs");
-  if (customerId) revalidatePath(`/customers/${customerId}`);
+  // A deleted job could be on the warehouse queue, installer page, board, or
+  // calendar — clear it from every view, not just the jobs list.
+  revalidateJobEverywhere(id, customerId || null);
   redirect("/jobs");
 }
 

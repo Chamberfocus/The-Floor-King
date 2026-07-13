@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getPublicDaySlots, getPublicBookingConfig } from "@/lib/data/booking";
 import { localNowIso } from "@/lib/booking";
@@ -136,5 +137,10 @@ export async function submitBookingRequest(input: {
     });
   }
 
+  // Surface the new lead + pending request on the staff calendar, customer list,
+  // and pipeline right away (staff otherwise only get the email).
+  revalidatePath("/calendar");
+  revalidatePath("/customers");
+  revalidatePath("/pipeline");
   return { error: null, ok: true };
 }

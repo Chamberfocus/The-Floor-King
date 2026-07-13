@@ -100,32 +100,54 @@ export async function saveEstimate(
     .eq("id", estimateId);
   if (updateError) return { error: updateError.message };
 
-  // Rebuild options + lines (cascade clears old lines).
-  const { error: deleteError } = await supabase
+  // Rebuild options + lines. CRITICAL: reuse existing option rows by position
+  // instead of delete-and-recreate. jobs.option_id and estimates.accepted_option_id
+  // reference an option; recreating options with new ids would cascade
+  // jobs.option_id to NULL and blank the job's scope / warehouse materials for an
+  // already-approved job. Reusing ids keeps those references intact.
+  const { data: existingOpts } = await supabase
     .from("estimate_options")
-    .delete()
-    .eq("estimate_id", estimateId);
-  if (deleteError) return { error: deleteError.message };
+    .select("id")
+    .eq("estimate_id", estimateId)
+    .order("position", { ascending: true });
+  const existingIds = (existingOpts ?? []).map((o) => o.id as string);
 
   for (let i = 0; i < input.options.length; i++) {
     const option = input.options[i];
-    const { data: optionRow, error: optionError } = await supabase
-      .from("estimate_options")
-      .insert({
-        estimate_id: estimateId,
-        name: option.name || `Option ${i + 1}`,
-        position: i,
-        notes: option.notes || null,
-      })
-      .select("id")
-      .single();
-    if (optionError || !optionRow) {
-      return { error: optionError?.message ?? "Could not save an option." };
+    let optionId = existingIds[i];
+    if (optionId) {
+      // Update the option in place (keeps its id + any job/accepted reference).
+      const { error: optUpErr } = await supabase
+        .from("estimate_options")
+        .update({
+          name: option.name || `Option ${i + 1}`,
+          position: i,
+          notes: option.notes || null,
+        })
+        .eq("id", optionId);
+      if (optUpErr) return { error: optUpErr.message };
+      // Replace this option's line items (lines reference option_id only).
+      await supabase.from("estimate_line_items").delete().eq("option_id", optionId);
+    } else {
+      const { data: optionRow, error: optionError } = await supabase
+        .from("estimate_options")
+        .insert({
+          estimate_id: estimateId,
+          name: option.name || `Option ${i + 1}`,
+          position: i,
+          notes: option.notes || null,
+        })
+        .select("id")
+        .single();
+      if (optionError || !optionRow) {
+        return { error: optionError?.message ?? "Could not save an option." };
+      }
+      optionId = optionRow.id as string;
     }
 
     if (option.lines.length) {
       const lineRows = option.lines.map((line, j) => ({
-        option_id: optionRow.id,
+        option_id: optionId,
         position: j,
         room: line.room || null,
         description: line.description || "",
@@ -161,9 +183,25 @@ export async function saveEstimate(
     }
   }
 
+  // Options removed in this edit (existing rows beyond the new count).
+  const removedIds = existingIds.slice(input.options.length);
+  if (removedIds.length) {
+    await supabase.from("estimate_options").delete().in("id", removedIds);
+  }
+
+  // Editing an approved estimate's scope changes the linked job's materials
+  // (getJobMaterials reads live by option_id), so refresh those surfaces too.
+  const { data: est } = await supabase
+    .from("estimates")
+    .select("customer_id")
+    .eq("id", estimateId)
+    .maybeSingle();
   revalidatePath(`/estimates/${estimateId}`);
   revalidatePath(`/estimates/${estimateId}/edit`);
   revalidatePath("/estimates");
+  if (est?.customer_id) revalidatePath(`/customers/${est.customer_id}`);
+  revalidatePath("/jobs");
+  revalidatePath("/warehouse");
   return { error: null };
 }
 
@@ -212,6 +250,7 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
     revalidatePath("/pipeline");
     revalidatePath("/dashboard");
     revalidatePath("/jobs");
+    if (ec?.customer_id) revalidatePath(`/customers/${ec.customer_id}`);
   }
 
   if (status === "sent") {
