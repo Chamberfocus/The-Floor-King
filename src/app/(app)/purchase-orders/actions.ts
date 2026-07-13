@@ -8,6 +8,11 @@ import { lineQty } from "@/lib/estimate-calc";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { extractOrderDocument, type ExtractedDoc } from "@/lib/extract";
 import { reconcilePoStock, reverseReceivedPOs } from "@/lib/po-stock";
+import { advanceToNamedStage } from "@/lib/workflow-engine";
+
+// "Materials Received" pipeline stage — receiving a PO advances the customer here
+// (forward-only), teeing up the install scheduling.
+const STAGE_MATERIALS_RECEIVED = /material.*received|received.*material/;
 import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
 import type { EstimateLineItem, PoSourceType, PoStatus } from "@/lib/types";
 
@@ -458,7 +463,7 @@ export async function setPurchaseOrderStatus(
   // "received" — re-saving "received" must not double-count.
   const { data: cur } = await supabase
     .from("purchase_orders")
-    .select("status, customer_id")
+    .select("status, customer_id, job_id")
     .eq("id", id)
     .maybeSingle();
   const prev = cur?.status as PoStatus | undefined;
@@ -470,6 +475,18 @@ export async function setPurchaseOrderStatus(
   // "ordered" — the status button was silently skipping it.
   if (prev !== "ordered" && status === "ordered") {
     await notifyPoOrdered(supabase, id);
+  }
+
+  // Receiving the material advances the customer to "Materials Received" so the
+  // pipeline/dashboard follow through and the job is ready to stage/schedule.
+  // getJobMaterials now reads the PO status → job material lines flip to
+  // "arrived" and the warehouse/job page show it.
+  if (prev !== "received" && status === "received" && cur?.customer_id) {
+    await advanceToNamedStage(cur.customer_id as string, STAGE_MATERIALS_RECEIVED);
+    revalidatePath("/pipeline");
+    revalidatePath("/dashboard");
+    revalidatePath("/installer");
+    if (cur.job_id) revalidatePath(`/jobs/${cur.job_id}`);
   }
 
   revalidatePath(`/purchase-orders/${id}`);

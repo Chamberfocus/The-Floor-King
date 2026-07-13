@@ -24,7 +24,8 @@ export interface JobMaterialLine {
   reservedQty: number; // reserved for THIS line
   pulledQty: number; // already pulled for THIS line
   status:
-    | "order" // special-order → PO
+    | "order" // special-order → PO, not yet received
+    | "arrived" // special-order whose PO has been received (material is in)
     | "short" // from stock but not enough on hand
     | "to_reserve" // from stock, nothing reserved yet
     | "reserved" // reserved, waiting to pull
@@ -38,6 +39,9 @@ export interface JobMaterials {
   hasStock: boolean;
   hasOrder: boolean;
   hasPO: boolean;
+  /** All ordered lines have arrived (their POs are received). Drives the
+   *  job/warehouse "Materials arrived" state + the pipeline stage advance. */
+  materialsArrived: boolean;
 }
 
 type RawLine = CalcLine & {
@@ -73,6 +77,7 @@ export async function getJobMaterials(
     hasStock: false,
     hasOrder: false,
     hasPO: false,
+    materialsArrived: false,
   };
   if (!job?.option_id) return empty;
 
@@ -85,6 +90,24 @@ export async function getJobMaterials(
     .order("position", { ascending: true });
   const lines = (lineData ?? []) as RawLine[];
   if (!lines.length) return empty;
+
+  // Which ordered lines have their PO received (the material is physically in)?
+  // po_items.line_id links back to this job's estimate line.
+  const lineIds = lines.map((l) => l.id);
+  const arrivedLineIds = new Set<string>();
+  if (lineIds.length) {
+    const { data: poRows } = await supabase
+      .from("po_items")
+      .select("line_id, po:purchase_orders(status)")
+      .in("line_id", lineIds);
+    for (const r of (poRows ?? []) as {
+      line_id: string | null;
+      po?: { status: string } | { status: string }[] | null;
+    }[]) {
+      const po = Array.isArray(r.po) ? r.po[0] : r.po;
+      if (r.line_id && po?.status === "received") arrivedLineIds.add(r.line_id);
+    }
+  }
 
   const productIds = [
     ...new Set(lines.map((l) => l.product_id).filter(Boolean)),
@@ -164,7 +187,8 @@ export async function getJobMaterials(
       : explicit ?? (canStock ? "stock" : "order");
 
     let status: JobMaterialLine["status"];
-    if (resolvedSource === "order") status = "order";
+    if (resolvedSource === "order")
+      status = arrivedLineIds.has(l.id) ? "arrived" : "order";
     else if (pulledQty >= qty - 0.001 && qty > 0) status = "pulled";
     else if (reservedQty >= qty - 0.001 && qty > 0) status = "reserved";
     else if (available + reservedQty + pulledQty < qty) status = "short";
@@ -197,12 +221,16 @@ export async function getJobMaterials(
     };
   });
 
+  const orderLines = out.filter((l) => l.resolvedSource === "order");
   return {
     jobId,
     estimateId: (job.estimate_id as string) ?? null,
     lines: out,
     hasStock: out.some((l) => l.resolvedSource === "stock"),
-    hasOrder: out.some((l) => l.resolvedSource === "order"),
+    hasOrder: orderLines.length > 0,
     hasPO,
+    // Every special-order line has arrived (nothing left on order).
+    materialsArrived:
+      orderLines.length > 0 && orderLines.every((l) => l.status === "arrived"),
   };
 }

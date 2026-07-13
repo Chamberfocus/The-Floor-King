@@ -35,6 +35,7 @@ import {
 import { saveEstimate } from "./actions";
 import { writeScopeDescription } from "./ai-actions";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
+import type { AddonCatalogItem } from "@/lib/data/addon-defaults";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { AreaCalculator } from "@/components/area-calculator";
 
@@ -230,6 +231,7 @@ export function EstimateBuilder({
   autoPrint = false,
   colorSuggestions = [],
   manufacturerSuggestions = [],
+  addonCatalog = [],
 }: {
   estimate: Estimate;
   customerName: string;
@@ -240,6 +242,8 @@ export function EstimateBuilder({
   colorSuggestions?: string[];
   /** Manufacturers already used — autocomplete the Manufacturer field. */
   manufacturerSuggestions?: string[];
+  /** The single add-on catalog (built-in + custom), pre-priced from defaults. */
+  addonCatalog?: AddonCatalogItem[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -392,6 +396,34 @@ export function EstimateBuilder({
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
     setOpenLines((s) => new Set(s).add(line.key)); // open the new line for editing
+  };
+
+  // Add a catalog add-on as a pre-priced line — configured in Settings →
+  // Default pricing (the single add-on source of truth). The user fills the qty.
+  const addAddon = (oi: number, a: AddonCatalogItem) => {
+    const isLabor = a.labor;
+    const sell = a.sell != null ? String(a.sell) : "";
+    const cost = a.cost != null ? String(a.cost) : "";
+    const category = isLabor
+      ? "labor"
+      : /transition|reducer|t-?mold|threshold|nose|molding|trim|quarter|shoe|base/i.test(a.label)
+        ? "trim"
+        : "other";
+    const line: LineState = {
+      ...emptyLine(),
+      description: a.label,
+      line_type: "mat_labor",
+      category,
+      unit: a.unit || "each",
+      material_rate: isLabor ? "" : sell,
+      labor_rate: isLabor ? sell : "",
+      material_cost: isLabor ? "" : cost,
+      labor_cost: isLabor ? cost : "",
+    };
+    setOptions((prev) =>
+      prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
+    );
+    setOpenLines((s) => new Set(s).add(line.key));
   };
 
   /** Add a subfloor line (underlayment, priced by the sheet). */
@@ -1470,6 +1502,39 @@ export function EstimateBuilder({
                                   className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
                                 >
                                   {opt}
+                                </button>
+                              ))}
+                            </div>
+                          </details>
+                        ) : null}
+                        {section !== "labor" && addonCatalog.length ? (
+                          <details className="relative [&_summary]:list-none">
+                            <summary className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2.5 py-1.5 text-sm font-medium hover:bg-muted">
+                              <Plus className="size-3.5" /> Add-on
+                            </summary>
+                            <div className="absolute z-20 mt-1 max-h-72 w-72 overflow-y-auto rounded-md border bg-popover p-1 shadow-md">
+                              <div className="px-2 py-1 text-xs text-muted-foreground">
+                                Priced from Settings → Default pricing
+                              </div>
+                              {addonCatalog.map((a) => (
+                                <button
+                                  key={a.label}
+                                  type="button"
+                                  onClick={(e) => {
+                                    addAddon(oi, a);
+                                    (e.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+                                  }}
+                                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                                >
+                                  <span className="min-w-0 truncate">
+                                    {a.label}
+                                    {a.custom ? (
+                                      <span className="ml-1 text-[10px] text-violet-600 dark:text-violet-400">custom</span>
+                                    ) : null}
+                                  </span>
+                                  <span className="shrink-0 text-xs text-muted-foreground">
+                                    {a.sell != null ? `${formatMoney(a.sell)}/${a.unit}` : a.labor ? "labor" : ""}
+                                  </span>
                                 </button>
                               ))}
                             </div>

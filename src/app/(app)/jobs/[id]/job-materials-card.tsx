@@ -27,6 +27,7 @@ function ftIn(inches: number): string {
 function StatusBadge({ line }: { line: JobMaterialLine }) {
   const map: Record<JobMaterialLine["status"], { label: string; cls: string }> = {
     order: { label: "Special order", cls: "bg-sky-500/10 text-sky-600" },
+    arrived: { label: "Arrived ✓", cls: "bg-emerald-500/10 text-emerald-600" },
     short: { label: "Not enough stock", cls: "bg-destructive/10 text-destructive" },
     to_reserve: { label: "From stock", cls: "bg-violet-500/10 text-violet-600" },
     reserved: { label: "Reserved", cls: "bg-amber-500/10 text-amber-600" },

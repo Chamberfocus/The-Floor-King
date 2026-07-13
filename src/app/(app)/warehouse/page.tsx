@@ -146,6 +146,11 @@ export default async function WarehousePage() {
               ) : (
                 <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">Not sent yet</span>
               )}
+              {sourced.get(j.id)?.materialsArrived ? (
+                <span className="rounded-md bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                  Materials in ✓
+                </span>
+              ) : null}
               <PrintStagingButton id={j.id} />
               <span
                 className={cn(
@@ -206,6 +211,7 @@ export default async function WarehousePage() {
                             {m.productName || m.description || "Material"}
                             {cutOf(m) ? <span className="ml-1 rounded bg-blue-100 px-1.5 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">{cutOf(m)}</span> : null}
                             {m.resolvedSource === "order" && m.supplier ? <span className="ml-1 text-xs text-muted-foreground">· {m.supplier}</span> : null}
+                            {m.status === "arrived" ? <span className="ml-1 rounded bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">✓ arrived</span> : null}
                           </span>
                           <span className="shrink-0 font-medium tabular-nums">
                             {m.qty > 0 ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim() : ""}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,11 +69,94 @@ export function DefaultPricing({
           <CardTitle className="text-base">Add-ons &amp; pad</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
+          <NewAddon />
           {addonRows.map((d) => (
-            <AddonRow key={d.label} def={d} saved={addonDefaults[d.label]} />
+            <AddonRow key={d.label} def={d} saved={addonDefaults[d.label]} custom={extra.some((e) => e.label === d.label)} />
           ))}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/** Create a brand-new custom add-on — it becomes part of the single add-on
+ *  catalog (this page + the estimate builder's Add-on menu), pre-priced. */
+function NewAddon() {
+  const router = useRouter();
+  const [label, setLabel] = useState("");
+  const [unit, setUnit] = useState("each");
+  const [labor, setLabor] = useState(false);
+  const [cost, setCost] = useState("");
+  const [sell, setSell] = useState("");
+  const [busy, setBusy] = useState(false);
+  const create = async () => {
+    if (!label.trim()) {
+      toast.error("Name the add-on.");
+      return;
+    }
+    setBusy(true);
+    const res = await saveAddonDefault({
+      label: label.trim(),
+      unit,
+      cost: n(cost),
+      sell: n(sell),
+      labor,
+    });
+    setBusy(false);
+    if (res?.error) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(`Added ${label.trim()}`);
+    setLabel("");
+    setCost("");
+    setSell("");
+    router.refresh();
+  };
+  return (
+    <div className="rounded-lg border border-dashed p-3">
+      <div className="mb-2 text-sm font-medium">Add a custom add-on</div>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[12rem] flex-1">
+          <div className="mb-0.5 text-xs text-muted-foreground">Name</div>
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. Radiant heat mat"
+            className="h-9"
+          />
+        </div>
+        <div>
+          <div className="mb-0.5 text-xs text-muted-foreground">Unit</div>
+          <select
+            value={unit}
+            onChange={(e) => setUnit(e.target.value)}
+            className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+          >
+            {UNITS.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </select>
+        </div>
+        <LabeledCell label="Cost" value={cost} onChange={setCost} w="w-20" />
+        <LabeledCell label="Sell" value={sell} onChange={setSell} w="w-20" />
+        <label className="flex items-center gap-1.5 pb-2 text-sm">
+          <input
+            type="checkbox"
+            checked={labor}
+            onChange={(e) => setLabor(e.target.checked)}
+          />
+          Labor
+        </label>
+        <Button type="button" size="sm" onClick={create} disabled={busy}>
+          {busy ? "Adding…" : "Add add-on"}
+        </Button>
+      </div>
+      <p className="mt-1.5 text-[11px] text-muted-foreground">
+        Custom add-ons show up in the estimate builder&apos;s Add-on menu, pre-priced.
+      </p>
     </div>
   );
 }
@@ -159,7 +243,15 @@ function RoomRow({
   );
 }
 
-function AddonRow({ def, saved }: { def: AddonDef; saved?: AddonDefault }) {
+function AddonRow({
+  def,
+  saved,
+  custom = false,
+}: {
+  def: AddonDef;
+  saved?: AddonDefault;
+  custom?: boolean;
+}) {
   const [unit, setUnit] = useState(saved?.unit || def.unit);
   const [cost, setCost] = useState(s(saved?.cost ?? null));
   const [sell, setSell] = useState(s(saved?.sell ?? null));
@@ -188,7 +280,14 @@ function AddonRow({ def, saved }: { def: AddonDef; saved?: AddonDefault }) {
 
   return (
     <div className="rounded-lg border p-3">
-      <div className="mb-2 font-medium">{def.label}</div>
+      <div className="mb-2 font-medium">
+        {def.label}
+        {custom ? (
+          <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+            custom
+          </span>
+        ) : null}
+      </div>
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <div className="mb-0.5 text-xs text-muted-foreground">Unit</div>

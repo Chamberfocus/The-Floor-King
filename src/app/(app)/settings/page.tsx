@@ -5,7 +5,6 @@ import {
   Palette,
   CalendarClock,
   ListChecks,
-  ShoppingCart,
   GitBranch,
   UserCog,
   BellRing,
@@ -68,14 +67,8 @@ const SECTIONS = [
   {
     href: "/settings/pricing",
     icon: DollarSign,
-    title: "Default pricing",
-    desc: "Your usual rates by flooring type, plus add-on & pad prices that pre-fill in the estimate builder.",
-  },
-  {
-    href: "/settings/wizard",
-    icon: ShoppingCart,
-    title: "Quote add-ons",
-    desc: "Priced extras offered in the quote builder.",
+    title: "Default pricing & add-ons",
+    desc: "Your rates by flooring type, plus every quote add-on (tear-out, subfloor, baseboards, stairs…) — add custom ones and set prices. These are the add-ons the estimate builder offers.",
   },
   {
     href: "/settings/suppliers",

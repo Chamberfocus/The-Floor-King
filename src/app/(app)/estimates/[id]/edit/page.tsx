@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getEstimate, listLineSuggestions } from "@/lib/data/estimates";
+import { listAddonCatalog } from "@/lib/data/addon-defaults";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { EstimateBuilder } from "../../estimate-builder";
@@ -21,6 +22,7 @@ export default async function EditEstimatePage({
   const customer = await getCustomer(estimate.customer_id);
   const org = await getOrgSettings();
   const suggestions = await listLineSuggestions();
+  const addonCatalog = await listAddonCatalog();
   const autoPrint = (await searchParams).print === "1";
 
   return (
@@ -32,6 +34,7 @@ export default async function EditEstimatePage({
       autoPrint={autoPrint}
       colorSuggestions={suggestions.colors}
       manufacturerSuggestions={suggestions.manufacturers}
+      addonCatalog={addonCatalog}
     />
   );
 }

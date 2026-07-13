@@ -66,3 +66,44 @@ export async function getRoomDefaults(): Promise<Record<string, RoomDefault>> {
     return {};
   }
 }
+
+// --- Single add-on catalog (one source of truth) ---------------------------
+
+import { ALL_ADDON_DEFS, type AddonDef } from "@/lib/addons";
+
+export interface AddonCatalogItem extends AddonDef {
+  cost: number | null;
+  sell: number | null;
+  custom: boolean; // true = added in Default pricing (not a built-in def)
+}
+
+/**
+ * THE add-on catalog the whole app reads: the built-in defs (addons.ts) overlaid
+ * with saved pricing, PLUS any custom add-ons created in Settings → Default
+ * pricing (extra addon_defaults labels). This is the single source of truth —
+ * the old "Quote add-ons" (wizard_questions) list is retired.
+ */
+export async function listAddonCatalog(): Promise<AddonCatalogItem[]> {
+  const defaults = await getAddonDefaults();
+  const known = new Set(ALL_ADDON_DEFS.map((d) => d.label));
+  const base: AddonCatalogItem[] = ALL_ADDON_DEFS.map((d) => ({
+    ...d,
+    unit: defaults[d.label]?.unit || d.unit,
+    labor: defaults[d.label]?.labor ?? d.labor,
+    cost: defaults[d.label]?.cost ?? null,
+    sell: defaults[d.label]?.sell ?? null,
+    custom: false,
+  }));
+  const custom: AddonCatalogItem[] = Object.keys(defaults)
+    .filter((l) => !known.has(l))
+    .sort((a, b) => a.localeCompare(b))
+    .map((l) => ({
+      label: l,
+      unit: defaults[l].unit || "each",
+      labor: defaults[l].labor,
+      cost: defaults[l].cost ?? null,
+      sell: defaults[l].sell ?? null,
+      custom: true,
+    }));
+  return [...base, ...custom];
+}
