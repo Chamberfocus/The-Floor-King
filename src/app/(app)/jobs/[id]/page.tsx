@@ -211,6 +211,11 @@ export default async function JobPage({
   const satisfaction = canInstallerTools ? await getJobSatisfaction(id) : null;
   const balanceInfo =
     collectsBalance && canInstallerTools ? await getJobOpenBalance(id) : null;
+  // Balance for the printed installation work order (shown when the installer
+  // collects on site) — reuse the one above, else fetch it.
+  const woCollectBalance = collectsBalance
+    ? (balanceInfo?.balance ?? (await getJobOpenBalance(id)).balance)
+    : null;
 
   const siteParts = [
     job.site_street,
@@ -235,7 +240,13 @@ export default async function JobPage({
 
   return (
     <>
-      <InstallationWorkOrderDoc org={org} job={job} assignedName={assignedName} />
+      <InstallationWorkOrderDoc
+        org={org}
+        job={job}
+        assignedName={assignedName}
+        collectOnSite={woCollectBalance}
+        expectedDays={installProps?.installEst?.days ?? null}
+      />
       <JobStepPopup
         jobs={[{ ...progress, title: job.title, justCreated }]}
       />

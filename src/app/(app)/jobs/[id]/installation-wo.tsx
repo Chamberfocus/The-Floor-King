@@ -99,13 +99,20 @@ export function InstallationWorkOrderDoc({
   org,
   job,
   assignedName,
+  collectOnSite = null,
+  expectedDays = null,
 }: {
   org: OrgSettings;
   job: JobDetail;
   assignedName: string | null;
+  /** Balance the installer collects on site (when enabled), else null. */
+  collectOnSite?: number | null;
+  /** Expected install duration in days. */
+  expectedDays?: number | null;
 }) {
   const scope = buildJobScope(job.line_items, job.notes);
   const showPrices = !!job.show_prices;
+  const totalSqft = scope.rooms.reduce((s, r) => s + (r.sqft ?? 0), 0);
 
   const site = [
     job.site_street,
@@ -128,6 +135,9 @@ export function InstallationWorkOrderDoc({
   const facts: [string, string | null][] = [
     ["Installer / crew", assignedName ?? null],
     ["Arrival", windowLabel],
+    ["Expected", expectedDays ? `${expectedDays} day${expectedDays === 1 ? "" : "s"}` : null],
+    ["Rooms", scope.rooms.length ? String(scope.rooms.length) : null],
+    ["Total area", totalSqft ? `${Math.round(totalSqft)} sq ft` : null],
     ["Delivery", job.delivery_type ? JOB_DELIVERY_LABELS[job.delivery_type] : null],
     ["Staged at", job.staging_location ?? null],
   ];
@@ -187,6 +197,22 @@ export function InstallationWorkOrderDoc({
             </div>
           ))}
       </div>
+
+      {/* Payment the installer collects on site */}
+      {collectOnSite && collectOnSite > 0 ? (
+        <div className="mt-3 break-inside-avoid rounded border-2 border-black p-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wide">
+            Collect on site
+          </div>
+          <div className="text-lg font-bold">
+            {formatMoney(collectOnSite)} balance due
+          </div>
+          <div className="text-xs text-gray-600">
+            Collect from the customer before you leave — cash, check, or request an
+            online payment in the app. Mark it paid on your My&nbsp;Work screen.
+          </div>
+        </div>
+      ) : null}
 
       {/* Job-wide conditions & prep — applies to all areas */}
       {scope.conditions.length ? (
