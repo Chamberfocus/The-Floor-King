@@ -17,7 +17,11 @@ import {
 
 // Back-half pipeline stages carry no auto_action marker, so job-lifecycle events
 // map to them by name (forward-only, best-effort).
-const STAGE_INSTALL_SCHEDULED = /install.*sched|sched.*install/;
+// The "install is booked" stage — must match "Install Scheduled" but NOT the
+// earlier "Installation Needs Scheduled" stage (both contain install+scheduled),
+// or booking would try to move the customer to the stage they're already on and
+// silently no-op. Excludes any "needs" scheduling stage.
+const STAGE_INSTALL_SCHEDULED = /^(?!.*\bneeds\b).*install.*sched/;
 const STAGE_INSTALLED = /installed|follow/;
 import { prepareJobMaterialsFor } from "./material-actions";
 import { getBusinessSettings } from "@/lib/data/business-settings";
@@ -217,6 +221,7 @@ function revalidateJobEverywhere(id: string, customerId?: string | null): void {
     "/jobs",
     "/jobs/calendar",
     "/installer",
+    "/install-scheduler",
     "/warehouse",
     "/board",
     "/pipeline",
