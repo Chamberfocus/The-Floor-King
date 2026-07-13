@@ -101,3 +101,40 @@ export async function listAllEstimates(): Promise<EstimateListRow[]> {
   await attachOptions(supabase, estimates);
   return estimates;
 }
+
+/**
+ * Distinct colors and manufacturers already used on estimate lines and in the
+ * catalog. Carpet price lists rarely list every color, so colors are typed per
+ * line — these power an autocomplete that grows as you quote, so you build up a
+ * color vocabulary instead of retyping.
+ */
+export async function listLineSuggestions(): Promise<{
+  colors: string[];
+  manufacturers: string[];
+}> {
+  const supabase = await createClient();
+  const colors = new Set<string>();
+  const manufacturers = new Set<string>();
+  const collect = (
+    rows: { color?: string | null; manufacturer?: string | null }[] | null,
+  ) => {
+    for (const r of rows ?? []) {
+      const c = (r.color ?? "").trim();
+      if (c) colors.add(c);
+      const m = (r.manufacturer ?? "").trim();
+      if (m) manufacturers.add(m);
+    }
+  };
+  const [{ data: lines }, { data: prods }] = await Promise.all([
+    supabase
+      .from("estimate_line_items")
+      .select("color, manufacturer")
+      .limit(5000),
+    supabase.from("products").select("color, manufacturer").limit(5000),
+  ]);
+  collect(lines as { color?: string | null; manufacturer?: string | null }[]);
+  collect(prods as { color?: string | null; manufacturer?: string | null }[]);
+  const sort = (s: Set<string>) =>
+    [...s].sort((a, b) => a.localeCompare(b));
+  return { colors: sort(colors), manufacturers: sort(manufacturers) };
+}

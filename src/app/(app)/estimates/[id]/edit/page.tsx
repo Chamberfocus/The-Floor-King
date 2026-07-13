@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getEstimate } from "@/lib/data/estimates";
+import { getEstimate, listLineSuggestions } from "@/lib/data/estimates";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { EstimateBuilder } from "../../estimate-builder";
@@ -20,6 +20,7 @@ export default async function EditEstimatePage({
 
   const customer = await getCustomer(estimate.customer_id);
   const org = await getOrgSettings();
+  const suggestions = await listLineSuggestions();
   const autoPrint = (await searchParams).print === "1";
 
   return (
@@ -29,6 +30,8 @@ export default async function EditEstimatePage({
       customer={customer}
       org={org}
       autoPrint={autoPrint}
+      colorSuggestions={suggestions.colors}
+      manufacturerSuggestions={suggestions.manufacturers}
     />
   );
 }

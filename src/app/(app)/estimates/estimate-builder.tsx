@@ -228,12 +228,18 @@ export function EstimateBuilder({
   customer = null,
   org,
   autoPrint = false,
+  colorSuggestions = [],
+  manufacturerSuggestions = [],
 }: {
   estimate: Estimate;
   customerName: string;
   customer?: Customer | null;
   org?: OrgSettings;
   autoPrint?: boolean;
+  /** Colors already used (estimates + catalog) — autocomplete the Color field. */
+  colorSuggestions?: string[];
+  /** Manufacturers already used — autocomplete the Manufacturer field. */
+  manufacturerSuggestions?: string[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -757,6 +763,18 @@ export function EstimateBuilder({
 
   return (
     <>
+    {/* Autocomplete sources for the Color / Manufacturer fields — colors and
+        brands you've already used (carpet colors rarely live in the catalog). */}
+    <datalist id="estimate-color-suggestions">
+      {colorSuggestions.map((c) => (
+        <option key={c} value={c} />
+      ))}
+    </datalist>
+    <datalist id="estimate-manufacturer-suggestions">
+      {manufacturerSuggestions.map((m) => (
+        <option key={m} value={m} />
+      ))}
+    </datalist>
     <div className="mx-auto max-w-5xl pb-44 md:pb-24 print:hidden">
       <Link
         href={`/customers/${estimate.customer_id}`}
@@ -1031,6 +1049,7 @@ export function EstimateBuilder({
                               updateLine(oi, li, { manufacturer: e.target.value })
                             }
                             placeholder="e.g. Shaw"
+                            list="estimate-manufacturer-suggestions"
                             className="h-9"
                           />
                         </div>
@@ -1042,6 +1061,7 @@ export function EstimateBuilder({
                             value={line.color}
                             onChange={(e) => updateLine(oi, li, { color: e.target.value })}
                             placeholder={line.category === "carpet" ? "e.g. Seagull" : "Color / finish"}
+                            list="estimate-color-suggestions"
                             className="h-9"
                           />
                         </div>
