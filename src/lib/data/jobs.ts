@@ -106,6 +106,7 @@ export interface AssignableUser {
   id: string;
   name: string;
   role: string;
+  phone: string | null;
 }
 
 export interface JobSatisfaction {
@@ -136,7 +137,7 @@ export async function listAssignableUsers(): Promise<AssignableUser[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("profiles")
-    .select("id, full_name, email, role")
+    .select("id, full_name, email, role, phone")
     .in("role", ["admin", "office", "crew"])
     .order("full_name", { ascending: true });
   const rows = (data ?? []) as {
@@ -144,11 +145,13 @@ export async function listAssignableUsers(): Promise<AssignableUser[]> {
     full_name: string | null;
     email: string;
     role: string;
+    phone: string | null;
   }[];
   return rows.map((p) => ({
     id: p.id,
     name: p.full_name || p.email,
     role: p.role,
+    phone: p.phone ?? null,
   }));
 }
 
