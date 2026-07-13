@@ -35,3 +35,12 @@ A cloud CRM for Cleveland Floor King. Audiences: office staff, field crew (mobil
 
 ## Local dev
 `npm run dev` (Turbopack). Env in `.env.local` (placeholders are committed-safe and let the app build before Supabase is connected; `isSupabaseConfigured()` gates real auth).
+
+## Whole-App Integrity — applies to EVERY change
+Any change, update, or new feature must flow through the ENTIRE app. Before finishing any task:
+1. TRACE every dependent: what other pages, components, links, queries, or processes reference what I just changed? Update ALL of them.
+2. Never leave a dangling reference: if something is moved, renamed, or refactored, every caller must be updated in the same change.
+3. Processes must follow through end to end: if an action is supposed to trigger something downstream (a status change, a notification, a hand-off to another page or role), verify that it actually fires — don't stop at the boundary of the page being edited.
+4. One source of truth: read shared state from the shared module. Never create a second, parallel way of computing or storing the same thing.
+5. Before declaring done, verify: no broken links, no orphaned references, every dependent updated, every downstream process actually fires.
+This is not optional and applies to every task, even small ones.
