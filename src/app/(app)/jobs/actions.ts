@@ -53,40 +53,71 @@ async function ensureCrewForProfile(
 ): Promise<string | null> {
   const { data: prof } = await supabase
     .from("profiles")
-    .select("full_name, email")
+    .select("full_name, email, phone")
     .eq("id", profileId)
     .maybeSingle();
   const name =
     (prof?.full_name as string) || (prof?.email as string) || "Installer";
   const email = (prof?.email as string) || null;
-  let existingId: string | null = null;
-  if (email) {
-    const { data } = await supabase
+  const phone = (prof?.phone as string) || null;
+
+  // 1) A crew already hard-linked to this profile? Use it. (Guarded so it's a
+  //    no-op before the profile_id migration is run.)
+  const { data: linked } = await supabase
+    .from("install_crews")
+    .select("id")
+    .eq("profile_id", profileId)
+    .limit(1)
+    .maybeSingle();
+  if (linked?.id) return linked.id as string;
+
+  // 2) Match an existing crew by phone / email / name, then link it so it's
+  //    never ambiguous again.
+  const { data: crewRows } = await supabase
+    .from("install_crews")
+    .select("id, name, email, phone");
+  const pp = phone10(phone);
+  const match = (crewRows ?? []).find((c) => {
+    const cc = c as { id: string; name: string | null; email: string | null; phone: string | null };
+    return (
+      (pp && phone10(cc.phone) === pp) ||
+      (email && (cc.email ?? "").trim().toLowerCase() === email.toLowerCase()) ||
+      (cc.name ?? "").trim().toLowerCase() === name.trim().toLowerCase()
+    );
+  }) as { id: string } | undefined;
+  if (match?.id) {
+    await supabase
       .from("install_crews")
-      .select("id")
-      .eq("email", email)
-      .limit(1)
-      .maybeSingle();
-    existingId = (data?.id as string) ?? null;
+      .update({ profile_id: profileId })
+      .eq("id", match.id);
+    return match.id;
   }
-  if (!existingId) {
-    const { data } = await supabase
-      .from("install_crews")
-      .select("id")
-      .eq("name", name)
-      .limit(1)
-      .maybeSingle();
-    existingId = (data?.id as string) ?? null;
-  }
-  if (existingId) return existingId;
+
+  // 3) Create a new employee crew, linked to this profile from the start.
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const { data: created } = await supabase
+  const base = {
+    name,
+    kind: "employee",
+    email,
+    phone,
+    active: true,
+    created_by: user?.id ?? null,
+  };
+  let { data: created } = await supabase
     .from("install_crews")
-    .insert({ name, kind: "employee", email, active: true, created_by: user?.id ?? null })
+    .insert({ ...base, profile_id: profileId })
     .select("id")
     .single();
+  if (!created) {
+    // Fallback for before the profile_id migration is run.
+    ({ data: created } = await supabase
+      .from("install_crews")
+      .insert(base)
+      .select("id")
+      .single());
+  }
   return (created?.id as string) ?? null;
 }
 
@@ -96,38 +127,83 @@ async function ensureCrewForProfile(
  * email but share a name with the installer's phone login). Returns null when
  * there's no login installer behind the crew (a pure subcontractor).
  */
+/** A phone reduced to its last 10 digits, for format-agnostic matching. */
+function phone10(v: string | null | undefined): string {
+  const d = (v ?? "").replace(/\D/g, "");
+  return d.length >= 10 ? d.slice(-10) : d;
+}
+
+/**
+ * Best-guess the login profile behind a crew when there's no hard link yet:
+ * phone first (most reliable — subcontractor crews often have no email), then
+ * email, then exact name. Crew/admin profiles only.
+ */
+async function resolveProfileForCrew(
+  supabase: JobsDb,
+  crew: { phone?: string | null; email?: string | null; name?: string | null },
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("profiles")
+    .select("id, full_name, email, phone")
+    .in("role", ["crew", "admin"]);
+  const profs = (data ?? []) as {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    phone: string | null;
+  }[];
+  const cp = phone10(crew.phone);
+  if (cp) {
+    const hit = profs.find((p) => phone10(p.phone) === cp);
+    if (hit) return hit.id;
+  }
+  const ce = (crew.email ?? "").trim().toLowerCase();
+  if (ce) {
+    const hit = profs.find((p) => (p.email ?? "").trim().toLowerCase() === ce);
+    if (hit) return hit.id;
+  }
+  const cn = (crew.name ?? "").trim().toLowerCase();
+  if (cn) {
+    const hit = profs.find((p) => (p.full_name ?? "").trim().toLowerCase() === cn);
+    if (hit) return hit.id;
+  }
+  return null;
+}
+
+/**
+ * The login installer (crew/admin profile) a managed crew maps to. Uses the
+ * explicit profile_id link when set (exact, no guessing); otherwise resolves by
+ * phone/email/name and PERSISTS the link so the installer is recognized exactly
+ * from then on (self-healing). Returns null for a pure subcontractor with no
+ * login behind them.
+ */
 async function profileForCrew(
   supabase: JobsDb,
   crewId: string,
 ): Promise<string | null> {
-  const { data: crew } = await supabase
+  // select("*") so this still works before the profile_id migration is run.
+  const { data: crewRow } = await supabase
     .from("install_crews")
-    .select("email, name")
+    .select("*")
     .eq("id", crewId)
     .maybeSingle();
-  const email = (crew?.email as string) || null;
-  if (email) {
-    const { data: byEmail } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("email", email)
-      .in("role", ["crew", "admin"])
-      .limit(1)
-      .maybeSingle();
-    if (byEmail?.id) return byEmail.id as string;
+  if (!crewRow) return null;
+  const crew = crewRow as {
+    profile_id?: string | null;
+    email?: string | null;
+    name?: string | null;
+    phone?: string | null;
+  };
+  if (crew.profile_id) return crew.profile_id; // exact hard link
+  const resolved = await resolveProfileForCrew(supabase, crew);
+  if (resolved) {
+    // Self-heal: persist the link. Ignored if the column isn't there yet.
+    await supabase
+      .from("install_crews")
+      .update({ profile_id: resolved })
+      .eq("id", crewId);
   }
-  const name = ((crew?.name as string) || "").trim();
-  if (name) {
-    const { data: byName } = await supabase
-      .from("profiles")
-      .select("id")
-      .ilike("full_name", name)
-      .in("role", ["crew", "admin"])
-      .limit(1)
-      .maybeSingle();
-    if (byName?.id) return byName.id as string;
-  }
-  return null;
+  return resolved;
 }
 
 /**

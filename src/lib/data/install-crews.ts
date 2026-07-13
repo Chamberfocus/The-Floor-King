@@ -10,6 +10,8 @@ export interface InstallCrew {
   pay_rate: number | null;
   active: boolean;
   notes: string | null;
+  /** Hard link to the installer's login profile (null = pure subcontractor). */
+  profile_id: string | null;
 }
 
 /**
@@ -24,7 +26,7 @@ export async function listInstallCrews(
     const supabase = await createClient();
     let q = supabase
       .from("install_crews")
-      .select("id, name, kind, phone, email, pay_basis, pay_rate, active, notes")
+      .select("id, name, kind, phone, email, pay_basis, pay_rate, active, notes, profile_id")
       .order("active", { ascending: false })
       .order("name", { ascending: true });
     if (opts.activeOnly) q = q.eq("active", true);
