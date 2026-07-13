@@ -400,8 +400,19 @@ export async function savePurchaseOrder(
       style: it.style || null,
       color: it.color || null,
       item_no: it.item_no || null,
+      for_job_id: it.for_job_id || null,
+      for_customer_id: it.for_customer_id || null,
+      note: it.note || null,
     }));
-    const { error: insertError } = await supabase.from("po_items").insert(rows);
+    let { error: insertError } = await supabase.from("po_items").insert(rows);
+    if (insertError) {
+      // Fallback for before the attribution migration (0097) is run — save the
+      // line items without the new columns so PO saving never breaks.
+      const legacy = rows.map(
+        ({ for_job_id: _j, for_customer_id: _c, note: _n, ...r }) => r,
+      );
+      ({ error: insertError } = await supabase.from("po_items").insert(legacy));
+    }
     if (insertError) return { error: insertError.message };
   }
   if (oldIds.length) {

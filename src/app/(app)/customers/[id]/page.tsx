@@ -50,6 +50,7 @@ import { listCustomerAreas } from "@/lib/data/customer-areas";
 import { CustomerAreasCard } from "./areas-card";
 import {
   listPurchaseOrdersForCustomer,
+  listAttributedPoItemsForCustomer,
   getCustomerStockPulls,
 } from "@/lib/data/purchase-orders";
 import { getJob, listAssignableUsers, getJobSatisfaction } from "@/lib/data/jobs";
@@ -164,13 +165,14 @@ export default async function CustomerPage({
   const messages = await listCustomerMessages(id);
   const documents = await listCustomerDocuments(id);
   const customerAreas = await listCustomerAreas(id);
-  const [sampleCheckouts, bizSettings, customerPOs, stockPulls, serviceAddresses] =
+  const [sampleCheckouts, bizSettings, customerPOs, stockPulls, serviceAddresses, attributedPoLines] =
     await Promise.all([
       listCustomerCheckouts(id),
       getBusinessSettings(),
       listPurchaseOrdersForCustomer(id),
       getCustomerStockPulls(id),
       listServiceAddresses(id),
+      listAttributedPoItemsForCustomer(id),
     ]);
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
@@ -963,6 +965,7 @@ export default async function CustomerPage({
               customerId={customer.id}
               pos={customerPOs}
               stockPulls={stockPulls}
+              attributed={attributedPoLines}
             />
           </TabSection>
 

@@ -40,6 +40,9 @@ interface ItemState {
   style: string;
   color: string;
   item_no: string;
+  for_job_id: string;
+  for_customer_id: string;
+  note: string;
 }
 
 const inputSm =
@@ -49,10 +52,16 @@ export function PoBuilder({
   po,
   products,
   suppliers,
+  jobs = [],
+  poCustomerName = null,
 }: {
   po: PurchaseOrder;
   products: Product[];
   suppliers: Supplier[];
+  /** Active jobs to attribute a line to when the order is shared across clients. */
+  jobs?: { job_id: string; customer_id: string | null; label: string }[];
+  /** The PO's own client — labels the default "belongs to this PO" option. */
+  poCustomerName?: string | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -70,6 +79,9 @@ export function PoBuilder({
     style: "",
     color: "",
     item_no: "",
+    for_job_id: "",
+    for_customer_id: "",
+    note: "",
   });
 
   const [supplier, setSupplier] = useState(po.supplier ?? "");
@@ -93,6 +105,9 @@ export function PoBuilder({
       style: it.style ?? "",
       color: it.color ?? "",
       item_no: it.item_no ?? "",
+      for_job_id: it.for_job_id ?? "",
+      for_customer_id: it.for_customer_id ?? "",
+      note: it.note ?? "",
     }));
     return initial.length ? initial : [emptyItem()];
   });
@@ -154,6 +169,9 @@ export function PoBuilder({
       style: it.style ?? "",
       color: it.color ?? "",
       item_no: it.item_no ?? "",
+      for_job_id: "",
+      for_customer_id: "",
+      note: "",
     }));
     setItems((prev) => {
       const kept = prev.filter(
@@ -193,6 +211,9 @@ export function PoBuilder({
           style: it.style || null,
           color: it.color || null,
           item_no: it.item_no || null,
+          for_job_id: it.for_job_id || null,
+          for_customer_id: it.for_customer_id || null,
+          note: it.note || null,
         })),
       };
       const res = await savePurchaseOrder(po.id, input);
@@ -459,6 +480,53 @@ export function PoBuilder({
                 >
                   <Trash2 className="size-3.5" />
                 </Button>
+              </div>
+
+              {/* Attribution — for a shared order, connect this line to another
+                  job/client so it's always trackable. */}
+              <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-2">
+                <div className="min-w-[15rem] flex-1">
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    For (job / client)
+                  </label>
+                  <select
+                    value={it.for_job_id}
+                    onChange={(e) => {
+                      const jid = e.target.value;
+                      const opt = jobs.find((j) => j.job_id === jid);
+                      updateItem(i, {
+                        for_job_id: jid,
+                        for_customer_id: opt?.customer_id ?? "",
+                      });
+                    }}
+                    className={cn(inputSm, "w-full")}
+                  >
+                    <option value="">
+                      This PO{poCustomerName ? ` — ${poCustomerName}` : ""}
+                    </option>
+                    {jobs.map((j) => (
+                      <option key={j.job_id} value={j.job_id}>
+                        {j.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="min-w-[12rem] flex-1">
+                  <label className="mb-1 block text-xs text-muted-foreground">
+                    Note (optional)
+                  </label>
+                  <input
+                    value={it.note}
+                    onChange={(e) => updateItem(i, { note: e.target.value })}
+                    placeholder="e.g. shared roll — cut for both jobs"
+                    className={cn(inputSm, "w-full")}
+                  />
+                </div>
+                {it.for_job_id ? (
+                  <span className="mb-1.5 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-800 dark:bg-violet-950 dark:text-violet-300">
+                    Tracked to another client
+                  </span>
+                ) : null}
               </div>
             </div>
           ))}

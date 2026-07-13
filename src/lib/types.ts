@@ -855,6 +855,11 @@ export interface PoItem {
   style: string | null;
   color: string | null;
   item_no: string | null;
+  // Attribution when the line is for a different job/client than the PO header
+  // (a shared order). Null = belongs to the PO's own customer/job.
+  for_job_id: string | null;
+  for_customer_id: string | null;
+  note: string | null;
 }
 
 // Where a PO's materials come from. Manufacturer/Distributor = an outside order;

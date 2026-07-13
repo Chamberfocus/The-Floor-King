@@ -12,7 +12,7 @@ import {
   type PurchaseOrder,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import type { StockPull } from "@/lib/data/purchase-orders";
+import type { StockPull, AttributedPoLine } from "@/lib/data/purchase-orders";
 import { createBlankPO } from "@/app/(app)/purchase-orders/actions";
 
 function sourceLabel(po: PurchaseOrder): string {
@@ -38,12 +38,15 @@ export function CustomerOrdersCard({
   customerId,
   pos,
   stockPulls,
+  attributed = [],
 }: {
   customerId: string;
   pos: PurchaseOrder[];
   stockPulls: StockPull[];
+  attributed?: AttributedPoLine[];
 }) {
-  const hasAny = pos.length > 0 || stockPulls.length > 0;
+  const hasAny =
+    pos.length > 0 || stockPulls.length > 0 || attributed.length > 0;
 
   return (
     <Card>
@@ -108,6 +111,35 @@ export function CustomerOrdersCard({
             </Link>
           );
         })}
+
+        {attributed.length > 0 ? (
+          <div className="rounded-md border border-violet-200 bg-violet-50/60 p-3 dark:border-violet-900/50 dark:bg-violet-950/20">
+            <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+              <Boxes className="size-3.5 text-violet-700 dark:text-violet-400" />
+              On shared orders (ordered with another client)
+            </div>
+            <ul className="space-y-1.5 text-sm">
+              {attributed.map((a) => (
+                <li key={a.id} className="flex justify-between gap-2">
+                  <span className="min-w-0">
+                    <Link href={`/purchase-orders/${a.po_id}`} className="font-medium hover:underline">
+                      {a.description || "Material"}
+                    </Link>
+                    <span className="block text-xs text-muted-foreground">
+                      {[a.manufacturer, a.color].filter(Boolean).join(" · ")}
+                      {a.po_supplier ? ` · ${a.po_supplier}` : ""}
+                      {a.primary_customer_name ? ` · on ${a.primary_customer_name}'s PO` : ""}
+                      {a.note ? ` · ${a.note}` : ""}
+                    </span>
+                  </span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {a.quantity ? `${a.quantity}${a.unit ? ` ${a.unit}` : ""}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {stockPulls.length > 0 ? (
           <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">

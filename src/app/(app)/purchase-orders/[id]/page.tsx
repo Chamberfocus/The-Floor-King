@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Trash2, ReceiptText } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PoStatusBadge } from "@/components/po-status-badge";
-import { getPurchaseOrder } from "@/lib/data/purchase-orders";
+import { getPurchaseOrder, listJobsForAttribution } from "@/lib/data/purchase-orders";
 import { getBillForPO } from "@/lib/data/bills";
 import { createBillFromPO } from "@/app/(app)/bills/actions";
 import { getCustomer } from "@/lib/data/customers";
@@ -33,11 +33,12 @@ export default async function PurchaseOrderPage({
   if (!po) notFound();
   const existingBill = await getBillForPO(po.id);
 
-  const [products, customer, suppliers, org] = await Promise.all([
+  const [products, customer, suppliers, org, jobs] = await Promise.all([
     listProducts({ activeOnly: true }),
     po.customer_id ? getCustomer(po.customer_id) : Promise.resolve(null),
     listSuppliers(),
     getOrgSettings(),
+    listJobsForAttribution(),
   ]);
 
   return (
@@ -110,7 +111,13 @@ export default async function PurchaseOrderPage({
         <ReorderAlerts productIds={(po.items ?? []).map((i) => i.product_id).filter(Boolean) as string[]} />
       </div>
 
-      <PoBuilder po={po} products={products} suppliers={suppliers} />
+      <PoBuilder
+        po={po}
+        products={products}
+        suppliers={suppliers}
+        jobs={jobs.filter((j) => j.customer_id !== po.customer_id)}
+        poCustomerName={customer?.full_name ?? null}
+      />
 
       <form action={deletePurchaseOrder} className="mt-4 flex justify-end">
         <input type="hidden" name="id" value={po.id} />

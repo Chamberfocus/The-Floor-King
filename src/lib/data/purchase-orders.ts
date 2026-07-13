@@ -25,6 +25,113 @@ async function attachItems(
   return pos;
 }
 
+export interface JobAttribution {
+  job_id: string;
+  customer_id: string | null;
+  label: string;
+}
+
+/**
+ * Active jobs (with client names) to attribute a shared-order PO line to, so
+ * material for another client on the same order stays trackable.
+ */
+export async function listJobsForAttribution(): Promise<JobAttribution[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("jobs")
+    .select("id, title, customer_id, status, customer:customers(full_name)")
+    .neq("status", "completed")
+    .order("created_at", { ascending: false });
+  const rows = (data ?? []) as {
+    id: string;
+    title: string | null;
+    customer_id: string | null;
+    customer?: { full_name: string | null } | { full_name: string | null }[] | null;
+  }[];
+  return rows.map((r) => {
+    const c = Array.isArray(r.customer) ? r.customer[0] : r.customer;
+    return {
+      job_id: r.id,
+      customer_id: r.customer_id,
+      label: [c?.full_name, r.title].filter(Boolean).join(" — ") || "Job",
+    };
+  });
+}
+
+export interface AttributedPoLine {
+  id: string;
+  po_id: string;
+  description: string;
+  quantity: number | null;
+  unit: string;
+  manufacturer: string | null;
+  color: string | null;
+  note: string | null;
+  po_supplier: string | null;
+  primary_customer_name: string | null;
+}
+
+/**
+ * PO lines from OTHER customers' purchase orders that were attributed to this
+ * customer (a shared order) — so this client's material is always trackable
+ * even when it rode along on someone else's PO.
+ */
+export async function listAttributedPoItemsForCustomer(
+  customerId: string,
+): Promise<AttributedPoLine[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("po_items")
+    .select(
+      "id, po_id, description, quantity, unit, manufacturer, color, note, po:purchase_orders(supplier, customer_id, customer:customers(full_name))",
+    )
+    .eq("for_customer_id", customerId);
+  const rows = (data ?? []) as {
+    id: string;
+    po_id: string;
+    description: string;
+    quantity: number | null;
+    unit: string;
+    manufacturer: string | null;
+    color: string | null;
+    note: string | null;
+    po?:
+      | {
+          supplier: string | null;
+          customer_id: string | null;
+          customer?: { full_name: string | null } | { full_name: string | null }[] | null;
+        }
+      | Array<{
+          supplier: string | null;
+          customer_id: string | null;
+          customer?: { full_name: string | null } | { full_name: string | null }[] | null;
+        }>
+      | null;
+  }[];
+  return rows
+    .map((r) => {
+      const po = Array.isArray(r.po) ? r.po[0] : r.po;
+      const cust = Array.isArray(po?.customer) ? po?.customer[0] : po?.customer;
+      return {
+        id: r.id,
+        po_id: r.po_id,
+        description: r.description,
+        quantity: r.quantity,
+        unit: r.unit,
+        manufacturer: r.manufacturer,
+        color: r.color,
+        note: r.note,
+        po_supplier: po?.supplier ?? null,
+        po_customer_id: po?.customer_id ?? null,
+        primary_customer_name: cust?.full_name ?? null,
+      };
+    })
+    // Only the truly shared ones — a line pointing back at its own PO's customer
+    // already shows under that PO.
+    .filter((r) => r.po_customer_id !== customerId)
+    .map(({ po_customer_id: _drop, ...rest }) => rest);
+}
+
 export async function getPurchaseOrder(
   id: string,
 ): Promise<PurchaseOrder | null> {

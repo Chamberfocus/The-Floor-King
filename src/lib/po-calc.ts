@@ -29,6 +29,11 @@ export interface SavePoItemInput {
   style?: string | null;
   color?: string | null;
   item_no?: string | null;
+  // When this line is for a DIFFERENT job/client than the PO header (a shared
+  // order), attribute it so the material can always be tracked back.
+  for_job_id?: string | null;
+  for_customer_id?: string | null;
+  note?: string | null;
 }
 
 export interface SavePoInput {
