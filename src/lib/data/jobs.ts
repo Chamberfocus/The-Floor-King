@@ -304,6 +304,14 @@ export interface WarehouseMaterial {
   sqft: number | null;
   quantity: number | null;
   unit: string | null;
+  measure_unit: string | null;
+  category: string | null;
+  manufacturer: string | null;
+  color: string | null;
+  // Cut dimensions for roll goods (carpet / sheet vinyl) so the warehouse can
+  // cut to size. Total inches.
+  length_in: number | null;
+  width_in: number | null;
 }
 
 export interface WarehouseJob extends JobListRow {
@@ -392,7 +400,7 @@ export async function listWarehouseJobs(
     const { data: lineData } = await supabase
       .from("estimate_line_items")
       .select(
-        "option_id, room, description, sqft, quantity, unit, line_type, position",
+        "option_id, room, description, sqft, quantity, unit, measure_unit, category, manufacturer, color, length_in, width_in, line_type, position",
       )
       .in("option_id", optionIds)
       .order("position", { ascending: true });
@@ -403,6 +411,12 @@ export async function listWarehouseJobs(
       sqft: number | null;
       quantity: number | null;
       unit: string | null;
+      measure_unit: string | null;
+      category: string | null;
+      manufacturer: string | null;
+      color: string | null;
+      length_in: number | null;
+      width_in: number | null;
       line_type: string;
     }[];
     const byOption = new Map<string, WarehouseMaterial[]>();
@@ -415,6 +429,12 @@ export async function listWarehouseJobs(
         sqft: l.sqft,
         quantity: l.quantity,
         unit: l.unit,
+        measure_unit: l.measure_unit,
+        category: l.category,
+        manufacturer: l.manufacturer,
+        color: l.color,
+        length_in: l.length_in,
+        width_in: l.width_in,
       });
       byOption.set(l.option_id, arr);
     }

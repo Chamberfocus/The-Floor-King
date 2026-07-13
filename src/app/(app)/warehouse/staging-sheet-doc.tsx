@@ -1,6 +1,7 @@
 import { PrintLetterhead } from "@/components/print-letterhead";
 import { formatDate } from "@/lib/format";
-import { JOB_DELIVERY_LABELS, type OrgSettings } from "@/lib/types";
+import { JOB_DELIVERY_LABELS, isRollGoodCategory, type OrgSettings } from "@/lib/types";
+import { ftIn } from "@/lib/job-scope";
 import type { WarehouseJob } from "@/lib/data/jobs";
 
 /**
@@ -84,6 +85,7 @@ export function StagingSheetDoc({
               <tr className="border-b text-left text-[11px] text-gray-500">
                 <th className="w-8 py-1 pr-2 font-medium">Done</th>
                 <th className="py-1 px-2 font-medium">Room / material</th>
+                <th className="py-1 px-2 font-medium">Cut size (W × L)</th>
                 <th className="py-1 pl-2 text-right font-medium">Quantity</th>
               </tr>
             </thead>
@@ -95,6 +97,12 @@ export function StagingSheetDoc({
                     : m.sqft
                       ? `${m.sqft} sq ft`
                       : "";
+                // Cut to size applies to roll goods (carpet / sheet vinyl).
+                const cut =
+                  isRollGoodCategory(m.category) && m.length_in && m.width_in
+                    ? `${ftIn(m.width_in)} × ${ftIn(m.length_in)}`
+                    : "";
+                const idTags = [m.manufacturer, m.color].filter(Boolean).join(" · ");
                 return (
                   <tr key={i} className="border-b align-top">
                     <td className="py-1.5 pr-2">
@@ -103,6 +111,12 @@ export function StagingSheetDoc({
                     <td className="py-1.5 px-2">
                       {m.room ? `${m.room} — ` : ""}
                       {m.description || "Material"}
+                      {idTags ? (
+                        <span className="block text-[11px] text-gray-500">{idTags}</span>
+                      ) : null}
+                    </td>
+                    <td className="py-1.5 px-2 whitespace-nowrap font-semibold tabular-nums">
+                      {cut ? `✂ ${cut}` : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="py-1.5 pl-2 text-right tabular-nums text-gray-600">
                       {qty}
