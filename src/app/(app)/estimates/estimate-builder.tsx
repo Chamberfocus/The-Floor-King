@@ -33,7 +33,7 @@ import {
 } from "@/lib/types";
 import { saveEstimate } from "./actions";
 import { writeScopeDescription } from "./ai-actions";
-import { ProductPicker } from "./product-picker";
+import { ProductPicker, type CustomProductInput } from "./product-picker";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { AreaCalculator } from "@/components/area-calculator";
 
@@ -591,6 +591,44 @@ export function EstimateBuilder({
   // A product created inline is returned ready to use; apply it to the line.
   const handleProductCreated = (oi: number, li: number, p: Product) => {
     pickProduct(oi, li, p);
+  };
+
+  // "Use once": a trim / product typed in the picker that isn't in the catalog,
+  // dropped onto THIS estimate line only (no product_id, nothing saved).
+  const useOnceProduct = (oi: number, li: number, input: CustomProductInput) => {
+    const measure_unit: MeasureUnit = (input.unit || "")
+      .toLowerCase()
+      .includes("yd")
+      ? "sqyd"
+      : "sqft";
+    const round2 = (n: number) => String(Math.round(n * 100) / 100);
+    setOptions((prev) =>
+      prev.map((o, i) =>
+        i === oi
+          ? {
+              ...o,
+              lines: o.lines.map((l, j) => {
+                if (j !== li) return l;
+                const base: LineState = {
+                  ...l,
+                  product_id: "",
+                  category: input.category || l.category,
+                  material_cost: input.material_rate ? round2(num(input.material_rate)) : l.material_cost,
+                  labor_cost: input.labor_rate ? round2(num(input.labor_rate)) : l.labor_cost,
+                  manufacturer: input.manufacturer || l.manufacturer,
+                  style: input.style || l.style,
+                  color: input.color || l.color,
+                  item_no: input.sku || l.item_no,
+                  unit: input.unit || l.unit,
+                  measure_unit,
+                  description: input.name || l.description,
+                };
+                return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin))) };
+              }),
+            }
+          : o,
+      ),
+    );
   };
 
   const buildInput = (): SaveEstimateInput => ({
@@ -1259,6 +1297,7 @@ export function EstimateBuilder({
                           initialLabel={line.description}
                           onPick={(p) => pickProduct(oi, li, p)}
                           onCreated={(p) => handleProductCreated(oi, li, p)}
+                          onUseOnce={(input) => useOnceProduct(oi, li, input)}
                         />
                       ) : null}
 

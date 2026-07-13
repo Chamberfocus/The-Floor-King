@@ -116,7 +116,7 @@ type Answer =
   | { kind: "trims"; rows: TrimRow[] }
   | { kind: "yesno"; yes: boolean }
   | { kind: "number"; value: string; rateIdx: number | null }
-  | { kind: "choice"; selected: string[] }
+  | { kind: "choice"; selected: string[]; note?: string }
   | { kind: "choice_areas"; rows: DemoRow[] }
   | { kind: "text"; text: string };
 
@@ -744,8 +744,10 @@ export function Questionnaire({
     const freeText: string[] = [];
     // Format one flagged answer as "Label: value" (or "" if unanswered).
     const condValue = (q: EstimateQuestion, a: Answer | undefined): string => {
-      if (q.kind === "choice" && a?.kind === "choice" && a.selected.length)
-        return a.selected.join(", ");
+      if (q.kind === "choice" && a?.kind === "choice") {
+        // Selected option(s) plus any typed prep instructions.
+        return [a.selected.join(", "), a.note?.trim()].filter(Boolean).join(" — ");
+      }
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       return "";
     };
@@ -1542,19 +1544,37 @@ function QuestionBody({
     const multi = q.config.multi;
     const toggle = (label: string) => {
       const on = answer.selected.includes(label);
-      if (multi) set({ kind: "choice", selected: on ? answer.selected.filter((x) => x !== label) : [...answer.selected, label] });
-      else set({ kind: "choice", selected: on ? [] : [label] });
+      const next = multi
+        ? (on ? answer.selected.filter((x) => x !== label) : [...answer.selected, label])
+        : (on ? [] : [label]);
+      set({ kind: "choice", selected: next, note: answer.note });
     };
     return (
-      <div className="flex flex-wrap gap-2">
-        {opts.map((o) => (
-          <button key={o.label} type="button" onClick={() => toggle(o.label)}
-            className={cn("rounded-lg border px-4 py-2.5 text-base font-medium", answer.selected.includes(o.label) ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
-            {answer.selected.includes(o.label) ? <Check className="mr-1 inline size-4" /> : null}
-            {o.label}
-          </button>
-        ))}
-        {!opts.length ? <p className="text-sm text-muted-foreground">No options set for this question yet.</p> : null}
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {opts.map((o) => (
+            <button key={o.label} type="button" onClick={() => toggle(o.label)}
+              className={cn("rounded-lg border px-4 py-2.5 text-base font-medium", answer.selected.includes(o.label) ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
+              {answer.selected.includes(o.label) ? <Check className="mr-1 inline size-4" /> : null}
+              {o.label}
+            </button>
+          ))}
+          {!opts.length ? <p className="text-sm text-muted-foreground">No options set for this question yet.</p> : null}
+        </div>
+        {q.config.note ? (
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              Instructions / details (optional)
+            </label>
+            <textarea
+              value={answer.note ?? ""}
+              onChange={(e) => set({ kind: "choice", selected: answer.selected, note: e.target.value })}
+              rows={3}
+              placeholder="Describe what's needed — areas, materials, how much, anything the crew should know…"
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </div>
+        ) : null}
       </div>
     );
   }
