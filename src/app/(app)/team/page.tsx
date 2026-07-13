@@ -258,7 +258,7 @@ export default async function TeamSchedulePage({
           <Link href="/team?view=month" className={toggleCls(view === "month")}>Month</Link>
         </div>
         <div className="flex items-center gap-2">
-          {view === "month" ? <PrintButton /> : null}
+          {view === "week" || view === "month" ? <PrintButton /> : null}
           <Link href={prevHref} className={buttonVariants({ variant: "outline", size: "sm" })}>
             <ChevronLeft className="size-4" /> Prev
           </Link>
@@ -315,20 +315,70 @@ export default async function TeamSchedulePage({
         /* ---- WEEK: employees × 7 days grid (managers edit in place) ---- */
         <>
           {isManager ? (
-            <p className="mb-2 text-sm text-muted-foreground">
+            <p className="mb-2 text-sm text-muted-foreground print:hidden">
               Click any day to change that person&apos;s hours — it saves right
               away.
             </p>
           ) : null}
-          <ShiftGrid
-            members={gridMembers}
-            columns={weekColumns}
-            shifts={shiftsMap}
-            overrides={overridesMap}
-            off={offObj}
-            editable={isManager}
-            showTotals={isManager}
-          />
+          <div className="print:hidden">
+            <ShiftGrid
+              members={gridMembers}
+              columns={weekColumns}
+              shifts={shiftsMap}
+              overrides={overridesMap}
+              off={offObj}
+              editable={isManager}
+              showTotals={isManager}
+            />
+          </div>
+
+          {/* Clean printable weekly roster (screen shows the grid above). */}
+          <div className="hidden text-black print:block">
+            <div className="mb-3 text-center">
+              <div className="text-lg font-bold">{COMPANY_NAME} — Weekly Schedule</div>
+              <div className="text-sm">{periodLabel}</div>
+            </div>
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr>
+                  <th className="border border-gray-400 p-1 text-left">Employee</th>
+                  {weekColumns.map((col) => (
+                    <th key={col.ymd} className="border border-gray-400 p-1 text-center">
+                      <div>{col.top}</div>
+                      <div className="font-normal text-gray-600">{col.bottom}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((m) => (
+                  <tr key={m.id} className="break-inside-avoid">
+                    <td className="border border-gray-400 p-1 align-top">
+                      <div className="font-medium">{m.full_name || m.email}</div>
+                      <div className="text-[10px] text-gray-500">{ROLE_LABELS[m.role]}</div>
+                    </td>
+                    {gridDays.map((d) => {
+                      const c = cellFor(m.id, d);
+                      return (
+                        <td key={d} className="border border-gray-400 p-1 text-center align-top tabular-nums">
+                          {c?.kind === "work" ? (
+                            `${to12(c.start)} – ${to12(c.end)}`
+                          ) : c?.kind === "off" ? (
+                            <span className="text-gray-600">{KIND_LABEL[c.reason] ?? "Off"}</span>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="mt-2 text-center text-[10px] text-gray-500">
+              {COMPANY_NAME} · printed schedule
+            </div>
+          </div>
         </>
       ) : (
         /* ---- MONTH: a real wall calendar, and it prints cleanly ---- */
