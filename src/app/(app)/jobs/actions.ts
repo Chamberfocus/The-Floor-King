@@ -1559,24 +1559,53 @@ export async function setWarehouseStatus(formData: FormData): Promise<void> {
   const status = str(formData.get("warehouse_status")) as WarehouseStatus;
   if (!id || !status) return;
   const supabase = await createClient();
+  const { data: prevJob } = await supabase
+    .from("jobs")
+    .select("warehouse_status, customer_id")
+    .eq("id", id)
+    .maybeSingle();
   await supabase.from("jobs").update({ warehouse_status: status }).eq("id", id);
+  const customerId = (prevJob?.customer_id as string | null) ?? null;
 
   // Intelligent flow: materials received/staged → jump to the install-scheduling stage.
-  if (status === "staged") {
-    const { data: job } = await supabase
-      .from("jobs")
-      .select("customer_id")
-      .eq("id", id)
+  if (status === "staged" && customerId) {
+    await moveToAutoActionStage(customerId, "schedule_install");
+  }
+
+  // Newly delivered → let the customer know their materials arrived on site (the
+  // "delivered" step previously notified no one).
+  if (status === "delivered" && prevJob?.warehouse_status !== "delivered" && customerId) {
+    const { data: c } = await supabase
+      .from("customers")
+      .select("full_name, email")
+      .eq("id", customerId)
       .maybeSingle();
-    if (job?.customer_id)
-      await moveToAutoActionStage(
-        job.customer_id as string,
-        "schedule_install",
-      );
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (c?.email) {
+      await sendEmail({
+        to: c.email as string,
+        subject: "Your materials have been delivered",
+        html: emailLayout(
+          "Materials delivered ✅",
+          `<p>Hi ${(c.full_name as string)?.split(" ")[0] ?? "there"},</p>
+           <p>Your flooring materials have been delivered. We'll be in touch to get your installation on the calendar.</p>`,
+          { label: "View your project", url: `${siteUrl()}/portal` },
+        ),
+      });
+    }
+    await supabase.from("messages").insert({
+      customer_id: customerId,
+      channel: "client",
+      author_id: user?.id ?? null,
+      body: "🚚 Your materials have been delivered.",
+    });
   }
 
   revalidatePath("/warehouse");
   revalidatePath(`/jobs/${id}`);
+  if (customerId) revalidatePath(`/customers/${customerId}`);
 }
 
 /** Warehouse flags a problem (missing/short/wrong) → alert everyone on the job. */

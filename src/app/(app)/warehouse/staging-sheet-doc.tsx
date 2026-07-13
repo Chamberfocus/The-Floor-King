@@ -3,19 +3,24 @@ import { formatDate } from "@/lib/format";
 import { JOB_DELIVERY_LABELS, isRollGoodCategory, type OrgSettings } from "@/lib/types";
 import { ftIn } from "@/lib/job-scope";
 import type { WarehouseJob } from "@/lib/data/jobs";
+import type { JobMaterialLine } from "@/lib/data/job-materials";
 
 /**
  * Print-only WAREHOUSE STAGING SHEET — a pick list the warehouse carries while
  * pulling & staging material for a job: who/where/when, delivery method, the
  * materials with a tick box to check each off as pulled, staging notes, and a
- * "staged by" sign-off.
+ * "staged by" sign-off. Materials come from the SAME sourced list the on-screen
+ * warehouse queue uses (getJobMaterials), so the printout can't disagree with
+ * the screen — pull-vs-order, cuts, and "arrived" all match.
  */
 export function StagingSheetDoc({
   org,
   job,
+  lines,
 }: {
   org: OrgSettings;
   job: WarehouseJob;
+  lines: JobMaterialLine[];
 }) {
   const site = [
     job.site_street,
@@ -79,42 +84,46 @@ export function StagingSheetDoc({
       {/* Materials to pull — tick each as it's staged */}
       <div className="mt-4">
         <div className="mb-1 text-sm font-semibold">Materials to pull &amp; stage</div>
-        {job.materials.length ? (
+        {lines.length ? (
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b text-left text-[11px] text-gray-500">
                 <th className="w-8 py-1 pr-2 font-medium">Done</th>
                 <th className="py-1 px-2 font-medium">Room / material</th>
+                <th className="py-1 px-2 font-medium">Source</th>
                 <th className="py-1 px-2 font-medium">Cut size (W × L)</th>
                 <th className="py-1 pl-2 text-right font-medium">Quantity</th>
               </tr>
             </thead>
             <tbody>
-              {job.materials.map((m, i) => {
+              {lines.map((m) => {
                 const qty =
-                  m.quantity && m.quantity > 0
-                    ? `${Math.round(m.quantity * 100) / 100} ${m.unit || ""}`.trim()
-                    : m.sqft
-                      ? `${m.sqft} sq ft`
-                      : "";
+                  m.qty > 0 ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim() : "";
                 // Cut to size applies to roll goods (carpet / sheet vinyl).
                 const cut =
-                  isRollGoodCategory(m.category) && m.length_in && m.width_in
-                    ? `${ftIn(m.width_in)} × ${ftIn(m.length_in)}`
+                  isRollGoodCategory(m.category) && m.lengthIn && m.widthIn
+                    ? `${ftIn(m.widthIn)} × ${ftIn(m.lengthIn)}`
                     : "";
                 const idTags = [m.manufacturer, m.color].filter(Boolean).join(" · ");
+                const sourceLabel =
+                  m.resolvedSource === "stock"
+                    ? "Pull from stock"
+                    : m.status === "arrived"
+                      ? "Ordered ✓ arrived"
+                      : `Order${m.supplier ? ` · ${m.supplier}` : ""}`;
                 return (
-                  <tr key={i} className="border-b align-top">
+                  <tr key={m.lineId} className="border-b align-top">
                     <td className="py-1.5 pr-2">
                       <span className="inline-block size-4 border border-gray-500" />
                     </td>
                     <td className="py-1.5 px-2">
                       {m.room ? `${m.room} — ` : ""}
-                      {m.description || "Material"}
+                      {m.productName || m.description || "Material"}
                       {idTags ? (
                         <span className="block text-[11px] text-gray-500">{idTags}</span>
                       ) : null}
                     </td>
+                    <td className="py-1.5 px-2 text-xs text-gray-600">{sourceLabel}</td>
                     <td className="py-1.5 px-2 whitespace-nowrap font-semibold tabular-nums">
                       {cut ? `✂ ${cut}` : <span className="text-gray-300">—</span>}
                     </td>

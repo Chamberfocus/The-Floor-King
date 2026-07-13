@@ -1,5 +1,6 @@
 import type { createClient } from "@/lib/supabase/server";
 import type { PoStatus } from "@/lib/types";
+import { syncRolledOnHand } from "@/lib/data/stock-rolls";
 
 /**
  * Inventory reconciliation for purchase orders — the SINGLE place that turns a
@@ -43,12 +44,16 @@ export async function applyReceiptToStock(
   const productIds = [...new Set(rows.map((it) => it.product_id as string))];
   const { data: prods } = await db
     .from("products")
-    .select("id, on_hand, track_stock")
+    .select("id, on_hand, track_stock, stock_kind")
     .in("id", productIds);
   const prodMap = new Map(
     (prods ?? []).map((p) => [
       p.id as string,
-      { on_hand: Number(p.on_hand) || 0, track_stock: !!p.track_stock },
+      {
+        on_hand: Number(p.on_hand) || 0,
+        track_stock: !!p.track_stock,
+        stock_kind: (p.stock_kind as string) ?? null,
+      },
     ]),
   );
 
@@ -71,6 +76,14 @@ export async function applyReceiptToStock(
   for (const [pid, { qty, unitCost }] of byProduct) {
     const delta = round(sign * qty);
     const p = prodMap.get(pid)!;
+    // Rolled goods (carpet/vinyl) track on_hand as the sum of their roll rows
+    // (syncRolledOnHand), NOT a running total. A generic on_hand += delta here
+    // would be clobbered by the next roll op — so let the roll system own it and
+    // just re-sync. Roll rows are created via the roll intake, not here.
+    if (p.stock_kind === "rolled") {
+      await syncRolledOnHand(pid, db);
+      continue;
+    }
     await db.from("stock_movements").insert({
       product_id: pid,
       qty: delta,

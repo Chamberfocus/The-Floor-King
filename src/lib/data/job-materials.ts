@@ -10,6 +10,8 @@ export interface JobMaterialLine {
   productId: string | null;
   productName: string | null;
   supplier: string | null; // vendor we order it from (for the PO)
+  manufacturer: string | null;
+  color: string | null;
   category: string | null;
   lengthIn: number | null; // cut measurements to order (carpet especially)
   widthIn: number | null;
@@ -56,6 +58,7 @@ type RawLine = CalcLine & {
   length_in: number | null;
   width_in: number | null;
   manufacturer: string | null;
+  color: string | null;
 };
 
 export async function getJobMaterials(
@@ -201,6 +204,8 @@ export async function getJobMaterials(
       productId: l.product_id,
       productName: p?.name ?? null,
       supplier: p?.supplier ?? l.manufacturer ?? null,
+      manufacturer: l.manufacturer ?? null,
+      color: l.color ?? null,
       // Prefer the product's LIVE category so re-categorizing a product (e.g.
       // roll-good ↔ hard-surface) corrects the cut logic on existing jobs;
       // fall back to the line's snapshot for one-off/manual lines.

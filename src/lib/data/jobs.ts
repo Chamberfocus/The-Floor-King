@@ -298,24 +298,7 @@ export async function getMyApplicationJobIds(): Promise<string[]> {
   return (data ?? []).map((r) => r.job_id as string);
 }
 
-export interface WarehouseMaterial {
-  room: string | null;
-  description: string;
-  sqft: number | null;
-  quantity: number | null;
-  unit: string | null;
-  measure_unit: string | null;
-  category: string | null;
-  manufacturer: string | null;
-  color: string | null;
-  // Cut dimensions for roll goods (carpet / sheet vinyl) so the warehouse can
-  // cut to size. Total inches.
-  length_in: number | null;
-  width_in: number | null;
-}
-
 export interface WarehouseJob extends JobListRow {
-  materials: WarehouseMaterial[];
   crew_name: string | null; // who's doing the install (crew or assigned installer)
   warehouse_assignee_name: string | null; // warehouse person assigned to prep it
   customer_stage_id: string | null; // customer's workflow stage — for the shared flow badge
@@ -343,7 +326,6 @@ export async function listWarehouseJobs(
   const rows: WarehouseJob[] = jobs.map((j) => ({
     ...j,
     customer_name: j.customer?.full_name ?? null,
-    materials: [],
     crew_name: null,
     warehouse_assignee_name: null,
     customer_stage_id: j.customer?.workflow_stage_id ?? null,
@@ -395,53 +377,9 @@ export async function listWarehouseJobs(
     r.warehouse_assignee_name = wid ? (installerName.get(wid) ?? null) : null;
   }
 
-  const optionIds = rows.map((r) => r.option_id).filter(Boolean) as string[];
-  if (optionIds.length) {
-    const { data: lineData } = await supabase
-      .from("estimate_line_items")
-      .select(
-        "option_id, room, description, sqft, quantity, unit, measure_unit, category, manufacturer, color, length_in, width_in, line_type, position",
-      )
-      .in("option_id", optionIds)
-      .order("position", { ascending: true });
-    const lines = (lineData ?? []) as {
-      option_id: string;
-      room: string | null;
-      description: string;
-      sqft: number | null;
-      quantity: number | null;
-      unit: string | null;
-      measure_unit: string | null;
-      category: string | null;
-      manufacturer: string | null;
-      color: string | null;
-      length_in: number | null;
-      width_in: number | null;
-      line_type: string;
-    }[];
-    const byOption = new Map<string, WarehouseMaterial[]>();
-    for (const l of lines) {
-      if (l.line_type === "flat") continue;
-      const arr = byOption.get(l.option_id) ?? [];
-      arr.push({
-        room: l.room,
-        description: l.description,
-        sqft: l.sqft,
-        quantity: l.quantity,
-        unit: l.unit,
-        measure_unit: l.measure_unit,
-        category: l.category,
-        manufacturer: l.manufacturer,
-        color: l.color,
-        length_in: l.length_in,
-        width_in: l.width_in,
-      });
-      byOption.set(l.option_id, arr);
-    }
-    for (const r of rows) {
-      if (r.option_id) r.materials = byOption.get(r.option_id) ?? [];
-    }
-  }
+  // Materials for the warehouse (queue + staging sheet) come from the single
+  // sourced list, getJobMaterials — so there's no parallel material shape to
+  // drift. The warehouse page loads it per job.
   return rows;
 }
 

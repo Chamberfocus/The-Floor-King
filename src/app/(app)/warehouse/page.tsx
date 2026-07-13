@@ -105,7 +105,7 @@ export default async function WarehousePage() {
   // One print-ready staging sheet per job (hidden until its button is clicked).
   const sheets = jobs.map((j) => ({
     id: j.id,
-    node: <StagingSheetDoc org={org} job={j} />,
+    node: <StagingSheetDoc org={org} job={j} lines={sourced.get(j.id)?.lines ?? []} />,
   }));
 
   // Staged jobs are done with prep → move them to the searchable archive; the
