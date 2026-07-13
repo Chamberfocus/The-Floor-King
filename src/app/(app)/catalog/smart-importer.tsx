@@ -52,7 +52,9 @@ const inputSm =
 // Spreadsheet column fields, with header synonyms for auto-mapping.
 const FIELDS: { key: string; label: string; syn: string[] }[] = [
   { key: "name", label: "Product name", syn: ["name", "productname", "product", "itemname", "description", "itemdescription"] },
-  { key: "material_rate", label: "Material / cost", syn: ["unitprice", "price", "cost", "materialrate", "material", "yourcost", "dealerprice", "netprice", "msrp", "unitcost"] },
+  // Cost-first — auto-map OUR cost, NEVER auto-pick MSRP / list / retail (those
+  // must be chosen deliberately). Generic "price"/"unitprice" are last resort.
+  { key: "material_rate", label: "Material / cost", syn: ["yourcost", "dealercost", "dealernet", "dealerprice", "netprice", "net", "unitcost", "cost", "materialcost", "materialrate", "material", "unitprice", "price"] },
   { key: "labor_rate", label: "Labor", syn: ["laborrate", "labor", "labour", "install", "installrate"] },
   { key: "sku", label: "SKU / item #", syn: ["sku", "style", "styleno", "stylenumber", "item", "itemno", "itemnumber", "partno", "partnumber", "productcode", "code"] },
   { key: "manufacturer", label: "Manufacturer", syn: ["manufacturer", "mfg", "mfr", "brand", "vendor", "supplier", "mill", "sellingcompanyname"] },
@@ -64,11 +66,48 @@ const FIELDS: { key: string; label: string; syn: string[] }[] = [
 ];
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+// Strict money parse: one number only. Blank/"N/A"/ranges ("12-15") → null so
+// they're flagged in the preview, never silently turned into a wrong value.
 const toNum = (v: string): number | null => {
   if (!v) return null;
-  const n = parseFloat(v.replace(/[^0-9.]/g, ""));
+  const nums = v.replace(/[$,]/g, "").match(/\d+(?:\.\d+)?/g);
+  if (!nums || nums.length !== 1) return null;
+  const n = parseFloat(nums[0]);
   return Number.isFinite(n) ? n : null;
 };
+
+export type RowStatus = { level: "ok" | "flag"; reason: string };
+/**
+ * Loud validation: a row is FLAGGED (and excluded from import) if the price is
+ * missing/$0 or if the price × unit is implausible for the category — the exact
+ * mislabels that made prices wrong (carpet priced per sq ft, hard surface priced
+ * per sq yd, a per-carton lump labeled per sq ft). Nothing wrong imports silently.
+ */
+export function validateRow(r: PriceRow): RowStatus {
+  if (!r.name?.trim()) return { level: "flag", reason: "no product name" };
+  if (r.material_rate == null)
+    return { level: "flag", reason: "price didn't parse — fix it or map a different price column" };
+  const p = Number(r.material_rate);
+  if (!(p > 0)) return { level: "flag", reason: "price is $0" };
+  const u = r.unit;
+  if (r.category === "carpet") {
+    if (u === "sqyd" && p < 2)
+      return { level: "flag", reason: `$${p}/sq yd is very low — is this a per-sq-ft price?` };
+    if (u === "sqft" && p > 8)
+      return { level: "flag", reason: `$${p}/sq ft is high for carpet — is this a per-sq-yd price?` };
+    if (u !== "sqyd" && u !== "sqft")
+      return { level: "flag", reason: `carpet unit "${u}" — expected sq yd` };
+  }
+  if (["lvp", "hardwood", "laminate", "tile"].includes(r.category)) {
+    if (u === "sqft" && p > 20)
+      return { level: "flag", reason: `$${p}/sq ft looks like a per-carton price` };
+    if (u === "sqyd")
+      return { level: "flag", reason: "hard surface priced per sq yd — should be sq ft" };
+  }
+  if (r.category === "trim" && u !== "lnft" && u !== "each")
+    return { level: "flag", reason: `trim unit "${u}" — expected linear ft or each` };
+  return { level: "ok", reason: "" };
+}
 
 // Tell trim/accessory pieces apart from actual flooring, by product name.
 const TRIM_RE =
@@ -375,6 +414,10 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
   };
 
   const finalRows = applyDefaults(grid ? buildFromGrid() : (rows ?? []));
+  // Loud validation: split into what will import vs what's flagged & held back.
+  const validated = finalRows.map((r) => ({ r, status: validateRow(r) }));
+  const flaggedCount = validated.filter((v) => v.status.level === "flag").length;
+  const okCount = validated.length - flaggedCount;
 
   // Import DIRECTLY and synchronously — one server call, no background worker,
   // no self-fetch, no deployment-protection wall. The reviewed rows go to the
@@ -387,7 +430,15 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
         toast.error("Nothing to import yet.");
         return;
       }
-      const res = await importProducts(built, {
+      // Only clean rows import. Flagged rows (bad/implausible price×unit) are
+      // held back — never written with a wrong or $0 price.
+      const okOnly = built.filter((r) => validateRow(r).level === "ok");
+      const held = built.length - okOnly.length;
+      if (!okOnly.length) {
+        toast.error(`All ${built.length} rows are flagged — fix the mapping/units first.`);
+        return;
+      }
+      const res = await importProducts(okOnly, {
         update: updateMode,
         supplier: defSupplier.trim() || undefined,
       });
@@ -400,7 +451,24 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
         );
         return;
       }
-      setDone(res.count ?? built.length);
+      // Loud, honest tally: new vs updated vs unchanged, then what was held back.
+      const writerSkipped = res.skipped ?? 0;
+      const heldTotal = held + writerSkipped;
+      const parts: string[] = [];
+      if (res.inserted != null) parts.push(`${res.inserted} new`);
+      if (res.updated != null) parts.push(`${res.updated} updated`);
+      if (res.unchanged) parts.push(`${res.unchanged} unchanged`);
+      toast.success(
+        parts.length
+          ? `Imported: ${parts.join(" · ")}.`
+          : `Imported ${res.count ?? okOnly.length} product${(res.count ?? okOnly.length) === 1 ? "" : "s"}.`,
+      );
+      if (heldTotal > 0) {
+        toast.warning(
+          `${heldTotal} row${heldTotal === 1 ? "" : "s"} held back (bad or missing price/unit) — not imported.`,
+        );
+      }
+      setDone(res.count ?? okOnly.length);
       reset();
     });
 
@@ -809,14 +877,30 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                   {(grid ? finalRows : (rows ?? [])).slice(0, shown).map((r, i) => (
                     <tr key={i}>
                       {grid ? (
-                        <>
-                          <td className="px-2 py-1">{r.name}</td>
-                          <td className="px-2 py-1 text-muted-foreground">{r.category}</td>
-                          <td className="px-2 py-1 text-muted-foreground">{r.sku ?? "—"}</td>
-                          <td className="px-2 py-1 text-muted-foreground">{r.manufacturer ?? "—"}</td>
-                          <td className="px-2 py-1 text-right">{r.material_rate ?? "—"}</td>
-                          <td className="px-2 py-1 text-right">{r.labor_rate ?? "—"}</td>
-                        </>
+                        (() => {
+                          const st = validateRow(r);
+                          const flagged = st.level === "flag";
+                          return (
+                            <>
+                              <td className="px-2 py-1">
+                                {r.name}
+                                {flagged ? (
+                                  <span className="ml-1 text-xs font-medium text-destructive" title={st.reason}>
+                                    ⚠ {st.reason}
+                                  </span>
+                                ) : null}
+                              </td>
+                              <td className="px-2 py-1 text-muted-foreground">{r.category}</td>
+                              <td className="px-2 py-1 text-muted-foreground">{r.sku ?? "—"}</td>
+                              <td className="px-2 py-1 text-muted-foreground">{r.manufacturer ?? "—"}</td>
+                              <td className={cn("px-2 py-1 text-right tabular-nums", flagged && "font-semibold text-destructive")}>
+                                {r.material_rate != null ? `$${r.material_rate}` : "—"}
+                                <span className="text-xs font-normal text-muted-foreground">/{r.unit}</span>
+                              </td>
+                              <td className="px-2 py-1 text-right">{r.labor_rate ?? "—"}</td>
+                            </>
+                          );
+                        })()
                       ) : (
                         <>
                           <td className="px-2 py-1 align-middle">
@@ -894,6 +978,22 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
             </div>
           )}
 
+          {/* Loud pre-commit summary — exactly what will and won't be written. */}
+          {finalRows.length > 0 ? (
+            <div className={cn(
+              "rounded-md border p-3 text-sm",
+              flaggedCount ? "border-amber-400 bg-amber-50 dark:border-amber-500/50 dark:bg-amber-950/30" : "border-emerald-400 bg-emerald-50 dark:border-emerald-500/50 dark:bg-emerald-950/30",
+            )}>
+              <span className="font-semibold">{okCount}</span> will import ·{" "}
+              <span className={cn("font-semibold", flaggedCount && "text-amber-700 dark:text-amber-400")}>
+                {flaggedCount} flagged
+              </span>{" "}
+              {flaggedCount
+                ? "— held back (bad or implausible price/unit). Fix the mapping/unit or correct the rows, then re-import them."
+                : "— every row's price and unit checks out."}
+            </div>
+          ) : null}
+
           {/* Import bar */}
           {finalRows.length > 0 ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 p-3">
@@ -901,8 +1001,8 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
                 <input type="checkbox" checked={updateMode} onChange={(e) => setUpdateMode(e.target.checked)} className="size-4 rounded border-input" />
                 Update existing products (match by name) instead of adding duplicates
               </label>
-              <Button type="button" onClick={doImport} disabled={importing}>
-                {importing ? "Importing…" : updateMode ? `Update / add ${finalRows.length}` : `Import ${finalRows.length} products`}
+              <Button type="button" onClick={doImport} disabled={importing || okCount === 0}>
+                {importing ? "Importing…" : updateMode ? `Update / add ${okCount}` : `Import ${okCount} products`}
               </Button>
             </div>
           ) : null}

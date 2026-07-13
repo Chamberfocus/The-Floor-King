@@ -333,6 +333,17 @@ export async function getImportJobsState(
 export interface ImportResult {
   error: string | null;
   count?: number;
+  skipped?: number; // rows held back because they had no usable price
+  inserted?: number; // brand-new products added
+  updated?: number; // existing products whose price/attrs actually changed
+  unchanged?: number; // matched an existing product, nothing changed
+}
+
+/** Parse to a finite number, else null — never a silent 0. */
+function numOrNull(v: number | string | null | undefined): number | null {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(/[$,]/g, ""));
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -366,18 +377,39 @@ export async function importProducts(
       return { error: "You don't have permission to import products." };
 
     const cats = new Set<string>(PRODUCT_CATEGORY_ORDER);
-    const items = valid.map((r) => ({
-      name: r.name.trim(),
-      category: (cats.has(r.category) ? r.category : "other") as ProductCategory,
-      unit: r.unit || "sqft",
-      material_rate: Number(r.material_rate) || 0,
-      labor_rate: Number(r.labor_rate) || 0,
-      sku: r.sku || "",
-      manufacturer: r.manufacturer || "",
-      style: r.style || "",
-      color: r.color || "",
-      notes: r.notes || "",
-    }));
+    // A price is REQUIRED. A row with no parseable material rate AND no labor
+    // rate has no usable price — it is held back and counted, NEVER stored as $0
+    // (a silent $0 is the catastrophic failure this importer exists to prevent).
+    let skipped = 0;
+    const items = valid
+      .map((r) => {
+        const mat = numOrNull(r.material_rate);
+        const lab = numOrNull(r.labor_rate);
+        const hasPrice = (mat != null && mat > 0) || (lab != null && lab > 0);
+        if (!hasPrice) {
+          skipped += 1;
+          return null;
+        }
+        return {
+          name: r.name.trim(),
+          category: (cats.has(r.category) ? r.category : "other") as ProductCategory,
+          unit: r.unit || "sqft",
+          material_rate: mat ?? 0,
+          labor_rate: lab ?? 0,
+          sku: r.sku || "",
+          manufacturer: r.manufacturer || "",
+          style: r.style || "",
+          color: r.color || "",
+          notes: r.notes || "",
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x != null);
+
+    if (!items.length)
+      return {
+        error: `No products had a usable price — all ${skipped} row${skipped === 1 ? "" : "s"} were held back. Check the price column mapping.`,
+        skipped,
+      };
 
     // Service-role client: the caller is verified staff above, so bypass RLS to
     // guarantee the write lands (no silent RLS/session failures).
@@ -387,6 +419,9 @@ export async function importProducts(
     // update=true) updates any product whose name already matches — no
     // duplicates. If the RPC isn't present, fall back to a plain insert.
     let count = 0;
+    let inserted = 0;
+    let updated = 0;
+    let unchanged = 0;
     let rpcUnavailable = false;
     for (let i = 0; i < items.length; i += 1000) {
       const batch = items.slice(i, i + 1000);
@@ -405,7 +440,17 @@ export async function importProducts(
         }
         return { error: error.message, count };
       }
-      count += (data as number) ?? batch.length;
+      // Newer RPC (0100) returns a breakdown object; the older one returns a
+      // bare int. Handle both so this works before and after the migration.
+      if (data && typeof data === "object") {
+        const d = data as { inserted?: number; updated?: number; unchanged?: number; total?: number };
+        inserted += d.inserted ?? 0;
+        updated += d.updated ?? 0;
+        unchanged += d.unchanged ?? 0;
+        count += d.total ?? batch.length;
+      } else {
+        count += (data as number) ?? batch.length;
+      }
     }
 
     if (rpcUnavailable) {
@@ -429,6 +474,9 @@ export async function importProducts(
         if (error) return { error: error.message, count };
         count += batch.length;
       }
+      inserted = count; // fallback path only ever inserts
+      updated = 0;
+      unchanged = 0;
     }
 
     // Stamp the supplier where it's blank (a price list is one vendor).
@@ -445,7 +493,7 @@ export async function importProducts(
     }
 
     revalidatePath("/catalog");
-    return { error: null, count };
+    return { error: null, count, skipped, inserted, updated, unchanged };
   } catch (e) {
     return {
       error: e instanceof Error ? e.message : "Import failed unexpectedly.",

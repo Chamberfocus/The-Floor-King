@@ -108,9 +108,17 @@ export function mapCategory(v: string): string {
   return "other";
 }
 
-function toNum(v: string): number | null {
+/**
+ * Parse a money/number cell strictly. Strips $ and thousands commas, then
+ * requires EXACTLY ONE number — so a blank, "N/A", or a range like "12-15" (two
+ * numbers) returns null (to be flagged), never a silently-corrupted value.
+ */
+export function toNum(v: string): number | null {
   if (!v) return null;
-  const n = parseFloat(v.replace(/[^0-9.]/g, ""));
+  const cleaned = v.replace(/[$,]/g, "");
+  const nums = cleaned.match(/\d+(?:\.\d+)?/g);
+  if (!nums || nums.length !== 1) return null; // blank, junk, or a range → flag
+  const n = parseFloat(nums[0]);
   return Number.isFinite(n) ? n : null;
 }
 
