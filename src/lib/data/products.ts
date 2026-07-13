@@ -29,17 +29,42 @@ export async function listProducts(
   return all;
 }
 
-// Fields a catalog search looks across — name/SKU/manufacturer/style/color plus
-// category (carpet/lvp/tile…) and the vendor/supplier name.
+// Text fields a catalog search does a partial (ilike) match across — including
+// the vendor/supplier name. Category is an ENUM (can't be ilike'd), so it's
+// matched separately by equality when a token names a category (see below).
 const SEARCH_COLS = [
   "name",
   "sku",
   "manufacturer",
   "style",
   "color",
-  "category",
   "supplier",
 ] as const;
+
+// Category enum values + a few natural-language synonyms, so a token like
+// "carpet", "lvp", "tile", or "pad" also matches by category — not just text.
+const CATEGORY_VALUES = [
+  "carpet",
+  "lvp",
+  "hardwood",
+  "laminate",
+  "tile",
+  "vinyl",
+  "underlayment",
+  "trim",
+] as const;
+const CATEGORY_SYNONYMS: Record<string, string> = {
+  pad: "underlayment",
+  padding: "underlayment",
+  plank: "lvp",
+  wood: "hardwood",
+};
+/** The category a search token names (exact/prefix or synonym), else null. */
+function tokenCategory(token: string): string | null {
+  const t = token.toLowerCase();
+  if (CATEGORY_SYNONYMS[t]) return CATEGORY_SYNONYMS[t];
+  return CATEGORY_VALUES.find((c) => c === t || c.startsWith(t)) ?? null;
+}
 
 /**
  * Build a PostgREST `.ilike` pattern for one search token that is safe for
@@ -76,7 +101,12 @@ export async function searchCatalog(
   const tokens = query.trim().split(/\s+/).filter(Boolean);
   for (const token of tokens) {
     const like = likePattern(token);
-    q = q.or(SEARCH_COLS.map((c) => `${c}.ilike.${like}`).join(","));
+    // Each token: OR across the text columns; if the token names a category,
+    // also match products of that category (eq — enums can't be ilike'd).
+    const parts = SEARCH_COLS.map((c) => `${c}.ilike.${like}`);
+    const cat = tokenCategory(token);
+    if (cat) parts.push(`category.eq.${cat}`);
+    q = q.or(parts.join(","));
   }
   const { data } = await q;
   return (data ?? []) as Product[];
