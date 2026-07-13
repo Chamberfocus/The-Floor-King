@@ -159,6 +159,17 @@ export async function listInvoicesForCustomer(
   return attach(supabase, (data ?? []) as Invoice[]);
 }
 
+/** Invoices tied to a specific job (for the job's Documents tab). */
+export async function listInvoicesForJob(jobId: string): Promise<Invoice[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: false });
+  return attach(supabase, (data ?? []) as Invoice[]);
+}
+
 export async function getOutstandingInvoiceCount(): Promise<number> {
   const supabase = await createClient();
   const { count } = await supabase

@@ -7,6 +7,7 @@ import {
   Warehouse,
   Wallet,
   SlidersHorizontal,
+  FolderOpen,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -17,9 +18,16 @@ import { cn } from "@/lib/utils";
  * the server-action forms inside stay mounted and keep working. Multiple panels
  * can share a tab key — they show together when that tab is active.
  */
-export type JobTab = "work_order" | "completion" | "warehouse" | "money" | "manage";
+export type JobTab =
+  | "documents"
+  | "work_order"
+  | "completion"
+  | "warehouse"
+  | "money"
+  | "manage";
 
 const TAB_META: Record<JobTab, { label: string; icon: LucideIcon }> = {
+  documents: { label: "Documents", icon: FolderOpen },
   work_order: { label: "Work order", icon: ClipboardList },
   completion: { label: "Completion", icon: CheckCircle2 },
   warehouse: { label: "Warehouse", icon: Warehouse },
@@ -27,7 +35,16 @@ const TAB_META: Record<JobTab, { label: string; icon: LucideIcon }> = {
   manage: { label: "Manage", icon: SlidersHorizontal },
 };
 
-const TabCtx = createContext<JobTab>("work_order");
+interface TabState {
+  active: JobTab;
+  setActive: (t: JobTab) => void;
+}
+const TabCtx = createContext<TabState>({ active: "work_order", setActive: () => {} });
+
+/** Switch job tabs programmatically (e.g. a Documents row jumps to Completion). */
+export function useJobTab(): TabState {
+  return useContext(TabCtx);
+}
 
 export function JobTabs({
   show,
@@ -38,7 +55,7 @@ export function JobTabs({
 }) {
   const [active, setActive] = useState<JobTab>(show[0] ?? "work_order");
   return (
-    <TabCtx.Provider value={active}>
+    <TabCtx.Provider value={{ active, setActive }}>
       <div className="mb-6 flex gap-1 overflow-x-auto border-b">
         {show.map((key) => {
           const { label, icon: Icon } = TAB_META[key];
@@ -75,6 +92,6 @@ export function JobTabPanel({
   tab: JobTab;
   children: React.ReactNode;
 }) {
-  const active = useContext(TabCtx);
+  const { active } = useContext(TabCtx);
   return <div className={cn(active !== tab && "hidden")}>{children}</div>;
 }

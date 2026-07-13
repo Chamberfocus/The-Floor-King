@@ -179,6 +179,19 @@ export async function listPurchaseOrdersForCustomer(
   return attachItems(supabase, (data ?? []) as PurchaseOrder[]);
 }
 
+/** Purchase orders tied to a specific job (for the job's Documents tab). */
+export async function listPurchaseOrdersForJob(
+  jobId: string,
+): Promise<PurchaseOrder[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("purchase_orders")
+    .select("*")
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: false });
+  return attachItems(supabase, (data ?? []) as PurchaseOrder[]);
+}
+
 export interface StockPull {
   product_id: string;
   name: string;

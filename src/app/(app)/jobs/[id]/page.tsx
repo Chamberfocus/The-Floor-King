@@ -78,6 +78,8 @@ import { buildJobScope, lineSpec, PAD_ROLL_SQYD } from "@/lib/job-scope";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
 import { JobTabs, JobTabPanel, type JobTab } from "./job-tabs";
+import { JobDocuments } from "./job-documents";
+import { listJobDocuments } from "@/lib/data/job-documents";
 
 export async function generateMetadata({
   params,
@@ -225,9 +227,32 @@ export default async function JobPage({
     job.site_zip,
   ].filter(Boolean);
 
-  // Which compartments this viewer gets. Crew (assigned) see just the work order
-  // and completion; staff get the full set.
+  // The job's whole document history for the Documents tab (+ estimate date /
+  // estimator / job total for the at-a-glance band). Financial documents
+  // (estimates, invoices, POs, job total, balance detail) are staff-only —
+  // installers get the non-financial docs (work order, staging, completion,
+  // measurements). The COD balance still surfaces when they collect.
+  const jobDocsFull = canInstallerTools ? await listJobDocuments(job) : null;
+  const docGroups = jobDocsFull
+    ? isStaff
+      ? jobDocsFull.groups
+      : jobDocsFull.groups
+          .filter((g) => !["estimates", "invoices", "pos"].includes(g.key))
+          .map((g) =>
+            g.key === "completion"
+              ? {
+                  ...g,
+                  items: g.items.filter(
+                    (d) => d.key !== "balance" || collectsBalance,
+                  ),
+                }
+              : g,
+          )
+    : [];
+
+  // Which compartments this viewer gets. Documents is the default (first) tab.
   const tabsToShow: JobTab[] = [
+    ...(jobDocsFull ? (["documents"] as JobTab[]) : []),
     "work_order",
     ...(canInstallerTools ? (["completion"] as JobTab[]) : []),
     ...(isStaff ? (["warehouse", "money", "manage"] as JobTab[]) : []),
@@ -320,56 +345,81 @@ export default async function JobPage({
         ) : null}
       </div>
 
-      {/* Schedule / site summary */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardContent className="flex items-center gap-3 py-4 text-sm">
-            <Calendar className="size-4 text-muted-foreground" />
+      {/* At-a-glance band — the job's "411" in five seconds. */}
+      <div className="mb-6 rounded-xl border bg-card p-5">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Estimate
+            </div>
+            <div className="mt-0.5 text-lg font-semibold">
+              {jobDocsFull?.estimateDate ? formatDate(jobDocsFull.estimateDate) : "—"}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {jobDocsFull?.estimatorName ? `by ${jobDocsFull.estimatorName}` : "No estimate linked"}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Installation
+            </div>
+            <div className="mt-0.5 text-lg font-semibold">
+              {job.scheduled_date
+                ? `${formatDate(job.scheduled_date)}${job.scheduled_end && job.scheduled_end !== job.scheduled_date ? ` – ${formatDate(job.scheduled_end)}` : ""}`
+                : "Not scheduled"}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {installWindowLabel ? `arrives ${installWindowLabel} · ` : ""}
+              {assignedName ? `by ${assignedName}` : "no installer"}
+            </div>
+            {canSchedule ? (
+              <Link
+                href={`/customers/${job.customer_id}#jobs`}
+                className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <CalendarClock className="size-3" />
+                {job.scheduled_date ? "Reschedule" : "Schedule"}
+              </Link>
+            ) : null}
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Customer &amp; site
+            </div>
+            <div className="mt-0.5 truncate text-lg font-semibold">
+              {job.customer?.full_name ?? "—"}
+            </div>
+            <div className="flex items-start gap-1 text-sm text-muted-foreground">
+              <MapPin className="mt-0.5 size-3.5 shrink-0" />
+              <span>{siteParts.length ? siteParts.join(" · ") : "No site address"}</span>
+            </div>
+          </div>
+          {isStaff ? (
             <div>
-              <div className="text-xs text-muted-foreground">Scheduled</div>
-              <div className="font-medium">
-                {job.scheduled_date ? formatDate(job.scheduled_date) : "Not set"}
-                {job.scheduled_end
-                  ? ` – ${formatDate(job.scheduled_end)}`
-                  : ""}
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Job total / balance
               </div>
-              {installWindowLabel ? (
-                <div className="text-xs font-medium text-primary">
-                  Arrives {installWindowLabel}
-                </div>
-              ) : null}
-              {canSchedule ? (
-                <Link
-                  href={`/customers/${job.customer_id}#jobs`}
-                  className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                >
-                  <CalendarClock className="size-3" />
-                  {job.scheduled_date ? "Reschedule on customer file" : "Schedule on customer file"}
-                </Link>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 py-4 text-sm">
-            <User className="size-4 text-muted-foreground" />
-            <div>
-              <div className="text-xs text-muted-foreground">Crew</div>
-              <div className="font-medium">{assignedName ?? "Unassigned"}</div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 py-4 text-sm">
-            <MapPin className="size-4 shrink-0 text-muted-foreground" />
-            <div>
-              <div className="text-xs text-muted-foreground">Job site</div>
-              <div className="font-medium">
-                {siteParts.length ? siteParts.join(" · ") : "—"}
+              <div className="mt-0.5 text-lg font-semibold">
+                {jobDocsFull?.jobTotal != null ? formatMoney(jobDocsFull.jobTotal) : "—"}
+              </div>
+              <div className="text-sm text-muted-foreground">
+                {jobDocsFull?.hasInvoice
+                  ? (jobDocsFull.balance ?? 0) <= 0.005
+                    ? "Paid in full"
+                    : `${formatMoney(jobDocsFull.balance ?? 0)} due`
+                  : "No invoice yet"}
               </div>
             </div>
-          </CardContent>
-        </Card>
+          ) : collectsBalance && woCollectBalance && woCollectBalance > 0 ? (
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Collect on site
+              </div>
+              <div className="mt-0.5 text-lg font-semibold">{formatMoney(woCollectBalance)}</div>
+              <div className="text-sm text-muted-foreground">balance due</div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {/* After the work order exists: choose how to get it installed. */}
@@ -447,6 +497,19 @@ export default async function JobPage({
       ) : null}
 
       <JobTabs show={tabsToShow}>
+
+      {jobDocsFull ? (
+        <JobTabPanel tab="documents">
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="text-base">Documents</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <JobDocuments groups={docGroups} />
+            </CardContent>
+          </Card>
+        </JobTabPanel>
+      ) : null}
 
       <JobTabPanel tab="warehouse">
       {isStaff && job.scheduled_date ? (
