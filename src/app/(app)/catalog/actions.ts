@@ -39,6 +39,10 @@ function readFields(formData: FormData) {
     color: str(formData.get("color")) || null,
     supplier: str(formData.get("supplier")) || null,
     notes: str(formData.get("notes")) || null,
+    // Vendor-unit helpers (auto-fill onto a PO): hard-surface carton coverage +
+    // carpet broadloom width.
+    sqft_per_box: (() => { const n = parseFloat(str(formData.get("sqft_per_box"))); return Number.isFinite(n) && n > 0 ? n : null; })(),
+    roll_width_ft: (() => { const n = parseFloat(str(formData.get("roll_width_ft"))); return Number.isFinite(n) && n > 0 ? n : null; })(),
   };
 }
 
@@ -50,7 +54,12 @@ export async function createProduct(
   if (!fields.name) return { error: "A product name is required." };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("products").insert(fields);
+  let { error } = await supabase.from("products").insert(fields);
+  if (error) {
+    // Fallback for before the catalog vendor-unit migration (0099) is run.
+    const { sqft_per_box: _s, roll_width_ft: _r, ...legacy } = fields;
+    ({ error } = await supabase.from("products").insert(legacy));
+  }
   if (error) return { error: error.message };
 
   revalidatePath("/catalog");
@@ -127,10 +136,19 @@ export async function updateProduct(
   if (!fields.name) return { error: "A product name is required." };
 
   const supabase = await createClient();
-  const { error } = await supabase
+  const active = str(formData.get("active")) === "on";
+  let { error } = await supabase
     .from("products")
-    .update({ ...fields, active: str(formData.get("active")) === "on" })
+    .update({ ...fields, active })
     .eq("id", id);
+  if (error) {
+    // Fallback for before the catalog vendor-unit migration (0099) is run.
+    const { sqft_per_box: _s, roll_width_ft: _r, ...legacy } = fields;
+    ({ error } = await supabase
+      .from("products")
+      .update({ ...legacy, active })
+      .eq("id", id));
+  }
   if (error) return { error: error.message };
 
   revalidatePath("/catalog");

@@ -29,8 +29,17 @@ export async function listProducts(
   return all;
 }
 
-// Fields a catalog search looks across.
-const SEARCH_COLS = ["name", "sku", "manufacturer", "style", "color"] as const;
+// Fields a catalog search looks across — name/SKU/manufacturer/style/color plus
+// category (carpet/lvp/tile…) and the vendor/supplier name.
+const SEARCH_COLS = [
+  "name",
+  "sku",
+  "manufacturer",
+  "style",
+  "color",
+  "category",
+  "supplier",
+] as const;
 
 /**
  * Build a PostgREST `.ilike` pattern for one search token that is safe for

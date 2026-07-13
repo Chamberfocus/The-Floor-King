@@ -100,6 +100,35 @@ export function ProductForm({
         </div>
 
         <div className="space-y-2">
+          <Label htmlFor="sqft_per_box">Sq ft / box (hard surface)</Label>
+          <Input
+            id="sqft_per_box"
+            name="sqft_per_box"
+            type="number"
+            step="0.01"
+            min="0"
+            defaultValue={product?.sqft_per_box ?? ""}
+            placeholder="e.g. 23.8"
+          />
+          <p className="text-xs text-muted-foreground">
+            Carton coverage — auto-fills cartons on a purchase order.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="roll_width_ft">Roll width ft (carpet)</Label>
+          <Input
+            id="roll_width_ft"
+            name="roll_width_ft"
+            type="number"
+            step="0.01"
+            min="0"
+            defaultValue={product?.roll_width_ft ?? ""}
+            placeholder="12 or 15"
+          />
+          <p className="text-xs text-muted-foreground">Broadloom width.</p>
+        </div>
+
+        <div className="space-y-2">
           <Label htmlFor="sku">SKU / item # (optional)</Label>
           <Input id="sku" name="sku" defaultValue={product?.sku ?? ""} />
         </div>

@@ -487,6 +487,8 @@ export interface Product {
   reserved?: number;
   clearance: boolean;
   clearance_price: number | null;
+  sqft_per_box?: number | null; // hard surface: coverage per carton (vendor unit)
+  roll_width_ft?: number | null; // carpet: broadloom roll width
   last_movement_at: string | null;
   created_at: string;
   updated_at: string;

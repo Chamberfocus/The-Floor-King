@@ -10,7 +10,7 @@ import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SegmentedField } from "@/components/ui/segmented-field";
-import { SearchPicker } from "@/components/ui/search-picker";
+import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
@@ -19,6 +19,8 @@ import {
   PO_SOURCE_LABELS,
   PO_STATUS_LABELS,
   PO_STATUS_ORDER,
+  materialClass,
+  isHardSurfaceCategory,
   type PoSourceType,
   type Product,
   type PurchaseOrder,
@@ -126,19 +128,50 @@ export function PoBuilder({
   const addItem = () => setItems((prev) => [...prev, emptyItem()]);
   const removeItem = (i: number) =>
     setItems((prev) => prev.filter((_, j) => j !== i));
-  const applyProduct = (i: number, productId: string) => {
-    const p = products.find((x) => x.id === productId);
-    updateItem(
-      i,
-      p
-        ? {
-            product_id: p.id,
-            description: items[i].description || p.name,
-            unit: p.unit || "sqft",
-            unit_cost: String(p.material_rate),
-          }
-        : { product_id: "" },
-    );
+  // Pick from the catalog → fill the WHOLE line (no retyping), in the VENDOR's
+  // ordering unit. Roll goods → sq yd; hard surface → sq ft (the PO prints
+  // cartons via sq ft/box); trim → linear ft. Price is converted from the
+  // catalog's own unit and the catalog basis is shown on the line for verifying.
+  const applyProduct = (i: number, p: Product | null) => {
+    if (!p) {
+      updateItem(i, { product_id: "" });
+      return;
+    }
+    const cls = materialClass(p.category);
+    const catUnit = (p.unit || "").toLowerCase();
+    const catPrice = Number(p.material_rate) || 0;
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    let unit: string;
+    let unitCost: number;
+    if (cls === "roll") {
+      unit = "sq yd";
+      unitCost = catUnit.includes("yd") ? catPrice : r2(catPrice * 9);
+    } else if (cls === "hard") {
+      unit = "sq ft"; // stored in sq ft; the PO converts to cartons for the vendor
+      unitCost = catUnit.includes("yd") ? r2(catPrice / 9) : catPrice;
+    } else if (cls === "trim") {
+      unit = p.unit || "lnft";
+      unitCost = catPrice;
+    } else {
+      unit = p.unit || "sqft";
+      unitCost = catPrice;
+    }
+    updateItem(i, {
+      product_id: p.id,
+      description: p.name,
+      manufacturer: p.manufacturer ?? "",
+      style: p.style ?? "",
+      color: p.color ?? "",
+      item_no: p.sku ?? "",
+      category: p.category ?? "",
+      unit,
+      unit_cost: String(unitCost),
+      sqft_per_box: p.sqft_per_box != null ? String(p.sqft_per_box) : "",
+      roll_width_ft: p.roll_width_ft != null ? String(p.roll_width_ft) : "",
+    });
+    // A PO is per-vendor — seed the header supplier from the product if empty.
+    if (!supplier && p.supplier) setSupplier(p.supplier);
+    if (!supplierId && p.supplier_id) setSupplierId(p.supplier_id);
   };
 
   const total = poTotal(
@@ -384,25 +417,20 @@ export function PoBuilder({
         <CardContent className="space-y-3">
           {items.map((it, i) => (
             <div key={it.key} className="rounded-md border p-3">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {products.length ? (
-                  <SearchPicker
-                    value={it.product_id}
-                    onChange={(v) => applyProduct(i, v)}
-                    placeholder="— Manual item —"
-                    allowClear
-                    options={products.map((p) => ({ value: p.id, label: p.name }))}
-                  />
-                ) : null}
-                <Input
-                  value={it.description}
-                  onChange={(e) =>
-                    updateItem(i, { description: e.target.value })
-                  }
-                  placeholder="Description"
-                  className={products.length ? "" : "sm:col-span-2"}
-                />
-              </div>
+              <ProductPicker
+                value={it.product_id}
+                initialLabel={it.description}
+                label="Find in catalog — name, manufacturer, color, style, SKU, category, or vendor"
+                fullWidth
+                onPick={(p) => applyProduct(i, p)}
+                onCreated={(p) => applyProduct(i, p)}
+              />
+              <Input
+                value={it.description}
+                onChange={(e) => updateItem(i, { description: e.target.value })}
+                placeholder="Description"
+                className="mt-2"
+              />
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <Input
                   value={it.manufacturer}
@@ -434,7 +462,11 @@ export function PoBuilder({
               <div className="mt-2 flex flex-wrap items-end gap-2">
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">
-                    Quantity
+                    {isHardSurfaceCategory(it.category)
+                      ? "Sq ft"
+                      : it.unit === "sq yd"
+                        ? "Sq yd"
+                        : "Quantity"}
                   </label>
                   <input
                     type="number"
@@ -496,6 +528,36 @@ export function PoBuilder({
                   <Trash2 className="size-3.5" />
                 </Button>
               </div>
+
+              {/* Vendor-unit helper: hard surface → cartons from sq ft/box;
+                  reminds you to set sq ft/box if it wasn't in the catalog. */}
+              {isHardSurfaceCategory(it.category) ? (
+                <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs">
+                  {Number(it.sqft_per_box) > 0 && Number(it.quantity) > 0 ? (
+                    <span className="font-semibold text-primary">
+                      = {Math.ceil(Number(it.quantity) / Number(it.sqft_per_box))} cartons
+                      <span className="font-normal text-muted-foreground">
+                        {" "}({it.sqft_per_box} sq ft/box · {formatMoney((Number(it.unit_cost) || 0) * Number(it.sqft_per_box))}/carton)
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      ⚠ Enter sq ft/box to order in cartons
+                    </span>
+                  )}
+                  <label className="flex items-center gap-1 text-muted-foreground">
+                    sq ft/box
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={it.sqft_per_box}
+                      onChange={(e) => updateItem(i, { sqft_per_box: e.target.value })}
+                      className={cn(inputSm, "h-7 w-20")}
+                    />
+                  </label>
+                </div>
+              ) : null}
 
               {/* Attribution — for a shared order, connect this line to another
                   job/client so it's always trackable. */}
