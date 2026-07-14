@@ -112,3 +112,12 @@ export function formatMoney(value: number | string | null | undefined): string {
     currency: "USD",
   }).format(n);
 }
+
+/**
+ * A short, stable document reference for a record — e.g. docRef("EST", uuid) →
+ * "EST-3F9A2C". Derived from the id so it never changes and needs no counter.
+ */
+export function docRef(prefix: string, id: string): string {
+  const tail = (id || "").replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase();
+  return tail ? `${prefix}-${tail}` : prefix;
+}

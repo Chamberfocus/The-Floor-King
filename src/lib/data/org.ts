@@ -10,6 +10,7 @@ const DEFAULTS: OrgSettings = {
   phone: null,
   email: null,
   address: null,
+  website: null,
   financing_url: null,
   google_review_url: null,
   fuel_surcharge_pct: 0,

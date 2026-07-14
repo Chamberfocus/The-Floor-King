@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
-import { getInvoice, amountPaid } from "@/lib/data/invoices";
+import { getInvoice, amountPaid, getInvoiceScope } from "@/lib/data/invoices";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { invoiceTotals } from "@/lib/invoice-calc";
@@ -42,6 +42,7 @@ export default async function InvoicePage({
 
   const customer = await getCustomer(invoice.customer_id);
   const org = await getOrgSettings();
+  const invoiceScope = await getInvoiceScope(invoice);
   const paid = amountPaid(invoice);
   const totals = invoiceTotals(invoice.items ?? [], invoice.tax_rate, paid);
 
@@ -87,6 +88,8 @@ export default async function InvoicePage({
         amountPaid={paid}
         customer={customer}
         org={org}
+        scope={invoiceScope?.scope ?? null}
+        narrative={invoiceScope?.narrative ?? null}
       />
 
       {/* Payments */}

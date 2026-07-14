@@ -11,7 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { cn } from "@/lib/utils";
-import { formatMoney } from "@/lib/format";
+import { CustomerScopeView } from "@/components/customer-scope-view";
+import type { CustomerScope } from "@/lib/customer-scope";
+import { formatMoney, docRef } from "@/lib/format";
 import {
   itemAmount,
   invoiceTotals,
@@ -48,11 +50,17 @@ export function InvoiceBuilder({
   amountPaid,
   customer,
   org,
+  scope,
+  narrative,
 }: {
   invoice: Invoice;
   amountPaid: number;
   customer: Customer | null;
   org: OrgSettings;
+  /** Full customer scope from the linked estimate/job (the printed copy shows
+   *  this instead of quantities and unit prices). Null when nothing is linked. */
+  scope?: CustomerScope | null;
+  narrative?: string | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -171,7 +179,7 @@ export function InvoiceBuilder({
     <InvoicePrintDoc
       org={org}
       customer={customer}
-      number={number}
+      number={number || docRef("INV", invoice.id)}
       issueDate={issueDate}
       dueDate={dueDate}
       presentation={presentation}
@@ -179,6 +187,8 @@ export function InvoiceBuilder({
       terms={terms}
       items={items}
       totals={totals}
+      scope={scope ?? null}
+      narrative={narrative ?? null}
     />
     <div className="pb-44 md:pb-24 print:hidden">
       <Card className="mb-6">
@@ -425,6 +435,8 @@ function InvoicePrintDoc({
   terms,
   items,
   totals,
+  scope,
+  narrative,
 }: {
   org: OrgSettings;
   customer: Customer | null;
@@ -436,7 +448,16 @@ function InvoicePrintDoc({
   terms: string;
   items: ItemState[];
   totals: { subtotal: number; tax: number; total: number; paid: number; balance: number };
+  scope: CustomerScope | null;
+  narrative: string | null;
 }) {
+  // Same rule as the estimate: show the full scope, never a quantity or a unit
+  // price. Scope comes from the linked estimate/job; if the invoice isn't linked,
+  // fall back to the line DESCRIPTIONS only (qty/rate withheld).
+  const fallbackLines = items
+    .map((it) => it.description.trim())
+    .filter(Boolean);
+
   return (
     <div className="hidden text-black print:block">
       <PrintLetterhead
@@ -464,88 +485,57 @@ function InvoicePrintDoc({
         />
       ) : null}
 
-      {presentation === "summary" ? (
-        <div className="py-2 text-sm">
-          {notes ? (
-            <p className="mb-4 whitespace-pre-wrap">{notes}</p>
-          ) : (
-            <p className="mb-4">Complete flooring project as quoted.</p>
-          )}
+      <div className="mt-2 border-t pt-3">
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          Work performed
         </div>
-      ) : (
-        <table className="w-full border-collapse py-2 text-sm">
-          <thead>
-            <tr className="border-b text-left text-xs text-gray-500">
-              <th className="py-1 pr-2 font-medium">Description</th>
-              <th className="py-1 px-2 text-right font-medium">Qty</th>
-              <th className="py-1 px-2 text-right font-medium">Rate</th>
-              <th className="py-1 pl-2 text-right font-medium">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items
-              .filter((it) => it.description.trim() || it.rate)
-              .map((it, i) => (
-                <tr key={i} className="border-b align-top">
-                  <td className="py-1 pr-2">{it.description}</td>
-                  <td className="py-1 px-2 text-right tabular-nums">
-                    {it.quantity ? `${it.quantity} ${it.unit}` : ""}
-                  </td>
-                  <td className="py-1 px-2 text-right tabular-nums">
-                    {it.rate ? formatMoney(Number(it.rate)) : ""}
-                  </td>
-                  <td className="py-1 pl-2 text-right tabular-nums">
-                    {formatMoney(itemAmount({ quantity: it.quantity, rate: it.rate }))}
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      )}
-
-      <div className="ml-auto mt-3 w-64 text-sm">
-        {presentation === "detailed" ? (
-          <>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Subtotal</span>
-              <span>{formatMoney(totals.subtotal)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Tax</span>
-              <span>{formatMoney(totals.tax)}</span>
-            </div>
-          </>
-        ) : null}
-        <div className="flex justify-between border-t pt-1 text-base font-bold">
-          <span>Total</span>
-          <span>{formatMoney(totals.total)}</span>
-        </div>
-        {totals.paid > 0 ? (
-          <>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Paid</span>
-              <span>{formatMoney(totals.paid)}</span>
-            </div>
-            <div className="flex justify-between font-semibold">
-              <span>Balance due</span>
-              <span>{formatMoney(totals.balance)}</span>
-            </div>
-          </>
-        ) : null}
+        {scope ? (
+          <CustomerScopeView
+            scope={scope}
+            variant={presentation === "summary" ? "condensed" : "full"}
+            narrative={narrative}
+          />
+        ) : fallbackLines.length ? (
+          <ul className="list-disc space-y-0.5 pl-5 text-sm">
+            {fallbackLines.map((d, i) => (
+              <li key={i}>{d}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm">Complete flooring project as described.</p>
+        )}
+        {notes ? <p className="mt-3 whitespace-pre-wrap text-sm">{notes}</p> : null}
       </div>
 
-      {presentation === "detailed" && notes ? (
-        <div className="mt-6 text-sm">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Notes</div>
-          <p className="whitespace-pre-wrap">{notes}</p>
+      <div className="ml-auto mt-4 w-64 break-inside-avoid border-t-2 border-gray-800 pt-2 text-sm">
+        <div className="flex justify-between text-base font-bold">
+          <span>Total</span>
+          <span className="tabular-nums">{formatMoney(totals.total)}</span>
         </div>
-      ) : null}
-      {terms ? (
-        <div className="mt-4 text-xs text-gray-600">
-          <div className="uppercase tracking-wide text-gray-500">Terms</div>
-          <p className="whitespace-pre-wrap">{terms}</p>
+        <div className="text-[10px] text-gray-500">Applicable tax included.</div>
+        {totals.paid > 0 ? (
+          <div className="mt-1 flex justify-between">
+            <span className="text-gray-600">Paid to date</span>
+            <span className="tabular-nums">{formatMoney(totals.paid)}</span>
+          </div>
+        ) : null}
+        <div className="mt-1 flex justify-between border-t pt-1 text-base font-bold">
+          <span>Balance due</span>
+          <span className="tabular-nums">{formatMoney(totals.balance)}</span>
         </div>
-      ) : null}
+      </div>
+
+      <div className="mt-6 break-inside-avoid text-xs text-gray-600">
+        <div className="font-semibold uppercase tracking-wide text-gray-500">
+          Payment
+        </div>
+        <p>
+          We accept cash, check, and all major credit cards
+          {org.financing_url ? ", plus financing" : ""}. Please make checks
+          payable to {org.company_name}.
+        </p>
+        {terms ? <p className="mt-2 whitespace-pre-wrap">{terms}</p> : null}
+      </div>
     </div>
   );
 }

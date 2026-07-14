@@ -23,7 +23,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { SegmentedField } from "@/components/ui/segmented-field";
-import { getEstimate } from "@/lib/data/estimates";
+import { getEstimate, getEstimatorName } from "@/lib/data/estimates";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { optionTotalsWithDiscount, lineTotal, lineQty } from "@/lib/estimate-calc";
@@ -78,6 +78,7 @@ export default async function EstimatePage({
 
   const customer = await getCustomer(estimate.customer_id);
   const org = await getOrgSettings();
+  const preparedBy = await getEstimatorName(estimate.created_by);
   const options = estimate.options ?? [];
   const detailed = estimate.presentation === "detailed";
 
@@ -92,7 +93,12 @@ export default async function EstimatePage({
   return (
     <>
       {print ? <AutoPrint /> : null}
-      <EstimatePrintDoc org={org} customer={customer} estimate={estimate} />
+      <EstimatePrintDoc
+        org={org}
+        customer={customer}
+        estimate={estimate}
+        preparedBy={preparedBy}
+      />
       <div className="mx-auto max-w-4xl print:hidden">
       <div className="mb-4 flex items-center justify-between gap-3">
         <Link

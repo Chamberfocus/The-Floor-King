@@ -11,9 +11,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import { CustomerScopeView } from "@/components/customer-scope-view";
 import { getEstimate } from "@/lib/data/estimates";
 import { getOrgSettings } from "@/lib/data/org";
-import { optionTotals, lineTotal } from "@/lib/estimate-calc";
+import { buildCustomerScope } from "@/lib/customer-scope";
+import { optionTotals } from "@/lib/estimate-calc";
 import { formatMoney } from "@/lib/format";
 import type { EstimateOption } from "@/lib/types";
 import {
@@ -35,11 +37,17 @@ export default async function PortalEstimatePage({
   const org = await getOrgSettings();
 
   const options = estimate.options ?? [];
-  const detailed = estimate.presentation === "detailed";
   const canRespond =
     estimate.status === "sent" || estimate.status === "changes_requested";
   const totalsFor = (o: EstimateOption) =>
     optionTotals(o.line_items ?? [], estimate.tax_rate);
+
+  // One combined scope + one price: the option they accepted, else the first.
+  const chosen =
+    options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
+  const scope = buildCustomerScope(chosen?.line_items ?? [], estimate.notes);
+  const total = chosen ? totalsFor(chosen).total : 0;
+  const variant = estimate.presentation === "summary" ? "condensed" : "full";
 
   return (
     <div>
@@ -78,76 +86,30 @@ export default async function PortalEstimatePage({
           })()
         : null}
 
-      {estimate.job_description ? (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">Scope of work</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-              {estimate.job_description}
-            </p>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <div className="space-y-4">
-        {options.map((option) => {
-          const totals = totalsFor(option);
-          const accepted = estimate.accepted_option_id === option.id;
-          return (
-            <Card
-              key={option.id}
-              className={accepted ? "ring-2 ring-green-500" : ""}
-            >
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {option.name}
-                  {accepted ? (
-                    <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-green-600">
-                      <Check className="size-3.5" /> Your choice
-                    </span>
-                  ) : null}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {detailed ? (
-                  <div className="divide-y text-sm">
-                    {(option.line_items ?? []).map((l) => (
-                      <div
-                        key={l.id}
-                        className="flex items-start justify-between gap-4 py-2"
-                      >
-                        <div>
-                          {l.room ? `${l.room} — ` : ""}
-                          {l.description || "Line item"}
-                        </div>
-                        <div className="shrink-0 font-medium">
-                          {formatMoney(lineTotal(l))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                <div className="ml-auto mt-3 w-full max-w-xs space-y-1 border-t pt-3 text-sm">
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Subtotal</span>
-                    <span>{formatMoney(totals.subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Tax</span>
-                    <span>{formatMoney(totals.tax)}</span>
-                  </div>
-                  <div className="flex justify-between text-base font-semibold">
-                    <span>Total</span>
-                    <span>{formatMoney(totals.total)}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">Your project</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CustomerScopeView
+            scope={scope}
+            variant={variant}
+            narrative={estimate.job_description}
+          />
+          <div className="mt-5 flex items-baseline justify-between border-t-2 pt-4">
+            <span className="text-sm font-semibold uppercase tracking-wide">
+              Project total
+            </span>
+            <span className="text-2xl font-bold tabular-nums">
+              {formatMoney(total)}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            One all-inclusive price — materials, professional installation, and
+            site preparation as described. Applicable tax included.
+          </p>
+        </CardContent>
+      </Card>
 
       {org.financing_url ? (
         <Card className="mt-6 border-primary/30 bg-primary/5">

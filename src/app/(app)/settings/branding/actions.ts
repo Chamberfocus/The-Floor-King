@@ -25,6 +25,7 @@ export async function saveBranding(
     phone: str(formData.get("phone")) || null,
     email: str(formData.get("email")) || null,
     address: str(formData.get("address")) || null,
+    website: str(formData.get("website")) || null,
     financing_url: str(formData.get("financing_url")) || null,
     google_review_url: str(formData.get("google_review_url")) || null,
     updated_at: new Date().toISOString(),
@@ -32,10 +33,19 @@ export async function saveBranding(
   const logoUrl = str(formData.get("logo_url"));
   if (logoUrl) update.logo_url = logoUrl;
 
-  const { error } = await supabase
+  let { error } = await supabase
     .from("org_settings")
     .update(update)
     .eq("id", "default");
+  // `website` is added by migration 0102. If it hasn't run yet, drop it and
+  // retry so branding still saves — the field just won't persist until then.
+  if (error && /website/i.test(error.message)) {
+    delete update.website;
+    ({ error } = await supabase
+      .from("org_settings")
+      .update(update)
+      .eq("id", "default"));
+  }
   if (error) return { error: error.message };
 
   revalidatePath("/settings/branding");

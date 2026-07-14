@@ -2,7 +2,47 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAll } from "@/lib/supabase/paginate";
 import { invoiceTotals } from "@/lib/invoice-calc";
+import { buildCustomerScope, type CustomerScope } from "@/lib/customer-scope";
+import { getEstimate } from "@/lib/data/estimates";
+import { getJob } from "@/lib/data/jobs";
 import type { Invoice, InvoiceItem, Payment } from "@/lib/types";
+
+export interface InvoiceScope {
+  scope: CustomerScope;
+  narrative: string | null;
+}
+
+/**
+ * The full customer-facing scope for an invoice, pulled from the estimate or job
+ * it was created from — the SAME source those documents describe, so the invoice
+ * never contradicts the estimate. Invoice line items only store description/qty/
+ * rate, so the rich room-by-room scope must come from the linked record.
+ * Returns null when the invoice isn't linked to either.
+ */
+export async function getInvoiceScope(inv: Invoice): Promise<InvoiceScope | null> {
+  if (inv.estimate_id) {
+    const est = await getEstimate(inv.estimate_id);
+    const opts = est?.options ?? [];
+    const chosen =
+      opts.find((o) => o.id === est?.accepted_option_id) ?? opts[0] ?? null;
+    if (est && chosen) {
+      return {
+        scope: buildCustomerScope(chosen.line_items ?? [], est.notes),
+        narrative: est.job_description,
+      };
+    }
+  }
+  if (inv.job_id) {
+    const job = await getJob(inv.job_id);
+    if (job) {
+      return {
+        scope: buildCustomerScope(job.line_items ?? [], job.notes ?? null),
+        narrative: null,
+      };
+    }
+  }
+  return null;
+}
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 

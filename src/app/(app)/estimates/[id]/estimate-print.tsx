@@ -5,14 +5,12 @@ import { toast } from "sonner";
 import { Printer, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
-import { optionTotalsWithDiscount, lineTotal, lineQty } from "@/lib/estimate-calc";
+import { CustomerScopeView } from "@/components/customer-scope-view";
+import { buildCustomerScope } from "@/lib/customer-scope";
+import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
+import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
-import type {
-  Customer,
-  EstimateLineItem,
-  EstimateOption,
-  OrgSettings,
-} from "@/lib/types";
+import type { Customer, Estimate, OrgSettings } from "@/lib/types";
 import { saveEstimateNotes } from "../actions";
 
 /** Opens the print dialog automatically (used after "Create & print"). */
@@ -69,38 +67,38 @@ export function EstimateNotesEditor({
   );
 }
 
-function lineLabel(l: EstimateLineItem): string {
-  return [l.room, l.description || "Line item"].filter(Boolean).join(" — ");
-}
-function lineQtyText(l: EstimateLineItem): string {
-  if (l.line_type === "flat") return "";
-  const unit = (l.unit && l.unit.trim()) || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft");
-  return `${lineQty(l).toFixed(2)} ${unit}`;
-}
-
-/** The professional, print-only estimate document (logo, contact, lines, notes). */
+/**
+ * The professional, print-only estimate. Shows the customer the FULL scope —
+ * every room, product, and piece of work — for a single LUMP-SUM price, with no
+ * square footage, linear footage, quantities, or unit pricing. The staff copy on
+ * the same page keeps the numbers; only this printed copy hides them.
+ */
 export function EstimatePrintDoc({
   org,
   customer,
   estimate,
+  preparedBy,
 }: {
   org: OrgSettings;
   customer: Customer | null;
-  estimate: {
-    title: string | null;
-    created_at: string;
-    valid_until: string | null;
-    tax_rate: number;
-    discount_kind: "amount" | "percent";
-    discount_value: number;
-    presentation: string;
-    job_description: string | null;
-    notes: string | null;
-    options?: EstimateOption[];
-  };
+  estimate: Estimate;
+  preparedBy?: string | null;
 }) {
-  const detailed = estimate.presentation === "detailed";
   const options = estimate.options ?? [];
+  // One combined scope + one price. When several options exist, the customer's
+  // copy shows the one they accepted, or the first if none is chosen yet.
+  const chosen =
+    options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
+  const lines = chosen?.line_items ?? [];
+  const totals = optionTotalsWithDiscount(
+    lines,
+    estimate.tax_rate,
+    estimate.discount_kind,
+    estimate.discount_value,
+  );
+  const scope = buildCustomerScope(lines, estimate.notes);
+  const variant = estimate.presentation === "summary" ? "condensed" : "full";
+  const number = docRef("EST", estimate.id);
 
   return (
     <div className="hidden text-black print:block">
@@ -109,17 +107,20 @@ export function EstimatePrintDoc({
         docTitle="ESTIMATE"
         meta={
           <>
-            {estimate.title ? <div className="text-sm font-medium">{estimate.title}</div> : null}
+            <div className="text-sm font-medium">{number}</div>
+            {estimate.title ? <div className="text-xs">{estimate.title}</div> : null}
             <div className="text-xs">Date {formatDate(estimate.created_at)}</div>
             {estimate.valid_until ? (
               <div className="text-xs">Valid until {formatDate(estimate.valid_until)}</div>
             ) : null}
+            {preparedBy ? <div className="text-xs">Estimator {preparedBy}</div> : null}
           </>
         }
       />
 
       {customer ? (
         <PrintBillTo
+          label="Prepared for"
           name={customer.full_name}
           street={customer.street}
           city={customer.city}
@@ -130,72 +131,31 @@ export function EstimatePrintDoc({
         />
       ) : null}
 
-      {estimate.job_description ? (
-        <p className="whitespace-pre-wrap py-2 text-sm">{estimate.job_description}</p>
-      ) : null}
-
-      {options.map((o) => {
-        const totals = optionTotalsWithDiscount(
-          o.line_items ?? [],
-          estimate.tax_rate,
-          estimate.discount_kind,
-          estimate.discount_value,
-        );
-        return (
-          <div key={o.id} className="mt-4 break-inside-avoid">
-            {options.length > 1 ? (
-              <div className="mb-1 text-sm font-semibold">{o.name}</div>
-            ) : null}
-            {detailed ? (
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b text-left text-[11px] text-gray-500">
-                    <th className="py-1 pr-2 font-medium">Description</th>
-                    <th className="py-1 px-2 text-right font-medium">Qty</th>
-                    <th className="py-1 pl-2 text-right font-medium">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(o.line_items ?? []).map((l) => (
-                    <tr key={l.id} className="border-b align-top">
-                      <td className="py-1 pr-2">
-                        {lineLabel(l)}
-                        {l.from_stock ? <span className="text-gray-500"> (from stock)</span> : null}
-                      </td>
-                      <td className="py-1 px-2 text-right tabular-nums text-gray-600">{lineQtyText(l)}</td>
-                      <td className="py-1 pl-2 text-right tabular-nums">{formatMoney(lineTotal(l))}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p className="text-sm text-gray-700">Complete flooring project as quoted.</p>
-            )}
-            <div className="ml-auto mt-2 w-56 text-sm">
-              {detailed ? (
-                <>
-                  <div className="flex justify-between"><span className="text-gray-600">Subtotal</span><span>{formatMoney(totals.subtotal)}</span></div>
-                  {totals.discount > 0 ? (
-                    <div className="flex justify-between"><span className="text-gray-600">Discount</span><span>−{formatMoney(totals.discount)}</span></div>
-                  ) : null}
-                  <div className="flex justify-between"><span className="text-gray-600">Tax ({estimate.tax_rate}%)</span><span>{formatMoney(totals.tax)}</span></div>
-                </>
-              ) : null}
-              <div className="flex justify-between border-t pt-1 text-base font-bold">
-                <span>{options.length > 1 ? `${o.name} total` : "Total"}</span>
-                <span>{formatMoney(totals.total)}</span>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-
-      {estimate.notes ? (
-        <div className="mt-6 break-inside-avoid text-sm">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Notes</div>
-          <p className="whitespace-pre-wrap">{estimate.notes}</p>
+      <div className="mt-2 border-t pt-3">
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          Your project
         </div>
-      ) : null}
+        <CustomerScopeView
+          scope={scope}
+          variant={variant}
+          narrative={estimate.job_description}
+        />
+      </div>
+
+      <div className="mt-6 break-inside-avoid border-t-2 border-gray-800 pt-3">
+        <div className="flex items-baseline justify-between">
+          <span className="text-sm font-semibold uppercase tracking-wide">
+            Project total
+          </span>
+          <span className="text-2xl font-bold tabular-nums">
+            {formatMoney(totals.total)}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-gray-600">
+          A single, all-inclusive price for the complete project described above —
+          materials, labor, and site preparation. Applicable tax included.
+        </p>
+      </div>
 
       <div className="mt-8 border-t pt-3 text-center text-xs text-gray-500">
         Thank you for the opportunity to earn your business. — {org.company_name}

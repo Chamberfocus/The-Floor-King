@@ -28,6 +28,7 @@ export interface OrgSettings {
   phone: string | null;
   email: string | null;
   address: string | null;
+  website: string | null;
   financing_url: string | null;
   google_review_url: string | null;
   fuel_surcharge_pct: number;

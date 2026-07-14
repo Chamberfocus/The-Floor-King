@@ -124,9 +124,22 @@ export function BrandingForm({ org }: { org: OrgSettings }) {
             <Label htmlFor="email">Email</Label>
             <Input id="email" name="email" defaultValue={org.email ?? ""} />
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="website">Website</Label>
+            <Input
+              id="website"
+              name="website"
+              defaultValue={org.website ?? ""}
+              placeholder="clevelandfloorking.com"
+            />
+          </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="address">Address</Label>
             <Input id="address" name="address" defaultValue={org.address ?? ""} />
+            <p className="text-xs text-muted-foreground">
+              Company name, address, phone, email &amp; website appear on the
+              letterhead of every estimate, invoice, and work order.
+            </p>
           </div>
         </CardContent>
       </Card>

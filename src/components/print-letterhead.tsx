@@ -14,7 +14,9 @@ export function PrintLetterhead({
   docTitle: string;
   meta?: React.ReactNode;
 }) {
-  const contact = [org.phone, org.email].filter(Boolean).join("   ·   ");
+  const contact = [org.phone, org.email, org.website]
+    .filter(Boolean)
+    .join("   ·   ");
   return (
     <div className="flex items-start justify-between gap-6 border-b-2 border-gray-800 pb-4">
       <div className="space-y-0.5">

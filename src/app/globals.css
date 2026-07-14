@@ -192,6 +192,12 @@
    a solid black block behind the work order / invoices / estimates. The print
    docs use borders and dark text (no background fills), so clearing backgrounds
    just removes the dark app chrome and leaves a crisp white page. */
+/* A proper printed sheet: US Letter with even margins so no content is cut off
+   and every document has consistent professional whitespace. */
+@page {
+  size: letter;
+  margin: 0.5in;
+}
 @media print {
   html,
   body {
@@ -201,6 +207,22 @@
     /* Print the real ink weights instead of the browser lightening text. */
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  /* Borders are how the print docs show structure once background fills are
+     cleared below — keep them crisp and black instead of a faded gray. */
+  .print\:block :is(table, th, td, thead, tr),
+  .print\:block [class*="border"] {
+    border-color: #000 !important;
+  }
+  /* Never strand a heading at the foot of a page, and keep each table row and
+     list item whole across a page break. */
+  .print\:block :is(h1, h2, h3) {
+    break-after: avoid;
+  }
+  .print\:block :is(tr, li) {
+    break-inside: avoid;
   }
   /* One uniform, fully-legible ink for the whole document. On-screen the docs
      use a range of grays (labels lighter, body darker) which print at different

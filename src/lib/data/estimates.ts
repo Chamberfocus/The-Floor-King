@@ -7,6 +7,21 @@ import type {
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
+/** The name of the staff member who created a record — for the "Estimator" line
+ *  on a printed estimate. Returns null when unknown. */
+export async function getEstimatorName(
+  userId: string | null,
+): Promise<string | null> {
+  if (!userId) return null;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
+  return (data?.full_name as string | null) ?? null;
+}
+
 /** Loads options + line items for the given estimates and attaches them. */
 async function attachOptions(
   supabase: SupabaseServerClient,
