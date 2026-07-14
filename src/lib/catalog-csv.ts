@@ -123,11 +123,154 @@ export function toNum(v: string): number | null {
 }
 
 /**
+ * Split one extracted PDF/text line into meaningful cells. The PDF text
+ * extractor separates columns with tabs; a pasted sheet may use runs of 2+
+ * spaces. Blank/placeholder cells (empty, a lone bullet, or whitespace) are
+ * dropped so column indexes line up between a header and its data rows.
+ */
+function matrixCells(line: string): string[] {
+  const parts = line.includes("\t") ? line.split("\t") : line.split(/\s{2,}/);
+  return parts.map((s) => s.trim()).filter((s) => s && s !== "•");
+}
+
+const MATRIX_NOISE =
+  /^(terms|effective|rl price|price list|packaging|warranty|accessories|molding|installation|standard delivery|https?:|www\.|\d+ of \d+)\b/i;
+/** A cell that's a molding/label word, never a real plank color. */
+const MATRIX_LABEL =
+  /(stair\s*nose|reducer|t[-\s]?mold|quarter\s*round|end\s*cap|square\s*nose|threshold|price\s*\/?\s*sf|item\s*#|^color$)/i;
+
+/** The category a matrix product family falls into, from its description line. */
+function matrixCategory(desc: string): string {
+  const d = (desc || "").toLowerCase();
+  if (/laminate/.test(d)) return "laminate";
+  if (/(engineered|hardwood|solid wood)/.test(d)) return "hardwood";
+  if (/(ceramic|porcelain|\btile\b)/.test(d)) return "tile";
+  return "lvp"; // waterproof / rigid / vinyl plank goods — the common case
+}
+
+/**
+ * Parse a VENDOR COLOR-MATRIX price list (e.g. Casabella / All Surfaces RL
+ * lists). These aren't simple column tables: each product FAMILY has a
+ * "Color | Item # | Price" sub-header, then one row per color where the columns
+ * are `color · item# · $price/SF · [molding SKUs…]`. The generic parser reads
+ * this as garbage and the AI hallucinates products from the molding headers,
+ * packaging, and terms lines — so we detect and parse this shape EXACTLY.
+ *
+ * The one invariant across every variant of this layout: a data row is
+ * `<color> <SKU> <$price-per-SF> <…molding skus…>` — so color=cell0, sku=cell1,
+ * price=cell2, and everything after is ignored. Returns null if the text isn't
+ * this format, so the caller falls back to the generic parser / AI.
+ */
+export function parseColorMatrix(text: string): PriceRow[] | null {
+  const lines = text.split(/\r?\n/).map((l) => l.replace(/\r/g, ""));
+
+  // Signature: at least one header whose first two cells are Color, then Item #.
+  const isHeader = (cells: string[]) =>
+    cells.length >= 2 && /^color\b/i.test(cells[0]) && /item\s*#?/i.test(cells[1]);
+  if (!lines.some((l) => isHeader(matrixCells(l)))) return null;
+
+  // A line that names a product family: has a description (bullets, a plank
+  // size, thickness) and a short leading name cell.
+  const familyOf = (cells: string[]): { name: string; desc: string } | null => {
+    if (cells.length < 2) return null;
+    const first = cells[0];
+    if (!first || first.length > 44 || MATRIX_NOISE.test(first) || MATRIX_LABEL.test(first)) return null;
+    if (/^\$?\d/.test(first)) return null; // starts with a number/price
+    const rest = cells.slice(1).join(" ");
+    const looksLikeDesc = /(•|plank|\d+(?:\.\d+)?\s*(?:mm|mil)\b|\d+(?:\.\d+)?"\s*x|wear layer|thickness|waterproof)/i.test(rest);
+    if (!looksLikeDesc) return null;
+    return { name: first, desc: rest };
+  };
+
+  const out: PriceRow[] = [];
+  let family = "";
+  let familyDesc = "";
+  let inBlock = false;
+  let blockStart = 0; // index in `out` where the current family's rows begin
+
+  const skuLike = (s: string) =>
+    /^[A-Za-z0-9][A-Za-z0-9._/-]{2,}$/.test(s) && /[A-Za-z]/.test(s) && /\d/.test(s) && !/\s/.test(s);
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    const cells = matrixCells(line);
+
+    // New product family → wait for its header before reading colors.
+    const fam = familyOf(cells);
+    if (fam && !isHeader(cells)) {
+      family = fam.name;
+      familyDesc = fam.desc;
+      inBlock = false;
+      continue;
+    }
+
+    if (isHeader(cells)) {
+      inBlock = true;
+      blockStart = out.length;
+      continue;
+    }
+
+    // Coverage (SF per carton) closes the block; stamp it onto its rows.
+    const pkg = line.match(/([\d.]+)\s*SF\s*\/\s*(?:ctn|carton)/i);
+    if (pkg) {
+      const cov = pkg[1];
+      for (let i = blockStart; i < out.length; i++) {
+        out[i].notes = out[i].notes ? `${out[i].notes} · ${cov} SF/ctn` : `${cov} SF/ctn`;
+      }
+      inBlock = false;
+      continue;
+    }
+    if (MATRIX_NOISE.test(line)) {
+      inBlock = false;
+      continue;
+    }
+
+    if (!inBlock || cells.length < 3) continue;
+
+    // Data row: color · item# · $price/SF · [molding skus…]
+    const color = cells[0];
+    const sku = cells[1];
+    const price = toNum(cells[2]);
+    if (
+      !color ||
+      /^\$?\d/.test(color) ||
+      MATRIX_LABEL.test(color) ||
+      !skuLike(sku) ||
+      price == null ||
+      !(price > 0) ||
+      price > 60 // a per-SF plank price; anything higher is a molding/box lump
+    )
+      continue;
+
+    out.push({
+      name: family ? `${family} ${color}` : color,
+      category: matrixCategory(familyDesc),
+      unit: "sqft", // Price/SF, sold in full cartons
+      sku,
+      material_rate: price,
+      labor_rate: null,
+      manufacturer: null,
+      style: family || null,
+      color,
+      notes: null,
+    });
+  }
+
+  return out.length ? out : null;
+}
+
+/**
  * If `text` looks like a structured spreadsheet (a header row we recognize,
  * including a name column), parse it directly into rows — no AI needed.
  * Returns null if it isn't structured, so the caller can fall back to AI.
  */
 export function parseStructuredRows(text: string): PriceRow[] | null {
+  // Vendor color-matrix lists (Casabella etc.) look structured but need
+  // matrix-aware parsing — try that first.
+  const matrix = parseColorMatrix(text);
+  if (matrix?.length) return matrix;
+
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
   if (lines.length < 2) return null;
 
