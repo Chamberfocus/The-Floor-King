@@ -71,6 +71,7 @@ export async function listProgramItems(programId: string): Promise<Product[]> {
       .from("products")
       .select("*")
       .eq("accessory_program_id", programId)
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
     const batch = (data ?? []) as Product[];
@@ -110,6 +111,7 @@ export async function programSummaries(): Promise<ProgramSummary[]> {
       .from("products")
       .select("accessory_program_id, accessory_origin")
       .not("accessory_program_id", "is", null)
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
     const batch = (data ?? []) as {
@@ -175,6 +177,7 @@ export async function listUnprogrammed(): Promise<UnprogrammedRow[]> {
       .is("accessory_program_id", null)
       .order("manufacturer", { ascending: true })
       .order("name", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
     const batch = (data ?? []) as Product[];

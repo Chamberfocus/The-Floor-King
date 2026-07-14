@@ -84,6 +84,7 @@ export async function resolveColors(
       .select("color")
       .in("category", FLOORING_CATEGORIES)
       .not("color", "is", null)
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (program.manufacturer) q = q.eq("manufacturer", program.manufacturer);
     if (program.color_source === "line" && program.style) {
@@ -166,6 +167,7 @@ export async function adoptTrim(
       .select("*")
       .eq("category", "trim")
       .is("accessory_program_id", null)
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (opts.manufacturers?.length) q = q.in("manufacturer", opts.manufacturers);
     const { data, error } = await q;
@@ -202,6 +204,7 @@ export async function adoptTrim(
       .select("manufacturer, style")
       .in("category", FLOORING_CATEGORIES)
       .not("color", "is", null)
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) return { ...report, error: error.message };
     const batch = (data ?? []) as { manufacturer: string | null; style: string | null }[];
@@ -332,7 +335,16 @@ export async function adoptTrim(
     ),
   );
   const ptRows: Record<string, unknown>[] = [];
+  // The base price per (program, type). Seeded from program-types that already
+  // exist, so a later adoption pass over the same line still measures overrides
+  // against the real base instead of treating every row as its own price.
   const clusterPrice = new Map<string, { price: number; unit: AccessoryUnit }>();
+  for (const pt of (existingPT ?? []) as AccessoryProgramType[]) {
+    clusterPrice.set(`${pt.program_id}|${pt.type_id}`, {
+      price: Number(pt.price),
+      unit: (pt.unit ?? "each") as AccessoryUnit,
+    });
+  }
 
   for (const c of clusters.values()) {
     const program = progByLine.get(
@@ -344,9 +356,11 @@ export async function adoptTrim(
     const unit = modal(
       c.rows.map((r) => ((r.unit ?? "").toLowerCase() === "lnft" ? "lnft" : "each")),
     ) as AccessoryUnit;
-    clusterPrice.set(`${program.id}|${type.id}`, { price, unit });
     if (ptSeen.has(`${program.id}|${type.id}`)) continue;
     ptSeen.add(`${program.id}|${type.id}`);
+    // Keep the FIRST cluster's price as the base, so it matches the program-type
+    // row inserted below and override detection compares against the real base.
+    clusterPrice.set(`${program.id}|${type.id}`, { price, unit });
     ptRows.push({
       program_id: program.id,
       type_id: type.id,
@@ -365,6 +379,13 @@ export async function adoptTrim(
   }
 
   // --- Stamp provenance. Nothing else about these rows changes. ---
+  // The claim set is RUN-WIDE and keyed on the exact tuple the DB enforces
+  // (program, type, variant). Two clusters that differ only in manufacturer/style
+  // CASING ("IFC" vs "ifc") resolve to the same program via the case-insensitive
+  // program index, so a per-cluster guard would let both claim one color slot and
+  // the second update would hit the unique index. Claiming run-wide collapses
+  // them; the losers are surfaced as duplicates to merge, never forced.
+  const claimed = new Set<string>();
   for (const c of clusters.values()) {
     const program = progByLine.get(
       `${c.manufacturer.toLowerCase()}|${c.style.toLowerCase()}`,
@@ -372,17 +393,14 @@ export async function adoptTrim(
     const type = typeByName.get(c.typeName.toLowerCase());
     if (!program || !type) continue;
     const base = clusterPrice.get(`${program.id}|${type.id}`);
-    // Two vendor rows in one line can share a color (a duplicate import). The
-    // unique index would reject the second, so only the first claims the slot —
-    // the rest stay unprogrammed and get listed for a human to merge.
-    const claimed = new Set<string>();
     for (const p of c.rows) {
       const key = variantKey(p.color);
-      if (claimed.has(key)) {
+      const slot = `${program.id}|${type.id}|${key}`;
+      if (claimed.has(slot)) {
         bump("A duplicate of another item in the same line — merge these by hand");
         continue;
       }
-      claimed.add(key);
+      claimed.add(slot);
       const rate = Number(p.material_rate) || 0;
       // Where this color disagrees with its type's price, keep ITS price and
       // record that as a deliberate override — never flatten it to the base.
@@ -467,6 +485,7 @@ export async function generateProgramItems(
       .from("products")
       .select("*")
       .eq("accessory_program_id", programId)
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) return { ...out, error: error.message };
     const batch = (data ?? []) as Product[];
