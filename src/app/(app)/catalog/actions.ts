@@ -178,12 +178,22 @@ function trustySku(sku: string | null): string {
   const s = dedupeTight(sku);
   return s.length >= 3 && /[a-z0-9]/.test(s) && !/^(.)\1*$/.test(s) ? s : "";
 }
-/** The duplicate signature: same SKU = same product; else same normalized name. */
+/**
+ * The duplicate signature: same SKU **and same color** = same product; else the
+ * same normalized name.
+ *
+ * The color is load-bearing. Vendors reuse ONE SKU across an entire color line —
+ * e0947 is 42 different colors of DYERSBURG CLASSIC 12', and every color-matched
+ * trim in a line shares its line's SKU. Keying on the SKU alone would fold all 42
+ * into a single row (re-pointing their estimate and PO lines at the survivor
+ * first, so the loss is silent and unrecoverable). Colors distinguish them.
+ */
 function dedupeSignature(r: DedupeRow): string | null {
   const sku = trustySku(r.sku);
-  if (sku) return `s:${sku}`;
+  const color = dedupeNorm(r.color);
+  if (sku) return `s:${sku}|${color}`;
   const name = dedupeNorm(r.name);
-  return name ? `n:${name}` : null;
+  return name ? `n:${name}|${color}` : null;
 }
 /** How "complete" a record is — the keeper should be the richest one. */
 function dedupeScore(r: DedupeRow): number {

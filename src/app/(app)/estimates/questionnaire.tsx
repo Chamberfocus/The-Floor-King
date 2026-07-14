@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { priceFromMargin } from "@/lib/estimate-calc";
+import { linearFeetForPieces, piecesForLinearFeet } from "@/lib/accessories";
 import { profileFor } from "@/lib/flooring-profiles";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { AreaCalculator } from "@/components/area-calculator";
@@ -76,6 +77,7 @@ interface ProductAns {
   source: "order" | "stock"; vendor: string;
   wastePct: number | null;   // null = use the category default waste
   sqftPerBox: number | null; // sq ft per carton → box count (display)
+  pieceLengthIn: number | null; // accessories sold by the piece: stick length → lnft ÷ this = pieces
 }
 /** An extra material for a specific area (e.g. an upgraded pad for the stairs). */
 interface ExtraPad { id: string; product: ProductAns | null; sqft: string }
@@ -94,7 +96,19 @@ interface TrimRow {
   sized: boolean; // show the size field (J-channel, stair nose, baseboard…)
   source: "order" | "stock";
   product: ProductAns | null; // set only when you attach a specific catalog item
+  linearFt?: string; // piece-sold accessories: the run you measured, before rounding to sticks
 }
+
+/**
+ * The stick length of an accessory sold by the piece, or null when the row is
+ * billed by the linear foot. Vendors sell trim as pre-cut sticks at a per-piece
+ * price, so the run you measure has to be rounded UP into whole pieces — you
+ * cannot buy 2.3 sticks, and the PO has to name a number the vendor can fill.
+ */
+const pieceLenFor = (row: TrimRow): number | null =>
+  row.product && row.product.unit === "each" && row.product.pieceLengthIn
+    ? row.product.pieceLengthIn
+    : null;
 
 /** The trims you click to add — with sensible default material rates you can
  *  tweak per line. Sizes/colors are typed on the line. */
@@ -161,6 +175,7 @@ function toProductAns(p: Product): ProductAns {
     vendor: supplier ?? "",
     wastePct: null,
     sqftPerBox: null,
+    pieceLengthIn: p.piece_length_in ?? null,
   };
 }
 /** A one-off product typed in the picker — used on this estimate only, never
@@ -190,6 +205,7 @@ function customToProductAns(input: CustomProductInput): ProductAns {
     vendor: "",
     wastePct: null,
     sqftPerBox: null,
+    pieceLengthIn: null,
   };
 }
 let xpid = 0;
@@ -1252,18 +1268,51 @@ function QuestionBody({
               </Button>
             </div>
             <div className="flex flex-wrap items-end gap-2">
+              {/* An accessory sold by the piece is measured in linear feet but BOUGHT
+                  in whole sticks. Enter the run; this buys enough sticks to cover it. */}
+              {pieceLenFor(row) ? (
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Linear ft</label>
+                  <Input
+                    value={row.linearFt ?? ""}
+                    onChange={(e) => {
+                      const lf = e.target.value;
+                      patch(row.id, {
+                        linearFt: lf,
+                        qty: String(
+                          piecesForLinearFeet(numv(lf), pieceLenFor(row)!) || "",
+                        ),
+                      });
+                    }}
+                    inputMode="decimal"
+                    placeholder="0"
+                    className="h-10 w-24 text-base"
+                  />
+                </div>
+              ) : null}
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Qty</label>
-                <Input value={row.qty} onChange={(e) => patch(row.id, { qty: e.target.value })} inputMode="decimal" placeholder="0" className="h-10 w-20 text-base" />
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  {pieceLenFor(row) ? "Pieces" : "Qty"}
+                </label>
+                <Input value={row.qty} onChange={(e) => patch(row.id, { qty: e.target.value, linearFt: "" })} inputMode="decimal" placeholder="0" className="h-10 w-20 text-base" />
               </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Unit</label>
-                <select value={row.unit} onChange={(e) => patch(row.id, { unit: e.target.value })} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
-                  <option value="lnft">linear ft</option>
-                  <option value="each">each</option>
-                  <option value="pc">pieces</option>
-                </select>
-              </div>
+              {pieceLenFor(row) ? (
+                <p className="mb-2.5 text-xs text-muted-foreground">
+                  {pieceLenFor(row)}&quot; sticks ·{" "}
+                  {numv(row.qty) > 0
+                    ? `covers ${linearFeetForPieces(numv(row.qty), pieceLenFor(row)!)} ln ft`
+                    : "rounds up to whole sticks"}
+                </p>
+              ) : (
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Unit</label>
+                  <select value={row.unit} onChange={(e) => patch(row.id, { unit: e.target.value })} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
+                    <option value="lnft">linear ft</option>
+                    <option value="each">each</option>
+                    <option value="pc">pieces</option>
+                  </select>
+                </div>
+              )}
               {row.sized ? (
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">Size</label>

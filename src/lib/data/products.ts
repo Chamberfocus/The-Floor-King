@@ -88,7 +88,21 @@ export async function searchCatalog(
   query: string,
   opts: { activeOnly?: boolean; limit?: number } = {},
 ): Promise<Product[]> {
-  const supabase = await createClient();
+  return searchCatalogWith(await createClient(), query, opts);
+}
+
+/**
+ * The search itself, against an injected client. Exported so the exact query the
+ * PO and estimate pickers run can also be exercised outside a request (tests,
+ * verification) — a check that re-implements the query proves nothing about the
+ * query that ships.
+ */
+export async function searchCatalogWith(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: { from: (t: string) => any },
+  query: string,
+  opts: { activeOnly?: boolean; limit?: number } = {},
+): Promise<Product[]> {
   const limit = opts.limit ?? 50;
   let q = supabase
     .from("products")

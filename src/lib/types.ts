@@ -489,7 +489,68 @@ export interface Product {
   clearance_price: number | null;
   sqft_per_box?: number | null; // hard surface: coverage per carton (vendor unit)
   roll_width_ft?: number | null; // carpet: broadloom roll width
+  // Accessory provenance — set on trim items that belong to an accessory program.
+  accessory_program_id?: string | null;
+  accessory_type_id?: string | null;
+  accessory_variant?: string | null; // the color/size key this item was generated for
+  accessory_origin?: AccessoryOrigin | null;
+  price_override?: number | null; // when set, regeneration leaves material_rate alone
+  piece_length_in?: number | null; // unit='each': stick length, for lnft → pieces
   last_movement_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// --- Accessory programs (generated trim / transition items) ------------------
+
+/** What a type varies by. `size` millwork (baseboard) is primed, not color-matched. */
+export type AccessoryAxis = "color" | "size" | "none";
+export type AccessoryUnit = "each" | "lnft";
+
+/**
+ * `adopted` — an existing vendor row reverse-engineered into a program. Its
+ * price, name, and SKU are the vendor's; regeneration never touches it.
+ * `generated` — created by the generator, and therefore owned by it.
+ */
+export type AccessoryOrigin = "adopted" | "generated";
+
+export interface AccessoryType {
+  id: string;
+  name: string;
+  unit: AccessoryUnit;
+  axis: AccessoryAxis;
+  sizes: string[];
+  piece_length_in: number | null;
+  default_price: number;
+  sort: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A trim line bound to a flooring source — the colors come from real floors. */
+export interface AccessoryProgram {
+  id: string;
+  name: string;
+  manufacturer: string | null;
+  style: string | null;
+  color_source: "line" | "manufacturer" | "manual";
+  manual_colors: string[];
+  active: boolean;
+  last_generated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** program × type → THE price. One price, every color inherits it. */
+export interface AccessoryProgramType {
+  id: string;
+  program_id: string;
+  type_id: string;
+  price: number;
+  unit: AccessoryUnit | null; // overrides the type's unit
+  piece_length_in: number | null;
+  active: boolean;
   created_at: string;
   updated_at: string;
 }

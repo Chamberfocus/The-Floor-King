@@ -13,6 +13,7 @@ import {
   CalendarRange,
   DollarSign,
   Layers,
+  Rows3,
   SlidersHorizontal,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -99,6 +100,12 @@ const SECTIONS = [
     icon: Layers,
     title: "Samples",
     desc: "Loan period, return reminders, default deposit, and how many samples a customer can have out.",
+  },
+  {
+    href: "/settings/accessories",
+    icon: Rows3,
+    title: "Accessories",
+    desc: "Transitions, moldings and trim. Set a type's price once and every color of that line inherits it — the colors come from the floors you carry, so there's no second list to keep.",
   },
 ];
 
