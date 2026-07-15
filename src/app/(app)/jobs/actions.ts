@@ -472,7 +472,18 @@ export async function rescheduleInstall(
       scheduled_date: newDate,
       scheduled_end: newEnd,
       status: "scheduled",
-      ...(reassigned ? { assigned_to: newInstaller, assigned_crew_id: newCrew } : {}),
+      ...(reassigned
+        ? {
+            assigned_to: newInstaller,
+            assigned_crew_id: newCrew,
+            // Unassigning must also pull the job OFF the claim board, so an
+            // unassigned job is never left visible to installers. (Re-posting is
+            // a deliberate, separate action.)
+            ...(newInstaller === null && newCrew === null
+              ? { open_for_claim: false }
+              : {}),
+          }
+        : {}),
     })
     .eq("id", jobId);
 
