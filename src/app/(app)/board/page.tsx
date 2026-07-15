@@ -137,14 +137,14 @@ export default async function JobBoardPage() {
                             size="lg"
                             className="w-full"
                           >
-                            <Check className="size-4" /> Applied — tap to undo
+                            <Check className="size-4" /> Requested — tap to undo
                           </Button>
                         </form>
                       ) : (
                         <form action={applyToJob} className="flex-1">
                           <input type="hidden" name="job_id" value={j.id} />
                           <Button type="submit" size="lg" className="w-full">
-                            I can do this job
+                            Claim this job
                           </Button>
                         </form>
                       )

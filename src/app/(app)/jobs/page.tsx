@@ -3,7 +3,7 @@ import Link from "next/link";
 import { CalendarDays, Plus, MapPin, HardHat, ArrowRight } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
-import { listJobs, listAssignableUsers } from "@/lib/data/jobs";
+import { listJobs, listAssignableUsers, claimRequestCounts } from "@/lib/data/jobs";
 import { requireProfile } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -40,6 +40,7 @@ export default async function JobsPage() {
   const jobs = await listJobs();
   const users = isStaff ? await listAssignableUsers() : [];
   const nameById = new Map(users.map((u) => [u.id, u.name]));
+  const claims = isStaff ? await claimRequestCounts() : new Map<string, number>();
 
   const byLane = new Map<Lane, Job[]>();
   for (const j of jobs) {
@@ -51,6 +52,37 @@ export default async function JobsPage() {
     j.assigned_to ? (nameById.get(j.assigned_to) ?? "Assigned") : j.assigned_crew_id ? "Crew" : null;
   const site = (j: Job) => [j.site_city, j.site_state].filter(Boolean).join(", ");
 
+  // The three states, at a glance: assigned · on the board (with claim requests)
+  // · not posted (visible to no installer).
+  const StatusBadge = ({ j }: { j: Job }) => {
+    const assignee = who(j);
+    if (assignee)
+      return (
+        <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+          <HardHat className="mr-1 inline size-3" />
+          {assignee}
+        </span>
+      );
+    if (j.status === "completed" || j.status === "cancelled") return null;
+    if (j.open_for_claim) {
+      const n = claims.get(j.id) ?? 0;
+      return n > 0 ? (
+        <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          🙋 {n} want{n === 1 ? "s" : ""} this
+        </span>
+      ) : (
+        <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+          On job board
+        </span>
+      );
+    }
+    return (
+      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+        Not posted
+      </span>
+    );
+  };
+
   const Card = ({ j, next }: { j: Job & { customer_name?: string | null }; next: string }) => (
     <Link
       href={`/jobs/${j.id}`}
@@ -61,12 +93,7 @@ export default async function JobsPage() {
           <div className="truncate text-base font-semibold">{j.title || "Job"}</div>
           <div className="truncate text-sm text-muted-foreground">{j.customer_name ?? "—"}</div>
         </div>
-        {who(j) ? (
-          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-            <HardHat className="mr-1 inline size-3" />
-            {who(j)}
-          </span>
-        ) : null}
+        <StatusBadge j={j} />
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span className="font-medium text-foreground">

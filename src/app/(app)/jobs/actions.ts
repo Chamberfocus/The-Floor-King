@@ -1077,7 +1077,7 @@ export async function repostJobToBoard(formData: FormData): Promise<void> {
   revalidatePath("/dashboard");
 }
 
-/** An installer signals they can do an open job. */
+/** An installer files a CLAIM REQUEST on a posted job (Option B: you approve). */
 export async function applyToJob(formData: FormData): Promise<void> {
   const jobId = str(formData.get("job_id"));
   if (!jobId) return;
@@ -1086,6 +1086,19 @@ export async function applyToJob(formData: FormData): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return;
+  // Only a genuinely-claimable (posted) job can be requested — guards against a
+  // stale board tab requesting a job that was un-posted or already assigned.
+  const { data: openJob } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("id", jobId)
+    .eq("open_for_claim", true)
+    .is("assigned_to", null)
+    .maybeSingle();
+  if (!openJob) {
+    revalidatePath("/board");
+    return;
+  }
   await supabase
     .from("job_applications")
     .upsert(
@@ -1094,6 +1107,50 @@ export async function applyToJob(formData: FormData): Promise<void> {
     );
   revalidatePath("/board");
   revalidatePath(`/jobs/${jobId}`);
+
+  // Tell the office a claim request came in — email + text, best-effort.
+  after(async () => {
+    try {
+      const admin = createAdminClient();
+      const { data: job } = await admin
+        .from("jobs")
+        .select("title, customer:customers(full_name)")
+        .eq("id", jobId)
+        .maybeSingle();
+      const { data: me } = await admin
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .maybeSingle();
+      const cust = job?.customer as { full_name: string | null } | { full_name: string | null }[] | null;
+      const custName =
+        (Array.isArray(cust) ? cust[0]?.full_name : cust?.full_name) ??
+        (job?.title as string | null) ??
+        "a job";
+      const installer = (me?.full_name as string | null) ?? "An installer";
+      const line = `${installer} wants to claim ${custName}. Approve it on the job board.`;
+      const url = `${siteUrl()}/jobs/${jobId}`;
+      const { data: owners } = await admin
+        .from("profiles")
+        .select("email, phone")
+        .in("role", ["admin", "office"]);
+      for (const o of owners ?? []) {
+        if (o.email)
+          await sendEmail({
+            to: o.email as string,
+            subject: `Claim request: ${custName}`,
+            html: emailLayout("Job board — claim request", `<p>${line}</p>`, {
+              label: "Review & approve",
+              url,
+            }),
+          }).catch(() => {});
+        if (o.phone)
+          await sendSms(o.phone as string, `Floor King: ${line} ${url}`).catch(() => {});
+      }
+    } catch {
+      /* notifications are best-effort */
+    }
+  });
 }
 
 export async function withdrawApplication(formData: FormData): Promise<void> {

@@ -1156,8 +1156,10 @@ export default async function JobPage({
               {applicants.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   {job.open_for_claim
-                    ? "Posted — waiting for installers to apply."
-                    : "Post this job so installers can claim it."}
+                    ? "On the job board — waiting for an installer to claim it."
+                    : job.assigned_to
+                      ? "Assigned. Post it only if you need to reopen it for claims."
+                      : "Not on the board. Post it so installers can claim it — or assign someone directly."}
                 </p>
               ) : (
                 <ul className="divide-y text-sm">
@@ -1169,7 +1171,7 @@ export default async function JobPage({
                       <span className="font-medium">{a.installer_name}</span>
                       {job.assigned_to === a.installer_id ? (
                         <span className="text-xs font-medium text-green-600">
-                          Assigned ✓
+                          Approved ✓
                         </span>
                       ) : (
                         <form action={assignInstaller}>
@@ -1180,7 +1182,7 @@ export default async function JobPage({
                             value={a.installer_id}
                           />
                           <Button type="submit" size="sm">
-                            Assign
+                            Approve claim
                           </Button>
                         </form>
                       )}

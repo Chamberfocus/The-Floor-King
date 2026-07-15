@@ -304,6 +304,22 @@ export async function getJobApplications(
   }));
 }
 
+/** Pending claim requests per job (status 'applied') — for the "N want this"
+ *  badge on the staff jobs list, so posted jobs with requests stand out. */
+export async function claimRequestCounts(): Promise<Map<string, number>> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("job_applications")
+    .select("job_id")
+    .eq("status", "applied");
+  const counts = new Map<string, number>();
+  for (const r of data ?? []) {
+    const id = r.job_id as string;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export async function getMyApplicationJobIds(): Promise<string[]> {
   const supabase = await createClient();
   const {
