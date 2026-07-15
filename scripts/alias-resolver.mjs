@@ -7,6 +7,9 @@ const SRC = path.resolve(process.cwd(), "src");
 export async function resolve(specifier, context, next) {
   // Modules under test import next/headers at the top level but never call it —
   // they take an injected client. Stub it so the graph resolves.
+  if (specifier === "server-only" || specifier === "client-only") {
+    return next(pathToFileURL(path.resolve(process.cwd(), "scripts/empty-stub.mjs")).href, context);
+  }
   if (specifier === "next/headers") {
     return next(
       pathToFileURL(path.resolve(process.cwd(), "scripts/next-headers-stub.mjs")).href,

@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { assertRole } from "@/lib/auth";
+import { assertRole, getProfile } from "@/lib/auth";
+import { createLogin, resetLoginPin } from "@/lib/auth-admin";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -35,15 +36,19 @@ export async function saveInstallCrew(formData: FormData): Promise<Result> {
     skills,
   };
 
+  const pin = str(formData.get("pin"));
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   const write = (r: typeof row | Omit<typeof row, "skills">) =>
-    id
+    (id
       ? supabase.from("install_crews").update(r).eq("id", id)
-      : supabase.from("install_crews").insert({ ...r, created_by: user?.id ?? null });
+      : supabase.from("install_crews").insert({ ...r, created_by: user?.id ?? null })
+    )
+      .select("id, profile_id")
+      .maybeSingle();
 
   let res = await write(row);
   // `skills` (migration 0103) may not exist yet — retry without it so saving a
@@ -54,31 +59,56 @@ export async function saveInstallCrew(formData: FormData): Promise<Result> {
     res = await write(rest);
   }
   if (res.error) return { error: res.error.message };
+  const saved = res.data as { id: string; profile_id: string | null } | null;
+  const crewId = saved?.id ?? id;
+  let profileId = saved?.profile_id ?? null;
 
-  // If this crew is linked to a login installer, keep the profile's name/phone in
-  // sync so the installer page, job pages, and calendar (which read the profile,
-  // not the crew) don't show a stale name after a rename. select("*") is
-  // migration-safe (profile_id column may not exist yet).
-  if (id) {
-    const { data: crew } = await supabase
-      .from("install_crews")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
-    const profileId =
-      (crew as { profile_id?: string | null } | null)?.profile_id ?? null;
-    if (profileId) {
-      await supabase
-        .from("profiles")
-        .update({ full_name: name, phone: row.phone })
-        .eq("id", profileId);
-      revalidatePath("/installer");
-      revalidatePath("/install-scheduler");
-      revalidatePath("/jobs");
+  if (pin) {
+    // Provisioning a login is admin-only (the team page already gates to admin;
+    // this guards the server action directly too).
+    const me = await getProfile();
+    if (me?.role !== "admin") {
+      return { error: "Only an administrator can create or change a login." };
     }
+    if (profileId) {
+      // Already has a login → reset the PIN (and keep the phone in sync).
+      const { error } = await resetLoginPin(profileId, pin, row.phone);
+      if (error) return { error };
+    } else {
+      // New login for this crew, then link it so they become a real installer.
+      const { userId, error } = await createLogin({
+        email: row.email,
+        phone: row.phone,
+        password: pin,
+        fullName: name,
+        role: "crew",
+      });
+      if (error) return { error };
+      if (userId && crewId) {
+        await supabase
+          .from("install_crews")
+          .update({ profile_id: userId })
+          .eq("id", crewId);
+        profileId = userId;
+      }
+    }
+    revalidatePath("/installer");
+    revalidatePath("/install-scheduler");
+    revalidatePath("/jobs");
+  } else if (profileId) {
+    // No PIN change, but keep the linked login's name/phone in sync on a rename,
+    // so the installer page, job pages, and calendar don't show a stale name.
+    await supabase
+      .from("profiles")
+      .update({ full_name: name, phone: row.phone })
+      .eq("id", profileId);
+    revalidatePath("/installer");
+    revalidatePath("/install-scheduler");
+    revalidatePath("/jobs");
   }
 
   revalidatePath("/settings/install-crews");
+  revalidatePath("/settings/team");
   return { error: null };
 }
 

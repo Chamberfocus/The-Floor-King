@@ -299,6 +299,24 @@ function CrewForm({
             <Input name="notes" defaultValue={crew?.notes ?? ""} placeholder="Specialties, crew size, etc." />
           </div>
 
+          {/* App login — create it right here with a phone + PIN, no separate step. */}
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <div className="text-sm font-medium">App login</div>
+            <p className="mb-2 text-xs text-muted-foreground">
+              {crew?.profile_id
+                ? "This crew signs in with the phone number above. Enter a new PIN to reset it."
+                : "Enter a PIN to create a login — they'll sign in with the phone number above and this PIN. Leave blank for a crew you only assign work to (no login)."}
+            </p>
+            <Input
+              name="pin"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder={crew?.profile_id ? "New PIN (min 6) — optional" : "PIN (min 6) — optional"}
+              className="w-48"
+            />
+          </div>
+
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
             <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save crew"}</Button>

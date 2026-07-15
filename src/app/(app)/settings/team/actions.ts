@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole, getProfile } from "@/lib/auth";
+import { createLogin, normalizePhone } from "@/lib/auth-admin";
 import { positionById } from "./positions";
 import type { UserRole } from "@/lib/types";
 
@@ -38,13 +39,6 @@ function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-/** Phone → digits only, dropping a leading US country code. */
-function normalizePhone(raw: string): string {
-  let d = (raw || "").replace(/\D/g, "");
-  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
-  return d;
-}
-
 export async function inviteTeamMember(
   _prev: TeamFormState,
   formData: FormData,
@@ -53,69 +47,21 @@ export async function inviteTeamMember(
   if (me?.role !== "admin") {
     return { error: "Only an administrator can manage the team." };
   }
-  const email = str(formData.get("email")).toLowerCase();
-  const phone = normalizePhone(str(formData.get("phone")));
-  const password = str(formData.get("password"));
-  const fullName = str(formData.get("full_name"));
   const pos = positionById(str(formData.get("position")));
-  const role: UserRole = pos?.role ?? "office";
-  const title = str(formData.get("title")) || pos?.label || "";
-
-  if (!email && !phone) {
-    return { error: "Enter an email or a phone number for the login." };
-  }
-  if (phone && phone.length < 10) {
-    return { error: "Enter a valid 10-digit phone number." };
-  }
-  if (password.length < 6) {
-    return { error: "The PIN / password must be at least 6 characters." };
-  }
   if (!pos) return { error: "Pick a position." };
+  const role: UserRole = pos.role ?? "office";
 
-  let admin;
-  try {
-    admin = createAdminClient();
-  } catch {
-    return {
-      error: "Creating logins needs the Supabase secret key on the server.",
-    };
-  }
-
-  // Phone must be unique so phone login is unambiguous.
-  if (phone) {
-    const { data: dupe } = await admin
-      .from("profiles")
-      .select("id")
-      .eq("phone", phone)
-      .maybeSingle();
-    if (dupe) return { error: "That phone number already has a login." };
-  }
-
-  // Email is what Supabase auth uses. If only a phone was given, create a
-  // private placeholder email so the account can exist; the employee still
-  // signs in with their phone + PIN.
-  const authEmail = email || `p${phone}@crew.floorking.local`;
-
-  const { data: created, error } = await admin.auth.admin.createUser({
-    email: authEmail,
-    password,
-    email_confirm: true,
-    user_metadata: { full_name: fullName || null, role },
+  // Single source of truth for provisioning a login (shared with the crew form).
+  const { error } = await createLogin({
+    email: str(formData.get("email")),
+    phone: str(formData.get("phone")),
+    password: str(formData.get("password")),
+    fullName: str(formData.get("full_name")),
+    role,
+    title: str(formData.get("title")) || pos.label || null,
+    homeAddress: str(formData.get("home_address")) || null,
   });
-  if (error || !created.user) {
-    return { error: error?.message ?? "Could not create the login." };
-  }
-
-  await admin
-    .from("profiles")
-    .update({
-      role,
-      full_name: fullName || null,
-      phone: phone || null,
-      title: title || null,
-      home_address: str(formData.get("home_address")) || null,
-    })
-    .eq("id", created.user.id);
+  if (error) return { error };
 
   revalidatePath("/settings/team");
   return { error: null, ok: true };
