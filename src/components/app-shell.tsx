@@ -1,9 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, LogOut, MoreHorizontal, SlidersHorizontal } from "lucide-react";
+import {
+  Menu,
+  LogOut,
+  MoreHorizontal,
+  SlidersHorizontal,
+  ChevronDown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -18,7 +24,15 @@ import { AreaCalculator } from "@/components/area-calculator";
 import { FieldAssistant } from "@/components/field-assistant";
 import { OnMyWayFab } from "@/components/on-my-way-fab";
 import { cn } from "@/lib/utils";
-import { APP_NAME, COMPANY_NAME, navItemsForRole } from "@/lib/nav";
+import {
+  APP_NAME,
+  COMPANY_NAME,
+  navItemsForRole,
+  navGroupsForRole,
+  pinnedItemsForRole,
+  settingsItemForRole,
+  type NavItem,
+} from "@/lib/nav";
 import { ROLE_LABELS, type OrgSettings, type Profile } from "@/lib/types";
 import { signout } from "@/app/(app)/actions";
 
@@ -32,33 +46,120 @@ function initials(profile: Profile) {
     .join("");
 }
 
+function isActiveHref(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/** A single sidebar link. `nested` renders it slightly inset under a group. */
+function NavLink({
+  item,
+  pathname,
+  onNavigate,
+  nested,
+}: {
+  item: NavItem;
+  pathname: string;
+  onNavigate?: () => void;
+  nested?: boolean;
+}) {
+  const active = isActiveHref(pathname, item.href);
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={cn(
+        "flex items-center gap-3 rounded-lg py-2.5 text-sm transition-colors",
+        nested ? "pl-4 pr-3.5" : "px-3.5",
+        active
+          ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm"
+          : "font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+      )}
+    >
+      <Icon className="size-5 shrink-0" />
+      {item.label}
+    </Link>
+  );
+}
+
 function NavLinks({ role, onNavigate }: { role: Profile["role"]; onNavigate?: () => void }) {
   const pathname = usePathname();
-  const items = navItemsForRole(role);
+  const pinned = pinnedItemsForRole(role);
+  const groups = navGroupsForRole(role);
+  const settings = settingsItemForRole(role);
+
+  // The group holding the current page — expanded on load; the rest collapsed.
+  const activeGroupId =
+    groups.find((g) => g.items.some((i) => isActiveHref(pathname, i.href)))?.id ??
+    null;
+  const [open, setOpen] = useState<string | null>(activeGroupId);
+
+  // When navigation lands in a different group, auto-open that group (the chosen
+  // behavior: the active group is always the one showing).
+  const prevActive = useRef(activeGroupId);
+  useEffect(() => {
+    if (activeGroupId && activeGroupId !== prevActive.current) {
+      setOpen(activeGroupId);
+    }
+    prevActive.current = activeGroupId;
+  }, [activeGroupId]);
 
   return (
     <nav className="flex flex-col gap-1 px-3">
-      {items.map((item) => {
-        const active =
-          pathname === item.href || pathname.startsWith(`${item.href}/`);
-        const Icon = item.icon;
+      {pinned.map((item) => (
+        <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+      ))}
+      {pinned.length ? <div className="my-1 h-px bg-sidebar-border/60" /> : null}
+
+      {groups.map((g) => {
+        const Icon = g.icon;
+        const expanded = open === g.id;
+        const groupActive = g.id === activeGroupId;
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm transition-colors",
-              active
-                ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm"
-                : "font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-            )}
-          >
-            <Icon className="size-5 shrink-0" />
-            {item.label}
-          </Link>
+          <div key={g.id}>
+            <button
+              type="button"
+              onClick={() => setOpen(expanded ? null : g.id)}
+              aria-expanded={expanded}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors",
+                groupActive && !expanded
+                  ? "text-sidebar-foreground"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+              )}
+            >
+              <Icon className="size-5 shrink-0" />
+              <span className="flex-1 text-left">{g.label}</span>
+              <ChevronDown
+                className={cn(
+                  "size-4 shrink-0 transition-transform",
+                  expanded ? "" : "-rotate-90",
+                )}
+              />
+            </button>
+            {expanded ? (
+              <div className="mt-0.5 flex flex-col gap-1">
+                {g.items.map((item) => (
+                  <NavLink
+                    key={item.href}
+                    item={item}
+                    pathname={pathname}
+                    onNavigate={onNavigate}
+                    nested
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
         );
       })}
+
+      {settings ? (
+        <>
+          <div className="my-1 h-px bg-sidebar-border/60" />
+          <NavLink item={settings} pathname={pathname} onNavigate={onNavigate} />
+        </>
+      ) : null}
     </nav>
   );
 }
