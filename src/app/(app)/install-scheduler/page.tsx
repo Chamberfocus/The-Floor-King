@@ -159,7 +159,7 @@ export default async function InstallSchedulerPage() {
             </span>
           </h2>
           <p className="mb-3 text-xs text-muted-foreground">
-            Click a client to open its scheduler.
+            Click a customer to open its scheduler.
           </p>
           <div className="space-y-2">
             {needsProps.map(({ j, props }) => (
@@ -220,7 +220,7 @@ export default async function InstallSchedulerPage() {
   return (
     <div className="mx-auto max-w-5xl pb-16">
       <PageHeader
-        title="Smart Install Scheduler"
+        title="Install Scheduler"
         description="Every job that needs an install date — book a next-available crew or set it manually, right here."
       />
       <SchedulerTabs

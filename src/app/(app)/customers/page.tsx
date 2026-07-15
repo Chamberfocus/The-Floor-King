@@ -161,7 +161,7 @@ export default async function CustomersPage({
             href="/customers/import"
             className={buttonVariants({ size: "lg", variant: "outline" })}
           >
-            <Upload className="size-4" /> Import clients
+            <Upload className="size-4" /> Import customers
           </Link>
           <Link href="/customers/new" className={buttonVariants({ size: "lg" })}>
             <Plus className="size-4" /> Add customer
@@ -253,7 +253,7 @@ export default async function CustomersPage({
           <p className="text-sm text-muted-foreground">
             {q || stage || owner || stuck
               ? stuck
-                ? "No stuck clients — everyone's on track. 🎉"
+                ? "No stuck customers — everyone's on track. 🎉"
                 : "No customers match your search."
               : "No customers yet. Add your first lead to get started."}
           </p>

@@ -54,7 +54,7 @@ export default async function ScorecardPage({
       </Link>
       <PageHeader
         title="Job scorecard — estimated vs actual"
-        description="What each finished job was quoted to make vs. what it actually made, by the salesperson who quoted it. A miss means the estimate cost us."
+        description="What each finished job was estimated to make vs. what it actually made, by the salesperson who estimated it. A miss means the estimate cost us."
       />
 
       <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
@@ -78,8 +78,8 @@ export default async function ScorecardPage({
         <>
           {/* Running tally */}
           <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Completed jobs" value={String(totals.jobs)} sub={`${totals.beat} beat · ${totals.missed} missed the quote`} />
-            <Stat label="Quoted profit" value={money(totals.quotedProfit)} sub="What the estimates promised" />
+            <Stat label="Completed jobs" value={String(totals.jobs)} sub={`${totals.beat} beat · ${totals.missed} missed the estimate`} />
+            <Stat label="Estimated profit" value={money(totals.quotedProfit)} sub="What the estimates promised" />
             <Stat label="Actual profit" value={money(totals.actualProfit)} sub="What the work really made" tone={totals.actualProfit < 0 ? "bad" : undefined} />
             <Stat
               label="Variance"
@@ -112,7 +112,7 @@ export default async function ScorecardPage({
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs text-muted-foreground">Quoted profit</div>
+                        <div className="text-xs text-muted-foreground">Estimated profit</div>
                         <div className="font-medium">{money(s.quotedProfit)}</div>
                       </div>
                       <div>
@@ -141,7 +141,7 @@ export default async function ScorecardPage({
                       <TableHead>Salesperson</TableHead>
                       <TableHead className="text-right">Jobs</TableHead>
                       <TableHead className="text-right">Beat / missed</TableHead>
-                      <TableHead className="text-right">Quoted profit</TableHead>
+                      <TableHead className="text-right">Estimated profit</TableHead>
                       <TableHead className="text-right">Actual profit</TableHead>
                       <TableHead className="text-right">Variance</TableHead>
                       <TableHead className="text-right">Avg margin</TableHead>
@@ -198,7 +198,7 @@ export default async function ScorecardPage({
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs text-muted-foreground">Quoted profit</div>
+                          <div className="text-xs text-muted-foreground">Estimated profit</div>
                           <div className="font-medium">{money(j.estProfit)}</div>
                         </div>
                         <div>
@@ -223,7 +223,7 @@ export default async function ScorecardPage({
                     <TableRow>
                       <TableHead>Job</TableHead>
                       <TableHead>Salesperson</TableHead>
-                      <TableHead className="text-right">Quoted profit</TableHead>
+                      <TableHead className="text-right">Estimated profit</TableHead>
                       <TableHead className="text-right">Actual profit</TableHead>
                       <TableHead className="text-right">Variance</TableHead>
                       <TableHead className="text-right">Margin (est→act)</TableHead>

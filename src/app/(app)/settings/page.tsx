@@ -69,13 +69,13 @@ const SECTIONS = [
     href: "/settings/pricing",
     icon: DollarSign,
     title: "Default pricing & add-ons",
-    desc: "Your rates by flooring type, plus every quote add-on (tear-out, subfloor, baseboards, stairs…) — add custom ones and set prices. These are the add-ons the estimate builder offers.",
+    desc: "Your rates by flooring type, plus every estimate add-on (tear-out, subfloor, baseboards, stairs…) — add custom ones and set prices. These are the add-ons the estimate builder offers.",
   },
   {
     href: "/settings/suppliers",
     icon: Truck,
-    title: "Freight, fuel & quote terms",
-    desc: "Per-supplier freight, a global fuel surcharge, and quote validity.",
+    title: "Freight, fuel & estimate terms",
+    desc: "Per-supplier freight, a global fuel surcharge, and estimate validity.",
   },
   {
     href: "/settings/stages",

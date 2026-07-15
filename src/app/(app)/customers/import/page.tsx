@@ -9,7 +9,7 @@ import { requireProfile } from "@/lib/auth";
 import { ClientImporter } from "../client-importer";
 import { CustomerMappingImporter } from "../customer-mapping-importer";
 
-export const metadata: Metadata = { title: "Import clients" };
+export const metadata: Metadata = { title: "Import customers" };
 export const maxDuration = 60;
 
 export default async function ImportClientsPage() {
@@ -26,7 +26,7 @@ export default async function ImportClientsPage() {
         <ArrowLeft className="size-4" /> Back to customers
       </Link>
       <PageHeader
-        title="Import clients"
+        title="Import customers"
         description="Paste your existing customer list (any format) or upload a file. Review everything, then import. This only adds new customers — it never changes or deletes what's already here."
       />
       <Card className="mb-4">

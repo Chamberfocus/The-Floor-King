@@ -129,7 +129,7 @@ export default async function JobsPage() {
           {/* The install schedule is the company-wide grid — never for installers. */}
           {!isCrew ? (
             <Link href="/jobs/calendar" className={buttonVariants({ variant: "outline", size: "lg" })}>
-              <CalendarDays className="size-4" /> Install schedule
+              <CalendarDays className="size-4" /> Install Calendar
             </Link>
           ) : null}
           {isStaff ? (
@@ -143,7 +143,7 @@ export default async function JobsPage() {
       {jobs.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
           {isStaff
-            ? "No jobs yet. Approve an estimate and create a work order to get started."
+            ? "No jobs yet. Approve an estimate and create a job to get started."
             : "No jobs assigned to you yet."}
         </div>
       ) : (

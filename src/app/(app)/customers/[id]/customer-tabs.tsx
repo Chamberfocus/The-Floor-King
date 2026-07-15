@@ -49,7 +49,7 @@ const TABS: {
   { key: "overview", label: "Overview", icon: LayoutGrid },
   { key: "contact", label: "Contact", icon: User },
   { key: "estimates", label: "Estimates", icon: FileText, count: "estimates" },
-  { key: "jobs", label: "Work orders", icon: Wrench, count: "jobs" },
+  { key: "jobs", label: "Jobs", icon: Wrench, count: "jobs" },
   { key: "invoices", label: "Invoices", icon: Receipt, count: "invoices" },
   { key: "materials", label: "Materials & POs", icon: Package, count: "materials" },
   { key: "files", label: "Files", icon: Paperclip, count: "files" },

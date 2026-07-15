@@ -14,7 +14,7 @@ import { listUpcomingAppointments } from "@/lib/data/scheduling";
 import { getProfileNames } from "@/lib/data/customers";
 import { formatDate, to12 } from "@/lib/format";
 
-export const metadata: Metadata = { title: "Estimate schedule" };
+export const metadata: Metadata = { title: "Estimate Schedule" };
 
 export default async function SchedulePage() {
   const profile = await requireProfile();
@@ -38,7 +38,7 @@ export default async function SchedulePage() {
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
-        title="Estimate schedule"
+        title="Estimate Schedule"
         description="Upcoming estimate appointments, in route order for each day."
       />
       {appts.length === 0 ? (

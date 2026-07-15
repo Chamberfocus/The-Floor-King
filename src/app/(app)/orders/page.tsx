@@ -28,7 +28,7 @@ import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { OrderLinkCard } from "./order-link-card";
 import { COMPANY_NAME } from "@/lib/nav";
 
-export const metadata: Metadata = { title: "Orders" };
+export const metadata: Metadata = { title: "Customer Orders" };
 export const dynamic = "force-dynamic";
 
 export default async function OrdersPage() {
@@ -208,8 +208,8 @@ export default async function OrdersPage() {
     <div>
       <RealtimeRefresh table="orders" />
       <PageHeader
-        title="Orders"
-        description="Carpet orders submitted by clients. Approve to send them to the warehouse for cutting & pickup."
+        title="Customer Orders"
+        description="Carpet orders submitted by customers. Approve to send them to the warehouse for cutting & pickup."
       />
       <OrderLinkCard companyName={COMPANY_NAME} />
       {orders.length === 0 ? (

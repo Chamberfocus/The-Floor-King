@@ -156,7 +156,7 @@ export default async function EstimatePage({
                 <form action={createJobFromEstimate}>
                   <input type="hidden" name="estimate_id" value={estimate.id} />
                   <SubmitButton size="lg" className="w-full" pendingText="Creating…" confirm={null}>
-                    <Wrench className="size-4" /> Create work order
+                    <Wrench className="size-4" /> Create job
                   </SubmitButton>
                 </form>
                 <form action={createPOFromEstimate}>
@@ -238,7 +238,7 @@ export default async function EstimatePage({
                 <p className="text-sm text-muted-foreground">
                   {estimate.status === "changes_requested"
                     ? "The customer asked for changes. Update the estimate, then re-send."
-                    : "When they approve (or you approve it for them below), the work order, PO & invoice unlock."}
+                    : "When they approve (or you approve it for them below), the job, PO & invoice unlock."}
                 </p>
               </div>
               <form action={setEstimateStatus} className="flex items-end gap-2">

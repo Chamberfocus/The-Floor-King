@@ -10,7 +10,7 @@ import { requireProfile } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { JOB_STATUS_BADGE } from "@/lib/types";
 
-export const metadata: Metadata = { title: "Install schedule" };
+export const metadata: Metadata = { title: "Install Calendar" };
 export const dynamic = "force-dynamic";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -32,7 +32,7 @@ export default async function InstallSchedulePage({
   const jobs = await listJobs();
 
   const header = (
-    <PageHeader title="Install schedule" description={view === "month" ? "Month overview" : "Who's installing what, this week"}>
+    <PageHeader title="Install Calendar" description={view === "month" ? "Month overview" : "Who's installing what, this week"}>
       <div className="flex gap-2">
         <div className="inline-flex rounded-md border p-0.5">
           <Link href="/jobs/calendar?view=week" className={cn("rounded px-3 py-1.5 text-sm font-medium", view !== "month" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>Week</Link>
@@ -167,7 +167,7 @@ export default async function InstallSchedulePage({
         </div>
       </div>
       {installers.length === 0 ? (
-        <p className="mt-3 text-sm text-muted-foreground">No installers (crew) on the team yet — add them under Settings → Team.</p>
+        <p className="mt-3 text-sm text-muted-foreground">No installers on the team yet — add them under Settings → Team.</p>
       ) : null}
     </div>
   );

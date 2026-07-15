@@ -233,7 +233,7 @@ export function CalendarBoard({
                 className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-left text-sm hover:bg-amber-100"
               >
                 <span className="font-medium">
-                  {p.customerName ?? p.contactName ?? "New client"}
+                  {p.customerName ?? p.contactName ?? "New customer"}
                 </span>{" "}
                 <span className="text-muted-foreground">
                   · {p.typeName} · {dayOf(p.startsAt)} {to12(hmFromMinutes(minutesOf(p.startsAt)))}
@@ -639,7 +639,7 @@ function DetailDialog({
           {!appt.isBlock ? (
             <>
               <p>
-                <span className="text-muted-foreground">Client: </span>
+                <span className="text-muted-foreground">Customer: </span>
                 {appt.customerId ? (
                   <Link
                     href={`/customers/${appt.customerId}`}

@@ -84,7 +84,7 @@ export function PricingForm({ org }: { org: OrgSettings }) {
               rows={3}
               defaultValue={org.freight_disclaimer ?? ""}
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              placeholder="Pricing reflects freight and fuel surcharges in effect on the quote date…"
+              placeholder="Pricing reflects freight and fuel surcharges in effect on the estimate date…"
             />
             <p className="text-xs text-muted-foreground">
               Shown to customers on every estimate.

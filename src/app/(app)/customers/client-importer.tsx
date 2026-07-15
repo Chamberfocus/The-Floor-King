@@ -128,7 +128,7 @@ export function ClientImporter() {
           setStatus("Parsing pasted text…");
           rows = await parseTextChunks(pasted);
         } else {
-          toast.error("Paste a client list or choose a file.");
+          toast.error("Paste a customer list or choose a file.");
           return;
         }
 

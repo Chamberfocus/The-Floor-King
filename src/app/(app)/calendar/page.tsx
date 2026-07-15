@@ -11,7 +11,7 @@ import {
 } from "@/lib/data/booking";
 import { CalendarClient } from "./calendar-client";
 
-export const metadata: Metadata = { title: "Calendar" };
+export const metadata: Metadata = { title: "Booking Calendar" };
 
 const STAFF_ROLES = [
   "admin",
@@ -95,8 +95,8 @@ export default async function CalendarPage({
     return (
       <div>
         <PageHeader
-          title="Booking calendar"
-          description="Showroom appointments and in-home estimates. Book, reschedule, and confirm client requests."
+          title="Booking Calendar"
+          description="Showroom appointments and in-home estimates. Book, reschedule, and confirm customer requests."
         />
         <CalendarClient
           view={view}
@@ -124,7 +124,7 @@ export default async function CalendarPage({
     const stack = e instanceof Error && e.stack ? e.stack.split("\n").slice(0, 4).join("\n") : "";
     return (
       <div>
-        <PageHeader title="Booking calendar" />
+        <PageHeader title="Booking Calendar" />
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
           <p className="font-medium text-destructive">
             The calendar couldn&apos;t load.

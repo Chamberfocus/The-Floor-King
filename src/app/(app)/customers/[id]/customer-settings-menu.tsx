@@ -82,7 +82,7 @@ export function CustomerSettingsMenu({
                   desc={
                     portalUser
                       ? `Active — ${portalUser.email}`
-                      : "Invite them to view quotes, jobs & invoices"
+                      : "Invite them to view estimates, jobs & invoices"
                   }
                   onClick={() => setView("portal")}
                 />
@@ -114,7 +114,7 @@ export function CustomerSettingsMenu({
                 <BackButton onClick={() => setView("menu")} />
                 <DialogTitle>Customer portal</DialogTitle>
                 <DialogDescription>
-                  A login lets {customer.full_name} view their quotes, jobs and
+                  A login lets {customer.full_name} view their estimates, jobs and
                   invoices online.
                 </DialogDescription>
               </DialogHeader>

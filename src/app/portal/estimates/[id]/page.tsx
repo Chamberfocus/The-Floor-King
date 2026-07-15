@@ -79,7 +79,7 @@ export default async function PortalEstimatePage({
                 }
               >
                 {expired
-                  ? `This quote expired on ${estimate.valid_until} — please contact us for current pricing.`
+                  ? `This estimate expired on ${estimate.valid_until} — please contact us for current pricing.`
                   : `Valid until ${estimate.valid_until}.`}
               </p>
             );

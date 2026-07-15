@@ -231,7 +231,7 @@ export async function GuidedFlow({
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
           {currentStage?.next_action ||
-            "Go measure and meet the customer. When you're back with numbers, advance to build the quote."}
+            "Go measure and meet the customer. When you're back with numbers, advance to build the estimate."}
         </p>
         <details className="text-sm">
           <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
@@ -251,7 +251,7 @@ export async function GuidedFlow({
     body = (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Price this job and send the quote. Advance when it&apos;s out to the customer.
+          Price this job and send the estimate. Advance when it&apos;s out to the customer.
         </p>
         <div className="flex flex-wrap gap-2">
           {activeEstimate ? (
@@ -259,7 +259,7 @@ export async function GuidedFlow({
               href={`/estimates/${activeEstimate.id}/edit`}
               className={buttonVariants({ size: "sm" })}
             >
-              Open quote builder
+              Open estimate builder
             </Link>
           ) : null}
           <Link
@@ -278,7 +278,7 @@ export async function GuidedFlow({
     body = (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Follow up to get the quote approved. You can mark it approved here once the
+          Follow up to get the estimate approved. You can mark it approved here once the
           customer says yes.
         </p>
         {activeEstimate ? (
@@ -351,8 +351,8 @@ export async function GuidedFlow({
           {!activeJob && approvedEstimate ? (
             <form action={createJobFromEstimate}>
               <input type="hidden" name="estimate_id" value={approvedEstimate.id} />
-              <SubmitButton size="sm" pendingText="Creating…" confirm="Work order created">
-                <Hammer className="size-3.5" /> Create work order
+              <SubmitButton size="sm" pendingText="Creating…" confirm="Job created">
+                <Hammer className="size-3.5" /> Create job
               </SubmitButton>
             </form>
           ) : null}
@@ -379,7 +379,7 @@ export async function GuidedFlow({
       <InstallSchedule {...installScheduleProps} />
     ) : (
       <p className="text-sm text-muted-foreground">
-        Create the work order from the approved estimate first (Jobs panel below),
+        Create the job from the approved estimate first (Jobs panel below),
         then install times suggest here.
       </p>
     );

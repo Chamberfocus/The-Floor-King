@@ -158,7 +158,7 @@ export function QuickInstallForm({
             </div>
           </div>
           <div>
-            <label className={label}>Materials to stage / crew notes</label>
+            <label className={label}>Materials to stage / installer notes</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}

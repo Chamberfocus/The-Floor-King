@@ -16,7 +16,7 @@ import { draftMessage, logFollowup, type MessageIntent } from "./ai-actions";
 
 const INTENTS: { value: MessageIntent; label: string }[] = [
   { value: "followup", label: "Follow-up" },
-  { value: "quote_nudge", label: "Nudge on quote" },
+  { value: "quote_nudge", label: "Nudge on estimate" },
   { value: "appointment_confirm", label: "Confirm appointment" },
   { value: "payment_reminder", label: "Payment reminder" },
   { value: "review_request", label: "Ask for a review" },
@@ -131,7 +131,7 @@ export function AiFollowup({ customerId }: { customerId: string }) {
           </>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Pick what you need — a follow-up, a quote nudge, a payment reminder, a
+            Pick what you need — a follow-up, an estimate nudge, a payment reminder, a
             review request — and AI writes it from this customer&apos;s situation.
           </p>
         )}

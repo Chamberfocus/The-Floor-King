@@ -100,7 +100,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Schedule",
     icon: CalendarRange,
     items: [
-      { label: "Calendar", href: "/calendar", icon: CalendarRange, roles: SALES_VIEW },
+      { label: "Booking Calendar", href: "/calendar", icon: CalendarRange, roles: SALES_VIEW },
       { label: "Estimate Schedule", href: "/schedule", icon: CalendarClock, roles: SALES_VIEW },
       { label: "Install Scheduler", href: "/install-scheduler", icon: CalendarCheck, roles: ["admin", "office", "scheduler"] },
       { label: "Team Schedule", href: "/team", icon: UserCheck, roles: SCHEDULE_ROLES },
@@ -132,7 +132,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Money",
     icon: Wallet,
     items: [
-      { label: "Orders", href: "/orders", icon: ShoppingBag, roles: OFFICE_PLUS },
+      { label: "Customer Orders", href: "/orders", icon: ShoppingBag, roles: OFFICE_PLUS },
       { label: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, roles: OFFICE_PLUS },
       { label: "Invoices", href: "/invoices", icon: Receipt, roles: SALES },
       { label: "Bills (A/P)", href: "/bills", icon: Wallet, roles: OFFICE_PLUS },

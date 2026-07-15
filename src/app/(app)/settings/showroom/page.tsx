@@ -38,7 +38,7 @@ export default async function ShowroomSettingsPage() {
       </Link>
       <PageHeader
         title="Showroom & calendar"
-        description="By-appointment showroom: set your hours and capacity, and the appointment types clients can book."
+        description="By-appointment showroom: set your hours and capacity, and the appointment types customers can book."
       />
 
       <Card className="mb-4">

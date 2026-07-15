@@ -71,14 +71,14 @@ export function CopyEstimate({ estimateId }: { estimateId: string }) {
               autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search a client by name or city…"
+              placeholder="Search a customer by name or city…"
               className="pl-8"
             />
           </div>
           <div className="max-h-72 divide-y overflow-y-auto rounded-md border">
             {results.length === 0 ? (
               <p className="p-3 text-sm text-muted-foreground">
-                {q ? "No matches." : "Start typing to find a client."}
+                {q ? "No matches." : "Start typing to find a customer."}
               </p>
             ) : (
               results.map((c) => (

@@ -199,7 +199,7 @@ export default async function FinancialsPage({
                           {formatMoney(j.revenue)}
                           {!j.revenueIsActual ? (
                             <span className="ml-1 text-xs text-muted-foreground">
-                              (quoted)
+                              (estimated)
                             </span>
                           ) : null}
                         </div>
@@ -284,7 +284,7 @@ export default async function FinancialsPage({
                         {formatMoney(j.revenue)}
                         {!j.revenueIsActual ? (
                           <span className="ml-1 text-xs text-muted-foreground">
-                            (quoted)
+                            (estimated)
                           </span>
                         ) : null}
                       </TableCell>

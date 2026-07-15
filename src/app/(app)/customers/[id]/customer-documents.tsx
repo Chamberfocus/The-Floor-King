@@ -142,7 +142,7 @@ export function CustomerDocuments({
         {documents.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No documents yet. Upload the salesperson&apos;s{" "}
-            <strong>measurement diagram</strong> so it guides the quote and the
+            <strong>measurement diagram</strong> so it guides the estimate and the
             installers — plus contracts, photos, or order confirmations.
           </p>
         ) : null}

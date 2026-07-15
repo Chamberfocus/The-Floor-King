@@ -88,7 +88,7 @@ export function DeleteEstimateButton({
                 </span>
               </>
             ) : (
-              <span className="text-muted-foreground"> — no work orders, POs, or invoices are attached.</span>
+              <span className="text-muted-foreground"> — no jobs, POs, or invoices are attached.</span>
             )}
           </p>
           <p className="rounded-md bg-destructive/10 px-3 py-2 font-medium text-destructive">
@@ -120,7 +120,7 @@ export function ClearDraftsButton() {
       onSubmit={(e) => {
         if (
           !window.confirm(
-            "Delete ALL draft estimates? This removes every unsent quote and can't be undone.",
+            "Delete ALL draft estimates? This removes every unsent estimate and can't be undone.",
           )
         ) {
           e.preventDefault();

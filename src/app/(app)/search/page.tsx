@@ -35,7 +35,7 @@ export default async function SearchPage({
         description={
           query
             ? `${total} result${total === 1 ? "" : "s"} for “${query}”`
-            : "Find any customer, estimate, invoice, purchase order, work order, or catalog item."
+            : "Find any customer, estimate, invoice, purchase order, job, or catalog item."
         }
       />
 

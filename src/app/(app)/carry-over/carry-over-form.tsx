@@ -299,7 +299,7 @@ export function CarryOverForm({
                     </p>
                   </div>
                   <div>
-                    <label className={label}>Materials to stage / crew notes</label>
+                    <label className={label}>Materials to stage / installer notes</label>
                     <textarea
                       value={stageNotes}
                       onChange={(e) => setStageNotes(e.target.value)}

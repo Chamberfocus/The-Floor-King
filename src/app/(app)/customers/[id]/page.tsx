@@ -414,7 +414,7 @@ export default async function CustomerPage({
 
   const workOrderRows: WorkOrderRowData[] = jobs.map((j) => ({
     id: j.id,
-    title: j.title || "Work order",
+    title: j.title || "Job",
     status: j.status,
     scheduledDate: j.scheduled_date ?? null,
     crewName: j.assigned_to ? (names[j.assigned_to] ?? null) : null,
@@ -671,7 +671,7 @@ export default async function CustomerPage({
                     <li>
                       <a href="#jobs" className="flex items-center justify-between rounded-md px-1.5 py-1.5 hover:bg-muted">
                         <span className="inline-flex items-center gap-2">
-                          <Wrench className="size-4 text-muted-foreground" /> Work orders
+                          <Wrench className="size-4 text-muted-foreground" /> Jobs
                         </span>
                         <span className="font-semibold tabular-nums">{workOrderRows.length}</span>
                       </a>
@@ -892,7 +892,7 @@ export default async function CustomerPage({
             <CardContent>
               {estimateRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No estimates yet. Click &ldquo;Build estimate&rdquo; to build a quote.
+                  No estimates yet. Click &ldquo;Build estimate&rdquo; to build an estimate.
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -920,7 +920,7 @@ export default async function CustomerPage({
           <TabSection tab="jobs" overview={false}>
           <Card id="jobs" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">Work orders</CardTitle>
+              <CardTitle className="text-base">Jobs</CardTitle>
               <form action={createJob} className="flex items-center gap-2">
                 <input type="hidden" name="customer_id" value={customer.id} />
                 {serviceAddresses.length > 0 ? (
@@ -944,7 +944,7 @@ export default async function CustomerPage({
             </CardHeader>
             <CardContent className="space-y-4">
               {workOrderRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No work orders yet.</p>
+                <p className="text-sm text-muted-foreground">No jobs yet.</p>
               ) : (
                 <div className="space-y-2">
                   {workOrderRows.map((j) => (

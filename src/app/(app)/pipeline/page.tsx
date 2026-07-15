@@ -71,7 +71,7 @@ export default async function PipelinePage({
     <div>
       <PageHeader
         title="Pipeline"
-        description="Every client by stage, and who owns each one right now."
+        description="Every customer by stage, and who owns each one right now."
       >
         <Link
           href={mine ? "/pipeline" : "/pipeline?mine=1"}
@@ -91,7 +91,7 @@ export default async function PipelinePage({
           <Input
             name="q"
             defaultValue={q}
-            placeholder="Search clients…"
+            placeholder="Search customers…"
             className="pl-8"
           />
         </div>

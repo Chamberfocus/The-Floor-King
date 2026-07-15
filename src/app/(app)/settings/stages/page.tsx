@@ -28,7 +28,7 @@ export default async function StagesPage() {
     <div className="mx-auto max-w-3xl">
       <PageHeader
         title="Workflow stages"
-        description="The steps every client moves through, and the default person who owns each step."
+        description="The steps every customer moves through, and the default person who owns each step."
       />
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 p-3">

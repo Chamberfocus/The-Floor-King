@@ -151,7 +151,7 @@ export function CustomerMappingImporter() {
         >
           <Zap className="size-6 text-primary" />
           <span className="text-sm font-medium">
-            {parsing ? "Reading…" : "Drop an Excel or CSV client list — or click to choose"}
+            {parsing ? "Reading…" : "Drop an Excel or CSV customer list — or click to choose"}
           </span>
           <span className="text-xs text-muted-foreground">
             Instant import, no AI. .xlsx, .xls, or .csv

@@ -20,8 +20,8 @@ export default async function SuppliersSettingsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
-        title="Freight, fuel & quote terms"
-        description="Cover yourself: add freight per supplier and a global fuel surcharge that bakes into your cost automatically, and set how long quotes stay valid."
+        title="Freight, fuel & estimate terms"
+        description="Cover yourself: add freight per supplier and a global fuel surcharge that bakes into your cost automatically, and set how long estimates stay valid."
       />
       <PricingForm org={org} />
       <SupplierList suppliers={suppliers} />

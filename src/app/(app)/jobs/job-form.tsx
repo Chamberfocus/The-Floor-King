@@ -131,7 +131,7 @@ export function JobForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="notes">Job notes (visible to crew)</Label>
+        <Label htmlFor="notes">Job notes (visible to the installer)</Label>
         <textarea
           id="notes"
           name="notes"
