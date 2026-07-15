@@ -65,6 +65,34 @@ export function jobMaterialType(lineItems: { category: string | null }[]): Mater
   return null;
 }
 
+/** Installer material skills, stored on the install crew. */
+export type InstallerSkill = "carpet" | "hard";
+
+/**
+ * Whether an installer with these skills should be offered a job of this
+ * material type on the Job Board.
+ *
+ * - No skills set → does everything (safe rollout: the filter only kicks in once
+ *   an installer's skills are configured, so nobody's board goes empty).
+ * - Unknown material → shown (never hide a job we can't classify).
+ * - A mixed carpet + hard-surface job needs BOTH skills — one installer doing the
+ *   whole job. (Targeting a specialist to their part is still done explicitly.)
+ */
+export function installerCanDoJob(
+  skills: string[] | null | undefined,
+  jobType: MaterialType,
+): boolean {
+  const s = skills ?? [];
+  if (s.length === 0) return true;
+  if (jobType === null) return true;
+  const carpet = s.includes("carpet");
+  const hard = s.includes("hard");
+  if (jobType === "carpet") return carpet;
+  if (jobType === "hard") return hard;
+  if (jobType === "both") return carpet && hard;
+  return true;
+}
+
 const isLabor = (l: EstimateLineItem) => l.category === "labor";
 /** Money-only flat lines (discounts, fees) don't belong on a work order. */
 const isMoneyFlat = (l: EstimateLineItem) => l.line_type === "flat" && l.category !== "labor";

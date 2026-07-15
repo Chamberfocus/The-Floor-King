@@ -20,6 +20,10 @@ export async function saveInstallCrew(formData: FormData): Promise<Result> {
   const name = str(formData.get("name"));
   if (!name) return { error: "Give the crew a name." };
 
+  const skills = formData
+    .getAll("skills")
+    .map(String)
+    .filter((s) => s === "carpet" || s === "hard");
   const row = {
     name,
     kind: str(formData.get("kind")) === "employee" ? "employee" : "subcontractor",
@@ -28,6 +32,7 @@ export async function saveInstallCrew(formData: FormData): Promise<Result> {
     pay_basis: str(formData.get("pay_basis")) || null,
     pay_rate: numOrNull(formData.get("pay_rate")),
     notes: str(formData.get("notes")) || null,
+    skills,
   };
 
   const supabase = await createClient();
@@ -35,9 +40,19 @@ export async function saveInstallCrew(formData: FormData): Promise<Result> {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const res = id
-    ? await supabase.from("install_crews").update(row).eq("id", id)
-    : await supabase.from("install_crews").insert({ ...row, created_by: user?.id ?? null });
+  const write = (r: typeof row | Omit<typeof row, "skills">) =>
+    id
+      ? supabase.from("install_crews").update(r).eq("id", id)
+      : supabase.from("install_crews").insert({ ...r, created_by: user?.id ?? null });
+
+  let res = await write(row);
+  // `skills` (migration 0103) may not exist yet — retry without it so saving a
+  // crew still works before the migration is run.
+  if (res.error && /skills/i.test(res.error.message)) {
+    const { skills: _drop, ...rest } = row;
+    void _drop;
+    res = await write(rest);
+  }
   if (res.error) return { error: res.error.message };
 
   // If this crew is linked to a login installer, keep the profile's name/phone in

@@ -12,6 +12,8 @@ export interface InstallCrew {
   notes: string | null;
   /** Hard link to the installer's login profile (null = pure subcontractor). */
   profile_id: string | null;
+  /** Material types this installer works on ('carpet' | 'hard'); [] = does all. */
+  skills: string[];
 }
 
 /**
@@ -22,17 +24,28 @@ export interface InstallCrew {
 export async function listInstallCrews(
   opts: { activeOnly?: boolean } = {},
 ): Promise<InstallCrew[]> {
-  try {
+  const run = async (withSkills: boolean) => {
     const supabase = await createClient();
+    const base =
+      "id, name, kind, phone, email, pay_basis, pay_rate, active, notes, profile_id";
     let q = supabase
       .from("install_crews")
-      .select("id, name, kind, phone, email, pay_basis, pay_rate, active, notes, profile_id")
+      .select(withSkills ? `${base}, skills` : base)
       .order("active", { ascending: false })
       .order("name", { ascending: true });
     if (opts.activeOnly) q = q.eq("active", true);
-    const { data, error } = await q;
+    return q;
+  };
+  try {
+    // `skills` (migration 0103) may not exist yet — fall back so the crew list
+    // never vanishes just because one column is missing.
+    let { data, error } = await run(true);
+    if (error) ({ data, error } = await run(false));
     if (error) return [];
-    return (data ?? []) as InstallCrew[];
+    return ((data ?? []) as Partial<InstallCrew>[]).map((c) => ({
+      ...c,
+      skills: c.skills ?? [],
+    })) as InstallCrew[];
   } catch {
     return [];
   }

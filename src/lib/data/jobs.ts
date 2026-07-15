@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { jobMaterialType, type MaterialType } from "@/lib/job-scope";
+import { jobMaterialType, installerCanDoJob, type MaterialType } from "@/lib/job-scope";
 import type {
   Customer,
   EstimateLineItem,
@@ -200,16 +200,9 @@ export async function listOpenJobs(
     board_installer_ids?: string[] | null;
   })[];
 
-  // Targeting: a crew viewer only sees untargeted jobs, or ones aimed at them.
-  if (viewer && !viewer.isStaff) {
-    rows = rows.filter((r) => {
-      const t = r.board_installer_ids;
-      return !t || t.length === 0 || t.includes(viewer.id);
-    });
-  }
-
   // Material type from the line items (categories) — read with the service role
   // so an installer, whose RLS can't reach estimate lines, still sees the type.
+  // Computed BEFORE filtering so the skill gate below can use it.
   const optionIds = [...new Set(rows.map((r) => r.option_id).filter(Boolean) as string[])];
   const typeByOption = new Map<string, MaterialType>();
   if (optionIds.length) {
@@ -230,11 +223,37 @@ export async function listOpenJobs(
       /* leave material type null if unreadable */
     }
   }
+  const jobType = (r: (typeof rows)[number]): MaterialType =>
+    r.option_id ? (typeByOption.get(r.option_id) ?? null) : null;
+
+  // A crew viewer sees a posted job when it is TARGETED at them (an explicit
+  // office choice always wins), or it is untargeted AND matches their material
+  // skills — so a carpet-only installer isn't offered a hard-surface job.
+  if (viewer && !viewer.isStaff) {
+    let skills: string[] = [];
+    try {
+      const admin = createAdminClient();
+      const { data: crew } = await admin
+        .from("install_crews")
+        .select("skills")
+        .eq("profile_id", viewer.id)
+        .maybeSingle();
+      skills = ((crew?.skills as string[] | null) ?? []).filter(Boolean);
+    } catch {
+      /* no crew row / column not migrated → skills empty → sees everything */
+    }
+    rows = rows.filter((r) => {
+      const t = r.board_installer_ids;
+      const targeted = Array.isArray(t) && t.length > 0;
+      if (targeted) return t.includes(viewer.id); // targeted → only its targets
+      return installerCanDoJob(skills, jobType(r)); // untargeted → skill gate
+    });
+  }
 
   return rows.map((r) => ({
     ...r,
     customer_name: r.customer?.full_name ?? null,
-    materialType: r.option_id ? (typeByOption.get(r.option_id) ?? null) : null,
+    materialType: jobType(r),
   }));
 }
 

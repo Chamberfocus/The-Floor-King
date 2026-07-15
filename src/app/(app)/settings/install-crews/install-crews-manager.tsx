@@ -91,6 +91,15 @@ export function InstallCrewsManager({
                   <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
                     {c.kind === "employee" ? "Employee" : "Subcontractor"}
                   </span>
+                  {c.skills?.length ? (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-normal text-primary">
+                      {c.skills.includes("carpet") && c.skills.includes("hard")
+                        ? "Carpet + Hard"
+                        : c.skills.includes("carpet")
+                          ? "Carpet"
+                          : "Hard surface"}
+                    </span>
+                  ) : null}
                   {!c.active ? (
                     <span className="text-xs text-amber-600">inactive</span>
                   ) : null}
@@ -205,6 +214,34 @@ function CrewForm({
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              Installs — controls which Job Board jobs they&apos;re offered
+            </label>
+            <div className="flex flex-wrap gap-4">
+              {(
+                [
+                  ["carpet", "Carpet / sheet vinyl"],
+                  ["hard", "Hard surface"],
+                ] as const
+              ).map(([v, lbl]) => (
+                <label key={v} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    name="skills"
+                    value={v}
+                    defaultChecked={crew?.skills?.includes(v) ?? false}
+                    className="size-4 rounded border-input"
+                  />
+                  {lbl}
+                </label>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Leave both unchecked = they see every job (no filtering).
+            </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
