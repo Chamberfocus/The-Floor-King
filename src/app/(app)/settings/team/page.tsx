@@ -25,6 +25,7 @@ import {
   setMemberHome,
   setMemberPhonePin,
   setMemberName,
+  setMemberSkills,
   setInstallerCollects,
 } from "./actions";
 
@@ -50,6 +51,12 @@ export default async function TeamPage() {
   const subCrews = allCrews.filter(
     (c) => !memberNames.has((c.name ?? "").trim().toLowerCase()),
   );
+  // Skills live on an installer's crew row (the Job Board reads them by
+  // profile_id); map them by profile so each installer row can show/set them.
+  const skillsByProfile = new Map<string, string[]>();
+  for (const c of allCrews) {
+    if (c.profile_id) skillsByProfile.set(c.profile_id, c.skills ?? []);
+  }
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -195,6 +202,38 @@ export default async function TeamPage() {
                       Set phone PIN
                     </Button>
                   </form>
+                  {m.role === "crew" ? (
+                    <form
+                      action={setMemberSkills}
+                      className="flex flex-wrap items-center gap-3"
+                    >
+                      <input type="hidden" name="id" value={m.id} />
+                      <input type="hidden" name="name" value={m.full_name ?? ""} />
+                      <span className="text-xs text-muted-foreground">
+                        Installs (controls their Job Board):
+                      </span>
+                      {(
+                        [
+                          ["carpet", "Carpet"],
+                          ["hard", "Hard surface"],
+                        ] as const
+                      ).map(([v, lbl]) => (
+                        <label key={v} className="flex items-center gap-1.5 text-sm">
+                          <input
+                            type="checkbox"
+                            name="skills"
+                            value={v}
+                            defaultChecked={(skillsByProfile.get(m.id) ?? []).includes(v)}
+                            className="size-4 rounded border-input"
+                          />
+                          {lbl}
+                        </label>
+                      ))}
+                      <Button type="submit" variant="ghost" size="sm">
+                        Save skills
+                      </Button>
+                    </form>
+                  ) : null}
                 </li>
               ))}
             </ul>

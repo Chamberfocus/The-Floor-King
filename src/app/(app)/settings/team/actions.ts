@@ -67,6 +67,58 @@ export async function inviteTeamMember(
   return { error: null, ok: true };
 }
 
+/**
+ * Set which materials a logged-in installer works on ('carpet' | 'hard'). The
+ * skill lives on the installer's install_crews row (that's what the Job Board
+ * reads by profile_id); if a login-holding installer has no crew row yet, one is
+ * created for them so the skill — and job assignment — has somewhere to live.
+ */
+export async function setMemberSkills(formData: FormData): Promise<void> {
+  await assertRole(["admin"]);
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const skills = formData
+    .getAll("skills")
+    .map(String)
+    .filter((s) => s === "carpet" || s === "hard");
+
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return;
+  }
+  const { data: crew } = await admin
+    .from("install_crews")
+    .select("id")
+    .eq("profile_id", id)
+    .maybeSingle();
+
+  const run = (withSkills: boolean, crewId?: string) => {
+    if (crewId) {
+      return admin
+        .from("install_crews")
+        .update(withSkills ? { skills } : {})
+        .eq("id", crewId);
+    }
+    // No crew row for this installer yet — make one and link it.
+    const base = { kind: "employee", profile_id: id, active: true };
+    return admin.from("install_crews").insert(
+      withSkills
+        ? { ...base, name: str(formData.get("name")) || "Installer", skills }
+        : { ...base, name: str(formData.get("name")) || "Installer" },
+    );
+  };
+
+  let res = await run(true, crew?.id as string | undefined);
+  // `skills` (migration 0103) may not exist yet — still create/keep the crew row.
+  if (res.error && /skills/i.test(res.error.message)) {
+    res = await run(false, crew?.id as string | undefined);
+  }
+  revalidatePath("/settings/team");
+  revalidatePath("/board");
+}
+
 /** Set or change an existing member's phone + PIN (enables phone login). */
 export async function setMemberPhonePin(formData: FormData): Promise<void> {
   await assertRole(["admin"]);
