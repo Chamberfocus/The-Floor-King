@@ -372,15 +372,8 @@ export default async function JobPage({
               {installWindowLabel ? `arrives ${installWindowLabel} · ` : ""}
               {assignedName ? `by ${assignedName}` : "no installer"}
             </div>
-            {canSchedule ? (
-              <Link
-                href={`/customers/${job.customer_id}#jobs`}
-                className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                <CalendarClock className="size-3" />
-                {job.scheduled_date ? "Reschedule" : "Schedule"}
-              </Link>
-            ) : null}
+            {/* Scheduling lives in one place — the "Schedule install" button in
+                the header above (in-place, no jump off the job). */}
           </div>
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1198,7 +1191,7 @@ export default async function JobPage({
               <CardTitle className="text-base">Schedule &amp; details</CardTitle>
             </CardHeader>
             <CardContent>
-              <JobForm job={job} users={users} />
+              <JobForm job={job} />
             </CardContent>
           </Card>
 

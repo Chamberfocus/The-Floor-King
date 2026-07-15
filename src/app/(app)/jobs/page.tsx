@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CalendarDays, Plus, MapPin, HardHat, ArrowRight } from "lucide-react";
+import { Plus, MapPin, HardHat, ArrowRight } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { listJobs, listAssignableUsers, claimRequestCounts } from "@/lib/data/jobs";
@@ -126,12 +126,8 @@ export default async function JobsPage() {
         description={isStaff ? "Every job by where it is in its lifecycle." : "Your assigned jobs."}
       >
         <div className="flex gap-2">
-          {/* The install schedule is the company-wide grid — never for installers. */}
-          {!isCrew ? (
-            <Link href="/jobs/calendar" className={buttonVariants({ variant: "outline", size: "lg" })}>
-              <CalendarDays className="size-4" /> Install Calendar
-            </Link>
-          ) : null}
+          {/* Scheduling lives in one place — the Install Scheduler (in the nav for
+              scheduling roles). No separate read-only calendar to hunt for. */}
           {isStaff ? (
             <Link href="/jobs/quick" className={buttonVariants({ size: "lg" })}>
               <Plus className="size-4" /> Quick install

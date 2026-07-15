@@ -4,7 +4,6 @@ import { useActionState, useEffect } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
@@ -14,23 +13,15 @@ import {
   type Job,
   type JobDeliveryType,
 } from "@/lib/types";
-import type { AssignableUser } from "@/lib/data/jobs";
 import { updateJob, type JobFormState } from "./actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
-import { SearchPicker } from "@/components/ui/search-picker";
 
 const fieldClass =
   "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 const initialState: JobFormState = { error: null };
 
-export function JobForm({
-  job,
-  users,
-}: {
-  job: Job;
-  users: AssignableUser[];
-}) {
+export function JobForm({ job }: { job: Job }) {
   const [state, formAction, pending] = useActionState(updateJob, initialState);
 
   useEffect(() => {
@@ -58,38 +49,6 @@ export function JobForm({
             }))}
           />
         </div>
-        <div className="space-y-2">
-          <Label>Assigned installer</Label>
-          <SearchPicker
-            name="assigned_to"
-            defaultValue={job.assigned_to ?? ""}
-            placeholder="— Unassigned —"
-            allowClear
-            options={users.map((u) => ({
-              value: u.id,
-              label: u.name,
-              // Phone disambiguates look-alike names (e.g. two "Ronald"s); the
-              // crew link stays in sync via updateJob's ensureCrewForProfile.
-              hint: u.phone ?? u.role,
-            }))}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="scheduled_date">Start date</Label>
-          <DateField
-            id="scheduled_date"
-            name="scheduled_date"
-            defaultValue={job.scheduled_date ?? ""}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="scheduled_end">End date</Label>
-          <DateField
-            id="scheduled_end"
-            name="scheduled_end"
-            defaultValue={job.scheduled_end ?? ""}
-          />
-        </div>
         <div className="space-y-2 sm:col-span-2">
           <Label>Material delivery</Label>
           <SegmentedField
@@ -101,6 +60,13 @@ export function JobForm({
           />
         </div>
       </div>
+
+      <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+        The install date &amp; installer are set with{" "}
+        <span className="font-medium text-foreground">Schedule install</span> at
+        the top of this job — one place, so the date, installer, warehouse hand-off
+        and pipeline stage always stay in sync.
+      </p>
 
       <div className="space-y-2">
         <Label htmlFor="site_street">Job site address</Label>

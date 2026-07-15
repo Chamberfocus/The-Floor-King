@@ -776,15 +776,16 @@ export async function updateJob(
   const id = str(formData.get("id"));
   if (!id) return { error: "Missing job id." };
 
+  // Job EDIT only — title, status, delivery, site, notes. The install DATE and
+  // INSTALLER are owned solely by the "Schedule install" flow (bookInstall), so
+  // this form can't produce a half-booked state (dated but still "unscheduled",
+  // still on the claim board, no arrival window). See job-form.tsx.
   const supabase = await createClient();
   const { error } = await supabase
     .from("jobs")
     .update({
       title: nullable(formData.get("title")),
       status: (str(formData.get("status")) || "unscheduled") as JobStatus,
-      scheduled_date: nullable(formData.get("scheduled_date")),
-      scheduled_end: nullable(formData.get("scheduled_end")),
-      assigned_to: nullable(formData.get("assigned_to")),
       site_street: nullable(formData.get("site_street")),
       site_city: nullable(formData.get("site_city")),
       site_state: nullable(formData.get("site_state")),
@@ -795,20 +796,6 @@ export async function updateJob(
     })
     .eq("id", id);
   if (error) return { error: error.message };
-
-  // If a scheduled date was set here, auto-submit to the warehouse (once).
-  if (str(formData.get("scheduled_date")))
-    await ensureWarehouseSubmitted(id);
-
-  // Keep the install crew in lockstep with the installer set here, so pay,
-  // warehouse and the install calendar (which read assigned_crew_id) don't
-  // point at the old installer — same sync bookInstall / setJobCrew do.
-  const assignedTo = nullable(formData.get("assigned_to"));
-  if (assignedTo) {
-    const crewId = await ensureCrewForProfile(supabase, assignedTo as string);
-    if (crewId)
-      await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", id);
-  }
 
   const { data: job } = await supabase
     .from("jobs")

@@ -4,7 +4,7 @@ import { createContext, useContext, useState } from "react";
 import {
   ClipboardList,
   CheckCircle2,
-  Warehouse,
+  Package,
   Wallet,
   SlidersHorizontal,
   FolderOpen,
@@ -30,7 +30,7 @@ const TAB_META: Record<JobTab, { label: string; icon: LucideIcon }> = {
   documents: { label: "Documents", icon: FolderOpen },
   work_order: { label: "Work order", icon: ClipboardList },
   completion: { label: "Completion", icon: CheckCircle2 },
-  warehouse: { label: "Warehouse", icon: Warehouse },
+  warehouse: { label: "Materials & prep", icon: Package },
   money: { label: "Money", icon: Wallet },
   manage: { label: "Manage", icon: SlidersHorizontal },
 };
