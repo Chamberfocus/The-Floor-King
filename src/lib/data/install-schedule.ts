@@ -42,31 +42,35 @@ export async function buildInstallScheduleProps(
     est && est.days > 0 ? await getInstallerSuggestions(lineItems, settings) : [];
 
   const crewUsers = assignable.filter((u) => (INSTALL_ROLES as string[]).includes(u.role));
-  const existingCrewNames = new Set(
-    installCrews.map((c) => (c.name || "").trim().toLowerCase()),
-  );
-  const crewOptions = [
-    ...installCrews.map((c) => ({
-      value: c.id,
-      label: [
-        c.name,
-        c.kind === "subcontractor" ? "(sub)" : null,
-        fmtPhone(c.phone),
-      ]
-        .filter(Boolean)
-        .join(" · "),
+
+  // ONE unified installer list: login installers (assign → assigned_to, so the
+  // job shows in their "My Work"), plus subcontractor crews that have no login
+  // (value "crew:<id>" → assigned_crew_id). A crew linked to a login installer is
+  // NOT listed separately — it shows once, as that installer.
+  const installerUsers = [
+    ...crewUsers.map((u) => ({
+      value: u.id,
+      // Phone disambiguates look-alike names (e.g. two "Ron"s).
+      label: [u.name, fmtPhone(u.phone)].filter(Boolean).join(" · "),
     })),
-    ...crewUsers
-      .filter((u) => !existingCrewNames.has(u.name.trim().toLowerCase()))
-      .map((u) => ({
-        value: `user:${u.id}`,
-        label: [`${u.name} (team installer)`, fmtPhone(u.phone)]
-          .filter(Boolean)
-          .join(" · "),
+    ...installCrews
+      .filter((c) => !c.profile_id)
+      .map((c) => ({
+        value: `crew:${c.id}`,
+        label: [c.name, "(sub)", fmtPhone(c.phone)].filter(Boolean).join(" · "),
       })),
   ];
 
   const names = job.assigned_to ? await getProfileNames([job.assigned_to]) : {};
+  // Preselect + name whoever the job is on — a login installer or a sub crew.
+  const installerId = job.assigned_to
+    ? job.assigned_to
+    : job.assigned_crew_id
+      ? `crew:${job.assigned_crew_id}`
+      : null;
+  const installerName = job.assigned_to
+    ? (names[job.assigned_to] ?? null)
+    : (jobCrew?.name ?? null);
 
   return {
     jobId,
@@ -76,18 +80,12 @@ export async function buildInstallScheduleProps(
       date: job.scheduled_date ?? null,
       endDate: job.scheduled_end ?? null,
       window: job.arrival_window ?? null,
-      installerId: job.assigned_to ?? null,
-      installerName: job.assigned_to ? (names[job.assigned_to] ?? null) : null,
+      installerId,
+      installerName,
     },
     installEst: est,
     suggestions,
-    // Include the phone so look-alike names (e.g. two "Ron"s) can't be confused.
-    installerUsers: crewUsers.map((u) => ({
-      value: u.id,
-      label: [u.name, fmtPhone(u.phone)].filter(Boolean).join(" · "),
-    })),
-    crewOptions,
-    currentCrew: jobCrew,
+    installerUsers,
     arrivalWindows: parseArrivalWindows(settings.arrival_windows),
     preferences: (await listInstallPreferences(jobId)).map((p) => p.preferred_date),
   };

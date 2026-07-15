@@ -235,7 +235,14 @@ function revalidateJobEverywhere(id: string, customerId?: string | null): void {
 /** Book a smart-scheduled install: assign installer + date range. */
 export async function bookInstall(formData: FormData): Promise<void> {
   const id = str(formData.get("job_id"));
-  const installer = str(formData.get("installer_id"));
+  // One picker, one assignment. The value is either a login installer's profile
+  // id (→ assigned_to, so it shows in their "My Work") or "crew:<id>" for a
+  // subcontractor crew with no login (→ assigned_crew_id).
+  const installerRaw = str(formData.get("installer_id"));
+  const crewDirect = installerRaw.startsWith("crew:")
+    ? installerRaw.slice(5)
+    : null;
+  const installer = crewDirect ? "" : installerRaw;
   const start = str(formData.get("start"));
   let end = str(formData.get("end")) || start;
   if (end < start) end = start; // never store an end date before the start
@@ -246,6 +253,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
     .from("jobs")
     .update({
       assigned_to: installer || null,
+      ...(crewDirect ? { assigned_crew_id: crewDirect } : {}),
       scheduled_date: start,
       scheduled_end: end,
       status: "scheduled",
@@ -275,19 +283,12 @@ export async function bookInstall(formData: FormData): Promise<void> {
   // Scheduled → auto-submit to the warehouse (notifies the assigned person).
   await ensureWarehouseSubmitted(id);
 
-  // Keep the crew (for pay + the warehouse) in sync with the booked installer —
-  // fill it in when the job has no explicit crew yet, so nothing is orphaned.
+  // Keep the crew record (pay + warehouse + the scheduler grid read it) matching
+  // the booked login installer, so reassigning the installer moves the crew too.
   if (installer) {
-    const { data: cur } = await supabase
-      .from("jobs")
-      .select("assigned_crew_id")
-      .eq("id", id)
-      .maybeSingle();
-    if (!cur?.assigned_crew_id) {
-      const crewId = await ensureCrewForProfile(supabase, installer);
-      if (crewId)
-        await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", id);
-    }
+    const crewId = await ensureCrewForProfile(supabase, installer);
+    if (crewId)
+      await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", id);
   }
 
   revalidateJobEverywhere(id, job?.customer_id as string | null);

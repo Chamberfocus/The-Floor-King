@@ -1,11 +1,9 @@
-import Link from "next/link";
 import { DateField } from "@/components/ui/date-field";
 import { CalendarClock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { SearchPicker } from "@/components/ui/search-picker";
-import { bookInstall, setJobCrew } from "@/app/(app)/jobs/actions";
+import { bookInstall } from "@/app/(app)/jobs/actions";
 import { formatDate, to12, type ArrivalWindow } from "@/lib/format";
 
 export interface InstallScheduleProps {
@@ -21,11 +19,9 @@ export interface InstallScheduleProps {
   };
   installEst: { days: number; breakdown: { label: string; amount: number; unit: string; days: number }[] } | null;
   suggestions: { installerId: string; name: string; days: number; start: string; end: string }[];
-  /** Crew-role users for the manual installer picker. */
+  /** Every installer you can assign — login installers + login-less subcontractor
+   *  crews (value "crew:<id>"). One picker, one assignment. */
   installerUsers: { value: string; label: string }[];
-  /** Managed install crews + team installers for the crew assignment. */
-  crewOptions: { value: string; label: string }[];
-  currentCrew: { id: string; name: string; kind: string; phone: string | null } | null;
   arrivalWindows: ArrivalWindow[];
   /** The customer's requested install dates (rank order) — a request to confirm. */
   preferences?: string[];
@@ -44,8 +40,6 @@ export function InstallSchedule({
   installEst,
   suggestions,
   installerUsers,
-  crewOptions,
-  currentCrew,
   arrivalWindows,
   preferences = [],
 }: InstallScheduleProps) {
@@ -222,49 +216,6 @@ export function InstallSchedule({
             </SubmitButton>
           </form>
         </details>
-
-        {/* Install crew (managed subs + employees) */}
-        <div className="border-t pt-3">
-          <div className="mb-1 text-sm font-medium">Install crew</div>
-          {currentCrew ? (
-            <p className="mb-2 text-sm">
-              Assigned to <span className="font-semibold">{currentCrew.name}</span>
-              <span className="text-muted-foreground">
-                {" "}· {currentCrew.kind === "employee" ? "Employee" : "Subcontractor"}
-                {currentCrew.phone ? ` · ${currentCrew.phone}` : ""}
-              </span>
-            </p>
-          ) : null}
-          {crewOptions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No installers yet. Add a{" "}
-              <Link href="/settings/team" className="text-primary underline">
-                team installer
-              </Link>{" "}
-              or a{" "}
-              <Link href="/settings/install-crews" className="text-primary underline">
-                subcontractor crew
-              </Link>{" "}
-              to assign one here.
-            </p>
-          ) : (
-            <form action={setJobCrew} className="flex flex-wrap items-end gap-2">
-              <input type="hidden" name="job_id" value={jobId} />
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">Assign a crew</label>
-                <SearchPicker
-                  name="crew_id"
-                  defaultValue={currentCrew?.id ?? ""}
-                  placeholder="— Choose a crew —"
-                  options={crewOptions}
-                />
-              </div>
-              <Button type="submit" size="sm" variant="outline">
-                {currentCrew ? "Update crew" : "Assign crew"}
-              </Button>
-            </form>
-          )}
-        </div>
       </CardContent>
     </Card>
   );

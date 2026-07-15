@@ -296,17 +296,14 @@ export default async function CustomerPage({
     const crewUsers = assignable.filter((u) =>
       (INSTALL_ROLES as string[]).includes(u.role),
     );
-    const existingCrewNames = new Set(
-      installCrews.map((c) => (c.name || "").trim().toLowerCase()),
-    );
-    const crewOptions = [
-      ...installCrews.map((c) => ({
-        value: c.id,
-        label: `${c.name}${c.kind === "subcontractor" ? " (sub)" : ""}`,
-      })),
-      ...crewUsers
-        .filter((u) => !existingCrewNames.has(u.name.trim().toLowerCase()))
-        .map((u) => ({ value: `user:${u.id}`, label: `${u.name} (team installer)` })),
+    // ONE unified installer list — login installers (→ assigned_to) + login-less
+    // subcontractor crews (value "crew:<id>" → assigned_crew_id). Matches the
+    // shared buildInstallScheduleProps.
+    const installerUsers = [
+      ...crewUsers.map((u) => ({ value: u.id, label: u.name })),
+      ...installCrews
+        .filter((c) => !c.profile_id)
+        .map((c) => ({ value: `crew:${c.id}`, label: `${c.name} (sub)` })),
     ];
     installScheduleProps = {
       jobId: schedulableJob.id,
@@ -316,16 +313,18 @@ export default async function CustomerPage({
         date: schedulableJob.scheduled_date ?? null,
         endDate: schedulableJob.scheduled_end ?? null,
         window: schedulableJob.arrival_window ?? null,
-        installerId: schedulableJob.assigned_to ?? null,
+        installerId: schedulableJob.assigned_to
+          ? schedulableJob.assigned_to
+          : schedulableJob.assigned_crew_id
+            ? `crew:${schedulableJob.assigned_crew_id}`
+            : null,
         installerName: schedulableJob.assigned_to
           ? (names[schedulableJob.assigned_to] ?? null)
-          : null,
+          : (jobCrew?.name ?? null),
       },
       installEst: est,
       suggestions,
-      installerUsers: crewUsers.map((u) => ({ value: u.id, label: u.name })),
-      crewOptions,
-      currentCrew: jobCrew,
+      installerUsers,
       arrivalWindows,
       preferences: (await listInstallPreferences(schedulableJob.id)).map(
         (p) => p.preferred_date,
