@@ -36,8 +36,12 @@ const LANES: { key: Lane; title: string; hint: string; accent: string; next: (j:
 export default async function JobsPage() {
   const profile = await requireProfile();
   const isStaff = profile.role === "admin" || profile.role === "office";
+  const isCrew = profile.role === "crew";
 
-  const jobs = await listJobs();
+  // Installers see ONLY their own jobs here (the open board is its own page).
+  // Scoped at the query level — not just RLS — so another installer's jobs are
+  // never sent to the client. Everyone else gets the full list.
+  const jobs = await listJobs(isCrew ? { assignedTo: profile.id } : {});
   const users = isStaff ? await listAssignableUsers() : [];
   const nameById = new Map(users.map((u) => [u.id, u.name]));
   const claims = isStaff ? await claimRequestCounts() : new Map<string, number>();
@@ -122,9 +126,12 @@ export default async function JobsPage() {
         description={isStaff ? "Every job by where it is in its lifecycle." : "Your assigned jobs."}
       >
         <div className="flex gap-2">
-          <Link href="/jobs/calendar" className={buttonVariants({ variant: "outline", size: "lg" })}>
-            <CalendarDays className="size-4" /> Install schedule
-          </Link>
+          {/* The install schedule is the company-wide grid — never for installers. */}
+          {!isCrew ? (
+            <Link href="/jobs/calendar" className={buttonVariants({ variant: "outline", size: "lg" })}>
+              <CalendarDays className="size-4" /> Install schedule
+            </Link>
+          ) : null}
           {isStaff ? (
             <Link href="/jobs/quick" className={buttonVariants({ size: "lg" })}>
               <Plus className="size-4" /> Quick install

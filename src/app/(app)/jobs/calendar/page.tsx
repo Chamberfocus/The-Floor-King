@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, List, MapPin, AlertTriangle } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
+import { redirect } from "next/navigation";
 import { listJobs } from "@/lib/data/jobs";
 import { listInstallers } from "@/lib/data/scheduling";
 import { requireProfile } from "@/lib/auth";
@@ -21,7 +22,11 @@ export default async function InstallSchedulePage({
 }: {
   searchParams: Promise<{ view?: string; week?: string; month?: string }>;
 }) {
-  await requireProfile();
+  const profile = await requireProfile();
+  // This is the company-wide install grid (every installer as a row). Installers
+  // must never see other installers' schedules — send them to their own calendar.
+  // Everyone else (owner/office/scheduler/warehouse/sales) keeps full visibility.
+  if (profile.role === "crew") redirect("/installer");
   const { view = "week", week, month } = await searchParams;
   const now = new Date();
   const jobs = await listJobs();
