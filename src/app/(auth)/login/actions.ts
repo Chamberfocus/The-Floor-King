@@ -18,7 +18,10 @@ function digits(raw: string): string {
 function safeNext(next: FormDataEntryValue | null): string {
   const value = typeof next === "string" ? next : "";
   // Only allow internal redirects (avoid open-redirect via the `next` param).
-  return value.startsWith("/") && !value.startsWith("//") ? value : "/dashboard";
+  // Default to "/", which routes each role to its own home (customer list for
+  // office/sales, /jobs for scheduler, /installer for crew, /warehouse for
+  // warehouse) — so login lands where the role belongs, not a fixed dashboard.
+  return value.startsWith("/") && !value.startsWith("//") ? value : "/";
 }
 
 export async function login(

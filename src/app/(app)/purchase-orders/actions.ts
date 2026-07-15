@@ -82,6 +82,22 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
     .maybeSingle();
   if (!est) return;
 
+  // Guard against duplicate POs: the job auto-generates POs for special-order
+  // lines when it's created, and this button (or a double-click) would order the
+  // SAME materials again. Both paths link the PO by estimate_id — so if any PO
+  // already exists for this estimate, send the user to it instead of making more.
+  const { data: existingPo } = await supabase
+    .from("purchase_orders")
+    .select("id")
+    .eq("estimate_id", estimateId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (existingPo) {
+    revalidatePath("/purchase-orders");
+    redirect(`/purchase-orders/${existingPo.id}`);
+  }
+
   let optionId = (est.accepted_option_id as string | null) ?? null;
   if (!optionId) {
     const { data: opt } = await supabase

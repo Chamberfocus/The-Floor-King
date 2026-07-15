@@ -3,6 +3,7 @@ import { DateField } from "@/components/ui/date-field";
 import { CalendarClock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { bookInstall, setJobCrew } from "@/app/(app)/jobs/actions";
 import { formatDate, to12, type ArrivalWindow } from "@/lib/format";
@@ -155,9 +156,9 @@ export function InstallSchedule({
                       </option>
                     ))}
                   </select>
-                  <Button type="submit" size="sm" variant="outline">
+                  <SubmitButton size="sm" variant="outline" pendingText="Booking…" confirm={null}>
                     Book
-                  </Button>
+                  </SubmitButton>
                 </form>
               </div>
             ))}
@@ -216,9 +217,9 @@ export function InstallSchedule({
                 ))}
               </select>
             </div>
-            <Button type="submit" size="sm">
+            <SubmitButton size="sm" pendingText="Booking…" confirm={null}>
               {schedule.date ? "Save changes" : "Book install"}
-            </Button>
+            </SubmitButton>
           </form>
         </details>
 

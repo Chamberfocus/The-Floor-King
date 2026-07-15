@@ -21,6 +21,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate, getEstimatorName } from "@/lib/data/estimates";
@@ -140,7 +141,7 @@ export default async function EstimatePage({
         </div>
       </div>
 
-      {/* Next steps — the obvious "what now" once the estimate is built */}
+      {/* Next steps — the obvious "what now", tuned to where the estimate is */}
       <Card className="mb-6 border-primary/40 print:hidden">
         <CardContent className="pt-6">
           {estimate.status === "approved" ? (
@@ -154,15 +155,15 @@ export default async function EstimatePage({
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <form action={createJobFromEstimate}>
                   <input type="hidden" name="estimate_id" value={estimate.id} />
-                  <Button type="submit" size="lg" className="w-full">
+                  <SubmitButton size="lg" className="w-full" pendingText="Creating…" confirm={null}>
                     <Wrench className="size-4" /> Create work order
-                  </Button>
+                  </SubmitButton>
                 </form>
                 <form action={createPOFromEstimate}>
                   <input type="hidden" name="estimate_id" value={estimate.id} />
-                  <Button type="submit" variant="outline" size="lg" className="w-full">
+                  <SubmitButton variant="outline" size="lg" className="w-full" pendingText="Creating…" confirm={null}>
                     <ShoppingCart className="size-4" /> Create PO
-                  </Button>
+                  </SubmitButton>
                 </form>
                 <Link
                   href={`/estimates/${estimate.id}/invoice`}
@@ -172,7 +173,88 @@ export default async function EstimatePage({
                 </Link>
               </div>
             </>
-          ) : options.length > 0 ? (
+          ) : options.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Add at least one priced option to send or approve this estimate.
+            </p>
+          ) : estimate.status === "draft" ? (
+            customer?.email ? (
+              // Draft with an email on file → the next action is SEND.
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold">Ready to send?</div>
+                  <p className="text-sm text-muted-foreground">
+                    Email this estimate to {customer.full_name} at {customer.email}{" "}
+                    so they can review, approve, or request changes.
+                  </p>
+                </div>
+                <form action={setEstimateStatus}>
+                  <input type="hidden" name="id" value={estimate.id} />
+                  <input type="hidden" name="status" value="sent" />
+                  <SubmitButton size="lg" pendingText="Sending…" confirm="Estimate sent">
+                    <Send className="size-4" /> Send to customer
+                  </SubmitButton>
+                </form>
+              </div>
+            ) : (
+              // Draft with NO email → don't pretend it can be emailed.
+              <div className="space-y-3">
+                <div>
+                  <div className="font-semibold text-amber-700 dark:text-amber-500">
+                    No email on file for {customer?.full_name ?? "this customer"}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    This estimate can&apos;t be emailed. Add an email to send it, or
+                    print/PDF it to hand off — then mark it sent.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    href={`/customers/${estimate.customer_id}`}
+                    className={buttonVariants({ size: "lg" })}
+                  >
+                    <Send className="size-4" /> Add an email
+                  </Link>
+                  <PrintEstimateButton />
+                  <form action={setEstimateStatus}>
+                    <input type="hidden" name="id" value={estimate.id} />
+                    <input type="hidden" name="status" value="sent" />
+                    <SubmitButton variant="outline" size="lg" pendingText="Saving…" confirm="Marked as sent">
+                      Mark as sent anyway
+                    </SubmitButton>
+                  </form>
+                </div>
+              </div>
+            )
+          ) : estimate.status === "sent" || estimate.status === "changes_requested" ? (
+            // Sent → waiting on the customer; approving lives in the workflow card.
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">
+                  {estimate.status === "changes_requested"
+                    ? "Changes requested"
+                    : "Sent — waiting on the customer"}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {estimate.status === "changes_requested"
+                    ? "The customer asked for changes. Update the estimate, then re-send."
+                    : "When they approve (or you approve it for them below), the work order, PO & invoice unlock."}
+                </p>
+              </div>
+              <form action={setEstimateStatus} className="flex items-end gap-2">
+                <input type="hidden" name="id" value={estimate.id} />
+                <input type="hidden" name="status" value="approved" />
+                <input
+                  type="hidden"
+                  name="accepted_option_id"
+                  value={estimate.accepted_option_id || options[0].id}
+                />
+                <SubmitButton size="lg" pendingText="Approving…" confirm="Approved">
+                  <Check className="size-4" /> Approve &amp; continue
+                </SubmitButton>
+              </form>
+            </div>
+          ) : (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="font-semibold">Ready to go?</div>
@@ -188,15 +270,11 @@ export default async function EstimatePage({
                   name="accepted_option_id"
                   value={estimate.accepted_option_id || options[0].id}
                 />
-                <Button type="submit" size="lg">
+                <SubmitButton size="lg" pendingText="Approving…" confirm="Approved">
                   <Check className="size-4" /> Approve &amp; continue
-                </Button>
+                </SubmitButton>
               </form>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Add at least one priced option to approve this estimate.
-            </p>
           )}
         </CardContent>
       </Card>
@@ -352,16 +430,6 @@ export default async function EstimatePage({
           ) : null}
 
           <div className="flex flex-wrap items-end gap-3">
-            {estimate.status === "draft" ? (
-              <form action={setEstimateStatus}>
-                <input type="hidden" name="id" value={estimate.id} />
-                <input type="hidden" name="status" value="sent" />
-                <Button type="submit">
-                  <Send className="size-4" /> Send to customer
-                </Button>
-              </form>
-            ) : null}
-
             {estimate.status !== "approved" && options.length > 0 ? (
               <form action={setEstimateStatus} className="flex items-end gap-2">
                 <input type="hidden" name="id" value={estimate.id} />
