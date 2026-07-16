@@ -48,7 +48,8 @@ import {
   DEFAULT_LABOR_PER_SQFT,
 } from "@/lib/floor-prep";
 import { saveEstimate } from "./actions";
-import { writeScopeDescription } from "./ai-actions";
+import { writeScopeDescription, draftLinesFromText } from "./ai-actions";
+import type { SmartLine } from "./smart-actions";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
 import type { AddonCatalogItem } from "@/lib/data/addon-defaults";
 import { SegmentedField } from "@/components/ui/segmented-field";
@@ -1119,6 +1120,62 @@ export function EstimateBuilder({
     }
   };
 
+  // AI "pre-fill from a description" — describe the job in plain English and the
+  // same engine the guided flow used generates lines, merged into the active
+  // option's LIVE state (nothing saved until you Save). Review & adjust after.
+  const [aiText, setAiText] = useState("");
+  const [aiPrefillBusy, setAiPrefillBusy] = useState(false);
+  const smartLineToState = (s: SmartLine): LineState => ({
+    ...emptyLine(),
+    room: s.room ?? "",
+    description: s.description ?? "",
+    line_type: "mat_labor",
+    sqft: s.sqft ? String(s.sqft) : "",
+    len_ft: inToFt(s.length_in),
+    len_in: inToIn(s.length_in),
+    wid_ft: inToFt(s.width_in),
+    wid_in: inToIn(s.width_in),
+    measure_unit: s.measure_unit,
+    material_rate: s.material_rate ? String(s.material_rate) : "",
+    labor_rate: s.labor_rate ? String(s.labor_rate) : "",
+    material_cost: s.material_cost ? String(s.material_cost) : "",
+    labor_cost: s.labor_cost ? String(s.labor_cost) : "",
+    quantity: s.quantity ? String(s.quantity) : "",
+    unit: s.unit ?? "",
+    category: s.category ?? "",
+    waste_pct: s.waste_pct ? String(s.waste_pct) : "",
+    product_id: s.product_id ?? "",
+    manufacturer: s.manufacturer ?? "",
+    style: s.style ?? "",
+    color: s.color ?? "",
+    from_stock: !!s.from_stock,
+    sqft_per_box: s.sqft_per_box ? String(s.sqft_per_box) : "",
+    is_fill: !!s.is_fill,
+  });
+  const prefillFromText = async () => {
+    if (!aiText.trim()) return;
+    setAiPrefillBusy(true);
+    const res = await draftLinesFromText(aiText);
+    setAiPrefillBusy(false);
+    if (res.error) {
+      toast.error(res.error);
+      return;
+    }
+    const newLines = res.lines.map(smartLineToState);
+    setOptions((prev) =>
+      prev.map((o, i) => {
+        if (i !== safeActive) return o;
+        // Drop a lone empty starter line; otherwise append.
+        const kept = o.lines.filter(
+          (l) => l.description.trim() || num(l.sqft) || num(l.quantity) || l.product_id,
+        );
+        return { ...o, lines: [...kept, ...newLines] };
+      }),
+    );
+    setAiText("");
+    toast.success(`Added ${newLines.length} line${newLines.length === 1 ? "" : "s"} — review & adjust`);
+  };
+
   // Running grand total — discount-aware (matches the estimate view / invoice)
   // and shown in the always-visible bar, with the true blended margin.
   const toCalc = (l: LineState) => ({
@@ -1255,8 +1312,28 @@ export function EstimateBuilder({
 
       {/* Owner build surface */}
       <div className={cn(previewCustomer && "hidden")}>
+      {/* Progress spine — jump between sections */}
+      <div className="sticky top-0 z-20 -mx-1 mb-4 flex flex-wrap gap-1 border-b bg-background/95 px-1 py-2 backdrop-blur">
+        {[
+          ["sec-setup", "Setup"],
+          ["sec-rooms", "Rooms"],
+          ["sec-materials", "Materials"],
+          ["sec-labor", "Labor"],
+          ["sec-review", "Review"],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Estimate header */}
-      <Card className="mb-6">
+      <Card className="mb-6 scroll-mt-16" id="sec-setup">
         <CardContent className="space-y-4 pt-6">
           {/* Overall profit margin — drives every line without its own override */}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
@@ -1340,6 +1417,32 @@ export function EstimateBuilder({
           </div>
         </CardContent>
       </Card>
+
+      {/* AI pre-fill — describe the job in plain English; lines drop into the
+          active option for you to review & adjust (nothing saved yet). */}
+      <details className="mb-4 rounded-lg border bg-card [&_summary]:list-none">
+        <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium">
+          <Sparkles className="size-4 text-primary" /> Pre-fill from a description
+          <span className="font-normal text-muted-foreground">— optional</span>
+        </summary>
+        <div className="space-y-2 border-t p-3">
+          <textarea
+            value={aiText}
+            onChange={(e) => setAiText(e.target.value)}
+            rows={3}
+            placeholder="e.g. 12x15 living room and 10x12 bedroom in Mohawk carpet, hall in LVP, tear out old carpet, self-level the kitchen ~200 sq ft…"
+            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Generates rooms, materials &amp; labor into <span className="font-medium">{options[safeActive]?.name || "this option"}</span> — matched to your catalog. Review after.
+            </p>
+            <Button type="button" size="sm" onClick={prefillFromText} disabled={aiPrefillBusy || !aiText.trim()}>
+              <Sparkles className="size-3.5" /> {aiPrefillBusy ? "Building…" : "Generate lines"}
+            </Button>
+          </div>
+        </div>
+      </details>
 
       {/* Option tabs — build one option at a time (good / better / best) */}
       {options.length > 1 || recommendedKey ? (
@@ -1474,7 +1577,7 @@ export function EstimateBuilder({
               </CardHeader>
               <CardContent className="space-y-5">
                 {/* ROOMS & AREAS — measure once; drop flooring in (area auto-fills) */}
-                <div className="space-y-2">
+                <div className="space-y-2 scroll-mt-16" id="sec-rooms">
                   <div className="flex items-center justify-between border-b pb-1.5">
                     <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
                       Rooms &amp; areas
@@ -1549,7 +1652,11 @@ export function EstimateBuilder({
                     .filter(({ line }) => (section === "labor") === isLaborLine(line));
                   const secSub = secLines.reduce((s, { line }) => s + lineTotal(toCalc(line)), 0);
                   return (
-                    <div key={section} className="space-y-2">
+                    <div
+                      key={section}
+                      className="space-y-2 scroll-mt-16"
+                      id={section === "labor" ? "sec-labor" : "sec-materials"}
+                    >
                       <div className="flex items-center justify-between border-b pb-1.5">
                         <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
                           {section === "labor" ? "Labor" : "Materials"}
@@ -2396,7 +2503,7 @@ export function EstimateBuilder({
                 })}
 
                 {/* Option totals */}
-                <div className="ml-auto w-full max-w-xs space-y-1 border-t pt-3 text-sm">
+                <div className="ml-auto w-full max-w-xs space-y-1 border-t pt-3 text-sm scroll-mt-16" id="sec-review">
                   <div className="flex justify-between text-muted-foreground">
                     <span>Retail (subtotal)</span>
                     <span>{formatMoney(totals.subtotal)}</span>

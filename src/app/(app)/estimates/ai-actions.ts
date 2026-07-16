@@ -316,6 +316,29 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
 }
 
 /**
+ * Pre-fill the estimate builder from a plain-English description — returns the
+ * generated SmartLine[] WITHOUT touching the database, so the builder merges
+ * them into its live (unsaved) state. Same engine as createEstimateFromNotes.
+ */
+export async function draftLinesFromText(
+  text: string,
+): Promise<{ lines: SmartLine[]; error: string | null }> {
+  const t = (text || "").trim();
+  if (!t) return { lines: [], error: "Describe the job first." };
+  const job = await extractJobFromNotes({ text: t });
+  if (!job || !job.rooms.length) {
+    return {
+      lines: [],
+      error:
+        "I couldn't read any rooms from that — add a little more detail (room, size, flooring type).",
+    };
+  }
+  const lines = await buildLinesFromJob(job);
+  if (!lines.length) return { lines: [], error: "Couldn't build any lines from that." };
+  return { lines, error: null };
+}
+
+/**
  * Turn job notes — typed OR a photo of handwriting — into a real estimate,
  * built EXACTLY the way the smart builder builds it, then open it to continue.
  */
