@@ -642,6 +642,7 @@ export interface EstimateLineItem {
   order_as_roll?: boolean; // PO shows one roll; work order keeps the cut sizes
   roll_width_ft?: number | null; // broadloom width (12 / 15) for the roll math
   sqft_per_box?: number | null; // hard surface: coverage per carton → carton count
+  is_fill?: boolean; // carpet: a fill/seam piece (extra cut off the roll for an area)
 }
 
 export interface EstimateOption {

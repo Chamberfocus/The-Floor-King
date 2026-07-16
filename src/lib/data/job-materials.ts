@@ -16,6 +16,7 @@ export interface JobMaterialLine {
   sqftPerBox: number | null; // hard surface: coverage per carton (for box count)
   rollWidthFt: number | null; // carpet: broadloom width for the roll
   orderAsRoll: boolean; // carpet: order a full roll vs cut pieces
+  isFill: boolean; // carpet: a fill / seam piece cut for an area
   lengthIn: number | null; // cut measurements to order (carpet especially)
   widthIn: number | null;
   qty: number; // quantity needed for the job
@@ -65,6 +66,7 @@ type RawLine = CalcLine & {
   sqft_per_box: number | null;
   roll_width_ft: number | null;
   order_as_roll: boolean | null;
+  is_fill: boolean | null;
 };
 
 export async function getJobMaterials(
@@ -215,6 +217,7 @@ export async function getJobMaterials(
       sqftPerBox: l.sqft_per_box ?? null,
       rollWidthFt: l.roll_width_ft ?? null,
       orderAsRoll: !!l.order_as_roll,
+      isFill: !!l.is_fill,
       // Prefer the product's LIVE category so re-categorizing a product (e.g.
       // roll-good ↔ hard-surface) corrects the cut logic on existing jobs;
       // fall back to the line's snapshot for one-off/manual lines.

@@ -3,8 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Trash2, ReceiptText } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PoStatusBadge } from "@/components/po-status-badge";
-import { getPurchaseOrder, listJobsForAttribution } from "@/lib/data/purchase-orders";
+import { getPurchaseOrder, listJobsForAttribution, getEstimateCutSources } from "@/lib/data/purchase-orders";
 import { getBillForPO } from "@/lib/data/bills";
 import { createBillFromPO } from "@/app/(app)/bills/actions";
 import { getCustomer } from "@/lib/data/customers";
@@ -33,17 +34,18 @@ export default async function PurchaseOrderPage({
   if (!po) notFound();
   const existingBill = await getBillForPO(po.id);
 
-  const [products, customer, suppliers, org, jobs] = await Promise.all([
+  const [products, customer, suppliers, org, jobs, cutSources] = await Promise.all([
     listProducts({ activeOnly: true }),
     po.customer_id ? getCustomer(po.customer_id) : Promise.resolve(null),
     listSuppliers(),
     getOrgSettings(),
     listJobsForAttribution(),
+    getEstimateCutSources(po.estimate_id),
   ]);
 
   return (
     <>
-      <PoPrintDoc org={org} customer={customer} po={po} />
+      <PoPrintDoc org={org} customer={customer} po={po} cutSources={cutSources} />
       <div className="mx-auto max-w-4xl print:hidden">
       <Link
         href="/purchase-orders"
@@ -97,9 +99,14 @@ export default async function PurchaseOrderPage({
           ) : (
             <form action={createBillFromPO}>
               <input type="hidden" name="po_id" value={po.id} />
-              <Button type="submit" size="sm">
+              <ConfirmButton
+                size="sm"
+                title="Create a bill from this purchase order?"
+                description="Creates an accounts-payable bill with this PO's vendor, line items, and due date."
+                confirmLabel="Create bill"
+              >
                 <ReceiptText className="size-4" /> Convert to bill
-              </Button>
+              </ConfirmButton>
             </form>
           )}
           <PrintButton label="Print PO" />
@@ -121,9 +128,16 @@ export default async function PurchaseOrderPage({
 
       <form action={deletePurchaseOrder} className="mt-4 flex justify-end">
         <input type="hidden" name="id" value={po.id} />
-        <Button type="submit" variant="destructive" size="sm">
+        <ConfirmButton
+          variant="destructive"
+          size="sm"
+          title={`Delete this PO${po.supplier ? ` from ${po.supplier}` : ""}?`}
+          description="Permanently deletes the purchase order. If it was received, the stock it added is reversed. This can't be undone."
+          confirmLabel="Delete PO"
+          destructive
+        >
           <Trash2 className="size-3.5" /> Delete PO
-        </Button>
+        </ConfirmButton>
       </form>
       </div>
     </>

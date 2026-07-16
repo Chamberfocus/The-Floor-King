@@ -1,5 +1,7 @@
 import { PrintLetterhead } from "@/components/print-letterhead";
+import { CarpetCutList } from "@/components/carpet-cut-list";
 import { formatDate, formatMoney } from "@/lib/format";
+import type { CutSource } from "@/lib/job-scope";
 import {
   PO_STATUS_LABELS,
   PO_SOURCE_LABELS,
@@ -42,10 +44,13 @@ export function PoPrintDoc({
   org,
   customer,
   po,
+  cutSources = [],
 }: {
   org: OrgSettings;
   customer: Customer | null;
   po: PurchaseOrder;
+  /** Carpet cut lines from the source estimate → the cut list under the order. */
+  cutSources?: CutSource[];
 }) {
   const items = po.items ?? [];
   const total = items.reduce(
@@ -163,6 +168,13 @@ export function PoPrintDoc({
           <span>{formatMoney(total)}</span>
         </div>
       </div>
+
+      {/* Carpet cut list — what the roll(s) must yield, incl. fill pieces, so the
+          yardage above accounts for every cut and the seams are planned. */}
+      <CarpetCutList
+        items={cutSources}
+        note="These are the cuts this order must yield off the roll(s), with fill pieces included in the yardage."
+      />
 
       {hasHard ? (
         <div className="mt-4 break-inside-avoid rounded border-2 border-black p-2 text-sm">

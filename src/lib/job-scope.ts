@@ -17,7 +17,7 @@ export function ftIn(totalIn: number | null | undefined): string {
   return inch ? `${ft}' ${inch}"` : `${ft}'`;
 }
 
-/** What the crew needs per line: order quantity, cut size, and pad rolls. */
+/** What the crew needs per line: order quantity, cut size, pad rolls, fill flag. */
 export function lineSpec(l: {
   quantity: number | null;
   unit: string | null;
@@ -26,19 +26,102 @@ export function lineSpec(l: {
   length_in: number | null;
   width_in: number | null;
   category: string | null;
-}): { qty: string; cut: string; rolls: number } {
+  is_fill?: boolean | null;
+}): { qty: string; cut: string; rolls: number; isFill: boolean } {
   const q = Number(l.quantity) || 0;
   const unit = l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft");
   const qty = q > 0 ? `${Math.round(q * 100) / 100} ${unit}` : l.sqft ? `${l.sqft} sq ft` : "";
   // Cuts only apply to roll goods (carpet / sheet vinyl). Hard surface is sold
   // by the square foot in cartons and never has a cut size.
+  const isRoll = isRollGoodCategory(l.category);
   const cut =
-    isRollGoodCategory(l.category) && l.length_in && l.width_in
+    isRoll && l.length_in && l.width_in
       ? `${ftIn(l.width_in)} × ${ftIn(l.length_in)}`
       : "";
   const sqyd = q > 0 ? (unit.toLowerCase().includes("yd") ? q : q / 9) : 0;
   const rolls = l.category === "underlayment" && sqyd > 0 ? Math.ceil(sqyd / PAD_ROLL_SQYD) : 0;
-  return { qty, cut, rolls };
+  return { qty, cut, rolls, isFill: isRoll && !!l.is_fill };
+}
+
+/**
+ * A single carpet/sheet-vinyl piece to cut off the roll — the shared "cut list"
+ * model behind the staging sheet, work order, and purchase order so all three
+ * show the SAME cuts (each piece, its size, and whether it's a fill piece).
+ */
+export interface CarpetCut {
+  room: string; // area it belongs under ("Unassigned" if none)
+  name: string; // product / description label
+  size: string; // "W' × L'" (empty if not both dimensions)
+  isFill: boolean; // extra fill/seam piece for the area
+  sqyd: number; // square yards this piece consumes off the roll
+}
+/** One roll's worth of cuts, grouped by product + broadloom width. */
+export interface CarpetRoll {
+  name: string;
+  width: number | null; // broadloom width (ft), null if unknown
+  totalSqyd: number;
+  linft: number | null; // total sqft ÷ width (null when width unknown)
+  count: number; // number of cuts (incl. fill pieces)
+}
+/** The minimal per-line shape the cut list needs — snake_case so estimate line
+ *  items and PO items feed it directly; adapt camelCase sources at the call site. */
+export interface CutSource {
+  room: string | null;
+  description: string | null;
+  category: string | null;
+  length_in: number | null;
+  width_in: number | null;
+  is_fill?: boolean | null;
+  roll_width_ft?: number | null;
+  manufacturer?: string | null;
+  color?: string | null;
+}
+
+/**
+ * Build the carpet cut list from any line source: every roll-good piece that has
+ * a measured W×L, grouped for display and summed per roll. Fill pieces are kept
+ * (flagged) and still count toward yardage, so the roll ordered accounts for the
+ * seams/fill. Non-carpet or dimensionless lines are ignored.
+ */
+export function carpetCutList(items: CutSource[]): {
+  cuts: CarpetCut[];
+  rolls: CarpetRoll[];
+  totalSqyd: number;
+  hasFill: boolean;
+} {
+  const cuts: CarpetCut[] = [];
+  const rollMap = new Map<string, CarpetRoll>();
+  for (const l of items) {
+    if (!isRollGoodCategory(l.category)) continue;
+    const len = Number(l.length_in) || 0;
+    const wid = Number(l.width_in) || 0;
+    if (len <= 0 || wid <= 0) continue;
+    const sqft = (len / 12) * (wid / 12);
+    const sqyd = Math.round((sqft / 9) * 100) / 100;
+    const name =
+      (l.description && l.description.trim()) ||
+      [l.manufacturer, l.color].filter(Boolean).join(" · ") ||
+      "Carpet";
+    cuts.push({
+      room: (l.room && l.room.trim()) || "Unassigned",
+      name,
+      size: `${ftIn(wid)} × ${ftIn(len)}`,
+      isFill: !!l.is_fill,
+      sqyd,
+    });
+    const width = Number(l.roll_width_ft) > 0 ? Number(l.roll_width_ft) : null;
+    const key = `${name}|${width ?? ""}`;
+    const r = rollMap.get(key) ?? { name, width, totalSqyd: 0, linft: null, count: 0 };
+    r.totalSqyd = Math.round((r.totalSqyd + sqyd) * 100) / 100;
+    r.count += 1;
+    rollMap.set(key, r);
+  }
+  const rolls = [...rollMap.values()].map((r) => ({
+    ...r,
+    linft: r.width ? Math.round(((r.totalSqyd * 9) / r.width) * 10) / 10 : null,
+  }));
+  const totalSqyd = Math.round(cuts.reduce((s, c) => s + c.sqyd, 0) * 100) / 100;
+  return { cuts, rolls, totalSqyd, hasFill: cuts.some((c) => c.isFill) };
 }
 
 /** Whether a job is roll goods (carpet + sheet vinyl), hard surface, or both —

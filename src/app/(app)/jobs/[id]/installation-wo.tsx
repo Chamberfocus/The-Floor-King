@@ -16,6 +16,7 @@ import {
   PAD_ROLL_SQYD,
   type ScopeRoom,
 } from "@/lib/job-scope";
+import { CarpetCutList } from "@/components/carpet-cut-list";
 import type { JobDetail } from "@/lib/data/jobs";
 
 /** One scope line, rendered the same in every section of the work order. */
@@ -42,6 +43,11 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
           </span>
         ) : null}
         {l.from_stock ? <span className="text-gray-500"> · from stock</span> : null}
+        {spec.isFill ? (
+          <span className="ml-1 rounded-sm border border-gray-500 px-1 text-[9px] font-bold uppercase text-gray-700">
+            Fill
+          </span>
+        ) : null}
         {spec.cut ? <span className="font-semibold text-gray-700">{"  "}✂ Cut {spec.cut}</span> : null}
         {spec.rolls ? (
           <span className="text-gray-600">
@@ -308,6 +314,12 @@ export function InstallationWorkOrderDoc({
           </p>
         )}
       </div>
+
+      {/* Carpet cut list — every piece to cut off the roll, incl. fill pieces */}
+      <CarpetCutList
+        items={job.line_items}
+        note="Match these cut sizes on the roll; keep pile direction consistent and save usable remnants."
+      />
 
       {scope.freeText ? (
         <div className="mt-4 break-inside-avoid text-sm">

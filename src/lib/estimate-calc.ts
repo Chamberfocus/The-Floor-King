@@ -205,6 +205,7 @@ export interface SaveLineInput {
   order_as_roll?: boolean;
   roll_width_ft?: string | number | null;
   sqft_per_box?: string | number | null;
+  is_fill?: boolean;
 }
 
 export interface SaveOptionInput {

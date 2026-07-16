@@ -6,7 +6,8 @@ import {
   isHardSurfaceCategory,
   type OrgSettings,
 } from "@/lib/types";
-import { ftIn } from "@/lib/job-scope";
+import { ftIn, type CutSource } from "@/lib/job-scope";
+import { CarpetCutList } from "@/components/carpet-cut-list";
 import type { WarehouseJob } from "@/lib/data/jobs";
 import type { JobMaterialLine } from "@/lib/data/job-materials";
 
@@ -143,6 +144,11 @@ export function StagingSheetDoc({
                     <td className="py-1.5 px-2">
                       {m.room ? `${m.room} — ` : ""}
                       {m.productName || m.description || "Material"}
+                      {m.isFill ? (
+                        <span className="ml-1 rounded-sm border border-gray-500 px-1 text-[9px] font-bold uppercase">
+                          Fill
+                        </span>
+                      ) : null}
                       {idTags ? (
                         <span className="block text-[11px] text-gray-500">{idTags}</span>
                       ) : null}
@@ -171,6 +177,25 @@ export function StagingSheetDoc({
           </p>
         )}
       </div>
+
+      {/* Carpet cut plan — the exact cuts to pull off the roll, incl. fill pieces */}
+      <CarpetCutList
+        items={lines.map(
+          (m): CutSource => ({
+            room: m.room,
+            description: m.productName || m.description,
+            category: m.category,
+            length_in: m.lengthIn,
+            width_in: m.widthIn,
+            is_fill: m.isFill,
+            roll_width_ft: m.rollWidthFt,
+            manufacturer: m.manufacturer,
+            color: m.color,
+          }),
+        )}
+        title="Carpet cut plan"
+        note="Cut each piece off the roll at the size shown; fill pieces come from the same roll."
+      />
 
       {lines.some((m) => isHardSurfaceCategory(m.category)) ? (
         <div className="mt-3 break-inside-avoid rounded border-2 border-black p-2 text-sm">

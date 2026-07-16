@@ -74,6 +74,7 @@ interface LineState {
   order_as_roll: boolean; // PO shows a roll; work order keeps the cuts
   roll_width_ft: string; // 12 or 15 (broadloom width)
   sqft_per_box: string; // hard surface: coverage per carton → box count
+  is_fill: boolean; // carpet: a fill / seam piece cut for an area
 }
 
 const round2s = (n: number) => String(Math.round(n * 100) / 100);
@@ -283,6 +284,7 @@ export function EstimateBuilder({
     order_as_roll: false,
     roll_width_ft: "",
     sqft_per_box: "",
+    is_fill: false,
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -335,6 +337,7 @@ export function EstimateBuilder({
         order_as_roll: !!l.order_as_roll,
         roll_width_ft: l.roll_width_ft != null ? String(l.roll_width_ft) : "",
         sqft_per_box: l.sqft_per_box != null ? String(l.sqft_per_box) : "",
+        is_fill: !!l.is_fill,
       })),
     }));
     return initial.length
@@ -464,6 +467,35 @@ export function EstimateBuilder({
         return { ...o, lines };
       }),
     );
+
+  /** Add a FILL piece for the same area/material right below the line — same
+   *  product & pricing, blank cut size, flagged as fill so it lists under its
+   *  area on every doc and its yardage rolls into the order. */
+  const addFillPiece = (oi: number, li: number) => {
+    const key = newKey();
+    setOptions((prev) =>
+      prev.map((o, i) => {
+        if (i !== oi) return o;
+        const src = o.lines[li];
+        const fill: LineState = {
+          ...src,
+          key,
+          is_fill: true,
+          // Fresh, empty cut — the user measures the fill piece.
+          sqft: "",
+          quantity: "",
+          len_ft: "",
+          len_in: "",
+          wid_ft: "",
+          wid_in: "",
+        };
+        const lines = [...o.lines];
+        lines.splice(li + 1, 0, fill);
+        return { ...o, lines };
+      }),
+    );
+    setOpenLines((s) => new Set(s).add(key)); // open the new fill line for editing
+  };
 
   const updateLine = (oi: number, li: number, patch: Partial<LineState>) =>
     setOptions((prev) =>
@@ -713,6 +745,7 @@ export function EstimateBuilder({
         order_as_roll: l.order_as_roll,
         roll_width_ft: l.roll_width_ft || null,
         sqft_per_box: l.sqft_per_box || null,
+        is_fill: l.is_fill,
       })),
     })),
     target_margin: num(overallMargin) || null,
@@ -1040,6 +1073,11 @@ export function EstimateBuilder({
                                 From stock
                               </span>
                             ) : null}
+                            {line.is_fill ? (
+                              <span className="rounded-full bg-blue-100 px-1.5 py-0.5 font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
+                                Fill piece
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                         <div className="shrink-0 text-right">
@@ -1211,6 +1249,24 @@ export function EstimateBuilder({
                           {line.order_as_roll ? (
                             <p className="mt-1 text-xs text-muted-foreground">PO orders one roll; the work order shows the cut sizes.</p>
                           ) : null}
+                          {/* Fill piece — an extra cut off the same roll for this
+                              area; flagged on every doc, its yardage still orders. */}
+                          <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={line.is_fill}
+                              onChange={(e) => updateLine(oi, li, { is_fill: e.target.checked })}
+                              className="size-4 rounded border-input"
+                            />
+                            <span>This is a <span className="font-medium">fill / seam piece</span> for the area</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => addFillPiece(oi, li)}
+                            className="mt-1 text-xs font-medium text-primary hover:underline"
+                          >
+                            + Add fill piece for this area
+                          </button>
                         </div>
                       ) : null}
 

@@ -1,7 +1,46 @@
 import { createClient } from "@/lib/supabase/server";
 import type { PoItem, PurchaseOrder } from "@/lib/types";
+import type { CutSource } from "@/lib/job-scope";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * The carpet cut lines behind a PO's source estimate — the SAME lines the
+ * staging sheet and work order read, so the PO's cut list can't disagree with
+ * them. Uses the accepted option (else the first), matching PO generation.
+ * Returns [] for POs not tied to an estimate (manual / inventory orders).
+ */
+export async function getEstimateCutSources(
+  estimateId: string | null | undefined,
+): Promise<CutSource[]> {
+  if (!estimateId) return [];
+  const supabase = await createClient();
+  const { data: est } = await supabase
+    .from("estimates")
+    .select("accepted_option_id")
+    .eq("id", estimateId)
+    .maybeSingle();
+  let optionId = (est?.accepted_option_id as string | null) ?? null;
+  if (!optionId) {
+    const { data: opt } = await supabase
+      .from("estimate_options")
+      .select("id")
+      .eq("estimate_id", estimateId)
+      .order("position", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    optionId = (opt?.id as string) ?? null;
+  }
+  if (!optionId) return [];
+  const { data } = await supabase
+    .from("estimate_line_items")
+    .select(
+      "room, description, category, length_in, width_in, is_fill, roll_width_ft, manufacturer, color",
+    )
+    .eq("option_id", optionId)
+    .order("position", { ascending: true });
+  return (data ?? []) as CutSource[];
+}
 
 async function attachItems(
   supabase: SupabaseServerClient,
