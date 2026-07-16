@@ -105,6 +105,35 @@ export const UNIT_OPTIONS: UnitOption[] = [
 ];
 
 /**
+ * Words that mark a product as sold BY THE CONTAINER (a pail / gallon / tube /
+ * cartridge / bag…), so an importer never defaults these to square feet. Kept
+ * conservative — flooring words like "glue down" are deliberately NOT here.
+ */
+const CONTAINER_RE =
+  /\b(?:adhesive|sealant|sealer|primer|mastic|leveler|self-?leveling|underlayment\s+compound|skim(?:\s?coat)?|patch(?:ing)?|grout|caulk|mortar|thinset|epoxy|remover|degreaser|hardener|activator)\b|\b(?:tube|cartridge|sausage|pail|bucket|gallon|gal|quart|qt|oz|bottle|kit|pouch|jug|can|bag|case|ctn|carton|drum)\b|megabond|toughbond|sikabond/i;
+
+/**
+ * Infer a product's unit at import time. If the price list already gave a unit,
+ * trust it. Otherwise: real flooring categories bill by their area default;
+ * anything that reads like a container (adhesive / gallon / pail…) bills by the
+ * EACH; only a genuinely unknown "other" falls back to square feet. This stops
+ * the old "default everything to sqft" bug that priced pails by the square foot.
+ */
+export function inferUnit(
+  name: string | null | undefined,
+  parsedUnit: string | null | undefined,
+  category?: string | null,
+): string {
+  const p = normalizeUnit(parsedUnit);
+  if (p) return p; // the source named a unit — keep it
+  const cat = category ?? "other";
+  // Flooring / area goods keep their area unit regardless of the name.
+  if (cat !== "other" && cat !== "labor") return defaultUnitForCategory(cat);
+  if (CONTAINER_RE.test(name ?? "")) return "each";
+  return defaultUnitForCategory(cat);
+}
+
+/**
  * A sensible default unit for a product category, so the on-the-fly add form
  * starts on the right unit and a bag/each item isn't mis-saved as area.
  */

@@ -18,6 +18,7 @@ import {
   listRecentImportJobs,
   type ImportJob,
 } from "@/lib/data/import-jobs";
+import { inferUnit } from "@/lib/units";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -72,7 +73,9 @@ function parseTextRows(text: string): PriceRow[] {
     rows.push({
       name,
       category: "other",
-      unit: "sqft",
+      // Infer from the name so per-container items (adhesive, gallon, pail…)
+      // aren't defaulted to square feet.
+      unit: inferUnit(name, null, "other"),
       sku,
       material_rate: rate,
       labor_rate: null,
@@ -393,7 +396,9 @@ export async function importProducts(
         return {
           name: r.name.trim(),
           category: (cats.has(r.category) ? r.category : "other") as ProductCategory,
-          unit: r.unit || "sqft",
+          // Trust a parsed unit; otherwise infer (container → each, flooring →
+          // area) instead of blindly defaulting to square feet.
+          unit: inferUnit(r.name, r.unit, cats.has(r.category) ? r.category : "other"),
           material_rate: mat ?? 0,
           labor_rate: lab ?? 0,
           sku: r.sku || "",

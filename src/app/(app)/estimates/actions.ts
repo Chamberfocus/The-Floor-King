@@ -114,6 +114,10 @@ export async function saveEstimate(
     .order("position", { ascending: true });
   const existingIds = (existingOpts ?? []).map((o) => o.id as string);
 
+  // The persisted option id at each position — so the owner-recommended option
+  // (tracked by index in the builder) resolves to a stable id after the save.
+  const savedOptionIds: string[] = [];
+
   for (let i = 0; i < input.options.length; i++) {
     const option = input.options[i];
     let optionId = existingIds[i];
@@ -146,6 +150,7 @@ export async function saveEstimate(
       }
       optionId = optionRow.id as string;
     }
+    savedOptionIds[i] = optionId;
 
     if (option.lines.length) {
       const lineRows = option.lines.map((line, j) => ({
@@ -179,6 +184,7 @@ export async function saveEstimate(
         roll_width_ft: toNumOrNull(line.roll_width_ft ?? null),
         sqft_per_box: toNumOrNull(line.sqft_per_box ?? null),
         is_fill: !!line.is_fill,
+        is_optional: !!line.is_optional,
       }));
       const { error: lineError } = await supabase
         .from("estimate_line_items")
@@ -186,6 +192,17 @@ export async function saveEstimate(
       if (lineError) return { error: lineError.message };
     }
   }
+
+  // Resolve the owner-recommended option (tracked by index) to its saved id.
+  const recIdx = input.recommended_index;
+  const recommendedId =
+    recIdx != null && recIdx >= 0 && recIdx < savedOptionIds.length
+      ? savedOptionIds[recIdx]
+      : null;
+  await supabase
+    .from("estimates")
+    .update({ recommended_option_id: recommendedId })
+    .eq("id", estimateId);
 
   // Options removed in this edit (existing rows beyond the new count).
   const removedIds = existingIds.slice(input.options.length);

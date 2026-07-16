@@ -10,12 +10,12 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
-import { SegmentedField } from "@/components/ui/segmented-field";
 import { CustomerScopeView } from "@/components/customer-scope-view";
+import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import { getEstimate } from "@/lib/data/estimates";
 import { getOrgSettings } from "@/lib/data/org";
 import { buildCustomerScope } from "@/lib/customer-scope";
-import { optionTotals } from "@/lib/estimate-calc";
+import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
 import { formatMoney } from "@/lib/format";
 import type { EstimateOption } from "@/lib/types";
 import {
@@ -40,9 +40,17 @@ export default async function PortalEstimatePage({
   const canRespond =
     estimate.status === "sent" || estimate.status === "changes_requested";
   const totalsFor = (o: EstimateOption) =>
-    optionTotals(o.line_items ?? [], estimate.tax_rate);
+    optionTotalsWithDiscount(
+      o.line_items ?? [],
+      estimate.tax_rate,
+      estimate.discount_kind,
+      estimate.discount_value,
+    );
 
-  // One combined scope + one price: the option they accepted, else the first.
+  // Multiple options, none chosen yet → let the customer compare side by side.
+  const showComparison = options.length > 1 && !estimate.accepted_option_id;
+
+  // Single view: the option they accepted, else the first.
   const chosen =
     options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
   const scope = buildCustomerScope(chosen?.line_items ?? [], estimate.notes);
@@ -86,30 +94,69 @@ export default async function PortalEstimatePage({
           })()
         : null}
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-base">Your project</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <CustomerScopeView
-            scope={scope}
-            variant={variant}
-            narrative={estimate.job_description}
-          />
-          <div className="mt-5 flex items-baseline justify-between border-t-2 pt-4">
-            <span className="text-sm font-semibold uppercase tracking-wide">
-              Project total
-            </span>
-            <span className="text-2xl font-bold tabular-nums">
-              {formatMoney(total)}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            One all-inclusive price — materials, professional installation, and
-            site preparation as described. Applicable tax included.
-          </p>
-        </CardContent>
-      </Card>
+      {showComparison ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Your options — choose the one that fits</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {estimate.job_description ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                {estimate.job_description}
+              </p>
+            ) : null}
+            <EstimateOptionCards
+              estimate={estimate}
+              renderAction={
+                canRespond
+                  ? (o) => (
+                      <form action={portalApproveEstimate}>
+                        <input type="hidden" name="estimate_id" value={estimate.id} />
+                        <input type="hidden" name="accepted_option_id" value={o.id} />
+                        <Button type="submit" className="w-full">
+                          <Check className="size-4" /> Choose {o.name}
+                        </Button>
+                      </form>
+                    )
+                  : undefined
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              Each price is all-inclusive — materials, professional installation,
+              and site preparation as described. Applicable tax included.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">
+              {estimate.accepted_option_id && options.length > 1
+                ? `Your project — ${chosen?.name ?? "selected option"}`
+                : "Your project"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CustomerScopeView
+              scope={scope}
+              variant={variant}
+              narrative={estimate.job_description}
+            />
+            <div className="mt-5 flex items-baseline justify-between border-t-2 pt-4">
+              <span className="text-sm font-semibold uppercase tracking-wide">
+                Project total
+              </span>
+              <span className="text-2xl font-bold tabular-nums">
+                {formatMoney(total)}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              One all-inclusive price — materials, professional installation, and
+              site preparation as described. Applicable tax included.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {org.financing_url ? (
         <Card className="mt-6 border-primary/30 bg-primary/5">
@@ -139,31 +186,27 @@ export default async function PortalEstimatePage({
       {canRespond ? (
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle className="text-base">Your decision</CardTitle>
+            <CardTitle className="text-base">
+              {showComparison ? "Prefer to talk it over?" : "Your decision"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <form
-              action={portalApproveEstimate}
-              className="flex flex-wrap items-end gap-2"
-            >
-              <input type="hidden" name="estimate_id" value={estimate.id} />
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  Choose your option
-                </label>
-                <SegmentedField
+            {!showComparison ? (
+              <form
+                action={portalApproveEstimate}
+                className="flex flex-wrap items-end gap-2"
+              >
+                <input type="hidden" name="estimate_id" value={estimate.id} />
+                <input
+                  type="hidden"
                   name="accepted_option_id"
-                  defaultValue={options[0]?.id}
-                  options={options.map((o) => ({
-                    value: o.id,
-                    label: `${o.name} — ${formatMoney(totalsFor(o).total)}`,
-                  }))}
+                  value={chosen?.id ?? options[0]?.id ?? ""}
                 />
-              </div>
-              <Button type="submit">
-                <Check className="size-4" /> Approve estimate
-              </Button>
-            </form>
+                <Button type="submit">
+                  <Check className="size-4" /> Approve estimate
+                </Button>
+              </form>
+            ) : null}
 
             <details className="rounded-md border p-3 text-sm">
               <summary className="cursor-pointer text-muted-foreground">

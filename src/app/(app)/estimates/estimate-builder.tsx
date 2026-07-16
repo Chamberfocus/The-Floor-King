@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Plus, Copy, Trash2, ArrowLeft, Save, Eye, Sparkles, Printer, ChevronRight } from "lucide-react";
+import { Plus, Copy, Trash2, ArrowLeft, Save, Eye, Sparkles, Printer, ChevronRight, Star, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -80,6 +80,7 @@ interface LineState {
   roll_width_ft: string; // 12 or 15 (broadloom width)
   sqft_per_box: string; // hard surface: coverage per carton → box count
   is_fill: boolean; // carpet: a fill / seam piece cut for an area
+  is_optional: boolean; // an optional add-on within its option (owner marker)
 }
 
 const round2s = (n: number) => String(Math.round(n * 100) / 100);
@@ -249,6 +250,7 @@ export function EstimateBuilder({
   colorSuggestions = [],
   manufacturerSuggestions = [],
   addonCatalog = [],
+  productUnits = {},
 }: {
   estimate: Estimate;
   customerName: string;
@@ -261,6 +263,9 @@ export function EstimateBuilder({
   manufacturerSuggestions?: string[];
   /** The single add-on catalog (built-in + custom), pre-priced from defaults. */
   addonCatalog?: AddonCatalogItem[];
+  /** Catalog unit of each linked product id — flags area-priced lines whose
+   *  product is really sold by the each/bag (the sq-ft-on-a-pail bug). */
+  productUnits?: Record<string, string>;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -299,6 +304,7 @@ export function EstimateBuilder({
     roll_width_ft: "",
     sqft_per_box: "",
     is_fill: false,
+    is_optional: false,
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -360,6 +366,7 @@ export function EstimateBuilder({
         roll_width_ft: l.roll_width_ft != null ? String(l.roll_width_ft) : "",
         sqft_per_box: l.sqft_per_box != null ? String(l.sqft_per_box) : "",
         is_fill: !!l.is_fill,
+        is_optional: !!l.is_optional,
       })),
     }));
     return initial.length
@@ -406,7 +413,47 @@ export function EstimateBuilder({
     });
 
   const removeOption = (oi: number) =>
-    setOptions((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== oi) : prev));
+    setOptions((prev) => {
+      if (prev.length <= 1) return prev;
+      const removed = prev[oi];
+      if (removed && removed.key === recommendedKey) setRecommendedKey(null);
+      return prev.filter((_, i) => i !== oi);
+    });
+
+  // Which option the owner recommends (tracked by client key so it survives
+  // reordering/duplication). Maps the loaded recommended option to its key once.
+  const [recommendedKey, setRecommendedKey] = useState<string | null>(null);
+  useEffect(() => {
+    const recIdx = (estimate.options ?? []).findIndex(
+      (o) => o.id === estimate.recommended_option_id,
+    );
+    if (recIdx >= 0) setRecommendedKey(options[recIdx]?.key ?? null);
+    // Run once on mount to align the persisted recommended option to its key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const toggleRecommended = (key: string) =>
+    setRecommendedKey((cur) => (cur === key ? null : key));
+
+  // Spawn a sibling option WITHOUT the lines marked optional — the one-tap
+  // "with / without" so a good/better pair doesn't need manual re-entry.
+  const optionWithoutOptionals = (oi: number) =>
+    setOptions((prev) => {
+      const src = prev[oi];
+      const kept = src.lines.filter((l) => !l.is_optional);
+      const copy: OptionState = {
+        key: newKey(),
+        name: `${src.name} — without add-ons`,
+        notes: src.notes,
+        lines: (kept.length ? kept : src.lines).map((l) => ({
+          ...l,
+          key: newKey(),
+          is_optional: false,
+        })),
+      };
+      const next = [...prev];
+      next.splice(oi + 1, 0, copy);
+      return next;
+    });
 
   const addLine = (oi: number, asLabor = false) => {
     // Carry the manufacturer forward from the last material line so multiple cuts
@@ -543,18 +590,64 @@ export function EstimateBuilder({
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
                 if (isAreaUnit(unitValue)) {
+                  // → area: let the measured area drive the quantity again.
                   return {
                     ...l,
                     measure_unit: (unitValue === "sqyd" ? "sqyd" : "sqft") as MeasureUnit,
                     unit: unitValue === "sqyd" ? "sq yd" : "sq ft",
+                    quantity: "",
                   };
                 }
-                return { ...l, unit: unitValue, quantity: l.quantity || "1", waste_pct: "" };
+                // → count: a FRESH count of 1 — never carry over the old square
+                // footage (that's the "1693 each" bug), and drop area waste + dims.
+                return {
+                  ...l,
+                  unit: unitValue,
+                  quantity: "1",
+                  sqft: "",
+                  len_ft: "",
+                  len_in: "",
+                  wid_ft: "",
+                  wid_in: "",
+                  waste_pct: "",
+                };
               }),
             }
           : o,
       ),
     );
+
+  // Move the labor bundled on a material line onto its OWN labor line, so
+  // material and labor stay separate (each with its own cost / qty / margin).
+  const splitLaborToLine = (oi: number, li: number) => {
+    const key = newKey();
+    setOptions((prev) =>
+      prev.map((o, i) => {
+        if (i !== oi) return o;
+        const src = o.lines[li];
+        const laborLine: LineState = {
+          ...emptyLine(),
+          key,
+          category: "labor",
+          room: src.room,
+          description: src.description ? `${src.description} — labor` : "Labor",
+          unit: src.unit,
+          measure_unit: src.measure_unit,
+          quantity: src.quantity,
+          sqft: src.sqft,
+          labor_cost: src.labor_cost,
+          labor_rate: src.labor_rate,
+          margin_pct: src.margin_pct,
+        };
+        const lines = o.lines.map((l, j) =>
+          j === li ? { ...l, labor_cost: "0", labor_rate: "0" } : l,
+        );
+        lines.splice(li + 1, 0, laborLine);
+        return { ...o, lines };
+      }),
+    );
+    setOpenLines((s) => new Set(s).add(key));
+  };
 
   // Change the estimate-wide margin → re-price every line that doesn't have its
   // own override. Overridden lines keep their margin.
@@ -699,8 +792,11 @@ export function EstimateBuilder({
                   category: p.category ?? l.category,
                   // Catalog rates are OUR cost → set cost; the sell derives from
                   // the effective margin (so a picked product isn't sold at cost).
+                  // MATERIAL ONLY — labor is priced on its own separate line, so
+                  // a material line never bundles labor into a combined price.
                   material_cost: round2(p.material_rate * factor),
-                  labor_cost: round2(p.labor_rate * factor),
+                  labor_cost: "0",
+                  labor_rate: "0",
                   manufacturer: p.manufacturer ?? l.manufacturer,
                   style: p.style ?? l.style,
                   color: p.color ?? l.color,
@@ -811,11 +907,13 @@ export function EstimateBuilder({
         roll_width_ft: l.roll_width_ft || null,
         sqft_per_box: l.sqft_per_box || null,
         is_fill: l.is_fill,
+        is_optional: l.is_optional,
       })),
     })),
     target_margin: num(overallMargin) || null,
     discount_kind: discountKind,
     discount_value: num(discountValue) || 0,
+    recommended_index: options.findIndex((o) => o.key === recommendedKey),
   });
 
   const save = (thenView: boolean) =>
@@ -1045,15 +1143,47 @@ export function EstimateBuilder({
           const optionMargin =
             netRevenue > 0 ? (optionProfit / netRevenue) * 100 : 0;
 
+          const isRecommended = option.key === recommendedKey;
+          const hasOptional = option.lines.some((l) => l.is_optional);
           return (
-            <Card key={option.key}>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-                <Input
-                  value={option.name}
-                  onChange={(e) => updateOption(oi, { name: e.target.value })}
-                  className="max-w-xs font-semibold"
-                />
-                <div className="flex items-center gap-1">
+            <Card key={option.key} className={cn(isRecommended && "ring-1 ring-primary")}>
+              <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={option.name}
+                    onChange={(e) => updateOption(oi, { name: e.target.value })}
+                    className="max-w-xs font-semibold"
+                  />
+                  {isRecommended ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                      <Star className="size-3 fill-primary" /> Recommended
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  {options.length > 1 ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleRecommended(option.key)}
+                      title="Highlight this option to the customer as your recommendation"
+                    >
+                      <Star className={cn("size-3.5", isRecommended && "fill-primary text-primary")} />
+                      {isRecommended ? "Recommended" : "Recommend"}
+                    </Button>
+                  ) : null}
+                  {hasOptional ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => optionWithoutOptionals(oi)}
+                      title="Create a sibling option without the lines marked optional"
+                    >
+                      <Layers className="size-3.5" /> Version without add-ons
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     variant="ghost"
@@ -1150,6 +1280,11 @@ export function EstimateBuilder({
                             {line.is_fill ? (
                               <span className="rounded-full bg-blue-100 px-1.5 py-0.5 font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">
                                 Fill piece
+                              </span>
+                            ) : null}
+                            {line.is_optional ? (
+                              <span className="rounded-full bg-violet-100 px-1.5 py-0.5 font-medium text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
+                                Optional
                               </span>
                             ) : null}
                           </div>
@@ -1284,6 +1419,24 @@ export function EstimateBuilder({
                             </button>
                           </div>
                         </div>
+                      ) : null}
+
+                      {/* Optional add-on — an item that may or may not be needed.
+                          Marks it in this view; use "Version without add-ons" on the
+                          option header to spin off a without-it option in one tap. */}
+                      {line.line_type !== "flat" ? (
+                        <label className="flex cursor-pointer items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={line.is_optional}
+                            onChange={(e) => updateLine(oi, li, { is_optional: e.target.checked })}
+                            className="size-4 rounded border-input"
+                          />
+                          <span>
+                            <span className="font-medium">Optional add-on</span> — may or
+                            may not be necessary
+                          </span>
+                        </label>
                       ) : null}
 
                       {/* Order as roll — PO shows one roll; work order keeps the cuts.
@@ -1570,6 +1723,34 @@ export function EstimateBuilder({
                         />
                       ) : null}
 
+                      {/* Mispricing guard: this line is priced by area, but its
+                          catalog product is really sold by the each/bag. One tap
+                          switches it to the right unit (never auto-changes). */}
+                      {(() => {
+                        const realUnit = line.product_id ? productUnits[line.product_id] : "";
+                        const mismatch =
+                          !!realUnit && !isAreaUnit(realUnit) && !isCountLine(line);
+                        if (!mismatch) return null;
+                        return (
+                          <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-400 bg-amber-50 px-2.5 py-2 text-xs dark:border-amber-500/40 dark:bg-amber-950/30">
+                            <span className="text-amber-800 dark:text-amber-300">
+                              ⚠ This item is sold by the{" "}
+                              <span className="font-semibold">{unitLabel(realUnit)}</span> — it&apos;s
+                              currently priced by area.
+                            </span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7"
+                              onClick={() => setLineUnit(oi, li, normalizeUnit(realUnit))}
+                            >
+                              Fix — price per {unitLabel(realUnit)}
+                            </Button>
+                          </div>
+                        );
+                      })()}
+
                       {line.line_type === "mat_labor" ? (
                         (() => {
                           const labor = isLaborLine(line);
@@ -1615,10 +1796,24 @@ export function EstimateBuilder({
                                   <span className="text-muted-foreground">Following the overall {overallMargin}% margin.</span>
                                 )}
                               </div>
+                              {/* Material lines are material-only. A saved line
+                                  that still bundles labor gets a one-tap split so
+                                  material & labor become separate line items. */}
                               {!labor && num(line.labor_cost) > 0 ? (
-                                <div className="grid grid-cols-2 gap-2 border-t pt-2">
-                                  <LabeledNumber label="Labor cost" prefix="$" width="w-full" value={line.labor_cost} onChange={(v) => changeLineCost(oi, li, "labor_cost", v)} />
-                                  <LabeledNumber label="Labor sell" prefix="$" width="w-full" value={line.labor_rate} onChange={(v) => changeLineSell(oi, li, "labor_rate", v)} />
+                                <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs">
+                                  <span className="text-muted-foreground">
+                                    Bundles {formatMoney(num(line.labor_rate))}/{unitLbl} labor —
+                                    keep material &amp; labor separate.
+                                  </span>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7"
+                                    onClick={() => splitLaborToLine(oi, li)}
+                                  >
+                                    Split into a labor line
+                                  </Button>
                                 </div>
                               ) : null}
                             </div>

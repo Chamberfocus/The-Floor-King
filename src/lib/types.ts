@@ -643,6 +643,7 @@ export interface EstimateLineItem {
   roll_width_ft?: number | null; // broadloom width (12 / 15) for the roll math
   sqft_per_box?: number | null; // hard surface: coverage per carton → carton count
   is_fill?: boolean; // carpet: a fill/seam piece (extra cut off the roll for an area)
+  is_optional?: boolean; // an optional add-on within its option (owner-side marker)
 }
 
 export interface EstimateOption {
@@ -673,6 +674,7 @@ export interface Estimate {
   thankyou_sent_at: string | null;
   viewed_at: string | null;
   accepted_option_id: string | null;
+  recommended_option_id: string | null; // owner-flagged option to highlight to the customer
   created_by: string | null;
   created_at: string;
   updated_at: string;

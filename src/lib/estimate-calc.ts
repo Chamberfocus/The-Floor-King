@@ -206,6 +206,7 @@ export interface SaveLineInput {
   roll_width_ft?: string | number | null;
   sqft_per_box?: string | number | null;
   is_fill?: boolean;
+  is_optional?: boolean;
 }
 
 export interface SaveOptionInput {
@@ -224,6 +225,9 @@ export interface SaveEstimateInput {
   target_margin?: string | number | null;
   discount_kind?: "amount" | "percent" | string | null;
   discount_value?: string | number | null;
+  /** Index (into options) of the owner-recommended option, or null. Resolved to
+   *  the persisted option id by the save action. */
+  recommended_index?: number | null;
 }
 
 // --- Wizard submission (one line per room + add-on lines) -------------------

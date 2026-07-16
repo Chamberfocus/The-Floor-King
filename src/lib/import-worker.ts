@@ -2,6 +2,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractPriceList } from "@/lib/extract";
 import { PRODUCT_CATEGORY_ORDER, type ProductCategory } from "@/lib/types";
+import { inferUnit } from "@/lib/units";
 
 /** Absolute base URL for the app to call its own API routes. */
 export function internalBaseUrl(): string {
@@ -56,7 +57,7 @@ async function insertProducts(
       category: (cats.has(r.category ?? "")
         ? r.category
         : "other") as ProductCategory,
-      unit: r.unit || "sqft",
+      unit: inferUnit(r.name, r.unit, cats.has(r.category ?? "") ? r.category : "other"),
       material_rate: Number(r.material_rate) || 0,
       labor_rate: Number(r.labor_rate) || 0,
       sku: r.sku || "",

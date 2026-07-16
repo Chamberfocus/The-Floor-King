@@ -6,6 +6,7 @@ import { Printer, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
 import { CustomerScopeView } from "@/components/customer-scope-view";
+import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import { buildCustomerScope } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
 import { docRef } from "@/lib/format";
@@ -85,8 +86,10 @@ export function EstimatePrintDoc({
   preparedBy?: string | null;
 }) {
   const options = estimate.options ?? [];
-  // One combined scope + one price. When several options exist, the customer's
-  // copy shows the one they accepted, or the first if none is chosen yet.
+  // Multiple options with no choice made yet → present them side by side so the
+  // customer can compare. Once one is accepted (or there's only one), collapse to
+  // that single scope + price.
+  const showComparison = options.length > 1 && !estimate.accepted_option_id;
   const chosen =
     options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
   const lines = chosen?.line_items ?? [];
@@ -131,31 +134,53 @@ export function EstimatePrintDoc({
         />
       ) : null}
 
-      <div className="mt-2 border-t pt-3">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-          Your project
+      {showComparison ? (
+        <div className="mt-2 border-t pt-3">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            Your options — choose the one that fits
+          </div>
+          {estimate.job_description ? (
+            <p className="mb-3 whitespace-pre-wrap text-sm leading-relaxed">
+              {estimate.job_description}
+            </p>
+          ) : null}
+          <EstimateOptionCards estimate={estimate} printMode />
+          <p className="mt-3 text-xs text-gray-600">
+            Each option is a single, all-inclusive price — materials, labor, and
+            site preparation as described. Applicable tax included. Approve the
+            option you&apos;d like online, or let us know.
+          </p>
         </div>
-        <CustomerScopeView
-          scope={scope}
-          variant={variant}
-          narrative={estimate.job_description}
-        />
-      </div>
+      ) : (
+        <>
+          <div className="mt-2 border-t pt-3">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+              Your project
+            </div>
+            <CustomerScopeView
+              scope={scope}
+              variant={variant}
+              narrative={estimate.job_description}
+            />
+          </div>
 
-      <div className="mt-6 break-inside-avoid border-t-2 border-gray-800 pt-3">
-        <div className="flex items-baseline justify-between">
-          <span className="text-sm font-semibold uppercase tracking-wide">
-            Project total
-          </span>
-          <span className="text-2xl font-bold tabular-nums">
-            {formatMoney(totals.total)}
-          </span>
-        </div>
-        <p className="mt-1 text-xs text-gray-600">
-          A single, all-inclusive price for the complete project described above —
-          materials, labor, and site preparation. Applicable tax included.
-        </p>
-      </div>
+          <div className="mt-6 break-inside-avoid border-t-2 border-gray-800 pt-3">
+            <div className="flex items-baseline justify-between">
+              <span className="text-sm font-semibold uppercase tracking-wide">
+                Project total
+              </span>
+              <span className="text-2xl font-bold tabular-nums">
+                {formatMoney(totals.total)}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-gray-600">
+              A single, all-inclusive price for the complete project described
+              above — materials, labor, and site preparation. Applicable tax
+              included.
+            </p>
+          </div>
+        </>
+      )}
 
       <div className="mt-8 border-t pt-3 text-center text-xs text-gray-500">
         Thank you for the opportunity to earn your business. — {org.company_name}
