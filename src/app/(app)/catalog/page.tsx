@@ -35,6 +35,9 @@ export default async function CatalogPage({
         description="Your flooring products and rates. Pull these into estimates to fill prices instantly."
       >
         <div className="flex gap-2">
+          {/* A real <a>, not <Link>: /catalog/export is a Route Handler that
+              streams a CSV file — client navigation would break the download. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a
             href="/catalog/export"
             className={buttonVariants({ size: "lg", variant: "ghost" })}

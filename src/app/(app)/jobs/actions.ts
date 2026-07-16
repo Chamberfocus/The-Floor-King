@@ -138,79 +138,6 @@ function phone10(v: string | null | undefined): string {
 }
 
 /**
- * Best-guess the login profile behind a crew when there's no hard link yet:
- * phone first (most reliable — subcontractor crews often have no email), then
- * email, then exact name. Crew/admin profiles only.
- */
-async function resolveProfileForCrew(
-  supabase: JobsDb,
-  crew: { phone?: string | null; email?: string | null; name?: string | null },
-): Promise<string | null> {
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, full_name, email, phone")
-    .in("role", ["crew", "admin"]);
-  const profs = (data ?? []) as {
-    id: string;
-    full_name: string | null;
-    email: string | null;
-    phone: string | null;
-  }[];
-  const cp = phone10(crew.phone);
-  if (cp) {
-    const hit = profs.find((p) => phone10(p.phone) === cp);
-    if (hit) return hit.id;
-  }
-  const ce = (crew.email ?? "").trim().toLowerCase();
-  if (ce) {
-    const hit = profs.find((p) => (p.email ?? "").trim().toLowerCase() === ce);
-    if (hit) return hit.id;
-  }
-  const cn = (crew.name ?? "").trim().toLowerCase();
-  if (cn) {
-    const hit = profs.find((p) => (p.full_name ?? "").trim().toLowerCase() === cn);
-    if (hit) return hit.id;
-  }
-  return null;
-}
-
-/**
- * The login installer (crew/admin profile) a managed crew maps to. Uses the
- * explicit profile_id link when set (exact, no guessing); otherwise resolves by
- * phone/email/name and PERSISTS the link so the installer is recognized exactly
- * from then on (self-healing). Returns null for a pure subcontractor with no
- * login behind them.
- */
-async function profileForCrew(
-  supabase: JobsDb,
-  crewId: string,
-): Promise<string | null> {
-  // select("*") so this still works before the profile_id migration is run.
-  const { data: crewRow } = await supabase
-    .from("install_crews")
-    .select("*")
-    .eq("id", crewId)
-    .maybeSingle();
-  if (!crewRow) return null;
-  const crew = crewRow as {
-    profile_id?: string | null;
-    email?: string | null;
-    name?: string | null;
-    phone?: string | null;
-  };
-  if (crew.profile_id) return crew.profile_id; // exact hard link
-  const resolved = await resolveProfileForCrew(supabase, crew);
-  if (resolved) {
-    // Self-heal: persist the link. Ignored if the column isn't there yet.
-    await supabase
-      .from("install_crews")
-      .update({ profile_id: resolved })
-      .eq("id", crewId);
-  }
-  return resolved;
-}
-
-/**
  * One assignment/schedule change ripples to EVERY view that shows the job, so
  * the app stays interconnected: the installer's page, the warehouse queue, the
  * install calendar, the job board, the pipeline/dashboard, and the customer file.
@@ -815,40 +742,6 @@ export async function updateJob(
   }
   revalidateJobEverywhere(id, customerId);
   return { error: null, ok: true };
-}
-
-/** Assign (or clear) the install crew on a job — from your managed crew list. */
-export async function setJobCrew(formData: FormData): Promise<void> {
-  const id = str(formData.get("job_id"));
-  if (!id) return;
-  let crewId = str(formData.get("crew_id")) || null;
-  const supabase = await createClient();
-
-  // Figure out the login installer this crew represents, so the installer's
-  // page (which keys off assigned_to) stays in sync no matter how you assign.
-  let installerProfileId: string | null = null;
-  if (crewId && crewId.startsWith("user:")) {
-    // A team installer assigned directly — find-or-create their employee crew
-    // (so payout tracking has a crew) AND map to their login profile.
-    installerProfileId = crewId.slice(5);
-    crewId = await ensureCrewForProfile(supabase, installerProfileId);
-  } else if (crewId) {
-    // A managed crew — if it maps to a login installer (by email), link it too.
-    installerProfileId = await profileForCrew(supabase, crewId);
-  }
-
-  // Never clear a valid installer: only set assigned_to when we resolved one.
-  const update: Record<string, unknown> = { assigned_crew_id: crewId };
-  if (installerProfileId) update.assigned_to = installerProfileId;
-  await supabase.from("jobs").update(update).eq("id", id);
-
-  const { data: job } = await supabase
-    .from("jobs")
-    .select("customer_id")
-    .eq("id", id)
-    .maybeSingle();
-  revalidateJobEverywhere(id, job?.customer_id as string | null);
-  revalidatePath("/settings/install-crews");
 }
 
 /** Quick status change (also usable by assigned crew from the field). */
