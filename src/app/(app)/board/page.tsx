@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { MapPin, CalendarDays, Check, Clock } from "lucide-react";
+import { MapPin, CalendarDays, Check, Clock, ClipboardList } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { requireProfile } from "@/lib/auth";
 import { listOpenJobs, getMyApplicationJobIds } from "@/lib/data/jobs";
 import { JOB_DELIVERY_LABELS } from "@/lib/types";
@@ -44,9 +45,11 @@ export default async function JobBoardPage() {
       />
 
       {jobs.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No open jobs right now. Check back soon.
-        </div>
+        <EmptyState
+          icon={ClipboardList}
+          title="No open jobs right now"
+          description="Check back soon — posted jobs you can claim will show up here."
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {jobs.map((j) => {

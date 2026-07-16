@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Search, Upload, AlertTriangle } from "lucide-react";
+import { Plus, Search, Upload, AlertTriangle, Users } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { listCustomers, getCustomerRowContexts } from "@/lib/data/customers";
 import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
@@ -249,23 +250,28 @@ export default async function CustomersPage({
       </form>
 
       {customers.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center">
-          <p className="text-sm text-muted-foreground">
-            {q || stage || owner || stuck
+        <EmptyState
+          icon={Users}
+          title={
+            q || stage || owner || stuck
               ? stuck
-                ? "No stuck customers — everyone's on track. 🎉"
-                : "No customers match your search."
-              : "No customers yet. Add your first lead to get started."}
-          </p>
-          {!q && !stage && !owner && !stuck ? (
-            <Link
-              href="/customers/new"
-              className={buttonVariants({ className: "mt-4" })}
-            >
-              <Plus className="size-4" /> Add customer
-            </Link>
-          ) : null}
-        </div>
+                ? "No stuck customers — everyone's on track 🎉"
+                : "No customers match your search"
+              : "No customers yet"
+          }
+          description={
+            q || stage || owner || stuck
+              ? undefined
+              : "Add your first lead to get started."
+          }
+          action={
+            !q && !stage && !owner && !stuck ? (
+              <Link href="/customers/new" className={buttonVariants({})}>
+                <Plus className="size-4" /> Add customer
+              </Link>
+            ) : undefined
+          }
+        />
       ) : (
         <CustomerList
           customers={customers}
