@@ -25,7 +25,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { createEstimate } from "@/app/(app)/estimates/actions";
 import { StageBadge } from "@/components/stage-badge";
 import {
   getCustomer,
@@ -876,12 +877,12 @@ export default async function CustomerPage({
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
               {customer.source ? (
-                <Link
-                  href={`/estimates/smart?customer=${customer.id}`}
-                  className={buttonVariants({ size: "sm" })}
-                >
-                  <Sparkles className="size-3.5" /> Build estimate
-                </Link>
+                <form action={createEstimate}>
+                  <input type="hidden" name="customer_id" value={customer.id} />
+                  <Button type="submit" size="sm">
+                    <Sparkles className="size-3.5" /> Build estimate
+                  </Button>
+                </form>
               ) : (
                 <span className="text-xs font-medium text-amber-600">
                   Set a lead source (Edit) to create estimates

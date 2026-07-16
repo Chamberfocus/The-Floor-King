@@ -3,9 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { SearchPicker } from "@/components/ui/search-picker";
+import { createEstimate } from "./actions";
 
 export function StartEstimate({
   customers,
@@ -38,16 +39,16 @@ export function StartEstimate({
         />
       </div>
 
-      <Link
-        href={`/estimates/smart?customer=${id}`}
-        className={buttonVariants({ size: "lg" })}
-      >
-        <Sparkles className="size-4" /> Build estimate
-      </Link>
+      <form action={createEstimate}>
+        <input type="hidden" name="customer_id" value={id} />
+        <Button type="submit" size="lg">
+          <Sparkles className="size-4" /> Build estimate
+        </Button>
+      </form>
 
       <p className="text-sm text-muted-foreground">
-        You&apos;ll pick the Wizard (step-by-step) or Quick estimate on the next
-        screen. Or{" "}
+        Opens the estimate builder — measure rooms, add materials, and price it,
+        all in one place. Or{" "}
         <Link href="/customers/new" className="underline">
           add a new customer
         </Link>{" "}

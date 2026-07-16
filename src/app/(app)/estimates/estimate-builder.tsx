@@ -398,6 +398,28 @@ export function EstimateBuilder({
   const updateOption = (oi: number, patch: Partial<OptionState>) =>
     setOptions((prev) => prev.map((o, i) => (i === oi ? { ...o, ...patch } : o)));
 
+  // Rooms & areas — the measurement backbone (seeded from existing line rooms).
+  // Measure a room once, then drop a flooring material into it (area auto-fills).
+  const [rooms, setRooms] = useState<{ key: string; name: string; sqft: string }[]>(() => {
+    const seen = new Map<string, string>();
+    for (const o of estimate.options ?? [])
+      for (const l of o.line_items ?? [])
+        if (l.room && !seen.has(l.room))
+          seen.set(l.room, l.sqft != null ? String(l.sqft) : "");
+    return [...seen].map(([name, sqft]) => ({ key: newKey(), name, sqft }));
+  });
+  const addRoom = () => setRooms((r) => [...r, { key: newKey(), name: "", sqft: "" }]);
+  const updateRoom = (i: number, patch: Partial<{ name: string; sqft: string }>) =>
+    setRooms((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const removeRoom = (i: number) => setRooms((r) => r.filter((_, j) => j !== i));
+  // Start a flooring material for a room: add a material line pre-set to the
+  // room + its area, open it, so you just search the product.
+  const addFlooringForRoom = (oi: number, room: { name: string; sqft: string }) => {
+    const li = options[oi]?.lines.length ?? 0;
+    addLine(oi, false);
+    updateLine(oi, li, { room: room.name, sqft: room.sqft });
+  };
+
   // --- New-builder UI state -------------------------------------------------
   // One option shown at a time (tabs), and an owner ⇄ customer preview flip.
   const [activeOption, setActiveOption] = useState(0);
@@ -1451,6 +1473,76 @@ export function EstimateBuilder({
                 </div>
               </CardHeader>
               <CardContent className="space-y-5">
+                {/* ROOMS & AREAS — measure once; drop flooring in (area auto-fills) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between border-b pb-1.5">
+                    <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+                      Rooms &amp; areas
+                    </h3>
+                    <span className="text-sm font-semibold tabular-nums text-muted-foreground">
+                      {Math.round(rooms.reduce((s, r) => s + num(r.sqft), 0))} sq ft
+                    </span>
+                  </div>
+                  {rooms.length === 0 ? (
+                    <p className="px-1 text-xs text-muted-foreground">
+                      Add rooms and their square footage — then drop a flooring
+                      material into each; its area fills in automatically.
+                    </p>
+                  ) : null}
+                  {rooms.map((room, ri) => (
+                    <div key={room.key} className="flex flex-wrap items-center gap-2 rounded-md border px-2 py-1.5">
+                      <Input
+                        value={room.name}
+                        onChange={(e) => updateRoom(ri, { name: e.target.value })}
+                        placeholder="Room (e.g. Living Room)"
+                        className="h-9 min-w-40 flex-1"
+                      />
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          inputMode="decimal"
+                          value={room.sqft}
+                          onChange={(e) => updateRoom(ri, { sqft: e.target.value })}
+                          placeholder="sq ft"
+                          className={cn(inputSm, "w-20")}
+                        />
+                        <AreaCalculator
+                          triggerLabel="Calc"
+                          triggerVariant="ghost"
+                          triggerClassName="h-9 px-2 text-xs"
+                          title={`Square footage${room.name ? ` — ${room.name}` : ""}`}
+                          initialLabel={room.name}
+                          onApply={(area) => updateRoom(ri, { sqft: String(area) })}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9"
+                        onClick={() => addFlooringForRoom(oi, room)}
+                        title="Add a flooring material for this room (area pre-filled)"
+                      >
+                        <Plus className="size-3.5" /> Flooring
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Remove room"
+                        onClick={() => removeRoom(ri)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button type="button" variant="outline" size="sm" onClick={addRoom}>
+                    <Plus className="size-3.5" /> Add room
+                  </Button>
+                </div>
+
                 {(["mat", "labor"] as const).map((section) => {
                   const secLines = option.lines
                     .map((line, li) => ({ line, li }))

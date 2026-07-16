@@ -51,7 +51,8 @@ import {
 import { OwnerOverride } from "./owner-override";
 import { JobMaterialsCard } from "@/app/(app)/jobs/[id]/job-materials-card";
 import { SatisfactionForm } from "@/app/(app)/jobs/[id]/satisfaction-form";
-import { setEstimateStatus } from "@/app/(app)/estimates/actions";
+import { setEstimateStatus, createEstimate } from "@/app/(app)/estimates/actions";
+import { Button } from "@/components/ui/button";
 import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 
@@ -263,15 +264,12 @@ export async function GuidedFlow({
               Open estimate builder
             </Link>
           ) : null}
-          <Link
-            href={`/estimates/smart?customer=${customer.id}`}
-            className={buttonVariants({
-              size: "sm",
-              variant: activeEstimate ? "outline" : "default",
-            })}
-          >
-            <FileText className="size-3.5" /> Build estimate
-          </Link>
+          <form action={createEstimate}>
+            <input type="hidden" name="customer_id" value={customer.id} />
+            <Button type="submit" size="sm" variant={activeEstimate ? "outline" : "default"}>
+              <FileText className="size-3.5" /> Build estimate
+            </Button>
+          </form>
         </div>
       </div>
     );
