@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Car, MapPin, User } from "lucide-react";
+import { Car, MapPin, User, CalendarClock } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import {
   Card,
   CardContent,
@@ -42,9 +43,11 @@ export default async function SchedulePage() {
         description="Upcoming estimate appointments, in route order for each day."
       />
       {appts.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No estimates scheduled yet. Book one from a customer&apos;s file.
-        </div>
+        <EmptyState
+          icon={CalendarClock}
+          title="No estimates scheduled yet"
+          description="Book one from a customer's file."
+        />
       ) : (
         <div className="space-y-6">
           {dates.map((date) => (

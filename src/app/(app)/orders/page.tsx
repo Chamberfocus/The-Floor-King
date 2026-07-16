@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Package } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
@@ -213,10 +214,11 @@ export default async function OrdersPage() {
       />
       <OrderLinkCard companyName={COMPANY_NAME} />
       {orders.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          <Package className="mx-auto mb-2 size-6 opacity-50" />
-          No orders yet. Share your order link with your trade customers.
-        </div>
+        <EmptyState
+          icon={Package}
+          title="No orders yet"
+          description="Share your order link with your trade customers and their submissions land here."
+        />
       ) : (
         <div className="space-y-6">
           {pending.length > 0 ? (

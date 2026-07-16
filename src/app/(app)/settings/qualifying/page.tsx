@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChevronUp, ChevronDown, Pencil, Trash2 } from "lucide-react";
+import { ChevronUp, ChevronDown, Pencil, Trash2, ListChecks } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import {
   Card,
   CardContent,
@@ -44,9 +45,7 @@ export default async function QualifyingSettingsPage() {
       </Card>
 
       {questions.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No questions yet.
-        </div>
+        <EmptyState icon={ListChecks} title="No questions yet" />
       ) : (
         <div className="space-y-6">
           {sections.map((section) => {

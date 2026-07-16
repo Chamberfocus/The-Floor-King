@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CalendarClock, Check, Package } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
@@ -43,10 +44,11 @@ export default async function SamplesPage() {
       </PageHeader>
 
       {out.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          Nothing checked out right now. Check out samples from a customer&apos;s
-          file when they take some home.
-        </p>
+        <EmptyState
+          icon={Package}
+          title="Nothing checked out right now"
+          description="Check out samples from a customer's file when they take some home."
+        />
       ) : (
         <div className="space-y-2">
           {out.map((c) => {

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Trash2, Wallet } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { redirect } from "next/navigation";
 import {
   Card,
@@ -63,9 +64,7 @@ export default async function ExpensesPage() {
       </Card>
 
       {expenses.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No expenses recorded yet.
-        </div>
+        <EmptyState icon={Wallet} title="No expenses recorded yet" />
       ) : (
         <>
           {/* Phone: stacked cards */}

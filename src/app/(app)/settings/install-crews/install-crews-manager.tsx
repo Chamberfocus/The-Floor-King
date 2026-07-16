@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Plus, Pencil, Phone, Mail, X } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,10 +76,10 @@ export function InstallCrewsManager({
       )}
 
       {initial.length === 0 && !editing ? (
-        <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          No crews yet. Add your install crews — they&apos;ll show up when you
-          assign a crew on a job.
-        </p>
+        <EmptyState
+          title="No crews yet"
+          description="Add your install crews — they'll show up when you assign a crew on a job."
+        />
       ) : null}
 
       <div className="space-y-2">

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChevronUp, ChevronDown, Pencil, Trash2 } from "lucide-react";
+import { ChevronUp, ChevronDown, Pencil, Trash2, ListChecks } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
@@ -51,9 +52,11 @@ export default async function EstimateQuestionsSettingsPage() {
       </Card>
 
       {questions.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No questions yet — add one above (or run the estimate_questions migration to seed the carpet questionnaire).
-        </div>
+        <EmptyState
+          icon={ListChecks}
+          title="No questions yet"
+          description="Add one above (or run the estimate_questions migration to seed the carpet questionnaire)."
+        />
       ) : (
         <div className="space-y-6">
           {sections.map((section) => {

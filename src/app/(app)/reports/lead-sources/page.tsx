@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, BarChart3 } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import {
   Table,
   TableBody,
@@ -82,9 +83,7 @@ export default async function LeadSourcesReportPage({
       </div>
 
       {report.rows.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No leads created in this period.
-        </div>
+        <EmptyState icon={BarChart3} title="No leads created in this period" />
       ) : (
         <>
           {/* Phone: stacked cards */}

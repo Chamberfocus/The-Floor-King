@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Boxes, AlertTriangle, DollarSign, Tag } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import {
   Card,
   CardContent,
@@ -265,9 +266,11 @@ export default async function InventoryPage({
       ) : null}
 
       {items.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-          {q ? `No tracked stock matches "${q}".` : "No tracked stock yet — add a product below."}
-        </div>
+        <EmptyState
+          icon={Boxes}
+          title={q ? `No tracked stock matches "${q}".` : "No tracked stock yet"}
+          description={q ? undefined : "Add a product below to start tracking stock."}
+        />
       ) : (
         <>
         {/* Phone: cards */}

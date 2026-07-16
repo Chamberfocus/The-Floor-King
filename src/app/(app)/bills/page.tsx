@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Receipt, AlertTriangle, FileUp } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -63,11 +64,16 @@ export default async function BillsPage() {
       </div>
 
       {bills.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          <Receipt className="mx-auto mb-2 size-6 opacity-50" />
-          No bills yet. Open a purchase order and click <strong>Convert to bill</strong> to
-          create one.
-        </div>
+        <EmptyState
+          icon={Receipt}
+          title="No bills yet"
+          description={
+            <>
+              Open a purchase order and click{" "}
+              <strong>Convert to bill</strong> to create one.
+            </>
+          }
+        />
       ) : (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm">

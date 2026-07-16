@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, BarChart3 } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import {
   Card,
   CardContent,
@@ -70,10 +71,11 @@ export default async function ScorecardPage({
       </form>
 
       {jobs.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No completed jobs in this range yet. Once jobs are marked complete with
-          their real costs recorded, the estimated-vs-actual tally builds here.
-        </p>
+        <EmptyState
+          icon={BarChart3}
+          title="No completed jobs in this range yet"
+          description="Once jobs are marked complete with their real costs recorded, the estimated-vs-actual tally builds here."
+        />
       ) : (
         <>
           {/* Running tally */}

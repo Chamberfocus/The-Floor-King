@@ -10,7 +10,9 @@ import {
   Trash2,
   Sparkles,
   Ruler,
+  ListChecks,
 } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -874,10 +876,16 @@ export function Questionnaire({
 
   if (!questions.length) {
     return (
-      <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-        No estimate questions set up yet. Add them in{" "}
-        <span className="font-medium">Settings → Estimate questionnaire</span>.
-      </div>
+      <EmptyState
+        icon={ListChecks}
+        title="No estimate questions set up yet"
+        description={
+          <>
+            Add them in{" "}
+            <span className="font-medium">Settings → Estimate questionnaire</span>.
+          </>
+        }
+      />
     );
   }
 

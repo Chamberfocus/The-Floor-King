@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { FileText, ShoppingCart, Receipt, ArrowRight, Bookmark } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -43,15 +44,17 @@ export default async function SavedForLaterPage() {
       />
 
       {drafts.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center">
-          <Bookmark className="mx-auto mb-2 size-6 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            Nothing saved for later. When you&apos;re building an estimate, PO, or
-            invoice and need to step away, hit{" "}
-            <span className="font-medium">Save for later</span> and it&apos;ll
-            wait here.
-          </p>
-        </div>
+        <EmptyState
+          icon={Bookmark}
+          title="Nothing saved for later"
+          description={
+            <>
+              When you&apos;re building an estimate, PO, or invoice and need to
+              step away, hit <span className="font-medium">Save for later</span>{" "}
+              and it&apos;ll wait here.
+            </>
+          }
+        />
       ) : (
         <Card>
           <CardContent className="p-0">

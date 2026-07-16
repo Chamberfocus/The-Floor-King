@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { MapPin, CalendarDays, HardHat, ChevronDown, Archive } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import {
   Card,
   CardContent,
@@ -467,15 +468,18 @@ export default async function WarehousePage() {
       ) : null}
 
       {activeJobs.length === 0 && archivedJobs.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No active jobs need materials right now.
-        </div>
+        <EmptyState
+          icon={HardHat}
+          title="No active jobs need materials right now"
+        />
       ) : (
         <>
           {activeJobs.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Nothing to prep right now — staged jobs are in the archive below.
-            </div>
+            <EmptyState
+              icon={Archive}
+              title="Nothing to prep right now"
+              description="Staged jobs are in the archive below."
+            />
           ) : (
             <div className="space-y-4">{activeJobs.map(renderCard)}</div>
           )}

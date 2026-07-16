@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CalendarCheck, ChevronRight } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -145,9 +146,11 @@ export default async function InstallSchedulerPage() {
   const list = (
     <div className="space-y-8">
       {jobs.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No active jobs right now. Jobs appear here once a work order is created.
-        </div>
+        <EmptyState
+          icon={CalendarCheck}
+          title="No active jobs right now"
+          description="Jobs appear here once a work order is created."
+        />
       ) : null}
 
       {needsProps.length ? (

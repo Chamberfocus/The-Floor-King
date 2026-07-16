@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { GitBranch } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -7,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { requireProfile } from "@/lib/auth";
 import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
 import { AddStageForm } from "./add-stage-form";
@@ -50,9 +52,11 @@ export default async function StagesPage() {
       </Card>
 
       {stages.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No stages yet. Add your first one above.
-        </div>
+        <EmptyState
+          icon={GitBranch}
+          title="No stages yet"
+          description="Add your first one above."
+        />
       ) : (
         <StageList stages={stages} members={members} />
       )}

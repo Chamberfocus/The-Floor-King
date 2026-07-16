@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, ChevronUp, ChevronDown, Navigation, Car } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
@@ -76,9 +77,10 @@ export default async function DayRoutePage({
       </PageHeader>
 
       {route.stops.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No estimates scheduled for this rep on this day.
-        </div>
+        <EmptyState
+          icon={Navigation}
+          title="No estimates scheduled for this rep on this day"
+        />
       ) : (
         <div className="space-y-4">
           {embedUrl ? (
