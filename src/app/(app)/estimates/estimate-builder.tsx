@@ -14,7 +14,6 @@ import { formatMoney } from "@/lib/format";
 import {
   lineTotal,
   lineQty,
-  optionTotals,
   optionTotalsWithDiscount,
   priceFromMargin,
   marginPct,
@@ -33,6 +32,12 @@ import {
   isRollGoodCategory,
   isHardSurfaceCategory,
 } from "@/lib/types";
+import {
+  isAreaUnit,
+  normalizeUnit,
+  unitLabel,
+  UNIT_OPTIONS,
+} from "@/lib/units";
 import { saveEstimate } from "./actions";
 import { writeScopeDescription } from "./ai-actions";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
@@ -111,6 +116,15 @@ const SUBFLOOR_OPTIONS = [
 /** A subfloor line is underlayment priced by the sheet. */
 function isSubfloor(l: LineState): boolean {
   return l.category === "underlayment" && l.unit === "sheet";
+}
+
+/** A COUNT-priced line: billed by the each / bag / linear ft… (an explicit
+ *  quantity × per-unit price), NOT by measured area. Roll goods and hard surface
+ *  are always area-billed regardless of a stray unit string. */
+function isCountLine(l: LineState): boolean {
+  if (isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) return false;
+  if (isSubfloor(l)) return false;
+  return !isAreaUnit(l.unit);
 }
 
 // Typical material waste by category (%), used as a smart default on pick.
@@ -299,6 +313,14 @@ export function EstimateBuilder({
   // Estimate-wide gross margin. Lines without their own override follow this.
   const [overallMargin, setOverallMargin] = useState(
     estimate.target_margin != null ? String(estimate.target_margin) : "40",
+  );
+  // Whole-job discount (owner-applied). Shows in the owner totals; the customer
+  // only ever sees the discounted lump sum.
+  const [discountKind, setDiscountKind] = useState<"amount" | "percent">(
+    estimate.discount_kind === "percent" ? "percent" : "amount",
+  );
+  const [discountValue, setDiscountValue] = useState(
+    estimate.discount_value ? String(estimate.discount_value) : "",
   );
 
   const [options, setOptions] = useState<OptionState[]>(() => {
@@ -509,6 +531,31 @@ export function EstimateBuilder({
       ),
     );
 
+  // Switch a line's pricing unit. Area units (sq ft / sq yd) keep the area math;
+  // a count unit (each / bag / lnft…) flips the line to price by quantity × the
+  // per-unit rate, seeds a qty of 1, and drops any area waste %.
+  const setLineUnit = (oi: number, li: number, unitValue: string) =>
+    setOptions((prev) =>
+      prev.map((o, i) =>
+        i === oi
+          ? {
+              ...o,
+              lines: o.lines.map((l, j) => {
+                if (j !== li) return l;
+                if (isAreaUnit(unitValue)) {
+                  return {
+                    ...l,
+                    measure_unit: (unitValue === "sqyd" ? "sqyd" : "sqft") as MeasureUnit,
+                    unit: unitValue === "sqyd" ? "sq yd" : "sq ft",
+                  };
+                }
+                return { ...l, unit: unitValue, quantity: l.quantity || "1", waste_pct: "" };
+              }),
+            }
+          : o,
+      ),
+    );
+
   // Change the estimate-wide margin → re-price every line that doesn't have its
   // own override. Overridden lines keep their margin.
   const changeOverallMargin = (v: string) => {
@@ -612,20 +659,31 @@ export function EstimateBuilder({
       updateLine(oi, li, { product_id: "" });
       return;
     }
-    // The catalog rate is in the product's own unit. Carpet is quoted by the
-    // square yard, so for carpet we switch the line to sq yd and convert the
-    // rate (×9 if the catalog price was per sq ft) so the math stays correct.
-    const catalogUnit: MeasureUnit = (p.unit || "")
-      .toLowerCase()
-      .includes("yd")
+    // Respect the product's OWN unit. Count units (each / bag / linear ft…) price
+    // by quantity in that unit — no area, no ×9 conversion, no waste. Area units
+    // (sq ft / sq yd) keep the area math; carpet is quoted by the square yard, so
+    // its catalog rate converts ×9 if the catalog priced it per sq ft.
+    const catUnit = normalizeUnit(p.unit); // "sqft" | "sqyd" | "bag" | …
+    const count = !isAreaUnit(p.unit);
+    const measure_unit: MeasureUnit = isRollGoodCategory(p.category)
       ? "sqyd"
-      : "sqft";
-    // Roll goods (carpet + sheet vinyl) are quoted by the square yard; hard
-    // surface follows its catalog unit (square foot).
-    const measure_unit: MeasureUnit =
-      isRollGoodCategory(p.category) ? "sqyd" : catalogUnit;
-    const factor =
-      measure_unit === catalogUnit ? 1 : measure_unit === "sqyd" ? 9 : 1 / 9;
+      : catUnit === "sqyd"
+        ? "sqyd"
+        : "sqft";
+    // Convert the catalog rate into the line's area billing unit (area only).
+    const factor = count
+      ? 1
+      : measure_unit === (catUnit || "sqft")
+        ? 1
+        : measure_unit === "sqyd"
+          ? 9
+          : 1 / 9;
+    // Count lines display in the product's own unit; area lines in sq ft / sq yd.
+    const lineUnit = count
+      ? p.unit || "each"
+      : measure_unit === "sqyd"
+        ? "sq yd"
+        : "sq ft";
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
 
     setOptions((prev) =>
@@ -648,13 +706,19 @@ export function EstimateBuilder({
                   color: p.color ?? l.color,
                   item_no: p.sku ?? l.item_no,
                   measure_unit,
+                  unit: lineUnit,
+                  // Count items price by quantity — default to 1 so it prices
+                  // immediately, and carry no area waste %.
+                  quantity: count ? l.quantity || "1" : l.quantity,
                   // Only suggest waste when the quantity is area-driven (no
                   // explicit qty) — avoids double-counting a qty that already
-                  // includes waste (e.g. from the questionnaire).
-                  waste_pct: l.quantity
-                    ? l.waste_pct
-                    : l.waste_pct ||
-                      (WASTE_BY_CATEGORY[p.category] ? String(WASTE_BY_CATEGORY[p.category]) : ""),
+                  // includes waste (e.g. from the questionnaire). Never on count.
+                  waste_pct: count
+                    ? ""
+                    : l.quantity
+                      ? l.waste_pct
+                      : l.waste_pct ||
+                        (WASTE_BY_CATEGORY[p.category] ? String(WASTE_BY_CATEGORY[p.category]) : ""),
                   description: l.description || p.name,
                 };
                 return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin))) };
@@ -673,11 +737,9 @@ export function EstimateBuilder({
   // "Use once": a trim / product typed in the picker that isn't in the catalog,
   // dropped onto THIS estimate line only (no product_id, nothing saved).
   const useOnceProduct = (oi: number, li: number, input: CustomProductInput) => {
-    const measure_unit: MeasureUnit = (input.unit || "")
-      .toLowerCase()
-      .includes("yd")
-      ? "sqyd"
-      : "sqft";
+    const catUnit = normalizeUnit(input.unit);
+    const count = !isAreaUnit(input.unit);
+    const measure_unit: MeasureUnit = catUnit === "sqyd" ? "sqyd" : "sqft";
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
     setOptions((prev) =>
       prev.map((o, i) =>
@@ -698,6 +760,9 @@ export function EstimateBuilder({
                   item_no: input.sku || l.item_no,
                   unit: input.unit || l.unit,
                   measure_unit,
+                  // Count items price by quantity — default to 1, no area waste.
+                  quantity: count ? l.quantity || "1" : l.quantity,
+                  waste_pct: count ? "" : l.waste_pct,
                   description: input.name || l.description,
                 };
                 return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin))) };
@@ -749,6 +814,8 @@ export function EstimateBuilder({
       })),
     })),
     target_margin: num(overallMargin) || null,
+    discount_kind: discountKind,
+    discount_value: num(discountValue) || 0,
   });
 
   const save = (thenView: boolean) =>
@@ -825,8 +892,8 @@ export function EstimateBuilder({
   const grand = optionTotalsWithDiscount(
     options.flatMap((o) => o.lines.map(toCalc)),
     taxRate,
-    estimate.discount_kind,
-    estimate.discount_value,
+    discountKind,
+    discountValue,
   );
   const grandCost = options.flatMap((o) => o.lines).reduce((s, l) => s + lineOurCost(l), 0);
   const grandMargin = marginPct(grand.subtotal, grandCost);
@@ -953,7 +1020,14 @@ export function EstimateBuilder({
             waste_pct: l.waste_pct,
             quantity: l.quantity,
           }));
-          const totals = optionTotals(calcLines, taxRate);
+          const totals = optionTotalsWithDiscount(
+            calcLines,
+            taxRate,
+            discountKind,
+            discountValue,
+          );
+          // Revenue after the discount (pre-tax) drives the true profit + margin.
+          const netRevenue = totals.subtotal - totals.discount;
           // Our cost & margin for this option (internal confirmation).
           const optionCost = option.lines.reduce(
             (s, l) => s + lineOurCost(l),
@@ -967,9 +1041,9 @@ export function EstimateBuilder({
             },
             { mat: 0, labor: 0 },
           );
-          const optionProfit = totals.subtotal - optionCost;
+          const optionProfit = netRevenue - optionCost;
           const optionMargin =
-            totals.subtotal > 0 ? (optionProfit / totals.subtotal) * 100 : 0;
+            netRevenue > 0 ? (optionProfit / netRevenue) * 100 : 0;
 
           return (
             <Card key={option.key}>
@@ -1361,73 +1435,128 @@ export function EstimateBuilder({
                           </div>
                           </>
                           ) : null}
-                          <div className="flex items-end gap-2">
-                            <LabeledNumber
-                              label="Sq ft"
-                              value={line.sqft}
-                              onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
-                            />
-                            <AreaCalculator
-                              triggerLabel="Add up areas"
-                              triggerVariant="ghost"
-                              triggerClassName="h-9 px-2 text-xs"
-                              title={`Square footage${line.room ? ` — ${line.room}` : ""}`}
-                              initialLabel={line.room}
-                              onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
-                            />
-                          </div>
-                          {isRollGoodCategory(line.category) ? (
-                            <div className="pb-2 text-xs text-muted-foreground">
-                              {(num(line.sqft) / 9).toFixed(1)} sq yd
-                            </div>
-                          ) : null}
-                          {isHardSurfaceCategory(line.category) ? (
-                            <div className="flex items-end gap-2">
-                              <LabeledNumber
-                                label="Sq ft / box"
-                                width="w-24"
-                                value={line.sqft_per_box}
-                                onChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
-                              />
-                              {num(line.sqft_per_box) > 0 && num(line.sqft) > 0 ? (
-                                <div className="pb-2 text-xs font-medium text-muted-foreground">
-                                  = {Math.ceil(num(line.sqft) / num(line.sqft_per_box))} cartons
+                          {/* AREA-billed inputs — carpet / hard surface / general
+                              area lines. Hidden entirely for count items. */}
+                          {!isCountLine(line) ? (
+                            <>
+                              <div className="flex items-end gap-2">
+                                <LabeledNumber
+                                  label="Sq ft"
+                                  value={line.sqft}
+                                  onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
+                                />
+                                <AreaCalculator
+                                  triggerLabel="Add up areas"
+                                  triggerVariant="ghost"
+                                  triggerClassName="h-9 px-2 text-xs"
+                                  title={`Square footage${line.room ? ` — ${line.room}` : ""}`}
+                                  initialLabel={line.room}
+                                  onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
+                                />
+                              </div>
+                              {isRollGoodCategory(line.category) ? (
+                                <div className="pb-2 text-xs text-muted-foreground">
+                                  {(num(line.sqft) / 9).toFixed(1)} sq yd
                                 </div>
                               ) : null}
+                              {isHardSurfaceCategory(line.category) ? (
+                                <div className="flex items-end gap-2">
+                                  <LabeledNumber
+                                    label="Sq ft / box"
+                                    width="w-24"
+                                    value={line.sqft_per_box}
+                                    onChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
+                                  />
+                                  {num(line.sqft_per_box) > 0 && num(line.sqft) > 0 ? (
+                                    <div className="pb-2 text-xs font-medium text-muted-foreground">
+                                      = {Math.ceil(num(line.sqft) / num(line.sqft_per_box))} cartons
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : null}
+
+                          {/* COUNT-billed input — the quantity IS the count (bags,
+                              each, linear ft…). Big, obvious, in the item's unit. */}
+                          {isCountLine(line) ? (
+                            <div>
+                              <label className="mb-1 block text-xs text-muted-foreground">
+                                How many {unitLabel(line.unit) || "units"}?
+                              </label>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                inputMode="decimal"
+                                value={line.quantity}
+                                onChange={(e) => updateLine(oi, li, { quantity: e.target.value })}
+                                placeholder={unitLabel(line.unit) || "qty"}
+                                className={cn(inputSm, "w-28")}
+                              />
                             </div>
                           ) : null}
-                          <LabeledNumber
-                            label={`Qty${line.unit ? ` (${line.unit})` : ""}`}
-                            value={line.quantity}
-                            width="w-20"
-                            onChange={(v) => updateLine(oi, li, { quantity: v })}
-                          />
-                          <div>
-                            <label className="mb-1 block text-xs text-muted-foreground">
-                              Price per
-                            </label>
-                            <SegmentedField
-                              size="sm"
-                              value={line.measure_unit}
-                              onChange={(v) =>
-                                updateLine(oi, li, {
-                                  measure_unit: v as MeasureUnit,
-                                })
-                              }
-                              options={[
-                                { value: "sqft", label: "sq ft" },
-                                { value: "sqyd", label: "sq yd" },
-                              ]}
-                            />
-                          </div>
-                          <LabeledNumber
-                            label="Waste %"
-                            value={line.waste_pct}
-                            width="w-20"
-                            onChange={(v) =>
-                              updateLine(oi, li, { waste_pct: v })
-                            }
-                          />
+
+                          {/* Pricing basis. Roll goods / hard surface stay locked
+                              to area (carpet needs sq yd); everything else gets the
+                              full unit picker so bag / each / lnft is one tap. */}
+                          {isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category) ? (
+                            <div>
+                              <label className="mb-1 block text-xs text-muted-foreground">
+                                Price per
+                              </label>
+                              <SegmentedField
+                                size="sm"
+                                value={line.measure_unit}
+                                onChange={(v) => updateLine(oi, li, { measure_unit: v as MeasureUnit })}
+                                options={[
+                                  { value: "sqft", label: "sq ft" },
+                                  { value: "sqyd", label: "sq yd" },
+                                ]}
+                              />
+                            </div>
+                          ) : (
+                            <div>
+                              <label className="mb-1 block text-xs text-muted-foreground">
+                                Priced by
+                              </label>
+                              <select
+                                value={isCountLine(line) ? normalizeUnit(line.unit) : line.measure_unit}
+                                onChange={(e) => setLineUnit(oi, li, e.target.value)}
+                                className={cn(inputSm, "w-32")}
+                                aria-label="Pricing unit"
+                              >
+                                <optgroup label="By area">
+                                  {UNIT_OPTIONS.filter((u) => u.kind === "area").map((u) => (
+                                    <option key={u.value} value={u.value}>{u.label}</option>
+                                  ))}
+                                </optgroup>
+                                <optgroup label="By the item">
+                                  {UNIT_OPTIONS.filter((u) => u.kind === "count").map((u) => (
+                                    <option key={u.value} value={u.value}>{u.label}</option>
+                                  ))}
+                                </optgroup>
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Manual qty override + waste — area lines only. */}
+                          {!isCountLine(line) ? (
+                            <>
+                              <LabeledNumber
+                                label={`Qty${line.unit ? ` (${line.unit})` : ""}`}
+                                value={line.quantity}
+                                width="w-20"
+                                onChange={(v) => updateLine(oi, li, { quantity: v })}
+                              />
+                              <LabeledNumber
+                                label="Waste %"
+                                value={line.waste_pct}
+                                width="w-20"
+                                onChange={(v) => updateLine(oi, li, { waste_pct: v })}
+                              />
+                            </>
+                          ) : null}
                         </>
                       ) : null}
 
@@ -1624,9 +1753,53 @@ export function EstimateBuilder({
                 {/* Option totals */}
                 <div className="ml-auto w-full max-w-xs space-y-1 border-t pt-3 text-sm">
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Subtotal</span>
+                    <span>Retail (subtotal)</span>
                     <span>{formatMoney(totals.subtotal)}</span>
                   </div>
+                  {/* Whole-job discount — owner only; the customer just sees the
+                      discounted total. Editing here applies to the estimate. */}
+                  {oi === 0 ? (
+                    <div className="flex items-center justify-between gap-2 py-0.5">
+                      <span className="text-muted-foreground">Discount</span>
+                      <div className="flex items-center gap-1">
+                        <div className="inline-flex overflow-hidden rounded-md border text-xs">
+                          <button
+                            type="button"
+                            onClick={() => setDiscountKind("amount")}
+                            className={cn("px-1.5 py-1", discountKind === "amount" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                          >
+                            $
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDiscountKind("percent")}
+                            className={cn("px-1.5 py-1", discountKind === "percent" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                          >
+                            %
+                          </button>
+                        </div>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          inputMode="decimal"
+                          value={discountValue}
+                          onChange={(e) => setDiscountValue(e.target.value)}
+                          placeholder="0"
+                          className={cn(inputSm, "w-16 text-right")}
+                          aria-label="Discount value"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                  {totals.discount > 0 ? (
+                    <div className="flex justify-between text-emerald-600">
+                      <span>
+                        Discount{discountKind === "percent" ? ` (${num(discountValue)}%)` : ""}
+                      </span>
+                      <span>−{formatMoney(totals.discount)}</span>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between text-muted-foreground">
                     <span>Tax ({taxRate || 0}%)</span>
                     <span>{formatMoney(totals.tax)}</span>
@@ -1729,6 +1902,8 @@ export function EstimateBuilder({
         jobDescription={jobDescription}
         notes={notes}
         taxRate={taxRate}
+        discountKind={discountKind}
+        discountValue={discountValue}
         options={options}
       />
     ) : null}
@@ -1745,6 +1920,8 @@ function EstimatePrintDoc({
   jobDescription,
   notes,
   taxRate,
+  discountKind,
+  discountValue,
   options,
 }: {
   org: OrgSettings;
@@ -1754,6 +1931,8 @@ function EstimatePrintDoc({
   jobDescription: string;
   notes: string;
   taxRate: string;
+  discountKind: "amount" | "percent";
+  discountValue: string;
   options: OptionState[];
 }) {
   const detailed = presentation === "detailed";
@@ -1797,7 +1976,12 @@ function EstimatePrintDoc({
       ) : null}
 
       {options.map((o, oi) => {
-        const totals = optionTotals(o.lines.map(calc), taxRate);
+        const totals = optionTotalsWithDiscount(
+          o.lines.map(calc),
+          taxRate,
+          discountKind,
+          discountValue,
+        );
         return (
           <div key={oi} className="mb-5">
             {options.length > 1 ? (
@@ -1835,6 +2019,12 @@ function EstimatePrintDoc({
                     <span className="text-gray-600">Subtotal</span>
                     <span>{formatMoney(totals.subtotal)}</span>
                   </div>
+                  {totals.discount > 0 ? (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Discount</span>
+                      <span>−{formatMoney(totals.discount)}</span>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between">
                     <span className="text-gray-600">Tax</span>
                     <span>{formatMoney(totals.tax)}</span>

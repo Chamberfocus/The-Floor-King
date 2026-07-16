@@ -5,6 +5,13 @@ import { toast } from "sonner";
 import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import {
@@ -14,6 +21,7 @@ import {
 } from "@/lib/types";
 import { createProductInline, searchCatalogProducts } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import { UNIT_OPTIONS, defaultUnitForCategory, unitLabel } from "@/lib/units";
 
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -145,6 +153,7 @@ export function ProductPicker({
         }
       } else {
         setAdding(true); // highlighted the "Add to catalog" row
+        setOpen(false);
       }
     } else if (e.key === "Escape") {
       setOpen(false);
@@ -198,33 +207,13 @@ export function ProductPicker({
       {open ? (
         <div
           className={cn(
-            "absolute z-30 mt-1 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain rounded-md border bg-popover shadow-lg",
-            fullWidth ? "w-full" : "w-[min(24rem,calc(100vw-2rem))]",
+            "absolute z-30 mt-1 max-h-[min(70vh,32rem)] overflow-y-auto overscroll-contain rounded-md border bg-popover shadow-lg",
+            fullWidth ? "w-full" : "w-[min(32rem,calc(100vw-2rem))]",
           )}
         >
-          {adding ? (
-            <AddProductForm
-              initialName={q}
-              initialCategory={defaultCategory}
-              onCancel={() => setAdding(false)}
-              onCreated={(p) => {
-                onCreated(p);
-                setOpen(false);
-                setAdding(false);
-              }}
-              onUseOnce={
-                onUseOnce
-                  ? (input) => {
-                      onUseOnce(input);
-                      setOpen(false);
-                      setAdding(false);
-                    }
-                  : undefined
-              }
-            />
-          ) : (
+          {
             <>
-              <div ref={listRef} className="max-h-64 overflow-y-auto py-1">
+              <div ref={listRef} className="max-h-80 overflow-y-auto py-1">
                 {matches.length === 0 ? (
                   <p className="px-3 py-3 text-sm text-muted-foreground">
                     {loading ? "Searching…" : "No match in the catalog."}
@@ -315,7 +304,10 @@ export function ProductPicker({
                 <button
                   type="button"
                   onMouseEnter={() => setActiveIndex(matches.length)}
-                  onClick={() => setAdding(true)}
+                  onClick={() => {
+                    setAdding(true);
+                    setOpen(false);
+                  }}
                   className={cn(
                     "flex w-full items-center gap-2 rounded px-2 py-2 text-sm font-medium text-primary",
                     activeIndex === matches.length
@@ -328,9 +320,50 @@ export function ProductPicker({
                 </button>
               </div>
             </>
-          )}
+          }
         </div>
       ) : null}
+
+      {/* Add a product — roomy modal so every field (unit, cost, price) is clear. */}
+      <Dialog
+        open={adding}
+        onOpenChange={(o) => {
+          setAdding(o);
+          if (!o) setOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add a product</DialogTitle>
+            <DialogDescription>
+              Saved to your catalog so it&apos;s reusable — with its own unit,
+              cost, and price. Pick the unit carefully: it drives the pricing math.
+            </DialogDescription>
+          </DialogHeader>
+          <AddProductForm
+            initialName={q}
+            initialCategory={defaultCategory}
+            onCancel={() => {
+              setAdding(false);
+              setOpen(false);
+            }}
+            onCreated={(p) => {
+              onCreated(p);
+              setOpen(false);
+              setAdding(false);
+            }}
+            onUseOnce={
+              onUseOnce
+                ? (input) => {
+                    onUseOnce(input);
+                    setOpen(false);
+                    setAdding(false);
+                  }
+                : undefined
+            }
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -349,18 +382,31 @@ function AddProductForm({
   onUseOnce?: (input: CustomProductInput) => void;
 }) {
   const [saving, startSave] = useTransition();
+  const [unitTouched, setUnitTouched] = useState(false);
   const [f, setF] = useState({
     name: initialName,
     manufacturer: "",
     style: "",
     color: "",
     category: initialCategory || "lvp",
-    unit: "sqft",
+    unit: defaultUnitForCategory(initialCategory || "lvp"),
     sku: "",
     material_rate: "",
     labor_rate: "",
   });
   const set = (patch: Partial<typeof f>) => setF((p) => ({ ...p, ...patch }));
+  // Changing the category re-suggests the unit — until the user picks one
+  // themselves, at which point their choice sticks.
+  const setCategory = (category: string) =>
+    setF((p) => ({
+      ...p,
+      category,
+      unit: unitTouched ? p.unit : defaultUnitForCategory(category),
+    }));
+  const pickUnit = (unit: string) => {
+    setUnitTouched(true);
+    set({ unit });
+  };
 
   const save = () =>
     startSave(async () => {
@@ -385,96 +431,171 @@ function AddProductForm({
     onUseOnce?.(f);
   };
 
+  const rateLbl = `$ / ${unitLabel(f.unit) || "unit"}`;
+
   return (
-    <div className="space-y-2 p-3">
-      <p className="text-sm font-medium">Add a product</p>
-      <Input
-        autoFocus
-        value={f.name}
-        onChange={(e) => set({ name: e.target.value })}
-        placeholder="Product name *"
-        className="h-9"
-      />
+    <div className="space-y-3">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+          Product name *
+        </label>
+        <Input
+          autoFocus
+          value={f.name}
+          onChange={(e) => set({ name: e.target.value })}
+          placeholder="e.g. Mapei self-leveler"
+          className="h-10"
+        />
+      </div>
+
       <div className="grid grid-cols-2 gap-2">
         <Input
           value={f.manufacturer}
           onChange={(e) => set({ manufacturer: e.target.value })}
           placeholder="Manufacturer"
-          className="h-9"
+          className="h-10"
         />
         <Input
           value={f.style}
           onChange={(e) => set({ style: e.target.value })}
           placeholder="Style"
-          className="h-9"
+          className="h-10"
         />
         <Input
           value={f.color}
           onChange={(e) => set({ color: e.target.value })}
           placeholder="Color"
-          className="h-9"
+          className="h-10"
         />
         <Input
           value={f.sku}
           onChange={(e) => set({ sku: e.target.value })}
           placeholder="SKU / item #"
-          className="h-9"
-        />
-        <div className="col-span-2">
-          <SegmentedField
-            size="sm"
-            value={f.category}
-            onChange={(v) => set({ category: v })}
-            options={PRODUCT_CATEGORY_ORDER.map((c) => ({
-              value: c,
-              label: PRODUCT_CATEGORY_LABELS[c],
-            }))}
-          />
-        </div>
-        <Input
-          value={f.unit}
-          onChange={(e) => set({ unit: e.target.value })}
-          placeholder="Unit (sqft)"
-          className="h-9"
-        />
-        <Input
-          type="number"
-          step="0.01"
-          min="0"
-          value={f.material_rate}
-          onChange={(e) => set({ material_rate: e.target.value })}
-          placeholder="Material $/unit"
-          className="h-9"
-        />
-        <Input
-          type="number"
-          step="0.01"
-          min="0"
-          value={f.labor_rate}
-          onChange={(e) => set({ labor_rate: e.target.value })}
-          placeholder="Labor $/unit"
-          className="h-9"
+          className="h-10"
         />
       </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+          Category
+        </label>
+        <SegmentedField
+          size="sm"
+          value={f.category}
+          onChange={setCategory}
+          options={PRODUCT_CATEGORY_ORDER.map((c) => ({
+            value: c,
+            label: PRODUCT_CATEGORY_LABELS[c],
+          }))}
+        />
+      </div>
+
+      {/* Unit — the one thing you can't get wrong. Prominent, tap to choose. */}
+      <div className="rounded-lg border bg-muted/30 p-2.5">
+        <label className="mb-1.5 block text-xs font-semibold">
+          Sold by <span className="text-destructive">*</span>
+          <span className="ml-1 font-normal text-muted-foreground">
+            — how this item is priced
+          </span>
+        </label>
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="w-14 shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
+              Area
+            </span>
+            {UNIT_OPTIONS.filter((u) => u.kind === "area").map((u) => (
+              <UnitChip key={u.value} label={u.label} active={f.unit === u.value} onClick={() => pickUnit(u.value)} />
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="w-14 shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
+              By item
+            </span>
+            {UNIT_OPTIONS.filter((u) => u.kind === "count").map((u) => (
+              <UnitChip key={u.value} label={u.label} active={f.unit === u.value} onClick={() => pickUnit(u.value)} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            Our cost ({rateLbl})
+          </label>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            inputMode="decimal"
+            value={f.material_rate}
+            onChange={(e) => set({ material_rate: e.target.value })}
+            placeholder="cost"
+            className="h-10"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            Labor ({rateLbl}) — optional
+          </label>
+          <Input
+            type="number"
+            step="0.01"
+            min="0"
+            inputMode="decimal"
+            value={f.labor_rate}
+            onChange={(e) => set({ labor_rate: e.target.value })}
+            placeholder="labor"
+            className="h-10"
+          />
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+        <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
         {onUseOnce ? (
-          <Button type="button" variant="outline" size="sm" onClick={useOnce} disabled={saving}>
+          <Button type="button" variant="outline" onClick={useOnce} disabled={saving}>
             Use once
           </Button>
         ) : null}
-        <Button type="button" size="sm" onClick={save} disabled={saving}>
+        <Button type="button" onClick={save} disabled={saving}>
           {saving ? "Adding…" : "Add to catalog"}
         </Button>
       </div>
       {onUseOnce ? (
         <p className="text-[11px] text-muted-foreground">
           <strong>Use once</strong> puts it on this estimate only.{" "}
-          <strong>Add to catalog</strong> also saves it for next time.
+          <strong>Add to catalog</strong> also saves it for next time (name, unit,
+          cost & price) so it&apos;s reusable.
         </p>
       ) : null}
     </div>
+  );
+}
+
+function UnitChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-md border px-2.5 py-1 text-sm font-medium transition-colors",
+        active
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-input hover:bg-muted",
+      )}
+    >
+      {label}
+    </button>
   );
 }

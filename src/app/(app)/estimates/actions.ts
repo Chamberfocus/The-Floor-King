@@ -96,6 +96,8 @@ export async function saveEstimate(
       notes: input.notes || null,
       job_description: input.job_description || null,
       target_margin: input.target_margin != null && input.target_margin !== "" ? num(input.target_margin) : null,
+      discount_kind: input.discount_kind === "percent" ? "percent" : "amount",
+      discount_value: num(input.discount_value),
     })
     .eq("id", estimateId);
   if (updateError) return { error: updateError.message };

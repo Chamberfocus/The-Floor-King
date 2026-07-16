@@ -222,6 +222,8 @@ export interface SaveEstimateInput {
   job_description: string;
   options: SaveOptionInput[];
   target_margin?: string | number | null;
+  discount_kind?: "amount" | "percent" | string | null;
+  discount_value?: string | number | null;
 }
 
 // --- Wizard submission (one line per room + add-on lines) -------------------
