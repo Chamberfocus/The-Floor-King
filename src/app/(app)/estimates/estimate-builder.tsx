@@ -420,6 +420,22 @@ export function EstimateBuilder({
     addLine(oi, false);
     updateLine(oi, li, { room: room.name, sqft: room.sqft });
   };
+  // Drop a PREP line tagged to a room (moisture, skim coat, subfloor prep…),
+  // priced by the room's area — so per-room prep flows to the work order under
+  // that room. It's a labor line by default; add the material (e.g. a bag of
+  // self-leveler) via the material search when it's a bag good.
+  const addPrepForRoom = (oi: number, room: { name: string; sqft: string }) => {
+    const li = options[oi]?.lines.length ?? 0;
+    addLine(oi, true);
+    updateLine(oi, li, {
+      room: room.name,
+      description: "Floor prep",
+      unit: "sq ft",
+      measure_unit: "sqft",
+      sqft: room.sqft,
+      quantity: "",
+    });
+  };
 
   // --- New-builder UI state -------------------------------------------------
   // One option shown at a time (tabs), and an owner ⇄ customer preview flip.
@@ -745,6 +761,9 @@ export function EstimateBuilder({
           key: laborKey,
           category: "labor",
           line_type: "mat_labor",
+          // Inherit the prep material's room so per-room prep flows to the work
+          // order under the same room (no separate room entry needed).
+          room: src.room,
           description: src.description ? `${src.description} — labor` : "Self-leveling labor",
           unit: "sq ft",
           measure_unit: "sqft",
@@ -1629,6 +1648,16 @@ export function EstimateBuilder({
                         title="Add a flooring material for this room (area pre-filled)"
                       >
                         <Plus className="size-3.5" /> Flooring
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9"
+                        onClick={() => addPrepForRoom(oi, room)}
+                        title="Add a prep line for this room (moisture, skim coat…) — flows to the work order under this room"
+                      >
+                        <Plus className="size-3.5" /> Prep
                       </Button>
                       <Button
                         type="button"
