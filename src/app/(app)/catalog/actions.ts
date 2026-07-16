@@ -43,6 +43,10 @@ function readFields(formData: FormData) {
     // carpet broadloom width.
     sqft_per_box: (() => { const n = parseFloat(str(formData.get("sqft_per_box"))); return Number.isFinite(n) && n > 0 ? n : null; })(),
     roll_width_ft: (() => { const n = parseFloat(str(formData.get("roll_width_ft"))); return Number.isFinite(n) && n > 0 ? n : null; })(),
+    // Prep goods: SF a bag covers, and the reference pour thickness that coverage
+    // is stated at (blank = flat coverage that doesn't scale with thickness).
+    coverage_sqft: (() => { const n = parseFloat(str(formData.get("coverage_sqft"))); return Number.isFinite(n) && n > 0 ? n : null; })(),
+    coverage_thickness_in: (() => { const n = parseFloat(str(formData.get("coverage_thickness_in"))); return Number.isFinite(n) && n > 0 ? n : null; })(),
   };
 }
 
@@ -56,8 +60,8 @@ export async function createProduct(
   const supabase = await createClient();
   let { error } = await supabase.from("products").insert(fields);
   if (error) {
-    // Fallback for before the catalog vendor-unit migration (0099) is run.
-    const { sqft_per_box: _s, roll_width_ft: _r, ...legacy } = fields;
+    // Fallback for before the vendor-unit (0099) / prep-coverage (0106) columns.
+    const { sqft_per_box: _s, roll_width_ft: _r, coverage_sqft: _cs, coverage_thickness_in: _ct, ...legacy } = fields;
     ({ error } = await supabase.from("products").insert(legacy));
   }
   if (error) return { error: error.message };
@@ -80,6 +84,8 @@ export async function createProductInline(input: {
   manufacturer?: string;
   style?: string;
   color?: string;
+  coverage_sqft?: number | string | null;
+  coverage_thickness_in?: number | string | null;
 }): Promise<{ error: string | null; product?: Product }> {
   const name = input.name?.trim();
   if (!name) return { error: "A product name is required." };
@@ -98,6 +104,10 @@ export async function createProductInline(input: {
     const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
     return Number.isFinite(n) ? n : 0;
   };
+  const numOrNull = (v: number | string | null | undefined) => {
+    const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
 
   let supabase;
   try {
@@ -105,21 +115,25 @@ export async function createProductInline(input: {
   } catch {
     return { error: "Catalog isn't configured on the server." };
   }
-  const { data, error } = await supabase
-    .from("products")
-    .insert({
-      name,
-      category: (input.category || "other") as ProductCategory,
-      unit: input.unit?.trim() || "sqft",
-      material_rate: numOr0(input.material_rate),
-      labor_rate: numOr0(input.labor_rate),
-      sku: input.sku?.trim() || null,
-      manufacturer: input.manufacturer?.trim() || null,
-      style: input.style?.trim() || null,
-      color: input.color?.trim() || null,
-    })
-    .select("*")
-    .single();
+  const row = {
+    name,
+    category: (input.category || "other") as ProductCategory,
+    unit: input.unit?.trim() || "sqft",
+    material_rate: numOr0(input.material_rate),
+    labor_rate: numOr0(input.labor_rate),
+    sku: input.sku?.trim() || null,
+    manufacturer: input.manufacturer?.trim() || null,
+    style: input.style?.trim() || null,
+    color: input.color?.trim() || null,
+    coverage_sqft: numOrNull(input.coverage_sqft),
+    coverage_thickness_in: numOrNull(input.coverage_thickness_in),
+  };
+  let { data, error } = await supabase.from("products").insert(row).select("*").single();
+  if (error) {
+    // Fallback for before the prep-coverage migration (0106) is run.
+    const { coverage_sqft: _cs, coverage_thickness_in: _ct, ...legacy } = row;
+    ({ data, error } = await supabase.from("products").insert(legacy).select("*").single());
+  }
   if (error) return { error: error.message };
 
   revalidatePath("/catalog");
@@ -142,8 +156,8 @@ export async function updateProduct(
     .update({ ...fields, active })
     .eq("id", id);
   if (error) {
-    // Fallback for before the catalog vendor-unit migration (0099) is run.
-    const { sqft_per_box: _s, roll_width_ft: _r, ...legacy } = fields;
+    // Fallback for before the vendor-unit (0099) / prep-coverage (0106) columns.
+    const { sqft_per_box: _s, roll_width_ft: _r, coverage_sqft: _cs, coverage_thickness_in: _ct, ...legacy } = fields;
     ({ error } = await supabase
       .from("products")
       .update({ ...legacy, active })

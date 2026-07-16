@@ -490,6 +490,8 @@ export interface Product {
   clearance_price: number | null;
   sqft_per_box?: number | null; // hard surface: coverage per carton (vendor unit)
   roll_width_ft?: number | null; // carpet: broadloom roll width
+  coverage_sqft?: number | null; // prep goods: SF a bag/unit covers (at ref thickness)
+  coverage_thickness_in?: number | null; // reference pour thickness; null = flat coverage
   // Accessory provenance — set on trim items that belong to an accessory program.
   accessory_program_id?: string | null;
   accessory_type_id?: string | null;
@@ -644,6 +646,10 @@ export interface EstimateLineItem {
   sqft_per_box?: number | null; // hard surface: coverage per carton → carton count
   is_fill?: boolean; // carpet: a fill/seam piece (extra cut off the roll for an area)
   is_optional?: boolean; // an optional add-on within its option (owner-side marker)
+  coverage_sqft?: number | null; // prep: SF per bag/unit at the reference thickness (snapshot)
+  coverage_thickness_in?: number | null; // prep: reference thickness; null = flat coverage
+  prep_thickness_in?: number | null; // prep: the pour thickness the bag calc used
+  prep_key?: string | null; // links a prep material line to its auto-populated labor line
 }
 
 export interface EstimateOption {

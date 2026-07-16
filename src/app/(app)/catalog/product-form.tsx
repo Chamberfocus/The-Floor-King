@@ -129,6 +129,39 @@ export function ProductForm({
         </div>
 
         <div className="space-y-2">
+          <Label htmlFor="coverage_sqft">Coverage — SF / bag (prep goods)</Label>
+          <Input
+            id="coverage_sqft"
+            name="coverage_sqft"
+            type="number"
+            step="0.01"
+            min="0"
+            defaultValue={product?.coverage_sqft ?? ""}
+            placeholder="e.g. 28"
+          />
+          <p className="text-xs text-muted-foreground">
+            Self-leveler / patch: SF a bag covers — the estimate calculator sizes
+            bags from area &amp; thickness.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="coverage_thickness_in">…at thickness (in)</Label>
+          <Input
+            id="coverage_thickness_in"
+            name="coverage_thickness_in"
+            type="number"
+            step="0.0001"
+            min="0"
+            defaultValue={product?.coverage_thickness_in ?? ""}
+            placeholder='e.g. 0.25 for 1/4"'
+          />
+          <p className="text-xs text-muted-foreground">
+            The thickness that coverage is stated at. Leave blank for flat coverage
+            (primers / adhesives) that doesn&apos;t scale with thickness.
+          </p>
+        </div>
+
+        <div className="space-y-2">
           <Label htmlFor="sku">SKU / item # (optional)</Label>
           <Input id="sku" name="sku" defaultValue={product?.sku ?? ""} />
         </div>

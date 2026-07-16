@@ -2,7 +2,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extractPriceList } from "@/lib/extract";
 import { PRODUCT_CATEGORY_ORDER, type ProductCategory } from "@/lib/types";
-import { inferUnit } from "@/lib/units";
+import { inferUnit, parseCoverage } from "@/lib/units";
 
 /** Absolute base URL for the app to call its own API routes. */
 export function internalBaseUrl(): string {
@@ -65,6 +65,7 @@ async function insertProducts(
       style: r.style || "",
       color: r.color || "",
       notes: r.notes || "",
+      ...(parseCoverage(r.name) ?? {}),
     }));
   if (!items.length) return 0;
 

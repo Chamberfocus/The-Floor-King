@@ -21,8 +21,8 @@ import {
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
 import {
-  LINE_TYPE_LABELS,
   type Estimate,
+  type EstimateLineItem,
   type EstimatePresentation,
   type LineType,
   type MeasureUnit,
@@ -32,12 +32,21 @@ import {
   isRollGoodCategory,
   isHardSurfaceCategory,
 } from "@/lib/types";
+import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import {
   isAreaUnit,
   normalizeUnit,
   unitLabel,
   UNIT_OPTIONS,
 } from "@/lib/units";
+import {
+  bagsNeeded,
+  coverageAt,
+  hasCoverage,
+  thicknessLabel,
+  THICKNESS_OPTIONS,
+  DEFAULT_LABOR_PER_SQFT,
+} from "@/lib/floor-prep";
 import { saveEstimate } from "./actions";
 import { writeScopeDescription } from "./ai-actions";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
@@ -81,6 +90,10 @@ interface LineState {
   sqft_per_box: string; // hard surface: coverage per carton → box count
   is_fill: boolean; // carpet: a fill / seam piece cut for an area
   is_optional: boolean; // an optional add-on within its option (owner marker)
+  coverage_sqft: string; // prep: SF a bag covers at the reference thickness
+  coverage_thickness_in: string; // prep: reference thickness ("" = flat coverage)
+  prep_thickness_in: string; // prep: the pour thickness the bag calc used
+  prep_key: string; // links a prep material line to its auto-populated labor line
 }
 
 const round2s = (n: number) => String(Math.round(n * 100) / 100);
@@ -305,6 +318,10 @@ export function EstimateBuilder({
     sqft_per_box: "",
     is_fill: false,
     is_optional: false,
+    coverage_sqft: "",
+    coverage_thickness_in: "",
+    prep_thickness_in: "",
+    prep_key: "",
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -367,6 +384,10 @@ export function EstimateBuilder({
         sqft_per_box: l.sqft_per_box != null ? String(l.sqft_per_box) : "",
         is_fill: !!l.is_fill,
         is_optional: !!l.is_optional,
+        coverage_sqft: l.coverage_sqft != null ? String(l.coverage_sqft) : "",
+        coverage_thickness_in: l.coverage_thickness_in != null ? String(l.coverage_thickness_in) : "",
+        prep_thickness_in: l.prep_thickness_in != null ? String(l.prep_thickness_in) : "",
+        prep_key: l.prep_key ?? "",
       })),
     }));
     return initial.length
@@ -376,6 +397,11 @@ export function EstimateBuilder({
 
   const updateOption = (oi: number, patch: Partial<OptionState>) =>
     setOptions((prev) => prev.map((o, i) => (i === oi ? { ...o, ...patch } : o)));
+
+  // --- New-builder UI state -------------------------------------------------
+  // One option shown at a time (tabs), and an owner ⇄ customer preview flip.
+  const [activeOption, setActiveOption] = useState(0);
+  const [previewCustomer, setPreviewCustomer] = useState(false);
 
   // Which line editors are expanded — visual only (tap a line to edit it).
   const [openLines, setOpenLines] = useState<Set<string>>(new Set());
@@ -600,11 +626,13 @@ export function EstimateBuilder({
                 }
                 // → count: a FRESH count of 1 — never carry over the old square
                 // footage (that's the "1693 each" bug), and drop area waste + dims.
+                // A PREP line keeps its area (sqft) — the bag calculator uses it.
+                const prepLine = !!l.coverage_sqft;
                 return {
                   ...l,
                   unit: unitValue,
-                  quantity: "1",
-                  sqft: "",
+                  quantity: prepLine ? l.quantity : "1",
+                  sqft: prepLine ? l.sqft : "",
                   len_ft: "",
                   len_in: "",
                   wid_ft: "",
@@ -647,6 +675,67 @@ export function EstimateBuilder({
       }),
     );
     setOpenLines((s) => new Set(s).add(key));
+  };
+
+  // Recompute a prep line's bag count from area/thickness, and keep any linked
+  // self-leveling labor line's quantity in sync (area for a per-sq-ft labor line,
+  // bags for a per-bag one). A `quantity` in the patch is treated as an override.
+  const recalcPrep = (oi: number, li: number, patch: Partial<LineState>) =>
+    setOptions((prev) =>
+      prev.map((o, i) => {
+        if (i !== oi) return o;
+        const src = { ...o.lines[li], ...patch };
+        const cov = num(src.coverage_sqft);
+        const covT = num(src.coverage_thickness_in);
+        const scales = covT > 0;
+        const t = scales ? num(src.prep_thickness_in) || covT : 0;
+        const bags = bagsNeeded(src.sqft, cov, scales ? covT : null, scales ? t : null);
+        const mat = patch.quantity !== undefined ? src : { ...src, quantity: String(bags) };
+        const area = num(mat.sqft);
+        const finalBags = num(mat.quantity);
+        const pk = mat.prep_key;
+        const lines = o.lines.map((l, j) => {
+          if (j === li) return mat;
+          if (pk && l.prep_key === pk && l.category === "labor") {
+            const perBag = !isAreaUnit(l.unit); // labor line billed by the bag
+            return { ...l, quantity: String(perBag ? finalBags : area) };
+          }
+          return l;
+        });
+        return { ...o, lines };
+      }),
+    );
+
+  // Add a SEPARATE self-leveling labor line, linked to the prep material by a
+  // shared prep_key, with its quantity auto-populated from the calculator
+  // (per sq ft by default; flip the labor line's unit to bill per bag).
+  const addSelfLevelingLabor = (oi: number, li: number) => {
+    const laborKey = newKey();
+    const prepKey = `pk${keyCounter.current++}`;
+    setOptions((prev) =>
+      prev.map((o, i) => {
+        if (i !== oi) return o;
+        const src = o.lines[li];
+        const area = num(src.sqft);
+        const laborLine: LineState = {
+          ...emptyLine(),
+          key: laborKey,
+          category: "labor",
+          line_type: "mat_labor",
+          description: src.description ? `${src.description} — labor` : "Self-leveling labor",
+          unit: "sq ft",
+          measure_unit: "sqft",
+          quantity: area ? String(area) : "",
+          labor_cost: String(DEFAULT_LABOR_PER_SQFT),
+          prep_key: prepKey,
+        };
+        const priced = { ...laborLine, ...ratesFromMargin(laborLine, num(overallMargin)) };
+        const lines = o.lines.map((l, j) => (j === li ? { ...l, prep_key: prepKey } : l));
+        lines.splice(li + 1, 0, priced);
+        return { ...o, lines };
+      }),
+    );
+    setOpenLines((s) => new Set(s).add(laborKey));
   };
 
   // Change the estimate-wide margin → re-price every line that doesn't have its
@@ -778,6 +867,9 @@ export function EstimateBuilder({
         ? "sq yd"
         : "sq ft";
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
+    // Prep goods (self-leveler / patch) carry coverage → the bag calculator
+    // sizes the quantity from area + thickness instead of a plain count.
+    const prep = count && hasCoverage(p.coverage_sqft);
 
     setOptions((prev) =>
       prev.map((o, i) =>
@@ -803,9 +895,16 @@ export function EstimateBuilder({
                   item_no: p.sku ?? l.item_no,
                   measure_unit,
                   unit: lineUnit,
-                  // Count items price by quantity — default to 1 so it prices
-                  // immediately, and carry no area waste %.
-                  quantity: count ? l.quantity || "1" : l.quantity,
+                  // Snapshot the product's coverage so the estimate's bag math is
+                  // stable; seed the pour thickness to the reference thickness.
+                  coverage_sqft: prep ? String(p.coverage_sqft) : "",
+                  coverage_thickness_in:
+                    prep && p.coverage_thickness_in != null ? String(p.coverage_thickness_in) : "",
+                  prep_thickness_in:
+                    prep && p.coverage_thickness_in != null ? String(p.coverage_thickness_in) : "",
+                  // Prep lines get their quantity from the calculator (area drives
+                  // bags); plain count items default to 1 so they price at once.
+                  quantity: prep ? l.quantity : count ? l.quantity || "1" : l.quantity,
                   // Only suggest waste when the quantity is area-driven (no
                   // explicit qty) — avoids double-counting a qty that already
                   // includes waste (e.g. from the questionnaire). Never on count.
@@ -837,6 +936,7 @@ export function EstimateBuilder({
     const count = !isAreaUnit(input.unit);
     const measure_unit: MeasureUnit = catUnit === "sqyd" ? "sqyd" : "sqft";
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
+    const prep = count && hasCoverage(input.coverage_sqft);
     setOptions((prev) =>
       prev.map((o, i) =>
         i === oi
@@ -856,8 +956,12 @@ export function EstimateBuilder({
                   item_no: input.sku || l.item_no,
                   unit: input.unit || l.unit,
                   measure_unit,
+                  coverage_sqft: prep ? String(num(input.coverage_sqft)) : "",
+                  coverage_thickness_in: prep && input.coverage_thickness_in ? String(num(input.coverage_thickness_in)) : "",
+                  prep_thickness_in: prep && input.coverage_thickness_in ? String(num(input.coverage_thickness_in)) : "",
                   // Count items price by quantity — default to 1, no area waste.
-                  quantity: count ? l.quantity || "1" : l.quantity,
+                  // Prep lines get their quantity from the bag calculator (area).
+                  quantity: prep ? l.quantity : count ? l.quantity || "1" : l.quantity,
                   waste_pct: count ? "" : l.waste_pct,
                   description: input.name || l.description,
                 };
@@ -867,6 +971,21 @@ export function EstimateBuilder({
           : o,
       ),
     );
+  };
+
+  // Search-first add: append a material line, then apply the picked/created/
+  // use-once product to it. Functional setState updates apply in order, so the
+  // new line (at index `li`) is patched right after it's appended.
+  const addMaterialFromPick = (oi: number, p: Product | null) => {
+    if (!p) return;
+    const li = options[oi]?.lines.length ?? 0;
+    addLine(oi, false);
+    pickProduct(oi, li, p);
+  };
+  const addMaterialUseOnce = (oi: number, input: CustomProductInput) => {
+    const li = options[oi]?.lines.length ?? 0;
+    addLine(oi, false);
+    useOnceProduct(oi, li, input);
   };
 
   const buildInput = (): SaveEstimateInput => ({
@@ -908,6 +1027,10 @@ export function EstimateBuilder({
         sqft_per_box: l.sqft_per_box || null,
         is_fill: l.is_fill,
         is_optional: l.is_optional,
+        coverage_sqft: l.coverage_sqft || null,
+        coverage_thickness_in: l.coverage_thickness_in || null,
+        prep_thickness_in: l.prep_thickness_in || null,
+        prep_key: l.prep_key || null,
       })),
     })),
     target_margin: num(overallMargin) || null,
@@ -995,6 +1118,62 @@ export function EstimateBuilder({
   );
   const grandCost = options.flatMap((o) => o.lines).reduce((s, l) => s + lineOurCost(l), 0);
   const grandMargin = marginPct(grand.subtotal, grandCost);
+  // Active option, clamped so removing an option never points off the end.
+  const safeActive = Math.min(Math.max(activeOption, 0), Math.max(options.length - 1, 0));
+
+  // Live "what the customer sees" — convert the builder's form lines to the
+  // shape the customer scope + option cards read, so Preview matches the sent
+  // estimate exactly (scope in words + lump sum, no numbers). Reuses the engine.
+  const toEstimateLine = (l: LineState, i: number): EstimateLineItem => ({
+    id: `${l.key}`,
+    option_id: "",
+    position: i,
+    room: l.room || null,
+    description: l.description || "",
+    line_type: l.line_type,
+    sqft: num(l.sqft) || null,
+    length_in: num(l.len_ft) * 12 + num(l.len_in) || null,
+    width_in: num(l.wid_ft) * 12 + num(l.wid_in) || null,
+    measure_unit: l.measure_unit,
+    material_rate: num(l.material_rate) || null,
+    labor_rate: num(l.labor_rate) || null,
+    installed_rate: num(l.installed_rate) || null,
+    flat_amount: num(l.flat_amount) || null,
+    waste_pct: num(l.waste_pct) || null,
+    product_id: l.product_id || null,
+    manufacturer: l.manufacturer || null,
+    style: l.style || null,
+    color: l.color || null,
+    item_no: l.item_no || null,
+    material_cost: num(l.material_cost) || null,
+    labor_cost: num(l.labor_cost) || null,
+    quantity: num(l.quantity) || null,
+    unit: l.unit || null,
+    category: (l.category || null) as EstimateLineItem["category"],
+    from_stock: l.from_stock,
+    is_fill: l.is_fill,
+    is_optional: l.is_optional,
+  });
+  const previewEstimate: Estimate = {
+    ...estimate,
+    presentation,
+    tax_rate: num(taxRate),
+    discount_kind: discountKind,
+    discount_value: num(discountValue),
+    job_description: jobDescription || null,
+    notes: notes || null,
+    recommended_option_id:
+      options.find((o) => o.key === recommendedKey) ? "REC" : null,
+    options: options.map((o) => ({
+      id: o.key === recommendedKey ? "REC" : o.key,
+      estimate_id: estimate.id,
+      name: o.name,
+      position: 0,
+      notes: null,
+      created_at: estimate.created_at,
+      line_items: o.lines.map(toEstimateLine),
+    })),
+  };
 
   return (
     <>
@@ -1018,6 +1197,42 @@ export function EstimateBuilder({
         <ArrowLeft className="size-4" /> Back to {customerName}
       </Link>
 
+      {/* Owner ⇄ customer preview toggle */}
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="inline-flex rounded-md border p-0.5 text-sm">
+          <button
+            type="button"
+            onClick={() => setPreviewCustomer(false)}
+            className={cn("rounded px-3 py-1.5 font-medium", !previewCustomer ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+          >
+            Build
+          </button>
+          <button
+            type="button"
+            onClick={() => setPreviewCustomer(true)}
+            className={cn("rounded px-3 py-1.5 font-medium", previewCustomer ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+          >
+            <Eye className="mr-1 inline size-3.5" /> Preview as customer
+          </button>
+        </div>
+      </div>
+
+      {/* CUSTOMER PREVIEW — exactly what they'll see (scope in words + lump sum). */}
+      {previewCustomer ? (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            This is the customer&apos;s view — full scope in words, one price per
+            option, no quantities or costs.
+          </p>
+          {jobDescription ? (
+            <p className="whitespace-pre-wrap text-sm leading-relaxed">{jobDescription}</p>
+          ) : null}
+          <EstimateOptionCards estimate={previewEstimate} />
+        </div>
+      ) : null}
+
+      {/* Owner build surface */}
+      <div className={cn(previewCustomer && "hidden")}>
       {/* Estimate header */}
       <Card className="mb-6">
         <CardContent className="space-y-4 pt-6">
@@ -1104,9 +1319,39 @@ export function EstimateBuilder({
         </CardContent>
       </Card>
 
+      {/* Option tabs — build one option at a time (good / better / best) */}
+      {options.length > 1 || recommendedKey ? (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          {options.map((o, i) => (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => setActiveOption(i)}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-sm font-medium",
+                i === safeActive
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "hover:bg-muted",
+              )}
+            >
+              {o.key === recommendedKey ? <Star className="size-3 fill-current" /> : null}
+              {o.name || `Option ${i + 1}`}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => { addOption(); setActiveOption(options.length); }}
+            className="inline-flex items-center gap-1 rounded-full border border-dashed px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted"
+          >
+            <Plus className="size-3.5" /> Add option
+          </button>
+        </div>
+      ) : null}
+
       {/* Options */}
       <div className="space-y-6">
         {options.map((option, oi) => {
+          if (oi !== safeActive) return null;
           const calcLines = option.lines.map((l) => ({
             line_type: l.line_type,
             sqft: l.sqft,
@@ -1219,6 +1464,20 @@ export function EstimateBuilder({
                         </h3>
                         <span className="text-sm font-semibold tabular-nums">{formatMoney(secSub)}</span>
                       </div>
+                      {/* Search-first add — find any product (or add on the fly) and
+                          it drops in as a type-aware line. Materials only. */}
+                      {section !== "labor" ? (
+                        <div className="rounded-lg border bg-muted/20 p-2">
+                          <ProductPicker
+                            value=""
+                            label="Add a material — search catalog (name, color, mfr, SKU) or add new"
+                            fullWidth
+                            onPick={(p) => addMaterialFromPick(oi, p)}
+                            onCreated={(p) => addMaterialFromPick(oi, p)}
+                            onUseOnce={(input) => addMaterialUseOnce(oi, input)}
+                          />
+                        </div>
+                      ) : null}
                       {secLines.length === 0 ? (
                         <p className="px-1 py-1 text-xs text-muted-foreground">
                           {section === "labor" ? "No labor lines yet." : "No material lines yet."}
@@ -1385,9 +1644,21 @@ export function EstimateBuilder({
                           onChange={(v) =>
                             updateLine(oi, li, { line_type: v as LineType })
                           }
-                          options={(Object.keys(LINE_TYPE_LABELS) as LineType[]).map(
-                            (t) => ({ value: t, label: LINE_TYPE_LABELS[t] }),
-                          )}
+                          /* Material & labor are separate lines — a material line
+                             reads "Material" (not "Material + Labor"); a labor line
+                             reads "Labor". `mat_labor` stays the underlying value. */
+                          options={
+                            isLaborLine(line)
+                              ? [
+                                  { value: "mat_labor", label: "Labor" },
+                                  { value: "flat", label: "Flat amount" },
+                                ]
+                              : [
+                                  { value: "mat_labor", label: "Material" },
+                                  { value: "installed", label: "Installed / sq ft" },
+                                  { value: "flat", label: "Flat amount" },
+                                ]
+                          }
                         />
                       </div>
 
@@ -1630,9 +1901,96 @@ export function EstimateBuilder({
                             </>
                           ) : null}
 
-                          {/* COUNT-billed input — the quantity IS the count (bags,
-                              each, linear ft…). Big, obvious, in the item's unit. */}
-                          {isCountLine(line) ? (
+                          {/* PREP BAG CALCULATOR — a bag/unit item with coverage:
+                              enter area + thickness → bags = ceil(area ÷ coverage),
+                              coverage scaling with thickness. Editable override. */}
+                          {isCountLine(line) && hasCoverage(line.coverage_sqft) ? (
+                            (() => {
+                              const cov = num(line.coverage_sqft);
+                              const covT = num(line.coverage_thickness_in); // 0 = flat
+                              const scales = covT > 0;
+                              const t = scales ? num(line.prep_thickness_in) || covT : 0;
+                              const per = coverageAt(cov, scales ? covT : null, scales ? t : null);
+                              const perR = Math.round(per * 10) / 10;
+                              const u = unitLabel(line.unit) || "bag";
+                              const calcBags = bagsNeeded(line.sqft, cov, scales ? covT : null, scales ? t : null);
+                              const setArea = (v: string) => recalcPrep(oi, li, { sqft: v });
+                              const setThick = (v: string) => recalcPrep(oi, li, { prep_thickness_in: v });
+                              const hasLabor = option.lines.some(
+                                (l) => l.category === "labor" && !!l.prep_key && l.prep_key === line.prep_key,
+                              );
+                              return (
+                                <div className="w-full space-y-2 rounded-lg border bg-card p-3">
+                                  <div className="text-xs font-semibold text-muted-foreground">
+                                    Bag calculator — {cov} SF/{u}
+                                    {scales ? ` @ ${thicknessLabel(covT)}` : " (flat coverage)"}
+                                  </div>
+                                  <div className="flex flex-wrap items-end gap-2">
+                                    <LabeledNumber
+                                      label="Area (sq ft)"
+                                      value={line.sqft}
+                                      onChange={setArea}
+                                    />
+                                    {scales ? (
+                                      <div>
+                                        <label className="mb-1 block text-xs text-muted-foreground">
+                                          Pour thickness
+                                        </label>
+                                        <select
+                                          value={String(t)}
+                                          onChange={(e) => setThick(e.target.value)}
+                                          className={cn(inputSm, "w-28")}
+                                          aria-label="Pour thickness"
+                                        >
+                                          {THICKNESS_OPTIONS.map((o) => (
+                                            <option key={o.value} value={o.value}>{o.label}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    ) : null}
+                                    <div>
+                                      <label className="mb-1 block text-xs text-muted-foreground">
+                                        {u.charAt(0).toUpperCase() + u.slice(1)}s (override ok)
+                                      </label>
+                                      <input
+                                        type="number"
+                                        step="any"
+                                        min="0"
+                                        inputMode="decimal"
+                                        value={line.quantity}
+                                        onChange={(e) => recalcPrep(oi, li, { quantity: e.target.value })}
+                                        placeholder={String(calcBags)}
+                                        className={cn(inputSm, "w-24 font-semibold")}
+                                      />
+                                    </div>
+                                  </div>
+                                  {num(line.sqft) > 0 && per > 0 ? (
+                                    <div className="text-xs text-muted-foreground">
+                                      {Math.round(num(line.sqft))} sq ft
+                                      {scales ? ` at ${thicknessLabel(t)}` : ""} ÷ {perR} SF/{u} ={" "}
+                                      <span className="font-semibold text-foreground">{calcBags} {u}{calcBags === 1 ? "" : "s"}</span>
+                                      {num(line.quantity) !== calcBags && num(line.quantity) > 0 ? (
+                                        <span className="text-primary"> · using {num(line.quantity)} (override)</span>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                  {!hasLabor ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => addSelfLevelingLabor(oi, li)}
+                                      className="text-xs font-medium text-primary hover:underline"
+                                    >
+                                      + Add self-leveling labor (separate line, auto-filled)
+                                    </button>
+                                  ) : (
+                                    <div className="text-[11px] text-muted-foreground">
+                                      Labor line linked — its quantity follows this calculator.
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()
+                          ) : isCountLine(line) ? (
                             <div>
                               <label className="mb-1 block text-xs text-muted-foreground">
                                 How many {unitLabel(line.unit) || "units"}?
@@ -2045,14 +2403,8 @@ export function EstimateBuilder({
         })}
       </div>
 
-      <Button
-        type="button"
-        variant="outline"
-        className="mt-4"
-        onClick={addOption}
-      >
-        <Plus className="size-4" /> Add another option
-      </Button>
+      </div>
+      {/* /Owner build surface */}
 
       {/* Sticky save bar */}
       <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-40 border-t bg-background/95 p-3 backdrop-blur md:bottom-0 md:pl-64">

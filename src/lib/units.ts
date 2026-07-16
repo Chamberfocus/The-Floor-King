@@ -134,6 +134,34 @@ export function inferUnit(
 }
 
 /**
+ * Parse a prep material's coverage from its name, e.g. "SikaLevel 225 — 28 SF @
+ * 1/4\"" or "Schonox US 60 sf at 1/8". Requires the "<num> SF @/at <thickness>"
+ * shape so it never mistakes a price like "$2.59 SF" for coverage. Fractions
+ * (1/4) become decimals. Returns null when there's no coverage spec.
+ */
+export function parseCoverage(
+  name: string | null | undefined,
+): { coverage_sqft: number; coverage_thickness_in: number } | null {
+  const s = (name ?? "").toLowerCase();
+  const m = s.match(
+    /(\d+(?:\.\d+)?)\s*(?:sf|sq\.?\s?ft|sqft)\s*(?:@|at)\s*(\d+\s*\/\s*\d+|\d*\.?\d+)\s*(?:"|in\b|inch(?:es)?)?/i,
+  );
+  if (!m) return null;
+  const cov = parseFloat(m[1]);
+  if (!Number.isFinite(cov) || cov <= 0) return null;
+  let thickness: number;
+  const t = m[2].trim();
+  if (t.includes("/")) {
+    const [a, b] = t.split("/").map((x) => parseFloat(x));
+    thickness = b ? a / b : 0;
+  } else {
+    thickness = parseFloat(t) || 0;
+  }
+  if (!(thickness > 0)) return null;
+  return { coverage_sqft: cov, coverage_thickness_in: thickness };
+}
+
+/**
  * A sensible default unit for a product category, so the on-the-fly add form
  * starts on the right unit and a bag/each item isn't mis-saved as area.
  */

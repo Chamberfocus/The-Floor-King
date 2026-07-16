@@ -21,7 +21,7 @@ import {
 } from "@/lib/types";
 import { createProductInline, searchCatalogProducts } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
-import { UNIT_OPTIONS, defaultUnitForCategory, unitLabel } from "@/lib/units";
+import { UNIT_OPTIONS, defaultUnitForCategory, unitLabel, isAreaUnit } from "@/lib/units";
 
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -45,6 +45,8 @@ export interface CustomProductInput {
   style: string;
   color: string;
   sku: string;
+  coverage_sqft: string;
+  coverage_thickness_in: string;
 }
 
 export function ProductPicker({
@@ -393,6 +395,8 @@ function AddProductForm({
     sku: "",
     material_rate: "",
     labor_rate: "",
+    coverage_sqft: "",
+    coverage_thickness_in: "",
   });
   const set = (patch: Partial<typeof f>) => setF((p) => ({ ...p, ...patch }));
   // Changing the category re-suggests the unit — until the user picks one
@@ -550,6 +554,48 @@ function AddProductForm({
           />
         </div>
       </div>
+
+      {/* Coverage — prep goods (self-leveler / patch) sold by the bag. Powers the
+          estimate bag calculator. Shown for count units only. */}
+      {!isAreaUnit(f.unit) ? (
+        <div className="rounded-lg border bg-muted/30 p-2.5">
+          <label className="mb-1.5 block text-xs font-semibold">
+            Coverage — prep goods (optional)
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">SF / bag</label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                inputMode="decimal"
+                value={f.coverage_sqft}
+                onChange={(e) => set({ coverage_sqft: e.target.value })}
+                placeholder="e.g. 28"
+                className="h-10"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">at thickness (in)</label>
+              <Input
+                type="number"
+                step="0.0001"
+                min="0"
+                inputMode="decimal"
+                value={f.coverage_thickness_in}
+                onChange={(e) => set({ coverage_thickness_in: e.target.value })}
+                placeholder='0.25 for 1/4"'
+                className="h-10"
+              />
+            </div>
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Blank thickness = flat coverage (primers/adhesives). Self-levelers
+            scale: e.g. 28 SF @ 1/4&quot;.
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
         <Button type="button" variant="ghost" onClick={onCancel}>

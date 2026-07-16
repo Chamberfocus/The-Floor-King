@@ -207,6 +207,10 @@ export interface SaveLineInput {
   sqft_per_box?: string | number | null;
   is_fill?: boolean;
   is_optional?: boolean;
+  coverage_sqft?: string | number | null;
+  coverage_thickness_in?: string | number | null;
+  prep_thickness_in?: string | number | null;
+  prep_key?: string | null;
 }
 
 export interface SaveOptionInput {

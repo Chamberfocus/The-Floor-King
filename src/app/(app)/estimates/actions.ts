@@ -185,6 +185,10 @@ export async function saveEstimate(
         sqft_per_box: toNumOrNull(line.sqft_per_box ?? null),
         is_fill: !!line.is_fill,
         is_optional: !!line.is_optional,
+        coverage_sqft: toNumOrNull(line.coverage_sqft ?? null),
+        coverage_thickness_in: toNumOrNull(line.coverage_thickness_in ?? null),
+        prep_thickness_in: toNumOrNull(line.prep_thickness_in ?? null),
+        prep_key: line.prep_key || null,
       }));
       const { error: lineError } = await supabase
         .from("estimate_line_items")

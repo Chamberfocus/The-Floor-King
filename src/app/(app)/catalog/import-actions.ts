@@ -18,7 +18,7 @@ import {
   listRecentImportJobs,
   type ImportJob,
 } from "@/lib/data/import-jobs";
-import { inferUnit } from "@/lib/units";
+import { inferUnit, parseCoverage } from "@/lib/units";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -393,6 +393,7 @@ export async function importProducts(
           skipped += 1;
           return null;
         }
+        const cov = parseCoverage(r.name);
         return {
           name: r.name.trim(),
           category: (cats.has(r.category) ? r.category : "other") as ProductCategory,
@@ -406,6 +407,9 @@ export async function importProducts(
           style: r.style || "",
           color: r.color || "",
           notes: r.notes || "",
+          // Prep goods: "28 SF @ 1/4"" → coverage the bag calculator scales.
+          coverage_sqft: cov?.coverage_sqft ?? null,
+          coverage_thickness_in: cov?.coverage_thickness_in ?? null,
         };
       })
       .filter((x): x is NonNullable<typeof x> => x != null);
@@ -471,6 +475,8 @@ export async function importProducts(
         style: toNull(it.style),
         color: toNull(it.color),
         notes: toNull(it.notes),
+        coverage_sqft: it.coverage_sqft ?? null,
+        coverage_thickness_in: it.coverage_thickness_in ?? null,
       }));
       count = 0;
       for (let i = 0; i < insertRows.length; i += 500) {
