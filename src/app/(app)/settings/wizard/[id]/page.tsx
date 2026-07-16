@@ -24,7 +24,7 @@ export default async function EditQuestionPage({
         href="/settings/wizard"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" /> Back to Wizard Setup
+        <ArrowLeft className="size-4" /> Back to wizard setup
       </Link>
       <PageHeader title="Edit question" />
       <Card>

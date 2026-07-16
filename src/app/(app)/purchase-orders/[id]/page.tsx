@@ -55,7 +55,7 @@ export default async function PurchaseOrderPage({
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
               Purchase Order
             </h1>
             <PoStatusBadge status={po.status} />

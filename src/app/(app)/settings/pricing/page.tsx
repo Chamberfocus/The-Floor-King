@@ -20,7 +20,7 @@ export default async function DefaultPricingPage() {
         href="/settings"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" /> Settings
+        <ArrowLeft className="size-4" /> Back to settings
       </Link>
       <PageHeader
         title="Default pricing"

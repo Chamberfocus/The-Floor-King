@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Upload, Search, Download } from "lucide-react";
+import { Plus, Upload, Search, Download, Package } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { searchCatalog, productCount } from "@/lib/data/products";
 import { getOrgSettings } from "@/lib/data/org";
 import { requireProfile } from "@/lib/auth";
@@ -74,18 +75,16 @@ export default async function CatalogPage({
       </form>
 
       {total === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center">
-          <p className="text-sm text-muted-foreground">
-            No products yet. Add your common flooring materials and labor rates so
-            estimates build themselves.
-          </p>
-          <Link
-            href="/catalog/new"
-            className={buttonVariants({ className: "mt-4" })}
-          >
-            <Plus className="size-4" /> Add product
-          </Link>
-        </div>
+        <EmptyState
+          icon={Package}
+          title="No products yet"
+          description="Add your common flooring materials and labor rates so estimates build themselves."
+          action={
+            <Link href="/catalog/new" className={buttonVariants({})}>
+              <Plus className="size-4" /> Add product
+            </Link>
+          }
+        />
       ) : products.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No products match “{q}”.

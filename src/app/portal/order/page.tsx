@@ -14,7 +14,7 @@ export default async function PortalOrderPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Place an order</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">Place an order</h1>
         <p className="text-sm text-muted-foreground">
           Tell us what carpet you need cut for pickup. We&apos;ll review it,
           confirm pricing, and let you know when it&apos;s ready.

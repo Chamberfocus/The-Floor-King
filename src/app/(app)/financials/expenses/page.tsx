@@ -46,7 +46,7 @@ export default async function ExpensesPage() {
         href="/financials"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" /> Financials
+        <ArrowLeft className="size-4" /> Back to financials
       </Link>
       <PageHeader
         title="Expenses"

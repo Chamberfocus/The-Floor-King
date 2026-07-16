@@ -49,7 +49,7 @@ export default async function PortalInvoicePage({
       </Link>
 
       <div className="mb-6 flex items-center gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
           {invoice.number || "Invoice"}
         </h1>
         <InvoiceStatusBadge status={invoice.status} />

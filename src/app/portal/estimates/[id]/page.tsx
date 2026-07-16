@@ -59,7 +59,7 @@ export default async function PortalEstimatePage({
       </Link>
 
       <div className="mb-2 flex items-center gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
           {estimate.title || "Estimate"}
         </h1>
         <EstimateStatusBadge status={estimate.status} />

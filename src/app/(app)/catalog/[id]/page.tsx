@@ -31,7 +31,7 @@ export default async function EditProductPage({
   const suppliers = (await listSuppliers()).map((s) => s.name);
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="mx-auto max-w-4xl">
       <Link
         href="/catalog"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

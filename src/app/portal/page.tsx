@@ -100,7 +100,7 @@ export default async function PortalHome() {
       />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
             Welcome, {firstName}
           </h1>
           <p className="text-sm text-muted-foreground">

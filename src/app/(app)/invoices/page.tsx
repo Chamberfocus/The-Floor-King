@@ -8,7 +8,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Receipt } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { listInvoices, amountPaid } from "@/lib/data/invoices";
 import { invoiceTotals } from "@/lib/invoice-calc";
@@ -27,10 +29,11 @@ export default async function InvoicesPage() {
       />
 
       {invoices.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No invoices yet. Create one from an approved estimate or a customer
-          profile.
-        </div>
+        <EmptyState
+          icon={Receipt}
+          title="No invoices yet"
+          description="Create one from an approved estimate or a customer profile."
+        />
       ) : (
         <>
         {/* Phone: tappable cards */}

@@ -8,9 +8,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Trash2 } from "lucide-react";
+import { Trash2, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { PoStatusBadge } from "@/components/po-status-badge";
 import { listPurchaseOrders } from "@/lib/data/purchase-orders";
 import { deletePurchaseOrder } from "./actions";
@@ -123,16 +124,15 @@ export default async function PurchaseOrdersPage({
       ) : null}
 
       {pos.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          {all.length === 0 ? (
-            <>
-              No purchase orders yet. Open an approved estimate and click{" "}
-              <span className="font-medium">Create PO</span>.
-            </>
-          ) : (
-            <>No purchase orders match this filter.</>
-          )}
-        </div>
+        all.length === 0 ? (
+          <EmptyState
+            icon={ShoppingCart}
+            title="No purchase orders yet"
+            description="Open an approved estimate and click Create PO."
+          />
+        ) : (
+          <EmptyState title="No purchase orders match this filter" />
+        )
       ) : (
         <>
           {/* Phone: tappable cards */}

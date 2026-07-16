@@ -467,7 +467,7 @@ export default async function CustomerPage({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-extrabold tracking-tight sm:text-4xl">
+              <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
                 {customer.full_name}
               </h1>
               {currentStage ? (

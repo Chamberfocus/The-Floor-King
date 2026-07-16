@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Plus, MapPin, HardHat, ArrowRight } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { listJobs, listAssignableUsers, claimRequestCounts } from "@/lib/data/jobs";
 import { requireProfile } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
@@ -137,11 +138,15 @@ export default async function JobsPage() {
       </PageHeader>
 
       {jobs.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          {isStaff
-            ? "No jobs yet. Approve an estimate and create a job to get started."
-            : "No jobs assigned to you yet."}
-        </div>
+        <EmptyState
+          icon={HardHat}
+          title={isStaff ? "No jobs yet" : "No jobs assigned to you yet"}
+          description={
+            isStaff
+              ? "Approve an estimate and create a job to get started."
+              : undefined
+          }
+        />
       ) : (
         <div className="space-y-6">
           {activeLanes.map((lane) => {

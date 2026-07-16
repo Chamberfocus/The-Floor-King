@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, FileText } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { listAllEstimates, type EstimateListRow } from "@/lib/data/estimates";
 import { optionTotals } from "@/lib/estimate-calc";
@@ -35,7 +36,7 @@ export default async function EstimatesPage() {
     <div>
       <PageHeader
         title="Estimates"
-        description="Every quote across all customers."
+        description="Every estimate across all customers."
       >
         <div className="flex items-center gap-2">
           <ClearDraftsButton />
@@ -46,13 +47,11 @@ export default async function EstimatesPage() {
       </PageHeader>
 
       {estimates.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center">
-          <p className="text-sm text-muted-foreground">
-            No estimates yet. Open a customer and click{" "}
-            <span className="font-medium">New estimate</span> to build your first
-            quote.
-          </p>
-        </div>
+        <EmptyState
+          icon={FileText}
+          title="No estimates yet"
+          description="Open a customer and click New estimate to build your first one."
+        />
       ) : (
         <>
         {/* Phone: tappable cards (delete sits outside the link) */}

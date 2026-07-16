@@ -289,7 +289,7 @@ export default async function JobPage({
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
               {job.title || "Job"}
             </h1>
             <JobStatusBadge status={job.status} />
