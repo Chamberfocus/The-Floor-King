@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listQualifyingQuestions } from "@/lib/data/qualifying";
@@ -114,14 +115,17 @@ export default async function QualifyingSettingsPage() {
                       </Link>
                       <form action={deleteQualifyingQuestion}>
                         <input type="hidden" name="id" value={q.id} />
-                        <Button
-                          type="submit"
+                        <ConfirmButton
                           variant="ghost"
                           size="icon-sm"
                           aria-label="Delete"
+                          title="Delete this qualifying question?"
+                          description="Removes the question from the lead qualifying flow. This can't be undone."
+                          confirmLabel="Delete"
+                          destructive
                         >
                           <Trash2 className="size-4" />
-                        </Button>
+                        </ConfirmButton>
                       </form>
                     </div>
                   ))}

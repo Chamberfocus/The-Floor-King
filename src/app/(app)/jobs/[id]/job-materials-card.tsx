@@ -7,6 +7,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { cn } from "@/lib/utils";
 import type { JobMaterials, JobMaterialLine } from "@/lib/data/job-materials";
 import {
@@ -53,21 +54,27 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
         <div className="flex gap-2">
           <form action={prepareJobMaterials}>
             <input type="hidden" name="job_id" value={data.jobId} />
-            <SubmitButton
+            <ConfirmButton
               variant="outline"
               size="sm"
-              pendingText="Preparing…"
-              confirm="Materials prepared"
+              title="Prepare materials for this job?"
+              description="Reserves in-stock items and builds a purchase order for the special-order items."
+              confirmLabel="Prepare materials"
             >
               <PackageCheck className="size-4" /> Prepare materials
-            </SubmitButton>
+            </ConfirmButton>
           </form>
           {data.hasStock ? (
             <form action={pullAllStock}>
               <input type="hidden" name="job_id" value={data.jobId} />
-              <SubmitButton size="sm" pendingText="Pulling…" confirm="Stock pulled">
+              <ConfirmButton
+                size="sm"
+                title="Pull all stock for this job?"
+                description="Pulls every in-stock line from inventory — this decrements on-hand stock and lands the cost on this job. Do this when you actually stage it."
+                confirmLabel="Pull stock"
+              >
                 Pull all stock
-              </SubmitButton>
+              </ConfirmButton>
             </form>
           ) : null}
         </div>
@@ -138,14 +145,15 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                 <form action={pullJobLine}>
                   <input type="hidden" name="job_id" value={data.jobId} />
                   <input type="hidden" name="line_id" value={l.lineId} />
-                  <SubmitButton
+                  <ConfirmButton
                     size="sm"
                     variant="outline"
-                    pendingText="Pulling…"
-                    confirm="Pulled from stock"
+                    title={`Pull ${l.productName || l.description || "this material"} from stock?`}
+                    description="Decrements on-hand inventory for this line and lands its cost on the job."
+                    confirmLabel="Pull stock"
                   >
                     Pull
-                  </SubmitButton>
+                  </ConfirmButton>
                 </form>
               ) : null}
             </div>

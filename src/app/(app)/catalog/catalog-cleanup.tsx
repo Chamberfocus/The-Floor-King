@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Copy, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import {
   Dialog,
   DialogContent,
@@ -53,9 +54,17 @@ export function CatalogCleanup({ total }: { total: number }) {
       <span className="mr-auto text-sm text-muted-foreground">
         Catalog cleanup
       </span>
-      <Button type="button" variant="outline" size="sm" onClick={dedupe} disabled={busy}>
+      <ConfirmButton
+        variant="outline"
+        size="sm"
+        onConfirm={dedupe}
+        disabled={busy}
+        title="Remove duplicate products?"
+        description="Folds duplicate products into one keeper, re-points estimates and POs to it, and deletes the extras. This can't be undone."
+        confirmLabel="Merge & remove"
+      >
         <Copy className="size-4" /> Remove duplicates
-      </Button>
+      </ConfirmButton>
       <Button
         type="button"
         variant="outline"

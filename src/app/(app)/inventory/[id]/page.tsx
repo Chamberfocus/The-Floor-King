@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
@@ -105,9 +106,13 @@ export default async function InventoryItemPage({
       {/* Actions — discrete items count in whole units; rolled goods are per-roll. */}
       {!rolled ? (
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <ActionCard title="Receive" action={receiveStock} id={product.id} field="qty" label="Quantity received" cta="Receive" />
+          <ActionCard title="Receive" action={receiveStock} id={product.id} field="qty" label="Quantity received" cta="Receive"
+            confirmTitle={`Receive stock for ${product.name}?`}
+            confirmDescription="Adds the entered quantity to on-hand inventory." />
           <ActionCard title="Pull for job" action={pullStock} id={product.id} field="qty" label="Quantity pulled" cta="Pull" jobField />
-          <ActionCard title="Set counted total" action={adjustStock} id={product.id} field="counted" label="Counted on hand" cta="Set" />
+          <ActionCard title="Set counted total" action={adjustStock} id={product.id} field="counted" label="Counted on hand" cta="Set"
+            confirmTitle={`Adjust on-hand for ${product.name}?`}
+            confirmDescription="Overwrites the on-hand quantity to the counted total you entered." />
         </div>
       ) : (
         <Card className="mt-4">
@@ -191,9 +196,22 @@ export default async function InventoryItemPage({
                               <input type="hidden" name="roll_id" value={r.id} />
                               <input type="hidden" name="call" value={call} />
                               {call === "scrap" ? <input type="hidden" name="reason" value="Not worth keeping" /> : null}
-                              <Button type="submit" size="sm" variant={call === "usable" ? "outline" : "ghost"}>
-                                {call === "usable" ? "Usable" : call === "not" ? "Not usable" : "Scrap"}
-                              </Button>
+                              {call === "scrap" ? (
+                                <ConfirmButton
+                                  size="sm"
+                                  variant="ghost"
+                                  title="Scrap this remnant?"
+                                  description="Marks the remnant scrapped and removes its remaining yardage from on-hand stock. This can't be undone."
+                                  confirmLabel="Scrap"
+                                  destructive
+                                >
+                                  Scrap
+                                </ConfirmButton>
+                              ) : (
+                                <Button type="submit" size="sm" variant={call === "usable" ? "outline" : "ghost"}>
+                                  {call === "usable" ? "Usable" : "Not usable"}
+                                </Button>
+                              )}
                             </form>
                           ))}
                         </div>
@@ -328,6 +346,8 @@ function ActionCard({
   label,
   cta,
   jobField,
+  confirmTitle,
+  confirmDescription,
 }: {
   title: string;
   action: (formData: FormData) => void | Promise<void>;
@@ -336,6 +356,9 @@ function ActionCard({
   label: string;
   cta: string;
   jobField?: boolean;
+  /** When set, the CTA opens an "are you sure?" gate before submitting. */
+  confirmTitle?: string;
+  confirmDescription?: string;
 }) {
   return (
     <Card>
@@ -356,7 +379,18 @@ function ActionCard({
             </div>
           ) : null}
           <Input name="note" placeholder="Note (optional)" />
-          <Button type="submit" className="w-full">{cta}</Button>
+          {confirmTitle ? (
+            <ConfirmButton
+              className="w-full"
+              title={confirmTitle}
+              description={confirmDescription}
+              confirmLabel={cta}
+            >
+              {cta}
+            </ConfirmButton>
+          ) : (
+            <Button type="submit" className="w-full">{cta}</Button>
+          )}
         </form>
       </CardContent>
     </Card>

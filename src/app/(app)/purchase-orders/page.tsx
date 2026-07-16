@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/table";
 import { Trash2, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { PoStatusBadge } from "@/components/po-status-badge";
@@ -162,9 +163,17 @@ export default async function PurchaseOrdersPage({
                   <span className="ml-auto">{formatDate(po.created_at)}</span>
                   <form action={deletePurchaseOrder}>
                     <input type="hidden" name="id" value={po.id} />
-                    <Button type="submit" variant="ghost" size="icon-sm" aria-label="Delete PO">
+                    <ConfirmButton
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Delete PO"
+                      title={`Delete this PO${po.supplier ? ` from ${po.supplier}` : ""}?`}
+                      description="Permanently deletes the purchase order. If it was received, the stock it added is reversed. This can't be undone."
+                      confirmLabel="Delete PO"
+                      destructive
+                    >
                       <Trash2 className="size-4 text-destructive" />
-                    </Button>
+                    </ConfirmButton>
                   </form>
                 </div>
               </div>
@@ -217,9 +226,17 @@ export default async function PurchaseOrdersPage({
                     <TableCell className="text-right">
                       <form action={deletePurchaseOrder}>
                         <input type="hidden" name="id" value={po.id} />
-                        <Button type="submit" variant="ghost" size="icon-sm" aria-label="Delete PO">
+                        <ConfirmButton
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Delete PO"
+                          title={`Delete this PO${po.supplier ? ` from ${po.supplier}` : ""}?`}
+                          description="Permanently deletes the purchase order. If it was received, the stock it added is reversed. This can't be undone."
+                          confirmLabel="Delete PO"
+                          destructive
+                        >
                           <Trash2 className="size-4 text-destructive" />
-                        </Button>
+                        </ConfirmButton>
                       </form>
                     </TableCell>
                   </TableRow>

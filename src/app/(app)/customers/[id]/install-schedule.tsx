@@ -2,6 +2,7 @@ import { DateField } from "@/components/ui/date-field";
 import { CalendarClock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { formatDate, to12, type ArrivalWindow } from "@/lib/format";
@@ -150,9 +151,15 @@ export function InstallSchedule({
                       </option>
                     ))}
                   </select>
-                  <SubmitButton size="sm" variant="outline" pendingText="Booking…" confirm={null}>
+                  <ConfirmButton
+                    size="sm"
+                    variant="outline"
+                    title={`Book ${sug.name} for this install?`}
+                    description="Books the install, hands the job to the warehouse, and notifies the customer and installer."
+                    confirmLabel="Book install"
+                  >
                     Book
-                  </SubmitButton>
+                  </ConfirmButton>
                 </form>
               </div>
             ))}
@@ -211,9 +218,18 @@ export function InstallSchedule({
                 ))}
               </select>
             </div>
-            <SubmitButton size="sm" pendingText="Booking…" confirm={null}>
+            <ConfirmButton
+              size="sm"
+              title={schedule.date ? "Reschedule this install?" : "Book this install?"}
+              description={
+                schedule.date
+                  ? "Changes the booked install date/installer and notifies the customer and installer of the change."
+                  : "Books the install, hands the job to the warehouse, and notifies the customer and installer."
+              }
+              confirmLabel={schedule.date ? "Reschedule" : "Book install"}
+            >
               {schedule.date ? "Save changes" : "Book install"}
-            </SubmitButton>
+            </ConfirmButton>
           </form>
         </details>
       </CardContent>

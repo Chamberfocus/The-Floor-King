@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, Printer, Upload, Sparkles, Bookmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
@@ -651,9 +652,41 @@ export function PoBuilder({
           >
             <Bookmark className="size-4" /> Save for later
           </Button>
-          <Button type="button" disabled={isPending} onClick={() => save()}>
-            <Save className="size-4" /> {isPending ? "Saving…" : "Save PO"}
-          </Button>
+          {status !== po.status &&
+          (status === "received" || status === "ordered" || status === "cancelled") ? (
+            <ConfirmButton
+              disabled={isPending}
+              onConfirm={() => save()}
+              destructive={status === "cancelled"}
+              title={
+                status === "received"
+                  ? `Mark this PO from ${supplier || "the vendor"} as received?`
+                  : status === "ordered"
+                    ? "Mark this PO as ordered?"
+                    : "Cancel this purchase order?"
+              }
+              description={
+                status === "received"
+                  ? "Receiving adds the ordered quantities into on-hand inventory and moves the customer to Materials Received. Only do this once the material is physically in."
+                  : status === "ordered"
+                    ? "This emails the customer that their materials are on order and posts an update to their portal."
+                    : "Cancelling stops this order. Any stock it had received will be reversed."
+              }
+              confirmLabel={
+                status === "received"
+                  ? "Mark received"
+                  : status === "ordered"
+                    ? "Mark ordered"
+                    : "Cancel PO"
+              }
+            >
+              <Save className="size-4" /> {isPending ? "Saving…" : "Save PO"}
+            </ConfirmButton>
+          ) : (
+            <Button type="button" disabled={isPending} onClick={() => save()}>
+              <Save className="size-4" /> {isPending ? "Saving…" : "Save PO"}
+            </Button>
+          )}
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@ import { ChevronUp, ChevronDown, Pencil, Trash2, ListChecks } from "lucide-react
 import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listEstimateQuestions } from "@/lib/data/estimate-questions";
@@ -102,9 +103,17 @@ export default async function EstimateQuestionsSettingsPage() {
                       </Link>
                       <form action={deleteEstimateQuestion}>
                         <input type="hidden" name="id" value={q.id} />
-                        <Button type="submit" variant="ghost" size="icon-sm" aria-label="Delete">
+                        <ConfirmButton
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label="Delete"
+                          title="Delete this estimate question?"
+                          description="Removes the question from the guided estimate builder. This can't be undone."
+                          confirmLabel="Delete"
+                          destructive
+                        >
                           <Trash2 className="size-4" />
-                        </Button>
+                        </ConfirmButton>
                       </form>
                     </div>
                   ))}

@@ -83,10 +83,11 @@ export function InstallerCollect({
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Collect {formatMoney(balance)}</DialogTitle>
+                  <DialogTitle>Collect {formatMoney(balance)}?</DialogTitle>
                   <DialogDescription>
-                    Collecting the full balance. The office is notified
-                    automatically.
+                    {method === "link"
+                      ? "This asks the office to send the customer an online payment link — it does not record a payment now."
+                      : `This records a ${formatMoney(balance)} ${method} payment, marks the invoice paid, and notifies the office.`}
                   </DialogDescription>
                 </DialogHeader>
 

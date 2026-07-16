@@ -4,6 +4,7 @@ import { useActionState, useEffect } from "react";
 import { toast } from "sonner";
 import { ChevronUp, ChevronDown, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -170,14 +171,17 @@ export function StageRow({
 
       <form action={deleteStage}>
         <input type="hidden" name="id" value={stage.id} />
-        <Button
-          type="submit"
+        <ConfirmButton
           variant="ghost"
           size="icon-sm"
           aria-label="Delete stage"
+          title={`Delete the "${stage.name}" stage?`}
+          description="Removes this pipeline stage. Any customer currently in it will no longer have a stage. This can't be undone."
+          confirmLabel="Delete stage"
+          destructive
         >
           <Trash2 className="size-4" />
-        </Button>
+        </ConfirmButton>
       </form>
     </div>
   );

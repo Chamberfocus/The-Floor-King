@@ -6,6 +6,14 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { to12, parseLocalDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -75,7 +83,7 @@ export function InstallerGrid({
 
   const rows = filter === "all" ? resources : resources.filter((r) => r.id === filter);
 
-  const move: Move = (jobId, day, resId) =>
+  const doMove = (jobId: string, day: Date, resId: string) =>
     startTransition(async () => {
       const res = await rescheduleInstall(jobId, ymd(day), resId);
       if (res.ok) {
@@ -85,6 +93,27 @@ export function InstallerGrid({
         toast.error(res.error || "Couldn't move that install.");
       }
     });
+
+  // Drag-drop is easy to trigger by accident and it notifies the customer +
+  // installer — so a drop asks to confirm before it actually reschedules.
+  const [pendingMove, setPendingMove] = useState<{
+    jobId: string;
+    day: Date;
+    resId: string;
+    jobName: string;
+    resName: string;
+  } | null>(null);
+  const move: Move = (jobId, day, resId) => {
+    const ev = events.find((e) => e.id === jobId);
+    const res = resources.find((r) => r.id === resId);
+    setPendingMove({
+      jobId,
+      day,
+      resId,
+      jobName: ev?.name ?? "this install",
+      resName: res?.name ?? "this installer",
+    });
+  };
 
   const shift = (dir: number) => setStart((s) => addDays(s, dir * days));
   const pickRange = (n: number) => {
@@ -234,6 +263,53 @@ export function InstallerGrid({
           </p>
         ) : null}
       </CardContent>
+
+      <Dialog
+        open={!!pendingMove}
+        onOpenChange={(o) => !o && setPendingMove(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Move this install?</DialogTitle>
+            <DialogDescription>
+              {pendingMove ? (
+                <>
+                  Move <strong>{pendingMove.jobName}</strong> to{" "}
+                  <strong>{pendingMove.resName}</strong> on{" "}
+                  <strong>
+                    {pendingMove.day.toLocaleDateString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </strong>
+                  ? This reschedules the install and notifies the customer and
+                  installer.
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingMove(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (pendingMove)
+                  doMove(pendingMove.jobId, pendingMove.day, pendingMove.resId);
+                setPendingMove(null);
+              }}
+            >
+              Move install
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

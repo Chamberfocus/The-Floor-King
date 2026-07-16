@@ -5,6 +5,7 @@ import { ArrowLeft, Trash2, FileText } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import { requireProfile } from "@/lib/auth";
@@ -215,9 +216,17 @@ export default async function BillPage({
                   <form action={deleteBillPayment}>
                     <input type="hidden" name="payment_id" value={p.id} />
                     <input type="hidden" name="bill_id" value={bill.id} />
-                    <Button type="submit" variant="ghost" size="icon-sm" aria-label="Remove payment">
+                    <ConfirmButton
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Remove payment"
+                      title={`Remove this ${formatMoney(p.amount)} bill payment?`}
+                      description="Deletes the payment and reverses the matching expense on your profit report. This can't be undone."
+                      confirmLabel="Remove payment"
+                      destructive
+                    >
                       <Trash2 className="size-3.5" />
-                    </Button>
+                    </ConfirmButton>
                   </form>
                 </li>
               ))}
@@ -262,9 +271,14 @@ export default async function BillPage({
                   <option>Cash</option>
                 </select>
               </label>
-              <Button type="submit" size="sm">
+              <ConfirmButton
+                size="sm"
+                title="Record this bill payment?"
+                description="Records the payment and posts a matching materials expense to your profit report."
+                confirmLabel="Record payment"
+              >
                 Record payment
-              </Button>
+              </ConfirmButton>
             </form>
           ) : (
             <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-700">
@@ -289,9 +303,16 @@ export default async function BillPage({
             Deletes this bill, its payments, and the expenses those payments posted. The source
             PO is kept. Can&apos;t be undone.
           </span>
-          <Button type="submit" variant="destructive" size="sm">
+          <ConfirmButton
+            variant="destructive"
+            size="sm"
+            title="Delete this bill?"
+            description="Deletes the bill, its payments, and the expenses those payments posted. The source PO is kept. This can't be undone."
+            confirmLabel="Delete bill"
+            destructive
+          >
             <Trash2 className="size-3.5" /> Delete bill
-          </Button>
+          </ConfirmButton>
         </form>
       </details>
     </div>

@@ -1,6 +1,7 @@
 import { MapPin, Plus, Trash2, Pencil } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatServiceAddress, type ServiceAddress } from "@/lib/types";
@@ -57,14 +58,17 @@ export function ServiceAddressesCard({
                   <form action={deleteServiceAddress}>
                     <input type="hidden" name="id" value={a.id} />
                     <input type="hidden" name="customer_id" value={customerId} />
-                    <Button
-                      type="submit"
+                    <ConfirmButton
                       variant="ghost"
                       size="icon-sm"
                       aria-label="Delete address"
+                      title="Delete this service address?"
+                      description="Removes the saved address. Jobs and estimates that used it keep their own copy of the address."
+                      confirmLabel="Delete address"
+                      destructive
                     >
                       <Trash2 className="size-3.5" />
-                    </Button>
+                    </ConfirmButton>
                   </form>
                 </div>
                 <details className="mt-1.5">

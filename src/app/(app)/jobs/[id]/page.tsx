@@ -25,6 +25,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { listWorkflowStages } from "@/lib/data/workflow";
@@ -333,9 +334,15 @@ export default async function JobPage({
               <form action={setJobStatus} className="w-full sm:w-auto">
                 <input type="hidden" name="id" value={job.id} />
                 <input type="hidden" name="status" value="completed" />
-                <Button type="submit" size="lg" className="w-full sm:w-auto">
+                <ConfirmButton
+                  size="lg"
+                  className="w-full sm:w-auto"
+                  title={`Mark "${job.title || "this job"}" as complete?`}
+                  description="This finishes the job and moves the customer to Installed — Follow-up. Only do this once the install is actually done."
+                  confirmLabel="Mark complete"
+                >
                   <Check className="size-4" /> Mark complete
-                </Button>
+                </ConfirmButton>
               </form>
             ) : null}
             <div className="w-full sm:w-auto">
@@ -508,9 +515,15 @@ export default async function JobPage({
       {isStaff && job.scheduled_date ? (
         <form action={emailJobSchedule} className="mb-6">
           <input type="hidden" name="id" value={job.id} />
-          <Button type="submit" variant="outline" size="sm">
+          <ConfirmButton
+            variant="outline"
+            size="sm"
+            title="Email the schedule to the customer?"
+            description="Sends the customer an email with their scheduled install date."
+            confirmLabel="Send email"
+          >
             <Send className="size-3.5" /> Email schedule to customer
-          </Button>
+          </ConfirmButton>
         </form>
       ) : null}
 
@@ -791,14 +804,17 @@ export default async function JobPage({
                             <input type="hidden" name="id" value={f.id} />
                             <input type="hidden" name="job_id" value={job.id} />
                             <input type="hidden" name="path" value={f.path} />
-                            <Button
-                              type="submit"
+                            <ConfirmButton
                               variant="destructive"
                               size="icon-xs"
                               aria-label="Delete photo"
+                              title="Delete this photo?"
+                              description="This permanently removes the photo from the job. This can't be undone."
+                              confirmLabel="Delete photo"
+                              destructive
                             >
                               <Trash2 className="size-3" />
-                            </Button>
+                            </ConfirmButton>
                           </form>
                         ) : null}
                       </div>
@@ -927,9 +943,14 @@ export default async function JobPage({
             </div>
             <form action={submitJobToWarehouse}>
               <input type="hidden" name="job_id" value={job.id} />
-              <Button type="submit" size="sm">
+              <ConfirmButton
+                size="sm"
+                title="Send this job to the warehouse?"
+                description="Pushes the job into the warehouse queue to be cut & staged for pickup."
+                confirmLabel="Send to warehouse"
+              >
                 Send to warehouse
-              </Button>
+              </ConfirmButton>
             </form>
           </CardContent>
         </Card>
@@ -954,9 +975,14 @@ export default async function JobPage({
             {!job.warehouse_submitted_at ? (
               <form action={submitJobToWarehouse}>
                 <input type="hidden" name="id" value={job.id} />
-                <Button type="submit" size="sm">
+                <ConfirmButton
+                  size="sm"
+                  title="Send this job to the warehouse now?"
+                  description="Starts warehouse prep — the job enters the queue to be cut & staged."
+                  confirmLabel="Send to warehouse"
+                >
                   <Warehouse className="size-4" /> Send to warehouse now
-                </Button>
+                </ConfirmButton>
               </form>
             ) : null}
             {warehouseUsers.length > 0 ? (
@@ -1174,9 +1200,14 @@ export default async function JobPage({
                             name="installer_id"
                             value={a.installer_id}
                           />
-                          <Button type="submit" size="sm">
+                          <ConfirmButton
+                            size="sm"
+                            title={`Assign ${a.installer_name} to this job?`}
+                            description="Approves their claim and makes them the assigned installer for this job."
+                            confirmLabel="Assign installer"
+                          >
                             Approve claim
-                          </Button>
+                          </ConfirmButton>
                         </form>
                       )}
                     </li>
@@ -1209,9 +1240,16 @@ export default async function JobPage({
             <form action={deleteJob}>
               <input type="hidden" name="id" value={job.id} />
               <input type="hidden" name="customer_id" value={job.customer_id} />
-              <Button type="submit" variant="destructive" size="sm">
+              <ConfirmButton
+                variant="destructive"
+                size="sm"
+                title={`Delete "${job.title || "this job"}"?`}
+                description="This permanently deletes the job and everything on it — photos, crew pay, and materials prep. This can't be undone."
+                confirmLabel="Delete job"
+                destructive
+              >
                 <Trash2 className="size-3.5" /> Delete job
-              </Button>
+              </ConfirmButton>
             </form>
           </div>
         </>

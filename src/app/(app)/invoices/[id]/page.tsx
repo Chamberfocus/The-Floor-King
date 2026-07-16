@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { getInvoice, amountPaid, getInvoiceScope } from "@/lib/data/invoices";
@@ -77,9 +78,14 @@ export default async function InvoicePage({
         </div>
         <form action={emailInvoice}>
           <input type="hidden" name="id" value={invoice.id} />
-          <Button type="submit" size="lg">
+          <ConfirmButton
+            size="lg"
+            title="Email this invoice to the customer?"
+            description="Marks the invoice as sent and emails the customer their invoice link."
+            confirmLabel="Send invoice"
+          >
             <Send className="size-4" /> Email to customer
-          </Button>
+          </ConfirmButton>
         </form>
       </div>
 
@@ -131,14 +137,17 @@ export default async function InvoicePage({
                   <form action={deletePayment}>
                     <input type="hidden" name="id" value={p.id} />
                     <input type="hidden" name="invoice_id" value={invoice.id} />
-                    <Button
-                      type="submit"
+                    <ConfirmButton
                       variant="ghost"
                       size="icon-sm"
                       aria-label="Remove payment"
+                      title={`Remove this ${formatMoney(p.amount)} payment?`}
+                      description="Deletes the recorded payment and recomputes the invoice balance. This can't be undone."
+                      confirmLabel="Remove payment"
+                      destructive
                     >
                       <Trash2 className="size-3.5" />
-                    </Button>
+                    </ConfirmButton>
                   </form>
                 </li>
               ))}
@@ -195,9 +204,14 @@ export default async function InvoicePage({
               />
             </div>
             <div className="flex items-end sm:col-span-1">
-              <Button type="submit" className="w-full">
+              <ConfirmButton
+                className="w-full"
+                title="Record this payment?"
+                description="Adds the payment to the invoice, recomputes its status (paid / partial), and advances the customer's pipeline."
+                confirmLabel="Record payment"
+              >
                 Record
-              </Button>
+              </ConfirmButton>
             </div>
           </form>
         </CardContent>
@@ -214,9 +228,16 @@ export default async function InvoicePage({
             Permanently delete this invoice and all its recorded payments. Any
             order linked to it is unlinked. This can&apos;t be undone.
           </span>
-          <Button type="submit" variant="destructive" size="sm">
+          <ConfirmButton
+            variant="destructive"
+            size="sm"
+            title="Delete this invoice and all its payments?"
+            description="Permanently deletes the invoice, its line items, and every recorded payment. Any linked order is unlinked. This can't be undone."
+            confirmLabel="Delete invoice"
+            destructive
+          >
             <Trash2 className="size-3.5" /> Delete invoice &amp; payments
-          </Button>
+          </ConfirmButton>
         </form>
       </details>
     </div>

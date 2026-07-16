@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, Printer, Sparkles, Bookmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
@@ -412,9 +413,22 @@ export function InvoiceBuilder({
           >
             <Bookmark className="size-4" /> Save for later
           </Button>
-          <Button type="button" disabled={isPending} onClick={() => save()}>
-            <Save className="size-4" /> {isPending ? "Saving…" : "Save invoice"}
-          </Button>
+          {status === "void" && invoice.status !== "void" ? (
+            <ConfirmButton
+              disabled={isPending}
+              onConfirm={() => save()}
+              title="Void this invoice?"
+              description="Voiding cancels the invoice and stops its balance from counting. This is hard to reverse."
+              confirmLabel="Void invoice"
+              destructive
+            >
+              <Save className="size-4" /> {isPending ? "Saving…" : "Save invoice"}
+            </ConfirmButton>
+          ) : (
+            <Button type="button" disabled={isPending} onClick={() => save()}>
+              <Save className="size-4" /> {isPending ? "Saving…" : "Save invoice"}
+            </Button>
+          )}
         </div>
       </div>
     </div>

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { getProduct } from "@/lib/data/products";
 import { listSuppliers } from "@/lib/data/suppliers";
@@ -47,9 +48,16 @@ export default async function EditProductPage({
 
       <form action={deleteProduct} className="mt-4 flex justify-end">
         <input type="hidden" name="id" value={product.id} />
-        <Button type="submit" variant="destructive" size="sm">
+        <ConfirmButton
+          variant="destructive"
+          size="sm"
+          title={`Delete "${product.name}"?`}
+          description="Removes this product from the catalog. Existing estimates keep their copied prices. This can't be undone."
+          confirmLabel="Delete product"
+          destructive
+        >
           <Trash2 className="size-3.5" /> Delete product
-        </Button>
+        </ConfirmButton>
       </form>
     </div>
   );

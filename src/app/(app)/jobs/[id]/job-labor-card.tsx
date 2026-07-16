@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/ui/date-field";
 import { SegmentedField } from "@/components/ui/segmented-field";
@@ -107,14 +108,17 @@ export function JobLaborCard({
                 <form action={deleteJobLabor}>
                   <input type="hidden" name="id" value={r.id} />
                   <input type="hidden" name="job_id" value={jobId} />
-                  <Button
-                    type="submit"
+                  <ConfirmButton
                     size="sm"
                     variant="ghost"
-                    title="Remove"
+                    aria-label="Remove"
+                    title={`Delete the ${formatMoney(r.amount)} pay line for ${r.payee || "this crew"}?`}
+                    description="This removes the payout record from the job. This can't be undone."
+                    confirmLabel="Delete pay line"
+                    destructive
                   >
                     <Trash2 className="size-4 text-destructive" />
-                  </Button>
+                  </ConfirmButton>
                 </form>
               </div>
             ))}

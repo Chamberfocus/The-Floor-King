@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { requireProfile } from "@/lib/auth";
@@ -278,13 +279,20 @@ export default async function WarehousePage() {
                           name="warehouse_status"
                           value={s}
                         />
-                        <Button
-                          type="submit"
+                        <ConfirmButton
                           size="lg"
                           variant={current ? "default" : "outline"}
+                          disabled={current}
+                          title={`Mark "${j.customer_name ?? "this job"}" as ${WAREHOUSE_STATUS_LABELS[s]}?`}
+                          description={
+                            s === "delivered"
+                              ? "This emails the customer that their materials were delivered."
+                              : `Sets this job's delivery status to "${WAREHOUSE_STATUS_LABELS[s]}".`
+                          }
+                          confirmLabel={WAREHOUSE_STATUS_LABELS[s]}
                         >
                           {WAREHOUSE_STATUS_LABELS[s]}
-                        </Button>
+                        </ConfirmButton>
                       </form>
                     );
                   })}

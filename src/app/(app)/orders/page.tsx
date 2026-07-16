@@ -5,6 +5,7 @@ import { Package } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listOrders, getProductStock, type ProductStock } from "@/lib/data/orders";
@@ -154,14 +155,30 @@ export default async function OrdersPage() {
             <div className="flex flex-wrap items-center gap-2 border-t pt-3">
               <form action={approveOrder}>
                 <input type="hidden" name="order_id" value={o.id} />
-                <Button type="submit" size="sm">Approve → send to warehouse</Button>
+                <ConfirmButton
+                  size="sm"
+                  title={`Approve ${who}'s order?`}
+                  description="Creates a warehouse job to cut & stage the order and emails the customer that it's approved."
+                  confirmLabel="Approve order"
+                >
+                  Approve → send to warehouse
+                </ConfirmButton>
               </form>
               <details>
                 <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">Decline</summary>
                 <form action={declineOrder} className="mt-2 flex flex-wrap gap-2">
                   <input type="hidden" name="order_id" value={o.id} />
                   <input name="reason" placeholder="Reason (optional)" className="h-9 flex-1 rounded-md border border-input bg-transparent px-3 text-sm" />
-                  <Button type="submit" size="sm" variant="destructive">Decline order</Button>
+                  <ConfirmButton
+                    size="sm"
+                    variant="destructive"
+                    title={`Decline ${who}'s order?`}
+                    description="Marks the order declined and emails the customer."
+                    confirmLabel="Decline order"
+                    destructive
+                  >
+                    Decline order
+                  </ConfirmButton>
                 </form>
               </details>
             </div>
@@ -195,9 +212,16 @@ export default async function OrdersPage() {
                 {o.job_id ? " its warehouse job," : ""} its invoice &amp; payments,
                 and any purchase orders. This can&apos;t be undone.
               </span>
-              <Button type="submit" size="sm" variant="destructive">
+              <ConfirmButton
+                size="sm"
+                variant="destructive"
+                title={`Delete ${who}'s order and everything it created?`}
+                description="Permanently deletes the order, its warehouse job, its invoice & payments, and any purchase orders raised for it. This can't be undone."
+                confirmLabel="Delete order"
+                destructive
+              >
                 <Trash2 className="size-3.5" /> Delete everything
-              </Button>
+              </ConfirmButton>
             </form>
           </details>
         </CardContent>

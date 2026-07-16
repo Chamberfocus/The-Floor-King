@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate, getEstimatorName } from "@/lib/data/estimates";
@@ -155,15 +156,28 @@ export default async function EstimatePage({
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <form action={createJobFromEstimate}>
                   <input type="hidden" name="estimate_id" value={estimate.id} />
-                  <SubmitButton size="lg" className="w-full" pendingText="Creating…" confirm={null}>
+                  <ConfirmButton
+                    size="lg"
+                    className="w-full"
+                    title="Create a job from this estimate?"
+                    description="Builds a work order from this estimate's scope, labor, and materials."
+                    confirmLabel="Create job"
+                  >
                     <Wrench className="size-4" /> Create job
-                  </SubmitButton>
+                  </ConfirmButton>
                 </form>
                 <form action={createPOFromEstimate}>
                   <input type="hidden" name="estimate_id" value={estimate.id} />
-                  <SubmitButton variant="outline" size="lg" className="w-full" pendingText="Creating…" confirm={null}>
+                  <ConfirmButton
+                    variant="outline"
+                    size="lg"
+                    className="w-full"
+                    title="Create a purchase order from this estimate?"
+                    description="Generates POs (grouped by supplier) for this estimate's material lines."
+                    confirmLabel="Create PO"
+                  >
                     <ShoppingCart className="size-4" /> Create PO
-                  </SubmitButton>
+                  </ConfirmButton>
                 </form>
                 <Link
                   href={`/estimates/${estimate.id}/invoice`}
@@ -191,9 +205,14 @@ export default async function EstimatePage({
                 <form action={setEstimateStatus}>
                   <input type="hidden" name="id" value={estimate.id} />
                   <input type="hidden" name="status" value="sent" />
-                  <SubmitButton size="lg" pendingText="Sending…" confirm="Estimate sent">
+                  <ConfirmButton
+                    size="lg"
+                    title={`Send this estimate to ${customer.full_name}?`}
+                    description={`Emails the estimate to ${customer.email} so they can review, approve, or request changes.`}
+                    confirmLabel="Send estimate"
+                  >
                     <Send className="size-4" /> Send to customer
-                  </SubmitButton>
+                  </ConfirmButton>
                 </form>
               </div>
             ) : (
@@ -219,9 +238,15 @@ export default async function EstimatePage({
                   <form action={setEstimateStatus}>
                     <input type="hidden" name="id" value={estimate.id} />
                     <input type="hidden" name="status" value="sent" />
-                    <SubmitButton variant="outline" size="lg" pendingText="Saving…" confirm="Marked as sent">
+                    <ConfirmButton
+                      variant="outline"
+                      size="lg"
+                      title="Mark this estimate as sent?"
+                      description="Flips the estimate to Sent and advances the customer's pipeline stage, without emailing anything."
+                      confirmLabel="Mark as sent"
+                    >
                       Mark as sent anyway
-                    </SubmitButton>
+                    </ConfirmButton>
                   </form>
                 </div>
               </div>
@@ -249,9 +274,14 @@ export default async function EstimatePage({
                   name="accepted_option_id"
                   value={estimate.accepted_option_id || options[0].id}
                 />
-                <SubmitButton size="lg" pendingText="Approving…" confirm="Approved">
+                <ConfirmButton
+                  size="lg"
+                  title="Approve this estimate?"
+                  description="This accepts the estimate, creates the job, moves the customer to Collect Deposit, and notifies the office. Only approve once the customer has agreed."
+                  confirmLabel="Approve"
+                >
                   <Check className="size-4" /> Approve &amp; continue
-                </SubmitButton>
+                </ConfirmButton>
               </form>
             </div>
           ) : (
@@ -270,9 +300,14 @@ export default async function EstimatePage({
                   name="accepted_option_id"
                   value={estimate.accepted_option_id || options[0].id}
                 />
-                <SubmitButton size="lg" pendingText="Approving…" confirm="Approved">
+                <ConfirmButton
+                  size="lg"
+                  title="Approve this estimate?"
+                  description="This accepts the estimate, creates the job, moves the customer to Collect Deposit, and notifies the office. Only approve once the customer has agreed."
+                  confirmLabel="Approve"
+                >
                   <Check className="size-4" /> Approve &amp; continue
-                </SubmitButton>
+                </ConfirmButton>
               </form>
             </div>
           )}
@@ -447,9 +482,14 @@ export default async function EstimatePage({
                     }))}
                   />
                 </div>
-                <Button type="submit" variant="default">
+                <ConfirmButton
+                  variant="default"
+                  title="Approve this estimate?"
+                  description="This accepts the chosen option, creates the job, moves the customer to Collect Deposit, and notifies the office."
+                  confirmLabel="Approve"
+                >
                   Mark approved
-                </Button>
+                </ConfirmButton>
               </form>
             ) : null}
           </div>
@@ -470,9 +510,16 @@ export default async function EstimatePage({
                     placeholder="Reason for declining…"
                     className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
                   />
-                  <Button type="submit" variant="destructive" size="sm">
+                  <ConfirmButton
+                    variant="destructive"
+                    size="sm"
+                    title="Mark this estimate as declined?"
+                    description="Records the estimate as declined with the reason above."
+                    confirmLabel="Mark declined"
+                    destructive
+                  >
                     Mark declined
-                  </Button>
+                  </ConfirmButton>
                 </form>
                 <form action={setEstimateStatus} className="space-y-2">
                   <input type="hidden" name="id" value={estimate.id} />
@@ -496,9 +543,15 @@ export default async function EstimatePage({
             <form action={setEstimateStatus}>
               <input type="hidden" name="id" value={estimate.id} />
               <input type="hidden" name="status" value="sent" />
-              <Button type="submit" variant="outline" size="sm">
+              <ConfirmButton
+                variant="outline"
+                size="sm"
+                title="Reopen this estimate?"
+                description="Moves it back to Sent. If the customer has an email on file, this re-sends the estimate to them."
+                confirmLabel="Reopen"
+              >
                 Reopen (back to sent)
-              </Button>
+              </ConfirmButton>
             </form>
           ) : null}
         </CardContent>

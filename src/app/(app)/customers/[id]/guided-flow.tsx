@@ -19,6 +19,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { cn } from "@/lib/utils";
 import { formatDate, formatMoney } from "@/lib/format";
 import type {
@@ -530,9 +531,16 @@ export async function GuidedFlow({
                   <input type="hidden" name="id" value={customer.id} />
                   <input type="hidden" name="to_stage" value={lostStage.id} />
                   <input type="hidden" name="to_user" value={owner ?? ""} />
-                  <SubmitButton size="sm" variant="outline" pendingText="Saving…" confirm="Marked lost">
+                  <ConfirmButton
+                    size="sm"
+                    variant="outline"
+                    title="Mark this job as lost / declined?"
+                    description="Moves the customer out of the active pipeline into Lost / Declined. You can reopen it later if needed."
+                    confirmLabel="Mark lost"
+                    destructive
+                  >
                     <XCircle className="size-3.5" /> Mark lost / declined
-                  </SubmitButton>
+                  </ConfirmButton>
                 </form>
               ) : null}
             </div>
@@ -600,9 +608,16 @@ export async function GuidedFlow({
                       <input type="hidden" name="id" value={customer.id} />
                       <input type="hidden" name="to_stage" value={lostStage.id} />
                       <input type="hidden" name="to_user" value={owner ?? ""} />
-                      <SubmitButton size="sm" variant="outline" pendingText="Saving…" confirm="Marked lost">
+                      <ConfirmButton
+                        size="sm"
+                        variant="outline"
+                        title="Mark this job as lost / declined?"
+                        description="Moves the customer out of the active pipeline into Lost / Declined. You can reopen it later if needed."
+                        confirmLabel="Mark lost"
+                        destructive
+                      >
                         <XCircle className="size-3.5" /> Mark lost / declined
-                      </SubmitButton>
+                      </ConfirmButton>
                     </form>
                   ) : null}
                 </div>

@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import type { Supplier } from "@/lib/types";
 import { addSupplier, updateSupplier, deleteSupplier } from "./actions";
@@ -67,15 +68,18 @@ export function SupplierList({ suppliers }: { suppliers: Supplier[] }) {
                 <Button type="submit" variant="outline" size="sm">
                   Save
                 </Button>
-                <Button
-                  type="submit"
+                <ConfirmButton
                   variant="ghost"
                   size="icon-sm"
                   formAction={deleteSupplier}
                   aria-label="Delete supplier"
+                  title={`Delete ${s.name || "this supplier"}?`}
+                  description="Removes the supplier. Products and POs that referenced it keep their copied vendor name. This can't be undone."
+                  confirmLabel="Delete supplier"
+                  destructive
                 >
                   <Trash2 className="size-3.5" />
-                </Button>
+                </ConfirmButton>
               </form>
             ))}
           </div>

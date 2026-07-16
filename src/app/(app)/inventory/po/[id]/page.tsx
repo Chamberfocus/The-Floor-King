@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
@@ -185,9 +186,16 @@ export default async function StockPOPage({ params }: { params: Promise<{ id: st
       {/* Delete — undoes any on-order / received stock this PO added. */}
       <form action={deleteStockPO} className="mt-8 flex justify-end border-t pt-4">
         <input type="hidden" name="po_id" value={id} />
-        <Button type="submit" variant="destructive" size="sm">
+        <ConfirmButton
+          variant="destructive"
+          size="sm"
+          title="Delete this stock purchase order?"
+          description="Reverses any on-order and received stock this PO added, removes rolls/remnants it created, then deletes it. This can't be undone."
+          confirmLabel="Delete PO"
+          destructive
+        >
           <Trash2 className="size-3.5" /> Delete this PO
-        </Button>
+        </ConfirmButton>
       </form>
     </div>
   );

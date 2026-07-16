@@ -1,6 +1,7 @@
 import { ChevronUp, ChevronDown, Trash2, Ruler, Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import type { CustomerArea } from "@/lib/types";
 import { saveCustomerArea, deleteCustomerArea, moveCustomerArea } from "./area-actions";
@@ -91,9 +92,17 @@ export function CustomerAreasCard({
               <form action={deleteCustomerArea}>
                 <input type="hidden" name="id" value={a.id} />
                 <input type="hidden" name="customer_id" value={customerId} />
-                <Button type="submit" variant="ghost" size="icon-sm" aria-label="Delete">
+                <ConfirmButton
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Delete"
+                  title={`Delete the ${a.name || "area"} measurement?`}
+                  description="Removes this saved room measurement. This can't be undone."
+                  confirmLabel="Delete area"
+                  destructive
+                >
                   <Trash2 className="size-4 text-destructive" />
-                </Button>
+                </ConfirmButton>
               </form>
             </div>
           ))
