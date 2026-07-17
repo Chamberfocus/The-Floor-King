@@ -1849,37 +1849,26 @@ export function EstimateBuilder({
                           );
                         })()}
 
-                        {/* 2 · IDENTITY — Room, plus Color for flooring (color IDs
-                            flooring at a glance). The product name is NOT re-entered
-                            here — the picker above already shows what's selected; the
-                            optional line label lives under More options. */}
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <div>
+                        {/* 2 · IDENTITY — Color for flooring only (color IDs flooring
+                            at a glance). The Room is INHERITED from the Room/Area the
+                            material was added under — shown in the line header, and
+                            editable (to move it) under More options. It is never
+                            re-asked here. The product name isn't re-entered either;
+                            the picker above shows what's selected. */}
+                        {isFlooring ? (
+                          <div className="max-w-xs">
                             <label className="mb-1 block text-xs text-muted-foreground">
-                              Room
+                              Color
                             </label>
                             <Input
-                              value={line.room}
-                              onChange={(e) => updateLine(oi, li, { room: e.target.value })}
-                              placeholder="e.g. Living Room"
+                              value={line.color}
+                              onChange={(e) => updateLine(oi, li, { color: e.target.value })}
+                              placeholder={line.category === "carpet" ? "e.g. Seagull" : "Color / finish"}
+                              list="estimate-color-suggestions"
                               className="h-9"
                             />
                           </div>
-                          {isFlooring ? (
-                            <div>
-                              <label className="mb-1 block text-xs text-muted-foreground">
-                                Color
-                              </label>
-                              <Input
-                                value={line.color}
-                                onChange={(e) => updateLine(oi, li, { color: e.target.value })}
-                                placeholder={line.category === "carpet" ? "e.g. Seagull" : "Color / finish"}
-                                list="estimate-color-suggestions"
-                                className="h-9"
-                              />
-                            </div>
-                          ) : null}
-                        </div>
+                        ) : null}
 
                         {/* 3 · MEASUREMENT — matched to the material's unit type. */}
                         {isSubfloor(line) ? (
@@ -2242,6 +2231,25 @@ export function EstimateBuilder({
                                       ]
                                 }
                               />
+                            </div>
+
+                            {/* Room / area — INHERITED from the Room/Area this
+                                material was added under (also shown in the line
+                                header). Editable only to MOVE the material to a
+                                different room; never required, never re-asked. */}
+                            <div className="max-w-xs">
+                              <label className="mb-1 block text-xs text-muted-foreground">
+                                Room / area
+                              </label>
+                              <Input
+                                value={line.room}
+                                onChange={(e) => updateLine(oi, li, { room: e.target.value })}
+                                placeholder="e.g. Living Room"
+                                className="h-9"
+                              />
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Inherited from the room you added this under — change only to move it.
+                              </p>
                             </div>
 
                             {/* Line label — optional override of the header name.
