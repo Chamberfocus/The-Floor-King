@@ -17,19 +17,19 @@ from (values
   ('Carpet','Metals / transitions needed?','Gripper or flat metal at doorways / edges.','yesno',
     '{"note":true,"show_if":{"key":"project_type","in":["Carpet"]}}','metals_needed',false,112),
   ('Carpet','Metal type','Gripper (tack) or flat.','choice',
-    '{"note":true,"multi":false,"show_if":{"key":"metals_needed","in":["Yes"]},"options":[{"label":"Gripper"},{"label":"Flat"}]}',null,113),
+    '{"note":true,"multi":false,"show_if":{"key":"metals_needed","in":["Yes"]},"options":[{"label":"Gripper"},{"label":"Flat"}]}',null,false,113),
   ('Carpet','Metal color',null,'choice',
-    '{"note":true,"multi":false,"show_if":{"key":"metals_needed","in":["Yes"]},"options":[{"label":"Silver"},{"label":"Titanium"},{"label":"Gold"}]}',null,114),
+    '{"note":true,"multi":false,"show_if":{"key":"metals_needed","in":["Yes"]},"options":[{"label":"Silver"},{"label":"Titanium"},{"label":"Gold"}]}',null,false,114),
   ('Carpet','Bulk pickup day (for curb placement)','What day is the municipal bulk pickup — so the old floor is placed out on time.','text',
-    '{"note":true,"show_if":{"key":"carpet_curb","in":["Yes"]}}',null,72),
+    '{"note":true,"show_if":{"key":"carpet_curb","in":["Yes"]}}',null,false,72),
   ('Carpet','AC available on site?','Climate control affects install conditions.','yesno',
     '{"note":true,"show_if":{"key":"project_type","in":["Carpet","Hard surface"]}}','ac_available',false,122),
   ('Carpet','Heat available on site?',null,'yesno',
     '{"note":true,"show_if":{"key":"project_type","in":["Carpet","Hard surface"]}}','heat_available',false,123),
   ('Carpet','Site access','How does the crew get in?','choice',
-    '{"note":true,"multi":false,"show_if":{"key":"project_type","in":["Carpet","Hard surface"]},"options":[{"label":"Lockbox"},{"label":"Homeowner present"},{"label":"Key at office"}]}',null,124),
+    '{"note":true,"multi":false,"show_if":{"key":"project_type","in":["Carpet","Hard surface"]},"options":[{"label":"Lockbox"},{"label":"Homeowner present"},{"label":"Key at office"}]}',null,false,124),
   ('Carpet','Timeline — how soon?',null,'choice',
-    '{"note":true,"multi":false,"show_if":{"key":"project_type","in":["Carpet","Hard surface"]},"options":[{"label":"ASAP"},{"label":"1-2 weeks"},{"label":"3-4 weeks"},{"label":"1-2 months"},{"label":"Flexible"}]}',null,125)
+    '{"note":true,"multi":false,"show_if":{"key":"project_type","in":["Carpet","Hard surface"]},"options":[{"label":"ASAP"},{"label":"1-2 weeks"},{"label":"3-4 weeks"},{"label":"1-2 months"},{"label":"Flexible"}]}',null,false,125)
 ) as v(section,label,help,kind,config,key,required,position)
 where not exists (
   select 1 from public.estimate_questions w where w.label = v.label and w.section = v.section
@@ -42,13 +42,13 @@ from (values
   ('Hard surface','Radiant heat present?','If yes, we flag it to confirm the chosen product is rated for radiant heat.','yesno',
     '{"note":true,"show_if":{"key":"project_type","in":["Hard surface"]}}','radiant_heat',false,208),
   ('Hard surface','Stairnose from Versatrim?',null,'yesno',
-    '{"note":true,"show_if":{"key":"project_type","in":["Hard surface"]}}',null,287),
+    '{"note":true,"show_if":{"key":"project_type","in":["Hard surface"]}}',null,false,287),
   ('Hard surface','Transitions — transition to what?','Note what each transition meets (tile, carpet, existing wood…).','text',
-    '{"note":true,"show_if":{"key":"project_type","in":["Hard surface"]}}',null,296),
+    '{"note":true,"show_if":{"key":"project_type","in":["Hard surface"]}}',null,false,296),
   ('Hard surface','J-channel — size & color','Size (2MM / 4-5MM / 6-7MM / 8MM / 10MM / 12MM) and color (titanium / silver / chrome / nickel).','text',
-    '{"note":true,"show_if":{"key":"project_type","in":["Hard surface"]}}',null,297),
+    '{"note":true,"show_if":{"key":"project_type","in":["Hard surface"]}}',null,false,297),
   ('Hard surface','Crew preference',null,'text',
-    '{"note":true,"show_if":{"key":"project_type","in":["Hard surface"]}}',null,318)
+    '{"note":true,"show_if":{"key":"project_type","in":["Hard surface"]}}',null,false,318)
 ) as v(section,label,help,kind,config,key,required,position)
 where not exists (
   select 1 from public.estimate_questions w where w.label = v.label and w.section = v.section
