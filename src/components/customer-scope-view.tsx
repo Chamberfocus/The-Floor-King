@@ -26,19 +26,19 @@ export function CustomerScopeView({
   const empty = scopeIsEmpty(scope);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* FEATURED — the flooring the customer is getting, front and center. */}
       {highlights.length > 0 ? (
-        <div className="break-inside-avoid rounded-xl border-2 border-gray-300 px-5 py-4 dark:border-gray-600">
-          <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+        <div className="break-inside-avoid rounded-xl border-2 border-gray-300 px-4 py-3 dark:border-gray-600">
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
             Your new flooring
           </div>
-          <ul className="space-y-2">
+          <ul className="space-y-1">
             {highlights.map((h, i) => (
               <li key={i} className="leading-snug">
-                <span className="text-xl font-bold sm:text-2xl">{h.title}</span>
+                <span className="text-lg font-bold sm:text-xl">{h.title}</span>
                 {h.detail ? (
-                  <span className="ml-1.5 text-base text-gray-600 dark:text-gray-300">
+                  <span className="ml-1.5 text-[15px] text-gray-600 dark:text-gray-300">
                     — {h.detail}
                   </span>
                 ) : null}
@@ -80,10 +80,10 @@ export function CustomerScopeView({
 
 function FullScope({ scope }: { scope: CustomerScope }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {scope.rooms.map((room) => (
         <div key={room.name} className="break-inside-avoid">
-          <h3 className="text-lg font-semibold">{room.name}</h3>
+          <h3 className="text-base font-bold">{room.name}</h3>
           <ItemList label="Flooring" items={room.flooring} />
           <ItemList label="Includes" items={room.included} />
         </div>
@@ -91,7 +91,7 @@ function FullScope({ scope }: { scope: CustomerScope }) {
 
       {scope.whole.flooring.length > 0 || scope.whole.included.length > 0 ? (
         <div className="break-inside-avoid">
-          <h3 className="text-lg font-semibold">Throughout your home</h3>
+          <h3 className="text-base font-bold">Throughout your home</h3>
           <ItemList label="Flooring" items={scope.whole.flooring} />
           <ItemList label="Includes" items={scope.whole.included} />
         </div>
@@ -99,8 +99,8 @@ function FullScope({ scope }: { scope: CustomerScope }) {
 
       {scope.conditions.length > 0 ? (
         <div className="break-inside-avoid">
-          <h3 className="text-lg font-semibold">Site preparation</h3>
-          <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[15px] leading-relaxed">
+          <h3 className="text-base font-bold">Site preparation</h3>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm leading-relaxed">
             {scope.conditions.map((c, i) => (
               <li key={i}>{c}</li>
             ))}
@@ -109,7 +109,7 @@ function FullScope({ scope }: { scope: CustomerScope }) {
       ) : null}
 
       {scope.notes.trim() ? (
-        <p className="whitespace-pre-wrap break-inside-avoid text-[15px] text-muted-foreground">
+        <p className="whitespace-pre-wrap break-inside-avoid text-sm text-muted-foreground">
           {scope.notes}
         </p>
       ) : null}
@@ -120,14 +120,14 @@ function FullScope({ scope }: { scope: CustomerScope }) {
 function ItemList({ label, items }: { label: string; items: ScopeItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="mt-2">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+    <div className="mt-1">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
         {label}
       </div>
-      <ul className="mt-1 space-y-1 text-[15px] leading-relaxed">
+      <ul className="mt-0.5 space-y-0.5 text-sm leading-snug">
         {items.map((it, i) => (
           <li key={i} className="flex gap-2">
-            <span aria-hidden className="mt-2 size-1.5 shrink-0 rounded-full bg-current opacity-40" />
+            <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-current opacity-40" />
             <span>
               <span className="font-semibold">{it.title}</span>
               {it.detail ? (

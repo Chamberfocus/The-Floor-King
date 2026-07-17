@@ -167,13 +167,13 @@ export function EstimatePrintDoc({
         docTitle="ESTIMATE"
         meta={
           <>
-            <div className="text-sm font-medium">{number}</div>
-            {estimate.title ? <div className="text-xs">{estimate.title}</div> : null}
-            <div className="text-xs">Date {formatDate(estimate.created_at)}</div>
+            <div className="text-base font-bold">{number}</div>
+            {estimate.title ? <div className="text-sm text-gray-700">{estimate.title}</div> : null}
+            <div className="text-sm text-gray-700">Date {formatDate(estimate.created_at)}</div>
             {estimate.valid_until ? (
-              <div className="text-xs">Valid until {formatDate(estimate.valid_until)}</div>
+              <div className="text-sm text-gray-700">Valid until {formatDate(estimate.valid_until)}</div>
             ) : null}
-            {preparedBy ? <div className="text-xs">Estimator {preparedBy}</div> : null}
+            {preparedBy ? <div className="text-sm text-gray-700">Estimator {preparedBy}</div> : null}
           </>
         }
       />
@@ -211,8 +211,8 @@ export function EstimatePrintDoc({
         </div>
       ) : (
         <>
-          <div className="mt-4 border-t pt-5">
-            <div className="mb-4 text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
+          <div className="mt-3 border-t pt-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
               Your project
             </div>
             <CustomerScopeView
@@ -223,14 +223,14 @@ export function EstimatePrintDoc({
           </div>
 
           {projectDetails.length > 0 ? (
-            <div className="mt-6 break-inside-avoid border-t pt-5">
-              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
+            <div className="mt-4 break-inside-avoid border-t pt-3">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
                 Project details
               </div>
-              <ul className="grid grid-cols-1 gap-x-8 gap-y-1.5 text-[15px] leading-relaxed sm:grid-cols-2">
+              <ul className="grid grid-cols-1 gap-x-8 gap-y-1 text-sm leading-snug sm:grid-cols-2">
                 {projectDetails.map((d, i) => (
                   <li key={i} className="flex gap-2">
-                    <span aria-hidden className="mt-2 size-1.5 shrink-0 rounded-full bg-current opacity-40" />
+                    <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-current opacity-40" />
                     <span>{d}</span>
                   </li>
                 ))}
@@ -238,7 +238,7 @@ export function EstimatePrintDoc({
             </div>
           ) : null}
 
-          <div className="mt-8 break-inside-avoid rounded-xl border-2 border-gray-800 px-5 py-4">
+          <div className="mt-5 break-inside-avoid rounded-xl border-2 border-gray-800 px-5 py-3">
             <div className="flex items-baseline justify-between gap-4">
               <span className="text-base font-bold uppercase tracking-wide">
                 Project total
@@ -247,7 +247,7 @@ export function EstimatePrintDoc({
                 {formatMoney(totals.total)}
               </span>
             </div>
-            <p className="mt-2 text-[13px] leading-relaxed text-gray-600">
+            <p className="mt-1.5 text-[13px] leading-snug text-gray-600">
               A single, all-inclusive price for the complete project described
               above — materials, professional installation, and site
               preparation. Applicable tax included.
@@ -256,7 +256,7 @@ export function EstimatePrintDoc({
         </>
       )}
 
-      <div className="mt-8 border-t pt-3 text-center text-xs text-gray-500">
+      <div className="mt-5 border-t pt-2.5 text-center text-xs text-gray-500">
         Thank you for the opportunity to earn your business. — {org.company_name}
       </div>
     </div>
