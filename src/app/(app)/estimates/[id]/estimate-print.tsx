@@ -7,9 +7,9 @@ import { Printer, Save, ListChecks, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
-import { CustomerScopeView, FeaturedFlooring } from "@/components/customer-scope-view";
+import { CustomerScopeView } from "@/components/customer-scope-view";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
-import { buildCustomerScope, parseProjectDetails, flooringHighlights } from "@/lib/customer-scope";
+import { buildCustomerScope, parseProjectDetails } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -287,12 +287,12 @@ export function EstimatePrintDoc({
             <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
               Your project
             </div>
-            <FeaturedFlooring highlights={flooringHighlights(scope)} />
 
             {itemized ? (
-              // ITEMIZED — a price on each line, grouped by room. Line totals
-              // only; never a quantity, unit cost, sq ft, or margin.
-              <div className="mt-4 space-y-3">
+              // ITEMIZED — a price on each line, grouped by room. Each product
+              // is its own line with its price; line totals only (never a
+              // quantity, unit cost, sq ft, or margin).
+              <div className="space-y-3">
                 {itemGroups.map((g) => (
                   <div key={g.room} className="break-inside-avoid">
                     <h3 className="text-base font-bold">{g.room}</h3>
@@ -308,9 +308,8 @@ export function EstimatePrintDoc({
                 ))}
               </div>
             ) : (
-              <div className="mt-4">
-                <CustomerScopeView scope={scope} variant="full" narrative={estimate.notes} />
-              </div>
+              // LUMP SUM — materials featured, then the scope in words.
+              <CustomerScopeView scope={scope} variant="full" narrative={estimate.notes} />
             )}
           </div>
 

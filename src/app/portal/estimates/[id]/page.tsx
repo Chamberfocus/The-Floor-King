@@ -10,11 +10,11 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
-import { CustomerScopeView, FeaturedFlooring } from "@/components/customer-scope-view";
+import { CustomerScopeView } from "@/components/customer-scope-view";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import { getEstimate } from "@/lib/data/estimates";
 import { getOrgSettings } from "@/lib/data/org";
-import { buildCustomerScope, parseProjectDetails, flooringHighlights } from "@/lib/customer-scope";
+import { buildCustomerScope, parseProjectDetails } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { formatMoney } from "@/lib/format";
 import type { EstimateOption } from "@/lib/types";
@@ -161,9 +161,8 @@ export default async function PortalEstimatePage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <FeaturedFlooring highlights={flooringHighlights(scope)} />
             {itemized ? (
-              <div className="mt-4 space-y-3">
+              <div className="space-y-3">
                 {itemGroups.map((g) => (
                   <div key={g.room}>
                     <h3 className="text-base font-bold">{g.room}</h3>
@@ -179,9 +178,7 @@ export default async function PortalEstimatePage({
                 ))}
               </div>
             ) : (
-              <div className="mt-4">
-                <CustomerScopeView scope={scope} variant="full" narrative={estimate.notes} />
-              </div>
+              <CustomerScopeView scope={scope} variant="full" narrative={estimate.notes} />
             )}
             {projectDetails.length > 0 ? (
               <div className="mt-6 border-t pt-5">
