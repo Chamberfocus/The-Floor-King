@@ -72,6 +72,10 @@ export function ProductPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  // When a product is selected, the box shows it as a display (a pill). "Change"
+  // flips this on to reveal the search field so you can swap it — you never
+  // re-type the name in a second box.
+  const [editing, setEditing] = useState(false);
   const [q, setQ] = useState(initialLabel);
   const [results, setResults] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
@@ -79,9 +83,11 @@ export function ProductPicker({
   const boxRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Keep the field in sync when the line's product changes elsewhere.
+  // Keep the field in sync when the line's product changes elsewhere. Any change
+  // to the selected product (pick / swap / clear) drops back to the display pill.
   useEffect(() => {
     setQ(initialLabel);
+    setEditing(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, initialLabel]);
 
@@ -92,6 +98,7 @@ export function ProductPicker({
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
         setOpen(false);
         setAdding(false);
+        setEditing(false);
         setQ(initialLabel);
       }
     };
@@ -160,6 +167,7 @@ export function ProductPicker({
     } else if (e.key === "Escape") {
       setOpen(false);
       setAdding(false);
+      setEditing(false);
       setQ(initialLabel);
     }
   };
@@ -169,42 +177,66 @@ export function ProductPicker({
       <label className="mb-1 block text-xs text-muted-foreground">
         {label}
       </label>
-      <div className={cn("relative w-full", fullWidth ? "" : "sm:w-72")}>
-        <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setOpen(true);
-            setAdding(false);
-          }}
-          onFocus={(e) => {
-            setOpen(true);
-            e.currentTarget.select();
-          }}
-          onKeyDown={onKeyDown}
-          placeholder="Type a product name…"
-          className={cn(inputSm, "w-full pl-8 pr-7", fullWidth && "h-11 text-base")}
-        />
-        {value ? (
+      {value && !editing ? (
+        /* SELECTED — show the product once, as a display. No text box to re-type
+           into: "Change" reopens the search to swap it, "×" clears it. */
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 shadow-sm",
+            fullWidth ? "h-11 w-full" : "h-9 w-full sm:w-72",
+          )}
+        >
+          <Check className="size-4 shrink-0 text-primary" />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+            {initialLabel || "Selected product"}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(true);
+              setQ("");
+              setOpen(true);
+            }}
+            className="shrink-0 text-xs font-medium text-primary hover:underline"
+          >
+            Change
+          </button>
           <button
             type="button"
             onClick={() => {
               onPick(null);
+              setEditing(false);
               setQ("");
               setOpen(false);
             }}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            className="shrink-0 text-muted-foreground hover:text-foreground"
             aria-label="Clear product"
           >
             <X className="size-4" />
           </button>
-        ) : (
-          <ChevronDown
-            className="pointer-events-none absolute right-1.5 top-1/2 size-4 -translate-y-1/2 opacity-50"
+        </div>
+      ) : (
+        <div className={cn("relative w-full", fullWidth ? "" : "sm:w-72")}>
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setOpen(true);
+              setAdding(false);
+            }}
+            onFocus={(e) => {
+              setOpen(true);
+              e.currentTarget.select();
+            }}
+            onKeyDown={onKeyDown}
+            autoFocus={editing}
+            placeholder="Type a product name…"
+            className={cn(inputSm, "w-full pl-8 pr-7", fullWidth && "h-11 text-base")}
           />
-        )}
-      </div>
+          <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 size-4 -translate-y-1/2 opacity-50" />
+        </div>
+      )}
 
       {open ? (
         <div

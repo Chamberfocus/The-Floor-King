@@ -1811,8 +1811,8 @@ export function EstimateBuilder({
                             initialLabel={line.description}
                             fullWidth
                             label={
-                              line.product_id || line.description
-                                ? "Product — search to change or swap it"
+                              line.product_id
+                                ? "Product"
                                 : "Product — search the catalog (name, color, mfr, SKU) or add new"
                             }
                             onPick={(p) => pickProduct(oi, li, p)}
@@ -1849,35 +1849,37 @@ export function EstimateBuilder({
                           );
                         })()}
 
-                        {/* 2 · IDENTITY — room, description, and (flooring only)
-                            color, since color identifies flooring at a glance. */}
-                        <div className="grid gap-2 sm:grid-cols-3">
-                          <Input
-                            value={line.room}
-                            onChange={(e) => updateLine(oi, li, { room: e.target.value })}
-                            placeholder="Room (e.g. Living Room)"
-                          />
-                          <Input
-                            value={line.description}
-                            onChange={(e) => updateLine(oi, li, { description: e.target.value })}
-                            placeholder="Description"
-                            className="sm:col-span-2"
-                          />
-                        </div>
-                        {isFlooring ? (
-                          <div className="max-w-xs">
+                        {/* 2 · IDENTITY — Room, plus Color for flooring (color IDs
+                            flooring at a glance). The product name is NOT re-entered
+                            here — the picker above already shows what's selected; the
+                            optional line label lives under More options. */}
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div>
                             <label className="mb-1 block text-xs text-muted-foreground">
-                              Color
+                              Room
                             </label>
                             <Input
-                              value={line.color}
-                              onChange={(e) => updateLine(oi, li, { color: e.target.value })}
-                              placeholder={line.category === "carpet" ? "e.g. Seagull" : "Color / finish"}
-                              list="estimate-color-suggestions"
+                              value={line.room}
+                              onChange={(e) => updateLine(oi, li, { room: e.target.value })}
+                              placeholder="e.g. Living Room"
                               className="h-9"
                             />
                           </div>
-                        ) : null}
+                          {isFlooring ? (
+                            <div>
+                              <label className="mb-1 block text-xs text-muted-foreground">
+                                Color
+                              </label>
+                              <Input
+                                value={line.color}
+                                onChange={(e) => updateLine(oi, li, { color: e.target.value })}
+                                placeholder={line.category === "carpet" ? "e.g. Seagull" : "Color / finish"}
+                                list="estimate-color-suggestions"
+                                className="h-9"
+                              />
+                            </div>
+                          ) : null}
+                        </div>
 
                         {/* 3 · MEASUREMENT — matched to the material's unit type. */}
                         {isSubfloor(line) ? (
@@ -2242,51 +2244,95 @@ export function EstimateBuilder({
                               />
                             </div>
 
-                            {/* Catalog details — manufacturer, style, item #, and
-                                color for NON-flooring (flooring shows color above). */}
+                            {/* Line label — optional override of the header name.
+                                Defaults to the product name; blank shows the product
+                                identity. Not a required box; the picker already
+                                shows what's selected. */}
+                            <div>
+                              <label className="mb-1 block text-xs text-muted-foreground">
+                                Line label (optional)
+                              </label>
+                              <Input
+                                value={line.description}
+                                onChange={(e) => updateLine(oi, li, { description: e.target.value })}
+                                placeholder={displayName || "Defaults to the product name"}
+                                className="h-9"
+                              />
+                            </div>
+
+                            {/* Catalog details. For a product picked from the
+                                catalog these are FACTS, shown read-only ("From the
+                                catalog") so the name/style never looks like a box to
+                                re-fill. A manual/blank line keeps them editable so
+                                you can set them once. */}
                             {!isLaborLine(line) && !isSubfloor(line) ? (
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="mb-1 block text-xs text-muted-foreground">Manufacturer</label>
-                                  <Input
-                                    value={line.manufacturer}
-                                    onChange={(e) => updateLine(oi, li, { manufacturer: e.target.value })}
-                                    placeholder="e.g. Shaw"
-                                    list="estimate-manufacturer-suggestions"
-                                    className="h-9"
-                                  />
-                                </div>
-                                {!isFlooring ? (
+                              line.product_id ? (
+                                (() => {
+                                  const facts = [
+                                    ["Manufacturer", line.manufacturer],
+                                    ["Style", line.style],
+                                    !isFlooring ? ["Color", line.color] : null,
+                                    ["Item #", line.item_no],
+                                  ].filter((f): f is [string, string] => !!f && !!f[1] && f[1].trim() !== "");
+                                  if (facts.length === 0) return null;
+                                  return (
+                                    <div>
+                                      <div className="mb-1 text-xs text-muted-foreground">From the catalog</div>
+                                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border bg-muted/30 p-2.5 text-sm">
+                                        {facts.map(([k, v]) => (
+                                          <div key={k} className="flex min-w-0 justify-between gap-2">
+                                            <dt className="text-muted-foreground">{k}</dt>
+                                            <dd className="min-w-0 truncate font-medium">{v}</dd>
+                                          </div>
+                                        ))}
+                                      </dl>
+                                    </div>
+                                  );
+                                })()
+                              ) : (
+                                <div className="grid grid-cols-2 gap-2">
                                   <div>
-                                    <label className="mb-1 block text-xs text-muted-foreground">Color</label>
+                                    <label className="mb-1 block text-xs text-muted-foreground">Manufacturer</label>
                                     <Input
-                                      value={line.color}
-                                      onChange={(e) => updateLine(oi, li, { color: e.target.value })}
-                                      placeholder="Color / finish"
-                                      list="estimate-color-suggestions"
+                                      value={line.manufacturer}
+                                      onChange={(e) => updateLine(oi, li, { manufacturer: e.target.value })}
+                                      placeholder="e.g. Shaw"
+                                      list="estimate-manufacturer-suggestions"
                                       className="h-9"
                                     />
                                   </div>
-                                ) : null}
-                                <div>
-                                  <label className="mb-1 block text-xs text-muted-foreground">Style</label>
-                                  <Input
-                                    value={line.style}
-                                    onChange={(e) => updateLine(oi, li, { style: e.target.value })}
-                                    placeholder="Style"
-                                    className="h-9"
-                                  />
+                                  {!isFlooring ? (
+                                    <div>
+                                      <label className="mb-1 block text-xs text-muted-foreground">Color</label>
+                                      <Input
+                                        value={line.color}
+                                        onChange={(e) => updateLine(oi, li, { color: e.target.value })}
+                                        placeholder="Color / finish"
+                                        list="estimate-color-suggestions"
+                                        className="h-9"
+                                      />
+                                    </div>
+                                  ) : null}
+                                  <div>
+                                    <label className="mb-1 block text-xs text-muted-foreground">Style</label>
+                                    <Input
+                                      value={line.style}
+                                      onChange={(e) => updateLine(oi, li, { style: e.target.value })}
+                                      placeholder="Style"
+                                      className="h-9"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-xs text-muted-foreground">Item #</label>
+                                    <Input
+                                      value={line.item_no}
+                                      onChange={(e) => updateLine(oi, li, { item_no: e.target.value })}
+                                      placeholder="Item #"
+                                      className="h-9"
+                                    />
+                                  </div>
                                 </div>
-                                <div>
-                                  <label className="mb-1 block text-xs text-muted-foreground">Item #</label>
-                                  <Input
-                                    value={line.item_no}
-                                    onChange={(e) => updateLine(oi, li, { item_no: e.target.value })}
-                                    placeholder="Item #"
-                                    className="h-9"
-                                  />
-                                </div>
-                              </div>
+                              )
                             ) : null}
 
                             {/* Source — order new or pull from stock. */}
