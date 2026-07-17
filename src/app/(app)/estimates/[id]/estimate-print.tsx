@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Printer, Save } from "lucide-react";
+import { Printer, Save, ListChecks } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
 import { CustomerScopeView } from "@/components/customer-scope-view";
@@ -12,7 +14,58 @@ import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
 import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { Customer, Estimate, OrgSettings } from "@/lib/types";
-import { saveEstimateNotes } from "../actions";
+import { saveEstimateNotes, setEstimatePresentation } from "../actions";
+
+/**
+ * Per-estimate toggle for whether the customer copy shows the detailed scope of
+ * work or a simpler materials + price version. Presentation only — the price and
+ * the firewall are identical either way.
+ */
+export function ScopeDetailToggle({
+  estimateId,
+  detailed,
+}: {
+  estimateId: string;
+  detailed: boolean;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const set = (next: "detailed" | "summary") =>
+    start(async () => {
+      await setEstimatePresentation(estimateId, next);
+      router.refresh();
+    });
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+      <span className="flex items-center gap-1.5 text-sm font-medium">
+        <ListChecks className="size-4 text-muted-foreground" /> Detailed scope of work
+      </span>
+      <div className="inline-flex rounded-md border p-0.5 text-sm">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => set("detailed")}
+          className={cn("rounded px-3 py-1 font-medium", detailed ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+        >
+          On
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => set("summary")}
+          className={cn("rounded px-3 py-1 font-medium", !detailed ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+        >
+          Off
+        </button>
+      </div>
+      <span className="text-xs text-muted-foreground">
+        {detailed
+          ? "Customer sees the full scope of work."
+          : "Customer sees materials + price only."}
+      </span>
+    </div>
+  );
+}
 
 /** Opens the print dialog automatically (used after "Create & print"). */
 export function AutoPrint() {
@@ -135,26 +188,27 @@ export function EstimatePrintDoc({
       ) : null}
 
       {showComparison ? (
-        <div className="mt-2 border-t pt-3">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        <div className="mt-4 border-t pt-5">
+          <div className="mb-4 text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
             Your options — choose the one that fits
           </div>
           {estimate.job_description ? (
-            <p className="mb-3 whitespace-pre-wrap text-sm leading-relaxed">
+            <p className="mb-4 whitespace-pre-wrap text-[15px] leading-relaxed">
               {estimate.job_description}
             </p>
           ) : null}
           <EstimateOptionCards estimate={estimate} printMode />
-          <p className="mt-3 text-xs text-gray-600">
-            Each option is a single, all-inclusive price — materials, labor, and
-            site preparation as described. Applicable tax included. Approve the
-            option you&apos;d like online, or let us know.
+          <p className="mt-4 text-[13px] leading-relaxed text-gray-600">
+            Each option is a single, all-inclusive price — materials,
+            professional installation, and site preparation as described.
+            Applicable tax included. Approve the option you&apos;d like online,
+            or let us know.
           </p>
         </div>
       ) : (
         <>
-          <div className="mt-2 border-t pt-3">
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          <div className="mt-4 border-t pt-5">
+            <div className="mb-4 text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
               Your project
             </div>
             <CustomerScopeView
@@ -164,19 +218,19 @@ export function EstimatePrintDoc({
             />
           </div>
 
-          <div className="mt-6 break-inside-avoid border-t-2 border-gray-800 pt-3">
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm font-semibold uppercase tracking-wide">
+          <div className="mt-8 break-inside-avoid rounded-xl border-2 border-gray-800 px-5 py-4">
+            <div className="flex items-baseline justify-between gap-4">
+              <span className="text-base font-bold uppercase tracking-wide">
                 Project total
               </span>
-              <span className="text-2xl font-bold tabular-nums">
+              <span className="text-3xl font-extrabold tabular-nums">
                 {formatMoney(totals.total)}
               </span>
             </div>
-            <p className="mt-1 text-xs text-gray-600">
+            <p className="mt-2 text-[13px] leading-relaxed text-gray-600">
               A single, all-inclusive price for the complete project described
-              above — materials, labor, and site preparation. Applicable tax
-              included.
+              above — materials, professional installation, and site
+              preparation. Applicable tax included.
             </p>
           </div>
         </>

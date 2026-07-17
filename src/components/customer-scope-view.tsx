@@ -7,9 +7,10 @@ import { flooringHighlights, scopeIsEmpty } from "@/lib/customer-scope";
  * prices. Shared by the printed estimate/invoice and the portal so the customer
  * sees the same thing on paper and on screen.
  *
- * `variant="full"` lists it room by room; `variant="condensed"` gives a tight
- * summary — the estimate's detailed/summary toggle chooses between them, but
- * neither ever exposes a number.
+ * The flooring the customer is buying is FEATURED up top (large, bold). Then:
+ * `variant="full"` lists the project room by room with site preparation;
+ * `variant="condensed"` keeps just the featured materials + an all-inclusive
+ * line. Neither ever exposes a number.
  */
 export function CustomerScopeView({
   scope,
@@ -21,34 +22,68 @@ export function CustomerScopeView({
   narrative?: string | null;
 }) {
   const hasNarrative = !!narrative && narrative.trim().length > 0;
+  const highlights = flooringHighlights(scope);
+  const empty = scopeIsEmpty(scope);
 
   return (
-    <div className="space-y-4">
-      {hasNarrative ? (
-        <p className="whitespace-pre-wrap text-sm leading-relaxed">{narrative}</p>
+    <div className="space-y-6">
+      {/* FEATURED — the flooring the customer is getting, front and center. */}
+      {highlights.length > 0 ? (
+        <div className="break-inside-avoid rounded-xl border-2 border-gray-300 px-5 py-4 dark:border-gray-600">
+          <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+            Your new flooring
+          </div>
+          <ul className="space-y-2">
+            {highlights.map((h, i) => (
+              <li key={i} className="leading-snug">
+                <span className="text-xl font-bold sm:text-2xl">{h.title}</span>
+                {h.detail ? (
+                  <span className="ml-1.5 text-base text-gray-600 dark:text-gray-300">
+                    — {h.detail}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
-      {scopeIsEmpty(scope) ? (
-        !hasNarrative ? (
-          <p className="text-sm text-muted-foreground">
-            Complete flooring project as described.
-          </p>
-        ) : null
-      ) : variant === "condensed" ? (
-        <CondensedScope scope={scope} />
+      {variant === "condensed" ? (
+        <p className="text-base leading-relaxed text-gray-700 dark:text-gray-300">
+          Includes all materials, professional installation, trim &amp;
+          transitions, site preparation, and haul-away as described — for one
+          all-inclusive price.
+        </p>
       ) : (
-        <FullScope scope={scope} />
+        <>
+          {hasNarrative ? (
+            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{narrative}</p>
+          ) : null}
+          {empty ? (
+            !hasNarrative && highlights.length === 0 ? (
+              <p className="text-[15px] text-muted-foreground">
+                Complete flooring project as described.
+              </p>
+            ) : null
+          ) : (
+            <FullScope scope={scope} />
+          )}
+        </>
       )}
+
+      {variant === "condensed" && scope.notes.trim() ? (
+        <p className="whitespace-pre-wrap text-[15px] text-muted-foreground">{scope.notes}</p>
+      ) : null}
     </div>
   );
 }
 
 function FullScope({ scope }: { scope: CustomerScope }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {scope.rooms.map((room) => (
         <div key={room.name} className="break-inside-avoid">
-          <h3 className="text-sm font-semibold">{room.name}</h3>
+          <h3 className="text-lg font-semibold">{room.name}</h3>
           <ItemList label="Flooring" items={room.flooring} />
           <ItemList label="Includes" items={room.included} />
         </div>
@@ -56,7 +91,7 @@ function FullScope({ scope }: { scope: CustomerScope }) {
 
       {scope.whole.flooring.length > 0 || scope.whole.included.length > 0 ? (
         <div className="break-inside-avoid">
-          <h3 className="text-sm font-semibold">Throughout your home</h3>
+          <h3 className="text-lg font-semibold">Throughout your home</h3>
           <ItemList label="Flooring" items={scope.whole.flooring} />
           <ItemList label="Includes" items={scope.whole.included} />
         </div>
@@ -64,8 +99,8 @@ function FullScope({ scope }: { scope: CustomerScope }) {
 
       {scope.conditions.length > 0 ? (
         <div className="break-inside-avoid">
-          <h3 className="text-sm font-semibold">Site preparation</h3>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm">
+          <h3 className="text-lg font-semibold">Site preparation</h3>
+          <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[15px] leading-relaxed">
             {scope.conditions.map((c, i) => (
               <li key={i}>{c}</li>
             ))}
@@ -74,43 +109,9 @@ function FullScope({ scope }: { scope: CustomerScope }) {
       ) : null}
 
       {scope.notes.trim() ? (
-        <p className="whitespace-pre-wrap break-inside-avoid text-sm text-muted-foreground">
+        <p className="whitespace-pre-wrap break-inside-avoid text-[15px] text-muted-foreground">
           {scope.notes}
         </p>
-      ) : null}
-    </div>
-  );
-}
-
-function CondensedScope({ scope }: { scope: CustomerScope }) {
-  const highlights = flooringHighlights(scope);
-  const rooms = scope.rooms.map((r) => r.name).filter(Boolean);
-  return (
-    <div className="space-y-3 text-sm">
-      {rooms.length > 0 ? (
-        <p>
-          <span className="font-medium">Areas:</span> {rooms.join(", ")}
-        </p>
-      ) : null}
-      {highlights.length > 0 ? (
-        <div>
-          <div className="font-medium">Materials</div>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5">
-            {highlights.map((h, i) => (
-              <li key={i}>
-                {h.title}
-                {h.detail ? <span className="text-muted-foreground"> · {h.detail}</span> : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      <p className="text-muted-foreground">
-        Includes all materials, professional installation, trim &amp;
-        transitions, site preparation, and haul-away as described.
-      </p>
-      {scope.notes.trim() ? (
-        <p className="whitespace-pre-wrap text-muted-foreground">{scope.notes}</p>
       ) : null}
     </div>
   );
@@ -119,18 +120,18 @@ function CondensedScope({ scope }: { scope: CustomerScope }) {
 function ItemList({ label, items }: { label: string; items: ScopeItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="mt-1">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="mt-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
         {label}
       </div>
-      <ul className="mt-0.5 space-y-0.5 text-sm">
+      <ul className="mt-1 space-y-1 text-[15px] leading-relaxed">
         {items.map((it, i) => (
-          <li key={i} className="flex gap-1.5">
-            <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-current opacity-40" />
+          <li key={i} className="flex gap-2">
+            <span aria-hidden className="mt-2 size-1.5 shrink-0 rounded-full bg-current opacity-40" />
             <span>
-              <span className="font-medium">{it.title}</span>
+              <span className="font-semibold">{it.title}</span>
               {it.detail ? (
-                <span className="text-muted-foreground"> — {it.detail}</span>
+                <span className="text-gray-600 dark:text-gray-300"> — {it.detail}</span>
               ) : null}
             </span>
           </li>

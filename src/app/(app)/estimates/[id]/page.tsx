@@ -41,6 +41,7 @@ import {
   EstimatePrintDoc,
   PrintEstimateButton,
   EstimateNotesEditor,
+  ScopeDetailToggle,
   AutoPrint,
 } from "./estimate-print";
 
@@ -140,6 +141,12 @@ export default async function EstimatePage({
           <PrintEstimateButton />
           <CopyEstimate estimateId={estimate.id} />
         </div>
+      </div>
+
+      {/* Customer copy — show or hide the detailed scope of work on the estimate
+          the customer sees (print / PDF / portal). Presentation only. */}
+      <div className="mb-6 print:hidden">
+        <ScopeDetailToggle estimateId={estimate.id} detailed={detailed} />
       </div>
 
       {/* Next steps — the obvious "what now", tuned to where the estimate is */}

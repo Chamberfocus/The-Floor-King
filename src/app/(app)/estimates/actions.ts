@@ -580,6 +580,24 @@ export async function saveEstimateNotes(formData: FormData): Promise<void> {
 }
 
 /**
+ * Toggle whether the customer estimate shows the detailed scope of work
+ * ("detailed") or a simpler materials + lump-sum copy ("summary"). Presentation
+ * only — never affects pricing, the totals, or the firewall.
+ */
+export async function setEstimatePresentation(
+  id: string,
+  presentation: "detailed" | "summary",
+): Promise<void> {
+  if (!id) return;
+  const supabase = await createClient();
+  await supabase
+    .from("estimates")
+    .update({ presentation: presentation === "summary" ? "summary" : "detailed" })
+    .eq("id", id);
+  revalidatePath(`/estimates/${id}`);
+}
+
+/**
  * Mark an estimate sent: email the customer their portal link and advance the
  * customer's workflow stage. No redirect — callers decide where to go next
  * (the builder's "Save & send" sends here, then goes to the dashboard).
