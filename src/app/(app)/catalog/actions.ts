@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { searchCatalog } from "@/lib/data/products";
+import { isAreaUnit, normalizeUnit } from "@/lib/units";
 import type { Product, ProductCategory } from "@/lib/types";
 
 /** Live catalog search for the estimate material picker (active products). */
@@ -168,6 +169,57 @@ export async function updateProduct(
   revalidatePath("/catalog");
   revalidatePath("/inventory");
   return { error: null, ok: true };
+}
+
+/**
+ * "Use always" — write an estimate line's edited cost back to its catalog
+ * product's saved default rate. The line prices in its billing unit (e.g. carpet
+ * per sq yd) while the product stores its own unit (e.g. per sq ft), so the cost
+ * is converted back through the SAME factor the picker used. Only ever called
+ * when the user opts in per line; "use once" never reaches here.
+ */
+export async function saveProductRate(input: {
+  productId: string;
+  materialCost: number | string;
+  laborCost: number | string;
+  measureUnit: "sqft" | "sqyd";
+}): Promise<{ error: string | null }> {
+  if (!input.productId) return { error: "Missing product." };
+  try {
+    await assertRole(["admin", "office", "sales_manager", "salesman"]);
+  } catch {
+    return { error: "You don't have permission to update catalog rates." };
+  }
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return { error: "Catalog isn't configured on the server." };
+  }
+  const { data: p } = await admin.from("products").select("unit").eq("id", input.productId).maybeSingle();
+  if (!p) return { error: "Product not found." };
+
+  const num = (v: number | string) => {
+    const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
+    return Number.isFinite(n) ? n : 0;
+  };
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  // Mirror pickProduct's unit conversion: count units 1:1; area units convert
+  // between the line's sq ft / sq yd and the catalog unit.
+  const count = !isAreaUnit(p.unit as string);
+  const catUnit = normalizeUnit(p.unit as string); // "sqft" | "sqyd" | …
+  const factor = count ? 1 : input.measureUnit === catUnit ? 1 : input.measureUnit === "sqyd" ? 9 : 1 / 9;
+  const material_rate = r2(num(input.materialCost) / factor);
+  const labor_rate = r2(num(input.laborCost) / factor);
+
+  const { error } = await admin
+    .from("products")
+    .update({ material_rate, labor_rate })
+    .eq("id", input.productId);
+  if (error) return { error: error.message };
+  revalidatePath("/catalog");
+  revalidatePath("/inventory");
+  return { error: null };
 }
 
 type DedupeRow = {

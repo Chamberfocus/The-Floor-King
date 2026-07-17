@@ -48,6 +48,7 @@ import {
   DEFAULT_LABOR_PER_SQFT,
 } from "@/lib/floor-prep";
 import { saveEstimate } from "./actions";
+import { saveProductRate, createProductInline } from "../catalog/actions";
 import { writeScopeDescription, draftLinesFromText } from "./ai-actions";
 import type { SmartLine } from "./smart-actions";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
@@ -95,6 +96,7 @@ interface LineState {
   coverage_thickness_in: string; // prep: reference thickness ("" = flat coverage)
   prep_thickness_in: string; // prep: the pour thickness the bag calc used
   prep_key: string; // links a prep material line to its auto-populated labor line
+  save_default: boolean; // "use always" — write this cost back to the catalog default on save (UI-only, never persisted on the line)
 }
 
 const round2s = (n: number) => String(Math.round(n * 100) / 100);
@@ -265,6 +267,7 @@ export function EstimateBuilder({
   manufacturerSuggestions = [],
   addonCatalog = [],
   productUnits = {},
+  productDefaults = {},
 }: {
   estimate: Estimate;
   customerName: string;
@@ -280,6 +283,9 @@ export function EstimateBuilder({
   /** Catalog unit of each linked product id — flags area-priced lines whose
    *  product is really sold by the each/bag (the sq-ft-on-a-pail bug). */
   productUnits?: Record<string, string>;
+  /** Saved catalog default rate + unit per linked product id — powers the
+   *  "standard vs one-off" badge and the "use always" write-back. */
+  productDefaults?: Record<string, { material_rate: number; labor_rate: number; unit: string }>;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -323,6 +329,7 @@ export function EstimateBuilder({
     coverage_thickness_in: "",
     prep_thickness_in: "",
     prep_key: "",
+    save_default: false,
   });
 
   const [title, setTitle] = useState(estimate.title ?? "");
@@ -389,6 +396,7 @@ export function EstimateBuilder({
         coverage_thickness_in: l.coverage_thickness_in != null ? String(l.coverage_thickness_in) : "",
         prep_thickness_in: l.prep_thickness_in != null ? String(l.prep_thickness_in) : "",
         prep_key: l.prep_key ?? "",
+        save_default: false,
       })),
     }));
     return initial.length
@@ -1081,6 +1089,65 @@ export function EstimateBuilder({
     recommended_index: options.findIndex((o) => o.key === recommendedKey),
   });
 
+  // --- Saved-default write-back ("use once" vs "use always") ----------------
+  const catalogFactor = (measure: MeasureUnit, productUnit: string): number => {
+    if (!isAreaUnit(productUnit)) return 1; // count units price 1:1
+    const catUnit = normalizeUnit(productUnit);
+    return measure === catUnit ? 1 : measure === "sqyd" ? 9 : 1 / 9;
+  };
+  // The catalog default cost expressed in THIS line's billing unit — or null
+  // when the line has no linked product/default. Drives the standard-vs-one-off
+  // badge (compared against the current cost).
+  const defaultCostFor = (l: LineState, labor: boolean): number | null => {
+    const d = l.product_id ? productDefaults[l.product_id] : undefined;
+    if (!d) return null;
+    const rate = labor ? d.labor_rate : d.material_rate;
+    return Math.round(rate * catalogFactor(l.measure_unit, d.unit) * 100) / 100;
+  };
+  // On save, push every "Save as my default" line's cost back to its product's
+  // saved rate (one write per product). "Use once" lines never reach here.
+  const flushDefaultRates = async () => {
+    const seen = new Set<string>();
+    for (const o of options)
+      for (const l of o.lines) {
+        if (!l.save_default || !l.product_id || seen.has(l.product_id)) continue;
+        seen.add(l.product_id);
+        await saveProductRate({
+          productId: l.product_id,
+          materialCost: num(l.material_cost),
+          laborCost: num(l.labor_cost),
+          measureUnit: l.measure_unit,
+        });
+      }
+  };
+  // "Save to catalog" for a one-off line (no linked product) → create a reusable
+  // product from it and link the line, so it now has a saved default.
+  const saveLineToCatalog = (oi: number, li: number) => {
+    const l = options[oi]?.lines[li];
+    if (!l) return;
+    startTransition(async () => {
+      const res = await createProductInline({
+        name: l.description || "New product",
+        category: l.category || "other",
+        unit: isCountLine(l) ? l.unit || "each" : l.measure_unit,
+        material_rate: num(l.material_cost),
+        labor_rate: num(l.labor_cost),
+        manufacturer: l.manufacturer || undefined,
+        style: l.style || undefined,
+        color: l.color || undefined,
+        sku: l.item_no || undefined,
+        coverage_sqft: l.coverage_sqft || null,
+        coverage_thickness_in: l.coverage_thickness_in || null,
+      });
+      if (res.error || !res.product) {
+        toast.error(res.error ?? "Couldn't save to catalog.");
+        return;
+      }
+      updateLine(oi, li, { product_id: res.product.id });
+      toast.success("Saved to your catalog — future estimates can reuse it.");
+    });
+  };
+
   const save = (thenView: boolean) =>
     startTransition(async () => {
       const res = await saveEstimate(estimate.id, buildInput());
@@ -1088,6 +1155,7 @@ export function EstimateBuilder({
         toast.error(res.error);
         return;
       }
+      await flushDefaultRates();
       toast.success("Estimate saved");
       // "Save & view" opens the estimate; a plain "Save" returns to the
       // customer's dashboard (the job's spine) — only ever on a successful save.
@@ -1111,6 +1179,7 @@ export function EstimateBuilder({
         toast.error(res.error);
         return;
       }
+      await flushDefaultRates();
       window.print();
     });
 
@@ -2149,6 +2218,61 @@ export function EstimateBuilder({
                                     <span className="text-muted-foreground">Following the overall {overallMargin}% margin.</span>
                                   )}
                                 </div>
+                                {/* Save scope — one-off by default so tweaking a
+                                    price never touches your saved rate; opt in to
+                                    "Save as my default" to update the catalog. */}
+                                {(() => {
+                                  const def = defaultCostFor(line, labor);
+                                  const cur = num(labor ? line.labor_cost : line.material_cost);
+                                  const isStandard = def != null && Math.abs(cur - def) < 0.005;
+                                  return (
+                                    <div className="space-y-1.5 border-t pt-2">
+                                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                        <span
+                                          className={cn(
+                                            "inline-flex items-center rounded-full px-2 py-0.5 font-medium",
+                                            isStandard
+                                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+                                              : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400",
+                                          )}
+                                        >
+                                          {isStandard ? "Standard rate" : def != null ? "Custom — this estimate" : "One-off — not in catalog"}
+                                        </span>
+                                        {line.product_id ? (
+                                          <div className="inline-flex rounded-md border p-0.5 text-xs">
+                                            <button
+                                              type="button"
+                                              onClick={() => updateLine(oi, li, { save_default: false })}
+                                              className={cn("rounded px-2 py-1 font-medium", !line.save_default ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                                            >
+                                              This estimate only
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => updateLine(oi, li, { save_default: true })}
+                                              className={cn("rounded px-2 py-1 font-medium", line.save_default ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                                            >
+                                              Save as my default
+                                            </button>
+                                          </div>
+                                        ) : cur > 0 ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => saveLineToCatalog(oi, li)}
+                                            className="font-medium text-primary hover:underline"
+                                          >
+                                            Save to catalog
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                      {line.product_id && line.save_default ? (
+                                        <p className="text-[11px] text-primary">
+                                          Saving the estimate updates your catalog default to this {labor ? "labor " : ""}cost.
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })()}
                                 {/* Material lines are material-only. A saved line
                                     that still bundles labor gets a one-tap split so
                                     material & labor become separate line items. */}
