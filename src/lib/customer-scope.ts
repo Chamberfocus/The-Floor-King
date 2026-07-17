@@ -51,29 +51,27 @@ export interface CustomerScope {
   notes: string;
 }
 
-/** A product described for the customer: brand + style + color, never a size. */
+/** A product described for the customer: its full name, never a size. The line's
+ *  description holds the product name (e.g. "OVF Del Mar - JETCORE 7.25\""), so
+ *  it leads; brand/category are only fallbacks when there's no description. */
 function productItem(l: EstimateLineItem): ScopeItem {
-  const brand = [l.manufacturer, l.style]
-    .map((s) => (s ?? "").trim())
-    .filter(Boolean)
-    .join(" ");
+  return { title: customerLineLabel(l), detail: undefined };
+}
+
+/**
+ * The customer-facing name for a line — the full product/description, with color
+ * appended when it isn't already in it. Never a quantity, size, or price. Shared
+ * by the scope view and the itemized estimate so a product reads the same way
+ * everywhere.
+ */
+export function customerLineLabel(l: EstimateLineItem): string {
+  const desc = (l.description ?? "").trim();
+  const brand = [l.manufacturer, l.style].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
   const color = (l.color ?? "").trim();
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
-  const desc = (l.description ?? "").trim();
-
-  const title = brand
-    ? color
-      ? `${brand} — ${color}`
-      : brand
-    : desc || catLabel || "Flooring";
-
-  const detailBits: string[] = [];
-  if (brand && catLabel) detailBits.push(catLabel);
-  // Add the description only when it says something the title doesn't already.
-  if (desc && !title.toLowerCase().includes(desc.toLowerCase())) {
-    detailBits.push(desc);
-  }
-  return { title, detail: detailBits.join(" · ") || undefined };
+  let label = desc || brand || catLabel || "Item";
+  if (color && !label.toLowerCase().includes(color.toLowerCase())) label += ` — ${color}`;
+  return label;
 }
 
 /** A labor / prep line described as work performed — no hours, no area. */

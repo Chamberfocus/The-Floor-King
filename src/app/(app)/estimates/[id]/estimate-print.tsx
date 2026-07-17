@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
 import { CustomerScopeView } from "@/components/customer-scope-view";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
-import { buildCustomerScope, parseProjectDetails } from "@/lib/customer-scope";
+import { buildCustomerScope, parseProjectDetails, customerLineLabel } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -210,13 +210,6 @@ export function EstimatePrintDoc({
 
   // Itemized breakdown: each priced line, grouped by room, showing its LINE
   // TOTAL only (never a quantity, unit cost, sq ft, or margin).
-  const lineLabel = (l: (typeof lines)[number]): string => {
-    const brand = [l.manufacturer, l.style].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
-    const color = (l.color ?? "").trim();
-    const desc = (l.description ?? "").trim();
-    if (brand) return color ? `${brand} — ${color}` : brand;
-    return desc || "Item";
-  };
   const itemGroups: { room: string; items: { label: string; amount: number }[] }[] = [];
   if (itemized) {
     const at = new Map<string, number>();
@@ -228,7 +221,7 @@ export function EstimatePrintDoc({
         at.set(room, itemGroups.length);
         itemGroups.push({ room, items: [] });
       }
-      itemGroups[at.get(room)!].items.push({ label: lineLabel(l), amount });
+      itemGroups[at.get(room)!].items.push({ label: customerLineLabel(l), amount });
     }
   }
 

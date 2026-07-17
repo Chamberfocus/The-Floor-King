@@ -14,7 +14,7 @@ import { CustomerScopeView } from "@/components/customer-scope-view";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import { getEstimate } from "@/lib/data/estimates";
 import { getOrgSettings } from "@/lib/data/org";
-import { buildCustomerScope, parseProjectDetails } from "@/lib/customer-scope";
+import { buildCustomerScope, parseProjectDetails, customerLineLabel } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { formatMoney } from "@/lib/format";
 import type { EstimateOption } from "@/lib/types";
@@ -68,11 +68,9 @@ export default async function PortalEstimatePage({
     for (const l of chosenLines) {
       const amount = lineTotal(l);
       if (!(amount > 0)) continue;
-      const brand = [l.manufacturer, l.style].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
-      const label = brand ? ((l.color ?? "").trim() ? `${brand} — ${(l.color ?? "").trim()}` : brand) : (l.description ?? "").trim() || "Item";
       const room = (l.room ?? "").trim() || "Project";
       if (!at.has(room)) { at.set(room, itemGroups.length); itemGroups.push({ room, items: [] }); }
-      itemGroups[at.get(room)!].items.push({ label, amount });
+      itemGroups[at.get(room)!].items.push({ label: customerLineLabel(l), amount });
     }
   }
 
