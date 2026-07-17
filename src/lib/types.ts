@@ -683,7 +683,8 @@ export interface Estimate {
   customer_id: string;
   title: string | null;
   status: EstimateStatus;
-  presentation: EstimatePresentation;
+  presentation: EstimatePresentation; // "detailed" = itemized (price per line); "summary" = one lump sum
+  show_project_details: boolean; // show the captured questionnaire answers on the customer copy
   tax_rate: number;
   discount_kind: "amount" | "percent";
   discount_value: number;

@@ -580,9 +580,9 @@ export async function saveEstimateNotes(formData: FormData): Promise<void> {
 }
 
 /**
- * Toggle whether the customer estimate shows the detailed scope of work
- * ("detailed") or a simpler materials + lump-sum copy ("summary"). Presentation
- * only — never affects pricing, the totals, or the firewall.
+ * How the customer copy prices the job: "detailed" = itemized (a price on each
+ * line); "summary" = one lump-sum total. Presentation only — the underlying
+ * totals never change.
  */
 export async function setEstimatePresentation(
   id: string,
@@ -594,6 +594,15 @@ export async function setEstimatePresentation(
     .from("estimates")
     .update({ presentation: presentation === "summary" ? "summary" : "detailed" })
     .eq("id", id);
+  revalidatePath(`/estimates/${id}`);
+}
+
+/** Independently toggle whether the captured questionnaire answers (the Project
+ *  details list) appear on the customer copy. */
+export async function setEstimateProjectDetails(id: string, show: boolean): Promise<void> {
+  if (!id) return;
+  const supabase = await createClient();
+  await supabase.from("estimates").update({ show_project_details: !!show }).eq("id", id);
   revalidatePath(`/estimates/${id}`);
 }
 

@@ -3,66 +3,112 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Printer, Save, ListChecks } from "lucide-react";
+import { Printer, Save, ListChecks, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
-import { CustomerScopeView } from "@/components/customer-scope-view";
+import { CustomerScopeView, FeaturedFlooring } from "@/components/customer-scope-view";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
-import { buildCustomerScope, parseProjectDetails } from "@/lib/customer-scope";
-import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
+import { buildCustomerScope, parseProjectDetails, flooringHighlights } from "@/lib/customer-scope";
+import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { Customer, Estimate, OrgSettings } from "@/lib/types";
-import { saveEstimateNotes, setEstimatePresentation } from "../actions";
+import { saveEstimateNotes, setEstimatePresentation, setEstimateProjectDetails } from "../actions";
+
+function Seg({
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="inline-flex rounded-md border p-0.5 text-sm">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(o.value)}
+          className={cn(
+            "rounded px-3 py-1 font-medium",
+            value === o.value ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /**
- * Per-estimate toggle for whether the customer copy shows the detailed scope of
- * work or a simpler materials + price version. Presentation only — the price and
- * the firewall are identical either way.
+ * Two independent per-estimate switches for the customer copy:
+ *  • Itemized (a price on each line) vs Lump sum (one total).
+ *  • Whether the captured questionnaire answers (Project details) appear.
+ * Presentation only — the underlying totals and the firewall on quantities /
+ * unit costs / margins never change.
  */
-export function ScopeDetailToggle({
+export function EstimateCustomerControls({
   estimateId,
-  detailed,
+  presentation,
+  showProjectDetails,
 }: {
   estimateId: string;
-  detailed: boolean;
+  presentation: string;
+  showProjectDetails: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const set = (next: "detailed" | "summary") =>
+  const itemized = presentation !== "summary";
+  const setPres = (v: string) =>
     start(async () => {
-      await setEstimatePresentation(estimateId, next);
+      await setEstimatePresentation(estimateId, v === "summary" ? "summary" : "detailed");
+      router.refresh();
+    });
+  const setPD = (v: string) =>
+    start(async () => {
+      await setEstimateProjectDetails(estimateId, v === "on");
       router.refresh();
     });
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
-      <span className="flex items-center gap-1.5 text-sm font-medium">
-        <ListChecks className="size-4 text-muted-foreground" /> Project details on customer copy
-      </span>
-      <div className="inline-flex rounded-md border p-0.5 text-sm">
-        <button
-          type="button"
+    <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-8">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          <Receipt className="size-4 text-muted-foreground" /> Customer sees
+        </span>
+        <Seg
+          value={itemized ? "detailed" : "summary"}
           disabled={pending}
-          onClick={() => set("detailed")}
-          className={cn("rounded px-3 py-1 font-medium", detailed ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
-        >
-          On
-        </button>
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => set("summary")}
-          className={cn("rounded px-3 py-1 font-medium", !detailed ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
-        >
-          Off
-        </button>
+          onChange={setPres}
+          options={[
+            { value: "detailed", label: "Itemized" },
+            { value: "summary", label: "Lump sum" },
+          ]}
+        />
+        <span className="text-xs text-muted-foreground">
+          {itemized ? "A price on each line." : "One all-inclusive total."}
+        </span>
       </div>
-      <span className="text-xs text-muted-foreground">
-        {detailed
-          ? "Customer copy includes the captured answers (subfloor, prep, furniture…). Scope of work always shows."
-          : "Customer copy shows the scope of work + price only. Scope of work always shows."}
-      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          <ListChecks className="size-4 text-muted-foreground" /> Project details
+        </span>
+        <Seg
+          value={showProjectDetails ? "on" : "off"}
+          disabled={pending}
+          onChange={setPD}
+          options={[
+            { value: "on", label: "On" },
+            { value: "off", label: "Off" },
+          ]}
+        />
+      </div>
     </div>
   );
 }
@@ -153,12 +199,38 @@ export function EstimatePrintDoc({
     estimate.discount_value,
   );
   const scope = buildCustomerScope(lines, estimate.notes);
-  // The scope of work is ALWAYS shown in full. The "detailed" presentation adds
-  // the captured questionnaire answers as a Project details list (customer's
-  // choice per estimate); internal flags are never included on this copy.
-  const showDetails = estimate.presentation !== "summary";
-  const projectDetails = showDetails ? parseProjectDetails(estimate.job_description).details : [];
+  // Two independent switches, both firewall-safe (no sq ft / quantities / unit
+  // costs / margins): "itemized" prices each line vs one lump sum; project
+  // details shows the captured questionnaire answers.
+  const itemized = estimate.presentation !== "summary";
+  const projectDetails = estimate.show_project_details
+    ? parseProjectDetails(estimate.job_description).details
+    : [];
   const number = docRef("EST", estimate.id);
+
+  // Itemized breakdown: each priced line, grouped by room, showing its LINE
+  // TOTAL only (never a quantity, unit cost, sq ft, or margin).
+  const lineLabel = (l: (typeof lines)[number]): string => {
+    const brand = [l.manufacturer, l.style].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
+    const color = (l.color ?? "").trim();
+    const desc = (l.description ?? "").trim();
+    if (brand) return color ? `${brand} — ${color}` : brand;
+    return desc || "Item";
+  };
+  const itemGroups: { room: string; items: { label: string; amount: number }[] }[] = [];
+  if (itemized) {
+    const at = new Map<string, number>();
+    for (const l of lines) {
+      const amount = lineTotal(l);
+      if (!(amount > 0)) continue; // skip zero / placeholder lines
+      const room = (l.room ?? "").trim() || "Project";
+      if (!at.has(room)) {
+        at.set(room, itemGroups.length);
+        itemGroups.push({ room, items: [] });
+      }
+      itemGroups[at.get(room)!].items.push({ label: lineLabel(l), amount });
+    }
+  }
 
   return (
     <div className="hidden text-black print:block">
@@ -215,11 +287,31 @@ export function EstimatePrintDoc({
             <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
               Your project
             </div>
-            <CustomerScopeView
-              scope={scope}
-              variant="full"
-              narrative={estimate.notes}
-            />
+            <FeaturedFlooring highlights={flooringHighlights(scope)} />
+
+            {itemized ? (
+              // ITEMIZED — a price on each line, grouped by room. Line totals
+              // only; never a quantity, unit cost, sq ft, or margin.
+              <div className="mt-4 space-y-3">
+                {itemGroups.map((g) => (
+                  <div key={g.room} className="break-inside-avoid">
+                    <h3 className="text-base font-bold">{g.room}</h3>
+                    <ul className="mt-1 divide-y divide-gray-200">
+                      {g.items.map((it, i) => (
+                        <li key={i} className="flex items-baseline justify-between gap-4 py-1 text-[15px]">
+                          <span>{it.label}</span>
+                          <span className="shrink-0 font-medium tabular-nums">{formatMoney(it.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4">
+                <CustomerScopeView scope={scope} variant="full" narrative={estimate.notes} />
+              </div>
+            )}
           </div>
 
           {projectDetails.length > 0 ? (
@@ -239,18 +331,38 @@ export function EstimatePrintDoc({
           ) : null}
 
           <div className="mt-5 break-inside-avoid rounded-xl border-2 border-gray-800 px-5 py-3">
+            {itemized && (totals.discount > 0 || totals.tax > 0) ? (
+              <div className="mb-2 space-y-1 border-b border-gray-300 pb-2 text-[15px]">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Subtotal</span>
+                  <span className="tabular-nums">{formatMoney(totals.subtotal)}</span>
+                </div>
+                {totals.discount > 0 ? (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Discount</span>
+                    <span className="tabular-nums">−{formatMoney(totals.discount)}</span>
+                  </div>
+                ) : null}
+                {totals.tax > 0 ? (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Tax</span>
+                    <span className="tabular-nums">{formatMoney(totals.tax)}</span>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="flex items-baseline justify-between gap-4">
               <span className="text-base font-bold uppercase tracking-wide">
-                Project total
+                {itemized ? "Total" : "Project total"}
               </span>
               <span className="text-3xl font-extrabold tabular-nums">
                 {formatMoney(totals.total)}
               </span>
             </div>
             <p className="mt-1.5 text-[13px] leading-snug text-gray-600">
-              A single, all-inclusive price for the complete project described
-              above — materials, professional installation, and site
-              preparation. Applicable tax included.
+              {itemized
+                ? "All-inclusive — materials, professional installation, and site preparation as itemized above. Applicable tax included."
+                : "A single, all-inclusive price for the complete project described above — materials, professional installation, and site preparation. Applicable tax included."}
             </p>
           </div>
         </>

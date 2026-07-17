@@ -42,7 +42,7 @@ import {
   EstimatePrintDoc,
   PrintEstimateButton,
   EstimateNotesEditor,
-  ScopeDetailToggle,
+  EstimateCustomerControls,
   AutoPrint,
 } from "./estimate-print";
 
@@ -144,10 +144,14 @@ export default async function EstimatePage({
         </div>
       </div>
 
-      {/* Customer copy — show or hide the detailed scope of work on the estimate
-          the customer sees (print / PDF / portal). Presentation only. */}
+      {/* Customer copy — itemized vs lump sum, and whether the captured
+          questionnaire answers appear (print / PDF / portal). Presentation only. */}
       <div className="mb-6 print:hidden">
-        <ScopeDetailToggle estimateId={estimate.id} detailed={detailed} />
+        <EstimateCustomerControls
+          estimateId={estimate.id}
+          presentation={estimate.presentation}
+          showProjectDetails={estimate.show_project_details}
+        />
       </div>
 
       {/* Next steps — the obvious "what now", tuned to where the estimate is */}
@@ -354,7 +358,7 @@ export default async function EstimatePage({
                 </div>
               ) : null}
               <p className="text-xs text-muted-foreground">
-                {detailed
+                {estimate.show_project_details
                   ? "The details list above appears on the customer copy — toggle it above. Internal flags stay internal."
                   : "The details list above is hidden from the customer copy — toggle it above to include it. Internal flags stay internal."}
               </p>

@@ -10,12 +10,12 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
-import { CustomerScopeView } from "@/components/customer-scope-view";
+import { CustomerScopeView, FeaturedFlooring } from "@/components/customer-scope-view";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import { getEstimate } from "@/lib/data/estimates";
 import { getOrgSettings } from "@/lib/data/org";
-import { buildCustomerScope, parseProjectDetails } from "@/lib/customer-scope";
-import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
+import { buildCustomerScope, parseProjectDetails, flooringHighlights } from "@/lib/customer-scope";
+import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { formatMoney } from "@/lib/format";
 import type { EstimateOption } from "@/lib/types";
 import {
@@ -53,12 +53,28 @@ export default async function PortalEstimatePage({
   // Single view: the option they accepted, else the first.
   const chosen =
     options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
-  const scope = buildCustomerScope(chosen?.line_items ?? [], estimate.notes);
-  const total = chosen ? totalsFor(chosen).total : 0;
-  // Scope of work always shows; "detailed" adds the captured answers (never the
-  // internal flags).
-  const projectDetails =
-    estimate.presentation !== "summary" ? parseProjectDetails(estimate.job_description).details : [];
+  const chosenLines = chosen?.line_items ?? [];
+  const scope = buildCustomerScope(chosenLines, estimate.notes);
+  const chosenTotals = chosen ? totalsFor(chosen) : null;
+  const total = chosenTotals?.total ?? 0;
+  const itemized = estimate.presentation !== "summary";
+  const projectDetails = estimate.show_project_details
+    ? parseProjectDetails(estimate.job_description).details
+    : [];
+  // Itemized rows (customer): each priced line by room, line totals only.
+  const itemGroups: { room: string; items: { label: string; amount: number }[] }[] = [];
+  if (itemized) {
+    const at = new Map<string, number>();
+    for (const l of chosenLines) {
+      const amount = lineTotal(l);
+      if (!(amount > 0)) continue;
+      const brand = [l.manufacturer, l.style].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
+      const label = brand ? ((l.color ?? "").trim() ? `${brand} — ${(l.color ?? "").trim()}` : brand) : (l.description ?? "").trim() || "Item";
+      const room = (l.room ?? "").trim() || "Project";
+      if (!at.has(room)) { at.set(room, itemGroups.length); itemGroups.push({ room, items: [] }); }
+      itemGroups[at.get(room)!].items.push({ label, amount });
+    }
+  }
 
   return (
     <div>
@@ -145,11 +161,28 @@ export default async function PortalEstimatePage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <CustomerScopeView
-              scope={scope}
-              variant="full"
-              narrative={estimate.notes}
-            />
+            <FeaturedFlooring highlights={flooringHighlights(scope)} />
+            {itemized ? (
+              <div className="mt-4 space-y-3">
+                {itemGroups.map((g) => (
+                  <div key={g.room}>
+                    <h3 className="text-base font-bold">{g.room}</h3>
+                    <ul className="mt-1 divide-y">
+                      {g.items.map((it, i) => (
+                        <li key={i} className="flex items-baseline justify-between gap-4 py-1 text-[15px]">
+                          <span>{it.label}</span>
+                          <span className="shrink-0 font-medium tabular-nums">{formatMoney(it.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4">
+                <CustomerScopeView scope={scope} variant="full" narrative={estimate.notes} />
+              </div>
+            )}
             {projectDetails.length > 0 ? (
               <div className="mt-6 border-t pt-5">
                 <div className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -165,17 +198,25 @@ export default async function PortalEstimatePage({
                 </ul>
               </div>
             ) : null}
-            <div className="mt-6 flex items-baseline justify-between border-t-2 pt-4">
+            {itemized && chosenTotals && (chosenTotals.discount > 0 || chosenTotals.tax > 0) ? (
+              <div className="mt-6 space-y-1 border-t pt-4 text-[15px]">
+                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="tabular-nums">{formatMoney(chosenTotals.subtotal)}</span></div>
+                {chosenTotals.discount > 0 ? <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span className="tabular-nums">−{formatMoney(chosenTotals.discount)}</span></div> : null}
+                {chosenTotals.tax > 0 ? <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span className="tabular-nums">{formatMoney(chosenTotals.tax)}</span></div> : null}
+              </div>
+            ) : null}
+            <div className="mt-4 flex items-baseline justify-between border-t-2 pt-4">
               <span className="text-sm font-semibold uppercase tracking-wide">
-                Project total
+                {itemized ? "Total" : "Project total"}
               </span>
               <span className="text-2xl font-bold tabular-nums">
                 {formatMoney(total)}
               </span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              One all-inclusive price — materials, professional installation, and
-              site preparation as described. Applicable tax included.
+              {itemized
+                ? "All-inclusive — materials, professional installation, and site preparation as itemized above. Applicable tax included."
+                : "One all-inclusive price — materials, professional installation, and site preparation as described. Applicable tax included."}
             </p>
           </CardContent>
         </Card>

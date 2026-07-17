@@ -27,26 +27,7 @@ export function CustomerScopeView({
 
   return (
     <div className="space-y-4">
-      {/* FEATURED — the flooring the customer is getting, front and center. */}
-      {highlights.length > 0 ? (
-        <div className="break-inside-avoid rounded-xl border-2 border-gray-300 px-4 py-3 dark:border-gray-600">
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
-            Your new flooring
-          </div>
-          <ul className="space-y-1">
-            {highlights.map((h, i) => (
-              <li key={i} className="leading-snug">
-                <span className="text-lg font-bold sm:text-xl">{h.title}</span>
-                {h.detail ? (
-                  <span className="ml-1.5 text-[15px] text-gray-600 dark:text-gray-300">
-                    — {h.detail}
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <FeaturedFlooring highlights={highlights} />
 
       {variant === "condensed" ? (
         <p className="text-base leading-relaxed text-gray-700 dark:text-gray-300">
@@ -74,6 +55,29 @@ export function CustomerScopeView({
       {variant === "condensed" && scope.notes.trim() ? (
         <p className="whitespace-pre-wrap text-[15px] text-muted-foreground">{scope.notes}</p>
       ) : null}
+    </div>
+  );
+}
+
+/** The flooring the customer is getting, featured large & bold. Shared by the
+ *  lump-sum and itemized customer copies so materials always stand out. */
+export function FeaturedFlooring({ highlights }: { highlights: ScopeItem[] }) {
+  if (!highlights.length) return null;
+  return (
+    <div className="break-inside-avoid rounded-xl border-2 border-gray-300 px-4 py-3 dark:border-gray-600">
+      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+        Your new flooring
+      </div>
+      <ul className="space-y-1">
+        {highlights.map((h, i) => (
+          <li key={i} className="leading-snug">
+            <span className="text-lg font-bold sm:text-xl">{h.title}</span>
+            {h.detail ? (
+              <span className="ml-1.5 text-[15px] text-gray-600 dark:text-gray-300">— {h.detail}</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
