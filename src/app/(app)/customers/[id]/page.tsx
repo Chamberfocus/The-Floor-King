@@ -17,6 +17,7 @@ import {
   Wrench,
   Receipt,
   Sparkles,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -877,12 +878,21 @@ export default async function CustomerPage({
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
               {customer.source ? (
-                <form action={createEstimate}>
-                  <input type="hidden" name="customer_id" value={customer.id} />
-                  <Button type="submit" size="sm">
-                    <Sparkles className="size-3.5" /> Build estimate
+                <div className="flex items-center gap-2">
+                  <Button
+                    render={<Link href={`/estimates/guided?customer=${customer.id}`} />}
+                    variant="outline"
+                    size="sm"
+                  >
+                    <ClipboardList className="size-3.5" /> Guided questionnaire
                   </Button>
-                </form>
+                  <form action={createEstimate}>
+                    <input type="hidden" name="customer_id" value={customer.id} />
+                    <Button type="submit" size="sm">
+                      <Sparkles className="size-3.5" /> Build estimate
+                    </Button>
+                  </form>
+                </div>
               ) : (
                 <span className="text-xs font-medium text-amber-600">
                   Set a lead source (Edit) to create estimates
