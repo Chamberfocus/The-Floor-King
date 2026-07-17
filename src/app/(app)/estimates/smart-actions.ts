@@ -107,6 +107,14 @@ export interface SmartLine {
   from_stock?: boolean; // pulled from stock → kept off the PO
   sqft_per_box?: number | null; // hard surface: coverage per carton
   is_fill?: boolean; // carpet: a fill / seam piece
+  // Prep goods (self-leveler): coverage so the builder's bag calculator stays
+  // live on the created line.
+  coverage_sqft?: number | null;
+  coverage_thickness_in?: number | null;
+  prep_thickness_in?: number | null;
+  // Carpet cuts: order one roll of this width; the builder keeps the cut sizes.
+  order_as_roll?: boolean;
+  roll_width_ft?: number | null;
 }
 
 export interface SmartEstimateInput {
@@ -215,6 +223,12 @@ export async function createSmartEstimate(
     from_stock: !!l.from_stock,
     sqft_per_box: l.sqft_per_box && l.sqft_per_box > 0 ? l.sqft_per_box : null,
     is_fill: !!l.is_fill,
+    coverage_sqft: l.coverage_sqft && l.coverage_sqft > 0 ? l.coverage_sqft : null,
+    coverage_thickness_in:
+      l.coverage_thickness_in && l.coverage_thickness_in > 0 ? l.coverage_thickness_in : null,
+    prep_thickness_in: l.prep_thickness_in && l.prep_thickness_in > 0 ? l.prep_thickness_in : null,
+    order_as_roll: !!l.order_as_roll,
+    roll_width_ft: l.roll_width_ft && l.roll_width_ft > 0 ? l.roll_width_ft : null,
   }));
   const { error: lineErr } = await supabase
     .from("estimate_line_items")

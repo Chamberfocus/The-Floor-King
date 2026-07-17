@@ -262,7 +262,12 @@ export type EstimateQuestionKind =
   | "yesno" // toggle → optionally emit one line
   | "number" // a count/amount → qty × rate line (optional rate choices)
   | "choice" // single/multi choice → each picked option can emit a line
-  | "text"; // free note → appended to the job notes
+  | "text" // free note → appended to the job notes
+  // Smart auto-calc kinds — the questionnaire does the math:
+  | "cuts" // carpet cuts (length × 12'/15' roll) → total sq yd to order
+  | "stairs" // step count + type (waterfall/upholstered) → labor + carpet yd
+  | "subfloor" // thickness → sheets = ceil(area ÷ 32)
+  | "selflevel"; // self-leveler → bags from area + pour thickness
 
 /** How one answer (or one chosen option) becomes a line item. */
 export interface EstimateEmit {
@@ -284,7 +289,18 @@ export interface EstimateQuestionConfig {
   default?: boolean; // yesno: preselect Yes
   rate_options?: { label: string; cost: number }[]; // number: pick the rate
   multi?: boolean; // choice: allow multiple
-  options?: { label: string; emit?: EstimateEmit | null }[]; // choice options
+  // choice options; smart kinds also read `cost` (per-unit $) and `carpet_sqft`
+  // (stairs: carpet allowance per step) off each option.
+  options?: { label: string; emit?: EstimateEmit | null; cost?: number; carpet_sqft?: number }[];
+  // Smart auto-calc knobs (all optional, editable per question in Settings):
+  widths?: number[]; // cuts: selectable roll widths (default [12, 15])
+  sheet_sqft?: number; // subfloor: coverage per sheet (4×8 = 32)
+  coverage_sqft?: number; // selflevel: SF per bag at the reference thickness
+  coverage_thickness_in?: number; // selflevel: reference pour thickness (0 = flat)
+  default_thickness_in?: number; // selflevel: default pour thickness
+  bag_cost?: number; // selflevel: our cost per bag
+  labor_per_sqft?: number; // selflevel: self-leveling labor $/sq ft
+  carpet_cost_per_yd?: number; // stairs: our cost per sq yd of stair carpet
   note?: boolean; // record the answer as a job condition on the work order
   // Conditional visibility: show this question only when the answer to the
   // question with `show_if.key` is one of `show_if.in`. Absent = always shown.

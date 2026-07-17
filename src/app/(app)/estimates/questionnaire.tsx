@@ -21,6 +21,8 @@ import { formatMoney } from "@/lib/format";
 import { priceFromMargin } from "@/lib/estimate-calc";
 import { linearFeetForPieces, piecesForLinearFeet } from "@/lib/accessories";
 import { profileFor } from "@/lib/flooring-profiles";
+import { carpetYardageFromCuts, stairsCarpet, subfloorSheets } from "@/lib/questionnaire-calc";
+import { bagsNeeded } from "@/lib/floor-prep";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { AreaCalculator } from "@/components/area-calculator";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
@@ -126,6 +128,12 @@ const TRIM_TYPES: { label: string; unit: string; cost: number; sized?: boolean }
   { label: "End cap", unit: "each", cost: 25 },
   { label: "Threshold", unit: "each", cost: 25 },
 ];
+// A single carpet cut: length (ft + in) off a roll of the chosen width.
+interface CutRow { id: string; lf: string; li: string; width: string }
+// One carpet + its cuts (supports different carpet per area).
+interface CarpetGroup { id: string; area: string; product: ProductAns | null; cuts: CutRow[] }
+// A run of stairs of one wrap style (allow more than one on a job).
+interface StairGroup { id: string; type: string; count: string }
 type Answer =
   | { kind: "areas"; rooms: AreaRow[] }
   | { kind: "floor_map"; byRoom: Record<string, ProductAns | null> }
@@ -135,7 +143,16 @@ type Answer =
   | { kind: "number"; value: string; rateIdx: number | null }
   | { kind: "choice"; selected: string[]; note?: string }
   | { kind: "choice_areas"; rows: DemoRow[] }
+  | { kind: "cuts"; groups: CarpetGroup[] }
+  | { kind: "stairs"; groups: StairGroup[] }
+  | { kind: "subfloor"; thickness: string }
+  | { kind: "selflevel"; thickness: string }
   | { kind: "text"; text: string };
+
+let cgid = 0, ctid = 0, sgid = 0;
+const newCutRow = (width = "12"): CutRow => ({ id: `c${ctid++}`, lf: "", li: "", width });
+const newCarpetGroup = (): CarpetGroup => ({ id: `g${cgid++}`, area: "", product: null, cuts: [newCutRow()] });
+const newStairGroup = (type = "Waterfall"): StairGroup => ({ id: `s${sgid++}`, type, count: "" });
 
 let did = 0;
 const newDemoRow = (): DemoRow => ({ id: `d${did++}`, option: "", sqft: "" });
@@ -269,6 +286,13 @@ export function Questionnaire({
         init[q.id] = q.config.per_area
           ? { kind: "choice_areas", rows: [] }
           : { kind: "choice", selected: [] };
+      else if (q.kind === "cuts") init[q.id] = { kind: "cuts", groups: [newCarpetGroup()] };
+      else if (q.kind === "stairs")
+        init[q.id] = { kind: "stairs", groups: [newStairGroup(q.config.options?.[0]?.label ?? "Waterfall")] };
+      else if (q.kind === "subfloor")
+        init[q.id] = { kind: "subfloor", thickness: q.config.options?.[0]?.label ?? "" };
+      else if (q.kind === "selflevel")
+        init[q.id] = { kind: "selflevel", thickness: String(q.config.default_thickness_in ?? 0.25) };
       else init[q.id] = { kind: "text", text: "" };
     }
     return init;
@@ -736,6 +760,167 @@ export function Questionnaire({
             if (l) out.push(l);
           }
         }
+      } else if (q.kind === "cuts" && a.kind === "cuts") {
+        // Carpet cuts → total sq yd to ORDER. Each group is one carpet (its own
+        // product) with its cuts; yardage = Σ (rollWidth × length) ÷ 9.
+        for (const g of a.groups) {
+          const y = carpetYardageFromCuts(
+            g.cuts.map((c) => ({ lengthFt: numv(c.lf), lengthIn: numv(c.li), rollWidthFt: numv(c.width) })),
+          );
+          if (y.sqyd <= 0) continue;
+          const p = g.product;
+          const cutText = g.cuts
+            .filter((c) => numv(c.lf) > 0 || numv(c.li) > 0)
+            .map((c) => `${numv(c.lf)}'${numv(c.li) ? numv(c.li) + '"' : ""}×${c.width}'`)
+            .join(", ");
+          out.push({
+            room: g.area.trim() || null,
+            description: `${p?.label || "Carpet"}${cutText ? ` — cuts: ${cutText}` : ""}`,
+            category: "carpet",
+            measure_unit: "sqyd",
+            sqft: y.sqft,
+            quantity: Math.ceil(y.sqyd),
+            length_in: null,
+            width_in: null,
+            unit: "sq yd",
+            material_rate: p ? sellAt(rateFor(p.materialRate, p.unit, true)) : 0,
+            labor_rate: 0,
+            material_cost: p ? rateFor(p.materialRate, p.unit, true) : 0,
+            labor_cost: 0,
+            waste_pct: 0,
+            product_id: p?.productId || null,
+            manufacturer: p?.source === "order" && p.vendor.trim() ? p.vendor.trim() : p?.manufacturer ?? null,
+            style: p?.style ?? null,
+            color: p?.color ?? null,
+            from_stock: p?.source === "stock",
+            order_as_roll: true,
+            roll_width_ft: numv(g.cuts[0]?.width) || 12,
+          });
+        }
+      } else if (q.kind === "stairs" && a.kind === "stairs") {
+        // Stairs → step LABOR + the CARPET the steps consume (waterfall vs
+        // upholstered use different per-step allowances, from the option config).
+        const opts = q.config.options ?? [];
+        const carpetCost = q.config.carpet_cost_per_yd ?? 0;
+        for (const g of a.groups) {
+          const n = Math.ceil(numv(g.count));
+          if (n <= 0 || !g.type) continue;
+          const opt = opts.find((o) => o.label === g.type);
+          const laborCost = opt?.cost ?? 0;
+          out.push({
+            room: null,
+            description: `Carpet steps — ${g.type}`,
+            category: "labor",
+            measure_unit: "sqft",
+            sqft: null,
+            quantity: n,
+            length_in: null,
+            width_in: null,
+            unit: "step",
+            material_rate: 0,
+            labor_rate: sellAt(laborCost),
+            material_cost: 0,
+            labor_cost: laborCost,
+            waste_pct: 0,
+            product_id: null,
+            manufacturer: null,
+            style: null,
+            color: null,
+            from_stock: false,
+          });
+          const sc = stairsCarpet(n, g.type, opt?.carpet_sqft ?? null);
+          if (sc.sqyd > 0)
+            out.push({
+              room: null,
+              description: `Stair carpet — ${n} ${g.type} step${n === 1 ? "" : "s"}`,
+              category: "carpet",
+              measure_unit: "sqyd",
+              sqft: sc.sqft,
+              quantity: Math.ceil(sc.sqyd),
+              length_in: null,
+              width_in: null,
+              unit: "sq yd",
+              material_rate: sellAt(carpetCost),
+              labor_rate: 0,
+              material_cost: carpetCost,
+              labor_cost: 0,
+              waste_pct: 0,
+              product_id: null,
+              manufacturer: null,
+              style: null,
+              color: null,
+              from_stock: false,
+            });
+        }
+      } else if (q.kind === "subfloor" && a.kind === "subfloor") {
+        // Subfloor → SHEETS per room (ceil(area ÷ sheet coverage)) so nothing is
+        // under-ordered. The builder prices it by the sheet.
+        const opts = q.config.options ?? [];
+        const sheetSqft = q.config.sheet_sqft ?? 32;
+        const opt = opts.find((o) => o.label === a.thickness) ?? opts[0];
+        const perSheet = opt?.cost ?? 0;
+        const rooms = allRooms.length ? allRooms : [{ name: "", sqft: totalSqft, lenIn: null, widIn: null }];
+        for (const rm of rooms) {
+          const sheets = subfloorSheets(rm.sqft, sheetSqft);
+          if (sheets <= 0) continue;
+          out.push({
+            room: rm.name || null,
+            description: `Subfloor${a.thickness ? ` ${a.thickness}` : ""}${rm.name ? ` — ${rm.name}` : ""}`,
+            category: "underlayment",
+            measure_unit: "sqft",
+            sqft: r2(rm.sqft),
+            quantity: sheets,
+            length_in: null,
+            width_in: null,
+            unit: "sheet",
+            material_rate: sellAt(perSheet),
+            labor_rate: 0,
+            material_cost: perSheet,
+            labor_cost: 0,
+            waste_pct: 0,
+            product_id: null,
+            manufacturer: null,
+            style: null,
+            color: null,
+            from_stock: false,
+          });
+        }
+      } else if (q.kind === "selflevel" && a.kind === "selflevel") {
+        // Self-leveler → BAGS from area ÷ coverage-at-thickness. Coverage is
+        // carried so the builder's bag calculator stays live. (Labor is the prep
+        // question's job — no double-charge here.)
+        const cov = q.config.coverage_sqft ?? 0;
+        const covT = q.config.coverage_thickness_in ?? 0;
+        const pour = numv(a.thickness) || (q.config.default_thickness_in ?? 0.25);
+        const bagCost = q.config.bag_cost ?? 0;
+        if (cov > 0 && totalSqft > 0) {
+          const bags = bagsNeeded(totalSqft, cov, covT > 0 ? covT : null, covT > 0 ? pour : null);
+          if (bags > 0)
+            out.push({
+              room: null,
+              description: "Self-leveler",
+              category: "other",
+              measure_unit: "sqft",
+              sqft: r2(totalSqft),
+              quantity: bags,
+              length_in: null,
+              width_in: null,
+              unit: "bag",
+              material_rate: sellAt(bagCost),
+              labor_rate: 0,
+              material_cost: bagCost,
+              labor_cost: 0,
+              waste_pct: 0,
+              product_id: null,
+              manufacturer: null,
+              style: null,
+              color: null,
+              from_stock: false,
+              coverage_sqft: cov,
+              coverage_thickness_in: covT > 0 ? covT : null,
+              prep_thickness_in: covT > 0 ? pour : null,
+            });
+        }
       } else if (q.kind === "yesno" || q.kind === "number" || q.kind === "choice") {
         // Per-room prep: split into a job-default line for the remaining area +
         // one room-scoped line per flagged room (its own answer/area). Otherwise
@@ -808,6 +993,37 @@ export function Questionnaire({
     return blocks.join("\n\n");
   }, [questions, answers, visible, flaggedRooms, overrides]);
 
+  // Risk flags derived from answers already given — gentle, dismissible, never
+  // blocking. They also ride along as work-order notes unless dismissed.
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const warnings = useMemo(() => {
+    const w: { id: string; text: string }[] = [];
+    const valByKey: Record<string, string[]> = {};
+    const picked: string[] = [];
+    for (const qq of questions) {
+      if (!visible[qq.id]) continue;
+      const a = answers[qq.id];
+      if (qq.key)
+        valByKey[qq.key] =
+          a?.kind === "yesno" ? [a.yes ? "Yes" : "No"] : a?.kind === "choice" ? a.selected : a?.kind === "text" ? [a.text] : [];
+      if (a?.kind === "choice") picked.push(...a.selected);
+      if (a?.kind === "choice_areas") picked.push(...a.rows.map((r) => r.option));
+    }
+    for (const roomOv of Object.values(overrides))
+      for (const a of Object.values(roomOv)) if (a?.kind === "choice") picked.push(...a.selected);
+    const has = (k: string, v: string) => (valByKey[k] ?? []).includes(v);
+    if (has("radiant_heat", "Yes"))
+      w.push({ id: "radiant", text: "Radiant heat present — confirm the selected flooring is rated for radiant heat before ordering." });
+    if (picked.some((l) => /mortar bed/i.test(l) && /with/i.test(l)))
+      w.push({ id: "mortar", text: "Ceramic WITH mortar bed demo — expect a floor-height change. Check transitions and door clearance." });
+    const hardwoodOrGlue = has("surface_type", "Hardwood") || has("install_method", "Glue-down");
+    const climateOk = has("ac_available", "Yes") && has("heat_available", "Yes");
+    if (hardwoodOrGlue && !climateOk)
+      w.push({ id: "climate", text: "Hardwood / glue-down without confirmed AC and heat — acclimation & adhesion are at risk. Confirm climate control." });
+    return w;
+  }, [questions, answers, visible, overrides]);
+  const activeWarnings = warnings.filter((w) => !dismissed.has(w.id));
+
   const grand = lines.reduce((s, l) => s + (l.quantity ?? 0) * (l.material_rate + l.labor_rate), 0);
 
   // Steps: the currently-visible questions (conditionals reveal as you answer),
@@ -860,13 +1076,18 @@ export function Questionnaire({
           }),
         );
       }
+      // Active (non-dismissed) risk flags ride along as work-order notes.
+      const flagText = activeWarnings.length
+        ? `Flags to confirm:\n${activeWarnings.map((w) => `⚠ ${w.text}`).join("\n")}`
+        : "";
+      const jobDesc = [notes.trim(), flagText].filter(Boolean).join("\n\n");
       const res = await createSmartEstimate({
         customerId,
         title: `Flooring for ${customerName}`,
         taxRate: 8,
         lines: built,
         presentation: "detailed",
-        jobDescription: notes.trim() || undefined,
+        jobDescription: jobDesc || undefined,
         serviceAddressId: serviceAddressId || null,
         openEdit: true,
         targetMargin: goal,
@@ -943,6 +1164,20 @@ export function Questionnaire({
         // Review
         <Card>
           <CardContent className="space-y-3 p-4">
+            {activeWarnings.length ? (
+              <div className="space-y-2">
+                {activeWarnings.map((w) => (
+                  <div key={w.id} className="flex items-start gap-2 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm dark:border-amber-500/40 dark:bg-amber-950/30">
+                    <span className="shrink-0 text-amber-600">⚠</span>
+                    <span className="min-w-0 flex-1 text-amber-800 dark:text-amber-200">{w.text}</span>
+                    <button type="button" onClick={() => setDismissed((s) => new Set(s).add(w.id))}
+                      className="shrink-0 text-xs font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-300">
+                      Dismiss
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="text-sm font-semibold">Here&apos;s your estimate</div>
             {lines.length ? (
               <div className="divide-y text-sm">
@@ -1643,6 +1878,204 @@ function QuestionBody({
       <textarea value={answer.text} onChange={(e) => set({ kind: "text", text: e.target.value })} rows={3}
         placeholder="Type your answer…"
         className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+    );
+  }
+
+  // CUTS → carpet yardage. Each group is one carpet (its own product) with its
+  // cuts; the total sq yd to order is figured for you.
+  if (q.kind === "cuts" && answer?.kind === "cuts") {
+    const widths = (q.config.widths ?? [12, 15]).map(String);
+    const groups = answer.groups;
+    const upd = (gs: CarpetGroup[]) => set({ kind: "cuts", groups: gs });
+    const patchG = (id: string, p: Partial<CarpetGroup>) => upd(groups.map((g) => (g.id === id ? { ...g, ...p } : g)));
+    const yardOf = (g: CarpetGroup) =>
+      carpetYardageFromCuts(g.cuts.map((c) => ({ lengthFt: numv(c.lf), lengthIn: numv(c.li), rollWidthFt: numv(c.width) })));
+    const grandY = groups.reduce((s, g) => s + yardOf(g).sqyd, 0);
+    return (
+      <div className="space-y-3">
+        {groups.map((g, gi) => {
+          const y = yardOf(g);
+          const patchCut = (cid: string, p: Partial<CutRow>) =>
+            patchG(g.id, { cuts: g.cuts.map((c) => (c.id === cid ? { ...c, ...p } : c)) });
+          return (
+            <div key={g.id} className="space-y-2.5 rounded-lg border bg-muted/20 p-3">
+              <div className="flex items-center gap-2">
+                <Input value={g.area} onChange={(e) => patchG(g.id, { area: e.target.value })}
+                  placeholder={groups.length > 1 ? `Carpet ${gi + 1} — area / room` : "Area / room (optional)"}
+                  className="h-10 flex-1" />
+                {groups.length > 1 ? (
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove carpet" onClick={() => upd(groups.filter((x) => x.id !== g.id))}>
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                ) : null}
+              </div>
+              <ProductPicker value={g.product?.productId ?? ""} initialLabel={g.product?.label ?? ""} label="Which carpet?" fullWidth
+                onPick={(prod) => patchG(g.id, { product: prod ? toProductAns(prod) : null })}
+                onCreated={(prod) => patchG(g.id, { product: toProductAns(prod) })}
+                onUseOnce={(input) => patchG(g.id, { product: customToProductAns(input) })} />
+              <div className="space-y-1.5">
+                {g.cuts.map((c, ci) => (
+                  <div key={c.id} className="flex flex-wrap items-end gap-2">
+                    <FtInField label={ci === 0 ? "Cut length" : ""} ft={c.lf} inch={c.li}
+                      onFt={(v) => patchCut(c.id, { lf: v })} onIn={(v) => patchCut(c.id, { li: v })} />
+                    <div>
+                      {ci === 0 ? <label className="mb-1 block text-xs text-muted-foreground">Roll width</label> : null}
+                      <select value={c.width} onChange={(e) => patchCut(c.id, { width: e.target.value })}
+                        className="h-11 rounded-md border border-input bg-transparent px-2 text-base md:h-10">
+                        {widths.map((w) => <option key={w} value={w}>{w}&apos; wide</option>)}
+                      </select>
+                    </div>
+                    {g.cuts.length > 1 ? (
+                      <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove cut" onClick={() => patchG(g.id, { cuts: g.cuts.filter((x) => x.id !== c.id) })}>
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    ) : null}
+                  </div>
+                ))}
+                <button type="button" onClick={() => patchG(g.id, { cuts: [...g.cuts, newCutRow(g.cuts[g.cuts.length - 1]?.width || "12")] })}
+                  className="text-xs font-medium text-primary hover:underline">+ Add cut</button>
+              </div>
+              <div className="text-sm">
+                This carpet: <span className="font-semibold tabular-nums">{y.sqyd}</span> sq yd
+                {g.product ? "" : <span className="text-muted-foreground"> — pick the carpet to price it</span>}
+              </div>
+            </div>
+          );
+        })}
+        <Button type="button" variant="outline" size="sm" onClick={() => upd([...groups, newCarpetGroup()])}>
+          <Plus className="size-3.5" /> Different carpet / area
+        </Button>
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold">
+          Total carpet to order: <span className="tabular-nums">{r2(grandY)}</span> sq yd
+        </div>
+      </div>
+    );
+  }
+
+  // STAIRS → step labor + the carpet the steps consume.
+  if (q.kind === "stairs" && answer?.kind === "stairs") {
+    const opts = q.config.options ?? [{ label: "Waterfall" }, { label: "Upholstered" }];
+    const groups = answer.groups;
+    const upd = (gs: StairGroup[]) => set({ kind: "stairs", groups: gs });
+    const patch = (id: string, p: Partial<StairGroup>) => upd(groups.map((g) => (g.id === id ? { ...g, ...p } : g)));
+    return (
+      <div className="space-y-3">
+        {groups.map((g) => {
+          const opt = opts.find((o) => o.label === g.type);
+          const n = Math.ceil(numv(g.count));
+          const sc = stairsCarpet(n, g.type, opt?.carpet_sqft ?? null);
+          return (
+            <div key={g.id} className="space-y-2 rounded-lg border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-end gap-2">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Stair type</label>
+                  <select value={g.type} onChange={(e) => patch(g.id, { type: e.target.value })}
+                    className="h-11 rounded-md border border-input bg-transparent px-2 text-base md:h-10">
+                    {opts.map((o) => <option key={o.label} value={o.label}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">How many steps?</label>
+                  <Input value={g.count} onChange={(e) => patch(g.id, { count: e.target.value })} inputMode="numeric" placeholder="steps" className="h-11 w-24 text-base md:h-10" />
+                </div>
+                {groups.length > 1 ? (
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => upd(groups.filter((x) => x.id !== g.id))}>
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                ) : null}
+              </div>
+              {n > 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  ≈ <span className="font-medium text-foreground tabular-nums">{sc.sqyd} sq yd</span> of stair carpet
+                  {opt?.cost ? <> · labor <span className="tabular-nums">{formatMoney(sellAt(opt.cost) * n)}</span></> : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+        <Button type="button" variant="outline" size="sm" onClick={() => upd([...groups, newStairGroup(opts[0]?.label ?? "Waterfall")])}>
+          <Plus className="size-3.5" /> Add another stair type
+        </Button>
+      </div>
+    );
+  }
+
+  // SUBFLOOR → sheets per room.
+  if (q.kind === "subfloor" && answer?.kind === "subfloor") {
+    const opts = q.config.options ?? [];
+    const sheetSqft = q.config.sheet_sqft ?? 32;
+    const rooms = floorRooms.length ? floorRooms : [{ name: "", sqft: totalSqft, lenIn: null, widIn: null }];
+    const totalSheets = rooms.reduce((s, r) => s + subfloorSheets(r.sqft, sheetSqft), 0);
+    return (
+      <div className="space-y-3">
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Thickness</label>
+          <div className="flex flex-wrap gap-2">
+            {opts.map((o) => (
+              <button key={o.label} type="button" onClick={() => set({ kind: "subfloor", thickness: o.label })}
+                className={cn("rounded-md border px-3 py-2 text-sm font-medium", answer.thickness === o.label ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted")}>
+                {o.label}{o.cost ? <span className="ml-1 text-xs text-muted-foreground">{formatMoney(o.cost)}/sheet</span> : null}
+              </button>
+            ))}
+          </div>
+        </div>
+        {totalSqft > 0 ? (
+          <div className="space-y-1 rounded-lg border bg-muted/20 p-3 text-sm">
+            {rooms.map((r, i) => (
+              <div key={i} className="flex justify-between gap-3">
+                <span className="text-muted-foreground">{r.name || "Area"} — {Math.round(r.sqft)} sq ft</span>
+                <span className="font-medium tabular-nums">{subfloorSheets(r.sqft, sheetSqft)} sheets</span>
+              </div>
+            ))}
+            <div className="flex justify-between gap-3 border-t pt-1 font-semibold">
+              <span>Total ({sheetSqft} sq ft / sheet, rounded up)</span>
+              <span className="tabular-nums">{totalSheets} sheets</span>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Add areas first — sheets are figured from each room&apos;s sq ft.</p>
+        )}
+      </div>
+    );
+  }
+
+  // SELF-LEVELER → bags from area ÷ coverage-at-thickness.
+  if (q.kind === "selflevel" && answer?.kind === "selflevel") {
+    const cov = q.config.coverage_sqft ?? 0;
+    const covT = q.config.coverage_thickness_in ?? 0;
+    const pour = numv(answer.thickness) || (q.config.default_thickness_in ?? 0.25);
+    const THICKS = [
+      { v: 0.0625, l: '1/16"' }, { v: 0.125, l: '1/8"' }, { v: 0.1875, l: '3/16"' },
+      { v: 0.25, l: '1/4"' }, { v: 0.375, l: '3/8"' }, { v: 0.5, l: '1/2"' },
+    ];
+    const bags = cov > 0 && totalSqft > 0 ? bagsNeeded(totalSqft, cov, covT > 0 ? covT : null, covT > 0 ? pour : null) : 0;
+    const label = THICKS.find((t) => Math.abs(t.v - pour) < 1e-6)?.l ?? `${pour}"`;
+    return (
+      <div className="space-y-3">
+        {covT > 0 ? (
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">Pour thickness</label>
+            <div className="flex flex-wrap gap-2">
+              {THICKS.map((t) => (
+                <button key={t.v} type="button" onClick={() => set({ kind: "selflevel", thickness: String(t.v) })}
+                  className={cn("rounded-md border px-3 py-2 text-sm font-medium", Math.abs(pour - t.v) < 1e-6 ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted")}>
+                  {t.l}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">Flat coverage — thickness doesn&apos;t change the count.</p>
+        )}
+        {totalSqft > 0 && cov > 0 ? (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+            {Math.round(totalSqft)} sq ft{covT > 0 ? ` at ${label}` : ""} ÷ {cov} SF/bag ={" "}
+            <span className="font-semibold tabular-nums">{bags} bag{bags === 1 ? "" : "s"}</span>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Add areas first — bags are figured from total sq ft.</p>
+        )}
+      </div>
     );
   }
 
