@@ -1729,6 +1729,21 @@ export function EstimateBuilder({
                   const sCost = lineOurCost(line);
                   const sMargin = sSell > 0 ? ((sSell - sCost) / sSell) * 100 : 0;
                   const isOpen = openLines.has(line.key);
+                  // Flooring (roll goods / hard surface) — color is part of its
+                  // at-a-glance identity, so it stays an essential for these.
+                  const isFlooring =
+                    isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category);
+                  // Header name: the description, else the product's identity, else
+                  // the category — so a real product line never reads "Untitled".
+                  const displayName =
+                    line.description.trim() ||
+                    [line.manufacturer, line.style, line.color]
+                      .map((s) => (s || "").trim())
+                      .filter(Boolean)
+                      .join(" ") ||
+                    (line.category && line.category !== "labor"
+                      ? line.category.charAt(0).toUpperCase() + line.category.slice(1)
+                      : "");
                   return (
                     <div key={line.key} className="overflow-hidden rounded-xl border bg-card">
                       {/* Summary row — tap to edit */}
@@ -1745,8 +1760,8 @@ export function EstimateBuilder({
                         />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-base font-semibold">
-                            {line.description || (
-                              <span className="font-normal text-muted-foreground">Untitled line — tap to edit</span>
+                            {displayName || (
+                              <span className="font-normal text-muted-foreground">New line — tap to pick a product</span>
                             )}
                           </div>
                           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -1786,674 +1801,686 @@ export function EstimateBuilder({
 
                       {/* Editor — only when expanded */}
                       {isOpen ? (
-                      <div className="space-y-3 border-t bg-muted/20 p-4">
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      <Input
-                        value={line.room}
-                        onChange={(e) =>
-                          updateLine(oi, li, { room: e.target.value })
-                        }
-                        placeholder="Room (e.g. Living Room)"
-                      />
-                      <Input
-                        value={line.description}
-                        onChange={(e) =>
-                          updateLine(oi, li, { description: e.target.value })
-                        }
-                        placeholder="Description"
-                        className="sm:col-span-2"
-                      />
-                    </div>
-
-                    {/* Manufacturer + Color visible for material lines (color
-                        matters for carpet). Manufacturer auto-fills from the
-                        catalog on pick and carries to new cuts. */}
-                    {!isLaborLine(line) && !isSubfloor(line) ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">
-                            Manufacturer
-                          </label>
-                          <Input
-                            value={line.manufacturer}
-                            onChange={(e) =>
-                              updateLine(oi, li, { manufacturer: e.target.value })
+                      <div className="space-y-4 border-t bg-muted/20 p-4">
+                        {/* 1 · PRODUCT — the single per-line search. Shows the
+                            picked product and lets you swap it; the section-top
+                            box is the only place that ADDS a new line. */}
+                        {line.line_type !== "flat" ? (
+                          <ProductPicker
+                            value={line.product_id}
+                            initialLabel={line.description}
+                            fullWidth
+                            label={
+                              line.product_id || line.description
+                                ? "Product — search to change or swap it"
+                                : "Product — search the catalog (name, color, mfr, SKU) or add new"
                             }
-                            placeholder="e.g. Shaw"
-                            list="estimate-manufacturer-suggestions"
-                            className="h-9"
+                            onPick={(p) => pickProduct(oi, li, p)}
+                            onCreated={(p) => handleProductCreated(oi, li, p)}
+                            onUseOnce={(input) => useOnceProduct(oi, li, input)}
                           />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">
-                            Color
-                          </label>
-                          <Input
-                            value={line.color}
-                            onChange={(e) => updateLine(oi, li, { color: e.target.value })}
-                            placeholder={line.category === "carpet" ? "e.g. Seagull" : "Color / finish"}
-                            list="estimate-color-suggestions"
-                            className="h-9"
-                          />
-                        </div>
-                      </div>
-                    ) : null}
+                        ) : null}
 
-                    {!isSubfloor(line) ? (
-                      <details className="mt-2 rounded-md border bg-card [&_summary]:list-none">
-                        <summary className="cursor-pointer px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
-                          More catalog details (style, item #)
-                        </summary>
-                        <div className="grid grid-cols-2 gap-2 border-t p-2.5">
-                          <Input
-                            value={line.style}
-                            onChange={(e) => updateLine(oi, li, { style: e.target.value })}
-                            placeholder="Style"
-                            className="h-9"
-                          />
-                          <Input
-                            value={line.item_no}
-                            onChange={(e) => updateLine(oi, li, { item_no: e.target.value })}
-                            placeholder="Item #"
-                            className="h-9"
-                          />
-                        </div>
-                      </details>
-                    ) : null}
-
-                    <div className="mt-2 flex flex-wrap items-end gap-2">
-                      <div>
-                        <label className="mb-1 block text-xs text-muted-foreground">
-                          Pricing
-                        </label>
-                        <SegmentedField
-                          size="sm"
-                          value={line.line_type}
-                          onChange={(v) =>
-                            updateLine(oi, li, { line_type: v as LineType })
-                          }
-                          /* Material & labor are separate lines — a material line
-                             reads "Material" (not "Material + Labor"); a labor line
-                             reads "Labor". `mat_labor` stays the underlying value. */
-                          options={
-                            isLaborLine(line)
-                              ? [
-                                  { value: "mat_labor", label: "Labor" },
-                                  { value: "flat", label: "Flat amount" },
-                                ]
-                              : [
-                                  { value: "mat_labor", label: "Material" },
-                                  { value: "installed", label: "Installed / sq ft" },
-                                  { value: "flat", label: "Flat amount" },
-                                ]
-                          }
-                        />
-                      </div>
-
-                      {line.line_type !== "flat" && line.category !== "labor" ? (
-                        <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">
-                            Source
-                          </label>
-                          <div className="inline-flex rounded-md border p-0.5 text-xs">
-                            <button
-                              type="button"
-                              onClick={() => updateLine(oi, li, { from_stock: false })}
-                              className={cn(
-                                "rounded px-2.5 py-1.5 font-medium",
-                                !line.from_stock ? "bg-primary text-primary-foreground" : "text-muted-foreground",
-                              )}
-                            >
-                              Order
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateLine(oi, li, { from_stock: true })}
-                              className={cn(
-                                "rounded px-2.5 py-1.5 font-medium",
-                                line.from_stock ? "bg-amber-500 text-white" : "text-muted-foreground",
-                              )}
-                            >
-                              From stock
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {/* Optional add-on — an item that may or may not be needed.
-                          Marks it in this view; use "Version without add-ons" on the
-                          option header to spin off a without-it option in one tap. */}
-                      {line.line_type !== "flat" ? (
-                        <label className="flex cursor-pointer items-center gap-2 text-xs">
-                          <input
-                            type="checkbox"
-                            checked={line.is_optional}
-                            onChange={(e) => updateLine(oi, li, { is_optional: e.target.checked })}
-                            className="size-4 rounded border-input"
-                          />
-                          <span>
-                            <span className="font-medium">Optional add-on</span> — may or
-                            may not be necessary
-                          </span>
-                        </label>
-                      ) : null}
-
-                      {/* Order as roll — PO shows one roll; work order keeps the cuts.
-                          Roll goods only (carpet / sheet vinyl); hard surface has no cuts. */}
-                      {line.line_type !== "flat" && line.category !== "labor" && !line.from_stock && isRollGoodCategory(line.category) ? (
-                        <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Order as</label>
-                          <div className="flex items-center gap-2">
-                            <div className="inline-flex rounded-md border p-0.5 text-xs">
-                              <button
+                        {/* Mispricing guard: this line is priced by area, but its
+                            catalog product is really sold by the each/bag. One tap
+                            switches it to the right unit (never auto-changes). */}
+                        {(() => {
+                          const realUnit = line.product_id ? productUnits[line.product_id] : "";
+                          const mismatch =
+                            !!realUnit && !isAreaUnit(realUnit) && !isCountLine(line);
+                          if (!mismatch) return null;
+                          return (
+                            <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-400 bg-amber-50 px-2.5 py-2 text-xs dark:border-amber-500/40 dark:bg-amber-950/30">
+                              <span className="text-amber-800 dark:text-amber-300">
+                                ⚠ This item is sold by the{" "}
+                                <span className="font-semibold">{unitLabel(realUnit)}</span> — it&apos;s
+                                currently priced by area.
+                              </span>
+                              <Button
                                 type="button"
-                                onClick={() => updateLine(oi, li, { order_as_roll: false })}
-                                className={cn("rounded px-2.5 py-1.5 font-medium", !line.order_as_roll ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                                size="sm"
+                                variant="outline"
+                                className="h-7"
+                                onClick={() => setLineUnit(oi, li, normalizeUnit(realUnit))}
                               >
-                                Cuts
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => updateLine(oi, li, { order_as_roll: true, roll_width_ft: line.roll_width_ft || "12" })}
-                                className={cn("rounded px-2.5 py-1.5 font-medium", line.order_as_roll ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
-                              >
-                                Roll
-                              </button>
+                                Fix — price per {unitLabel(realUnit)}
+                              </Button>
                             </div>
-                            {line.order_as_roll ? (
-                              <select
-                                value={line.roll_width_ft || "12"}
-                                onChange={(e) => updateLine(oi, li, { roll_width_ft: e.target.value })}
-                                className="h-8 rounded-md border border-input bg-transparent px-1.5 text-xs"
-                                aria-label="Roll width"
-                              >
-                                <option value="12">12 ft wide</option>
-                                <option value="15">15 ft wide</option>
-                              </select>
-                            ) : null}
-                          </div>
-                          {line.order_as_roll ? (
-                            <p className="mt-1 text-xs text-muted-foreground">PO orders one roll; the work order shows the cut sizes.</p>
-                          ) : null}
-                          {/* Fill piece — an extra cut off the same roll for this
-                              area; flagged on every doc, its yardage still orders. */}
-                          <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs">
-                            <input
-                              type="checkbox"
-                              checked={line.is_fill}
-                              onChange={(e) => updateLine(oi, li, { is_fill: e.target.checked })}
-                              className="size-4 rounded border-input"
+                          );
+                        })()}
+
+                        {/* 2 · IDENTITY — room, description, and (flooring only)
+                            color, since color identifies flooring at a glance. */}
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          <Input
+                            value={line.room}
+                            onChange={(e) => updateLine(oi, li, { room: e.target.value })}
+                            placeholder="Room (e.g. Living Room)"
+                          />
+                          <Input
+                            value={line.description}
+                            onChange={(e) => updateLine(oi, li, { description: e.target.value })}
+                            placeholder="Description"
+                            className="sm:col-span-2"
+                          />
+                        </div>
+                        {isFlooring ? (
+                          <div className="max-w-xs">
+                            <label className="mb-1 block text-xs text-muted-foreground">
+                              Color
+                            </label>
+                            <Input
+                              value={line.color}
+                              onChange={(e) => updateLine(oi, li, { color: e.target.value })}
+                              placeholder={line.category === "carpet" ? "e.g. Seagull" : "Color / finish"}
+                              list="estimate-color-suggestions"
+                              className="h-9"
                             />
-                            <span>This is a <span className="font-medium">fill / seam piece</span> for the area</span>
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => addFillPiece(oi, li)}
-                            className="mt-1 text-xs font-medium text-primary hover:underline"
-                          >
-                            + Add fill piece for this area
-                          </button>
-                        </div>
-                      ) : null}
+                          </div>
+                        ) : null}
 
-                      {/* Subfloor: priced by the sheet — # sheets replaces L×W. */}
-                      {isSubfloor(line) ? (
-                        <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">
-                            # Sheets
-                          </label>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            inputMode="decimal"
-                            value={line.quantity}
-                            onChange={(e) =>
-                              updateLine(oi, li, { quantity: e.target.value })
-                            }
-                            placeholder="sheets"
-                            className={cn(inputSm, "w-20")}
-                          />
-                        </div>
-                      ) : null}
-
-                      {line.line_type !== "flat" && !isSubfloor(line) ? (
-                        <>
-                          {/* L×W cut dimensions — roll goods only (carpet / sheet
-                              vinyl). Hard surface is measured in square feet. */}
-                          {isRollGoodCategory(line.category) ? (
-                          <>
+                        {/* 3 · MEASUREMENT — matched to the material's unit type. */}
+                        {isSubfloor(line) ? (
                           <div>
                             <label className="mb-1 block text-xs text-muted-foreground">
-                              Length (ft / in)
+                              # Sheets
                             </label>
-                            <div className="flex gap-1">
-                              <input
-                                type="number"
-                                step="any"
-                                inputMode="decimal"
-                                min="0"
-                                value={line.len_ft}
-                                onChange={(e) =>
-                                  updateDim(oi, li, { len_ft: e.target.value })
-                                }
-                                placeholder="ft"
-                                className={cn(inputSm, "w-14")}
-                              />
-                              <input
-                                type="number"
-                                step="any"
-                                inputMode="decimal"
-                                min="0"
-                                value={line.len_in}
-                                onChange={(e) =>
-                                  updateDim(oi, li, { len_in: e.target.value })
-                                }
-                                placeholder="in"
-                                className={cn(inputSm, "w-12")}
-                              />
-                            </div>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              inputMode="decimal"
+                              value={line.quantity}
+                              onChange={(e) => updateLine(oi, li, { quantity: e.target.value })}
+                              placeholder="sheets"
+                              className={cn(inputSm, "w-20")}
+                            />
                           </div>
-                          <div>
-                            <label className="mb-1 block text-xs text-muted-foreground">
-                              Width (ft / in)
-                            </label>
-                            <div className="flex gap-1">
-                              <input
-                                type="number"
-                                step="any"
-                                inputMode="decimal"
-                                min="0"
-                                value={line.wid_ft}
-                                onChange={(e) =>
-                                  updateDim(oi, li, { wid_ft: e.target.value })
-                                }
-                                placeholder="ft"
-                                className={cn(inputSm, "w-14")}
-                              />
-                              <input
-                                type="number"
-                                step="any"
-                                inputMode="decimal"
-                                min="0"
-                                value={line.wid_in}
-                                onChange={(e) =>
-                                  updateDim(oi, li, { wid_in: e.target.value })
-                                }
-                                placeholder="in"
-                                className={cn(inputSm, "w-12")}
-                              />
-                            </div>
-                          </div>
-                          </>
-                          ) : null}
-                          {/* AREA-billed inputs — carpet / hard surface / general
-                              area lines. Hidden entirely for count items. */}
-                          {!isCountLine(line) ? (
-                            <>
-                              <div className="flex items-end gap-2">
-                                <LabeledNumber
-                                  label="Sq ft"
-                                  value={line.sqft}
-                                  onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
-                                />
-                                <AreaCalculator
-                                  triggerLabel="Add up areas"
-                                  triggerVariant="ghost"
-                                  triggerClassName="h-9 px-2 text-xs"
-                                  title={`Square footage${line.room ? ` — ${line.room}` : ""}`}
-                                  initialLabel={line.room}
-                                  onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
-                                />
-                              </div>
-                              {isRollGoodCategory(line.category) ? (
-                                <div className="pb-2 text-xs text-muted-foreground">
-                                  {(num(line.sqft) / 9).toFixed(1)} sq yd
+                        ) : null}
+
+                        {line.line_type !== "flat" && !isSubfloor(line) ? (
+                          <div className="flex flex-wrap items-end gap-3">
+                            {/* Roll goods — cut dimensions (carpet / sheet vinyl).
+                                Hard surface is measured in square feet. */}
+                            {isRollGoodCategory(line.category) ? (
+                              <>
+                                <div>
+                                  <label className="mb-1 block text-xs text-muted-foreground">
+                                    Length (ft / in)
+                                  </label>
+                                  <div className="flex gap-1">
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      inputMode="decimal"
+                                      min="0"
+                                      value={line.len_ft}
+                                      onChange={(e) => updateDim(oi, li, { len_ft: e.target.value })}
+                                      placeholder="ft"
+                                      className={cn(inputSm, "w-14")}
+                                    />
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      inputMode="decimal"
+                                      min="0"
+                                      value={line.len_in}
+                                      onChange={(e) => updateDim(oi, li, { len_in: e.target.value })}
+                                      placeholder="in"
+                                      className={cn(inputSm, "w-12")}
+                                    />
+                                  </div>
                                 </div>
-                              ) : null}
-                              {isHardSurfaceCategory(line.category) ? (
+                                <div>
+                                  <label className="mb-1 block text-xs text-muted-foreground">
+                                    Width (ft / in)
+                                  </label>
+                                  <div className="flex gap-1">
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      inputMode="decimal"
+                                      min="0"
+                                      value={line.wid_ft}
+                                      onChange={(e) => updateDim(oi, li, { wid_ft: e.target.value })}
+                                      placeholder="ft"
+                                      className={cn(inputSm, "w-14")}
+                                    />
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      inputMode="decimal"
+                                      min="0"
+                                      value={line.wid_in}
+                                      onChange={(e) => updateDim(oi, li, { wid_in: e.target.value })}
+                                      placeholder="in"
+                                      className={cn(inputSm, "w-12")}
+                                    />
+                                  </div>
+                                </div>
+                              </>
+                            ) : null}
+
+                            {/* AREA-billed inputs — carpet / hard surface / general
+                                area lines. Hidden entirely for count items. */}
+                            {!isCountLine(line) ? (
+                              <>
                                 <div className="flex items-end gap-2">
                                   <LabeledNumber
-                                    label="Sq ft / box"
-                                    width="w-24"
-                                    value={line.sqft_per_box}
-                                    onChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
+                                    label="Sq ft"
+                                    value={line.sqft}
+                                    onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
                                   />
-                                  {num(line.sqft_per_box) > 0 && num(line.sqft) > 0 ? (
-                                    <div className="pb-2 text-xs font-medium text-muted-foreground">
-                                      = {Math.ceil(num(line.sqft) / num(line.sqft_per_box))} cartons
-                                    </div>
-                                  ) : null}
+                                  <AreaCalculator
+                                    triggerLabel="Add up areas"
+                                    triggerVariant="ghost"
+                                    triggerClassName="h-9 px-2 text-xs"
+                                    title={`Square footage${line.room ? ` — ${line.room}` : ""}`}
+                                    initialLabel={line.room}
+                                    onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
+                                  />
                                 </div>
-                              ) : null}
-                            </>
-                          ) : null}
-
-                          {/* PREP BAG CALCULATOR — a bag/unit item with coverage:
-                              enter area + thickness → bags = ceil(area ÷ coverage),
-                              coverage scaling with thickness. Editable override. */}
-                          {isCountLine(line) && hasCoverage(line.coverage_sqft) ? (
-                            (() => {
-                              const cov = num(line.coverage_sqft);
-                              const covT = num(line.coverage_thickness_in); // 0 = flat
-                              const scales = covT > 0;
-                              const t = scales ? num(line.prep_thickness_in) || covT : 0;
-                              const per = coverageAt(cov, scales ? covT : null, scales ? t : null);
-                              const perR = Math.round(per * 10) / 10;
-                              const u = unitLabel(line.unit) || "bag";
-                              const calcBags = bagsNeeded(line.sqft, cov, scales ? covT : null, scales ? t : null);
-                              const setArea = (v: string) => recalcPrep(oi, li, { sqft: v });
-                              const setThick = (v: string) => recalcPrep(oi, li, { prep_thickness_in: v });
-                              const hasLabor = option.lines.some(
-                                (l) => l.category === "labor" && !!l.prep_key && l.prep_key === line.prep_key,
-                              );
-                              return (
-                                <div className="w-full space-y-2 rounded-lg border bg-card p-3">
-                                  <div className="text-xs font-semibold text-muted-foreground">
-                                    Bag calculator — {cov} SF/{u}
-                                    {scales ? ` @ ${thicknessLabel(covT)}` : " (flat coverage)"}
+                                {isRollGoodCategory(line.category) ? (
+                                  <div className="pb-2 text-xs text-muted-foreground">
+                                    {(num(line.sqft) / 9).toFixed(1)} sq yd
                                   </div>
-                                  <div className="flex flex-wrap items-end gap-2">
+                                ) : null}
+                                {isHardSurfaceCategory(line.category) ? (
+                                  <div className="flex items-end gap-2">
                                     <LabeledNumber
-                                      label="Area (sq ft)"
-                                      value={line.sqft}
-                                      onChange={setArea}
+                                      label="Sq ft / box"
+                                      width="w-24"
+                                      value={line.sqft_per_box}
+                                      onChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
                                     />
-                                    {scales ? (
-                                      <div>
-                                        <label className="mb-1 block text-xs text-muted-foreground">
-                                          Pour thickness
-                                        </label>
-                                        <select
-                                          value={String(t)}
-                                          onChange={(e) => setThick(e.target.value)}
-                                          className={cn(inputSm, "w-28")}
-                                          aria-label="Pour thickness"
-                                        >
-                                          {THICKNESS_OPTIONS.map((o) => (
-                                            <option key={o.value} value={o.value}>{o.label}</option>
-                                          ))}
-                                        </select>
+                                    {num(line.sqft_per_box) > 0 && num(line.sqft) > 0 ? (
+                                      <div className="pb-2 text-xs font-medium text-muted-foreground">
+                                        = {Math.ceil(num(line.sqft) / num(line.sqft_per_box))} cartons
                                       </div>
                                     ) : null}
-                                    <div>
-                                      <label className="mb-1 block text-xs text-muted-foreground">
-                                        {u.charAt(0).toUpperCase() + u.slice(1)}s (override ok)
-                                      </label>
-                                      <input
-                                        type="number"
-                                        step="any"
-                                        min="0"
-                                        inputMode="decimal"
-                                        value={line.quantity}
-                                        onChange={(e) => recalcPrep(oi, li, { quantity: e.target.value })}
-                                        placeholder={String(calcBags)}
-                                        className={cn(inputSm, "w-24 font-semibold")}
-                                      />
-                                    </div>
                                   </div>
-                                  {num(line.sqft) > 0 && per > 0 ? (
-                                    <div className="text-xs text-muted-foreground">
-                                      {Math.round(num(line.sqft))} sq ft
-                                      {scales ? ` at ${thicknessLabel(t)}` : ""} ÷ {perR} SF/{u} ={" "}
-                                      <span className="font-semibold text-foreground">{calcBags} {u}{calcBags === 1 ? "" : "s"}</span>
-                                      {num(line.quantity) !== calcBags && num(line.quantity) > 0 ? (
-                                        <span className="text-primary"> · using {num(line.quantity)} (override)</span>
+                                ) : null}
+                              </>
+                            ) : null}
+
+                            {/* PREP BAG CALCULATOR — a bag/unit item with coverage:
+                                enter area + thickness → bags = ceil(area ÷ coverage),
+                                coverage scaling with thickness. Editable override. */}
+                            {isCountLine(line) && hasCoverage(line.coverage_sqft) ? (
+                              (() => {
+                                const cov = num(line.coverage_sqft);
+                                const covT = num(line.coverage_thickness_in); // 0 = flat
+                                const scales = covT > 0;
+                                const t = scales ? num(line.prep_thickness_in) || covT : 0;
+                                const per = coverageAt(cov, scales ? covT : null, scales ? t : null);
+                                const perR = Math.round(per * 10) / 10;
+                                const u = unitLabel(line.unit) || "bag";
+                                const calcBags = bagsNeeded(line.sqft, cov, scales ? covT : null, scales ? t : null);
+                                const setArea = (v: string) => recalcPrep(oi, li, { sqft: v });
+                                const setThick = (v: string) => recalcPrep(oi, li, { prep_thickness_in: v });
+                                const hasLabor = option.lines.some(
+                                  (l) => l.category === "labor" && !!l.prep_key && l.prep_key === line.prep_key,
+                                );
+                                return (
+                                  <div className="w-full space-y-2 rounded-lg border bg-card p-3">
+                                    <div className="text-xs font-semibold text-muted-foreground">
+                                      Bag calculator — {cov} SF/{u}
+                                      {scales ? ` @ ${thicknessLabel(covT)}` : " (flat coverage)"}
+                                    </div>
+                                    <div className="flex flex-wrap items-end gap-2">
+                                      <LabeledNumber
+                                        label="Area (sq ft)"
+                                        value={line.sqft}
+                                        onChange={setArea}
+                                      />
+                                      {scales ? (
+                                        <div>
+                                          <label className="mb-1 block text-xs text-muted-foreground">
+                                            Pour thickness
+                                          </label>
+                                          <select
+                                            value={String(t)}
+                                            onChange={(e) => setThick(e.target.value)}
+                                            className={cn(inputSm, "w-28")}
+                                            aria-label="Pour thickness"
+                                          >
+                                            {THICKNESS_OPTIONS.map((o) => (
+                                              <option key={o.value} value={o.value}>{o.label}</option>
+                                            ))}
+                                          </select>
+                                        </div>
                                       ) : null}
+                                      <div>
+                                        <label className="mb-1 block text-xs text-muted-foreground">
+                                          {u.charAt(0).toUpperCase() + u.slice(1)}s (override ok)
+                                        </label>
+                                        <input
+                                          type="number"
+                                          step="any"
+                                          min="0"
+                                          inputMode="decimal"
+                                          value={line.quantity}
+                                          onChange={(e) => recalcPrep(oi, li, { quantity: e.target.value })}
+                                          placeholder={String(calcBags)}
+                                          className={cn(inputSm, "w-24 font-semibold")}
+                                        />
+                                      </div>
                                     </div>
-                                  ) : null}
-                                  {!hasLabor ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => addSelfLevelingLabor(oi, li)}
-                                      className="text-xs font-medium text-primary hover:underline"
-                                    >
-                                      + Add self-leveling labor (separate line, auto-filled)
-                                    </button>
+                                    {num(line.sqft) > 0 && per > 0 ? (
+                                      <div className="text-xs text-muted-foreground">
+                                        {Math.round(num(line.sqft))} sq ft
+                                        {scales ? ` at ${thicknessLabel(t)}` : ""} ÷ {perR} SF/{u} ={" "}
+                                        <span className="font-semibold text-foreground">{calcBags} {u}{calcBags === 1 ? "" : "s"}</span>
+                                        {num(line.quantity) !== calcBags && num(line.quantity) > 0 ? (
+                                          <span className="text-primary"> · using {num(line.quantity)} (override)</span>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+                                    {!hasLabor ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => addSelfLevelingLabor(oi, li)}
+                                        className="text-xs font-medium text-primary hover:underline"
+                                      >
+                                        + Add self-leveling labor (separate line, auto-filled)
+                                      </button>
+                                    ) : (
+                                      <div className="text-[11px] text-muted-foreground">
+                                        Labor line linked — its quantity follows this calculator.
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()
+                            ) : isCountLine(line) ? (
+                              <div>
+                                <label className="mb-1 block text-xs text-muted-foreground">
+                                  How many {unitLabel(line.unit) || "units"}?
+                                </label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  inputMode="decimal"
+                                  value={line.quantity}
+                                  onChange={(e) => updateLine(oi, li, { quantity: e.target.value })}
+                                  placeholder={unitLabel(line.unit) || "qty"}
+                                  className={cn(inputSm, "w-28")}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        {/* 4 · PRICE — cost / margin / sell (or installed / flat). */}
+                        {line.line_type === "mat_labor" ? (
+                          (() => {
+                            const labor = isLaborLine(line);
+                            const unitLbl = line.unit || (line.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+                            const overriding = line.margin_pct.trim() !== "";
+                            return (
+                              <div className="w-full space-y-1.5 rounded-lg border bg-card p-3">
+                                <div className="grid grid-cols-3 gap-2">
+                                  <LabeledNumber
+                                    label={`Our cost /${unitLbl}`}
+                                    prefix="$"
+                                    width="w-full"
+                                    value={labor ? line.labor_cost : line.material_cost}
+                                    onChange={(v) => changeLineCost(oi, li, labor ? "labor_cost" : "material_cost", v)}
+                                  />
+                                  <div>
+                                    <label className="mb-1 block text-xs text-muted-foreground">Margin %</label>
+                                    <Input
+                                      value={line.margin_pct}
+                                      onChange={(e) => changeLineMargin(oi, li, e.target.value)}
+                                      placeholder={overallMargin}
+                                      inputMode="decimal"
+                                      className="h-9"
+                                    />
+                                  </div>
+                                  <LabeledNumber
+                                    label={`Sell /${unitLbl}`}
+                                    prefix="$"
+                                    width="w-full"
+                                    value={labor ? line.labor_rate : line.material_rate}
+                                    onChange={(v) => changeLineSell(oi, li, labor ? "labor_rate" : "material_rate", v)}
+                                  />
+                                </div>
+                                <div className="text-xs">
+                                  {overriding ? (
+                                    <span className="text-primary">
+                                      Custom margin — overrides the overall {overallMargin}%.{" "}
+                                      <button type="button" className="underline underline-offset-2" onClick={() => changeLineMargin(oi, li, "")}>
+                                        Use overall
+                                      </button>
+                                    </span>
                                   ) : (
-                                    <div className="text-[11px] text-muted-foreground">
-                                      Labor line linked — its quantity follows this calculator.
-                                    </div>
+                                    <span className="text-muted-foreground">Following the overall {overallMargin}% margin.</span>
                                   )}
                                 </div>
-                              );
-                            })()
-                          ) : isCountLine(line) ? (
-                            <div>
-                              <label className="mb-1 block text-xs text-muted-foreground">
-                                How many {unitLabel(line.unit) || "units"}?
-                              </label>
-                              <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                inputMode="decimal"
-                                value={line.quantity}
-                                onChange={(e) => updateLine(oi, li, { quantity: e.target.value })}
-                                placeholder={unitLabel(line.unit) || "qty"}
-                                className={cn(inputSm, "w-28")}
-                              />
-                            </div>
-                          ) : null}
+                                {/* Material lines are material-only. A saved line
+                                    that still bundles labor gets a one-tap split so
+                                    material & labor become separate line items. */}
+                                {!labor && num(line.labor_cost) > 0 ? (
+                                  <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs">
+                                    <span className="text-muted-foreground">
+                                      Bundles {formatMoney(num(line.labor_rate))}/{unitLbl} labor —
+                                      keep material &amp; labor separate.
+                                    </span>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7"
+                                      onClick={() => splitLaborToLine(oi, li)}
+                                    >
+                                      Split into a labor line
+                                    </Button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })()
+                        ) : null}
 
-                          {/* Pricing basis. Roll goods / hard surface stay locked
-                              to area (carpet needs sq yd); everything else gets the
-                              full unit picker so bag / each / lnft is one tap. */}
-                          {isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category) ? (
+                        {line.line_type === "installed" ? (
+                          <LabeledNumber
+                            label={
+                              isSubfloor(line)
+                                ? "$ / sheet (installed)"
+                                : `Installed /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`
+                            }
+                            prefix="$"
+                            value={line.installed_rate}
+                            onChange={(v) => updateLine(oi, li, { installed_rate: v })}
+                          />
+                        ) : null}
+
+                        {line.line_type === "flat" ? (
+                          <LabeledNumber
+                            label="Flat amount"
+                            prefix="$"
+                            width="w-32"
+                            value={line.flat_amount}
+                            onChange={(v) => updateLine(oi, li, { flat_amount: v })}
+                          />
+                        ) : null}
+
+                        {/* MORE OPTIONS — everything advanced/rarely-used, tucked
+                            away: pricing mode, catalog details, source, optional,
+                            order-as-roll, unit, waste. Every capability preserved. */}
+                        <details className="rounded-md border bg-card [&_summary]:list-none">
+                          <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground">
+                            <Plus className="size-3.5" />
+                            More options — pricing mode, catalog details, source, waste
+                          </summary>
+                          <div className="space-y-4 border-t p-3">
+                            {/* Pricing mode — Material / Installed / Flat. */}
                             <div>
                               <label className="mb-1 block text-xs text-muted-foreground">
-                                Price per
+                                Pricing mode
                               </label>
                               <SegmentedField
                                 size="sm"
-                                value={line.measure_unit}
-                                onChange={(v) => updateLine(oi, li, { measure_unit: v as MeasureUnit })}
-                                options={[
-                                  { value: "sqft", label: "sq ft" },
-                                  { value: "sqyd", label: "sq yd" },
-                                ]}
+                                value={line.line_type}
+                                onChange={(v) => updateLine(oi, li, { line_type: v as LineType })}
+                                /* Material & labor are separate lines — a material
+                                   line reads "Material" (not "Material + Labor"); a
+                                   labor line reads "Labor". `mat_labor` is the value. */
+                                options={
+                                  isLaborLine(line)
+                                    ? [
+                                        { value: "mat_labor", label: "Labor" },
+                                        { value: "flat", label: "Flat amount" },
+                                      ]
+                                    : [
+                                        { value: "mat_labor", label: "Material" },
+                                        { value: "installed", label: "Installed / sq ft" },
+                                        { value: "flat", label: "Flat amount" },
+                                      ]
+                                }
                               />
                             </div>
-                          ) : (
-                            <div>
-                              <label className="mb-1 block text-xs text-muted-foreground">
-                                Priced by
-                              </label>
-                              <select
-                                value={isCountLine(line) ? normalizeUnit(line.unit) : line.measure_unit}
-                                onChange={(e) => setLineUnit(oi, li, e.target.value)}
-                                className={cn(inputSm, "w-32")}
-                                aria-label="Pricing unit"
-                              >
-                                <optgroup label="By area">
-                                  {UNIT_OPTIONS.filter((u) => u.kind === "area").map((u) => (
-                                    <option key={u.value} value={u.value}>{u.label}</option>
-                                  ))}
-                                </optgroup>
-                                <optgroup label="By the item">
-                                  {UNIT_OPTIONS.filter((u) => u.kind === "count").map((u) => (
-                                    <option key={u.value} value={u.value}>{u.label}</option>
-                                  ))}
-                                </optgroup>
-                              </select>
-                            </div>
-                          )}
 
-                          {/* Manual qty override + waste — area lines only. */}
-                          {!isCountLine(line) ? (
-                            <>
-                              <LabeledNumber
-                                label={`Qty${line.unit ? ` (${line.unit})` : ""}`}
-                                value={line.quantity}
-                                width="w-20"
-                                onChange={(v) => updateLine(oi, li, { quantity: v })}
-                              />
-                              <LabeledNumber
-                                label="Waste %"
-                                value={line.waste_pct}
-                                width="w-20"
-                                onChange={(v) => updateLine(oi, li, { waste_pct: v })}
-                              />
-                            </>
-                          ) : null}
-                        </>
-                      ) : null}
-
-                      {line.line_type !== "flat" ? (
-                        <ProductPicker
-                          value={line.product_id}
-                          initialLabel={line.description}
-                          onPick={(p) => pickProduct(oi, li, p)}
-                          onCreated={(p) => handleProductCreated(oi, li, p)}
-                          onUseOnce={(input) => useOnceProduct(oi, li, input)}
-                        />
-                      ) : null}
-
-                      {/* Mispricing guard: this line is priced by area, but its
-                          catalog product is really sold by the each/bag. One tap
-                          switches it to the right unit (never auto-changes). */}
-                      {(() => {
-                        const realUnit = line.product_id ? productUnits[line.product_id] : "";
-                        const mismatch =
-                          !!realUnit && !isAreaUnit(realUnit) && !isCountLine(line);
-                        if (!mismatch) return null;
-                        return (
-                          <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-400 bg-amber-50 px-2.5 py-2 text-xs dark:border-amber-500/40 dark:bg-amber-950/30">
-                            <span className="text-amber-800 dark:text-amber-300">
-                              ⚠ This item is sold by the{" "}
-                              <span className="font-semibold">{unitLabel(realUnit)}</span> — it&apos;s
-                              currently priced by area.
-                            </span>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-7"
-                              onClick={() => setLineUnit(oi, li, normalizeUnit(realUnit))}
-                            >
-                              Fix — price per {unitLabel(realUnit)}
-                            </Button>
-                          </div>
-                        );
-                      })()}
-
-                      {line.line_type === "mat_labor" ? (
-                        (() => {
-                          const labor = isLaborLine(line);
-                          const unitLbl = line.unit || (line.measure_unit === "sqyd" ? "sq yd" : "sq ft");
-                          const overriding = line.margin_pct.trim() !== "";
-                          return (
-                            <div className="w-full space-y-1.5 rounded-lg border bg-card p-3">
-                              <div className="grid grid-cols-3 gap-2">
-                                <LabeledNumber
-                                  label={`Our cost /${unitLbl}`}
-                                  prefix="$"
-                                  width="w-full"
-                                  value={labor ? line.labor_cost : line.material_cost}
-                                  onChange={(v) => changeLineCost(oi, li, labor ? "labor_cost" : "material_cost", v)}
-                                />
+                            {/* Catalog details — manufacturer, style, item #, and
+                                color for NON-flooring (flooring shows color above). */}
+                            {!isLaborLine(line) && !isSubfloor(line) ? (
+                              <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                  <label className="mb-1 block text-xs text-muted-foreground">Margin %</label>
+                                  <label className="mb-1 block text-xs text-muted-foreground">Manufacturer</label>
                                   <Input
-                                    value={line.margin_pct}
-                                    onChange={(e) => changeLineMargin(oi, li, e.target.value)}
-                                    placeholder={overallMargin}
-                                    inputMode="decimal"
+                                    value={line.manufacturer}
+                                    onChange={(e) => updateLine(oi, li, { manufacturer: e.target.value })}
+                                    placeholder="e.g. Shaw"
+                                    list="estimate-manufacturer-suggestions"
                                     className="h-9"
                                   />
                                 </div>
+                                {!isFlooring ? (
+                                  <div>
+                                    <label className="mb-1 block text-xs text-muted-foreground">Color</label>
+                                    <Input
+                                      value={line.color}
+                                      onChange={(e) => updateLine(oi, li, { color: e.target.value })}
+                                      placeholder="Color / finish"
+                                      list="estimate-color-suggestions"
+                                      className="h-9"
+                                    />
+                                  </div>
+                                ) : null}
+                                <div>
+                                  <label className="mb-1 block text-xs text-muted-foreground">Style</label>
+                                  <Input
+                                    value={line.style}
+                                    onChange={(e) => updateLine(oi, li, { style: e.target.value })}
+                                    placeholder="Style"
+                                    className="h-9"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-xs text-muted-foreground">Item #</label>
+                                  <Input
+                                    value={line.item_no}
+                                    onChange={(e) => updateLine(oi, li, { item_no: e.target.value })}
+                                    placeholder="Item #"
+                                    className="h-9"
+                                  />
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {/* Source — order new or pull from stock. */}
+                            {line.line_type !== "flat" && line.category !== "labor" ? (
+                              <div>
+                                <label className="mb-1 block text-xs text-muted-foreground">
+                                  Source
+                                </label>
+                                <div className="inline-flex rounded-md border p-0.5 text-xs">
+                                  <button
+                                    type="button"
+                                    onClick={() => updateLine(oi, li, { from_stock: false })}
+                                    className={cn(
+                                      "rounded px-2.5 py-1.5 font-medium",
+                                      !line.from_stock ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+                                    )}
+                                  >
+                                    Order
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => updateLine(oi, li, { from_stock: true })}
+                                    className={cn(
+                                      "rounded px-2.5 py-1.5 font-medium",
+                                      line.from_stock ? "bg-amber-500 text-white" : "text-muted-foreground",
+                                    )}
+                                  >
+                                    From stock
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {/* Optional add-on. */}
+                            {line.line_type !== "flat" ? (
+                              <label className="flex cursor-pointer items-center gap-2 text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={line.is_optional}
+                                  onChange={(e) => updateLine(oi, li, { is_optional: e.target.checked })}
+                                  className="size-4 rounded border-input"
+                                />
+                                <span>
+                                  <span className="font-medium">Optional add-on</span> — may or
+                                  may not be necessary
+                                </span>
+                              </label>
+                            ) : null}
+
+                            {/* Order as roll — PO shows one roll; work order keeps the
+                                cuts. Roll goods only (carpet / sheet vinyl). */}
+                            {line.line_type !== "flat" && line.category !== "labor" && !line.from_stock && isRollGoodCategory(line.category) ? (
+                              <div>
+                                <label className="mb-1 block text-xs text-muted-foreground">Order as</label>
+                                <div className="flex items-center gap-2">
+                                  <div className="inline-flex rounded-md border p-0.5 text-xs">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateLine(oi, li, { order_as_roll: false })}
+                                      className={cn("rounded px-2.5 py-1.5 font-medium", !line.order_as_roll ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                                    >
+                                      Cuts
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateLine(oi, li, { order_as_roll: true, roll_width_ft: line.roll_width_ft || "12" })}
+                                      className={cn("rounded px-2.5 py-1.5 font-medium", line.order_as_roll ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                                    >
+                                      Roll
+                                    </button>
+                                  </div>
+                                  {line.order_as_roll ? (
+                                    <select
+                                      value={line.roll_width_ft || "12"}
+                                      onChange={(e) => updateLine(oi, li, { roll_width_ft: e.target.value })}
+                                      className="h-8 rounded-md border border-input bg-transparent px-1.5 text-xs"
+                                      aria-label="Roll width"
+                                    >
+                                      <option value="12">12 ft wide</option>
+                                      <option value="15">15 ft wide</option>
+                                    </select>
+                                  ) : null}
+                                </div>
+                                {line.order_as_roll ? (
+                                  <p className="mt-1 text-xs text-muted-foreground">PO orders one roll; the work order shows the cut sizes.</p>
+                                ) : null}
+                                {/* Fill piece — an extra cut off the same roll for
+                                    this area; flagged on every doc, yardage orders. */}
+                                <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs">
+                                  <input
+                                    type="checkbox"
+                                    checked={line.is_fill}
+                                    onChange={(e) => updateLine(oi, li, { is_fill: e.target.checked })}
+                                    className="size-4 rounded border-input"
+                                  />
+                                  <span>This is a <span className="font-medium">fill / seam piece</span> for the area</span>
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => addFillPiece(oi, li)}
+                                  className="mt-1 text-xs font-medium text-primary hover:underline"
+                                >
+                                  + Add fill piece for this area
+                                </button>
+                              </div>
+                            ) : null}
+
+                            {/* Pricing unit. Roll goods / hard surface stay locked to
+                                area (carpet needs sq yd); everything else gets the
+                                full unit picker so bag / each / lnft is one tap. */}
+                            {line.line_type !== "flat" && !isSubfloor(line) ? (
+                              isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category) ? (
+                                <div>
+                                  <label className="mb-1 block text-xs text-muted-foreground">
+                                    Price per
+                                  </label>
+                                  <SegmentedField
+                                    size="sm"
+                                    value={line.measure_unit}
+                                    onChange={(v) => updateLine(oi, li, { measure_unit: v as MeasureUnit })}
+                                    options={[
+                                      { value: "sqft", label: "sq ft" },
+                                      { value: "sqyd", label: "sq yd" },
+                                    ]}
+                                  />
+                                </div>
+                              ) : (
+                                <div>
+                                  <label className="mb-1 block text-xs text-muted-foreground">
+                                    Priced by
+                                  </label>
+                                  <select
+                                    value={isCountLine(line) ? normalizeUnit(line.unit) : line.measure_unit}
+                                    onChange={(e) => setLineUnit(oi, li, e.target.value)}
+                                    className={cn(inputSm, "w-32")}
+                                    aria-label="Pricing unit"
+                                  >
+                                    <optgroup label="By area">
+                                      {UNIT_OPTIONS.filter((u) => u.kind === "area").map((u) => (
+                                        <option key={u.value} value={u.value}>{u.label}</option>
+                                      ))}
+                                    </optgroup>
+                                    <optgroup label="By the item">
+                                      {UNIT_OPTIONS.filter((u) => u.kind === "count").map((u) => (
+                                        <option key={u.value} value={u.value}>{u.label}</option>
+                                      ))}
+                                    </optgroup>
+                                  </select>
+                                </div>
+                              )
+                            ) : null}
+
+                            {/* Manual qty override + waste — area lines only. */}
+                            {line.line_type !== "flat" && !isSubfloor(line) && !isCountLine(line) ? (
+                              <div className="flex flex-wrap items-end gap-3">
                                 <LabeledNumber
-                                  label={`Sell /${unitLbl}`}
-                                  prefix="$"
-                                  width="w-full"
-                                  value={labor ? line.labor_rate : line.material_rate}
-                                  onChange={(v) => changeLineSell(oi, li, labor ? "labor_rate" : "material_rate", v)}
+                                  label={`Qty${line.unit ? ` (${line.unit})` : ""}`}
+                                  value={line.quantity}
+                                  width="w-20"
+                                  onChange={(v) => updateLine(oi, li, { quantity: v })}
+                                />
+                                <LabeledNumber
+                                  label="Waste %"
+                                  value={line.waste_pct}
+                                  width="w-20"
+                                  onChange={(v) => updateLine(oi, li, { waste_pct: v })}
                                 />
                               </div>
-                              <div className="text-xs">
-                                {overriding ? (
-                                  <span className="text-primary">
-                                    Custom margin — overrides the overall {overallMargin}%.{" "}
-                                    <button type="button" className="underline underline-offset-2" onClick={() => changeLineMargin(oi, li, "")}>
-                                      Use overall
-                                    </button>
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground">Following the overall {overallMargin}% margin.</span>
-                                )}
-                              </div>
-                              {/* Material lines are material-only. A saved line
-                                  that still bundles labor gets a one-tap split so
-                                  material & labor become separate line items. */}
-                              {!labor && num(line.labor_cost) > 0 ? (
-                                <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs">
-                                  <span className="text-muted-foreground">
-                                    Bundles {formatMoney(num(line.labor_rate))}/{unitLbl} labor —
-                                    keep material &amp; labor separate.
-                                  </span>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7"
-                                    onClick={() => splitLaborToLine(oi, li)}
-                                  >
-                                    Split into a labor line
-                                  </Button>
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })()
-                      ) : null}
+                            ) : null}
+                          </div>
+                        </details>
 
-                      {line.line_type === "installed" ? (
-                        <LabeledNumber
-                          label={
-                            isSubfloor(line)
-                              ? "$ / sheet (installed)"
-                              : `Installed /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`
-                          }
-                          prefix="$"
-                          value={line.installed_rate}
-                          onChange={(v) =>
-                            updateLine(oi, li, { installed_rate: v })
-                          }
-                        />
-                      ) : null}
-
-                      {line.line_type === "flat" ? (
-                        <LabeledNumber
-                          label="Flat amount"
-                          prefix="$"
-                          width="w-32"
-                          value={line.flat_amount}
-                          onChange={(v) =>
-                            updateLine(oi, li, { flat_amount: v })
-                          }
-                        />
-                      ) : null}
-
-                      <div className="ml-auto" />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        title="Make a copy of this line below"
-                        onClick={() => duplicateLine(oi, li)}
-                      >
-                        <Copy className="size-3.5" /> Duplicate
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Remove line"
-                        onClick={() => removeLine(oi, li)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 border-t pt-3">
+                          <div className="ml-auto" />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            title="Make a copy of this line below"
+                            onClick={() => duplicateLine(oi, li)}
+                          >
+                            <Copy className="size-3.5" /> Duplicate
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="Remove line"
+                            onClick={() => removeLine(oi, li)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
                       </div>
                       ) : null}
                     </div>
