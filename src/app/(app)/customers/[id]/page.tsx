@@ -897,7 +897,12 @@ export default async function CustomerPage({
               ) : (
                 <div className="space-y-2">
                   {estimateRows.map((e) => (
-                    <EstimateRow key={e.id} e={e} />
+                    <EstimateRow
+                      key={e.id}
+                      e={e}
+                      customerId={customer.id}
+                      customerName={customer.full_name}
+                    />
                   ))}
                 </div>
               )}

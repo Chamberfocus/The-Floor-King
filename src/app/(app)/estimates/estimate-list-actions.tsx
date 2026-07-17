@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, Trash2 } from "lucide-react";
+import { docRef } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,12 +26,17 @@ import {
 export function DeleteEstimateButton({
   id,
   customerId,
+  customerName,
   variant = "icon",
 }: {
   id: string;
   customerId?: string;
+  customerName?: string;
   variant?: "icon" | "full";
 }) {
+  // Name the exact estimate in the confirmation so nobody deletes the wrong one.
+  const ref = docRef("EST", id);
+  const title = `Delete Estimate ${ref}${customerName ? ` for ${customerName}` : ""}?`;
   const [open, setOpen] = useState(false);
   const [impact, setImpact] = useState<EstimateDeleteImpact | null>(null);
   const [loading, setLoading] = useState(false);
@@ -68,7 +74,7 @@ export function DeleteEstimateButton({
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="size-5 text-destructive" /> Delete this estimate?
+            <AlertTriangle className="size-5 shrink-0 text-destructive" /> {title}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-3 text-sm">

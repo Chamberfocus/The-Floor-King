@@ -7,6 +7,7 @@ import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { JobScopeView } from "@/components/job-scope-view";
+import { DeleteEstimateButton } from "@/app/(app)/estimates/estimate-list-actions";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { EstimateStatus, InvoiceStatus, JobStatus } from "@/lib/types";
 import type { JobScope } from "@/lib/job-scope";
@@ -18,6 +19,7 @@ function ExpandRow({
   icon,
   title,
   right,
+  actions,
   href,
   openLabel,
   children,
@@ -25,6 +27,9 @@ function ExpandRow({
   icon: React.ReactNode;
   title: React.ReactNode;
   right?: React.ReactNode;
+  /** Interactive controls (e.g. delete) rendered OUTSIDE the toggle button —
+   *  nesting a button inside the header button is invalid and would swallow the tap. */
+  actions?: React.ReactNode;
   href: string;
   openLabel: string;
   children: React.ReactNode;
@@ -32,19 +37,22 @@ function ExpandRow({
   const [open, setOpen] = useState(false);
   return (
     <div className="rounded-xl border">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 px-3 py-3 text-left"
-      >
-        <ChevronRight
-          className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
-        />
-        <span className="shrink-0 text-muted-foreground">{icon}</span>
-        <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
-        {right ? <span className="flex shrink-0 items-center gap-2">{right}</span> : null}
-      </button>
+      <div className="flex items-center">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left"
+        >
+          <ChevronRight
+            className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
+          />
+          <span className="shrink-0 text-muted-foreground">{icon}</span>
+          <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
+          {right ? <span className="flex shrink-0 items-center gap-2">{right}</span> : null}
+        </button>
+        {actions ? <div className="flex shrink-0 items-center pr-2">{actions}</div> : null}
+      </div>
       {open ? (
         <div className="border-t p-3">
           {children}
@@ -71,7 +79,15 @@ export interface EstimateRowData {
   lines: { id: string; label: string; amount: number }[];
 }
 
-export function EstimateRow({ e }: { e: EstimateRowData }) {
+export function EstimateRow({
+  e,
+  customerId,
+  customerName,
+}: {
+  e: EstimateRowData;
+  customerId: string;
+  customerName?: string;
+}) {
   return (
     <ExpandRow
       icon={<FileText className="size-4" />}
@@ -83,6 +99,13 @@ export function EstimateRow({ e }: { e: EstimateRowData }) {
           <EstimateStatusBadge status={e.status} />
           <span className="font-semibold tabular-nums">{formatMoney(e.total)}</span>
         </>
+      }
+      actions={
+        <DeleteEstimateButton
+          id={e.id}
+          customerId={customerId}
+          customerName={customerName}
+        />
       }
     >
       {e.optionName ? (
