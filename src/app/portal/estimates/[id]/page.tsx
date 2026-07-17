@@ -14,7 +14,7 @@ import { CustomerScopeView } from "@/components/customer-scope-view";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import { getEstimate } from "@/lib/data/estimates";
 import { getOrgSettings } from "@/lib/data/org";
-import { buildCustomerScope } from "@/lib/customer-scope";
+import { buildCustomerScope, parseProjectDetails } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
 import { formatMoney } from "@/lib/format";
 import type { EstimateOption } from "@/lib/types";
@@ -55,7 +55,10 @@ export default async function PortalEstimatePage({
     options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
   const scope = buildCustomerScope(chosen?.line_items ?? [], estimate.notes);
   const total = chosen ? totalsFor(chosen).total : 0;
-  const variant = estimate.presentation === "summary" ? "condensed" : "full";
+  // Scope of work always shows; "detailed" adds the captured answers (never the
+  // internal flags).
+  const projectDetails =
+    estimate.presentation !== "summary" ? parseProjectDetails(estimate.job_description).details : [];
 
   return (
     <div>
@@ -100,10 +103,15 @@ export default async function PortalEstimatePage({
             <CardTitle className="text-base">Your options — choose the one that fits</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {estimate.job_description ? (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                {estimate.job_description}
-              </p>
+            {projectDetails.length > 0 ? (
+              <ul className="grid grid-cols-1 gap-x-8 gap-y-1.5 text-[15px] leading-relaxed sm:grid-cols-2">
+                {projectDetails.map((d, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span aria-hidden className="mt-2 size-1.5 shrink-0 rounded-full bg-current opacity-40" />
+                    <span>{d}</span>
+                  </li>
+                ))}
+              </ul>
             ) : null}
             <EstimateOptionCards
               estimate={estimate}
@@ -139,10 +147,25 @@ export default async function PortalEstimatePage({
           <CardContent>
             <CustomerScopeView
               scope={scope}
-              variant={variant}
-              narrative={estimate.job_description}
+              variant="full"
+              narrative={estimate.notes}
             />
-            <div className="mt-5 flex items-baseline justify-between border-t-2 pt-4">
+            {projectDetails.length > 0 ? (
+              <div className="mt-6 border-t pt-5">
+                <div className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Project details
+                </div>
+                <ul className="grid grid-cols-1 gap-x-8 gap-y-1.5 text-[15px] leading-relaxed sm:grid-cols-2">
+                  {projectDetails.map((d, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span aria-hidden className="mt-2 size-1.5 shrink-0 rounded-full bg-current opacity-40" />
+                      <span>{d}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div className="mt-6 flex items-baseline justify-between border-t-2 pt-4">
               <span className="text-sm font-semibold uppercase tracking-wide">
                 Project total
               </span>

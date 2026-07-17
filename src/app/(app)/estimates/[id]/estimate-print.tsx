@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
 import { CustomerScopeView } from "@/components/customer-scope-view";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
-import { buildCustomerScope } from "@/lib/customer-scope";
+import { buildCustomerScope, parseProjectDetails } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
 import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -38,7 +38,7 @@ export function ScopeDetailToggle({
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
       <span className="flex items-center gap-1.5 text-sm font-medium">
-        <ListChecks className="size-4 text-muted-foreground" /> Detailed scope of work
+        <ListChecks className="size-4 text-muted-foreground" /> Project details on customer copy
       </span>
       <div className="inline-flex rounded-md border p-0.5 text-sm">
         <button
@@ -60,8 +60,8 @@ export function ScopeDetailToggle({
       </div>
       <span className="text-xs text-muted-foreground">
         {detailed
-          ? "Customer sees the full scope of work."
-          : "Customer sees materials + price only."}
+          ? "Customer copy includes the captured answers (subfloor, prep, furniture…). Scope of work always shows."
+          : "Customer copy shows the scope of work + price only. Scope of work always shows."}
       </span>
     </div>
   );
@@ -153,7 +153,11 @@ export function EstimatePrintDoc({
     estimate.discount_value,
   );
   const scope = buildCustomerScope(lines, estimate.notes);
-  const variant = estimate.presentation === "summary" ? "condensed" : "full";
+  // The scope of work is ALWAYS shown in full. The "detailed" presentation adds
+  // the captured questionnaire answers as a Project details list (customer's
+  // choice per estimate); internal flags are never included on this copy.
+  const showDetails = estimate.presentation !== "summary";
+  const projectDetails = showDetails ? parseProjectDetails(estimate.job_description).details : [];
   const number = docRef("EST", estimate.id);
 
   return (
@@ -213,10 +217,26 @@ export function EstimatePrintDoc({
             </div>
             <CustomerScopeView
               scope={scope}
-              variant={variant}
-              narrative={estimate.job_description}
+              variant="full"
+              narrative={estimate.notes}
             />
           </div>
+
+          {projectDetails.length > 0 ? (
+            <div className="mt-6 break-inside-avoid border-t pt-5">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
+                Project details
+              </div>
+              <ul className="grid grid-cols-1 gap-x-8 gap-y-1.5 text-[15px] leading-relaxed sm:grid-cols-2">
+                {projectDetails.map((d, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span aria-hidden className="mt-2 size-1.5 shrink-0 rounded-full bg-current opacity-40" />
+                    <span>{d}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           <div className="mt-8 break-inside-avoid rounded-xl border-2 border-gray-800 px-5 py-4">
             <div className="flex items-baseline justify-between gap-4">

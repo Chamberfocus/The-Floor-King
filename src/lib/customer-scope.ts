@@ -136,6 +136,42 @@ export function scopeIsEmpty(s: CustomerScope): boolean {
   );
 }
 
+/**
+ * Parse the captured questionnaire answers out of an estimate's job description
+ * into a clean "Project details" list — the note-worthy answers (subfloor, prep,
+ * furniture, tackless…) as plain "Label: value" lines. Internal risk flags are
+ * separated out (`flags`) so they can be shown on the staff copy but never the
+ * customer's. Presentation only — never emits a quantity or price.
+ */
+export function parseProjectDetails(
+  text: string | null | undefined,
+): { details: string[]; flags: string[] } {
+  if (!text) return { details: [], flags: [] };
+  const details: string[] = [];
+  const flags: string[] = [];
+  let inFlags = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (/^flags to confirm/i.test(line)) {
+      inFlags = true;
+      continue;
+    }
+    if (/^(job conditions|per-room prep)\s*:?$/i.test(line)) {
+      inFlags = false;
+      continue;
+    }
+    if (inFlags || line.startsWith("⚠")) {
+      flags.push(line.replace(/^⚠\s*/, ""));
+      continue;
+    }
+    // A captured answer bullet ("• Label: value") or a free line — tidy the
+    // leftover "?:" from question labels so it reads as a clean detail.
+    details.push(line.replace(/^[•\-]\s*/, "").replace(/\?:/g, ":"));
+  }
+  return { details, flags };
+}
+
 /** The distinct flooring products across the whole job — for the condensed view. */
 export function flooringHighlights(s: CustomerScope): ScopeItem[] {
   const seen = new Set<string>();

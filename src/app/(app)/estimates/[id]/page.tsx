@@ -29,6 +29,7 @@ import { getEstimate, getEstimatorName } from "@/lib/data/estimates";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { optionTotalsWithDiscount, lineTotal, lineQty } from "@/lib/estimate-calc";
+import { parseProjectDetails } from "@/lib/customer-scope";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, duplicateOption } from "../actions";
@@ -321,18 +322,46 @@ export default async function EstimatePage({
         </CardContent>
       </Card>
 
-      {estimate.job_description ? (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-base">Job description</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-              {estimate.job_description}
-            </p>
-          </CardContent>
-        </Card>
-      ) : null}
+      {(() => {
+        const { details, flags } = parseProjectDetails(estimate.job_description);
+        if (!details.length && !flags.length) return null;
+        return (
+          <Card className="mb-6 print:hidden">
+            <CardHeader>
+              <CardTitle className="text-base">Project details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {details.length ? (
+                <ul className="grid grid-cols-1 gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
+                  {details.map((d, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-current opacity-40" />
+                      <span>{d}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {flags.length ? (
+                <div className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm dark:border-amber-500/40 dark:bg-amber-950/30">
+                  <div className="mb-1 font-medium text-amber-800 dark:text-amber-300">
+                    Internal flags — never shown to the customer
+                  </div>
+                  <ul className="list-disc space-y-0.5 pl-5 text-amber-800 dark:text-amber-200">
+                    {flags.map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                {detailed
+                  ? "The details list above appears on the customer copy — toggle it above. Internal flags stay internal."
+                  : "The details list above is hidden from the customer copy — toggle it above to include it. Internal flags stay internal."}
+              </p>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Keep building from notes — append more rooms / add-ons */}
       <Card className="mb-6 border-primary/30">
