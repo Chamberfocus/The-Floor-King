@@ -8,12 +8,10 @@ import {
   MessageSquare,
   Mail,
   MapPin,
-  Crown,
   CalendarClock,
   AlertTriangle,
   ArrowLeftRight,
   Info,
-  FileText,
   Wrench,
   Receipt,
   Sparkles,
@@ -123,6 +121,7 @@ import { listLeadSources } from "@/lib/data/lead-sources";
 import { EstimateSourceGate } from "./estimate-source-gate";
 import { QualifyDialog } from "./qualify-dialog";
 import { QuickActions } from "./quick-actions";
+import { CustomerSwitcher } from "./customer-switcher";
 import { getUserPreferences } from "@/lib/data/preferences";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
@@ -485,14 +484,12 @@ export default async function CustomerPage({
               <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
                 {customer.full_name}
               </h1>
-              {currentStage ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
-                  <Crown className="size-3.5" />
-                  {currentStage.name}
-                </span>
-              ) : (
+              {/* Stage lives in the Overview guided hero (spine + current-stage
+                  card). We only surface a badge here when that hero isn't shown —
+                  i.e. a cancelled file — so stage stays visible without repeating. */}
+              {customer.cancelled_at ? (
                 <StageBadge stage={customer.stage} />
-              )}
+              ) : null}
               {overdue ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs font-semibold text-destructive">
                   <AlertTriangle className="size-3.5" /> Stuck
@@ -573,10 +570,50 @@ export default async function CustomerPage({
             qualified={!!customer.qualified}
             autoOpen={justAdded}
           />
+          {/* ONE action area: settings, qualify, on-my-way, and the quick
+              stage/owner/estimate/install actions — merged into a single row so
+              there aren't three stacked control bands. The quick actions show no
+              value labels here (showValues=false) because each value has its own
+              home on the page (stage → hero, owner → header, dates → Schedule). */}
           {!customer.cancelled_at ? (
-            <OnTheWayButton customerId={customer.id} />
+            <>
+              <OnTheWayButton customerId={customer.id} />
+              <QuickActions
+                customerId={customer.id}
+                stages={stages.map((s) => ({ id: s.id, name: s.name }))}
+                currentStageId={currentStage?.id ?? null}
+                currentStageName={currentStage?.name ?? null}
+                currentOwnerId={customer.workflow_owner_id ?? null}
+                currentOwnerName={ownerName}
+                assignedRepId={customer.assigned_to ?? null}
+                ownerDutyLabel={ownerDuty ? DUTY_LABELS[ownerDuty] : null}
+                reassignOptions={reassignOptions}
+                repOptions={repOptions}
+                installOptions={installOptions}
+                estimate={
+                  estimateAppointment
+                    ? {
+                        startsAt: estimateAppointment.startsAt,
+                        rep: estimateAppointment.salespersonName ?? null,
+                      }
+                    : null
+                }
+                job={quickJob}
+                arrivalWindows={arrivalWindows}
+                actions={prefs.quickActions}
+                installScheduler={
+                  installScheduleProps ? <InstallSchedule {...installScheduleProps} /> : null
+                }
+                compact
+                showValues={false}
+                showSwitcher={false}
+              />
+            </>
           ) : null}
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            {!customer.cancelled_at ? (
+              <CustomerSwitcher currentId={customer.id} />
+            ) : null}
             <CancelCustomer
               customerId={customer.id}
               name={customer.full_name}
@@ -585,36 +622,6 @@ export default async function CustomerPage({
           </div>
         </div>
       </section>
-
-      {!customer.cancelled_at ? (
-        <QuickActions
-          customerId={customer.id}
-          stages={stages.map((s) => ({ id: s.id, name: s.name }))}
-          currentStageId={currentStage?.id ?? null}
-          currentStageName={currentStage?.name ?? null}
-          currentOwnerId={customer.workflow_owner_id ?? null}
-          currentOwnerName={ownerName}
-          assignedRepId={customer.assigned_to ?? null}
-          ownerDutyLabel={ownerDuty ? DUTY_LABELS[ownerDuty] : null}
-          reassignOptions={reassignOptions}
-          repOptions={repOptions}
-          installOptions={installOptions}
-          estimate={
-            estimateAppointment
-              ? {
-                  startsAt: estimateAppointment.startsAt,
-                  rep: estimateAppointment.salespersonName ?? null,
-                }
-              : null
-          }
-          job={quickJob}
-          arrivalWindows={arrivalWindows}
-          actions={prefs.quickActions}
-          installScheduler={
-            installScheduleProps ? <InstallSchedule {...installScheduleProps} /> : null
-          }
-        />
-      ) : null}
 
       {customer.cancelled_at ? (
         <div className="mb-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
@@ -667,41 +674,9 @@ export default async function CustomerPage({
                 />
               </div>
 
-              {/* Right: money + due rail */}
+              {/* Right: money + due rail. (Record counts live on the tabs, so the
+                  old "Records" snapshot panel was removed as a duplicate.) */}
               <aside className="space-y-4">
-                {/* Snapshot — jump straight to any record's tab (in-context). */}
-                <div className="rounded-lg border bg-card p-5 shadow-sm">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Records
-                  </p>
-                  <ul className="space-y-1.5 text-sm">
-                    <li>
-                      <a href="#estimates" className="flex items-center justify-between rounded-md px-1.5 py-1.5 hover:bg-muted">
-                        <span className="inline-flex items-center gap-2">
-                          <FileText className="size-4 text-muted-foreground" /> Estimates
-                        </span>
-                        <span className="font-semibold tabular-nums">{estimateRows.length}</span>
-                      </a>
-                    </li>
-                    <li>
-                      <a href="#jobs" className="flex items-center justify-between rounded-md px-1.5 py-1.5 hover:bg-muted">
-                        <span className="inline-flex items-center gap-2">
-                          <Wrench className="size-4 text-muted-foreground" /> Jobs
-                        </span>
-                        <span className="font-semibold tabular-nums">{workOrderRows.length}</span>
-                      </a>
-                    </li>
-                    <li>
-                      <a href="#invoices" className="flex items-center justify-between rounded-md px-1.5 py-1.5 hover:bg-muted">
-                        <span className="inline-flex items-center gap-2">
-                          <Receipt className="size-4 text-muted-foreground" /> Invoices
-                        </span>
-                        <span className="font-semibold tabular-nums">{invoiceRows.length}</span>
-                      </a>
-                    </li>
-                  </ul>
-                </div>
-
                 <div className="rounded-lg border bg-card p-5 shadow-sm">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Money

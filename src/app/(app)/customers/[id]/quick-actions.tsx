@@ -81,6 +81,7 @@ export function QuickActions({
   assignedRepId = null,
   actions = QUICK_ACTION_ORDER,
   showSwitcher = true,
+  showValues = true,
   compact = false,
   redirectTo,
   installScheduler = null,
@@ -104,6 +105,9 @@ export function QuickActions({
   actions?: QuickAction[];
   /** Show the "jump to another customer" search (off inside a list row). */
   showSwitcher?: boolean;
+  /** Show the current value beside each action (e.g. "Stage · Sold"). Off on the
+   *  customer file, where each value has its own home elsewhere on the page. */
+  showValues?: boolean;
   /** Compact mode for embedding in a list row (no card chrome / label). */
   compact?: boolean;
   /** Where to navigate after an action (list rows pass their URL to stay put). */
@@ -159,7 +163,7 @@ export function QuickActions({
           onClick={() => launch("stage")}
         >
           <ArrowLeftRight className="size-3.5" /> Stage
-          {currentStageName ? (
+          {showValues && currentStageName ? (
             <span className="ml-1 max-w-[8rem] truncate text-muted-foreground">
               · {currentStageName}
             </span>
@@ -175,9 +179,11 @@ export function QuickActions({
           onClick={() => launch("assignee")}
         >
           <UserCog className="size-3.5" /> Assignee
-          <span className="ml-1 max-w-[8rem] truncate text-muted-foreground">
-            · {currentOwnerName ?? "Unassigned"}
-          </span>
+          {showValues ? (
+            <span className="ml-1 max-w-[8rem] truncate text-muted-foreground">
+              · {currentOwnerName ?? "Unassigned"}
+            </span>
+          ) : null}
         </Button>
       );
     if (a === "estimate")
@@ -189,9 +195,11 @@ export function QuickActions({
           onClick={() => launch("estimate")}
         >
           <CalendarClock className="size-3.5" /> Estimate
-          <span className="ml-1 text-muted-foreground">
-            · {estimate ? formatDate(estimate.startsAt) : "Set"}
-          </span>
+          {showValues ? (
+            <span className="ml-1 text-muted-foreground">
+              · {estimate ? formatDate(estimate.startsAt) : "Set"}
+            </span>
+          ) : null}
         </Button>
       );
     return (
@@ -202,9 +210,11 @@ export function QuickActions({
         onClick={() => launch("install")}
       >
         <Hammer className="size-3.5" /> Install
-        <span className="ml-1 text-muted-foreground">
-          · {job?.date ? formatDate(job.date) : "Set"}
-        </span>
+        {showValues ? (
+          <span className="ml-1 text-muted-foreground">
+            · {job?.date ? formatDate(job.date) : "Set"}
+          </span>
+        ) : null}
       </Button>
     );
   };
