@@ -143,7 +143,7 @@ type Answer =
   | { kind: "number"; value: string; rateIdx: number | null }
   | { kind: "choice"; selected: string[]; note?: string }
   | { kind: "choice_areas"; rows: DemoRow[] }
-  | { kind: "cuts"; groups: CarpetGroup[] }
+  | { kind: "cuts"; same: boolean; product: ProductAns | null; groups: CarpetGroup[] }
   | { kind: "stairs"; groups: StairGroup[] }
   | { kind: "subfloor"; thickness: string }
   | { kind: "selflevel"; thickness: string }
@@ -286,7 +286,7 @@ export function Questionnaire({
         init[q.id] = q.config.per_area
           ? { kind: "choice_areas", rows: [] }
           : { kind: "choice", selected: [] };
-      else if (q.kind === "cuts") init[q.id] = { kind: "cuts", groups: [newCarpetGroup()] };
+      else if (q.kind === "cuts") init[q.id] = { kind: "cuts", same: true, product: null, groups: [newCarpetGroup()] };
       else if (q.kind === "stairs")
         init[q.id] = { kind: "stairs", groups: [newStairGroup(q.config.options?.[0]?.label ?? "Waterfall")] };
       else if (q.kind === "subfloor")
@@ -777,14 +777,16 @@ export function Questionnaire({
           }
         }
       } else if (q.kind === "cuts" && a.kind === "cuts") {
-        // Carpet cuts → total sq yd to ORDER. Each group is one carpet (its own
-        // product) with its cuts; yardage = Σ (rollWidth × length) ÷ 9.
+        // Carpet cuts → total sq yd to ORDER. "Same carpet" uses one shared
+        // product for every cut; otherwise each group is its own carpet.
+        // Yardage = Σ (rollWidth × length) ÷ 9.
+        const sameCarpet = a.same !== false;
         for (const g of a.groups) {
           const y = carpetYardageFromCuts(
             g.cuts.map((c) => ({ lengthFt: numv(c.lf), lengthIn: numv(c.li), rollWidthFt: numv(c.width) })),
           );
           if (y.sqyd <= 0) continue;
-          const p = g.product;
+          const p = sameCarpet ? a.product : g.product;
           const cutText = g.cuts
             .filter((c) => numv(c.lf) > 0 || numv(c.li) > 0)
             .map((c) => `${numv(c.lf)}'${numv(c.li) ? numv(c.li) + '"' : ""}×${c.width}'`)
@@ -1897,18 +1899,50 @@ function QuestionBody({
     );
   }
 
-  // CUTS → carpet yardage. Each group is one carpet (its own product) with its
-  // cuts; the total sq yd to order is figured for you.
+  // CUTS → carpet yardage. "Same carpet for all cuts" (default) picks the carpet
+  // ONCE and applies it to every cut; "Different per area" gives each area its
+  // own carpet. The total sq yd to order is figured for you either way.
   if (q.kind === "cuts" && answer?.kind === "cuts") {
     const widths = (q.config.widths ?? [12, 15]).map(String);
+    const same = answer.same !== false;
     const groups = answer.groups;
-    const upd = (gs: CarpetGroup[]) => set({ kind: "cuts", groups: gs });
-    const patchG = (id: string, p: Partial<CarpetGroup>) => upd(groups.map((g) => (g.id === id ? { ...g, ...p } : g)));
+    const setCuts = (patch: Partial<{ same: boolean; product: ProductAns | null; groups: CarpetGroup[] }>) =>
+      set({ kind: "cuts", same, product: answer.product, groups, ...patch });
+    const patchG = (id: string, p: Partial<CarpetGroup>) =>
+      setCuts({ groups: groups.map((g) => (g.id === id ? { ...g, ...p } : g)) });
     const yardOf = (g: CarpetGroup) =>
       carpetYardageFromCuts(g.cuts.map((c) => ({ lengthFt: numv(c.lf), lengthIn: numv(c.li), rollWidthFt: numv(c.width) })));
     const grandY = groups.reduce((s, g) => s + yardOf(g).sqyd, 0);
+    const SegBtn = ({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) => (
+      <button type="button" onClick={onClick}
+        className={cn("rounded px-3 py-1.5 text-sm font-medium", on ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+        {label}
+      </button>
+    );
     return (
       <div className="space-y-3">
+        {/* Same carpet everywhere vs a different carpet per area. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">Carpet</span>
+          <div className="inline-flex rounded-md border p-0.5">
+            <SegBtn on={same} onClick={() => setCuts({ same: true })} label="Same for all cuts" />
+            <SegBtn on={!same} onClick={() => setCuts({ same: false })} label="Different per area" />
+          </div>
+        </div>
+
+        {/* Same mode: pick the carpet once — it applies to every cut below. */}
+        {same ? (
+          <ProductPicker
+            value={answer.product?.productId ?? ""}
+            initialLabel={answer.product?.label ?? ""}
+            label="Which carpet? (used for every cut)"
+            fullWidth
+            onPick={(prod) => setCuts({ product: prod ? toProductAns(prod) : null })}
+            onCreated={(prod) => setCuts({ product: toProductAns(prod) })}
+            onUseOnce={(input) => setCuts({ product: customToProductAns(input) })}
+          />
+        ) : null}
+
         {groups.map((g, gi) => {
           const y = yardOf(g);
           const patchCut = (cid: string, p: Partial<CutRow>) =>
@@ -1917,18 +1951,20 @@ function QuestionBody({
             <div key={g.id} className="space-y-2.5 rounded-lg border bg-muted/20 p-3">
               <div className="flex items-center gap-2">
                 <Input value={g.area} onChange={(e) => patchG(g.id, { area: e.target.value })}
-                  placeholder={groups.length > 1 ? `Carpet ${gi + 1} — area / room` : "Area / room (optional)"}
+                  placeholder={!same && groups.length > 1 ? `Carpet ${gi + 1} — area / room` : "Area / room (optional)"}
                   className="h-10 flex-1" />
                 {groups.length > 1 ? (
-                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove carpet" onClick={() => upd(groups.filter((x) => x.id !== g.id))}>
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove area" onClick={() => setCuts({ groups: groups.filter((x) => x.id !== g.id) })}>
                     <Trash2 className="size-4 text-destructive" />
                   </Button>
                 ) : null}
               </div>
-              <ProductPicker value={g.product?.productId ?? ""} initialLabel={g.product?.label ?? ""} label="Which carpet?" fullWidth
-                onPick={(prod) => patchG(g.id, { product: prod ? toProductAns(prod) : null })}
-                onCreated={(prod) => patchG(g.id, { product: toProductAns(prod) })}
-                onUseOnce={(input) => patchG(g.id, { product: customToProductAns(input) })} />
+              {!same ? (
+                <ProductPicker value={g.product?.productId ?? ""} initialLabel={g.product?.label ?? ""} label="Which carpet?" fullWidth
+                  onPick={(prod) => patchG(g.id, { product: prod ? toProductAns(prod) : null })}
+                  onCreated={(prod) => patchG(g.id, { product: toProductAns(prod) })}
+                  onUseOnce={(input) => patchG(g.id, { product: customToProductAns(input) })} />
+              ) : null}
               <div className="space-y-1.5">
                 {g.cuts.map((c, ci) => (
                   <div key={c.id} className="flex flex-wrap items-end gap-2">
@@ -1952,14 +1988,14 @@ function QuestionBody({
                   className="text-xs font-medium text-primary hover:underline">+ Add cut</button>
               </div>
               <div className="text-sm">
-                This carpet: <span className="font-semibold tabular-nums">{y.sqyd}</span> sq yd
-                {g.product ? "" : <span className="text-muted-foreground"> — pick the carpet to price it</span>}
+                {same ? "This area" : "This carpet"}: <span className="font-semibold tabular-nums">{y.sqyd}</span> sq yd
+                {!same && !g.product ? <span className="text-muted-foreground"> — pick the carpet to price it</span> : null}
               </div>
             </div>
           );
         })}
-        <Button type="button" variant="outline" size="sm" onClick={() => upd([...groups, newCarpetGroup()])}>
-          <Plus className="size-3.5" /> Different carpet / area
+        <Button type="button" variant="outline" size="sm" onClick={() => setCuts({ groups: [...groups, newCarpetGroup()] })}>
+          <Plus className="size-3.5" /> {same ? "Add another area" : "Different carpet / area"}
         </Button>
         <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold">
           Total carpet to order: <span className="tabular-nums">{r2(grandY)}</span> sq yd
