@@ -49,6 +49,13 @@ export interface Supplier {
   id: string;
   name: string;
   kind: SupplierKind;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  account_number: string | null;
+  payment_terms: string | null;
+  active: boolean;
   freight_pct: number;
   freight_per_unit: number;
   notes: string | null;
@@ -1001,7 +1008,16 @@ export const JOB_STATUS_BADGE: Record<JobStatus, string> = {
 
 // --- Purchase Orders --------------------------------------------------------
 
-export type PoStatus = "draft" | "ordered" | "received" | "cancelled";
+// Accounting lifecycle: Draft (no number yet) → Open (issued, number stamped) →
+// Received → Closed. Void is terminal and keeps its number. "cancelled" is the
+// legacy value kept for old rows; new voids use "void".
+export type PoStatus =
+  | "draft"
+  | "ordered"
+  | "received"
+  | "closed"
+  | "void"
+  | "cancelled";
 
 export interface PoItem {
   id: string;
@@ -1047,6 +1063,7 @@ export const PO_SOURCE_BADGE: Record<PoSourceType, string> = {
 
 export interface PurchaseOrder {
   id: string;
+  po_number: number | null;
   customer_id: string | null;
   estimate_id: string | null;
   job_id: string | null;
@@ -1065,24 +1082,37 @@ export interface PurchaseOrder {
 
 export const PO_STATUS_LABELS: Record<PoStatus, string> = {
   draft: "Draft",
-  ordered: "Ordered",
+  ordered: "Open",
   received: "Received",
-  cancelled: "Cancelled",
+  closed: "Closed",
+  void: "Void",
+  cancelled: "Void",
 };
 
+// The forward lifecycle a PO moves through (Void is terminal, applied separately).
 export const PO_STATUS_ORDER: PoStatus[] = [
   "draft",
   "ordered",
   "received",
-  "cancelled",
+  "closed",
 ];
 
 export const PO_STATUS_BADGE: Record<PoStatus, string> = {
   draft: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
   ordered: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
   received: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
-  cancelled: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+  closed: "bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200",
+  void: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 line-through",
+  cancelled: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 line-through",
 };
+
+/** Human-readable PO number, e.g. "PO-1047". Null until the PO is issued. */
+export function formatPoNumber(n: number | null | undefined): string {
+  return n == null ? "Draft" : `PO-${n}`;
+}
+
+/** Statuses that carry a permanent, issued PO number. */
+export const PO_ISSUED_STATUSES: PoStatus[] = ["ordered", "received", "closed"];
 
 // --- Client orders (cash-and-carry / pickup) --------------------------------
 

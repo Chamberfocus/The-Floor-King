@@ -75,8 +75,8 @@ const SECTIONS = [
   {
     href: "/settings/suppliers",
     icon: Truck,
-    title: "Freight, fuel & estimate terms",
-    desc: "Per-supplier freight, a global fuel surcharge, and estimate validity.",
+    title: "Vendors, freight & PO numbering",
+    desc: "Vendor records (contact, terms, account #), per-vendor freight and the global fuel surcharge, your PO starting number, and estimate validity.",
   },
   {
     href: "/settings/stages",

@@ -311,6 +311,16 @@ export async function savePurchaseOrder(
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
+  // Vendors must be real records: a PO can't be ISSUED (Open/Received/Closed —
+  // the statuses that stamp a permanent number) without a linked vendor record.
+  const ISSUED: PoStatus[] = ["ordered", "received", "closed"];
+  if (ISSUED.includes(input.status) && !input.supplier_id) {
+    return {
+      error:
+        "Pick a vendor before issuing this PO. Vendors must be real records — use “＋ New vendor” if it's not on the list yet.",
+    };
+  }
+
   const { data: before } = await supabase
     .from("purchase_orders")
     .select("status, customer_id, backordered")
@@ -491,10 +501,18 @@ export async function setPurchaseOrderStatus(
   // "received" — re-saving "received" must not double-count.
   const { data: cur } = await supabase
     .from("purchase_orders")
-    .select("status, customer_id, job_id")
+    .select("status, customer_id, job_id, supplier_id")
     .eq("id", id)
     .maybeSingle();
   const prev = cur?.status as PoStatus | undefined;
+
+  // Can't issue a numbered PO without a real vendor record. The stamp trigger
+  // fires on this update, so the guard has to sit in front of it.
+  const ISSUED: PoStatus[] = ["ordered", "received", "closed"];
+  if (ISSUED.includes(status) && !cur?.supplier_id) {
+    revalidatePath(`/purchase-orders/${id}`);
+    return;
+  }
 
   await supabase.from("purchase_orders").update({ status }).eq("id", id);
   await reconcilePoStock(supabase, id, prev, status);
@@ -524,18 +542,58 @@ export async function setPurchaseOrderStatus(
   if (cur?.customer_id) revalidatePath(`/customers/${cur.customer_id}`);
 }
 
+/**
+ * Remove a PO. An ISSUED PO (one that has a permanent number) is NEVER hard-
+ * deleted — that would punch an unexplained hole in the sequence. It's voided
+ * instead: the number is kept and marked VOID. Only un-issued DRAFTS (no number)
+ * are truly deleted, which leaves no gap.
+ */
 export async function deletePurchaseOrder(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   if (!id) return;
   const supabase = await createClient();
-  // If this PO was received, undo the stock it added before deleting — no
-  // phantom on-hand left behind.
+  const { data: po } = await supabase
+    .from("purchase_orders")
+    .select("po_number, customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  // Undo any stock this PO added before removing/voiding it.
   await reverseReceivedPOs(supabase, [id]);
-  await supabase.from("purchase_orders").delete().eq("id", id);
+  if (po?.po_number != null) {
+    // Issued → keep the number, mark VOID (audit trail preserved).
+    await supabase.from("purchase_orders").update({ status: "void" }).eq("id", id);
+  } else {
+    // Draft with no number → safe to delete; leaves no gap.
+    await supabase.from("purchase_orders").delete().eq("id", id);
+  }
   revalidatePath("/purchase-orders");
   revalidatePath("/inventory");
   revalidatePath("/warehouse");
+  if (po?.customer_id) revalidatePath(`/customers/${po.customer_id as string}`);
   redirect("/purchase-orders");
+}
+
+/**
+ * Void an issued PO: keep its permanent number, mark it VOID, and reverse any
+ * stock it had added. The number is never recycled — an auditor sees the gap
+ * explained. (No-op-safe on drafts, which simply become void with no number.)
+ */
+export async function voidPurchaseOrder(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  const supabase = await createClient();
+  const { data: cur } = await supabase
+    .from("purchase_orders")
+    .select("customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  await reverseReceivedPOs(supabase, [id]);
+  await supabase.from("purchase_orders").update({ status: "void" }).eq("id", id);
+  revalidatePath(`/purchase-orders/${id}`);
+  revalidatePath("/purchase-orders");
+  revalidatePath("/inventory");
+  revalidatePath("/warehouse");
+  if (cur?.customer_id) revalidatePath(`/customers/${cur.customer_id as string}`);
 }
 
 /** Start a blank PO straight from a customer's file (PO follows the customer). */

@@ -29,8 +29,9 @@ import {
   type Supplier,
 } from "@/lib/types";
 import { savePurchaseOrder, extractPoDocument } from "./actions";
+import { createVendorInline } from "@/app/(app)/settings/suppliers/actions";
 
-const MANUAL = "__manual__";
+const CREATE = "__create__";
 
 interface ItemState {
   key: string;
@@ -98,6 +99,13 @@ export function PoBuilder({
   const [sourceType, setSourceType] = useState<PoSourceType>(
     po.source_type ?? "distributor",
   );
+  // Vendors are real records only. A local copy of the list lets an inline
+  // "＋ New vendor" appear in the picker immediately without a reload.
+  const [vendorList, setVendorList] = useState(suppliers);
+  const [creatingVendor, setCreatingVendor] = useState(false);
+  const [newVendorName, setNewVendorName] = useState("");
+  const [newVendorKind, setNewVendorKind] = useState<"manufacturer" | "distributor">("distributor");
+  const [vendorPending, startVendor] = useTransition();
   const [status, setStatus] = useState<PoStatus>(po.status);
   const [notes, setNotes] = useState(po.notes ?? "");
   const [backordered, setBackordered] = useState(po.backordered ?? false);
@@ -280,28 +288,31 @@ export function PoBuilder({
       <Card className="mb-6">
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-3">
           <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="supplier">Order from</Label>
+            <Label htmlFor="supplier-pick">Vendor</Label>
             <select
               id="supplier-pick"
-              value={supplierId || MANUAL}
+              value={supplierId || ""}
               onChange={(e) => {
                 const v = e.target.value;
-                if (v === MANUAL) {
-                  setSupplierId("");
+                if (v === CREATE) {
+                  setCreatingVendor(true);
                   return;
                 }
-                const s = suppliers.find((x) => x.id === v);
+                const s = vendorList.find((x) => x.id === v);
                 if (s) {
                   setSupplierId(s.id);
                   setSupplier(s.name);
-                  setSourceType(s.kind ?? "distributor");
+                  setSourceType((s.kind ?? "distributor") as PoSourceType);
+                } else {
+                  setSupplierId("");
                 }
               }}
               className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              {suppliers.some((s) => s.kind === "manufacturer") ? (
+              <option value="">— Choose a vendor —</option>
+              {vendorList.some((s) => s.kind === "manufacturer") ? (
                 <optgroup label="Manufacturers">
-                  {suppliers
+                  {vendorList
                     .filter((s) => s.kind === "manufacturer")
                     .map((s) => (
                       <option key={s.id} value={s.id}>
@@ -310,9 +321,9 @@ export function PoBuilder({
                     ))}
                 </optgroup>
               ) : null}
-              {suppliers.some((s) => s.kind !== "manufacturer") ? (
+              {vendorList.some((s) => s.kind !== "manufacturer") ? (
                 <optgroup label="Distributors">
-                  {suppliers
+                  {vendorList
                     .filter((s) => s.kind !== "manufacturer")
                     .map((s) => (
                       <option key={s.id} value={s.id}>
@@ -321,9 +332,73 @@ export function PoBuilder({
                     ))}
                 </optgroup>
               ) : null}
-              <option value={MANUAL}>➕ One-off vendor (type below)…</option>
+              <option value={CREATE}>＋ New vendor…</option>
             </select>
-            {supplierId ? (
+
+            {creatingVendor ? (
+              <div className="space-y-2 rounded-md border bg-muted/30 p-2.5">
+                <Input
+                  value={newVendorName}
+                  onChange={(e) => setNewVendorName(e.target.value)}
+                  placeholder="New vendor name"
+                  autoFocus
+                />
+                <SegmentedField
+                  size="sm"
+                  value={newVendorKind}
+                  onChange={(v) => setNewVendorKind(v as "manufacturer" | "distributor")}
+                  options={[
+                    { value: "manufacturer", label: "Manufacturer" },
+                    { value: "distributor", label: "Distributor" },
+                  ]}
+                />
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={vendorPending || !newVendorName.trim()}
+                    onClick={() =>
+                      startVendor(async () => {
+                        const res = await createVendorInline(newVendorName, newVendorKind);
+                        if (res.error || !res.id) {
+                          toast.error(res.error ?? "Couldn't create the vendor.");
+                          return;
+                        }
+                        const created = {
+                          id: res.id,
+                          name: newVendorName.trim(),
+                          kind: newVendorKind,
+                        };
+                        setVendorList((prev) =>
+                          prev.some((v) => v.id === created.id)
+                            ? prev
+                            : ([...prev, created] as typeof prev),
+                        );
+                        setSupplierId(created.id);
+                        setSupplier(created.name);
+                        setSourceType(created.kind as PoSourceType);
+                        setCreatingVendor(false);
+                        setNewVendorName("");
+                        toast.success("Vendor added");
+                      })
+                    }
+                  >
+                    {vendorPending ? "Adding…" : "Add & select"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setCreatingVendor(false);
+                      setNewVendorName("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : supplierId ? (
               <span
                 className={cn(
                   "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
@@ -333,25 +408,10 @@ export function PoBuilder({
                 {PO_SOURCE_LABELS[sourceType]}
               </span>
             ) : (
-              <div className="space-y-2 pt-1">
-                <Input
-                  value={supplier}
-                  onChange={(e) => setSupplier(e.target.value)}
-                  placeholder="Vendor name (e.g. local distributor)"
-                />
-                <SegmentedField
-                  value={sourceType}
-                  onChange={(v) => setSourceType(v as PoSourceType)}
-                  options={(["manufacturer", "distributor", "stock"] as const).map(
-                    (s) => ({ value: s, label: PO_SOURCE_LABELS[s] }),
-                  )}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Tip: add vendors once under{" "}
-                  <span className="font-medium">Settings → Suppliers</span> to
-                  pick them here every time.
-                </p>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Pick a vendor record — required to issue this PO. Not listed? Choose{" "}
+                <span className="font-medium">＋ New vendor</span>.
+              </p>
             )}
           </div>
           <div className="space-y-2">

@@ -20,6 +20,7 @@ import { poTotal } from "@/lib/po-calc";
 import {
   PO_SOURCE_BADGE,
   PO_SOURCE_LABELS,
+  formatPoNumber,
   type PoSourceType,
   type PoStatus,
 } from "@/lib/types";
@@ -142,8 +143,13 @@ export default async function PurchaseOrdersPage({
               <div key={po.id} className="rounded-lg border p-3">
                 <div className="flex items-start justify-between gap-2">
                   <Link href={`/purchase-orders/${po.id}`} className="min-w-0 flex-1 active:opacity-70">
-                    <div className="truncate font-medium">
-                      {po.supplier || "Purchase order"}
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-semibold tabular-nums">
+                        {formatPoNumber(po.po_number)}
+                      </span>
+                      <span className="truncate text-sm text-muted-foreground">
+                        {po.supplier || "—"}
+                      </span>
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {(po.items ?? []).length} item
@@ -166,10 +172,18 @@ export default async function PurchaseOrdersPage({
                     <ConfirmButton
                       variant="ghost"
                       size="icon-sm"
-                      aria-label="Delete PO"
-                      title={`Delete this PO${po.supplier ? ` from ${po.supplier}` : ""}?`}
-                      description="Permanently deletes the purchase order. If it was received, the stock it added is reversed. This can't be undone."
-                      confirmLabel="Delete PO"
+                      aria-label={po.po_number != null ? "Void PO" : "Delete draft PO"}
+                      title={
+                        po.po_number != null
+                          ? `Void ${formatPoNumber(po.po_number)}?`
+                          : "Delete this draft PO?"
+                      }
+                      description={
+                        po.po_number != null
+                          ? "Issued POs are never deleted. This marks it VOID and keeps its number (the sequence stays intact). Any received stock is reversed."
+                          : "This is an un-issued draft with no number, so deleting it leaves no gap. Any received stock is reversed."
+                      }
+                      confirmLabel={po.po_number != null ? "Void PO" : "Delete draft"}
                       destructive
                     >
                       <Trash2 className="size-4 text-destructive" />
@@ -184,6 +198,7 @@ export default async function PurchaseOrdersPage({
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>PO #</TableHead>
                   <TableHead>Vendor</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Customer</TableHead>
@@ -196,12 +211,17 @@ export default async function PurchaseOrdersPage({
               <TableBody>
                 {pos.map((po) => (
                   <TableRow key={po.id}>
+                    <TableCell className="font-semibold tabular-nums">
+                      <Link href={`/purchase-orders/${po.id}`} className="hover:underline">
+                        {formatPoNumber(po.po_number)}
+                      </Link>
+                    </TableCell>
                     <TableCell className="font-medium">
                       <Link
                         href={`/purchase-orders/${po.id}`}
                         className="hover:underline"
                       >
-                        {po.supplier || "Purchase order"}
+                        {po.supplier || "—"}
                       </Link>
                       <span className="block text-xs text-muted-foreground">
                         {(po.items ?? []).length} item
@@ -229,10 +249,18 @@ export default async function PurchaseOrdersPage({
                         <ConfirmButton
                           variant="ghost"
                           size="icon-sm"
-                          aria-label="Delete PO"
-                          title={`Delete this PO${po.supplier ? ` from ${po.supplier}` : ""}?`}
-                          description="Permanently deletes the purchase order. If it was received, the stock it added is reversed. This can't be undone."
-                          confirmLabel="Delete PO"
+                          aria-label={po.po_number != null ? "Void PO" : "Delete draft PO"}
+                          title={
+                            po.po_number != null
+                              ? `Void ${formatPoNumber(po.po_number)}?`
+                              : "Delete this draft PO?"
+                          }
+                          description={
+                            po.po_number != null
+                              ? "Issued POs are never deleted. This marks it VOID and keeps its number (the sequence stays intact). Any received stock is reversed."
+                              : "This is an un-issued draft with no number, so deleting it leaves no gap. Any received stock is reversed."
+                          }
+                          confirmLabel={po.po_number != null ? "Void PO" : "Delete draft"}
                           destructive
                         >
                           <Trash2 className="size-4 text-destructive" />

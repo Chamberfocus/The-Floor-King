@@ -14,7 +14,7 @@ import { listProducts } from "@/lib/data/products";
 import { listSuppliers } from "@/lib/data/suppliers";
 import { PrintButton } from "@/components/print-button";
 import { PoPrintDoc } from "./po-print";
-import { PO_SOURCE_BADGE, PO_SOURCE_LABELS } from "@/lib/types";
+import { PO_SOURCE_BADGE, PO_SOURCE_LABELS, formatPoNumber } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import { PoBuilder } from "../po-builder";
@@ -57,8 +57,8 @@ export default async function PurchaseOrderPage({
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
-              Purchase Order
+            <h1 className="text-2xl font-bold tracking-tight tabular-nums sm:text-[1.75rem]">
+              {po.po_number != null ? formatPoNumber(po.po_number) : "Purchase Order"}
             </h1>
             <PoStatusBadge status={po.status} />
             {po.source_type ? (
@@ -73,6 +73,7 @@ export default async function PurchaseOrderPage({
             ) : null}
           </div>
           <p className="text-sm text-muted-foreground">
+            {po.po_number == null ? "Draft — number assigned when issued · " : ""}
             {customer ? `${customer.full_name} · ` : ""}
             Created {formatDate(po.created_at)}
             {po.estimate_id ? (
@@ -121,7 +122,7 @@ export default async function PurchaseOrderPage({
       <PoBuilder
         po={po}
         products={products}
-        suppliers={suppliers}
+        suppliers={suppliers.filter((s) => s.active !== false || s.id === po.supplier_id)}
         jobs={jobs.filter((j) => j.customer_id !== po.customer_id)}
         poCustomerName={customer?.full_name ?? null}
       />
@@ -131,12 +132,16 @@ export default async function PurchaseOrderPage({
         <ConfirmButton
           variant="destructive"
           size="sm"
-          title={`Delete this PO${po.supplier ? ` from ${po.supplier}` : ""}?`}
-          description="Permanently deletes the purchase order. If it was received, the stock it added is reversed. This can't be undone."
-          confirmLabel="Delete PO"
+          title={po.po_number != null ? `Void ${formatPoNumber(po.po_number)}?` : "Delete this draft PO?"}
+          description={
+            po.po_number != null
+              ? "Issued POs are never deleted. This marks it VOID and keeps its number so the sequence stays intact. Any received stock is reversed."
+              : "This is an un-issued draft with no number, so deleting it leaves no gap. Any received stock is reversed."
+          }
+          confirmLabel={po.po_number != null ? "Void PO" : "Delete draft"}
           destructive
         >
-          <Trash2 className="size-3.5" /> Delete PO
+          <Trash2 className="size-3.5" /> {po.po_number != null ? "Void PO" : "Delete draft"}
         </ConfirmButton>
       </form>
       </div>

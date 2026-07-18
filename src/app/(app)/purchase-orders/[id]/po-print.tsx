@@ -5,6 +5,7 @@ import type { CutSource } from "@/lib/job-scope";
 import {
   PO_STATUS_LABELS,
   PO_SOURCE_LABELS,
+  formatPoNumber,
   isHardSurfaceCategory,
   isRollGoodCategory,
   type Customer,
@@ -66,6 +67,10 @@ export function PoPrintDoc({
         docTitle="PURCHASE ORDER"
         meta={
           <>
+            <div className="text-sm font-bold">
+              {po.po_number != null ? formatPoNumber(po.po_number) : "DRAFT — not issued"}
+              {po.status === "void" || po.status === "cancelled" ? " · VOID" : ""}
+            </div>
             <div className="text-xs">Date {formatDate(po.created_at)}</div>
             {po.eta_date ? (
               <div className="text-xs font-medium">Needed by {formatDate(po.eta_date)}</div>

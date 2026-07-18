@@ -231,6 +231,73 @@ export async function listPurchaseOrdersForJob(
   return attachItems(supabase, (data ?? []) as PurchaseOrder[]);
 }
 
+/**
+ * The PO numbering counter (next number to be issued) plus the highest number
+ * already issued — so Settings can only move the start FORWARD, never onto a
+ * number that's already been used.
+ */
+export async function getPoCounter(): Promise<{ nextNumber: number; maxIssued: number }> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("po_counter")
+    .select("next_number")
+    .eq("id", "default")
+    .maybeSingle();
+  const { data: mx } = await supabase
+    .from("purchase_orders")
+    .select("po_number")
+    .order("po_number", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  return {
+    nextNumber: Number(data?.next_number) || 1001,
+    maxIssued: Number(mx?.po_number) || 0,
+  };
+}
+
+export interface VendorSummary {
+  pos: PoListRow[];
+  /** Sum of line totals for issued (non-void) POs — real committed spend. */
+  totalSpend: number;
+  /** POs still outstanding (Open or Received, not Closed/Void). */
+  openCount: number;
+  openTotal: number;
+}
+
+const poLineTotal = (p: PurchaseOrder) =>
+  (p.items ?? []).reduce((s, it) => s + (it.quantity ?? 0) * (it.unit_cost ?? 0), 0);
+
+/**
+ * A vendor's PO history with real financials: every PO linked to this vendor
+ * record (by id), their total committed spend (issued, non-void), and what's
+ * still outstanding. Totals are always the sum of the POs' lines.
+ */
+export async function getVendorSummary(supplierId: string): Promise<VendorSummary> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("purchase_orders")
+    .select("*, customer:customers(full_name)")
+    .eq("supplier_id", supplierId)
+    .order("created_at", { ascending: false });
+  const rows = (data ?? []) as (PurchaseOrder & { customer?: { full_name: string | null } | null })[];
+  const list: PoListRow[] = rows.map((r) => ({ ...r, customer_name: r.customer?.full_name ?? null }));
+  await attachItems(supabase, list);
+
+  let totalSpend = 0;
+  let openCount = 0;
+  let openTotal = 0;
+  for (const p of list) {
+    const t = poLineTotal(p);
+    const issued = p.status === "ordered" || p.status === "received" || p.status === "closed";
+    if (issued) totalSpend += t;
+    if (p.status === "ordered" || p.status === "received") {
+      openCount += 1;
+      openTotal += t;
+    }
+  }
+  return { pos: list, totalSpend, openCount, openTotal };
+}
+
 export interface StockPull {
   product_id: string;
   name: string;

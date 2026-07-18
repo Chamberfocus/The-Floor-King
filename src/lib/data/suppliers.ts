@@ -12,6 +12,19 @@ export async function listSuppliers(): Promise<Supplier[]> {
   return (data ?? []) as Supplier[];
 }
 
+/** Active vendors only — for the PO builder's record-only vendor picker. */
+export async function listActiveSuppliers(): Promise<Supplier[]> {
+  const all = await listSuppliers();
+  return all.filter((s) => s.active !== false);
+}
+
+export async function getSupplier(id: string): Promise<Supplier | null> {
+  if (!id) return null;
+  const supabase = await createClient();
+  const { data } = await supabase.from("suppliers").select("*").eq("id", id).maybeSingle();
+  return (data as Supplier) ?? null;
+}
+
 export interface SupplierRef {
   id: string;
   name: string;
