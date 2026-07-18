@@ -59,8 +59,13 @@ end $$;
 create or replace function public.stamp_po_number() returns trigger
 language plpgsql as $$
 begin
+  -- Compare as text, not as enum literals: this trigger fires during the
+  -- vendor-linking backfill below, and 'closed'/'void' were only just added to
+  -- the enum in this same migration. Postgres forbids resolving a not-yet-
+  -- committed enum value, so casting NEW.status to text keeps the check safe
+  -- (and it still matches the issued statuses exactly).
   if NEW.po_number is null
-     and NEW.status in ('ordered','received','closed') then
+     and NEW.status::text in ('ordered','received','closed') then
     NEW.po_number := public.next_po_number();
   end if;
   return NEW;
