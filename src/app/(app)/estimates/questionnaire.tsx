@@ -1911,7 +1911,6 @@ function QuestionBody({
   // ONCE and applies it to every cut; "Different per area" gives each area its
   // own carpet. The total sq yd to order is figured for you either way.
   if (q.kind === "cuts" && answer?.kind === "cuts") {
-    const widths = (q.config.widths ?? [12, 15]).map(String);
     const same = answer.same !== false;
     const groups = answer.groups;
     // Every mutation is a FUNCTIONAL update — it reads the LATEST answer inside
@@ -2001,14 +2000,14 @@ function QuestionBody({
               <div className="space-y-1.5">
                 {g.cuts.map((c, ci) => (
                   <div key={c.id} className="flex flex-wrap items-end gap-2">
-                    <FtInField label={ci === 0 ? "Cut length" : ""} ft={c.lf} inch={c.li}
+                    <FtInField label={ci === 0 ? "Length" : ""} ft={c.lf} inch={c.li}
                       onFt={(v) => patchCut(g.id, c.id, { lf: v })} onIn={(v) => patchCut(g.id, c.id, { li: v })} />
+                    <span className="pb-2.5 text-muted-foreground">×</span>
                     <div>
-                      {ci === 0 ? <label className="mb-1 block text-xs text-muted-foreground">Roll width</label> : null}
-                      <select value={c.width} onChange={(e) => patchCut(g.id, c.id, { width: e.target.value })}
-                        className="h-11 rounded-md border border-input bg-transparent px-2 text-base md:h-10">
-                        {widths.map((w) => <option key={w} value={w}>{w}&apos; wide</option>)}
-                      </select>
+                      {ci === 0 ? <label className="mb-1 block text-xs text-muted-foreground">Width (ft)</label> : null}
+                      <Input value={c.width} onChange={(e) => patchCut(g.id, c.id, { width: e.target.value })}
+                        inputMode="decimal" placeholder="12"
+                        className="h-11 w-20 text-base md:h-10 md:w-16" />
                     </div>
                     {g.cuts.length > 1 ? (
                       <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove cut" onClick={() => removeCut(g.id, c.id)}>

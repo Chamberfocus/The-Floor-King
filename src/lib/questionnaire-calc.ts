@@ -8,17 +8,18 @@ const num = (v: number | string | null | undefined): number => {
 };
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-/** A single carpet cut off the roll: a length (ft + in) against a roll width. */
+/** A single carpet cut: a length (ft + in) × a width (ft, e.g. the 12'/15' roll
+ *  width, or the actual piece width the estimator enters). */
 export interface CarpetCut {
   lengthFt: number | string;
   lengthIn?: number | string;
-  rollWidthFt: number | string; // 12 or 15 (the roll width the cut comes off)
+  rollWidthFt: number | string; // the cut's WIDTH in feet (12, 15, or measured)
 }
 
 /**
- * Total carpet to ORDER from a set of cuts. Each cut consumes
- * rollWidth × length off the roll, so its area = rollWidthFt × lengthFt. We sum
- * the areas and convert to square yards (÷9) — carpet is quoted by the sq yd.
+ * Total carpet from a set of cuts. Each cut's area = length × width, summed and
+ * converted to square yards (÷9) — carpet is quoted by the sq yd. e.g. a 15' ×
+ * 12' cut = 180 sq ft = 20 sq yd.
  */
 export function carpetYardageFromCuts(cuts: CarpetCut[]): {
   sqft: number;
