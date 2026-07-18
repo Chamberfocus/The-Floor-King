@@ -62,7 +62,7 @@ export default async function PortalEstimatePage({
     ? parseProjectDetails(estimate.job_description).details
     : [];
   // Itemized rows (customer): each priced line by room, line totals only.
-  const itemGroups: { room: string; items: { label: string; amount: number }[] }[] = [];
+  const itemGroups: { room: string; items: { label: string; note: string; amount: number }[] }[] = [];
   if (itemized) {
     const at = new Map<string, number>();
     for (const l of chosenLines) {
@@ -70,7 +70,7 @@ export default async function PortalEstimatePage({
       if (!(amount > 0)) continue;
       const room = (l.room ?? "").trim() || "Project";
       if (!at.has(room)) { at.set(room, itemGroups.length); itemGroups.push({ room, items: [] }); }
-      itemGroups[at.get(room)!].items.push({ label: customerLineLabel(l), amount });
+      itemGroups[at.get(room)!].items.push({ label: customerLineLabel(l), note: (l.note ?? "").trim(), amount });
     }
   }
 
@@ -167,7 +167,12 @@ export default async function PortalEstimatePage({
                     <ul className="mt-1 divide-y">
                       {g.items.map((it, i) => (
                         <li key={i} className="flex items-baseline justify-between gap-4 py-1 text-[15px]">
-                          <span>{it.label}</span>
+                          <span>
+                            {it.label}
+                            {it.note ? (
+                              <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground">{it.note}</span>
+                            ) : null}
+                          </span>
                           <span className="shrink-0 font-medium tabular-nums">{formatMoney(it.amount)}</span>
                         </li>
                       ))}

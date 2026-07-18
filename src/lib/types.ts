@@ -635,6 +635,7 @@ export interface EstimateLineItem {
   position: number;
   room: string | null;
   description: string;
+  note: string | null; // plain-language "what we're doing" note (customer scope + work order)
   line_type: LineType;
   sqft: number | null;
   length_in: number | null;

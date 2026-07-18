@@ -60,6 +60,7 @@ interface LineState {
   key: string;
   room: string;
   description: string;
+  note: string; // plain-language "what we're doing" note — customer scope + WO
   line_type: LineType;
   sqft: string;
   len_ft: string;
@@ -296,6 +297,7 @@ export function EstimateBuilder({
     key: newKey(),
     room: "",
     description: "",
+    note: "",
     line_type: "mat_labor",
     sqft: "",
     len_ft: "",
@@ -363,6 +365,7 @@ export function EstimateBuilder({
         key: newKey(),
         room: l.room ?? "",
         description: l.description ?? "",
+        note: l.note ?? "",
         line_type: l.line_type,
         sqft: l.sqft?.toString() ?? "",
         len_ft: inToFt(l.length_in),
@@ -1050,6 +1053,7 @@ export function EstimateBuilder({
       lines: o.lines.map((l) => ({
         room: l.room,
         description: l.description,
+        note: l.note,
         line_type: l.line_type,
         sqft: l.sqft || null,
         length_in: num(l.len_ft) * 12 + num(l.len_in) || null,
@@ -1297,6 +1301,7 @@ export function EstimateBuilder({
     position: i,
     room: l.room || null,
     description: l.description || "",
+    note: l.note || null,
     line_type: l.line_type,
     sqft: num(l.sqft) || null,
     length_in: num(l.len_ft) * 12 + num(l.len_in) || null,
@@ -1939,6 +1944,26 @@ export function EstimateBuilder({
                           </div>
                         ) : null}
 
+                        {/* DESCRIPTION — your plain-language note for this line. Shows
+                            on the customer estimate (words only) and the work order.
+                            Separate from the product name; blank by default. */}
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">
+                            Description <span className="font-normal">(what we&apos;re doing on this line — shows to the customer &amp; crew)</span>
+                          </label>
+                          <textarea
+                            value={line.note}
+                            onChange={(e) => updateLine(oi, li, { note: e.target.value })}
+                            rows={2}
+                            placeholder={
+                              isLaborLine(line)
+                                ? "e.g. Remove & haul away old carpet and pad"
+                                : "e.g. Install throughout main floor & hallway"
+                            }
+                            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          />
+                        </div>
+
                         {/* 3 · MEASUREMENT — matched to the material's unit type. */}
                         {isSubfloor(line) ? (
                           <div>
@@ -2376,13 +2401,12 @@ export function EstimateBuilder({
                               </p>
                             </div>
 
-                            {/* Line label — optional override of the header name.
-                                Defaults to the product name; blank shows the product
-                                identity. Not a required box; the picker already
-                                shows what's selected. */}
+                            {/* Custom line name — optional override of the line's
+                                NAME (defaults to the product name). This is the
+                                identity, NOT the Description note above. */}
                             <div>
                               <label className="mb-1 block text-xs text-muted-foreground">
-                                Line label (optional)
+                                Custom line name (optional)
                               </label>
                               <Input
                                 value={line.description}

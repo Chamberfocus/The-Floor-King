@@ -158,6 +158,7 @@ export async function saveEstimate(
         position: j,
         room: line.room || null,
         description: line.description || "",
+        note: line.note?.trim() || null,
         line_type: line.line_type,
         category: line.category || null,
         sqft: toNumOrNull(line.sqft),
@@ -190,9 +191,14 @@ export async function saveEstimate(
         prep_thickness_in: toNumOrNull(line.prep_thickness_in ?? null),
         prep_key: line.prep_key || null,
       }));
-      const { error: lineError } = await supabase
+      let { error: lineError } = await supabase
         .from("estimate_line_items")
         .insert(lineRows);
+      if (lineError) {
+        // Fallback for before the line-note column (0110) is run — save the rest.
+        const legacy = lineRows.map(({ note: _n, ...rest }) => rest);
+        ({ error: lineError } = await supabase.from("estimate_line_items").insert(legacy));
+      }
       if (lineError) return { error: lineError.message };
     }
   }

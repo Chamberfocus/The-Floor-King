@@ -55,7 +55,8 @@ export interface CustomerScope {
  *  description holds the product name (e.g. "OVF Del Mar - JETCORE 7.25\""), so
  *  it leads; brand/category are only fallbacks when there's no description. */
 function productItem(l: EstimateLineItem): ScopeItem {
-  return { title: customerLineLabel(l), detail: undefined };
+  const note = (l.note ?? "").trim();
+  return { title: customerLineLabel(l), detail: note || undefined };
 }
 
 /**
@@ -77,8 +78,9 @@ export function customerLineLabel(l: EstimateLineItem): string {
 /** A labor / prep line described as work performed — no hours, no area. */
 function workItem(l: EstimateLineItem): ScopeItem {
   const desc = (l.description ?? "").trim();
+  const note = (l.note ?? "").trim();
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
-  return { title: desc || catLabel || "Included work" };
+  return { title: desc || catLabel || "Included work", detail: note || undefined };
 }
 
 function splitRoom(room: ScopeRoom): CustomerRoom {

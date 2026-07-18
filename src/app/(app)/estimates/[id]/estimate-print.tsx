@@ -210,7 +210,7 @@ export function EstimatePrintDoc({
 
   // Itemized breakdown: each priced line, grouped by room, showing its LINE
   // TOTAL only (never a quantity, unit cost, sq ft, or margin).
-  const itemGroups: { room: string; items: { label: string; amount: number }[] }[] = [];
+  const itemGroups: { room: string; items: { label: string; note: string; amount: number }[] }[] = [];
   if (itemized) {
     const at = new Map<string, number>();
     for (const l of lines) {
@@ -221,7 +221,7 @@ export function EstimatePrintDoc({
         at.set(room, itemGroups.length);
         itemGroups.push({ room, items: [] });
       }
-      itemGroups[at.get(room)!].items.push({ label: customerLineLabel(l), amount });
+      itemGroups[at.get(room)!].items.push({ label: customerLineLabel(l), note: (l.note ?? "").trim(), amount });
     }
   }
 
@@ -292,7 +292,12 @@ export function EstimatePrintDoc({
                     <ul className="mt-1 divide-y divide-gray-200">
                       {g.items.map((it, i) => (
                         <li key={i} className="flex items-baseline justify-between gap-4 py-1 text-[15px]">
-                          <span>{it.label}</span>
+                          <span>
+                            {it.label}
+                            {it.note ? (
+                              <span className="mt-0.5 block text-[13px] leading-snug text-gray-600">{it.note}</span>
+                            ) : null}
+                          </span>
                           <span className="shrink-0 font-medium tabular-nums">{formatMoney(it.amount)}</span>
                         </li>
                       ))}

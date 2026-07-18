@@ -189,6 +189,9 @@ export default async function JobPage({
               </span>
             ) : null}
           </div>
+          {(l.note ?? "").trim() ? (
+            <div className="mt-0.5 text-sm text-muted-foreground">{l.note}</div>
+          ) : null}
           {spec.qty || spec.cut || spec.rolls ? (
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
               {spec.qty ? <span className="font-medium text-foreground">{spec.qty}</span> : null}

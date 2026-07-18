@@ -180,6 +180,7 @@ export function optionTotalsWithDiscount(
 export interface SaveLineInput {
   room: string;
   description: string;
+  note?: string | null;
   line_type: LineType;
   sqft: string | number | null;
   length_in: string | number | null;
