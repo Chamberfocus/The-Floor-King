@@ -20,6 +20,44 @@ export interface CustomerFormState {
   ok?: boolean;
 }
 
+/**
+ * Set (or fix) a customer's lead source + drill-down from the inline estimate
+ * prompt — a fast, in-place save so a source-less customer can proceed without
+ * leaving the page. Never touches other fields.
+ */
+export async function setCustomerSource(formData: FormData): Promise<CustomerFormState> {
+  const id = str(formData.get("customer_id"));
+  const source_id = nullable(formData.get("source_id"));
+  if (!id) return { error: "Missing customer." };
+  if (!source_id) return { error: "Choose where this lead came from." };
+  const supabase = await createClient();
+  const source = await legacyEnumFor(supabase, source_id);
+  const row = {
+    source_id,
+    source_detail_id: nullable(formData.get("source_detail_id")),
+    source_detail_text: nullable(formData.get("source_detail_text")),
+    referred_by_customer_id: nullable(formData.get("referred_by_customer_id")),
+    source,
+  };
+  // Enforce the source's required sub-detail (e.g. Referral → who, Facebook → which).
+  const { data: src } = await supabase
+    .from("lead_sources")
+    .select("detail_mode, detail_required")
+    .eq("id", source_id)
+    .maybeSingle();
+  if (src?.detail_required) {
+    const filled =
+      src.detail_mode === "referrer"
+        ? !!(row.source_detail_text || row.referred_by_customer_id)
+        : !!(row.source_detail_id || row.source_detail_text);
+    if (!filled) return { error: "Add the required detail for this source." };
+  }
+  const { error } = await supabase.from("customers").update(row).eq("id", id);
+  if (error) return { error: error.message };
+  refreshCustomerViews(id);
+  return { error: null, ok: true };
+}
+
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
 }
@@ -39,6 +77,12 @@ function refreshCustomerViews(id?: string) {
   revalidatePath("/reports");
 }
 
+// The legacy `source` enum values — kept in sync (best-effort) for any code that
+// still reads the enum; new sources (instagram, yard_sign…) only set source_id.
+const LEGACY_ENUM = new Set([
+  "referral", "google", "website", "angi", "facebook", "repeat", "walk_in", "other",
+]);
+
 function readCustomerFields(formData: FormData) {
   return {
     full_name: str(formData.get("full_name")),
@@ -49,9 +93,27 @@ function readCustomerFields(formData: FormData) {
     city: nullable(formData.get("city")),
     state: nullable(formData.get("state")),
     zip: nullable(formData.get("zip")),
-    source: (nullable(formData.get("source")) as LeadSource | null) ?? null,
+    source_id: nullable(formData.get("source_id")),
+    source_detail_id: nullable(formData.get("source_detail_id")),
+    source_detail_text: nullable(formData.get("source_detail_text")),
+    referred_by_customer_id: nullable(formData.get("referred_by_customer_id")),
     notes: nullable(formData.get("notes")),
   };
+}
+
+/** Resolve the legacy `source` enum from a source_id (for backward compat). */
+async function legacyEnumFor(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  sourceId: string | null,
+): Promise<LeadSource | null> {
+  if (!sourceId) return null;
+  try {
+    const { data } = await supabase.from("lead_sources").select("key").eq("id", sourceId).maybeSingle();
+    const key = data?.key as string | undefined;
+    return key && LEGACY_ENUM.has(key) ? (key as LeadSource) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function createCustomer(
@@ -60,8 +122,8 @@ export async function createCustomer(
 ): Promise<CustomerFormState> {
   const fields = readCustomerFields(formData);
   if (!fields.full_name) return { error: "A name is required." };
-  if (!fields.source) {
-    return { error: "Please choose where this lead came from (lead source)." };
+  if (!fields.source_id) {
+    return { error: "Please choose where this lead came from." };
   }
 
   const stage = (str(formData.get("stage")) || "new") as LeadStage;
@@ -70,19 +132,17 @@ export async function createCustomer(
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const source = await legacyEnumFor(supabase, fields.source_id);
 
-  const { data, error } = await supabase
-    .from("customers")
-    .insert({
-      ...fields,
-      stage,
-      created_by: user?.id ?? null,
-      assigned_to: user?.id ?? null,
-    })
-    .select("id")
-    .single();
-
-  if (error) return { error: error.message };
+  const row = { ...fields, source, stage, created_by: user?.id ?? null, assigned_to: user?.id ?? null };
+  let { data, error } = await supabase.from("customers").insert(row).select("id").single();
+  if (error) {
+    // Fallback for before the lead-sources migration (0112): save with the
+    // legacy enum only so a customer can still be created.
+    const { source_id: _si, source_detail_id: _di, source_detail_text: _dt, referred_by_customer_id: _rb, ...legacy } = row;
+    ({ data, error } = await supabase.from("customers").insert(legacy).select("id").single());
+  }
+  if (error || !data) return { error: error?.message ?? "Could not create the customer." };
 
   refreshCustomerViews();
   // ?new=1 → the customer file offers the optional "qualify this customer?" pop-up.
@@ -100,7 +160,13 @@ export async function updateCustomer(
   if (!fields.full_name) return { error: "A name is required." };
 
   const supabase = await createClient();
-  const { error } = await supabase.from("customers").update(fields).eq("id", id);
+  const source = await legacyEnumFor(supabase, fields.source_id);
+  const row = { ...fields, source };
+  let { error } = await supabase.from("customers").update(row).eq("id", id);
+  if (error) {
+    const { source_id: _si, source_detail_id: _di, source_detail_text: _dt, referred_by_customer_id: _rb, ...legacy } = row;
+    ({ error } = await supabase.from("customers").update(legacy).eq("id", id));
+  }
   if (error) return { error: error.message };
 
   refreshCustomerViews(id);

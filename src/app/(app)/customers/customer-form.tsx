@@ -8,22 +8,27 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { AddressFields } from "./address-fields";
 import {
-  LEAD_SOURCE_LABELS,
   LEAD_STAGE_LABELS,
   LEAD_STAGE_ORDER,
   type Customer,
+  type LeadSourceRow,
 } from "@/lib/types";
 import { createCustomer, updateCustomer, type CustomerFormState } from "./actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import { SourceFields } from "./source-fields";
 
 const initialState: CustomerFormState = { error: null };
 
 export function CustomerForm({
   customer,
   onSaved,
+  sources = [],
+  referrerCustomers = [],
 }: {
   customer?: Customer;
   onSaved?: () => void;
+  sources?: LeadSourceRow[];
+  referrerCustomers?: { id: string; full_name: string }[];
 }) {
   const isEdit = Boolean(customer);
   const [state, formAction, pending] = useActionState(
@@ -94,17 +99,16 @@ export function CustomerForm({
           }}
         />
 
-        <div className="space-y-2">
-          <Label>Lead source * (where did they come from?)</Label>
-          <SegmentedField
-            name="source"
-            defaultValue={customer?.source ?? ""}
-            options={Object.entries(LEAD_SOURCE_LABELS).map(([value, label]) => ({
-              value,
-              label,
-            }))}
-          />
-        </div>
+        <SourceFields
+          sources={sources}
+          customers={referrerCustomers}
+          initial={{
+            source_id: customer?.source_id,
+            source_detail_id: customer?.source_detail_id,
+            source_detail_text: customer?.source_detail_text,
+            referred_by_customer_id: customer?.referred_by_customer_id,
+          }}
+        />
 
         {!isEdit ? (
           <div className="space-y-2">

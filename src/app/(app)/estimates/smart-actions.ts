@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
 import type { ProductCategory } from "@/lib/types";
 import { sendEstimateById } from "./actions";
 
@@ -149,15 +150,11 @@ export async function createSmartEstimate(
 
   const supabase = await createClient();
 
-  // Match the other estimate-creation paths: require a lead source first, and
-  // stamp a quote expiry from org settings (default 30 days).
-  const { data: cust } = await supabase
-    .from("customers")
-    .select("source")
-    .eq("id", customerId)
-    .maybeSingle();
-  if (!cust?.source) {
-    return { error: "Set a lead source on the customer before creating an estimate." };
+  // Match the other estimate-creation paths: require a recorded lead source
+  // (+ its required sub-detail), and stamp a quote expiry from org settings.
+  const { ok: sourceOk } = await getCustomerSourceStatus(customerId);
+  if (!sourceOk) {
+    return { error: "Record this customer's lead source before creating an estimate." };
   }
   const { data: org } = await supabase
     .from("org_settings")

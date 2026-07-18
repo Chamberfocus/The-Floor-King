@@ -195,6 +195,34 @@ export type ActivityType =
   | "stage_change"
   | "system";
 
+/** A manageable "How did you hear about us?" source (Settings-editable). */
+export type LeadSourceDetailMode = "none" | "options" | "referrer";
+export interface LeadSourceDetailOption {
+  id: string;
+  source_id: string;
+  label: string;
+  active: boolean;
+  position: number;
+}
+export interface LeadSourceRow {
+  id: string;
+  key: string | null;
+  label: string;
+  active: boolean;
+  position: number;
+  detail_mode: LeadSourceDetailMode;
+  detail_label: string | null;
+  detail_required: boolean;
+  details?: LeadSourceDetailOption[];
+}
+export interface LeadSourceSpendRow {
+  id: string;
+  source_id: string;
+  detail_id: string | null;
+  period: string; // YYYY-MM
+  amount: number;
+}
+
 export interface Customer {
   id: string;
   full_name: string;
@@ -206,7 +234,11 @@ export interface Customer {
   state: string | null;
   zip: string | null;
   stage: LeadStage;
-  source: LeadSource | null;
+  source: LeadSource | null; // legacy enum — kept for backfill; source_id is the source of truth
+  source_id: string | null; // → lead_sources
+  source_detail_id: string | null; // → lead_source_details (drill-down)
+  source_detail_text: string | null; // referrer / group name (free text, only where needed)
+  referred_by_customer_id: string | null; // referral: link to the existing customer who referred
   notes: string | null;
   assigned_to: string | null;
   workflow_stage_id: string | null;

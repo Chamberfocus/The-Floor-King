@@ -33,11 +33,13 @@ export function CustomerSettingsMenu({
   canDelete,
   portalUser,
   defaultEmail,
+  sources = [],
 }: {
   customer: Customer;
   canDelete: boolean;
   portalUser: { email: string } | null;
   defaultEmail: string;
+  sources?: import("@/lib/types").LeadSourceRow[];
 }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("menu");
@@ -106,7 +108,7 @@ export function CustomerSettingsMenu({
                   Update contact details, address and lead source.
                 </DialogDescription>
               </DialogHeader>
-              <CustomerForm customer={customer} onSaved={() => onOpenChange(false)} />
+              <CustomerForm customer={customer} sources={sources} onSaved={() => onOpenChange(false)} />
             </>
           ) : view === "portal" ? (
             <>

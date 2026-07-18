@@ -16,6 +16,7 @@ import {
   advanceFromAutoAction,
 } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
+import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
 import type { EstimateStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -49,12 +50,10 @@ export async function createEstimate(formData: FormData): Promise<void> {
   if (!customerId) return;
 
   const supabase = await createClient();
-  const { data: cust } = await supabase
-    .from("customers")
-    .select("source")
-    .eq("id", customerId)
-    .maybeSingle();
-  if (!cust?.source) redirect(`/customers/${customerId}`);
+  // Lead source (+ its required sub-detail) must be recorded. The dashboard's
+  // inline gate normally handles this before we get here; this is the fallback.
+  const { ok } = await getCustomerSourceStatus(customerId);
+  if (!ok) redirect(`/customers/${customerId}`);
 
   const {
     data: { user },
@@ -360,14 +359,10 @@ export async function createEstimateFromWizard(
   if (!customerId) return { error: "Missing customer." };
 
   const supabase = await createClient();
-  const { data: cust } = await supabase
-    .from("customers")
-    .select("source")
-    .eq("id", customerId)
-    .maybeSingle();
-  if (!cust?.source) {
+  const { ok } = await getCustomerSourceStatus(customerId);
+  if (!ok) {
     return {
-      error: "Set this customer's lead source before creating an estimate.",
+      error: "Record this customer's lead source (and its detail) before creating an estimate.",
     };
   }
 

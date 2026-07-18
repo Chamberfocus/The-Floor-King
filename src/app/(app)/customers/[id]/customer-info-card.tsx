@@ -16,7 +16,7 @@ function cityLine(c: Customer) {
   return [c.city, c.state, c.zip].filter(Boolean).join(", ").replace(/, (\S+)$/, " $1");
 }
 
-export function CustomerInfoCard({ customer }: { customer: Customer }) {
+export function CustomerInfoCard({ customer, sources = [] }: { customer: Customer; sources?: import("@/lib/types").LeadSourceRow[] }) {
   const [editing, setEditing] = useState(false);
 
   if (editing) {
@@ -29,7 +29,7 @@ export function CustomerInfoCard({ customer }: { customer: Customer }) {
           </Button>
         </CardHeader>
         <CardContent>
-          <CustomerForm customer={customer} onSaved={() => setEditing(false)} />
+          <CustomerForm customer={customer} sources={sources} onSaved={() => setEditing(false)} />
         </CardContent>
       </Card>
     );

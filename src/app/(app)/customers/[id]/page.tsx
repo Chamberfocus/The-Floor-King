@@ -119,6 +119,8 @@ import {
   TabCollapse,
 } from "./customer-tabs";
 import { CustomerSettingsMenu } from "./customer-settings-menu";
+import { listLeadSources } from "@/lib/data/lead-sources";
+import { EstimateSourceGate } from "./estimate-source-gate";
 import { QualifyDialog } from "./qualify-dialog";
 import { QuickActions } from "./quick-actions";
 import { getUserPreferences } from "@/lib/data/preferences";
@@ -158,6 +160,16 @@ export default async function CustomerPage({
   const customer = await getCustomer(id);
   if (!customer) notFound();
   const canDelete = profile.role === "admin" || profile.role === "office";
+  const leadSources = await listLeadSources({ activeOnly: true });
+  // Whether the lead source (+ its required sub-detail) is recorded — gates
+  // estimate creation with an inline prompt rather than a redirect.
+  const _src = leadSources.find((s) => s.id === customer.source_id);
+  const sourceOk =
+    !!customer.source_id &&
+    (!_src?.detail_required ||
+      (_src.detail_mode === "referrer"
+        ? !!(customer.source_detail_text || customer.referred_by_customer_id)
+        : !!(customer.source_detail_id || customer.source_detail_text)));
 
   const activities = await listActivities(id);
   const estimates = await listEstimatesForCustomer(id);
@@ -359,7 +371,8 @@ export default async function CustomerPage({
     customer.city && customer.state
       ? `${customer.city}, ${customer.state}`
       : customer.city || customer.state || null,
-    customer.source ? LEAD_SOURCE_LABELS[customer.source] : null,
+    leadSources.find((s) => s.id === customer.source_id)?.label ??
+      (customer.source ? LEAD_SOURCE_LABELS[customer.source] : null),
     `Added ${formatDate(customer.created_at)}`,
   ].filter(Boolean) as string[];
   const installWindowLabel = installJob?.arrival_window
@@ -552,6 +565,7 @@ export default async function CustomerPage({
             canDelete={canDelete}
             portalUser={portalUser}
             defaultEmail={customer.email ?? ""}
+            sources={leadSources}
           />
           <QualifyDialog
             customerId={customer.id}
@@ -835,7 +849,7 @@ export default async function CustomerPage({
           </TabSection>
 
           <TabSection tab="contact">
-            <CustomerInfoCard customer={customer} />
+            <CustomerInfoCard customer={customer} sources={leadSources} />
           </TabSection>
 
           <TabSection tab="contact">
@@ -877,27 +891,7 @@ export default async function CustomerPage({
           <Card id="estimates" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
-              {customer.source ? (
-                <div className="flex items-center gap-2">
-                  <Button
-                    render={<Link href={`/estimates/guided?customer=${customer.id}`} />}
-                    variant="outline"
-                    size="sm"
-                  >
-                    <ClipboardList className="size-3.5" /> Guided questionnaire
-                  </Button>
-                  <form action={createEstimate}>
-                    <input type="hidden" name="customer_id" value={customer.id} />
-                    <Button type="submit" size="sm">
-                      <Sparkles className="size-3.5" /> Build estimate
-                    </Button>
-                  </form>
-                </div>
-              ) : (
-                <span className="text-xs font-medium text-amber-600">
-                  Set a lead source (Edit) to create estimates
-                </span>
-              )}
+              <EstimateSourceGate customerId={customer.id} sourceOk={sourceOk} sources={leadSources} />
             </CardHeader>
             <CardContent>
               {estimateRows.length === 0 ? (
