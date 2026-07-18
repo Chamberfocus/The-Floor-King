@@ -339,6 +339,48 @@ export interface WarehouseJob extends JobListRow {
   customer_stage_id: string | null; // customer's workflow stage — for the shared flow badge
 }
 
+/**
+ * One job in the WarehouseJob shape (crew/warehouse names resolved) — so the
+ * SAME StagingSheetDoc the warehouse renders can be printed for a single job
+ * from the customer file, with no status filter and no parallel material shape.
+ */
+export async function getWarehouseJob(
+  jobId: string,
+  dbArg?: Awaited<ReturnType<typeof createClient>>,
+): Promise<WarehouseJob | null> {
+  if (!jobId) return null;
+  const supabase = dbArg ?? (await createClient());
+  const { data: j } = await supabase
+    .from("jobs")
+    .select("*, customer:customers(full_name, workflow_stage_id)")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!j) return null;
+  const row = j as Job & {
+    customer?: { full_name: string | null; workflow_stage_id: string | null } | null;
+    assigned_to?: string | null;
+    assigned_crew_id?: string | null;
+    warehouse_assigned_to?: string | null;
+  };
+  const nameOfCrew = async (cid: string | null | undefined) => {
+    if (!cid) return null;
+    const { data } = await supabase.from("install_crews").select("name").eq("id", cid).maybeSingle();
+    return (data?.name as string) ?? null;
+  };
+  const nameOfUser = async (uid: string | null | undefined) => {
+    if (!uid) return null;
+    const { data } = await supabase.from("profiles").select("full_name, email").eq("id", uid).maybeSingle();
+    return (data?.full_name as string) || (data?.email as string) || null;
+  };
+  return {
+    ...row,
+    customer_name: row.customer?.full_name ?? null,
+    crew_name: (await nameOfCrew(row.assigned_crew_id)) ?? (await nameOfUser(row.assigned_to)),
+    warehouse_assignee_name: await nameOfUser(row.warehouse_assigned_to),
+    customer_stage_id: row.customer?.workflow_stage_id ?? null,
+  } as WarehouseJob;
+}
+
 export async function listWarehouseJobs(
   dbArg?: Awaited<ReturnType<typeof createClient>>,
 ): Promise<WarehouseJob[]> {

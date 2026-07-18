@@ -122,6 +122,7 @@ import { EstimateSourceGate } from "./estimate-source-gate";
 import { QualifyDialog } from "./qualify-dialog";
 import { QuickActions } from "./quick-actions";
 import { CustomerSwitcher } from "./customer-switcher";
+import { DocumentShortcuts, type DocJob } from "./document-shortcuts";
 import { getUserPreferences } from "@/lib/data/preferences";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
@@ -238,6 +239,13 @@ export default async function CustomerPage({
   const ownerName = customer.workflow_owner_id
     ? (names[customer.workflow_owner_id] ?? null)
     : null;
+  // For the at-a-glance details block.
+  const salespersonName = customer.assigned_to
+    ? (names[customer.assigned_to] ?? null)
+    : null;
+  const sourceLabel =
+    leadSources.find((s) => s.id === customer.source_id)?.label ??
+    (customer.source ? LEAD_SOURCE_LABELS[customer.source] : null);
 
   // When the stage auto-action is "schedule install", pop install suggestions
   // for the customer's latest job right here on the file.
@@ -438,6 +446,19 @@ export default async function CustomerPage({
     ),
   }));
 
+  // One-click document shortcuts: each job resolves its four printable docs from
+  // the REAL records — its work order & staging sheet (the job), its source
+  // estimate (job.estimate_id, else the customer's latest), and the invoice tied
+  // to it. No job yet → estimate/invoice fall back to the customer's latest.
+  const docJobs: DocJob[] = jobs.map((j) => ({
+    id: j.id,
+    label: j.title || `Job · ${formatDate(j.scheduled_date ?? j.created_at)}`,
+    estimateId: (j.estimate_id as string | null) ?? estimates[0]?.id ?? null,
+    invoiceId: invoices.find((inv) => inv.job_id === j.id)?.id ?? null,
+  }));
+  const fallbackEstimateId = estimates[0]?.id ?? null;
+  const fallbackInvoiceId = invoices[0]?.id ?? null;
+
   const invoiceRows: InvoiceRowData[] = invoices.map((inv) => {
     const t = invoiceTotals(inv.items ?? [], inv.tax_rate, amountPaid(inv));
     return {
@@ -555,8 +576,8 @@ export default async function CustomerPage({
                 rel="noreferrer"
                 className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:border-primary hover:text-primary"
               >
-                <MapPin className="size-4 text-muted-foreground" />
-                <span className="max-w-[18rem] truncate">{addressText}</span>
+                <MapPin className="size-4 shrink-0 text-muted-foreground" />
+                <span>{addressText}</span>
               </a>
             ) : null}
           </div>
@@ -678,11 +699,88 @@ export default async function CustomerPage({
                   estimateBooked={!!estimateAppointment}
                   isOwner={profile.role === "admin"}
                 />
+
+                {/* One click to open/print the four key documents for this
+                    customer's job (pick the job if there's more than one). */}
+                <DocumentShortcuts
+                  jobs={docJobs}
+                  fallbackEstimateId={fallbackEstimateId}
+                  fallbackInvoiceId={fallbackInvoiceId}
+                />
               </div>
 
-              {/* Right: money + due rail. (Record counts live on the tabs, so the
-                  old "Records" snapshot panel was removed as a duplicate.) */}
+              {/* Right: details + money + due rail. (Record counts live on the
+                  tabs, so the old "Records" snapshot panel was removed.) */}
               <aside className="space-y-4">
+                {/* Full customer details, at a glance — no Contact-tab hunting. */}
+                <div className="rounded-lg border bg-card p-5 shadow-sm">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Customer details
+                  </p>
+                  <div className="space-y-3 text-sm">
+                    <div className="space-y-2">
+                      {customer.phone ? (
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-muted-foreground">Phone</span>
+                          <a href={`tel:${customer.phone}`} className="font-medium hover:text-primary">
+                            {customer.phone}
+                          </a>
+                        </div>
+                      ) : null}
+                      {customer.email ? (
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="shrink-0 text-muted-foreground">Email</span>
+                          <a
+                            href={`mailto:${customer.email}`}
+                            className="truncate font-medium hover:text-primary"
+                          >
+                            {customer.email}
+                          </a>
+                        </div>
+                      ) : null}
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-muted-foreground">Heard via</span>
+                        <span className="text-right font-medium">{sourceLabel ?? "—"}</span>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-muted-foreground">Added</span>
+                        <span className="font-medium">{formatDate(customer.created_at)}</span>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-muted-foreground">Salesperson</span>
+                        <span className="text-right font-medium">
+                          {salespersonName ?? "Unassigned"}
+                        </span>
+                      </div>
+                    </div>
+                    {addressText ? (
+                      <div className="border-t pt-2.5">
+                        <div className="text-xs text-muted-foreground">Address</div>
+                        <div className="font-medium">{addressText}</div>
+                      </div>
+                    ) : null}
+                    {serviceAddresses.length ? (
+                      <div className="border-t pt-2.5">
+                        <div className="text-xs text-muted-foreground">
+                          Job site{serviceAddresses.length > 1 ? "s" : ""}
+                        </div>
+                        {serviceAddresses.map((a) => (
+                          <div key={a.id} className="font-medium">
+                            {a.label ? `${a.label}: ` : ""}
+                            {formatServiceAddress(a)}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {customer.notes ? (
+                      <div className="border-t pt-2.5">
+                        <div className="text-xs text-muted-foreground">Notes</div>
+                        <div className="whitespace-pre-wrap">{customer.notes}</div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
                 <div className="rounded-lg border bg-card p-5 shadow-sm">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Money

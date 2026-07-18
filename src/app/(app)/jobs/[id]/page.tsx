@@ -69,6 +69,7 @@ import { JobLaborCard } from "./job-labor-card";
 import { JobMaterialsCard } from "./job-materials-card";
 import { getOrgSettings } from "@/lib/data/org";
 import { PrintButton } from "@/components/print-button";
+import { AutoPrint } from "@/components/auto-print";
 import { InstallationWorkOrderDoc } from "./installation-wo";
 import { buildInstallScheduleProps } from "@/lib/data/install-schedule";
 import { InstallSchedule } from "@/app/(app)/customers/[id]/install-schedule";
@@ -97,10 +98,14 @@ export default async function JobPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ created?: string }>;
+  searchParams: Promise<{ created?: string; print?: string }>;
 }) {
   const { id } = await params;
-  const justCreated = (await searchParams).created === "1";
+  const sp = await searchParams;
+  const justCreated = sp.created === "1";
+  // Reached with ?print (from the customer file's one-click Work Order shortcut)
+  // → open the print dialog on the existing work-order doc, unchanged.
+  const autoPrint = sp.print === "1" || sp.print === "work_order";
   const profile = await requireProfile();
   const isStaff = profile.role === "admin" || profile.role === "office";
 
@@ -271,6 +276,7 @@ export default async function JobPage({
 
   return (
     <>
+      {autoPrint ? <AutoPrint /> : null}
       <InstallationWorkOrderDoc
         org={org}
         job={job}

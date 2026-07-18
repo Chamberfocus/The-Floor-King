@@ -20,6 +20,7 @@ import { invoiceTotals } from "@/lib/invoice-calc";
 import { formatDate, formatMoney } from "@/lib/format";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/types";
 import { InvoiceBuilder } from "../invoice-builder";
+import { AutoPrint } from "@/components/auto-print";
 import {
   recordPayment,
   deletePayment,
@@ -34,10 +35,13 @@ const fieldClass =
 
 export default async function InvoicePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ print?: string }>;
 }) {
   const { id } = await params;
+  const { print } = await searchParams;
   const invoice = await getInvoice(id);
   if (!invoice) notFound();
 
@@ -49,6 +53,7 @@ export default async function InvoicePage({
 
   return (
     <div className="mx-auto max-w-4xl">
+      {print ? <AutoPrint /> : null}
       <Link
         href="/invoices"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground print:hidden"
