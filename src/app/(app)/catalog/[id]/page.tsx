@@ -29,7 +29,8 @@ export default async function EditProductPage({
   const { id } = await params;
   const product = await getProduct(id);
   if (!product) notFound();
-  const suppliers = (await listSuppliers()).map((s) => s.name);
+  // All vendors (incl. inactive) so an existing product's vendor still shows.
+  const vendors = (await listSuppliers()).map((s) => ({ id: s.id, name: s.name, kind: s.kind }));
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -42,7 +43,7 @@ export default async function EditProductPage({
       <PageHeader title="Edit product" />
       <Card>
         <CardContent className="pt-6">
-          <ProductForm product={product} suppliers={suppliers} />
+          <ProductForm product={product} vendors={vendors} />
         </CardContent>
       </Card>
 

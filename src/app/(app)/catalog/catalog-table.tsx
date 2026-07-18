@@ -50,6 +50,18 @@ export function CatalogTable({
             <div className="text-xs text-muted-foreground">
               {PRODUCT_CATEGORY_LABELS[p.category]} · {p.sku ?? "—"} · {p.unit}
             </div>
+            <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+              <span>Maker: {p.manufacturer ?? "—"}</span>
+              <span>·</span>
+              <span>
+                Vendor:{" "}
+                {p.vendors && p.vendors.length
+                  ? p.vendors.length === 1
+                    ? (p.vendors[0].vendor_name ?? "1 vendor")
+                    : `${p.vendors.length} vendors`
+                  : "—"}
+              </span>
+            </div>
             <div className="mt-1.5 grid grid-cols-3 gap-2 text-sm">
               <div>
                 <div className="text-xs text-muted-foreground">Material</div>
@@ -96,6 +108,7 @@ export function CatalogTable({
                 <TableHead>Name</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>SKU</TableHead>
+                <TableHead>Maker / Vendor</TableHead>
                 <TableHead className="text-right">Material</TableHead>
                 {showLanded ? (
                   <TableHead className="text-right">
@@ -129,6 +142,16 @@ export function CatalogTable({
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {p.sku ?? "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <span className="text-foreground">{p.manufacturer ?? "—"}</span>
+                    <span className="block text-xs">
+                      {p.vendors && p.vendors.length
+                        ? p.vendors.length === 1
+                          ? (p.vendors[0].vendor_name ?? "1 vendor")
+                          : `${p.vendors.length} vendors`
+                        : "no vendor"}
+                    </span>
                   </TableCell>
                   <TableCell className="text-right">
                     {formatMoney(p.material_rate)}

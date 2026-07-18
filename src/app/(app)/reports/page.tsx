@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Contact, Wallet, Package, Activity, Trophy } from "lucide-react";
+import { Contact, Wallet, Package, Activity, Trophy, Truck } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
@@ -25,6 +25,12 @@ export default async function ReportsPage() {
       icon: Trophy,
       title: "Win / Loss",
       desc: "Quotes won vs lost, win rate by salesperson & source, and why you lost.",
+    },
+    {
+      href: "/reports/purchasing",
+      icon: Truck,
+      title: "Purchasing spend",
+      desc: "What you spend by vendor (who you paid) and by manufacturer (whose product you move).",
     },
     // Profit / expenses / P&L are owner & admin only.
     ...(profile.role === "admin"

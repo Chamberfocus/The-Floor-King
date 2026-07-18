@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,12 +20,18 @@ import {
 
 const initialState: ProductFormState = { error: null };
 
+export interface VendorOption {
+  id: string;
+  name: string;
+  kind: string;
+}
+
 export function ProductForm({
   product,
-  suppliers = [],
+  vendors = [],
 }: {
   product?: Product;
-  suppliers?: string[];
+  vendors?: VendorOption[];
 }) {
   const isEdit = Boolean(product);
   const [state, formAction, pending] = useActionState(
@@ -166,13 +173,16 @@ export function ProductForm({
           <Input id="sku" name="sku" defaultValue={product?.sku ?? ""} />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="manufacturer">Manufacturer</Label>
+          <Label htmlFor="manufacturer">Manufacturer (who makes it)</Label>
           <Input
             id="manufacturer"
             name="manufacturer"
             defaultValue={product?.manufacturer ?? ""}
             placeholder="e.g. Mohawk, Shaw"
           />
+          <p className="text-xs text-muted-foreground">
+            The maker of the product — an attribute of the product, not who you buy it from.
+          </p>
         </div>
         <div className="space-y-2">
           <Label htmlFor="style">Style</Label>
@@ -192,22 +202,13 @@ export function ProductForm({
             placeholder="e.g. Honey Oak"
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="supplier">Supplier / vendor</Label>
-          <Input
-            id="supplier"
-            name="supplier"
-            list="supplier-options"
-            defaultValue={product?.supplier ?? ""}
-            placeholder="Where you order it from"
-          />
-          {suppliers.length ? (
-            <datalist id="supplier-options">
-              {suppliers.map((s) => (
-                <option key={s} value={s} />
-              ))}
-            </datalist>
-          ) : null}
+        <div className="space-y-2 sm:col-span-2">
+          <Label>Vendors (who you buy it from)</Label>
+          <VendorRows vendors={vendors} initial={product?.vendors ?? []} />
+          <p className="text-xs text-muted-foreground">
+            One vendor is the normal case. Add more only if you buy this same product from more
+            than one place — the first is the default, and each carries its own cost.
+          </p>
         </div>
         {isEdit ? (
           <div className="flex items-end">
@@ -247,5 +248,117 @@ export function ProductForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+interface Row {
+  vendorId: string;
+  cost: string;
+  sku: string;
+}
+
+/**
+ * The product's vendor list. Emits `vendors_json` (a hidden field) so the save
+ * action can replace the product_vendors rows. Empty rows are ignored, so a
+ * product with no vendor stays valid and the single-vendor case is one row.
+ */
+function VendorRows({
+  vendors,
+  initial,
+}: {
+  vendors: VendorOption[];
+  initial: NonNullable<Product["vendors"]>;
+}) {
+  const [rows, setRows] = useState<Row[]>(
+    initial.length
+      ? initial.map((v) => ({
+          vendorId: v.vendor_id,
+          cost: v.cost != null ? String(v.cost) : "",
+          sku: v.vendor_sku ?? "",
+        }))
+      : [{ vendorId: "", cost: "", sku: "" }],
+  );
+  const set = (i: number, patch: Partial<Row>) =>
+    setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const payload = rows.filter((r) => r.vendorId);
+
+  const mfrs = vendors.filter((v) => v.kind === "manufacturer");
+  const dists = vendors.filter((v) => v.kind !== "manufacturer");
+
+  return (
+    <div className="space-y-2">
+      <input type="hidden" name="vendors_json" value={JSON.stringify(payload)} />
+      {rows.map((r, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-2">
+          <select
+            value={r.vendorId}
+            onChange={(e) => set(i, { vendorId: e.target.value })}
+            className="h-9 min-w-40 flex-1 rounded-md border border-input bg-transparent px-2 text-sm"
+            aria-label="Vendor"
+          >
+            <option value="">— Choose a vendor —</option>
+            {mfrs.length ? (
+              <optgroup label="Manufacturers (direct)">
+                {mfrs.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+            {dists.length ? (
+              <optgroup label="Distributors">
+                {dists.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+          </select>
+          <div className="flex items-center gap-1">
+            <span className="text-sm text-muted-foreground">$</span>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={r.cost}
+              onChange={(e) => set(i, { cost: e.target.value })}
+              placeholder="cost"
+              className="w-24"
+              aria-label="Cost from this vendor"
+            />
+          </div>
+          <Input
+            value={r.sku}
+            onChange={(e) => set(i, { sku: e.target.value })}
+            placeholder="Vendor SKU"
+            className="w-28"
+            aria-label="Vendor SKU"
+          />
+          {i === 0 ? (
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Default
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setRows((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev))}
+            className="text-muted-foreground hover:text-destructive"
+            aria-label="Remove vendor"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setRows((prev) => [...prev, { vendorId: "", cost: "", sku: "" }])}
+      >
+        <Plus className="size-4" /> Add another vendor
+      </Button>
+    </div>
   );
 }

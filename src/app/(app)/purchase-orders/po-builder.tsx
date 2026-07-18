@@ -11,6 +11,13 @@ import { DateField } from "@/components/ui/date-field";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
@@ -106,6 +113,8 @@ export function PoBuilder({
   const [newVendorName, setNewVendorName] = useState("");
   const [newVendorKind, setNewVendorKind] = useState<"manufacturer" | "distributor">("distributor");
   const [vendorPending, startVendor] = useTransition();
+  // When a picked product is carried by >1 vendor, ask which (with costs).
+  const [vendorChoice, setVendorChoice] = useState<{ line: number; product: Product } | null>(null);
   const [status, setStatus] = useState<PoStatus>(po.status);
   const [notes, setNotes] = useState(po.notes ?? "");
   const [backordered, setBackordered] = useState(po.backordered ?? false);
@@ -141,46 +150,68 @@ export function PoBuilder({
   // ordering unit. Roll goods → sq yd; hard surface → sq ft (the PO prints
   // cartons via sq ft/box); trim → linear ft. Price is converted from the
   // catalog's own unit and the catalog basis is shown on the line for verifying.
-  const applyProduct = (i: number, p: Product | null) => {
+  // Convert a catalog-unit cost into the PO's ordering unit (same rules the
+  // price used) — shared so a vendor's cost converts identically.
+  const convertCost = (p: Product, base: number): { unit: string; unitCost: number } => {
+    const cls = materialClass(p.category);
+    const catUnit = (p.unit || "").toLowerCase();
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    if (cls === "roll") return { unit: "sq yd", unitCost: catUnit.includes("yd") ? base : r2(base * 9) };
+    if (cls === "hard") return { unit: "sq ft", unitCost: catUnit.includes("yd") ? r2(base / 9) : base };
+    if (cls === "trim") return { unit: p.unit || "lnft", unitCost: base };
+    return { unit: p.unit || "sqft", unitCost: base };
+  };
+
+  // Point the whole PO at a vendor (a PO is per-vendor) from a product's vendor row.
+  const applyHeaderVendor = (v: NonNullable<Product["vendors"]>[number], p: Product) => {
+    setSupplierId(v.vendor_id);
+    setSupplier(v.vendor_name ?? p.supplier ?? "");
+    setSourceType((v.vendor_kind ?? "distributor") as PoSourceType);
+  };
+
+  const applyProduct = (i: number, p: Product | null, chosenVendorId?: string) => {
     if (!p) {
       updateItem(i, { product_id: "" });
       return;
     }
-    const cls = materialClass(p.category);
-    const catUnit = (p.unit || "").toLowerCase();
-    const catPrice = Number(p.material_rate) || 0;
-    const r2 = (n: number) => Math.round(n * 100) / 100;
-    let unit: string;
-    let unitCost: number;
-    if (cls === "roll") {
-      unit = "sq yd";
-      unitCost = catUnit.includes("yd") ? catPrice : r2(catPrice * 9);
-    } else if (cls === "hard") {
-      unit = "sq ft"; // stored in sq ft; the PO converts to cartons for the vendor
-      unitCost = catUnit.includes("yd") ? r2(catPrice / 9) : catPrice;
-    } else if (cls === "trim") {
-      unit = p.unit || "lnft";
-      unitCost = catPrice;
-    } else {
-      unit = p.unit || "sqft";
-      unitCost = catPrice;
+    const vs = p.vendors ?? [];
+    // Which vendor's cost applies? The chosen one, else the PO's header vendor if
+    // it carries this product, else the product's default (primary) vendor.
+    let vendorId = chosenVendorId ?? null;
+    if (!vendorId) {
+      if (supplierId && vs.some((v) => v.vendor_id === supplierId)) vendorId = supplierId;
+      else if (vs.length) vendorId = vs[0].vendor_id;
     }
+    const vRow = vendorId ? vs.find((v) => v.vendor_id === vendorId) : null;
+    const base = vRow?.cost != null ? Number(vRow.cost) : Number(p.material_rate) || 0;
+    const { unit, unitCost } = convertCost(p, base);
+
     updateItem(i, {
       product_id: p.id,
       description: p.name,
       manufacturer: p.manufacturer ?? "",
       style: p.style ?? "",
       color: p.color ?? "",
-      item_no: p.sku ?? "",
+      item_no: (vRow?.vendor_sku || p.sku) ?? "",
       category: p.category ?? "",
       unit,
       unit_cost: String(unitCost),
       sqft_per_box: p.sqft_per_box != null ? String(p.sqft_per_box) : "",
       roll_width_ft: p.roll_width_ft != null ? String(p.roll_width_ft) : "",
     });
-    // A PO is per-vendor — seed the header supplier from the product if empty.
-    if (!supplier && p.supplier) setSupplier(p.supplier);
-    if (!supplierId && p.supplier_id) setSupplierId(p.supplier_id);
+
+    // Vendor selection for the PO header. One vendor → just use it. More than
+    // one (and none chosen/header yet) → ask which, with costs.
+    if (chosenVendorId && vRow) {
+      applyHeaderVendor(vRow, p);
+    } else if (!supplierId) {
+      if (vs.length === 1) applyHeaderVendor(vs[0], p);
+      else if (vs.length > 1) setVendorChoice({ line: i, product: p });
+      else {
+        if (p.supplier) setSupplier(p.supplier);
+        if (p.supplier_id) setSupplierId(p.supplier_id);
+      }
+    }
   };
 
   const total = poTotal(
@@ -749,6 +780,48 @@ export function PoBuilder({
           )}
         </div>
       </div>
+
+      {vendorChoice ? (
+        <Dialog open onOpenChange={(o) => !o && setVendorChoice(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Choose a vendor</DialogTitle>
+              <DialogDescription>
+                {vendorChoice.product.name} is carried by more than one vendor — pick who this
+                PO orders from, and its cost fills in.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              {(vendorChoice.product.vendors ?? []).map((v) => {
+                const base = v.cost != null ? Number(v.cost) : Number(vendorChoice.product.material_rate) || 0;
+                const { unit, unitCost } = convertCost(vendorChoice.product, base);
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => {
+                      applyProduct(vendorChoice.line, vendorChoice.product, v.vendor_id);
+                      setVendorChoice(null);
+                    }}
+                    className="flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-left hover:border-primary hover:bg-muted"
+                  >
+                    <span className="font-medium">
+                      {v.vendor_name ?? "Vendor"}
+                      <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {v.vendor_kind === "manufacturer" ? "Direct" : "Distributor"}
+                      </span>
+                    </span>
+                    <span className="font-semibold tabular-nums">
+                      {formatMoney(unitCost)}
+                      <span className="text-xs font-normal text-muted-foreground">/{unit}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

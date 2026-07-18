@@ -1,7 +1,55 @@
 import { createClient } from "@/lib/supabase/server";
-import type { Product } from "@/lib/types";
+import type { Product, ProductVendor, SupplierKind } from "@/lib/types";
 
 const PAGE = 1000; // Supabase caps a single request at 1000 rows.
+
+type Db = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Attach each product's vendor list (who we buy it from, with each vendor's
+ * cost). Best-effort: if the product_vendors table isn't there yet (pre-0114),
+ * products keep working with their single supplier_id — nothing breaks.
+ */
+async function attachProductVendors(db: Db, products: Product[]): Promise<Product[]> {
+  if (!products.length) return products;
+  try {
+    const ids = products.map((p) => p.id);
+    const byProduct = new Map<string, ProductVendor[]>();
+    // Page through in case there are many vendor rows across a big catalog.
+    for (let i = 0; i < ids.length; i += 300) {
+      const chunk = ids.slice(i, i + 300);
+      const { data, error } = await db
+        .from("product_vendors")
+        .select("id, product_id, vendor_id, cost, vendor_sku, position, vendor:suppliers(name, kind)")
+        .in("product_id", chunk)
+        .order("position", { ascending: true });
+      if (error) return products; // table missing → leave products as-is
+      for (const r of data ?? []) {
+        const rawVendor = (r as {
+          vendor?: { name: string; kind: string } | { name: string; kind: string }[] | null;
+        }).vendor;
+        const v = Array.isArray(rawVendor) ? rawVendor[0] : rawVendor;
+        const row: ProductVendor = {
+          id: r.id as string,
+          product_id: r.product_id as string,
+          vendor_id: r.vendor_id as string,
+          cost: r.cost == null ? null : Number(r.cost),
+          vendor_sku: (r.vendor_sku as string) ?? null,
+          position: (r.position as number) ?? 0,
+          vendor_name: v?.name ?? null,
+          vendor_kind: (v?.kind as SupplierKind) ?? null,
+        };
+        const arr = byProduct.get(row.product_id) ?? [];
+        arr.push(row);
+        byProduct.set(row.product_id, arr);
+      }
+    }
+    for (const p of products) p.vendors = byProduct.get(p.id) ?? [];
+    return products;
+  } catch {
+    return products;
+  }
+}
 
 /**
  * Load products. The catalog can exceed Supabase's 1000-row request cap, so we
@@ -26,7 +74,7 @@ export async function listProducts(
     all.push(...batch);
     if (batch.length < PAGE) break;
   }
-  return all;
+  return attachProductVendors(supabase, all);
 }
 
 // Text fields a catalog search does a partial (ilike) match across — including
@@ -141,5 +189,7 @@ export async function getProduct(id: string): Promise<Product | null> {
     .select("*")
     .eq("id", id)
     .maybeSingle();
-  return (data as Product) ?? null;
+  if (!data) return null;
+  const [p] = await attachProductVendors(supabase, [data as Product]);
+  return p;
 }

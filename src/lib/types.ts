@@ -45,6 +45,20 @@ export const SUPPLIER_KIND_LABELS: Record<SupplierKind, string> = {
   distributor: "Distributor",
 };
 
+/** A vendor that carries a product, with THAT vendor's cost. Manufacturer stays
+ *  on the product; this is the "who we buy it from" side. */
+export interface ProductVendor {
+  id: string;
+  product_id: string;
+  vendor_id: string;
+  cost: number | null;
+  vendor_sku: string | null;
+  position: number;
+  /** Joined vendor fields (name/kind) when loaded with the product. */
+  vendor_name?: string | null;
+  vendor_kind?: SupplierKind | null;
+}
+
 export interface Supplier {
   id: string;
   name: string;
@@ -532,6 +546,7 @@ export interface Product {
   color: string | null;
   supplier: string | null;
   supplier_id: string | null;
+  vendors?: ProductVendor[]; // who we buy it from (0/1 = simple; 2+ = multi-vendor)
   notes: string | null;
   active: boolean;
   track_stock: boolean;

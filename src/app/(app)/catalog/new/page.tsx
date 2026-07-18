@@ -3,13 +3,17 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
-import { listSuppliers } from "@/lib/data/suppliers";
+import { listActiveSuppliers } from "@/lib/data/suppliers";
 import { ProductForm } from "../product-form";
 
 export const metadata: Metadata = { title: "Add product" };
 
 export default async function NewProductPage() {
-  const suppliers = (await listSuppliers()).map((s) => s.name);
+  const vendors = (await listActiveSuppliers()).map((s) => ({
+    id: s.id,
+    name: s.name,
+    kind: s.kind,
+  }));
   return (
     <div className="mx-auto max-w-2xl">
       <Link
@@ -24,7 +28,7 @@ export default async function NewProductPage() {
       />
       <Card>
         <CardContent className="pt-6">
-          <ProductForm suppliers={suppliers} />
+          <ProductForm vendors={vendors} />
         </CardContent>
       </Card>
     </div>

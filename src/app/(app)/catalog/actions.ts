@@ -51,6 +51,57 @@ function readFields(formData: FormData) {
   };
 }
 
+type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Replace a product's vendor list (who we buy it from, each at its own cost) and
+ * sync the product's primary vendor (`supplier_id` + name) to the first row.
+ * Best-effort: if product_vendors isn't there yet (pre-0114), the product still
+ * saves. Manufacturer is never touched here — it's a separate product attribute.
+ */
+async function saveProductVendors(
+  supabase: SupabaseServer,
+  productId: string,
+  formData: FormData,
+  materialRate: number,
+): Promise<void> {
+  let rows: { vendorId: string; cost: string; sku: string }[] = [];
+  try {
+    rows = JSON.parse(str(formData.get("vendors_json")) || "[]");
+  } catch {
+    rows = [];
+  }
+  rows = (rows ?? []).filter((r) => r && r.vendorId);
+  try {
+    await supabase.from("product_vendors").delete().eq("product_id", productId);
+    if (rows.length) {
+      const insertRows = rows.map((r, i) => {
+        const c = parseFloat(r.cost);
+        return {
+          product_id: productId,
+          vendor_id: r.vendorId,
+          cost: Number.isFinite(c) ? c : i === 0 ? materialRate : null,
+          vendor_sku: r.sku?.trim() || null,
+          position: i,
+        };
+      });
+      await supabase.from("product_vendors").insert(insertRows);
+    }
+    const primaryId = rows[0]?.vendorId ?? null;
+    let primaryName: string | null = null;
+    if (primaryId) {
+      const { data } = await supabase.from("suppliers").select("name").eq("id", primaryId).maybeSingle();
+      primaryName = (data?.name as string) ?? null;
+    }
+    await supabase
+      .from("products")
+      .update({ supplier_id: primaryId, supplier: primaryName })
+      .eq("id", productId);
+  } catch {
+    // product_vendors table not present yet → skip; product itself is saved.
+  }
+}
+
 export async function createProduct(
   _prev: ProductFormState,
   formData: FormData,
@@ -59,13 +110,14 @@ export async function createProduct(
   if (!fields.name) return { error: "A product name is required." };
 
   const supabase = await createClient();
-  let { error } = await supabase.from("products").insert(fields);
+  let { data, error } = await supabase.from("products").insert(fields).select("id").single();
   if (error) {
     // Fallback for before the vendor-unit (0099) / prep-coverage (0106) columns.
     const { sqft_per_box: _s, roll_width_ft: _r, coverage_sqft: _cs, coverage_thickness_in: _ct, ...legacy } = fields;
-    ({ error } = await supabase.from("products").insert(legacy));
+    ({ data, error } = await supabase.from("products").insert(legacy).select("id").single());
   }
-  if (error) return { error: error.message };
+  if (error || !data) return { error: error?.message ?? "Couldn't save the product." };
+  await saveProductVendors(supabase, data.id as string, formData, fields.material_rate);
 
   revalidatePath("/catalog");
   redirect("/catalog");
@@ -165,6 +217,7 @@ export async function updateProduct(
       .eq("id", id));
   }
   if (error) return { error: error.message };
+  await saveProductVendors(supabase, id, formData, fields.material_rate);
 
   revalidatePath("/catalog");
   revalidatePath("/inventory");

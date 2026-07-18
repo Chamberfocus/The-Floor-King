@@ -298,6 +298,112 @@ export async function getVendorSummary(supplierId: string): Promise<VendorSummar
   return { pos: list, totalSpend, openCount, openTotal };
 }
 
+export interface SpendRow {
+  key: string;
+  label: string;
+  kind?: string | null;
+  pos: number;
+  spend: number;
+}
+
+/**
+ * Purchasing spend for a period, answered TWO ways: by VENDOR (who we paid) and
+ * by MANUFACTURER (whose product we moved) — different, both useful. Counts only
+ * issued, non-void POs; totals are the sum of the POs' lines.
+ */
+export async function getPurchasingSpend(
+  startISO: string,
+  endISO: string,
+): Promise<{ byVendor: SpendRow[]; byManufacturer: SpendRow[]; total: number }> {
+  const empty = { byVendor: [], byManufacturer: [], total: 0 };
+  try {
+    const supabase = await createClient();
+    const { data: posData } = await supabase
+      .from("purchase_orders")
+      .select("id, supplier, supplier_id, status, supplier_rec:suppliers(name, kind)")
+      .in("status", ["ordered", "received", "closed"])
+      .gte("created_at", startISO)
+      .lte("created_at", endISO);
+    const pos = posData ?? [];
+    if (!pos.length) return empty;
+    const poIds = pos.map((p) => p.id as string);
+
+    // Line items for those POs.
+    const items: { po_id: string; product_id: string | null; quantity: number | null; unit_cost: number | null }[] = [];
+    const productIds = new Set<string>();
+    for (let i = 0; i < poIds.length; i += 300) {
+      const { data } = await supabase
+        .from("po_items")
+        .select("po_id, product_id, quantity, unit_cost")
+        .in("po_id", poIds.slice(i, i + 300));
+      for (const it of data ?? []) {
+        items.push({
+          po_id: it.po_id as string,
+          product_id: (it.product_id as string) ?? null,
+          quantity: it.quantity == null ? null : Number(it.quantity),
+          unit_cost: it.unit_cost == null ? null : Number(it.unit_cost),
+        });
+        if (it.product_id) productIds.add(it.product_id as string);
+      }
+    }
+
+    // Each product's manufacturer.
+    const mfrByProduct = new Map<string, string>();
+    const pidArr = [...productIds];
+    for (let i = 0; i < pidArr.length; i += 300) {
+      const { data } = await supabase
+        .from("products")
+        .select("id, manufacturer")
+        .in("id", pidArr.slice(i, i + 300));
+      for (const p of data ?? [])
+        mfrByProduct.set(p.id as string, ((p.manufacturer as string) || "").trim() || "Unknown");
+    }
+
+    // PO → vendor label/kind.
+    const vendorOf = new Map<string, { key: string; label: string; kind: string | null }>();
+    for (const p of pos) {
+      const rawRec = (p as {
+        supplier_rec?: { name: string; kind: string } | { name: string; kind: string }[] | null;
+      }).supplier_rec;
+      const rec = Array.isArray(rawRec) ? rawRec[0] : rawRec;
+      vendorOf.set(p.id as string, {
+        key: (p.supplier_id as string) ?? `name:${(p.supplier as string) ?? "—"}`,
+        label: rec?.name ?? (p.supplier as string) ?? "Unrecorded vendor",
+        kind: rec?.kind ?? null,
+      });
+    }
+
+    const vend = new Map<string, SpendRow & { poSet: Set<string> }>();
+    const manu = new Map<string, SpendRow & { poSet: Set<string> }>();
+    let total = 0;
+    for (const it of items) {
+      const amt = (it.quantity ?? 0) * (it.unit_cost ?? 0);
+      if (!amt) continue;
+      total += amt;
+      const v = vendorOf.get(it.po_id);
+      if (v) {
+        const row = vend.get(v.key) ?? { key: v.key, label: v.label, kind: v.kind, pos: 0, spend: 0, poSet: new Set() };
+        row.spend += amt;
+        row.poSet.add(it.po_id);
+        vend.set(v.key, row);
+      }
+      const mfr = it.product_id ? (mfrByProduct.get(it.product_id) ?? "Unknown") : "Unknown";
+      const mrow = manu.get(mfr) ?? { key: mfr, label: mfr, pos: 0, spend: 0, poSet: new Set() };
+      mrow.spend += amt;
+      mrow.poSet.add(it.po_id);
+      manu.set(mfr, mrow);
+    }
+    const finalize = (m: Map<string, SpendRow & { poSet: Set<string> }>): SpendRow[] =>
+      [...m.values()]
+        .map(({ poSet, ...r }) => ({ ...r, pos: poSet.size }))
+        .sort((a, b) => b.spend - a.spend);
+
+    return { byVendor: finalize(vend), byManufacturer: finalize(manu), total };
+  } catch {
+    return empty;
+  }
+}
+
 export interface StockPull {
   product_id: string;
   name: string;
