@@ -352,6 +352,22 @@ export function Questionnaire({
       const a = answers[q.id];
       if (a?.kind === "areas") s += a.rooms.reduce((t, r) => t + rowSqft(r), 0);
     }
+    // Carpet-only jobs skip the generic "rooms & sizes" step — the cuts are
+    // entered (once) on the "Carpet & cuts" screen — so derive the pad / labor
+    // area from those cuts. Only when no rooms were measured, so a mixed job's
+    // hard-surface area isn't double-counted.
+    if (s === 0) {
+      for (const q of questions) {
+        if (q.kind !== "cuts") continue;
+        const a = answers[q.id];
+        if (a?.kind !== "cuts") continue;
+        for (const g of a.groups) {
+          s += carpetYardageFromCuts(
+            g.cuts.map((c) => ({ lengthFt: numv(c.lf), lengthIn: numv(c.li), rollWidthFt: numv(c.width) })),
+          ).sqft;
+        }
+      }
+    }
     return r2(s);
   }, [questions, answers]);
 
