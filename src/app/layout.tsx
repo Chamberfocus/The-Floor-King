@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   // Native-app feel when installed to the home screen on iOS.
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
+    statusBarStyle: "default",
     title: "Floor King",
   },
   formatDetection: { telephone: false },
@@ -36,7 +36,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#141210",
+  // Warm ivory to match the light app ground (was near-black for dark mode).
+  themeColor: "#ece7dd",
 };
 
 export default function RootLayout({
@@ -47,7 +48,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         {children}

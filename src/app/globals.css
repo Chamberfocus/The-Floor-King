@@ -39,6 +39,17 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* Warm honey accent — the friendliness lever. Used for highlights, active
+     nav, and happy moments. NEVER on prices, totals, or customer documents. */
+  --color-warm: var(--warm);
+  --color-warm-foreground: var(--warm-foreground);
+  --color-warm-soft: var(--warm-soft);
+  --color-warm-strong: var(--warm-strong);
+  /* Money-state semantics (kept distinct from the honey brand accent). */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -96,14 +107,25 @@
   --chart-3: oklch(0.62 0.13 160);
   --chart-4: oklch(0.76 0.13 80);
   --chart-5: oklch(0.5 0.05 260);
-  --radius: 0.875rem;
-  /* Premium warm-espresso sidebar (kept dark in light mode by design). */
+  /* Honey accent + money-state semantics (light). */
+  --warm: oklch(0.72 0.13 78);
+  --warm-foreground: oklch(0.99 0.01 85);
+  --warm-soft: oklch(0.93 0.045 82);
+  --warm-strong: oklch(0.52 0.11 66);
+  --success: oklch(0.62 0.14 155);
+  --success-foreground: oklch(0.99 0.01 155);
+  --warning: oklch(0.72 0.13 72);
+  --warning-foreground: oklch(0.3 0.05 60);
+  /* Softer, friendlier corners — one knob drives cards, buttons, inputs. */
+  --radius: 1rem;
+  /* Premium warm-espresso sidebar (kept dark in light mode by design), with a
+     honey-tinted active chip. */
   --sidebar: oklch(0.25 0.012 62);
   --sidebar-foreground: oklch(0.95 0.006 82);
   --sidebar-primary: oklch(0.6 0.17 264);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.33 0.03 264);
-  --sidebar-accent-foreground: oklch(0.84 0.1 80);
+  --sidebar-accent: oklch(0.33 0.035 72);
+  --sidebar-accent-foreground: oklch(0.85 0.11 80);
   --sidebar-border: oklch(0.34 0.01 62);
   --sidebar-ring: oklch(0.6 0.17 264);
 }
@@ -133,12 +155,21 @@
   --chart-3: oklch(0.68 0.13 160);
   --chart-4: oklch(0.78 0.12 80);
   --chart-5: oklch(0.62 0.05 260);
+  /* Honey accent + money-state semantics (dark). */
+  --warm: oklch(0.78 0.13 80);
+  --warm-foreground: oklch(0.2 0.03 60);
+  --warm-soft: oklch(0.32 0.05 72);
+  --warm-strong: oklch(0.84 0.11 82);
+  --success: oklch(0.7 0.14 158);
+  --success-foreground: oklch(0.15 0.02 155);
+  --warning: oklch(0.8 0.12 78);
+  --warning-foreground: oklch(0.2 0.03 60);
   --sidebar: oklch(0.135 0.006 66);
   --sidebar-foreground: oklch(0.95 0.006 82);
   --sidebar-primary: oklch(0.6 0.17 264);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.34 0.03 264);
-  --sidebar-accent-foreground: oklch(0.84 0.1 80);
+  --sidebar-accent: oklch(0.34 0.035 72);
+  --sidebar-accent-foreground: oklch(0.84 0.11 80);
   --sidebar-border: oklch(0.3 0.01 66);
   --sidebar-ring: oklch(0.6 0.14 264);
 }
@@ -184,6 +215,60 @@
       width: 1.15rem;
       height: 1.15rem;
     }
+  }
+}
+
+/* ── Gentle personality ──────────────────────────────────────────────────────
+   Small, calm motion that makes the app pleasant without ever being busy.
+   All of it backs off for users who prefer reduced motion. */
+@layer base {
+  /* Warm text selection instead of the default cold blue. */
+  ::selection {
+    background: color-mix(in oklch, var(--warm) 35%, transparent);
+  }
+  /* Interactive cards (those inside a link/button) lift a touch on hover for a
+     soft sense of depth. Non-interactive cards stay put. */
+  [data-slot="card"] {
+    transition:
+      box-shadow 0.2s ease,
+      transform 0.2s ease,
+      border-color 0.2s ease;
+  }
+  :where(a, button):hover > [data-slot="card"] {
+    transform: translateY(-2px);
+    box-shadow:
+      0 2px 4px rgb(0 0 0 / 0.05),
+      0 18px 36px -18px rgb(0 0 0 / 0.22);
+  }
+  /* A brief, tasteful celebration on success confirmations — the check pops
+     once. Not confetti; one warm beat. */
+  @keyframes cn-success-pop {
+    0% {
+      transform: scale(0.6);
+      opacity: 0.3;
+    }
+    60% {
+      transform: scale(1.15);
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+  [data-sonner-toast][data-type="success"] [data-icon] {
+    color: var(--warm-strong);
+    animation: cn-success-pop 0.35s ease-out;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="card"] {
+    transition: none;
+  }
+  :where(a, button):hover > [data-slot="card"] {
+    transform: none;
+  }
+  [data-sonner-toast][data-type="success"] [data-icon] {
+    animation: none;
   }
 }
 

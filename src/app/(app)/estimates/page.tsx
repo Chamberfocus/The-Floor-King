@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, FileText } from "lucide-react";
+import { Plus, FileText, Users } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -49,8 +49,13 @@ export default async function EstimatesPage() {
       {estimates.length === 0 ? (
         <EmptyState
           icon={FileText}
-          title="No estimates yet"
-          description="Open a customer and click New estimate to build your first one."
+          title="No estimates yet — let's build your first one"
+          description="Estimates start from a customer. Open one and hit New estimate, and it'll show up here."
+          action={
+            <Link href="/customers" className={buttonVariants({})}>
+              <Users className="size-4" /> Go to customers
+            </Link>
+          }
         />
       ) : (
         <>

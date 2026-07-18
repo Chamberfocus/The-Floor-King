@@ -21,20 +21,22 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "rounded-lg border border-dashed p-10 text-center",
+        "rounded-xl border border-dashed border-border/70 bg-card/40 p-12 text-center",
         className,
       )}
     >
       {Icon ? (
-        <Icon className="mx-auto mb-3 size-8 text-muted-foreground/40" aria-hidden />
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-warm-soft text-warm-strong">
+          <Icon className="size-7" aria-hidden />
+        </div>
       ) : null}
-      <p className="text-sm font-medium">{title}</p>
+      <p className="text-base font-semibold">{title}</p>
       {description ? (
-        <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+        <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">
           {description}
         </p>
       ) : null}
-      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
+      {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
     </div>
   );
 }
