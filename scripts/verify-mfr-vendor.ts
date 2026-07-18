@@ -103,9 +103,10 @@ async function main() {
       byMfr.set(mfr, (byMfr.get(mfr) ?? 0) + amt);
     }
   }
-  ok("Spend BY VENDOR: Dreamweaver(direct) = $200", byVendor.get(dw.id) === 200, `$${byVendor.get(dw.id)}`);
-  ok("Spend BY VENDOR: OVF(distributor) = $230", byVendor.get(ovf.id) === 230, `$${byVendor.get(ovf.id)}`);
-  ok("Spend BY MANUFACTURER: Dreamweaver = $430 (both vendors)", byMfr.get("Dreamweaver") === 430, `$${byMfr.get("Dreamweaver")}`);
+  const cents = (n: number | undefined) => Math.round((n ?? 0) * 100) / 100;
+  ok("Spend BY VENDOR: Dreamweaver(direct) = $200", cents(byVendor.get(dw.id)) === 200, `$${cents(byVendor.get(dw.id))}`);
+  ok("Spend BY VENDOR: OVF(distributor) = $230", cents(byVendor.get(ovf.id)) === 230, `$${cents(byVendor.get(ovf.id))}`);
+  ok("Spend BY MANUFACTURER: Dreamweaver = $430 (both vendors)", cents(byMfr.get("Dreamweaver")) === 430, `$${cents(byMfr.get("Dreamweaver"))}`);
 
   // Cleanup + restore counter.
   await db.from("po_items").delete().in("po_id", [poDirect, poDist]);
