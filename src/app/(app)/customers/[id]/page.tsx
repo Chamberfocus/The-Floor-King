@@ -484,12 +484,18 @@ export default async function CustomerPage({
               <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
                 {customer.full_name}
               </h1>
-              {/* Stage lives in the Overview guided hero (spine + current-stage
-                  card). We only surface a badge here when that hero isn't shown —
-                  i.e. a cancelled file — so stage stays visible without repeating. */}
-              {customer.cancelled_at ? (
+              {/* A small, always-visible stage chip so stage is at-a-glance on
+                  every tab. Kept understated (neutral, no icon) so on Overview it
+                  doesn't compete with the guided hero, which remains the place you
+                  actually advance the job. */}
+              {currentStage ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/60 px-2.5 py-1 text-xs font-semibold text-foreground/80">
+                  <span className="size-1.5 rounded-full bg-warm" aria-hidden />
+                  {currentStage.name}
+                </span>
+              ) : (
                 <StageBadge stage={customer.stage} />
-              ) : null}
+              )}
               {overdue ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs font-semibold text-destructive">
                   <AlertTriangle className="size-3.5" /> Stuck
