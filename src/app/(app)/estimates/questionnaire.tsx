@@ -249,6 +249,39 @@ const savedToRow = (sa: CustomerArea): AreaRow => {
   };
 };
 
+/**
+ * Regenerate every row/group id in a RESUMED answer. The id counters reset to 0
+ * on each page load, so a saved draft's ids (c0, g0…) can collide with the next
+ * counter-minted id — and two rows sharing a React key edit in lockstep (typing
+ * in one appears in the other). Re-keying on resume advances the counters past
+ * the draft's ids so new rows are always unique.
+ */
+function rekeyAnswer(a: Answer): Answer {
+  switch (a.kind) {
+    case "areas":
+      return { ...a, rooms: a.rooms.map((r) => ({ ...r, id: `a${rid++}` })) };
+    case "cuts":
+      return {
+        ...a,
+        groups: a.groups.map((g) => ({
+          ...g,
+          id: `g${cgid++}`,
+          cuts: g.cuts.map((c) => ({ ...c, id: `c${ctid++}` })),
+        })),
+      };
+    case "stairs":
+      return { ...a, groups: a.groups.map((g) => ({ ...g, id: `s${sgid++}` })) };
+    case "trims":
+      return { ...a, rows: a.rows.map((r) => ({ ...r, id: `t${tid++}` })) };
+    case "choice_areas":
+      return { ...a, rows: a.rows.map((r) => ({ ...r, id: `d${did++}` })) };
+    case "product":
+      return { ...a, extras: a.extras.map((e) => ({ ...e, id: `x${xpid++}` })) };
+    default:
+      return a;
+  }
+}
+
 export function Questionnaire({
   customerId,
   customerName,
@@ -304,7 +337,7 @@ export function Questionnaire({
     // questions that still exist, so a changed question set can't corrupt it).
     if (draft?.answers) {
       for (const [k, v] of Object.entries(draft.answers)) {
-        if (init[k] !== undefined && v) init[k] = v as Answer;
+        if (init[k] !== undefined && v) init[k] = rekeyAnswer(v as Answer);
       }
     }
     return init;
