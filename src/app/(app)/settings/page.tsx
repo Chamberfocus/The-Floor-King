@@ -15,6 +15,7 @@ import {
   Layers,
   Rows3,
   SlidersHorizontal,
+  Megaphone,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
@@ -82,6 +83,12 @@ const SECTIONS = [
     icon: GitBranch,
     title: "Workflow stages",
     desc: "The pipeline stages a customer moves through.",
+  },
+  {
+    href: "/settings/lead-sources",
+    icon: Megaphone,
+    title: "Lead sources & ad spend",
+    desc: "The \"How did you hear about us?\" list — add sources, define their drill-down detail (referrer, campaign…), and enter monthly ad spend so the report can show cost per lead and return on ad spend.",
   },
   {
     href: "/settings/notifications",
