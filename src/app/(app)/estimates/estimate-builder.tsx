@@ -729,6 +729,39 @@ export function EstimateBuilder({
     setOpenLines((s) => new Set(s).add(key));
   };
 
+  // R&R (remove & replace) for trim — baseboard / quarter round / shoe molding:
+  // wrap the material line with a REMOVAL labor line before it and an INSTALL
+  // labor line after it (removal labor + new material + install labor), each its
+  // own separate line at the item's unit/qty, rate filled in by the user.
+  const addRR = (oi: number, li: number) => {
+    const removeK = newKey();
+    const installK = newKey();
+    setOptions((prev) =>
+      prev.map((o, i) => {
+        if (i !== oi) return o;
+        const src = o.lines[li];
+        const laborLine = (key: string, desc: string): LineState => ({
+          ...emptyLine(),
+          key,
+          category: "labor",
+          room: src.room,
+          description: desc,
+          unit: src.unit,
+          measure_unit: src.measure_unit,
+          quantity: src.quantity,
+          sqft: src.sqft,
+          margin_pct: src.margin_pct,
+        });
+        const lines = [...o.lines];
+        lines.splice(li, 0, laborLine(removeK, src.description ? `Remove existing ${src.description}` : "Remove existing"));
+        // material shifted to li+1; install goes after it.
+        lines.splice(li + 2, 0, laborLine(installK, src.description ? `Install ${src.description}` : "Install new"));
+        return { ...o, lines };
+      }),
+    );
+    setOpenLines((s) => new Set([...s, removeK, installK]));
+  };
+
   // Recompute a prep line's bag count from area/thickness, and keep any linked
   // self-leveling labor line's quantity in sync (area for a per-sq-ft labor line,
   // bags for a per-bag one). A `quantity` in the patch is treated as an override.
@@ -2301,25 +2334,48 @@ export function EstimateBuilder({
                                     </div>
                                   );
                                 })()}
-                                {/* Material lines are material-only. A saved line
-                                    that still bundles labor gets a one-tap split so
-                                    material & labor become separate line items. */}
-                                {!labor && num(line.labor_cost) > 0 ? (
-                                  <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs">
-                                    <span className="text-muted-foreground">
-                                      Bundles {formatMoney(num(line.labor_rate))}/{unitLbl} labor —
-                                      keep material &amp; labor separate.
-                                    </span>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7"
-                                      onClick={() => splitLaborToLine(oi, li)}
-                                    >
-                                      Split into a labor line
-                                    </Button>
-                                  </div>
+                                {/* Labor stays its OWN line. Any item can have labor
+                                    added (baseboard, quarter round, transitions…);
+                                    a line that still bundles labor gets a one-tap
+                                    split. Both produce a separate labor line with
+                                    its own rate + unit. */}
+                                {!labor && !isSubfloor(line) ? (
+                                  num(line.labor_cost) > 0 ? (
+                                    <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs">
+                                      <span className="text-muted-foreground">
+                                        Bundles {formatMoney(num(line.labor_rate))}/{unitLbl} labor —
+                                        keep material &amp; labor separate.
+                                      </span>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7"
+                                        onClick={() => splitLaborToLine(oi, li)}
+                                      >
+                                        Split into a labor line
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => splitLaborToLine(oi, li)}
+                                        className="text-xs font-medium text-primary hover:underline"
+                                      >
+                                        + Add labor (separate line — its own rate &amp; unit)
+                                      </button>
+                                      {line.category === "trim" ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => addRR(oi, li)}
+                                          className="text-xs font-medium text-primary hover:underline"
+                                        >
+                                          + R&amp;R (remove existing + install new)
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  )
                                 ) : null}
                               </div>
                             );
