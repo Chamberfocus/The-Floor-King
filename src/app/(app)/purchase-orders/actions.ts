@@ -14,6 +14,8 @@ import { advanceToNamedStage } from "@/lib/workflow-engine";
 // (forward-only), teeing up the install scheduling.
 const STAGE_MATERIALS_RECEIVED = /material.*received|received.*material/;
 import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
+import { buildPoItemRows, carpetSignature, type PoItemRow } from "@/lib/po-build";
+import { isRollGoodCategory } from "@/lib/types";
 import type { EstimateLineItem, PoSourceType, PoStatus } from "@/lib/types";
 
 type PoDb = Awaited<ReturnType<typeof createClient>>;
@@ -67,6 +69,181 @@ function toNumOrNull(v: string | number | null): number | null {
   if (v === null || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Insert PO items, retrying without the newer columns if they aren't present. */
+async function insertPoItemsSafe(supabase: PoDb, rows: Record<string, unknown>[]): Promise<void> {
+  let { error } = await supabase.from("po_items").insert(rows);
+  if (error) {
+    const legacy = rows.map(
+      ({ category: _c, roll_width_ft: _r, line_id: _l, sqft_per_box: _s, ...rest }) => rest,
+    );
+    ({ error } = await supabase.from("po_items").insert(legacy));
+  }
+}
+
+/**
+ * Re-derive a PO's CARPET (roll-good) lines from the live estimate cuts — the
+ * single source — so its ordered yardage always matches the cut list and can
+ * never drift. Only the roll-good lines this PO's vendor carries are replaced;
+ * non-carpet lines and manual unit costs are preserved. No-op when nothing
+ * changed. Carpet identity is matched by the STABLE product + roll width (line
+ * ids churn on every estimate save, so they can't be relied on).
+ */
+export async function syncPoCarpetFromEstimate(
+  supabase: PoDb,
+  poId: string,
+): Promise<{ changed: number }> {
+  const { data: po } = await supabase
+    .from("purchase_orders")
+    .select("id, estimate_id, supplier_id, supplier, status")
+    .eq("id", poId)
+    .maybeSingle();
+  if (!po?.estimate_id) return { changed: 0 };
+  if (po.status === "void" || po.status === "cancelled") return { changed: 0 };
+
+  // Single source: the estimate's accepted (else first) option line items.
+  const { data: est } = await supabase
+    .from("estimates")
+    .select("accepted_option_id")
+    .eq("id", po.estimate_id)
+    .maybeSingle();
+  let optionId = (est?.accepted_option_id as string | null) ?? null;
+  if (!optionId) {
+    const { data: opt } = await supabase
+      .from("estimate_options")
+      .select("id")
+      .eq("estimate_id", po.estimate_id)
+      .order("position", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    optionId = (opt?.id as string) ?? null;
+  }
+  if (!optionId) return { changed: 0 };
+  const { data: linesData } = await supabase
+    .from("estimate_line_items")
+    .select("*")
+    .eq("option_id", optionId)
+    .order("position", { ascending: true });
+  const lines = (linesData ?? []) as EstimateLineItem[];
+
+  // Product cost / name / supplier maps (mirror createPOFromEstimate).
+  const productIds = [...new Set(lines.map((l) => l.product_id).filter(Boolean) as string[])];
+  const productCost = new Map<string, number>();
+  const productName = new Map<string, string>();
+  const productSupplier = new Map<string, string | null>();
+  const productSupplierId = new Map<string, string | null>();
+  if (productIds.length) {
+    const { data: prods } = await supabase
+      .from("products")
+      .select("id, name, material_rate, supplier, supplier_id")
+      .in("id", productIds);
+    for (const p of prods ?? []) {
+      productCost.set(p.id as string, Number(p.material_rate) || 0);
+      productName.set(p.id as string, p.name as string);
+      productSupplier.set(p.id as string, (p.supplier as string) || null);
+      productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
+    }
+  }
+  const lookup = await buildSupplierLookup(supabase);
+  const orderable = lines.filter(
+    (l) => l.line_type !== "flat" && l.category !== "labor" && !l.from_stock && lineQty(l) > 0,
+  );
+  // Only the lines whose vendor is THIS PO's vendor.
+  const glines = orderable.filter((l) => {
+    const resolved = resolveLineSupplier(lookup, {
+      productSupplierId: l.product_id ? productSupplierId.get(l.product_id) : null,
+      supplierName: (l.product_id ? productSupplier.get(l.product_id) : null) || l.manufacturer || null,
+    });
+    return po.supplier_id
+      ? resolved.ref?.id === po.supplier_id
+      : (resolved.name || "").toLowerCase() === (po.supplier || "").toLowerCase();
+  });
+
+  const costOf = (l: EstimateLineItem) =>
+    (l.material_cost ?? 0) > 0 ? (l.material_cost ?? 0) : l.product_id ? (productCost.get(l.product_id) ?? 0) : 0;
+  const nameOf = (l: EstimateLineItem) =>
+    l.description || (l.product_id ? productName.get(l.product_id) : null) || l.room || "Material";
+
+  const carpetRows: PoItemRow[] = buildPoItemRows(glines, { costOf, nameOf }).filter((r) =>
+    isRollGoodCategory(r.category),
+  );
+
+  const { data: existing } = await supabase
+    .from("po_items")
+    .select("*")
+    .eq("po_id", poId)
+    .order("position", { ascending: true });
+  const isCarpet = (it: { category?: string | null; unit?: string | null; roll_width_ft?: number | null }) =>
+    isRollGoodCategory(it.category ?? null) || (it.unit ?? "").toLowerCase().includes("yd") || !!it.roll_width_ft;
+  const existingCarpet = (existing ?? []).filter(isCarpet);
+  const nonCarpet = (existing ?? []).filter((it) => !isCarpet(it));
+
+  // Safety: if the estimate DOES have carpet but none matched this PO's vendor,
+  // don't wipe the PO's carpet lines (a matching miss, not a real removal).
+  const anyCarpetInEstimate = orderable.some(
+    (l) => isRollGoodCategory(l.category) && Number(l.length_in) > 0 && Number(l.width_in) > 0,
+  );
+  if (carpetRows.length === 0 && existingCarpet.length > 0 && anyCarpetInEstimate) {
+    return { changed: 0 };
+  }
+
+  // No drift → no write.
+  if (carpetSignature(existingCarpet) === carpetSignature(carpetRows)) return { changed: 0 };
+
+  // Preserve any manual unit cost per product on the existing carpet rows.
+  const costByProduct = new Map<string, number>();
+  for (const it of existingCarpet) {
+    if (it.product_id && it.unit_cost != null) costByProduct.set(it.product_id as string, Number(it.unit_cost));
+  }
+  const startPos = nonCarpet.length;
+  const insertRows = carpetRows.map((r, i) => ({
+    ...r,
+    po_id: poId,
+    position: startPos + i,
+    unit_cost: (r.product_id && costByProduct.get(r.product_id)) ?? r.unit_cost,
+  }));
+
+  // Crash-safe: add the new carpet rows first, then drop the stale ones.
+  if (insertRows.length) await insertPoItemsSafe(supabase, insertRows);
+  const oldIds = existingCarpet.map((it) => it.id as string);
+  if (oldIds.length) await supabase.from("po_items").delete().in("id", oldIds);
+  return { changed: carpetRows.length + oldIds.length };
+}
+
+/** Re-sync every PO tied to an estimate — called after the estimate's cuts change. */
+export async function syncPosForEstimate(estimateId: string): Promise<void> {
+  if (!estimateId) return;
+  try {
+    const supabase = await createClient();
+    const { data: pos } = await supabase
+      .from("purchase_orders")
+      .select("id")
+      .eq("estimate_id", estimateId);
+    let anyChanged = false;
+    for (const po of pos ?? []) {
+      const { changed } = await syncPoCarpetFromEstimate(supabase, po.id as string);
+      if (changed) anyChanged = true;
+    }
+    if (anyChanged) {
+      revalidatePath("/purchase-orders");
+      revalidatePath("/inventory");
+      revalidatePath("/warehouse");
+    }
+  } catch {
+    // best-effort — never block an estimate save on PO sync
+  }
+}
+
+/** Sync this one PO's carpet on view (safety net if the estimate changed
+ *  through a path that didn't push). Idempotent; writes only on real drift. */
+export async function resyncPoCarpet(poId: string): Promise<void> {
+  try {
+    const supabase = await createClient();
+    await syncPoCarpetFromEstimate(supabase, poId);
+  } catch {
+    // best-effort
+  }
 }
 
 /** Generate a PO from an estimate's accepted (or first) option material lines. */
@@ -230,79 +407,19 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
     const nameOf = (l: EstimateLineItem) =>
       l.description || (l.product_id ? productName.get(l.product_id) : null) || l.room || "Material";
 
-    // Lines flagged "order as roll" consolidate into one roll per product/width;
-    // everyone else is ordered as its individual cut.
-    const cutLines = glines.filter((l) => !l.order_as_roll);
-    const rollLines = glines.filter((l) => l.order_as_roll);
-
-    const items = cutLines.map((l, i) => {
-      // Carpet & any measured line: show the cut size to order, not just yards.
-      const dims =
-        l.length_in && l.width_in
-          ? ` — ${ftIn(Number(l.width_in))} × ${ftIn(Number(l.length_in))}`
-          : "";
-      return {
-        po_id: po.id,
-        position: i,
-        product_id: l.product_id,
-        description: `${nameOf(l)}${dims}`,
-        quantity: Math.round(lineQty(l) * 100) / 100,
-        unit: l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft"),
-        unit_cost: costOf(l),
-        manufacturer: l.manufacturer ?? null,
-        style: l.style ?? null,
-        color: l.color ?? null,
-        item_no: l.item_no ?? null,
-      };
-    });
-
-    // Group roll lines by product + roll width → one roll line (linear ft + yardage).
-    const rollGroups = new Map<
-      string,
-      { product_id: string | null; width: number; sqyd: number; sample: EstimateLineItem }
-    >();
-    for (const l of rollLines) {
-      const width = Number(l.roll_width_ft) > 0 ? Number(l.roll_width_ft) : 12;
-      const key = `${l.product_id ?? nameOf(l)}|${width}`;
-      const g = rollGroups.get(key) ?? { product_id: l.product_id, width, sqyd: 0, sample: l };
-      // Roll math is in square yards regardless of the line's billing unit.
-      const sqyd =
-        l.measure_unit === "sqyd" ? lineQty(l) : lineQty(l) / 9;
-      g.sqyd += sqyd;
-      rollGroups.set(key, g);
-    }
-    let pos = items.length;
-    for (const g of rollGroups.values()) {
-      const sqyd = Math.round(g.sqyd * 100) / 100;
-      const linft = Math.round(((sqyd * 9) / g.width) * 10) / 10; // total sqft ÷ roll width
-      items.push({
-        po_id: po.id,
-        position: pos++,
-        product_id: g.product_id,
-        description: `Full roll — ${nameOf(g.sample)} — ${linft} lin ft (${sqyd} sq yd) @ ${g.width} ft wide`,
-        quantity: sqyd,
-        unit: "sqyd",
-        unit_cost: costOf(g.sample),
-        manufacturer: g.sample.manufacturer ?? null,
-        style: g.sample.style ?? null,
-        color: g.sample.color ?? null,
-        item_no: g.sample.item_no ?? null,
-      });
-    }
-    if (items.length) await supabase.from("po_items").insert(items);
+    // The carpet-cut → order math lives in ONE shared place (buildPoItemRows),
+    // reused by the auto re-sync so a PO's ordered yardage always matches the cuts.
+    const items = buildPoItemRows(glines, { costOf, nameOf }).map((r, i) => ({
+      ...r,
+      po_id: po.id,
+      position: i,
+    }));
+    if (items.length) await insertPoItemsSafe(supabase, items);
   }
 
   revalidatePath("/purchase-orders");
   if (firstPoId) redirect(`/purchase-orders/${firstPoId}`);
   redirect("/purchase-orders");
-}
-
-/** Inches → feet'inches" (e.g. 150 → 12'6"). */
-function ftIn(inches: number): string {
-  if (!Number.isFinite(inches) || inches <= 0) return "";
-  const ft = Math.floor(inches / 12);
-  const inch = Math.round(inches % 12);
-  return inch > 0 ? `${ft}'${inch}"` : `${ft}'`;
 }
 
 export async function savePurchaseOrder(

@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
 import { PoBuilder } from "../po-builder";
 import { ReorderAlerts } from "@/components/reorder-alert";
-import { deletePurchaseOrder } from "../actions";
+import { deletePurchaseOrder, resyncPoCarpet } from "../actions";
 
 export const metadata: Metadata = { title: "Purchase Order" };
 export const maxDuration = 60;
@@ -30,6 +30,9 @@ export default async function PurchaseOrderPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // Safety net: keep this PO's carpet yardage in lockstep with the estimate's
+  // live cuts before rendering (idempotent — writes only on real drift).
+  await resyncPoCarpet(id);
   const po = await getPurchaseOrder(id);
   if (!po) notFound();
   const existingBill = await getBillForPO(po.id);

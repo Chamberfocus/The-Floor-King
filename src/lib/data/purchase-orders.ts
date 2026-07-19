@@ -42,6 +42,34 @@ export async function getEstimateCutSources(
   return (data ?? []) as CutSource[];
 }
 
+const CUT_COLS =
+  "room, description, category, length_in, width_in, is_fill, roll_width_ft, manufacturer, color";
+
+/**
+ * The ONE way any document reads a job's carpet cuts — always live from the
+ * estimate line items the job points at (`option_id`), never a copy. New
+ * document types should call this (or getEstimateCutSources) so they inherit
+ * cuts automatically and can't drift.
+ */
+export async function getJobCutSources(jobId: string): Promise<CutSource[]> {
+  if (!jobId) return [];
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("option_id, estimate_id")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (job?.option_id) {
+    const { data } = await supabase
+      .from("estimate_line_items")
+      .select(CUT_COLS)
+      .eq("option_id", job.option_id as string)
+      .order("position", { ascending: true });
+    return (data ?? []) as CutSource[];
+  }
+  return getEstimateCutSources((job?.estimate_id as string) ?? null);
+}
+
 async function attachItems(
   supabase: SupabaseServerClient,
   pos: PurchaseOrder[],

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireProfile } from "@/lib/auth";
+import { syncPosForEstimate } from "@/app/(app)/purchase-orders/actions";
 import {
   num,
   type SaveEstimateInput,
@@ -226,12 +227,18 @@ export async function saveEstimate(
     .select("customer_id")
     .eq("id", estimateId)
     .maybeSingle();
+  // Carpet cuts are the single source: re-derive any linked PO's ordered yardage
+  // so the PO's "Order qty" tracks the edited cuts automatically (no re-entry).
+  // Work order / staging read the cuts live, so they need no push.
+  await syncPosForEstimate(estimateId);
+
   revalidatePath(`/estimates/${estimateId}`);
   revalidatePath(`/estimates/${estimateId}/edit`);
   revalidatePath("/estimates");
   if (est?.customer_id) revalidatePath(`/customers/${est.customer_id}`);
   revalidatePath("/jobs");
   revalidatePath("/warehouse");
+  revalidatePath("/purchase-orders");
   return { error: null };
 }
 
