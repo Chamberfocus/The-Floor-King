@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   ArrowRight,
   Check,
+  ChevronDown,
   PauseCircle,
   XCircle,
   Ruler,
@@ -36,7 +37,6 @@ import type { JobSatisfaction } from "@/lib/data/jobs";
 import { advanceWorkflow } from "../actions";
 import { EstimateScheduler } from "./estimate-scheduler";
 import { InstallSchedule, type InstallScheduleProps } from "./install-schedule";
-import { StageSpine } from "./stage-spine";
 import {
   stepGate,
   resolveFlowStep,
@@ -463,48 +463,87 @@ export async function GuidedFlow({
   }
 
   return (
-    <div className="mb-6 space-y-3">
-      {/* Stage spine: been → here → ahead */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-semibold text-foreground">
+    <div className="mb-6 space-y-4">
+      {/* Level 3 — quiet, condensed progress. The full ordered list is one tap
+          away (native <details>), so every stage stays viewable without a wall
+          of 12 equal-weight pills competing for attention. */}
+      <details className="group/stages">
+        <summary className="flex cursor-pointer list-none items-center gap-3 py-1 text-xs [&::-webkit-details-marker]:hidden">
+          <span className="whitespace-nowrap font-medium text-muted-foreground">
             {currentStage
               ? currentIsLost
                 ? currentStage.name
                 : currentIsPark
                   ? `On hold · ${currentStage.name}`
-                  : `Stage ${currentIdx + 1} of ${mainline.length} · ${currentStage.name}`
+                  : `Step ${currentIdx + 1} of ${mainline.length}`
               : "Not started"}
           </span>
-          {nextStage && !currentIsLost && !currentIsPark ? (
-            <span className="text-muted-foreground">Next: {nextStage.name}</span>
-          ) : null}
-        </div>
-        <StageSpine
-          stages={mainline.map((s, i) => ({
-            name: s.name,
-            state:
-              currentIdx >= 0 && i < currentIdx
-                ? "done"
-                : currentIdx === i
-                  ? "active"
-                  : "upcoming",
-          }))}
-        />
-      </div>
+          {!currentIsLost && !currentIsPark && currentIdx >= 0 ? (
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${Math.round(((currentIdx + 1) / mainline.length) * 100)}%` }}
+              />
+            </div>
+          ) : (
+            <div className="flex-1" />
+          )}
+          <span className="inline-flex items-center gap-1 whitespace-nowrap text-muted-foreground hover:text-foreground">
+            All stages
+            <ChevronDown className="size-3.5 transition-transform group-open/stages:rotate-180" />
+          </span>
+        </summary>
+        <ol className="mt-3 space-y-1.5 border-t pt-3">
+          {mainline.map((s, i) => {
+            const isDone = currentIdx >= 0 && i < currentIdx;
+            const isActive = currentIdx === i;
+            return (
+              <li key={s.id} className="flex items-center gap-2.5 text-sm">
+                <span
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : isDone
+                        ? "bg-primary/15 text-primary"
+                        : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {isDone ? <Check className="size-3" /> : i + 1}
+                </span>
+                <span className={cn(isActive ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                  {s.name}
+                </span>
+                {isActive ? (
+                  <span className="ml-auto text-[10px] font-medium uppercase tracking-wide text-primary">
+                    You&apos;re here
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      </details>
 
       {/* The current stage — its real tool + the "ready for next" gate */}
       <Card className="overflow-hidden rounded-lg border-primary/40 bg-gradient-to-b from-primary/[0.06] to-card shadow-sm ring-1 ring-primary/15">
         <CardContent className="space-y-4 pt-6">
-          <div className="flex items-center gap-3">
-            <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Meta.icon className="size-5" />
+          <div className="flex items-center gap-3.5">
+            <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Meta.icon className="size-6" />
             </span>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                {currentIsLost ? "This deal" : currentIsPark ? "On hold" : "Current stage"}
+                {currentIsLost ? "This deal" : currentIsPark ? "On hold" : "Current step"}
               </p>
-              <p className="text-lg font-bold tracking-tight">{Meta.title}</p>
+              <p className="text-xl font-bold tracking-tight sm:text-2xl">{Meta.title}</p>
+              {nextStage && !currentIsLost && !currentIsPark ? (
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Up next{" "}
+                  <ArrowRight className="inline size-3.5 -translate-y-px" />{" "}
+                  <span className="font-medium text-foreground/80">{nextStage.name}</span>
+                </p>
+              ) : null}
             </div>
           </div>
 
