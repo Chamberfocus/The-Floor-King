@@ -47,7 +47,7 @@ import {
   THICKNESS_OPTIONS,
   DEFAULT_LABOR_PER_SQFT,
 } from "@/lib/floor-prep";
-import { saveEstimate } from "./actions";
+import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft } from "./actions";
 import { saveProductRate, createProductInline } from "../catalog/actions";
 import { writeScopeDescription, draftLinesFromText } from "./ai-actions";
 import type { SmartLine } from "./smart-actions";
@@ -271,12 +271,15 @@ export function EstimateBuilder({
   addonCatalog = [],
   productUnits = {},
   productDefaults = {},
+  builderDraft = null,
 }: {
   estimate: Estimate;
   customerName: string;
   customer?: Customer | null;
   org?: OrgSettings;
   autoPrint?: boolean;
+  /** Unsaved in-progress edits (auto-saved as you type), restored on return. */
+  builderDraft?: unknown;
   /** Colors already used (estimates + catalog) — autocomplete the Color field. */
   colorSuggestions?: string[];
   /** Manufacturers already used — autocomplete the Manufacturer field. */
@@ -294,6 +297,22 @@ export function EstimateBuilder({
   const [isPending, startTransition] = useTransition();
   const keyCounter = useRef(0);
   const newKey = () => `k${keyCounter.current++}`;
+
+  // In-progress edits auto-saved as you type (survives navigate-away / logout).
+  // We restore CONTENT here and regenerate every option/line key on the way in,
+  // so resumed rows never collide with fresh keys (the input-glitch we fixed).
+  const draft = (builderDraft ?? null) as {
+    title?: string;
+    taxRate?: string;
+    presentation?: EstimatePresentation;
+    jobDescription?: string;
+    notes?: string;
+    overallMargin?: string;
+    discountKind?: "amount" | "percent";
+    discountValue?: string;
+    activeOption?: number;
+    options?: OptionState[];
+  } | null;
 
   const emptyLine = (): LineState => ({
     key: newKey(),
@@ -336,29 +355,37 @@ export function EstimateBuilder({
     save_default: false,
   });
 
-  const [title, setTitle] = useState(estimate.title ?? "");
-  const [taxRate, setTaxRate] = useState(String(estimate.tax_rate ?? 0));
+  const [title, setTitle] = useState(draft?.title ?? estimate.title ?? "");
+  const [taxRate, setTaxRate] = useState(draft?.taxRate ?? String(estimate.tax_rate ?? 0));
   const [presentation, setPresentation] = useState<EstimatePresentation>(
-    estimate.presentation ?? "detailed",
+    draft?.presentation ?? estimate.presentation ?? "detailed",
   );
   const [jobDescription, setJobDescription] = useState(
-    estimate.job_description ?? "",
+    draft?.jobDescription ?? estimate.job_description ?? "",
   );
-  const [notes, setNotes] = useState(estimate.notes ?? "");
+  const [notes, setNotes] = useState(draft?.notes ?? estimate.notes ?? "");
   // Estimate-wide gross margin. Lines without their own override follow this.
   const [overallMargin, setOverallMargin] = useState(
-    estimate.target_margin != null ? String(estimate.target_margin) : "40",
+    draft?.overallMargin ?? (estimate.target_margin != null ? String(estimate.target_margin) : "40"),
   );
   // Whole-job discount (owner-applied). Shows in the owner totals; the customer
   // only ever sees the discounted lump sum.
   const [discountKind, setDiscountKind] = useState<"amount" | "percent">(
-    estimate.discount_kind === "percent" ? "percent" : "amount",
+    draft?.discountKind ?? (estimate.discount_kind === "percent" ? "percent" : "amount"),
   );
   const [discountValue, setDiscountValue] = useState(
-    estimate.discount_value ? String(estimate.discount_value) : "",
+    draft?.discountValue ?? (estimate.discount_value ? String(estimate.discount_value) : ""),
   );
 
   const [options, setOptions] = useState<OptionState[]>(() => {
+    // Resume unsaved edits (fresh keys so nothing collides), else load the saved estimate.
+    if (draft?.options?.length) {
+      return draft.options.map((o) => ({
+        ...o,
+        key: newKey(),
+        lines: (o.lines ?? []).map((l) => ({ ...l, key: newKey() })),
+      }));
+    }
     const initial = (estimate.options ?? []).map((o) => ({
       key: newKey(),
       name: o.name,
@@ -452,7 +479,37 @@ export function EstimateBuilder({
 
   // --- New-builder UI state -------------------------------------------------
   // One option shown at a time (tabs), and an owner ⇄ customer preview flip.
-  const [activeOption, setActiveOption] = useState(0);
+  const [activeOption, setActiveOption] = useState(draft?.activeOption ?? 0);
+
+  // --- Auto-save (debounced) ------------------------------------------------
+  // Reads the current builder state and persists it ~1s after you stop typing.
+  // Fire-and-forget: it NEVER writes back into the fields you're editing, so it
+  // can't cause the input glitch. A subtle indicator shows it's safe.
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(draft ? "saved" : "idle");
+  const firstAuto = useRef(true);
+  useEffect(() => {
+    if (firstAuto.current) {
+      firstAuto.current = false;
+      return;
+    }
+    setSaveState("saving");
+    const t = setTimeout(() => {
+      void saveEstimateBuilderDraft(estimate.id, {
+        title,
+        taxRate,
+        presentation,
+        jobDescription,
+        notes,
+        overallMargin,
+        discountKind,
+        discountValue,
+        activeOption,
+        options,
+      }).then(() => setSaveState("saved"));
+    }, 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, taxRate, presentation, jobDescription, notes, overallMargin, discountKind, discountValue, options, activeOption]);
   const [previewCustomer, setPreviewCustomer] = useState(false);
 
   // Which line editors are expanded — visual only (tap a line to edit it).
@@ -1195,6 +1252,8 @@ export function EstimateBuilder({
         return;
       }
       await flushDefaultRates();
+      // Committed for real — the in-progress draft is no longer needed.
+      void clearEstimateBuilderDraft(estimate.id);
       toast.success("Estimate saved");
       // "Save & view" opens the estimate; a plain "Save" returns to the
       // customer's dashboard (the job's spine) — only ever on a successful save.
@@ -1219,6 +1278,7 @@ export function EstimateBuilder({
         return;
       }
       await flushDefaultRates();
+      void clearEstimateBuilderDraft(estimate.id);
       window.print();
     });
 
@@ -2933,6 +2993,13 @@ export function EstimateBuilder({
             </span>
           </div>
           <div className="flex items-center gap-2">
+          <span
+            className="mr-1 hidden text-xs text-muted-foreground sm:inline"
+            aria-live="polite"
+            title="Your work auto-saves as you type"
+          >
+            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "✓ Saved" : ""}
+          </span>
           <Button
             type="button"
             variant="outline"

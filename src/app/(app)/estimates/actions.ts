@@ -577,6 +577,56 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
   redirect("/estimates");
 }
 
+// --- Builder auto-save: one in-progress draft per estimate --------------------
+// Best-effort (no-op if the drafts table isn't there yet). Fire-and-forget from
+// the builder: it READS the current builder state and persists it; it never
+// writes anything back into the fields being edited.
+
+/** Auto-save the estimate builder's in-progress state (debounced by the client). */
+export async function saveEstimateBuilderDraft(
+  estimateId: string,
+  data: unknown,
+): Promise<{ ok: boolean }> {
+  if (!estimateId) return { ok: false };
+  try {
+    const supabase = await createClient();
+    await supabase.from("estimate_builder_drafts").upsert(
+      { estimate_id: estimateId, data, updated_at: new Date().toISOString() },
+      { onConflict: "estimate_id" },
+    );
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Load a builder's in-progress draft (null if none / table not set up). */
+export async function getEstimateBuilderDraft(estimateId: string): Promise<unknown | null> {
+  if (!estimateId) return null;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("estimate_builder_drafts")
+      .select("data")
+      .eq("estimate_id", estimateId)
+      .maybeSingle();
+    return (data?.data as unknown) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Clear a builder's draft (on an explicit Save, or "discard"). */
+export async function clearEstimateBuilderDraft(estimateId: string): Promise<void> {
+  if (!estimateId) return;
+  try {
+    const supabase = await createClient();
+    await supabase.from("estimate_builder_drafts").delete().eq("estimate_id", estimateId);
+  } catch {
+    // best-effort
+  }
+}
+
 /** Save the notes shown on the estimate (and its printed / PDF copy). */
 export async function saveEstimateNotes(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));

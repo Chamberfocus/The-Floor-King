@@ -5,6 +5,7 @@ import { listAddonCatalog } from "@/lib/data/addon-defaults";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { createClient } from "@/lib/supabase/server";
+import { getEstimateBuilderDraft } from "../../actions";
 import { EstimateBuilder } from "../../estimate-builder";
 
 export const metadata: Metadata = { title: "Edit estimate" };
@@ -25,6 +26,9 @@ export default async function EditEstimatePage({
   const suggestions = await listLineSuggestions();
   const addonCatalog = await listAddonCatalog();
   const autoPrint = (await searchParams).print === "1";
+  // Unsaved in-progress edits (auto-saved as you type) — restored so you return
+  // exactly where you left off. Null when nothing is pending.
+  const builderDraft = await getEstimateBuilderDraft(id);
 
   // The catalog unit of each linked product — so the builder can flag a line
   // that's priced by area when its product is really sold by the each/bag.
@@ -67,6 +71,7 @@ export default async function EditEstimatePage({
       addonCatalog={addonCatalog}
       productUnits={productUnits}
       productDefaults={productDefaults}
+      builderDraft={builderDraft}
     />
   );
 }
