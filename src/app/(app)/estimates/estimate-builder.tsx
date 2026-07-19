@@ -49,8 +49,7 @@ import {
 } from "@/lib/floor-prep";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft } from "./actions";
 import { saveProductRate, createProductInline } from "../catalog/actions";
-import { writeScopeDescription, draftLinesFromText } from "./ai-actions";
-import type { SmartLine } from "./smart-actions";
+import { writeScopeDescription } from "./ai-actions";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
 import type { AddonCatalogItem } from "@/lib/data/addon-defaults";
 import { SegmentedField } from "@/components/ui/segmented-field";
@@ -453,29 +452,6 @@ export function EstimateBuilder({
   const updateRoom = (i: number, patch: Partial<{ name: string; sqft: string }>) =>
     setRooms((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const removeRoom = (i: number) => setRooms((r) => r.filter((_, j) => j !== i));
-  // Start a flooring material for a room: add a material line pre-set to the
-  // room + its area, open it, so you just search the product.
-  const addFlooringForRoom = (oi: number, room: { name: string; sqft: string }) => {
-    const li = options[oi]?.lines.length ?? 0;
-    addLine(oi, false);
-    updateLine(oi, li, { room: room.name, sqft: room.sqft });
-  };
-  // Drop a PREP line tagged to a room (moisture, skim coat, subfloor prep…),
-  // priced by the room's area — so per-room prep flows to the work order under
-  // that room. It's a labor line by default; add the material (e.g. a bag of
-  // self-leveler) via the material search when it's a bag good.
-  const addPrepForRoom = (oi: number, room: { name: string; sqft: string }) => {
-    const li = options[oi]?.lines.length ?? 0;
-    addLine(oi, true);
-    updateLine(oi, li, {
-      room: room.name,
-      description: "Floor prep",
-      unit: "sq ft",
-      measure_unit: "sqft",
-      sqft: room.sqft,
-      quantity: "",
-    });
-  };
 
   // --- New-builder UI state -------------------------------------------------
   // One option shown at a time (tabs), and an owner ⇄ customer preview flip.
@@ -1310,59 +1286,6 @@ export function EstimateBuilder({
   // AI "pre-fill from a description" — describe the job in plain English and the
   // same engine the guided flow used generates lines, merged into the active
   // option's LIVE state (nothing saved until you Save). Review & adjust after.
-  const [aiText, setAiText] = useState("");
-  const [aiPrefillBusy, setAiPrefillBusy] = useState(false);
-  const smartLineToState = (s: SmartLine): LineState => ({
-    ...emptyLine(),
-    room: s.room ?? "",
-    description: s.description ?? "",
-    line_type: "mat_labor",
-    sqft: s.sqft ? String(s.sqft) : "",
-    len_ft: inToFt(s.length_in),
-    len_in: inToIn(s.length_in),
-    wid_ft: inToFt(s.width_in),
-    wid_in: inToIn(s.width_in),
-    measure_unit: s.measure_unit,
-    material_rate: s.material_rate ? String(s.material_rate) : "",
-    labor_rate: s.labor_rate ? String(s.labor_rate) : "",
-    material_cost: s.material_cost ? String(s.material_cost) : "",
-    labor_cost: s.labor_cost ? String(s.labor_cost) : "",
-    quantity: s.quantity ? String(s.quantity) : "",
-    unit: s.unit ?? "",
-    category: s.category ?? "",
-    waste_pct: s.waste_pct ? String(s.waste_pct) : "",
-    product_id: s.product_id ?? "",
-    manufacturer: s.manufacturer ?? "",
-    style: s.style ?? "",
-    color: s.color ?? "",
-    from_stock: !!s.from_stock,
-    sqft_per_box: s.sqft_per_box ? String(s.sqft_per_box) : "",
-    is_fill: !!s.is_fill,
-  });
-  const prefillFromText = async () => {
-    if (!aiText.trim()) return;
-    setAiPrefillBusy(true);
-    const res = await draftLinesFromText(aiText);
-    setAiPrefillBusy(false);
-    if (res.error) {
-      toast.error(res.error);
-      return;
-    }
-    const newLines = res.lines.map(smartLineToState);
-    setOptions((prev) =>
-      prev.map((o, i) => {
-        if (i !== safeActive) return o;
-        // Drop a lone empty starter line; otherwise append.
-        const kept = o.lines.filter(
-          (l) => l.description.trim() || num(l.sqft) || num(l.quantity) || l.product_id,
-        );
-        return { ...o, lines: [...kept, ...newLines] };
-      }),
-    );
-    setAiText("");
-    toast.success(`Added ${newLines.length} line${newLines.length === 1 ? "" : "s"} — review & adjust`);
-  };
-
   // Running grand total — discount-aware (matches the estimate view / invoice)
   // and shown in the always-visible bar, with the true blended margin.
   const toCalc = (l: LineState) => ({
@@ -1607,31 +1530,9 @@ export function EstimateBuilder({
         </CardContent>
       </Card>
 
-      {/* AI pre-fill — describe the job in plain English; lines drop into the
-          active option for you to review & adjust (nothing saved yet). */}
-      <details className="mb-4 rounded-lg border bg-card [&_summary]:list-none">
-        <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium">
-          <Sparkles className="size-4 text-primary" /> Pre-fill from a description
-          <span className="font-normal text-muted-foreground">— optional</span>
-        </summary>
-        <div className="space-y-2 border-t p-3">
-          <textarea
-            value={aiText}
-            onChange={(e) => setAiText(e.target.value)}
-            rows={3}
-            placeholder="e.g. 12x15 living room and 10x12 bedroom in Mohawk carpet, hall in LVP, tear out old carpet, self-level the kitchen ~200 sq ft…"
-            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">
-              Generates rooms, materials &amp; labor into <span className="font-medium">{options[safeActive]?.name || "this option"}</span> — matched to your catalog. Review after.
-            </p>
-            <Button type="button" size="sm" onClick={prefillFromText} disabled={aiPrefillBusy || !aiText.trim()}>
-              <Sparkles className="size-3.5" /> {aiPrefillBusy ? "Building…" : "Generate lines"}
-            </Button>
-          </div>
-        </div>
-      </details>
+      {/* One origin for materials/labor/accessories: the guided questionnaire.
+          The builder ADJUSTS what it produced + one "＋ Add item" to add a
+          forgotten line (removed the redundant AI paste-to-lines path). */}
 
       {/* Option tabs — build one option at a time (good / better / best) */}
       {options.length > 1 || recommendedKey ? (
@@ -1809,26 +1710,6 @@ export function EstimateBuilder({
                           onApply={(area) => updateRoom(ri, { sqft: String(area) })}
                         />
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9"
-                        onClick={() => addFlooringForRoom(oi, room)}
-                        title="Add a flooring material for this room (area pre-filled)"
-                      >
-                        <Plus className="size-3.5" /> Flooring
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9"
-                        onClick={() => addPrepForRoom(oi, room)}
-                        title="Add a prep line for this room (moisture, skim coat…) — flows to the work order under this room"
-                      >
-                        <Plus className="size-3.5" /> Prep
-                      </Button>
                       <Button
                         type="button"
                         variant="ghost"
@@ -2808,22 +2689,65 @@ export function EstimateBuilder({
                   );
                 })}
                       <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => addLine(oi, section === "labor")}
-                        >
-                          <Plus className="size-3.5" /> Add {section === "labor" ? "labor" : "material"}
-                        </Button>
-                        {section !== "labor" ? (
+                        {section === "labor" ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => addLine(oi, true)}
+                          >
+                            <Plus className="size-3.5" /> Add labor line
+                          </Button>
+                        ) : (
+                          // ONE way to add a forgotten item: a blank line (search
+                          // the catalog or type your own), a pre-priced add-on, or
+                          // subfloor — all in one menu.
                           <details className="relative [&_summary]:list-none">
-                            <summary className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2.5 py-1.5 text-sm font-medium hover:bg-muted">
-                              <Plus className="size-3.5" /> Add subfloor
+                            <summary className="inline-flex cursor-pointer items-center gap-1 rounded-md border bg-card px-3 py-1.5 text-sm font-semibold hover:bg-muted">
+                              <Plus className="size-3.5" /> Add item
                             </summary>
-                            <div className="absolute z-20 mt-1 w-56 rounded-md border bg-popover p-1 shadow-md">
-                              <div className="px-2 py-1 text-xs text-muted-foreground">
-                                Plywood, priced by the sheet
+                            <div className="absolute z-20 mt-1 max-h-80 w-72 overflow-y-auto rounded-md border bg-popover p-1 shadow-md">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  addLine(oi, false);
+                                  (e.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+                                }}
+                                className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm font-medium hover:bg-muted"
+                              >
+                                <Plus className="size-4 text-primary" /> Material line
+                                <span className="text-xs font-normal text-muted-foreground">— search the catalog or type your own</span>
+                              </button>
+                              {addonCatalog.length ? (
+                                <>
+                                  <div className="mt-1 border-t px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                    Common add-ons
+                                  </div>
+                                  {addonCatalog.map((a) => (
+                                    <button
+                                      key={a.label}
+                                      type="button"
+                                      onClick={(e) => {
+                                        addAddon(oi, a);
+                                        (e.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
+                                      }}
+                                      className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                                    >
+                                      <span className="min-w-0 truncate">
+                                        {a.label}
+                                        {a.custom ? (
+                                          <span className="ml-1 text-[10px] text-violet-600 dark:text-violet-400">custom</span>
+                                        ) : null}
+                                      </span>
+                                      <span className="shrink-0 text-xs text-muted-foreground">
+                                        {a.sell != null ? `${formatMoney(a.sell)}/${a.unit}` : a.labor ? "labor" : ""}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </>
+                              ) : null}
+                              <div className="mt-1 border-t px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Subfloor (by the sheet)
                               </div>
                               {SUBFLOOR_OPTIONS.map((opt) => (
                                 <button
@@ -2840,40 +2764,7 @@ export function EstimateBuilder({
                               ))}
                             </div>
                           </details>
-                        ) : null}
-                        {section !== "labor" && addonCatalog.length ? (
-                          <details className="relative [&_summary]:list-none">
-                            <summary className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2.5 py-1.5 text-sm font-medium hover:bg-muted">
-                              <Plus className="size-3.5" /> Add-on
-                            </summary>
-                            <div className="absolute z-20 mt-1 max-h-72 w-72 overflow-y-auto rounded-md border bg-popover p-1 shadow-md">
-                              <div className="px-2 py-1 text-xs text-muted-foreground">
-                                Priced from Settings → Default pricing
-                              </div>
-                              {addonCatalog.map((a) => (
-                                <button
-                                  key={a.label}
-                                  type="button"
-                                  onClick={(e) => {
-                                    addAddon(oi, a);
-                                    (e.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open");
-                                  }}
-                                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-                                >
-                                  <span className="min-w-0 truncate">
-                                    {a.label}
-                                    {a.custom ? (
-                                      <span className="ml-1 text-[10px] text-violet-600 dark:text-violet-400">custom</span>
-                                    ) : null}
-                                  </span>
-                                  <span className="shrink-0 text-xs text-muted-foreground">
-                                    {a.sell != null ? `${formatMoney(a.sell)}/${a.unit}` : a.labor ? "labor" : ""}
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                          </details>
-                        ) : null}
+                        )}
                       </div>
                     </div>
                   );
