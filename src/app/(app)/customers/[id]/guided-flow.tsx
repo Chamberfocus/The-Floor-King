@@ -29,7 +29,9 @@ import type {
   Estimate,
   Job,
   Invoice,
+  LeadSourceRow,
 } from "@/lib/types";
+import { EstimateSourceGate } from "./estimate-source-gate";
 import { invoiceTotals } from "@/lib/invoice-calc";
 import { amountPaid } from "@/lib/data/invoices";
 import { getJobMaterials } from "@/lib/data/job-materials";
@@ -51,8 +53,7 @@ import {
 import { OwnerOverride } from "./owner-override";
 import { JobMaterialsCard } from "@/app/(app)/jobs/[id]/job-materials-card";
 import { SatisfactionForm } from "@/app/(app)/jobs/[id]/satisfaction-form";
-import { setEstimateStatus, createEstimate } from "@/app/(app)/estimates/actions";
-import { Button } from "@/components/ui/button";
+import { setEstimateStatus } from "@/app/(app)/estimates/actions";
 import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 
@@ -127,6 +128,8 @@ export async function GuidedFlow({
   hasActivity,
   estimateBooked,
   isOwner,
+  sourceOk,
+  sources,
 }: {
   customer: Customer;
   stages: WorkflowStage[];
@@ -142,6 +145,9 @@ export async function GuidedFlow({
   estimateBooked: boolean;
   /** Only the owner may override a blocked step. */
   isOwner: boolean;
+  /** For the "build" step's Guided-vs-Build entry (source-gated). */
+  sourceOk: boolean;
+  sources: LeadSourceRow[];
 }) {
   const sorted = [...stages].sort((a, b) => a.position - b.position);
   const mainline = sorted.filter((s) => !isOffSpine(s));
@@ -255,22 +261,20 @@ export async function GuidedFlow({
         <p className="text-sm text-muted-foreground">
           Price this job and send the estimate. Advance when it&apos;s out to the customer.
         </p>
-        <div className="flex flex-wrap gap-2">
-          {activeEstimate ? (
-            <Link
-              href={`/estimates/${activeEstimate.id}/edit`}
-              className={buttonVariants({ size: "sm" })}
-            >
-              Open estimate builder
-            </Link>
-          ) : null}
-          <form action={createEstimate}>
-            <input type="hidden" name="customer_id" value={customer.id} />
-            <Button type="submit" size="sm" variant={activeEstimate ? "outline" : "default"}>
-              <FileText className="size-3.5" /> Build estimate
-            </Button>
-          </form>
-        </div>
+        {activeEstimate ? (
+          <Link
+            href={`/estimates/${activeEstimate.id}/edit`}
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+          >
+            Continue current draft
+          </Link>
+        ) : null}
+        {/* Start an estimate — the GUIDED questionnaire (recommended) or straight
+            to the builder. Source-gated (asks how they found us if not recorded). */}
+        <EstimateSourceGate customerId={customer.id} sourceOk={sourceOk} sources={sources} />
+        <p className="text-xs text-muted-foreground">
+          Guided walks the job step by step; Build opens the itemized builder directly.
+        </p>
       </div>
     );
   } else if (step === "approve") {

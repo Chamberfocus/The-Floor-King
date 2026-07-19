@@ -698,6 +698,8 @@ export default async function CustomerPage({
                   hasActivity={activities.length > 0}
                   estimateBooked={!!estimateAppointment}
                   isOwner={profile.role === "admin"}
+                  sourceOk={sourceOk}
+                  sources={leadSources}
                 />
 
                 {/* One click to open/print the four key documents for this
