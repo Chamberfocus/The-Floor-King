@@ -9,9 +9,11 @@ import { searchCatalog } from "@/lib/data/products";
 import { isAreaUnit, normalizeUnit } from "@/lib/units";
 import type { Product, ProductCategory } from "@/lib/types";
 
-/** Live catalog search for the estimate material picker (active products). */
+/** Live catalog search for the estimate material picker. Includes inactive
+ *  products (ranked after active) so a discontinued item you know is there is
+ *  still findable, and returns a larger, relevance-ranked result set. */
 export async function searchCatalogProducts(query: string): Promise<Product[]> {
-  return searchCatalog(query, { activeOnly: true, limit: 40 });
+  return searchCatalog(query, { limit: 60 });
 }
 
 export interface ProductFormState {

@@ -161,7 +161,9 @@ function inToFt(total: number | null | undefined): string {
 }
 function inToIn(total: number | null | undefined): string {
   if (!total) return "";
-  return String(Math.round(total % 12));
+  // Keep fractional inches (e.g. 6.5") instead of rounding to a whole inch, so
+  // re-opening a saved line doesn't silently change its measurement.
+  return String(Math.round((total % 12) * 100) / 100);
 }
 function dimsToSqft(
   lenFt: string,
@@ -1439,9 +1441,10 @@ export function EstimateBuilder({
             <div className="flex items-center gap-2">
               <Input
                 type="number"
-                step="0.5"
+                step="any"
                 min="0"
                 max="99"
+                inputMode="decimal"
                 value={overallMargin}
                 onChange={(e) => changeOverallMargin(e.target.value)}
                 className="h-11 w-24 text-lg font-semibold"

@@ -1,4 +1,5 @@
 import type { EstimatePresentation, LineType, MeasureUnit } from "@/lib/types";
+import { isAreaUnit } from "@/lib/units";
 
 /**
  * Pure pricing math shared by the live builder (client) and the server.
@@ -40,14 +41,22 @@ export function lineAreaSqyd(line: CalcLine): number {
   return lineAreaSqft(line) / 9;
 }
 
-/** Quantity used for pricing. An explicit `quantity` wins (e.g. add-ons by the
- *  each / linear foot); otherwise it's the measured area in the line's unit. */
+/**
+ * Quantity used for pricing, decided by the line's UNIT KIND (not by whether a
+ * quantity happens to be > 0):
+ *  - COUNT units (each / bag / linear ft / sheet / gallon…) price by their
+ *    explicit quantity and NEVER fall back to area — so a bag/pail line with a
+ *    blank count is $0, not "priced by the square foot" (the old $33,600 bug).
+ *  - AREA units (sq ft / sq yd, or unspecified) price by the MEASURED area, so a
+ *    stray quantity can't override the real measurement. Only when there's no
+ *    measurement at all does a stored quantity stand in (legacy area lines).
+ */
 export function lineQty(line: CalcLine): number {
-  const q = num(line.quantity);
-  if (q > 0) return q;
-  return line.measure_unit === "sqyd"
-    ? lineAreaSqyd(line)
-    : lineAreaSqft(line);
+  const countUnit = line.unit != null && line.unit !== "" && !isAreaUnit(line.unit);
+  if (countUnit) return num(line.quantity);
+  const area = line.measure_unit === "sqyd" ? lineAreaSqyd(line) : lineAreaSqft(line);
+  if (area > 0) return area;
+  return num(line.quantity);
 }
 
 /** Waste multiplier for material (e.g. 10% waste → 1.1). */

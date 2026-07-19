@@ -151,16 +151,19 @@ export async function searchCatalogWith(
   query: string,
   opts: { activeOnly?: boolean; limit?: number } = {},
 ): Promise<Product[]> {
-  const limit = opts.limit ?? 50;
+  const displayLimit = opts.limit ?? 50;
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  // Gather a broad candidate pool, then RANK by relevance and slice — so the best
+  // matches surface (name matches first), not just the alphabetical first-N. This
+  // is the fix for "the item I know is there doesn't come up": ordering by name +
+  // a small limit hid matches; ranking + a bigger pool brings them to the top.
+  const pool = tokens.length ? Math.max(displayLimit * 8, 400) : displayLimit;
   let q = supabase
     .from("products")
     .select("*")
     .order("name", { ascending: true })
-    .limit(limit);
+    .limit(pool);
   if (opts.activeOnly) q = q.eq("active", true);
-  // Each token → one OR across the searchable columns. Chaining .or() ANDs the
-  // tokens, so all words must match (any order, anywhere in the text).
-  const tokens = query.trim().split(/\s+/).filter(Boolean);
   for (const token of tokens) {
     const like = likePattern(token);
     // Each token: OR across the text columns; if the token names a category,
@@ -171,7 +174,39 @@ export async function searchCatalogWith(
     q = q.or(parts.join(","));
   }
   const { data } = await q;
-  return (data ?? []) as Product[];
+  const rows = (data ?? []) as Product[];
+  if (!tokens.length) return rows.slice(0, displayLimit);
+  return rankProducts(rows, tokens).slice(0, displayLimit);
+}
+
+/**
+ * Relevance rank: matches in the NAME beat matches in other fields, a name that
+ * STARTS with the query beats a mid-name match, all-tokens-in-name beats a
+ * scattered match, and active products edge out inactive ones. Tie-break by name.
+ */
+function rankProducts(rows: Product[], tokens: string[]): Product[] {
+  const low = tokens.map((t) => t.toLowerCase());
+  const joined = low.join(" ");
+  const score = (p: Product): number => {
+    const name = (p.name ?? "").toLowerCase();
+    const other = [p.manufacturer, p.style, p.color, p.sku, p.supplier]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    let s = 0;
+    if (name.includes(joined)) s += 120; // whole query appears in the name
+    if (name.startsWith(low[0])) s += 40; // name starts with the first word
+    for (const t of low) {
+      if (name.includes(t)) s += 15;
+      else if (other.includes(t)) s += 4;
+    }
+    if (p.active !== false) s += 3;
+    return s;
+  };
+  return rows
+    .map((p) => ({ p, s: score(p) }))
+    .sort((a, b) => b.s - a.s || (a.p.name ?? "").localeCompare(b.p.name ?? ""))
+    .map((x) => x.p);
 }
 
 export async function productCount(): Promise<number> {
