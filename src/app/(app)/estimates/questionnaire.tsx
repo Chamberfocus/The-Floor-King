@@ -608,15 +608,13 @@ export function Questionnaire({
           const defWaste = profileFor(cat)?.waste ?? 0;
           const waste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
           const spb = numv(p.sqftPerBox);
-          const adj = rm.sqft * (1 + waste / 100);
-          let qty: number;
-          if (spb > 0) {
-            const boxes = Math.ceil(adj / spb);
-            qty = b.wantYd ? r2((boxes * spb) / 9) : boxes * spb;
-          } else {
-            qty = Math.ceil(b.wantYd ? adj / 9 : adj);
-          }
-          if (qty > 0)
+          // Flooring is AREA-billed: the builder prices area × material_cost ×
+          // (1 + waste_pct/100) and shows an editable Waste % field. So pass the
+          // waste through waste_pct — do NOT bake it into quantity, which area
+          // pricing ignores (that's why waste appeared to "not transfer"). Box
+          // count is derived from sqft ÷ sqft_per_box in the builder.
+          const qty = b.wantYd ? r2(rm.sqft / 9) : r2(rm.sqft);
+          if (rm.sqft > 0)
             out.push({
               room: rm.name || null,
               description: p.label || cat,
@@ -631,7 +629,7 @@ export function Questionnaire({
               labor_rate: 0,
               material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
               labor_cost: 0,
-              waste_pct: 0,
+              waste_pct: waste,
               product_id: p.productId || null,
               manufacturer:
                 p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
