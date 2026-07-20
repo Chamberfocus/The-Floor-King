@@ -362,14 +362,19 @@ export function Questionnaire({
 
   // Auto-save progress (debounced) so it can be resumed from any device. The
   // first render is skipped so simply opening the page doesn't overwrite a draft.
+  // Status is shown on screen so you can SEE it saving as you go (no silent loss).
   const firstSave = useRef(true);
+  const [draftStatus, setDraftStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   useEffect(() => {
     if (firstSave.current) {
       firstSave.current = false;
       return;
     }
+    setDraftStatus("saving");
     const t = setTimeout(() => {
-      void saveEstimateDraft(customerId, { serviceAddressId, answers, overrides, step });
+      saveEstimateDraft(customerId, { serviceAddressId, answers, overrides, step })
+        .then((ok) => setDraftStatus(ok ? "saved" : "error"))
+        .catch(() => setDraftStatus("error"));
     }, 1200);
     return () => clearTimeout(t);
   }, [customerId, serviceAddressId, answers, overrides, step]);
@@ -1193,6 +1198,22 @@ export function Questionnaire({
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
           <div className="h-full bg-primary transition-all" style={{ width: `${(Math.min(step, total) / total) * 100}%` }} />
         </div>
+        {/* Auto-save status — proof it's saving as you go. */}
+        <span
+          className={cn(
+            "shrink-0 text-xs tabular-nums",
+            draftStatus === "error" ? "font-medium text-destructive" : "text-muted-foreground",
+          )}
+          aria-live="polite"
+        >
+          {draftStatus === "saving"
+            ? "Saving…"
+            : draftStatus === "saved"
+              ? "✓ Saved"
+              : draftStatus === "error"
+                ? "⚠ Couldn't save — check connection"
+                : ""}
+        </span>
         <span className="shrink-0 text-xs text-muted-foreground">
           {atReview ? "Review" : `${step + 1} / ${total}`}
         </span>

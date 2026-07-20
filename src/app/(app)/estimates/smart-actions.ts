@@ -295,14 +295,14 @@ export async function getEstimateDraft(
 export async function saveEstimateDraft(
   customerId: string,
   payload: EstimateDraft,
-): Promise<void> {
-  if (!customerId) return;
+): Promise<boolean> {
+  if (!customerId) return false;
   try {
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    await supabase.from("estimate_drafts").upsert(
+    const { error } = await supabase.from("estimate_drafts").upsert(
       {
         customer_id: customerId,
         service_address_id: payload.serviceAddressId || null,
@@ -314,8 +314,14 @@ export async function saveEstimateDraft(
       },
       { onConflict: "customer_id" },
     );
-  } catch {
-    // best-effort
+    if (error) {
+      console.error("saveEstimateDraft failed:", error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("saveEstimateDraft threw:", e);
+    return false;
   }
 }
 
