@@ -109,6 +109,8 @@ interface TrimRow {
 const DEFAULT_RR_PER_LNFT = 1.5;
 // R&R applies to wall base that gets pulled and re-set during a floor job.
 const isRnREligible = (type: string): boolean => /base|shoe/i.test(type);
+// A matching stairnose: source Versatrim first, else the flooring manufacturer.
+const isStairnose = (type: string): boolean => /stair\s*nose/i.test(type);
 
 /**
  * The stick length of an accessory sold by the piece, or null when the row is
@@ -792,11 +794,11 @@ export function Questionnaire({
           const qty = numv(row.qty);
           if (qty <= 0 || (!row.type && !row.product)) continue;
           const p = row.product;
-          const matCost = p ? p.materialRate : numv(row.cost);
-          // R&R: remove & re-install labor per linear foot, added on top of any
-          // catalog labor. Material stays whatever the line carries.
+          // R&R re-uses the existing piece — no new material, labor only (remove &
+          // re-install per linear foot). A normal row charges material as entered.
           const rrLabor = row.rr ? numv(row.rrRate ?? "") || DEFAULT_RR_PER_LNFT : 0;
-          const laborCost = (p ? p.laborRate : 0) + rrLabor;
+          const matCost = row.rr ? 0 : p ? p.materialRate : numv(row.cost);
+          const laborCost = (p && !row.rr ? p.laborRate : 0) + rrLabor;
           const desc =
             (p?.label ||
               [row.type || "Trim", row.size ? `${row.size}"`.replace('""', '"') : "", row.color]
@@ -821,7 +823,7 @@ export function Questionnaire({
             manufacturer: p?.source === "order" && p.vendor.trim() ? p.vendor.trim() : p?.manufacturer ?? null,
             style: p?.style ?? null,
             color: row.color || p?.color || null,
-            from_stock: row.source === "stock",
+            from_stock: !row.rr && row.source === "stock",
           });
         }
       } else if (q.kind === "choice" && a.kind === "choice_areas") {
@@ -1093,6 +1095,10 @@ export function Questionnaire({
       w.push({ id: "radiant", text: "Radiant heat present — confirm the selected flooring is rated for radiant heat before ordering." });
     if (picked.some((l) => /mortar bed/i.test(l) && /with/i.test(l)))
       w.push({ id: "mortar", text: "Ceramic WITH mortar bed demo — expect a floor-height change. Check transitions and door clearance." });
+    if (picked.some((l) => /ceramic/i.test(l))) {
+      w.push({ id: "ceramic_substrate", text: "Tearing up ceramic tile — confirm what's under it (mortar bed, backer board, or other substrate) and include removing it in the demo." });
+      w.push({ id: "ceramic_base", text: "Ceramic removal usually takes the base with it — plan for shoe molding or quarter round." });
+    }
     const hardwoodOrGlue = has("surface_type", "Hardwood") || has("install_method", "Glue-down");
     const climateOk = has("ac_available", "Yes") && has("heat_available", "Yes");
     if (hardwoodOrGlue && !climateOk)
@@ -1500,6 +1506,20 @@ function QuestionBody({
       });
       set({ kind: "floor_map", byRoom: nb });
     };
+    // Waste "apply to all" — one value across every room's material. Each room
+    // can still be overridden below (all OR each).
+    const fillWaste = (pct: string) => {
+      const nb = { ...byRoom };
+      for (const k of Object.keys(nb)) if (nb[k]) nb[k] = { ...nb[k]!, wastePct: pct };
+      set({ kind: "floor_map", byRoom: nb });
+    };
+    const assignedProducts = floorRooms
+      .map((rm, i) => byRoom[roomKey(rm.name, i)])
+      .filter(Boolean) as ProductAns[];
+    const commonWaste =
+      assignedProducts.length && assignedProducts.every((p) => p.wastePct === assignedProducts[0].wastePct)
+        ? assignedProducts[0].wastePct
+        : "";
     if (!floorRooms.length) {
       return (
         <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
@@ -1520,6 +1540,23 @@ function QuestionBody({
             onCreated={(prod) => fillEmpty(toProductAns(prod))}
             onUseOnce={(input) => fillEmpty(customToProductAns(input))}
           />
+          {/* Waste — all rooms at once (each room still overridable below). */}
+          {assignedProducts.length ? (
+            <div className="mt-2 flex items-center gap-2 border-t pt-2">
+              <label className="text-xs font-medium text-muted-foreground">Waste — all rooms</label>
+              <div className="flex items-center gap-1">
+                <Input
+                  value={commonWaste}
+                  onChange={(e) => fillWaste(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="mixed"
+                  className="h-9 w-16 text-base"
+                />
+                <span className="text-xs text-muted-foreground">%</span>
+              </div>
+              <span className="text-xs text-muted-foreground">or set each room below</span>
+            </div>
+          ) : null}
         </div>
         {floorRooms.map((rm, i) => {
           const key = roomKey(rm.name, i);
@@ -1715,7 +1752,8 @@ function QuestionBody({
                 <label className="mb-1 block text-xs text-muted-foreground">Color / finish</label>
                 <Input value={row.color} onChange={(e) => patch(row.id, { color: e.target.value })} placeholder="e.g. white" className="h-10 w-28 text-base" />
               </div>
-              {!row.product ? (
+              {/* No material cost on an R&R row — we're re-using the existing piece. */}
+              {!row.product && !row.rr ? (
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">$ / {row.unit}</label>
                   <Input
@@ -1727,12 +1765,20 @@ function QuestionBody({
                   />
                 </div>
               ) : null}
-              <div className="inline-flex overflow-hidden rounded-md border">
-                <button type="button" onClick={() => patch(row.id, { source: "order" })}
-                  className={cn("px-2.5 py-2 text-sm font-medium", row.source === "order" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>Order</button>
-                <button type="button" onClick={() => patch(row.id, { source: "stock" })}
-                  className={cn("px-2.5 py-2 text-sm font-medium", row.source === "stock" ? "bg-amber-500 text-white" : "text-muted-foreground")}>Stock</button>
-              </div>
+              {/* Order vs stock only applies to NEW material — an R&R row re-uses
+                  what's already there, so there's nothing to order or pull. */}
+              {row.rr ? (
+                <div className="self-end pb-2 text-xs font-medium text-muted-foreground">
+                  Re-using existing material
+                </div>
+              ) : (
+                <div className="inline-flex overflow-hidden rounded-md border">
+                  <button type="button" onClick={() => patch(row.id, { source: "order" })}
+                    className={cn("px-2.5 py-2 text-sm font-medium", row.source === "order" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>Order</button>
+                  <button type="button" onClick={() => patch(row.id, { source: "stock" })}
+                    className={cn("px-2.5 py-2 text-sm font-medium", row.source === "stock" ? "bg-amber-500 text-white" : "text-muted-foreground")}>Stock</button>
+                </div>
+              )}
             </div>
             {/* R&R — remove & re-install existing base/shoe during the floor job.
                 Adds a labor charge per linear foot; material above stays separate
@@ -1767,15 +1813,24 @@ function QuestionBody({
                 ) : null}
               </div>
             ) : null}
+            {/* Matching stairnose sourcing rule — Versatrim first, else match the
+                flooring's own manufacturer. */}
+            {isStairnose(row.type) ? (
+              <div className="rounded border border-primary/30 bg-primary/5 px-2 py-1 text-xs">
+                <span className="font-semibold">Matching stairnose:</span> default to{" "}
+                <span className="font-semibold">Versatrim</span>. If Versatrim doesn&apos;t make it,
+                order the matching stairnose from the flooring&apos;s manufacturer.
+              </div>
+            ) : null}
             {/* Optional: attach a specific catalog / Versatrim product. */}
-            <details className="text-sm">
+            <details className="text-sm" open={isStairnose(row.type) && !row.product}>
               <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
                 {row.product ? `Catalog: ${row.product.label} — change` : "Find a specific product in the catalog"}
               </summary>
               <div className="mt-2">
                 <ProductPicker
                   value={row.product?.productId ?? ""}
-                  initialLabel={row.product?.label ?? ""}
+                  initialLabel={row.product?.label ?? (isStairnose(row.type) ? "Versatrim " : "")}
                   label="Search the catalog (or add a Versatrim / manufacturer item)"
                   defaultCategory="trim"
                   onPick={(prod) => patch(row.id, { product: prod ? toProductAns(prod) : null, unit: prod?.unit || row.unit, type: row.type || (prod ? prod.name : row.type) })}
