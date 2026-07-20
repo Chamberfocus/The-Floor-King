@@ -421,9 +421,8 @@ export function Questionnaire({
   // point, so a gate can sit anywhere relative to the questions it reveals (a
   // hidden question's answer never counts toward another condition).
   const visible = useMemo(() => {
-    const answerVal = (q: EstimateQuestion): string[] => {
-      const a = answers[q.id];
-      return a?.kind === "yesno"
+    const valsOf = (a: Answer | undefined): string[] =>
+      a?.kind === "yesno"
         ? [a.yes ? "Yes" : "No"]
         : a?.kind === "choice"
           ? a.selected
@@ -434,6 +433,17 @@ export function Questionnaire({
                 ? [a.product.label]
                 : []
               : [];
+    // A question's gating values = its job-level answer PLUS every per-room
+    // override. So a value chosen for even ONE room counts — that's how a later
+    // question "recognizes" per-room detail and stops re-asking (e.g. demo
+    // disposal appears only once a room actually has demo).
+    const answerVal = (q: EstimateQuestion): string[] => {
+      const vals = new Set(valsOf(answers[q.id]));
+      for (const roomOv of Object.values(overrides)) {
+        const ov = roomOv[q.id];
+        if (ov) for (const v of valsOf(ov)) vals.add(v);
+      }
+      return [...vals];
     };
     const vis: Record<string, boolean> = {};
     for (const q of questions) vis[q.id] = true; // start optimistic
@@ -452,7 +462,7 @@ export function Questionnaire({
       if (!changed) break;
     }
     return vis;
-  }, [questions, answers]);
+  }, [questions, answers, overrides]);
   const visibleQuestions = useMemo(
     () => questions.filter((q) => visible[q.id]),
     [questions, visible],
