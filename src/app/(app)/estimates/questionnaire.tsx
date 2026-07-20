@@ -79,8 +79,8 @@ interface ProductAns {
   manufacturer: string | null; style: string | null; color: string | null;
   supplierName: string | null;
   source: "order" | "stock"; vendor: string;
-  wastePct: number | null;   // null = use the category default waste
-  sqftPerBox: number | null; // sq ft per carton → box count (display)
+  wastePct: string;   // raw input; "" = use the category default waste
+  sqftPerBox: string; // raw input; sq ft per carton → box count (display)
   pieceLengthIn: number | null; // accessories sold by the piece: stick length → lnft ÷ this = pieces
 }
 /** An extra material for a specific area (e.g. an upgraded pad for the stairs). */
@@ -94,7 +94,7 @@ interface TrimRow {
   type: string; // e.g. "Baseboard", "J-channel"
   qty: string;
   unit: string; // lnft | each | pc
-  cost: number; // material $/unit (default from the type; overridable)
+  cost: string; // raw input — material $/unit (default from the type; overridable)
   color: string;
   size: string;
   sized: boolean; // show the size field (J-channel, stair nose, baseboard…)
@@ -162,7 +162,7 @@ const newTrimRow = (t?: { label: string; unit: string; cost: number; sized?: boo
   type: t?.label ?? "",
   qty: "",
   unit: t?.unit ?? "lnft",
-  cost: t?.cost ?? 0,
+  cost: t?.cost != null ? String(t.cost) : "",
   color: "",
   size: "",
   sized: !!t?.sized,
@@ -192,8 +192,8 @@ function toProductAns(p: Product): ProductAns {
     supplierName: supplier,
     source: "order",
     vendor: supplier ?? "",
-    wastePct: null,
-    sqftPerBox: null,
+    wastePct: "",
+    sqftPerBox: "",
     pieceLengthIn: p.piece_length_in ?? null,
   };
 }
@@ -222,8 +222,8 @@ function customToProductAns(input: CustomProductInput): ProductAns {
     supplierName: null,
     source: "order",
     vendor: "",
-    wastePct: null,
-    sqftPerBox: null,
+    wastePct: "",
+    sqftPerBox: "",
     pieceLengthIn: null,
   };
 }
@@ -594,12 +594,13 @@ export function Questionnaire({
           const cat = p.category || "other";
           const b = billing(cat);
           const defWaste = profileFor(cat)?.waste ?? 0;
-          const waste = p.wastePct != null ? p.wastePct : defWaste;
+          const waste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
+          const spb = numv(p.sqftPerBox);
           const adj = rm.sqft * (1 + waste / 100);
           let qty: number;
-          if (p.sqftPerBox && p.sqftPerBox > 0) {
-            const boxes = Math.ceil(adj / p.sqftPerBox);
-            qty = b.wantYd ? r2((boxes * p.sqftPerBox) / 9) : boxes * p.sqftPerBox;
+          if (spb > 0) {
+            const boxes = Math.ceil(adj / spb);
+            qty = b.wantYd ? r2((boxes * spb) / 9) : boxes * spb;
           } else {
             qty = Math.ceil(b.wantYd ? adj / 9 : adj);
           }
@@ -625,7 +626,7 @@ export function Questionnaire({
               style: p.style,
               color: p.color,
               from_stock: p.source === "stock",
-              sqft_per_box: p.sqftPerBox ?? null,
+              sqft_per_box: spb > 0 ? spb : null,
             });
           // Accumulate install labor per distinct product.
           const key = `${p.productId || p.label}|${p.laborRate}`;
@@ -666,7 +667,7 @@ export function Questionnaire({
         // into the ordered quantity — waste_pct stays 0 so the price isn't
         // double-charged (pricing multiplies material_rate by waste_pct).
         const defWaste = profileFor(cat)?.waste ?? 0;
-        const wasteOf = (p: ProductAns) => (p.wastePct != null ? p.wastePct : defWaste);
+        const wasteOf = (p: ProductAns) => (p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste);
         const matLine = (
           p: ProductAns,
           qty: number,
@@ -693,23 +694,24 @@ export function Questionnaire({
           style: p.style,
           color: p.color,
           from_stock: p.source === "stock",
-          sqft_per_box: p.sqftPerBox ?? null,
+          sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
         });
         // Quantity to order/charge for `sf` sq ft of a product. Waste is baked
         // in; if a box size is set we snap UP to whole cartons so you charge for
         // exactly the material you buy.
         const qtyForProduct = (sf: number, p: ProductAns) => {
           const adj = sf * (1 + wasteOf(p) / 100);
-          if (p.sqftPerBox && p.sqftPerBox > 0) {
-            const boxes = Math.ceil(adj / p.sqftPerBox);
-            const billed = boxes * p.sqftPerBox;
+          const spb = numv(p.sqftPerBox);
+          if (spb > 0) {
+            const boxes = Math.ceil(adj / spb);
+            const billed = boxes * spb;
             return b.wantYd ? r2(billed / 9) : billed;
           }
           return Math.ceil(b.wantYd ? adj / 9 : adj);
         };
         if (a.product) {
           const p = a.product;
-          const boxed = !!(p.sqftPerBox && p.sqftPerBox > 0);
+          const boxed = numv(p.sqftPerBox) > 0;
           // Padding only covers the CARPET rooms once a floor-map is in play, so a
           // mixed job doesn't buy pad for the hard-surface areas.
           const coverSf =
@@ -770,7 +772,7 @@ export function Questionnaire({
           const qty = numv(row.qty);
           if (qty <= 0 || (!row.type && !row.product)) continue;
           const p = row.product;
-          const matCost = p ? p.materialRate : row.cost;
+          const matCost = p ? p.materialRate : numv(row.cost);
           const desc =
             p?.label ||
             [row.type || "Trim", row.size ? `${row.size}"`.replace('""', '"') : "", row.color]
@@ -1629,8 +1631,8 @@ function QuestionBody({
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">$ / {row.unit}</label>
                   <Input
-                    value={row.cost ? String(row.cost) : ""}
-                    onChange={(e) => patch(row.id, { cost: numv(e.target.value) })}
+                    value={row.cost}
+                    onChange={(e) => patch(row.id, { cost: e.target.value })}
                     inputMode="decimal"
                     placeholder="0"
                     className="h-10 w-20 text-base"
@@ -1703,13 +1705,13 @@ function QuestionBody({
             {q.config.ask_source ? <SourceToggle p={p} onChange={setMain} /> : null}
             {isFlooring ? (
               (() => {
-                const effWaste = p.wastePct != null ? p.wastePct : defWasteForCat;
+                const effWaste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWasteForCat;
                 const adj = totalSqft > 0 ? totalSqft * (1 + effWaste / 100) : 0;
-                const boxes =
-                  p.sqftPerBox && p.sqftPerBox > 0 ? Math.ceil(adj / p.sqftPerBox) : 0;
+                const spb = numv(p.sqftPerBox);
+                const boxes = spb > 0 ? Math.ceil(adj / spb) : 0;
                 // What you actually order & charge for: full cartons when a box
                 // size is set, else the waste-adjusted area.
-                const ordered = boxes > 0 ? boxes * (p.sqftPerBox as number) : r2(adj);
+                const ordered = boxes > 0 ? boxes * spb : r2(adj);
                 return (
                   <div className="space-y-2 rounded-md border border-dashed p-2.5">
                     <div className="flex flex-wrap items-end gap-3">
@@ -1717,10 +1719,8 @@ function QuestionBody({
                         <label className="mb-1 block text-xs text-muted-foreground">Waste factor</label>
                         <div className="flex items-center gap-1">
                           <Input
-                            value={p.wastePct != null ? String(p.wastePct) : ""}
-                            onChange={(e) =>
-                              setMain({ ...p, wastePct: e.target.value.trim() === "" ? null : numv(e.target.value) })
-                            }
+                            value={p.wastePct}
+                            onChange={(e) => setMain({ ...p, wastePct: e.target.value })}
                             inputMode="decimal"
                             placeholder={String(defWasteForCat)}
                             className="h-10 w-20 text-base"
@@ -1731,10 +1731,8 @@ function QuestionBody({
                       <div>
                         <label className="mb-1 block text-xs text-muted-foreground">Sq ft per box</label>
                         <Input
-                          value={p.sqftPerBox != null ? String(p.sqftPerBox) : ""}
-                          onChange={(e) =>
-                            setMain({ ...p, sqftPerBox: e.target.value.trim() === "" ? null : numv(e.target.value) })
-                          }
+                          value={p.sqftPerBox}
+                          onChange={(e) => setMain({ ...p, sqftPerBox: e.target.value })}
                           inputMode="decimal"
                           placeholder="e.g. 20"
                           className="h-10 w-24 text-base"

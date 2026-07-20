@@ -46,6 +46,7 @@ import {
   thicknessLabel,
   THICKNESS_OPTIONS,
   DEFAULT_LABOR_PER_SQFT,
+  DEFAULT_LABOR_PER_BAG,
 } from "@/lib/floor-prep";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft } from "./actions";
 import { saveProductRate, createProductInline } from "../catalog/actions";
@@ -187,6 +188,7 @@ function lineOurCost(l: LineState): number {
     flat_amount: l.flat_amount,
     waste_pct: l.waste_pct,
     quantity: l.quantity,
+    unit: l.unit, // count units price by quantity, not area
   });
   const waste = 1 + (num(l.waste_pct) || 0) / 100;
   return qty * num(l.material_cost) * waste + qty * num(l.labor_cost);
@@ -205,6 +207,7 @@ function lineCostSplit(l: LineState): { mat: number; labor: number } {
     flat_amount: l.flat_amount,
     waste_pct: l.waste_pct,
     quantity: l.quantity,
+    unit: l.unit, // count units price by quantity, not area
   });
   const waste = 1 + (num(l.waste_pct) || 0) / 100;
   return {
@@ -825,8 +828,8 @@ export function EstimateBuilder({
     );
 
   // Add a SEPARATE self-leveling labor line, linked to the prep material by a
-  // shared prep_key, with its quantity auto-populated from the calculator
-  // (per sq ft by default; flip the labor line's unit to bill per bag).
+  // shared prep_key. It bills PER BAG by default (labor follows the bag count, not
+  // the square footage) — flip the labor line's unit to sq ft to bill by area.
   const addSelfLevelingLabor = (oi: number, li: number) => {
     const laborKey = newKey();
     const prepKey = `pk${keyCounter.current++}`;
@@ -834,7 +837,12 @@ export function EstimateBuilder({
       prev.map((o, i) => {
         if (i !== oi) return o;
         const src = o.lines[li];
-        const area = num(src.sqft);
+        // Bag count from the prep material's coverage/thickness (same calc the
+        // material line uses), so labor = bags × $/bag.
+        const covT = num(src.coverage_thickness_in);
+        const scales = covT > 0;
+        const t = scales ? num(src.prep_thickness_in) || covT : 0;
+        const bags = bagsNeeded(src.sqft, num(src.coverage_sqft), scales ? covT : null, scales ? t : null);
         const laborLine: LineState = {
           ...emptyLine(),
           key: laborKey,
@@ -844,10 +852,10 @@ export function EstimateBuilder({
           // order under the same room (no separate room entry needed).
           room: src.room,
           description: src.description ? `${src.description} — labor` : "Self-leveling labor",
-          unit: "sq ft",
+          unit: "bag",
           measure_unit: "sqft",
-          quantity: area ? String(area) : "",
-          labor_cost: String(DEFAULT_LABOR_PER_SQFT),
+          quantity: bags ? String(bags) : "",
+          labor_cost: String(DEFAULT_LABOR_PER_BAG),
           prep_key: prepKey,
         };
         const priced = { ...laborLine, ...ratesFromMargin(laborLine, num(overallMargin)) };
@@ -1298,6 +1306,10 @@ export function EstimateBuilder({
     flat_amount: l.flat_amount,
     waste_pct: l.waste_pct,
     quantity: l.quantity,
+    // MUST carry the unit: lineQty prices count units (bag/each/lnft…) by their
+    // quantity and area units by area. Dropping it made bag lines fall back to
+    // area (self-leveler ×800 sq ft instead of ×16 bags).
+    unit: l.unit,
   });
   const grand = optionTotalsWithDiscount(
     options.flatMap((o) => o.lines.map(toCalc)),
@@ -1577,6 +1589,7 @@ export function EstimateBuilder({
             flat_amount: l.flat_amount,
             waste_pct: l.waste_pct,
             quantity: l.quantity,
+            unit: l.unit,
           }));
           const totals = optionTotalsWithDiscount(
             calcLines,
@@ -1773,6 +1786,7 @@ export function EstimateBuilder({
                     flat_amount: line.flat_amount,
                     waste_pct: line.waste_pct,
                     quantity: line.quantity,
+                    unit: line.unit,
                   };
                   const sQty = lineQty(summ);
                   const sUnit = line.unit || (line.measure_unit === "sqyd" ? "sq yd" : "sq ft");
@@ -2967,6 +2981,7 @@ function EstimatePrintDoc({
     flat_amount: l.flat_amount,
     waste_pct: l.waste_pct,
     quantity: l.quantity,
+    unit: l.unit,
   });
   const addr = customer
     ? [customer.street, [customer.city, customer.state].filter(Boolean).join(", "), customer.zip]
