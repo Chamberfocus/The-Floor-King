@@ -528,7 +528,7 @@ export async function getEstimateDeleteImpact(id: string): Promise<EstimateDelet
 
 export async function deleteEstimate(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
-  const customerId = str(formData.get("customer_id"));
+  let customerId = str(formData.get("customer_id"));
   if (!id) return;
   await requireProfile();
 
@@ -542,6 +542,17 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
     admin = createAdminClient();
   } catch {
     admin = await createClient(); // fall back (may leave orphans under RLS)
+  }
+
+  // Always know the customer (some delete buttons don't pass it) — needed to wipe
+  // that customer's questionnaire state below and to redirect back.
+  if (!customerId) {
+    const { data: estRow } = await admin
+      .from("estimates")
+      .select("customer_id")
+      .eq("id", id)
+      .maybeSingle();
+    customerId = (estRow?.customer_id as string) || "";
   }
 
   const { data: jobRows } = await admin.from("jobs").select("id").eq("estimate_id", id);
@@ -559,6 +570,15 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
   await admin.from("jobs").delete().eq("estimate_id", id);
   // Finally the estimate itself (options + line items cascade).
   await admin.from("estimates").delete().eq("id", id);
+
+  // Start-clean: wipe this customer's questionnaire state so a NEW guided estimate
+  // begins completely blank — both any leftover in-progress answers (draft) and
+  // the saved measured rooms that would otherwise pre-fill. (Confirmed behavior:
+  // deleting an estimate resets the customer to a clean slate.)
+  if (customerId) {
+    await admin.from("estimate_drafts").delete().eq("customer_id", customerId);
+    await admin.from("customer_areas").delete().eq("customer_id", customerId);
+  }
 
   // An estimate drives pipeline value & quoted-revenue forecasts — refresh the
   // money views so they don't show a deleted estimate's numbers.
