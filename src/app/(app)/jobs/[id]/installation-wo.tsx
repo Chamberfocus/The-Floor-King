@@ -27,13 +27,11 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
   const spb = Number(l.sqft_per_box) || 0;
   const sf = Number(l.quantity) || Number(l.sqft) || 0;
   const cartons =
-    isHardSurfaceCategory(l.category) && spb > 0 && sf > 0
-      ? Math.ceil(sf / spb)
-      : 0;
+    isHardSurfaceCategory(l.category) && spb > 0 && sf > 0 ? Math.ceil(sf / spb) : 0;
   return (
-    <tr className="border-b align-top">
-      <td className="py-1 pr-2">
-        <span>{l.description || "Line item"}</span>
+    <tr className="border-b border-gray-200 align-top">
+      <td className="py-0.5 pr-2">
+        <span className="font-medium">{l.description || "Line item"}</span>
         {l.manufacturer || l.style || l.color || l.item_no ? (
           <span className="text-gray-500">
             {"  "}
@@ -48,7 +46,7 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
             Fill
           </span>
         ) : null}
-        {spec.cut ? <span className="font-semibold text-gray-700">{"  "}✂ Cut {spec.cut}</span> : null}
+        {spec.cut ? <span className="font-semibold text-gray-700">{"  "}✂ {spec.cut}</span> : null}
         {spec.rolls ? (
           <span className="text-gray-600">
             {"  "}· {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd
@@ -57,13 +55,13 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
         {cartons ? (
           <span className="font-semibold text-gray-700">
             {"  "}📦 {cartons} carton{cartons === 1 ? "" : "s"}
-            <span className="font-normal text-gray-500"> ({spb} sq ft/box)</span>
+            <span className="font-normal text-gray-500"> ({spb} SF/box)</span>
           </span>
         ) : null}
       </td>
-      <td className="whitespace-nowrap py-1 pl-2 text-right tabular-nums text-gray-600">{spec.qty}</td>
+      <td className="whitespace-nowrap py-0.5 pl-2 text-right tabular-nums text-gray-600">{spec.qty}</td>
       {showPrices ? (
-        <td className="whitespace-nowrap py-1 pl-2 text-right tabular-nums text-gray-600">
+        <td className="whitespace-nowrap py-0.5 pl-2 text-right tabular-nums text-gray-600">
           {formatMoney(lineTotal(l))}
         </td>
       ) : null}
@@ -71,20 +69,21 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
   );
 }
 
-function SectionTable({
-  label,
+/** A room's lines under a small, quiet tag (Product / Labor). */
+function LineGroup({
+  tag,
   lines,
   showPrices,
 }: {
-  label: string;
+  tag: string;
   lines: EstimateLineItem[];
   showPrices: boolean;
 }) {
   if (!lines.length) return null;
   return (
-    <div className="mt-2">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</div>
-      <table className="w-full border-collapse text-sm">
+    <div className="mt-0.5">
+      <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">{tag}</div>
+      <table className="w-full border-collapse text-[13px]">
         <tbody>
           {lines.map((l) => (
             <ScopeLine key={l.id} l={l} showPrices={showPrices} />
@@ -97,21 +96,20 @@ function SectionTable({
 
 function RoomBlock({ room, showPrices }: { room: ScopeRoom; showPrices: boolean }) {
   return (
-    <div className="mt-4 break-inside-avoid">
-      <div className="flex items-baseline justify-between border-b-2 border-gray-800 pb-0.5">
+    <div className="mt-2 break-inside-avoid">
+      <div className="flex items-baseline justify-between border-b border-gray-800 pb-0.5">
         <div className="text-sm font-bold">{room.name}</div>
         {room.sqft ? (
-          <div className="text-xs tabular-nums text-gray-600">{Math.round(room.sqft)} sq ft</div>
+          <div className="text-[11px] tabular-nums text-gray-600">{Math.round(room.sqft)} sq ft</div>
         ) : null}
       </div>
       {room.prep.length ? (
-        <div className="mt-1 text-xs">
-          <span className="font-semibold text-gray-700">Prep: </span>
-          <span className="text-gray-700">{room.prep.join(" · ")}</span>
+        <div className="mt-0.5 text-[11px] text-gray-700">
+          <span className="font-semibold">Prep:</span> {room.prep.join(" · ")}
         </div>
       ) : null}
-      <SectionTable label="Product going in" lines={room.products} showPrices={showPrices} />
-      <SectionTable label="Prep & labor" lines={room.labor} showPrices={showPrices} />
+      <LineGroup tag="Product" lines={room.products} showPrices={showPrices} />
+      <LineGroup tag="Labor" lines={room.labor} showPrices={showPrices} />
     </div>
   );
 }
@@ -120,8 +118,8 @@ function RoomBlock({ room, showPrices }: { room: ScopeRoom; showPrices: boolean 
  * The print-only INSTALLATION WORK ORDER — everything the installer needs to do
  * the job on site: who/where/when, then the scope grouped by room (product +
  * per-room prep + labor), whole-job labor, job-wide conditions and notes. No
- * pricing unless the office turns it on, and no signature lines (sign-off,
- * photos and payment are captured in the app, not on paper).
+ * pricing unless the office turns it on. Tuned for density + scannability so a
+ * typical job fits one page: room names lead, everything else stays quiet.
  */
 export function InstallationWorkOrderDoc({
   org,
@@ -177,7 +175,8 @@ export function InstallationWorkOrderDoc({
     ["Staged at", job.staging_location ?? null],
   ];
 
-  const hasScope = scope.rooms.length > 0 || scope.wholeJob.products.length > 0 || scope.wholeJob.labor.length > 0;
+  const hasScope =
+    scope.rooms.length > 0 || scope.wholeJob.products.length > 0 || scope.wholeJob.labor.length > 0;
 
   return (
     <div className="hidden text-black print:block">
@@ -196,7 +195,8 @@ export function InstallationWorkOrderDoc({
         }
       />
 
-      <div className="flex flex-wrap justify-between gap-6">
+      {/* Who / where — tight two-up. */}
+      <div className="flex flex-wrap justify-between gap-6 py-1">
         {job.customer ? (
           <PrintBillTo
             label="Customer"
@@ -210,127 +210,106 @@ export function InstallationWorkOrderDoc({
           />
         ) : null}
         {site ? (
-          <div className="py-4 text-sm">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-              Job site
-            </div>
+          <div className="text-sm">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Job site</div>
             <div className="text-xs text-gray-700">{site}</div>
           </div>
         ) : null}
       </div>
 
-      {/* Key logistics */}
-      <div className="flex flex-wrap gap-x-10 gap-y-1 border-y py-2 text-sm">
+      {/* Logistics strip — one line, quiet. */}
+      <div className="flex flex-wrap gap-x-6 gap-y-0.5 border-y border-gray-300 py-1 text-xs">
         {facts
           .filter(([, v]) => v)
           .map(([k, v]) => (
             <div key={k}>
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                {k}:{" "}
-              </span>
-              <span>{v}</span>
+              <span className="text-[9px] font-semibold uppercase tracking-wide text-gray-500">{k}: </span>
+              <span className="font-medium">{v}</span>
             </div>
           ))}
       </div>
 
-      {/* Payment the installer collects on site */}
+      {/* Payment the installer collects on site — kept prominent (it's an action). */}
       {collectOnSite && collectOnSite > 0 ? (
-        <div className="mt-3 break-inside-avoid rounded border-2 border-black p-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wide">
-            Collect on site
+        <div className="mt-2 flex items-baseline justify-between break-inside-avoid rounded border-2 border-black px-2 py-1">
+          <div>
+            <span className="text-[10px] font-semibold uppercase tracking-wide">Collect on site: </span>
+            <span className="text-base font-bold">{formatMoney(collectOnSite)}</span>
           </div>
-          <div className="text-lg font-bold">
-            {formatMoney(collectOnSite)} balance due
-          </div>
-          <div className="text-xs text-gray-600">
-            Collect from the customer before you leave — cash, check, or request an
-            online payment in the app. Mark it paid on your My&nbsp;Work screen.
+          <div className="text-[10px] text-gray-600">
+            Cash / check / online — mark paid on My&nbsp;Work.
           </div>
         </div>
       ) : null}
 
-      {/* Job-wide conditions & prep — applies to all areas */}
+      {/* Job-wide conditions — applies to all areas. */}
       {scope.conditions.length ? (
-        <div className="mt-4 break-inside-avoid rounded border border-gray-300 p-2 text-sm">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-            Conditions &amp; prep — all areas
-          </div>
-          <ul className="mt-0.5 list-disc pl-5">
-            {scope.conditions.map((c, i) => (
-              <li key={i}>{c}</li>
-            ))}
-          </ul>
+        <div className="mt-2 break-inside-avoid text-xs">
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-gray-500">
+            Conditions — all areas:{" "}
+          </span>
+          <span className="text-gray-700">{scope.conditions.join("  ·  ")}</span>
         </div>
       ) : null}
 
-      {/* Product-specific install reminders — carpet vs hard surface work differ. */}
-      {hasRoll || hasHard ? (
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {hasRoll ? (
-            <div className="break-inside-avoid rounded border border-gray-300 p-2 text-xs">
-              <div className="mb-0.5 font-semibold">Carpet / sheet vinyl</div>
-              <ul className="list-disc pl-4 text-gray-700">
-                <li>Plan seams &amp; pile direction before cutting — keep direction consistent room to room.</li>
-                <li>Verify tackless is secured (concrete vs wood) and pad seams are offset from carpet seams.</li>
-                <li>Match cut sizes on this order; save usable remnants.</li>
-              </ul>
-            </div>
-          ) : null}
-          {hasHard ? (
-            <div className="break-inside-avoid rounded border border-gray-300 p-2 text-xs">
-              <div className="mb-0.5 font-semibold">Hard surface</div>
-              <ul className="list-disc pl-4 text-gray-700">
-                <li>Confirm subfloor prep &amp; moisture per room (below) before laying.</li>
-                <li>Dry-fit / rack from multiple cartons; verify all boxes are the same lot / dye lot.</li>
-                {hasHardwood ? <li>Hardwood: confirm acclimation is complete before install.</li> : null}
-                <li>Set transitions &amp; molding per area as specified.</li>
-              </ul>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Scope of work — by room */}
-      <div className="mt-2">
-        <div className="mt-4 text-sm font-semibold">Scope of work</div>
+      {/* Scope of work — by room. The crew scans by room, so this leads. */}
+      <div className="mt-3">
+        <div className="text-sm font-bold uppercase tracking-wide">Scope of work</div>
         {hasScope ? (
           <>
             {scope.rooms.map((r) => (
               <RoomBlock key={r.name} room={r} showPrices={showPrices} />
             ))}
             {scope.wholeJob.products.length || scope.wholeJob.labor.length ? (
-              <div className="mt-4 break-inside-avoid">
-                <div className="border-b-2 border-gray-800 pb-0.5 text-sm font-bold">
-                  Whole job
-                </div>
-                <SectionTable label="Materials" lines={scope.wholeJob.products} showPrices={showPrices} />
-                <SectionTable label="Labor & prep" lines={scope.wholeJob.labor} showPrices={showPrices} />
+              <div className="mt-2 break-inside-avoid">
+                <div className="border-b border-gray-800 pb-0.5 text-sm font-bold">Whole job</div>
+                <LineGroup tag="Material" lines={scope.wholeJob.products} showPrices={showPrices} />
+                <LineGroup tag="Labor" lines={scope.wholeJob.labor} showPrices={showPrices} />
               </div>
             ) : null}
           </>
         ) : (
-          <p className="text-sm text-gray-600">
-            No line items on file — see the estimate / notes.
-          </p>
+          <p className="text-sm text-gray-600">No line items on file — see the estimate / notes.</p>
         )}
       </div>
 
-      {/* Carpet cut list — every piece to cut off the roll, incl. fill pieces */}
+      {/* Carpet cut list — every piece to cut off the roll, incl. fill pieces. */}
       <CarpetCutList
         items={job.line_items}
         note="Match these cut sizes on the roll; keep pile direction consistent and save usable remnants."
       />
 
       {scope.freeText ? (
-        <div className="mt-4 break-inside-avoid text-sm">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-            Special instructions
-          </div>
-          <p className="whitespace-pre-wrap">{scope.freeText}</p>
+        <div className="mt-2 break-inside-avoid text-sm">
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-gray-500">
+            Special instructions:{" "}
+          </span>
+          <span className="whitespace-pre-wrap">{scope.freeText}</span>
         </div>
       ) : null}
 
-      <div className="mt-10 text-center text-xs text-gray-500">{org.company_name}</div>
+      {/* Crew reminders — the same every job, so kept small & quiet at the foot
+          (all of it retained; it just no longer competes with the scope). */}
+      {hasRoll || hasHard ? (
+        <div className="mt-3 break-inside-avoid border-t border-gray-300 pt-1 text-[10px] leading-tight text-gray-600">
+          <span className="font-semibold uppercase tracking-wide text-gray-500">Reminders  </span>
+          {hasRoll ? (
+            <span>
+              <span className="font-semibold">Carpet:</span> plan seams &amp; keep pile direction consistent;
+              tackless secured (concrete vs wood), pad seams offset; match cut sizes, save remnants.{" "}
+            </span>
+          ) : null}
+          {hasHard ? (
+            <span>
+              <span className="font-semibold">Hard surface:</span> confirm subfloor prep &amp; moisture per room;
+              dry-fit / rack from multiple cartons, same lot / dye lot;
+              {hasHardwood ? " hardwood acclimation complete;" : ""} set transitions &amp; molding per area.
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="mt-4 text-center text-[10px] text-gray-500">{org.company_name}</div>
     </div>
   );
 }
