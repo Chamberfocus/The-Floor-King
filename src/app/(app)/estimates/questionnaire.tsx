@@ -101,7 +101,14 @@ interface TrimRow {
   source: "order" | "stock";
   product: ProductAns | null; // set only when you attach a specific catalog item
   linearFt?: string; // piece-sold accessories: the run you measured, before rounding to sticks
+  rr?: boolean; // baseboard / shoe: remove & re-install existing (adds labor per ln ft)
+  rrRate?: string; // raw input — R&R labor $/ln ft (default DEFAULT_RR_PER_LNFT)
 }
+
+// Remove & re-install labor for base/shoe, per linear foot (editable per line).
+const DEFAULT_RR_PER_LNFT = 1.5;
+// R&R applies to wall base that gets pulled and re-set during a floor job.
+const isRnREligible = (type: string): boolean => /base|shoe/i.test(type);
 
 /**
  * The stick length of an accessory sold by the piece, or null when the row is
@@ -773,11 +780,15 @@ export function Questionnaire({
           if (qty <= 0 || (!row.type && !row.product)) continue;
           const p = row.product;
           const matCost = p ? p.materialRate : numv(row.cost);
+          // R&R: remove & re-install labor per linear foot, added on top of any
+          // catalog labor. Material stays whatever the line carries.
+          const rrLabor = row.rr ? numv(row.rrRate ?? "") || DEFAULT_RR_PER_LNFT : 0;
+          const laborCost = (p ? p.laborRate : 0) + rrLabor;
           const desc =
-            p?.label ||
-            [row.type || "Trim", row.size ? `${row.size}"`.replace('""', '"') : "", row.color]
-              .filter(Boolean)
-              .join(" · ");
+            (p?.label ||
+              [row.type || "Trim", row.size ? `${row.size}"`.replace('""', '"') : "", row.color]
+                .filter(Boolean)
+                .join(" · ")) + (row.rr ? " (R&R)" : "");
           out.push({
             room: null,
             description: desc,
@@ -789,9 +800,9 @@ export function Questionnaire({
             width_in: null,
             unit: row.unit || p?.unit || "lnft",
             material_rate: sellAt(matCost),
-            labor_rate: p ? sellAt(p.laborRate) : 0,
+            labor_rate: sellAt(laborCost),
             material_cost: matCost,
-            labor_cost: p ? p.laborRate : 0,
+            labor_cost: laborCost,
             waste_pct: 0,
             product_id: p?.productId || null,
             manufacturer: p?.source === "order" && p.vendor.trim() ? p.vendor.trim() : p?.manufacturer ?? null,
@@ -1520,6 +1531,54 @@ function QuestionBody({
                       <SourceToggle p={p} compact onChange={(np) => setRoom(key, np)} />
                     </span>
                   ) : null}
+                  {/* Waste factor + carton size for this room's material. Baked into
+                      the ordered quantity at emit; editable per room. */}
+                  {(() => {
+                    const defWaste = profileFor(cat)?.waste ?? 0;
+                    const effWaste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
+                    const spb = numv(p.sqftPerBox);
+                    const adj = rm.sqft * (1 + effWaste / 100);
+                    const boxes = spb > 0 ? Math.ceil(adj / spb) : 0;
+                    const ordered = boxes > 0 ? boxes * spb : r2(adj);
+                    return (
+                      <div className="mt-2 space-y-1.5">
+                        <div className="flex flex-wrap items-end gap-3">
+                          <div>
+                            <label className="mb-1 block text-[11px] text-muted-foreground">Waste factor</label>
+                            <div className="flex items-center gap-1">
+                              <Input
+                                value={p.wastePct}
+                                onChange={(e) => setRoom(key, { ...p, wastePct: e.target.value })}
+                                inputMode="decimal"
+                                placeholder={String(defWaste)}
+                                className="h-9 w-16 text-base"
+                              />
+                              <span className="text-xs text-muted-foreground">%</span>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[11px] text-muted-foreground">Sq ft per box</label>
+                            <Input
+                              value={p.sqftPerBox}
+                              onChange={(e) => setRoom(key, { ...p, sqftPerBox: e.target.value })}
+                              inputMode="decimal"
+                              placeholder="e.g. 20"
+                              className="h-9 w-20 text-base"
+                            />
+                          </div>
+                        </div>
+                        {rm.sqft > 0 ? (
+                          <p className="text-xs">
+                            Order <span className="font-semibold tabular-nums text-foreground">{ordered}</span> sq ft
+                            <span> (incl. {effWaste}% waste)</span>
+                            {boxes > 0 ? (
+                              <> · <span className="font-semibold tabular-nums text-primary">{boxes}</span> box{boxes === 1 ? "" : "es"}</>
+                            ) : null}
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : null}
             </div>
@@ -1646,6 +1705,39 @@ function QuestionBody({
                   className={cn("px-2.5 py-2 text-sm font-medium", row.source === "stock" ? "bg-amber-500 text-white" : "text-muted-foreground")}>Stock</button>
               </div>
             </div>
+            {/* R&R — remove & re-install existing base/shoe during the floor job.
+                Adds a labor charge per linear foot; material above stays separate
+                (keep it for new base, or set $/ln ft to 0 when re-using existing). */}
+            {isRnREligible(row.type) ? (
+              <div className="flex flex-wrap items-center gap-2 border-t pt-2 text-sm">
+                <label className="inline-flex cursor-pointer items-center gap-1.5 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={!!row.rr}
+                    onChange={(e) =>
+                      patch(row.id, {
+                        rr: e.target.checked,
+                        rrRate: row.rrRate || (e.target.checked ? String(DEFAULT_RR_PER_LNFT) : row.rrRate),
+                      })
+                    }
+                    className="size-4 accent-primary"
+                  />
+                  R&R — remove &amp; re-install existing
+                </label>
+                {row.rr ? (
+                  <span className="inline-flex items-center gap-1">
+                    <label className="text-xs text-muted-foreground">labor $ / ln ft</label>
+                    <Input
+                      value={row.rrRate ?? ""}
+                      onChange={(e) => patch(row.id, { rrRate: e.target.value })}
+                      inputMode="decimal"
+                      placeholder={String(DEFAULT_RR_PER_LNFT)}
+                      className="h-9 w-20 text-base"
+                    />
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             {/* Optional: attach a specific catalog / Versatrim product. */}
             <details className="text-sm">
               <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
