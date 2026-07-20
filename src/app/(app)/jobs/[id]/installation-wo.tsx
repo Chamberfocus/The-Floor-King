@@ -19,7 +19,9 @@ import {
 import { CarpetCutList } from "@/components/carpet-cut-list";
 import type { JobDetail } from "@/lib/data/jobs";
 
-/** One scope line, rendered the same in every section of the work order. */
+/** One scope line — the installer reads the item on the left and the amount to
+ *  install on the right. Tuned for field legibility: real contrast, bigger type,
+ *  quantities in bold. */
 function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean }) {
   const spec = lineSpec(l);
   // Hard surface installs by the carton — show the box count so the crew knows
@@ -30,38 +32,43 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
     isHardSurfaceCategory(l.category) && spb > 0 && sf > 0 ? Math.ceil(sf / spb) : 0;
   return (
     <tr className="border-b border-gray-200 align-top">
-      <td className="py-0.5 pr-2">
-        <span className="font-medium">{l.description || "Line item"}</span>
+      <td className="py-1 pr-2">
+        <span className="text-[14px] font-semibold text-black">{l.description || "Line item"}</span>
         {l.manufacturer || l.style || l.color || l.item_no ? (
-          <span className="text-gray-500">
+          <span className="text-[12px] text-gray-600">
             {"  "}
             {[l.manufacturer, l.style, l.color, l.item_no ? `#${l.item_no}` : null]
               .filter(Boolean)
               .join(" · ")}
           </span>
         ) : null}
-        {l.from_stock ? <span className="text-gray-500"> · from stock</span> : null}
+        {l.from_stock ? (
+          <span className="text-[11px] font-semibold uppercase text-gray-600"> · from stock</span>
+        ) : null}
         {spec.isFill ? (
-          <span className="ml-1 rounded-sm border border-gray-500 px-1 text-[9px] font-bold uppercase text-gray-700">
+          <span className="ml-1 rounded-sm border border-gray-600 px-1 text-[9px] font-bold uppercase text-gray-700">
             Fill
           </span>
         ) : null}
-        {spec.cut ? <span className="font-semibold text-gray-700">{"  "}✂ {spec.cut}</span> : null}
-        {spec.rolls ? (
-          <span className="text-gray-600">
-            {"  "}· {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd
-          </span>
-        ) : null}
+      </td>
+      {/* Amount to install — the column the crew scans down. Bold, high-contrast. */}
+      <td className="whitespace-nowrap py-1 pl-2 text-right align-top">
+        <div className="text-[14px] font-bold tabular-nums text-black">{spec.qty}</div>
         {cartons ? (
-          <span className="font-semibold text-gray-700">
-            {"  "}📦 {cartons} carton{cartons === 1 ? "" : "s"}
+          <div className="text-[12px] font-bold text-black">
+            📦 {cartons} carton{cartons === 1 ? "" : "s"}
             <span className="font-normal text-gray-500"> ({spb} SF/box)</span>
-          </span>
+          </div>
+        ) : null}
+        {spec.cut ? <div className="text-[12px] font-bold text-black">✂ {spec.cut}</div> : null}
+        {spec.rolls ? (
+          <div className="text-[11px] text-gray-600">
+            {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd
+          </div>
         ) : null}
       </td>
-      <td className="whitespace-nowrap py-0.5 pl-2 text-right tabular-nums text-gray-600">{spec.qty}</td>
       {showPrices ? (
-        <td className="whitespace-nowrap py-0.5 pl-2 text-right tabular-nums text-gray-600">
+        <td className="whitespace-nowrap py-1 pl-2 text-right align-top tabular-nums text-gray-600">
           {formatMoney(lineTotal(l))}
         </td>
       ) : null}
@@ -69,7 +76,7 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
   );
 }
 
-/** A room's lines under a small, quiet tag (Product / Labor). */
+/** A room's lines under a small tag (used for Labor and whole-job groups). */
 function LineGroup({
   tag,
   lines,
@@ -81,9 +88,9 @@ function LineGroup({
 }) {
   if (!lines.length) return null;
   return (
-    <div className="mt-0.5">
-      <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">{tag}</div>
-      <table className="w-full border-collapse text-[13px]">
+    <div className="mt-1">
+      <div className="text-[10px] font-bold uppercase tracking-wide text-gray-500">{tag}</div>
+      <table className="w-full border-collapse">
         <tbody>
           {lines.map((l) => (
             <ScopeLine key={l.id} l={l} showPrices={showPrices} />
@@ -96,19 +103,33 @@ function LineGroup({
 
 function RoomBlock({ room, showPrices }: { room: ScopeRoom; showPrices: boolean }) {
   return (
-    <div className="mt-2 break-inside-avoid">
-      <div className="flex items-baseline justify-between border-b border-gray-800 pb-0.5">
-        <div className="text-sm font-bold">{room.name}</div>
+    <div className="mt-3 break-inside-avoid">
+      {/* Room header — the crew's primary landmark: big, bold, ruled. */}
+      <div className="flex items-baseline justify-between border-b-2 border-black pb-0.5">
+        <div className="text-[15px] font-bold uppercase tracking-wide">{room.name}</div>
         {room.sqft ? (
-          <div className="text-[11px] tabular-nums text-gray-600">{Math.round(room.sqft)} sq ft</div>
+          <div className="text-[13px] font-bold tabular-nums text-black">
+            {Math.round(room.sqft)} sq ft
+          </div>
         ) : null}
       </div>
+      {/* Prep — boxed so it can't be skimmed past; this is where jobs go wrong. */}
       {room.prep.length ? (
-        <div className="mt-0.5 text-[11px] text-gray-700">
-          <span className="font-semibold">Prep:</span> {room.prep.join(" · ")}
+        <div className="mt-1 break-inside-avoid border border-black px-2 py-1 text-[12px]">
+          <span className="font-bold uppercase tracking-wide">⚠ Prep — </span>
+          <span className="font-semibold text-black">{room.prep.join("   ·   ")}</span>
         </div>
       ) : null}
-      <LineGroup tag="Product" lines={room.products} showPrices={showPrices} />
+      {/* Products lead the room — no label needed, they're the point. */}
+      {room.products.length ? (
+        <table className="mt-1 w-full border-collapse">
+          <tbody>
+            {room.products.map((l) => (
+              <ScopeLine key={l.id} l={l} showPrices={showPrices} />
+            ))}
+          </tbody>
+        </table>
+      ) : null}
       <LineGroup tag="Labor" lines={room.labor} showPrices={showPrices} />
     </div>
   );
@@ -210,21 +231,21 @@ export function InstallationWorkOrderDoc({
           />
         ) : null}
         {site ? (
-          <div className="text-sm">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Job site</div>
-            <div className="text-xs text-gray-700">{site}</div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Job site</div>
+            <div className="text-[15px] font-bold text-black">{site}</div>
           </div>
         ) : null}
       </div>
 
-      {/* Logistics strip — one line, quiet. */}
-      <div className="flex flex-wrap gap-x-6 gap-y-0.5 border-y border-gray-300 py-1 text-xs">
+      {/* Logistics strip — the at-a-glance facts, legible from arm's length. */}
+      <div className="flex flex-wrap gap-x-6 gap-y-1 border-y-2 border-gray-400 py-1.5">
         {facts
           .filter(([, v]) => v)
           .map(([k, v]) => (
-            <div key={k}>
-              <span className="text-[9px] font-semibold uppercase tracking-wide text-gray-500">{k}: </span>
-              <span className="font-medium">{v}</span>
+            <div key={k} className="leading-tight">
+              <span className="block text-[9px] font-bold uppercase tracking-wide text-gray-500">{k}</span>
+              <span className="text-[13px] font-bold text-black">{v}</span>
             </div>
           ))}
       </div>
@@ -242,19 +263,19 @@ export function InstallationWorkOrderDoc({
         </div>
       ) : null}
 
-      {/* Job-wide conditions — applies to all areas. */}
+      {/* Job-wide conditions — applies to all areas. Boxed so the crew sees it. */}
       {scope.conditions.length ? (
-        <div className="mt-2 break-inside-avoid text-xs">
-          <span className="text-[9px] font-semibold uppercase tracking-wide text-gray-500">
-            Conditions — all areas:{" "}
-          </span>
-          <span className="text-gray-700">{scope.conditions.join("  ·  ")}</span>
+        <div className="mt-2 break-inside-avoid border border-black px-2 py-1 text-[12px]">
+          <span className="font-bold uppercase tracking-wide">Conditions — all areas: </span>
+          <span className="font-semibold text-black">{scope.conditions.join("   ·   ")}</span>
         </div>
       ) : null}
 
       {/* Scope of work — by room. The crew scans by room, so this leads. */}
       <div className="mt-3">
-        <div className="text-sm font-bold uppercase tracking-wide">Scope of work</div>
+        <div className="border-b-2 border-black pb-0.5 text-base font-bold uppercase tracking-wide">
+          Scope of work
+        </div>
         {hasScope ? (
           <>
             {scope.rooms.map((r) => (
@@ -280,11 +301,11 @@ export function InstallationWorkOrderDoc({
       />
 
       {scope.freeText ? (
-        <div className="mt-2 break-inside-avoid text-sm">
-          <span className="text-[9px] font-semibold uppercase tracking-wide text-gray-500">
-            Special instructions:{" "}
-          </span>
-          <span className="whitespace-pre-wrap">{scope.freeText}</span>
+        <div className="mt-2 break-inside-avoid border border-black px-2 py-1 text-[13px]">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-gray-600">
+            Special instructions
+          </div>
+          <span className="whitespace-pre-wrap font-medium text-black">{scope.freeText}</span>
         </div>
       ) : null}
 
