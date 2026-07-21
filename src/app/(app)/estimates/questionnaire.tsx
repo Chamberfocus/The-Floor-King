@@ -486,16 +486,33 @@ export function Questionnaire({
       ),
     [visibleQuestions],
   );
-  // Rooms flagged as needing different prep (across all areas questions).
+  // The upfront gate: is floor prep the same for the whole job, or set per room?
+  // "By room" makes the rooms step the single source for prep and removes the
+  // standalone prep steps entirely (no double-asking).
+  const prepByRoom = useMemo(() => {
+    const gate = questions.find((q) => q.key === "prep_scope");
+    const a = gate ? answers[gate.id] : undefined;
+    return a?.kind === "choice" && a.selected.some((v) => /by room/i.test(v));
+  }, [questions, answers]);
+  // Steps the user walks: when prep is per-room, drop the per-room prep questions
+  // as standalone steps (they're answered in the rooms step instead).
+  const stepQuestions = useMemo(() => {
+    if (!prepByRoom) return visibleQuestions;
+    const ids = new Set(perRoomQuestions.map((q) => q.id));
+    return visibleQuestions.filter((q) => !ids.has(q.id));
+  }, [visibleQuestions, perRoomQuestions, prepByRoom]);
+  // Rooms that carry their own prep. In "by room" mode every measured room does;
+  // otherwise prep is whole-job and no room is per-room.
   const flaggedRooms = useMemo(() => {
+    if (!prepByRoom) return [];
     const out: AreaRow[] = [];
     for (const q of questions) {
       if (q.kind !== "areas") continue;
       const a = answers[q.id];
-      if (a?.kind === "areas") out.push(...a.rooms.filter((r) => r.differs && rowSqft(r) > 0));
+      if (a?.kind === "areas") out.push(...a.rooms.filter((r) => rowSqft(r) > 0));
     }
     return out;
-  }, [questions, answers]);
+  }, [questions, answers, prepByRoom]);
   // Every measured room with its size + cut dimensions — so the flooring can be
   // itemized per room and the measurements transfer to the estimate/work order.
   const allRooms = useMemo(() => {
@@ -1178,9 +1195,9 @@ export function Questionnaire({
 
   // Steps: the currently-visible questions (conditionals reveal as you answer),
   // plus a final Review step.
-  const total = visibleQuestions.length;
+  const total = stepQuestions.length;
   const atReview = step >= total;
-  const q = atReview ? null : visibleQuestions[step];
+  const q = atReview ? null : stepQuestions[step];
   const answered = (qq: EstimateQuestion): boolean => {
     const a = answers[qq.id];
     if (qq.kind === "areas") return a?.kind === "areas" && a.rooms.some((r) => rowSqft(r) > 0);
@@ -1319,7 +1336,7 @@ export function Questionnaire({
               update={(fn) => setAnswers((p) => ({ ...p, [q.id]: fn(p[q.id]) }))}
               sellAt={sellAt}
               totalSqft={totalSqft}
-              perRoom={perRoomQuestions}
+              perRoom={prepByRoom ? perRoomQuestions : []}
               overrides={overrides}
               setRoomOverride={setRoomOverride}
               jobAnswers={answers}
@@ -1507,41 +1524,35 @@ function QuestionBody({
                 ) : null}
               </div>
 
-              {/* Per-room prep: flag rooms that differ, override just those. */}
+              {/* Per-room prep (by-room mode): each room carries its own prep — the
+                  single source, so there are no separate whole-job prep steps. */}
               {perRoom.length ? (
-                <div className="border-t pt-2">
-                  <label className="flex items-center gap-2 text-sm font-medium">
-                    <input
-                      type="checkbox"
-                      checked={r.differs}
-                      onChange={() => patch(r.id, { differs: !r.differs })}
-                      className="size-4"
-                    />
-                    Different prep in this room
-                  </label>
-                  {r.differs ? (
-                    <div className="mt-2 space-y-3 rounded-md border bg-card p-2.5">
-                      <p className="text-xs text-muted-foreground">
-                        Overriding the job defaults for {r.name || "this area"} only.
-                      </p>
-                      {perRoom.map((pq) => (
-                        <div key={pq.id} className="space-y-1">
-                          <div className="text-xs font-medium">{pq.label}</div>
-                          <QuestionBody
-                            q={pq}
-                            answer={overrides[r.id]?.[pq.id] ?? jobAnswers[pq.id]}
-                            set={(a) => setRoomOverride?.(r.id, pq.id, a)}
-                            update={(fn) =>
-                              setRoomOverride?.(r.id, pq.id, fn(overrides[r.id]?.[pq.id] ?? jobAnswers[pq.id]))
-                            }
-                            sellAt={sellAt}
-                            totalSqft={totalSqft}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+                <details className="border-t pt-2" open>
+                  <summary className="cursor-pointer text-sm font-semibold">
+                    Prep for {r.name || "this room"}
+                  </summary>
+                  <div className="mt-2 space-y-3 rounded-md border bg-card p-2.5">
+                    <p className="text-xs text-muted-foreground">
+                      Leveling, primer, moisture, subfloor & demo for {r.name || "this area"} only.
+                      Leave blank for none.
+                    </p>
+                    {perRoom.map((pq) => (
+                      <div key={pq.id} className="space-y-1">
+                        <div className="text-xs font-medium">{pq.label}</div>
+                        <QuestionBody
+                          q={pq}
+                          answer={overrides[r.id]?.[pq.id] ?? jobAnswers[pq.id]}
+                          set={(a) => setRoomOverride?.(r.id, pq.id, a)}
+                          update={(fn) =>
+                            setRoomOverride?.(r.id, pq.id, fn(overrides[r.id]?.[pq.id] ?? jobAnswers[pq.id]))
+                          }
+                          sellAt={sellAt}
+                          totalSqft={totalSqft}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </details>
               ) : null}
             </div>
           );
