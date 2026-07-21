@@ -154,9 +154,16 @@ type Answer =
   | { kind: "choice_areas"; rows: DemoRow[] }
   | { kind: "cuts"; same: boolean; product: ProductAns | null; groups: CarpetGroup[] }
   | { kind: "stairs"; groups: StairGroup[] }
+  | { kind: "hs_stairs"; steps: string; treadRiser: boolean; product: ProductAns | null; laborRate: string }
   | { kind: "subfloor"; thickness: string }
   | { kind: "selflevel"; thickness: string }
   | { kind: "text"; text: string };
+
+// Hard-surface stairs wrapped in plank: sq ft per step depends on scope, and the
+// install labor runs higher than a flat floor. Both editable per estimate.
+const STAIR_SQFT_TREAD_RISER = 8;
+const STAIR_SQFT_TREAD_ONLY = 4;
+const DEFAULT_STAIR_LABOR_PER_SQFT = 4;
 
 let cgid = 0, ctid = 0, sgid = 0;
 const newCutRow = (width = "12"): CutRow => ({ id: `c${ctid++}`, lf: "", li: "", width });
@@ -331,6 +338,8 @@ export function Questionnaire({
       else if (q.kind === "cuts") init[q.id] = { kind: "cuts", same: true, product: null, groups: [newCarpetGroup()] };
       else if (q.kind === "stairs")
         init[q.id] = { kind: "stairs", groups: [newStairGroup(q.config.options?.[0]?.label ?? "Waterfall")] };
+      else if (q.kind === "hs_stairs")
+        init[q.id] = { kind: "hs_stairs", steps: "", treadRiser: true, product: null, laborRate: "" };
       else if (q.kind === "subfloor")
         init[q.id] = { kind: "subfloor", thickness: q.config.options?.[0]?.label ?? "" };
       else if (q.kind === "selflevel")
@@ -930,6 +939,64 @@ export function Questionnaire({
               color: null,
               from_stock: false,
             });
+        }
+      } else if (q.kind === "hs_stairs" && a.kind === "hs_stairs") {
+        // Hard-surface stairs wrapped in plank: area = steps × sq ft/step
+        // (tread+riser or tread only). The area buys the flooring at its rate AND
+        // adds stair-install labor at a higher per-sq-ft rate than a flat floor.
+        // (Matching stairnose / treads are handled separately in the trims step.)
+        const steps = numv(a.steps);
+        if (steps > 0) {
+          const sfPerStep = a.treadRiser ? STAIR_SQFT_TREAD_RISER : STAIR_SQFT_TREAD_ONLY;
+          const area = r2(steps * sfPerStep);
+          const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
+          const p = a.product;
+          if (p) {
+            const matCost = rateFor(p.materialRate, p.unit, false);
+            out.push({
+              room: null,
+              description: `Stair flooring — ${p.label || "plank"} (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel})`,
+              category: p.category || "other",
+              measure_unit: "sqft",
+              sqft: area,
+              quantity: area,
+              length_in: null,
+              width_in: null,
+              unit: "sq ft",
+              material_rate: sellAt(matCost),
+              labor_rate: 0,
+              material_cost: matCost,
+              labor_cost: 0,
+              waste_pct: numv(p.wastePct) || 0,
+              product_id: p.productId || null,
+              manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+              style: p.style,
+              color: p.color,
+              from_stock: p.source === "stock",
+            });
+          }
+          const lr = numv(a.laborRate) || DEFAULT_STAIR_LABOR_PER_SQFT;
+          out.push({
+            room: null,
+            description: `Stair install — ${steps} step${steps === 1 ? "" : "s"} (${scopeLabel})`,
+            category: "labor",
+            measure_unit: "sqft",
+            sqft: area,
+            quantity: area,
+            length_in: null,
+            width_in: null,
+            unit: "sq ft",
+            material_rate: 0,
+            labor_rate: sellAt(lr),
+            material_cost: 0,
+            labor_cost: lr,
+            waste_pct: 0,
+            product_id: null,
+            manufacturer: null,
+            style: null,
+            color: null,
+            from_stock: false,
+          });
         }
       } else if (q.kind === "subfloor" && a.kind === "subfloor") {
         // Subfloor → SHEETS per room (ceil(area ÷ sheet coverage)) so nothing is
@@ -2287,6 +2354,66 @@ function QuestionBody({
         <Button type="button" variant="outline" size="sm" onClick={() => upd([...groups, newStairGroup(opts[0]?.label ?? "Waterfall")])}>
           <Plus className="size-3.5" /> Add another stair type
         </Button>
+      </div>
+    );
+  }
+
+  if (q.kind === "hs_stairs" && answer?.kind === "hs_stairs") {
+    const a = answer;
+    const upd = (p: Partial<Extract<Answer, { kind: "hs_stairs" }>>) => set({ ...a, ...p });
+    const steps = Math.max(0, Math.floor(numv(a.steps)));
+    const sfPerStep = a.treadRiser ? STAIR_SQFT_TREAD_RISER : STAIR_SQFT_TREAD_ONLY;
+    const area = steps * sfPerStep;
+    const lr = numv(a.laborRate) || DEFAULT_STAIR_LABOR_PER_SQFT;
+    const p = a.product;
+    const matRate = p ? sellAt(rateFor(p.materialRate, p.unit, false)) : 0;
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">How many steps?</label>
+            <Input value={a.steps} onChange={(e) => upd({ steps: e.target.value })} inputMode="numeric" placeholder="0 = no stairs" className="h-11 w-28 text-base md:h-10" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">Scope</label>
+            <div className="inline-flex overflow-hidden rounded-md border">
+              <button type="button" onClick={() => upd({ treadRiser: true })}
+                className={cn("px-3 py-2 text-sm font-medium", a.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                Tread + riser <span className="opacity-70">({STAIR_SQFT_TREAD_RISER} sf)</span>
+              </button>
+              <button type="button" onClick={() => upd({ treadRiser: false })}
+                className={cn("px-3 py-2 text-sm font-medium", !a.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
+                Tread only <span className="opacity-70">({STAIR_SQFT_TREAD_ONLY} sf)</span>
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">Stair labor $ / sq ft</label>
+            <Input value={a.laborRate} onChange={(e) => upd({ laborRate: e.target.value })} inputMode="decimal" placeholder={String(DEFAULT_STAIR_LABOR_PER_SQFT)} className="h-11 w-24 text-base md:h-10" />
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Flooring that wraps the stairs (optional)</label>
+          <ProductPicker
+            value={p?.productId ?? ""}
+            initialLabel={p?.label ?? ""}
+            label=""
+            defaultCategory="lvp"
+            onPick={(prod) => upd({ product: prod ? toProductAns(prod) : null })}
+            onCreated={(prod) => upd({ product: toProductAns(prod) })}
+            onUseOnce={(input) => upd({ product: customToProductAns(input) })}
+          />
+        </div>
+        {steps > 0 ? (
+          <div className="rounded-md border border-dashed p-2.5 text-sm">
+            <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"} ×{" "}
+            {sfPerStep} sf = <span className="font-semibold tabular-nums text-primary">{area} sq ft</span>
+            {p ? <> · material <span className="tabular-nums">{formatMoney(matRate * area)}</span></> : null}
+            {" "}· labor <span className="tabular-nums">{formatMoney(sellAt(lr) * area)}</span>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">Enter the number of steps (0 = no stairs).</p>
+        )}
       </div>
     );
   }

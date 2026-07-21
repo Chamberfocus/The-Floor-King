@@ -319,6 +319,7 @@ export type EstimateQuestionKind =
   // Smart auto-calc kinds — the questionnaire does the math:
   | "cuts" // carpet cuts (length × 12'/15' roll) → total sq yd to order
   | "stairs" // step count + type (waterfall/upholstered) → labor + carpet yd
+  | "hs_stairs" // hard-surface stairs → area (steps × 4/8 sf) → plank + stair labor
   | "subfloor" // thickness → sheets = ceil(area ÷ 32)
   | "selflevel"; // self-leveler → bags from area + pour thickness
 
