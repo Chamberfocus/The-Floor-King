@@ -382,7 +382,7 @@ export default async function EstimatePage({
       {/* Notes — shown to the customer on the estimate & the printed/PDF copy */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle className="text-base">Notes on the estimate</CardTitle>
+          <CardTitle className="text-base">Description — fills the estimate body</CardTitle>
         </CardHeader>
         <CardContent>
           <EstimateNotesEditor estimateId={estimate.id} notes={estimate.notes} />
