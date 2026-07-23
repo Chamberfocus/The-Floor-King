@@ -1,4 +1,3 @@
-import { ftIn } from "@/lib/job-scope";
 import { lineQty } from "@/lib/estimate-calc";
 import type { EstimateLineItem } from "@/lib/types";
 
@@ -21,12 +20,17 @@ export interface PoItemRow {
 /**
  * Turn a vendor's estimate lines into PO item rows — the ONE place the
  * carpet-cut → order math lives, shared by createPOFromEstimate and the carpet
- * re-sync so a PO's ordered yardage is always exactly what the cuts dictate:
+ * re-sync so a PO's ordered yardage is always exactly what the cuts dictate.
+ * A PO is a what-to-BUY list, so items are ordered COLLECTIVELY by product —
+ * never split by room or area:
  *  - "order as roll" lines consolidate into one roll per product + width (the
  *    yardage that must come off the roll, fill pieces included),
- *  - every other line is ordered as its own measured cut.
- * Carpet identity (category / roll_width_ft) rides along so the re-sync can find
- * and replace exactly the roll-good rows.
+ *  - every other line (hard surface / carton goods / individual cuts) is summed
+ *    into one line per product — the same product used across rooms becomes a
+ *    single PO line with the total quantity.
+ * Per-piece cut sizes are NOT on the PO order line; they live on the warehouse
+ * cut list. Carpet identity (category / roll_width_ft) rides along so the
+ * re-sync can find and replace exactly the roll-good rows.
  */
 export function buildPoItemRows(
   glines: EstimateLineItem[],
@@ -36,16 +40,31 @@ export function buildPoItemRows(
   const cutLines = glines.filter((l) => !l.order_as_roll);
   const rollLines = glines.filter((l) => l.order_as_roll);
 
-  const rows: PoItemRow[] = cutLines.map((l) => {
-    const dims =
-      l.length_in && l.width_in
-        ? ` — ${ftIn(Number(l.width_in))} × ${ftIn(Number(l.length_in))}`
-        : "";
-    return {
+  // Combine the same product across rooms/areas into one collective PO line.
+  const cutGroups = new Map<string, PoItemRow>();
+  for (const l of cutLines) {
+    const unit = l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft");
+    const key = [
+      l.product_id ?? nameOf(l).toLowerCase(),
+      unit,
+      l.manufacturer ?? "",
+      l.style ?? "",
+      l.color ?? "",
+      l.item_no ?? "",
+      l.category ?? "",
+      l.roll_width_ft != null ? Number(l.roll_width_ft) : "",
+    ].join("|");
+    const qty = Math.round(lineQty(l) * 100) / 100;
+    const existing = cutGroups.get(key);
+    if (existing) {
+      existing.quantity = Math.round((existing.quantity + qty) * 100) / 100;
+      continue;
+    }
+    cutGroups.set(key, {
       product_id: l.product_id ?? null,
-      description: `${nameOf(l)}${dims}`,
-      quantity: Math.round(lineQty(l) * 100) / 100,
-      unit: l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft"),
+      description: nameOf(l),
+      quantity: qty,
+      unit,
       unit_cost: costOf(l),
       manufacturer: l.manufacturer ?? null,
       style: l.style ?? null,
@@ -53,8 +72,9 @@ export function buildPoItemRows(
       item_no: l.item_no ?? null,
       category: l.category ?? null,
       roll_width_ft: l.roll_width_ft != null ? Number(l.roll_width_ft) : null,
-    };
-  });
+    });
+  }
+  const rows: PoItemRow[] = [...cutGroups.values()];
 
   // Group roll lines by product + width → one roll line (linear ft + yardage).
   const rollGroups = new Map<
