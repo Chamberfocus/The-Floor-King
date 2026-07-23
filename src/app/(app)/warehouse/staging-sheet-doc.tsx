@@ -6,18 +6,21 @@ import {
   isHardSurfaceCategory,
   type OrgSettings,
 } from "@/lib/types";
+import { type CutSource } from "@/lib/job-scope";
+import { CarpetCutList } from "@/components/carpet-cut-list";
 import type { WarehouseJob } from "@/lib/data/jobs";
 import type { JobMaterialLine } from "@/lib/data/job-materials";
 
 /**
- * Print-only WAREHOUSE STAGING SHEET — a summary of the PRODUCTS to pull &
- * stage for a job (who/where/when, delivery method, then one line per product
- * with its total quantity and a tick box), staging notes, and a "staged by"
- * sign-off. It is a what-to-get list, NOT a room-by-room pick list: the same
- * product used in several rooms is combined into a single total. Materials come
- * from the SAME sourced list the on-screen warehouse queue uses
- * (getJobMaterials), so the printout can't disagree with the screen —
- * pull-vs-order and "arrived" all match.
+ * Print-only WAREHOUSE STAGING SHEET — the warehouse's job-prep doc. It has two
+ * parts: (1) a PRODUCT SUMMARY — one line per product with its total quantity to
+ * pull, combining the same product used across rooms (a what-to-get list, not a
+ * room-by-room list); and (2) the CARPET CUT PLAN — the exact per-piece cuts the
+ * warehouse must make off the roll (this stays piece-by-piece; it has to be
+ * accurate to cut correctly). Plus staging notes and a "staged by" sign-off.
+ * Everything comes from the SAME sourced list the on-screen warehouse queue uses
+ * (getJobMaterials), so the printout can't disagree with the screen. The
+ * installer-facing doc is the separate INSTALLATION WORK ORDER.
  */
 export function StagingSheetDoc({
   org,
@@ -214,6 +217,27 @@ export function StagingSheetDoc({
           </p>
         )}
       </div>
+
+      {/* Carpet cut plan — the exact per-piece cuts to pull off the roll (incl.
+          fill pieces). Stays piece-by-piece: the warehouse cuts from this, so it
+          has to be accurate. */}
+      <CarpetCutList
+        items={lines.map(
+          (m): CutSource => ({
+            room: m.room,
+            description: m.productName || m.description,
+            category: m.category,
+            length_in: m.lengthIn,
+            width_in: m.widthIn,
+            is_fill: m.isFill,
+            roll_width_ft: m.rollWidthFt,
+            manufacturer: m.manufacturer,
+            color: m.color,
+          }),
+        )}
+        title="Carpet cut plan"
+        note="Cut each piece off the roll at the size shown; fill pieces come from the same roll."
+      />
 
       {lines.some((m) => isHardSurfaceCategory(m.category)) ? (
         <div className="mt-3 break-inside-avoid rounded border-2 border-black p-2 text-sm">
