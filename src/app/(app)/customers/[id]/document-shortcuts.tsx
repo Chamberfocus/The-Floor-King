@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { FileText, Hammer, Boxes, Receipt, Printer, type LucideIcon } from "lucide-react";
+import { FileText, Hammer, Boxes, Receipt, Printer, Eye, type LucideIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export interface DocJob {
@@ -13,10 +13,11 @@ export interface DocJob {
 }
 
 /**
- * One-click access to a customer's four printable documents for the chosen job.
- * Each tile links to the REAL record's print view (opens ready to print); a
- * document that doesn't exist yet is shown greyed with a short reason. The
- * customer firewall is untouched — these just open the existing docs.
+ * One-click access to a customer's four documents for the chosen job. Each tile
+ * offers two actions on the REAL record: Preview (open the doc to read, no print
+ * dialog) and Print (open ready to print / save as PDF). A document that doesn't
+ * exist yet is shown greyed with a short reason. The customer firewall is
+ * untouched — these just open the existing docs.
  */
 export function DocumentShortcuts({
   jobs,
@@ -38,31 +39,40 @@ export function DocumentShortcuts({
   const tiles: {
     icon: LucideIcon;
     label: string;
-    href: string | null;
+    /** Opens the doc ready to print / save as PDF (fires the print dialog). */
+    printHref: string | null;
+    /** Opens the same doc to just read — no print dialog. */
+    previewHref: string | null;
     reason: string;
   }[] = [
     {
       icon: FileText,
       label: "Estimate",
-      href: estimateId ? `/estimates/${estimateId}?print=1` : null,
+      printHref: estimateId ? `/estimates/${estimateId}?print=1` : null,
+      previewHref: estimateId ? `/estimates/${estimateId}` : null,
       reason: "No estimate yet",
     },
     {
       icon: Hammer,
       label: "Work order",
-      href: job ? `/jobs/${job.id}?print=work_order` : null,
+      printHref: job ? `/jobs/${job.id}?print=work_order` : null,
+      previewHref: job ? `/jobs/${job.id}` : null,
       reason: "No job yet",
     },
     {
       icon: Boxes,
       label: "Staging sheet",
-      href: job ? `/jobs/${job.id}/staging-sheet` : null,
+      // The staging sheet auto-prints by default; ?print=0 suppresses that so it
+      // opens as a readable preview.
+      printHref: job ? `/jobs/${job.id}/staging-sheet` : null,
+      previewHref: job ? `/jobs/${job.id}/staging-sheet?print=0` : null,
       reason: "No job yet",
     },
     {
       icon: Receipt,
       label: "Invoice",
-      href: invoiceId ? `/invoices/${invoiceId}?print=1` : null,
+      printHref: invoiceId ? `/invoices/${invoiceId}?print=1` : null,
+      previewHref: invoiceId ? `/invoices/${invoiceId}` : null,
       reason: "No invoice yet",
     },
   ];
@@ -71,7 +81,7 @@ export function DocumentShortcuts({
     <Card className="mb-6">
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
         <CardTitle className="flex items-center gap-2 text-base">
-          <Printer className="size-4 text-muted-foreground" /> Print documents
+          <FileText className="size-4 text-muted-foreground" /> Documents
         </CardTitle>
         {jobs.length > 1 ? (
           <select
@@ -92,19 +102,33 @@ export function DocumentShortcuts({
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {tiles.map((t) => {
             const Icon = t.icon;
-            if (t.href) {
+            if (t.previewHref && t.printHref) {
               return (
-                <Link
+                <div
                   key={t.label}
-                  href={t.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-3 text-center transition-colors hover:border-primary hover:bg-muted"
+                  className="flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-3 text-center"
                 >
                   <Icon className="size-6 text-primary" />
                   <span className="text-sm font-medium">{t.label}</span>
-                  <span className="text-[11px] text-muted-foreground">Open &amp; print</span>
-                </Link>
+                  <div className="mt-1 grid w-full grid-cols-2 gap-1.5">
+                    <Link
+                      href={t.previewHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs font-medium transition-colors hover:border-primary hover:text-primary"
+                    >
+                      <Eye className="size-3.5" /> Preview
+                    </Link>
+                    <Link
+                      href={t.printHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center gap-1 rounded-md bg-primary px-2 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                    >
+                      <Printer className="size-3.5" /> Print
+                    </Link>
+                  </div>
+                </div>
               );
             }
             return (
