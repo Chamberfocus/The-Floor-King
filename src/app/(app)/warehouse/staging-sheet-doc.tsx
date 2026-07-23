@@ -53,40 +53,55 @@ export function StagingSheetDoc({
   ];
 
   // Product summary: combine the same product across rooms into ONE line with a
-  // single total quantity (fill pieces roll into their product too). Distinct
-  // source/status/supplier stay separate rows so "pull from stock" and
-  // "order from vendor" for the same product don't get merged.
+  // single total quantity (fill pieces roll into their product too). Identity is
+  // the catalog product_id when the line has one — so the same product used in
+  // several rooms collapses even if a per-line label (e.g. manufacturer) drifted;
+  // lines with no product fall back to their (room-stripped) name. Only the pull
+  // action (stock vs order, arrived vs not) splits a product into separate rows,
+  // since that changes what the warehouse actually does.
   interface ProductGroup {
     key: string;
     category: string | null;
     name: string;
-    manufacturer: string | null;
-    color: string | null;
     unit: string;
     sqftPerBox: number | null;
     rollWidthFt: number | null;
     resolvedSource: JobMaterialLine["resolvedSource"];
     status: JobMaterialLine["status"];
-    supplier: string | null;
     qty: number;
+    // Label votes: a mis-tagged line (wrong manufacturer/supplier on one room)
+    // shouldn't win the printed label — the majority value shows.
+    mfrVotes: Map<string, number>;
+    colorVotes: Map<string, number>;
+    supplierVotes: Map<string, number>;
   }
+  const bumpVote = (map: Map<string, number>, v: string | null) => {
+    if (v) map.set(v, (map.get(v) ?? 0) + 1);
+  };
+  const topVote = (map: Map<string, number>): string | null => {
+    let best: string | null = null;
+    let n = 0;
+    for (const [k, c] of map)
+      if (c > n) {
+        best = k;
+        n = c;
+      }
+    return best;
+  };
   const groups: ProductGroup[] = [];
   const byKey = new Map<string, ProductGroup>();
   for (const m of lines) {
     // Drop the room the questionnaire baked onto the description so the same
     // product in several rooms collapses to one line.
     const name = stripRoomFromName(m.productName || m.description || "Material", m.room);
+    const identity = m.productId ?? name.toLowerCase();
     const key = [
-      m.category ?? "",
-      name.toLowerCase(),
-      m.manufacturer ?? "",
-      m.color ?? "",
+      identity,
       m.unit ?? "",
       m.sqftPerBox ?? "",
       m.rollWidthFt ?? "",
       m.resolvedSource,
       m.status,
-      m.supplier ?? "",
     ].join("|");
     let g = byKey.get(key);
     if (!g) {
@@ -94,20 +109,23 @@ export function StagingSheetDoc({
         key,
         category: m.category,
         name,
-        manufacturer: m.manufacturer,
-        color: m.color,
         unit: m.unit,
         sqftPerBox: m.sqftPerBox,
         rollWidthFt: m.rollWidthFt,
         resolvedSource: m.resolvedSource,
         status: m.status,
-        supplier: m.supplier,
         qty: 0,
+        mfrVotes: new Map(),
+        colorVotes: new Map(),
+        supplierVotes: new Map(),
       };
       byKey.set(key, g);
       groups.push(g);
     }
     g.qty += m.qty;
+    bumpVote(g.mfrVotes, m.manufacturer);
+    bumpVote(g.colorVotes, m.color);
+    bumpVote(g.supplierVotes, m.supplier);
   }
 
   return (
@@ -183,13 +201,16 @@ export function StagingSheetDoc({
                     : isRoll && g.rollWidthFt
                       ? `${g.rollWidthFt} ft broadloom`
                       : "";
-                const idTags = [g.manufacturer, g.color].filter(Boolean).join(" · ");
+                const manufacturer = topVote(g.mfrVotes);
+                const color = topVote(g.colorVotes);
+                const supplier = topVote(g.supplierVotes);
+                const idTags = [manufacturer, color].filter(Boolean).join(" · ");
                 const sourceLabel =
                   g.resolvedSource === "stock"
                     ? "Pull from stock"
                     : g.status === "arrived"
                       ? "Ordered ✓ arrived"
-                      : `⏳ Order${g.supplier ? ` · ${g.supplier}` : ""} — not yet in`;
+                      : `⏳ Order${supplier ? ` · ${supplier}` : ""} — not yet in`;
                 return (
                   <tr key={g.key} className="border-b align-top">
                     <td className="py-1.5 pr-2">
