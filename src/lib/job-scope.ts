@@ -17,6 +17,26 @@ export function ftIn(totalIn: number | null | undefined): string {
   return inch ? `${ft}' ${inch}"` : `${ft}'`;
 }
 
+/**
+ * Strip a room baked onto a line description so the same product across rooms
+ * reads (and groups) as ONE item. The questionnaire writes prep/addon lines as
+ * "<desc> — <room>" (see questionnaire.tsx), so a subfloor used in the kitchen
+ * and the bedroom would otherwise look like two different products on a
+ * collective (product-summary) list. Only an exact trailing room token after a
+ * separator (— – · -) is removed; if that would empty the name, the original is
+ * kept. Product names that don't end in the room are untouched.
+ */
+export function stripRoomFromName(
+  name: string,
+  room: string | null | undefined,
+): string {
+  const r = (room ?? "").trim();
+  if (!r) return name;
+  const esc = r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const stripped = name.replace(new RegExp(`\\s*[—–·-]\\s*${esc}\\s*$`, "i"), "").trim();
+  return stripped || name;
+}
+
 /** What the crew needs per line: order quantity, cut size, pad rolls, fill flag. */
 export function lineSpec(l: {
   quantity: number | null;

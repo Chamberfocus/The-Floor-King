@@ -6,7 +6,7 @@ import {
   isHardSurfaceCategory,
   type OrgSettings,
 } from "@/lib/types";
-import { type CutSource } from "@/lib/job-scope";
+import { stripRoomFromName, type CutSource } from "@/lib/job-scope";
 import { CarpetCutList } from "@/components/carpet-cut-list";
 import type { WarehouseJob } from "@/lib/data/jobs";
 import type { JobMaterialLine } from "@/lib/data/job-materials";
@@ -73,7 +73,9 @@ export function StagingSheetDoc({
   const groups: ProductGroup[] = [];
   const byKey = new Map<string, ProductGroup>();
   for (const m of lines) {
-    const name = m.productName || m.description || "Material";
+    // Drop the room the questionnaire baked onto the description so the same
+    // product in several rooms collapses to one line.
+    const name = stripRoomFromName(m.productName || m.description || "Material", m.room);
     const key = [
       m.category ?? "",
       name.toLowerCase(),

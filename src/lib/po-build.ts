@@ -1,3 +1,4 @@
+import { stripRoomFromName } from "@/lib/job-scope";
 import { lineQty } from "@/lib/estimate-calc";
 import type { EstimateLineItem } from "@/lib/types";
 
@@ -44,8 +45,11 @@ export function buildPoItemRows(
   const cutGroups = new Map<string, PoItemRow>();
   for (const l of cutLines) {
     const unit = l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft");
+    // Room baked into the description ("<desc> — <room>") would split the same
+    // product across rooms; strip it so it orders as one collective line.
+    const name = stripRoomFromName(nameOf(l), l.room);
     const key = [
-      l.product_id ?? nameOf(l).toLowerCase(),
+      l.product_id ?? name.toLowerCase(),
       unit,
       l.manufacturer ?? "",
       l.style ?? "",
@@ -62,7 +66,7 @@ export function buildPoItemRows(
     }
     cutGroups.set(key, {
       product_id: l.product_id ?? null,
-      description: nameOf(l),
+      description: name,
       quantity: qty,
       unit,
       unit_cost: costOf(l),
