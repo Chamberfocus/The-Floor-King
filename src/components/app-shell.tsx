@@ -64,13 +64,38 @@ function NavLink({
 }) {
   const active = isActiveHref(pathname, item.href);
   const Icon = item.icon;
+
+  // Subcategory (child) rows: no icon, so the label is the group's leftmost
+  // content and the container's vertical rule sits 8px to its left. Text lands
+  // 16px past the parent item's text (parent text starts at 46px; child at 62px,
+  // via ml-[54px] on the container + 1px rule + pl-[7px] here). One step below
+  // the parent's 14px (text-xs = 12px), weight 400, foreground at 80% (contrast
+  // 9.3:1 light / 11.0:1 dark — well over 4.5:1, so 80% holds). Active: full
+  // opacity, weight 500, and a 2px accent segment over the rule beside the row.
+  if (nested) {
+    return (
+      <Link
+        href={item.href}
+        onClick={onNavigate}
+        className={cn(
+          "relative flex h-9 items-center rounded-md pl-[7px] pr-3.5 text-xs transition-colors",
+          active
+            ? "font-medium text-sidebar-foreground before:absolute before:inset-y-0 before:-left-px before:w-0.5 before:bg-sidebar-primary before:content-['']"
+            : "font-normal text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+        )}
+      >
+        {item.label}
+      </Link>
+    );
+  }
+
   return (
     <Link
       href={item.href}
       onClick={onNavigate}
       className={cn(
         "flex items-center gap-3 rounded-lg py-2.5 text-sm transition-colors",
-        nested ? "pl-4 pr-3.5" : "px-3.5",
+        "px-3.5",
         active
           ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm"
           : "font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
@@ -138,7 +163,12 @@ function NavLinks({ role, onNavigate }: { role: Profile["role"]; onNavigate?: ()
               />
             </button>
             {expanded ? (
-              <div className="mt-0.5 flex flex-col gap-1">
+              // Subcategory group: 1px vertical rule (border color, full opacity)
+              // 8px left of the child text; ml-[54px] puts the rule at 54px so
+              // text lands at 62px (16px past parent text). 2px between rows
+              // (gap-0.5); mb-2 (8px) + the nav's gap-1 (4px) = 12px to the next
+              // parent item.
+              <div className="mt-0.5 mb-2 ml-[54px] flex flex-col gap-0.5 border-l border-sidebar-border">
                 {g.items.map((item) => (
                   <NavLink
                     key={item.href}
