@@ -53,11 +53,13 @@ export function InvoiceBuilder({
   org,
   scope,
   narrative,
+  preview = false,
 }: {
   invoice: Invoice;
   amountPaid: number;
   customer: Customer | null;
   org: OrgSettings;
+  preview?: boolean;
   /** Full customer scope from the linked estimate/job (the printed copy shows
    *  this instead of quantities and unit prices). Null when nothing is linked. */
   scope?: CustomerScope | null;
@@ -190,8 +192,9 @@ export function InvoiceBuilder({
       totals={totals}
       scope={scope ?? null}
       narrative={narrative ?? null}
+      preview={preview}
     />
-    <div className="pb-44 md:pb-24 print:hidden">
+    <div className={cn("pb-44 md:pb-24 print:hidden", preview && "hidden")}>
       <Card className="mb-6">
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-3">
           <div className="space-y-2">
@@ -451,6 +454,7 @@ function InvoicePrintDoc({
   totals,
   scope,
   narrative,
+  preview = false,
 }: {
   org: OrgSettings;
   customer: Customer | null;
@@ -464,6 +468,8 @@ function InvoicePrintDoc({
   totals: { subtotal: number; tax: number; total: number; paid: number; balance: number };
   scope: CustomerScope | null;
   narrative: string | null;
+  /** On-screen document preview: show the doc as a white sheet (not print-only). */
+  preview?: boolean;
 }) {
   // Same rule as the estimate: show the full scope, never a quantity or a unit
   // price. Scope comes from the linked estimate/job; if the invoice isn't linked,
@@ -473,7 +479,14 @@ function InvoicePrintDoc({
     .filter(Boolean);
 
   return (
-    <div className="hidden text-black print:block">
+    <div
+      className={cn(
+        "text-black print:block",
+        preview
+          ? "mx-auto max-w-4xl bg-white p-6 shadow-sm ring-1 ring-black/10 sm:p-10"
+          : "hidden",
+      )}
+    >
       <PrintLetterhead
         org={org}
         docTitle="INVOICE"

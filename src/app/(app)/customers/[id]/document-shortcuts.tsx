@@ -49,14 +49,14 @@ export function DocumentShortcuts({
       icon: FileText,
       label: "Estimate",
       printHref: estimateId ? `/estimates/${estimateId}?print=1` : null,
-      previewHref: estimateId ? `/estimates/${estimateId}` : null,
+      previewHref: estimateId ? `/estimates/${estimateId}?preview=1` : null,
       reason: "No estimate yet",
     },
     {
       icon: Hammer,
       label: "Work order",
       printHref: job ? `/jobs/${job.id}?print=work_order` : null,
-      previewHref: job ? `/jobs/${job.id}` : null,
+      previewHref: job ? `/jobs/${job.id}?preview=1` : null,
       reason: "No job yet",
     },
     {
@@ -72,7 +72,7 @@ export function DocumentShortcuts({
       icon: Receipt,
       label: "Invoice",
       printHref: invoiceId ? `/invoices/${invoiceId}?print=1` : null,
-      previewHref: invoiceId ? `/invoices/${invoiceId}` : null,
+      previewHref: invoiceId ? `/invoices/${invoiceId}?preview=1` : null,
       reason: "No invoice yet",
     },
   ];

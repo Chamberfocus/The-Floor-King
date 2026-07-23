@@ -38,10 +38,11 @@ export default async function InvoicePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string }>;
 }) {
   const { id } = await params;
-  const { print } = await searchParams;
+  const { print, preview: previewParam } = await searchParams;
+  const preview = previewParam === "1";
   const invoice = await getInvoice(id);
   if (!invoice) notFound();
 
@@ -54,14 +55,18 @@ export default async function InvoicePage({
   return (
     <div className="mx-auto max-w-4xl">
       {print ? <AutoPrint /> : null}
-      <Link
-        href="/invoices"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground print:hidden"
-      >
-        <ArrowLeft className="size-4" /> Back to invoices
-      </Link>
+      {!preview ? (
+        <Link
+          href="/invoices"
+          className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground print:hidden"
+        >
+          <ArrowLeft className="size-4" /> Back to invoices
+        </Link>
+      ) : null}
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 print:hidden">
+      <div
+        className={`mb-6 flex flex-wrap items-center justify-between gap-3 print:hidden${preview ? " hidden" : ""}`}
+      >
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
@@ -101,9 +106,11 @@ export default async function InvoicePage({
         org={org}
         scope={invoiceScope?.scope ?? null}
         narrative={invoiceScope?.narrative ?? null}
+        preview={preview}
       />
 
       {/* Payments */}
+      {!preview ? (
       <Card className="mt-2 print:hidden">
         <CardHeader>
           <CardTitle className="text-base">Payments</CardTitle>
@@ -221,7 +228,9 @@ export default async function InvoicePage({
           </form>
         </CardContent>
       </Card>
+      ) : null}
 
+      {!preview ? (
       <details className="mt-4 ml-auto w-fit print:hidden">
         <summary className="cursor-pointer list-none text-right text-xs text-muted-foreground hover:text-destructive [&::-webkit-details-marker]:hidden">
           Delete invoice
@@ -245,6 +254,7 @@ export default async function InvoicePage({
           </ConfirmButton>
         </form>
       </details>
+      ) : null}
     </div>
   );
 }

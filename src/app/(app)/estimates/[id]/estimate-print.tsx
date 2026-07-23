@@ -176,11 +176,14 @@ export function EstimatePrintDoc({
   customer,
   estimate,
   preparedBy,
+  preview = false,
 }: {
   org: OrgSettings;
   customer: Customer | null;
   estimate: Estimate;
   preparedBy?: string | null;
+  /** On-screen document preview: show the doc as a white sheet (not print-only). */
+  preview?: boolean;
 }) {
   const options = estimate.options ?? [];
   // Multiple options with no choice made yet → present them side by side so the
@@ -230,7 +233,15 @@ export function EstimatePrintDoc({
   const pricedLines = itemized ? lines.filter((l) => lineTotal(l) > 0) : [];
 
   return (
-    <div className="hidden text-black print:block" style={{ fontFamily: '"Helvetica Neue", Arial, sans-serif' }}>
+    <div
+      className={cn(
+        "text-black print:block",
+        preview
+          ? "mx-auto max-w-4xl bg-white p-6 shadow-sm ring-1 ring-black/10 sm:p-10"
+          : "hidden",
+      )}
+      style={{ fontFamily: '"Helvetica Neue", Arial, sans-serif' }}
+    >
       {/* Header — logo left, summary box right */}
       <div className="flex items-start justify-between gap-6">
         <div>

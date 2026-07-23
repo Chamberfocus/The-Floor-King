@@ -149,6 +149,7 @@ export function InstallationWorkOrderDoc({
   collectOnSite = null,
   expectedDays = null,
   showPrices = false,
+  preview = false,
 }: {
   org: OrgSettings;
   job: JobDetail;
@@ -159,6 +160,8 @@ export function InstallationWorkOrderDoc({
   expectedDays?: number | null;
   /** Show prices on the work order — staff only; installers never see them. */
   showPrices?: boolean;
+  /** On-screen document preview: show the doc as a white sheet (not print-only). */
+  preview?: boolean;
 }) {
   const scope = buildJobScope(job.line_items, job.notes);
   const totalSqft = scope.rooms.reduce((s, r) => s + (r.sqft ?? 0), 0);
@@ -200,7 +203,14 @@ export function InstallationWorkOrderDoc({
     scope.rooms.length > 0 || scope.wholeJob.products.length > 0 || scope.wholeJob.labor.length > 0;
 
   return (
-    <div className="hidden text-black print:block">
+    <div
+      className={
+        "text-black print:block " +
+        (preview
+          ? "mx-auto max-w-4xl bg-white p-6 shadow-sm ring-1 ring-black/10 sm:p-10"
+          : "hidden")
+      }
+    >
       <PrintLetterhead
         org={org}
         docTitle="INSTALLATION WORK ORDER"

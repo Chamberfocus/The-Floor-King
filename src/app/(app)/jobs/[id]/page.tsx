@@ -98,7 +98,7 @@ export default async function JobPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ created?: string; print?: string }>;
+  searchParams: Promise<{ created?: string; print?: string; preview?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
@@ -106,6 +106,9 @@ export default async function JobPage({
   // Reached with ?print (from the customer file's one-click Work Order shortcut)
   // → open the print dialog on the existing work-order doc, unchanged.
   const autoPrint = sp.print === "1" || sp.print === "work_order";
+  // Reached with ?preview=1 → show just the work-order document on screen (a
+  // readable white sheet), with the job-management chrome hidden.
+  const preview = sp.preview === "1";
   const profile = await requireProfile();
   const isStaff = profile.role === "admin" || profile.role === "office";
 
@@ -284,11 +287,14 @@ export default async function JobPage({
         collectOnSite={woCollectBalance}
         expectedDays={installProps?.installEst?.days ?? null}
         showPrices={showPrices}
+        preview={preview}
       />
-      <JobStepPopup
-        jobs={[{ ...progress, title: job.title, justCreated }]}
-      />
-      <div className="mx-auto max-w-4xl print:hidden">
+      {!preview ? (
+        <JobStepPopup
+          jobs={[{ ...progress, title: job.title, justCreated }]}
+        />
+      ) : null}
+      <div className={cn("mx-auto max-w-4xl print:hidden", preview && "hidden")}>
       <Link
         href="/jobs"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
