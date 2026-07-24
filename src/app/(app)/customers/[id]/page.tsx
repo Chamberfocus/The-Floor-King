@@ -123,6 +123,8 @@ import { QualifyDialog } from "./qualify-dialog";
 import { QuickActions } from "./quick-actions";
 import { CustomerSwitcher } from "./customer-switcher";
 import { DocumentShortcuts, type DocJob } from "./document-shortcuts";
+import { getCustomerJobCosting } from "@/lib/data/job-costing";
+import { JobCostingTab } from "./job-costing-tab";
 import { getUserPreferences } from "@/lib/data/preferences";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
@@ -190,6 +192,8 @@ export default async function CustomerPage({
     ]);
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
+  // Read-only per-job estimated-vs-actual costing for the Job Costing tab.
+  const costing = await getCustomerJobCosting(id);
   const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
   // Soonest scheduled install (for the at-a-glance schedule strip under the stage).
   const installJob =
@@ -666,9 +670,11 @@ export default async function CustomerPage({
         </div>
       ) : null}
 
-      {/* Hybrid tabs: Overview shows the whole file; each tab zooms into one part. */}
+      {/* Hybrid tabs: Overview shows the whole file; each tab zooms into one part.
+          Job Costing is always present, even for users whose saved tab order
+          predates it. */}
       <CustomerTabs
-        tabs={prefs.tabs}
+        tabs={prefs.tabs.includes("costing") ? prefs.tabs : [...prefs.tabs, "costing"]}
         defaultTab={prefs.defaultTab}
         counts={{
           estimates: estimates.length,
@@ -951,9 +957,14 @@ export default async function CustomerPage({
 
         {/* Right: the records — one focused section per tab */}
         <TabColumn
-          show={["estimates", "jobs", "invoices", "materials", "files", "messages", "activity"]}
+          show={["estimates", "jobs", "costing", "invoices", "materials", "files", "messages", "activity"]}
           className="space-y-6 lg:col-span-2"
         >
+          {/* Job Costing — read-only estimated vs actual, per job (off Overview) */}
+          <TabSection tab="costing" overview={false}>
+            <JobCostingTab data={costing} />
+          </TabSection>
+
           {/* Chat + AI follow-up draft — Messages tab */}
           <TabCollapse
             tab="messages"

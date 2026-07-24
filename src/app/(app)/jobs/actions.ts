@@ -15,6 +15,7 @@ import {
   advanceFromAutoAction,
 } from "@/lib/workflow-engine";
 import { estimatedLaborCostForOption } from "@/lib/installer-bill";
+import { estimatedMaterialCostForOption } from "@/lib/job-costing";
 
 // Back-half pipeline stages carry no auto_action marker, so job-lifecycle events
 // map to them by name (forward-only, best-effort).
@@ -501,18 +502,19 @@ export async function ensureJobForEstimate(
       optionId = (opt?.id as string) ?? null;
     }
 
-    // Snapshot the estimate's isolated labor COST onto the job — written ONCE
-    // here, at approval (the estimate flow, NOT the bill feature). The installer
-    // bill only reads this later; nothing in the bill feature overwrites it.
+    // Snapshot the estimate's isolated MATERIAL + LABOR cost onto the job —
+    // written ONCE here, at approval (the estimate flow, NOT the costing/bill
+    // views). Those views only read these later; nothing there overwrites them.
     let estimatedLaborCost: number | null = null;
+    let estimatedMaterialCost: number | null = null;
     if (optionId) {
       const { data: optLines } = await admin
         .from("estimate_line_items")
         .select("*")
         .eq("option_id", optionId);
-      estimatedLaborCost = estimatedLaborCostForOption(
-        (optLines ?? []) as EstimateLineItem[],
-      );
+      const lines = (optLines ?? []) as EstimateLineItem[];
+      estimatedLaborCost = estimatedLaborCostForOption(lines);
+      estimatedMaterialCost = estimatedMaterialCostForOption(lines);
     }
 
     const { data: cust } = await admin
@@ -560,12 +562,16 @@ export async function ensureJobForEstimate(
     };
     let { data: job, error } = await admin
       .from("jobs")
-      .insert({ ...baseRow, estimated_labor_cost: estimatedLaborCost })
+      .insert({
+        ...baseRow,
+        estimated_labor_cost: estimatedLaborCost,
+        estimated_material_cost: estimatedMaterialCost,
+      })
       .select("id")
       .single();
     if (error) {
-      // Pre-migration fallback (0123 not run yet): create the job without the
-      // labor snapshot rather than blocking the win.
+      // Pre-migration fallback (0123 / 0124 not run yet): create the job without
+      // the cost snapshots rather than blocking the win.
       ({ data: job, error } = await admin
         .from("jobs")
         .insert(baseRow)
