@@ -347,6 +347,8 @@ export interface EstimateQuestionConfig {
   // (stairs: carpet allowance per step) off each option.
   options?: { label: string; emit?: EstimateEmit | null; cost?: number; carpet_sqft?: number }[];
   // Smart auto-calc knobs (all optional, editable per question in Settings):
+  install_yd?: number; // carpet install labor $/sq yd (cuts + floor_map), default 6
+  install_ft?: number; // hard-surface install labor $/sq ft (floor_map), default 2
   widths?: number[]; // cuts: selectable roll widths (default [12, 15])
   sheet_sqft?: number; // subfloor: coverage per sheet (4×8 = 32)
   coverage_sqft?: number; // selflevel: SF per bag at the reference thickness

@@ -90,6 +90,16 @@ function readConfig(kind: EstimateQuestionKind, formData: FormData): EstimateQue
       return { emit: readEmit(formData), rate_options: readRateOptions(formData.get("rate_options")) };
     case "choice":
       return { multi: on(formData.get("cfg_multi")), options: readChoiceOptions(formData.get("options")), note: on(formData.get("cfg_note")) };
+    case "cuts":
+      // Carpet cuts → yardage; carry the install labor rate ($/sq yd) so the
+      // questionnaire generates carpet labor automatically.
+      return { install_yd: numOr(formData.get("cfg_install_yd"), 6) };
+    case "floor_map":
+      // Per-room product map: carpet install ($/sq yd) + hard-surface ($/sq ft).
+      return {
+        install_yd: numOr(formData.get("cfg_install_yd"), 6),
+        install_ft: numOr(formData.get("cfg_install_ft"), 2),
+      };
     default:
       return {};
   }

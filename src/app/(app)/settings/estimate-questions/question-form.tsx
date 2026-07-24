@@ -238,6 +238,32 @@ export function QuestionForm({
             </div>
           </div>
         ) : null}
+
+        {kind === "cuts" ? (
+          <div>
+            <label className={label}>Carpet install labor — our cost per sq&nbsp;yd</label>
+            <Input name="cfg_install_yd" type="number" step="0.01" min="0" defaultValue={c.install_yd ?? 6} />
+            <p className="mt-1 text-xs text-muted-foreground">
+              The questionnaire adds a carpet labor line automatically = this rate × the yardage from the cuts (a product&apos;s own labor rate, if set, overrides this).
+            </p>
+          </div>
+        ) : null}
+
+        {kind === "floor_map" ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className={label}>Carpet install — our cost per sq&nbsp;yd</label>
+              <Input name="cfg_install_yd" type="number" step="0.01" min="0" defaultValue={c.install_yd ?? 6} />
+            </div>
+            <div>
+              <label className={label}>Hard-surface install — our cost per sq&nbsp;ft</label>
+              <Input name="cfg_install_ft" type="number" step="0.01" min="0" defaultValue={c.install_ft ?? 2} />
+            </div>
+            <p className="sm:col-span-2 text-xs text-muted-foreground">
+              Used to add install labor automatically when a mapped product carries no labor rate of its own.
+            </p>
+          </div>
+        ) : null}
       </div>
 
       {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}

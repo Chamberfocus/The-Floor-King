@@ -901,6 +901,37 @@ export function Questionnaire({
             order_as_roll: true,
             roll_width_ft: numv(g.cuts[0]?.width) || 12,
           });
+          // Carpet INSTALL labor — its own line, calculated from the install
+          // rate × this group's yardage. Prefer the carpet product's own labor
+          // rate; else the question's configured per-sq-yd install rate; else a
+          // sane default — so carpet labor is ALWAYS generated, never left blank
+          // for a manual catalog add. (Catalog flooring usually carries no labor
+          // rate of its own, hence the configurable install rate.)
+          const instYd =
+            (p ? rateFor(p.laborRate, p.unit, true) : 0) || (q.config.install_yd ?? 6);
+          if (instYd > 0) {
+            out.push({
+              room: g.area.trim() || null,
+              description: `Carpet installation${g.area.trim() ? ` — ${g.area.trim()}` : ""}`,
+              category: "labor",
+              measure_unit: "sqyd",
+              sqft: y.sqft,
+              quantity: Math.ceil(y.sqyd),
+              length_in: null,
+              width_in: null,
+              unit: "sq yd",
+              material_rate: 0,
+              labor_rate: sellAt(instYd),
+              material_cost: 0,
+              labor_cost: instYd,
+              waste_pct: 0,
+              product_id: null,
+              manufacturer: null,
+              style: null,
+              color: null,
+              from_stock: false,
+            });
+          }
         }
       } else if (q.kind === "stairs" && a.kind === "stairs") {
         // Stairs → step LABOR + the CARPET the steps consume (waterfall vs
