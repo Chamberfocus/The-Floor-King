@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronRight, FileText, Wrench, Receipt, ExternalLink, Calendar, User } from "lucide-react";
+import { ChevronRight, FileText, Wrench, Receipt, ExternalLink, Calendar, User, HardHat } from "lucide-react";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
@@ -174,6 +174,15 @@ export function WorkOrderRow({ j }: { j: WorkOrderRowData }) {
         </span>
       </div>
       <JobScopeView scope={j.scope} showPrices={j.showPrices} />
+      {/* Installer bill for this job — reached from the job on the dashboard. */}
+      <div className="mt-3 border-t pt-3">
+        <Link
+          href={`/jobs/${j.id}/bill`}
+          className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium hover:border-primary hover:text-primary"
+        >
+          <HardHat className="size-3.5" /> Installer bill
+        </Link>
+      </div>
     </ExpandRow>
   );
 }

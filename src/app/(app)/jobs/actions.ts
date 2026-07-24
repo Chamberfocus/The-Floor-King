@@ -14,6 +14,7 @@ import {
   advanceToNamedStage,
   advanceFromAutoAction,
 } from "@/lib/workflow-engine";
+import { estimatedLaborCostForOption } from "@/lib/installer-bill";
 
 // Back-half pipeline stages carry no auto_action marker, so job-lifecycle events
 // map to them by name (forward-only, best-effort).
@@ -31,6 +32,7 @@ import type {
   JobDeliveryType,
   JobStatus,
   WarehouseStatus,
+  EstimateLineItem,
 } from "@/lib/types";
 
 export interface JobFormState {
@@ -499,6 +501,20 @@ export async function ensureJobForEstimate(
       optionId = (opt?.id as string) ?? null;
     }
 
+    // Snapshot the estimate's isolated labor COST onto the job — written ONCE
+    // here, at approval (the estimate flow, NOT the bill feature). The installer
+    // bill only reads this later; nothing in the bill feature overwrites it.
+    let estimatedLaborCost: number | null = null;
+    if (optionId) {
+      const { data: optLines } = await admin
+        .from("estimate_line_items")
+        .select("*")
+        .eq("option_id", optionId);
+      estimatedLaborCost = estimatedLaborCostForOption(
+        (optLines ?? []) as EstimateLineItem[],
+      );
+    }
+
     const { data: cust } = await admin
       .from("customers")
       .select("street, city, state, zip")
@@ -529,23 +545,33 @@ export async function ensureJobForEstimate(
         };
     }
 
-    const { data: job, error } = await admin
+    const baseRow = {
+      customer_id: est.customer_id,
+      estimate_id: estimateId,
+      option_id: optionId,
+      service_address_id: svcId,
+      title: (est.title as string) || "Job",
+      notes: (est.job_description as string | null) || null,
+      created_by: createdBy,
+      site_street: site.street,
+      site_city: site.city,
+      site_state: site.state,
+      site_zip: site.zip,
+    };
+    let { data: job, error } = await admin
       .from("jobs")
-      .insert({
-        customer_id: est.customer_id,
-        estimate_id: estimateId,
-        option_id: optionId,
-        service_address_id: svcId,
-        title: (est.title as string) || "Job",
-        notes: (est.job_description as string | null) || null,
-        created_by: createdBy,
-        site_street: site.street,
-        site_city: site.city,
-        site_state: site.state,
-        site_zip: site.zip,
-      })
+      .insert({ ...baseRow, estimated_labor_cost: estimatedLaborCost })
       .select("id")
       .single();
+    if (error) {
+      // Pre-migration fallback (0123 not run yet): create the job without the
+      // labor snapshot rather than blocking the win.
+      ({ data: job, error } = await admin
+        .from("jobs")
+        .insert(baseRow)
+        .select("id")
+        .single());
+    }
     if (error || !job) return null;
 
     // Reserve stock + build POs for special-order items right after the win.

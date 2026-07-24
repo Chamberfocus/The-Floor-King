@@ -1625,3 +1625,41 @@ export const STAGE_COLORS = [
   "rose",
   "zinc",
 ];
+
+// ── Installer bills (subcontractor labor billing) ──────────────────────────
+export type InstallerBillStatus = "draft" | "approved" | "paid";
+export type BillLineSource = "from_work_order" | "manually_added";
+
+export const INSTALLER_BILL_STATUS_LABELS: Record<InstallerBillStatus, string> = {
+  draft: "Draft",
+  approved: "Approved for payment",
+  paid: "Paid",
+};
+
+export interface InstallerBill {
+  id: string;
+  job_id: string;
+  installer_id: string | null;
+  status: InstallerBillStatus;
+  subtotal: number;
+  adjustments: number;
+  total: number;
+  notes: string | null;
+  created_at: string;
+  approved_at: string | null;
+  paid_at: string | null;
+}
+
+export interface InstallerBillLine {
+  id: string;
+  bill_id: string;
+  description: string;
+  quantity: number | null;
+  unit: string | null;
+  rate: number | null;
+  line_total: number;
+  source: BillLineSource;
+  is_modified: boolean;
+  change_reason: string | null;
+  position: number;
+}
