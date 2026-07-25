@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import {
   ClipboardList,
   CheckCircle2,
@@ -54,6 +54,16 @@ export function JobTabs({
   children: React.ReactNode;
 }) {
   const [active, setActive] = useState<JobTab>(show[0] ?? "work_order");
+  // Deep-link / guided-tour support: a #tab in the URL focuses that tab.
+  useEffect(() => {
+    const applyHash = () => {
+      const h = window.location.hash.replace("#", "") as JobTab;
+      if (h && show.includes(h)) setActive(h);
+    };
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
+  }, [show]);
   return (
     <TabCtx.Provider value={{ active, setActive }}>
       <div className="mb-6 flex gap-1 overflow-x-auto border-b">

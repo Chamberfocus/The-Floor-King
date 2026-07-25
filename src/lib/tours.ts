@@ -14,6 +14,9 @@ export interface TourStep {
   placement?: "top" | "bottom" | "left" | "right";
   /** A static URL "Next" can navigate to (dynamic routes are waited for). */
   href?: string;
+  /** A tab to open (via #hash) so a tab-gated target renders before we point at
+   *  it — e.g. "completion" (job page) or "invoices" (customer file). */
+  hash?: string;
 }
 
 export interface Tour {
@@ -60,9 +63,9 @@ export const TOURS: Tour[] = [
         title: "Your work", body: "These are your assigned jobs. Open one to see the work order.", placement: "bottom" },
       { target: "work-order", route: "/jobs/[id]",
         title: "The work order", body: "Everything for the job — scope, rooms, cut sizes, and the schedule.", placement: "top" },
-      { target: "job-photos", route: "/jobs/[id]",
+      { target: "job-photos", route: "/jobs/[id]", hash: "completion",
         title: "Completion photos", body: "Upload before/after photos here so the office has proof of the finished work.", placement: "top" },
-      { target: "satisfaction", route: "/jobs/[id]",
+      { target: "satisfaction", route: "/jobs/[id]", hash: "completion",
         title: "Customer sign-off", body: "Have the customer confirm they're happy — capture the satisfaction sign-off here.", placement: "top" },
       { target: "collect-balance", route: "/jobs/[id]",
         title: "Collect the balance", body: "If you're set to collect on site, take the final payment here (cash, check, or send a pay link).", placement: "top" },
@@ -96,8 +99,8 @@ export const TOURS: Tour[] = [
         body: "The money basics: create an invoice, record a payment, and manage your customers. Skip or exit anytime.", placement: "bottom" },
       { target: "manage-customers", route: "/customers", href: "/customers",
         title: "Your customers", body: "Everyone's here — active, closed, and cancelled. Open a customer to see their whole job.", placement: "bottom" },
-      { target: "create-invoice", route: "/customers/[id]",
-        title: "Create an invoice", body: "On the customer's file, open the Invoices tab and create an invoice — or build one from the approved estimate.", placement: "top" },
+      { target: "create-invoice", route: "/customers/[id]", hash: "invoices",
+        title: "Create an invoice", body: "On the customer's file, the Invoices tab is open — create an invoice here, or build one from the approved estimate.", placement: "top" },
       { target: "record-payment", route: "/invoices/[id]",
         title: "Record a payment", body: "Enter deposits and the final balance here. Paid invoices flow into your revenue and Business Pulse.", placement: "top" },
     ],

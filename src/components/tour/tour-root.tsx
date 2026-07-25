@@ -290,6 +290,10 @@ function TourOverlay({
     setRect(null);
     setMissing(false);
     if (!step.target || !routeMatched) return;
+    // Open a tab-gated target's tab (via #hash) so it renders before we point.
+    if (step.hash && window.location.hash.replace("#", "") !== step.hash) {
+      window.location.hash = step.hash;
+    }
     let raf = 0;
     let tries = 0;
     const locate = () => {
@@ -323,7 +327,7 @@ function TourOverlay({
       window.removeEventListener("scroll", onMove, true);
       window.removeEventListener("resize", onMove);
     };
-  }, [step.target, index, routeMatched]);
+  }, [step.target, step.hash, index, routeMatched]);
 
   // Esc exits.
   useEffect(() => {
