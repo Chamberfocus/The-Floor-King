@@ -51,20 +51,22 @@ export default async function CustomersPage({
     .filter((s) => /closed/i.test(s.name))
     .map((s) => s.id);
 
-  // Active | Closed | All. Default active (hide closed). A name search always
-  // spans everyone, so you can find a past customer even if they're closed.
-  const view: "active" | "closed" | "all" = ["closed", "all"].includes(
-    sp.view ?? "",
-  )
-    ? (sp.view as "closed" | "all")
+  // Active | Closed | Cancelled | All. Default active (hide closed + cancelled).
+  // A name search always spans everyone, so you can find a past customer even if
+  // they're closed or cancelled.
+  const view: "active" | "closed" | "cancelled" | "all" = [
+    "closed",
+    "cancelled",
+    "all",
+  ].includes(sp.view ?? "")
+    ? (sp.view as "closed" | "cancelled" | "all")
     : "active";
   let workflowStageIds: string[] | undefined;
   let excludeWorkflowStageIds: string[] | undefined;
   if (stage) {
     workflowStageIds = [stage];
   } else if (!q) {
-    // Only the Active/Closed toggle constrains stages — a name search always
-    // spans everyone (including closed).
+    // Only the view toggle constrains stages — a name search spans everyone.
     if (view === "closed")
       workflowStageIds = closedStageIds.length ? closedStageIds : undefined;
     else if (view === "active" && closedStageIds.length)
@@ -78,6 +80,10 @@ export default async function CustomersPage({
     assignedTo: unassignedOnly ? undefined : owner,
     unassignedOnly,
     stuckOnly: stuck,
+    // Cancelled stays out of active/closed and gets its own view. A name search
+    // still spans cancelled so past customers are findable.
+    cancelledOnly: view === "cancelled" && !q,
+    excludeCancelled: !q && (view === "active" || view === "closed"),
   });
 
   // Shared data for per-row quick actions — fetched once for the whole list.
@@ -136,7 +142,7 @@ export default async function CustomersPage({
 
   // Active | Closed | All tabs — preserve search/owner/stuck, drop the specific
   // stage filter (the tab is the high-level stage control).
-  const viewHref = (v: "active" | "closed" | "all") => {
+  const viewHref = (v: "active" | "closed" | "cancelled" | "all") => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (owner) params.set("owner", owner);
@@ -145,9 +151,10 @@ export default async function CustomersPage({
     const qs = params.toString();
     return qs ? `/customers?${qs}` : "/customers";
   };
-  const VIEWS: { v: "active" | "closed" | "all"; label: string }[] = [
+  const VIEWS: { v: "active" | "closed" | "cancelled" | "all"; label: string }[] = [
     { v: "active", label: "Active" },
     { v: "closed", label: "Closed" },
+    { v: "cancelled", label: "Cancelled" },
     { v: "all", label: "All" },
   ];
 

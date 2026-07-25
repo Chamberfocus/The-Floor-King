@@ -73,6 +73,11 @@ export interface WinLossGroup {
   wonValue: number;
   lostValue: number;
 }
+export interface WinLossReasonRow {
+  reason: string;
+  count: number;
+  value: number;
+}
 export interface WinLossReport {
   won: number;
   lost: number;
@@ -83,6 +88,7 @@ export interface WinLossReport {
   openValue: number;
   bySalesman: WinLossGroup[];
   bySource: WinLossGroup[];
+  byReason: WinLossReasonRow[];
   lostDeals: WinLossDeal[];
 }
 
@@ -221,6 +227,18 @@ export async function getWinLossReport(
       .sort((a, b) => b.won + b.lost - (a.won + a.lost));
 
   lostDeals.sort((a, b) => b.value - a.value);
+
+  // Aggregate the losses by reason — the "why we're losing business" view.
+  const reasonMap = new Map<string, WinLossReasonRow>();
+  for (const d of lostDeals) {
+    const key = (d.reason && d.reason.trim()) || "No reason recorded";
+    const r = reasonMap.get(key) ?? { reason: key, count: 0, value: 0 };
+    r.count += 1;
+    r.value += d.value;
+    reasonMap.set(key, r);
+  }
+  const byReason = [...reasonMap.values()].sort((a, b) => b.count - a.count);
+
   return {
     won,
     lost,
@@ -231,6 +249,7 @@ export async function getWinLossReport(
     openValue,
     bySalesman: finalize(bySalesman),
     bySource: finalize(bySource),
+    byReason,
     lostDeals,
   };
 }

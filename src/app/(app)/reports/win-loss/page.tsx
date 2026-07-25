@@ -116,6 +116,36 @@ export default async function WinLossPage({
         <GroupCard title="By lead source" rows={r.bySource} />
       </div>
 
+      {/* Losses by reason — the "why we're losing business" summary */}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="text-base">Losses by reason</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {r.byReason.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No losses in this range.</p>
+          ) : (
+            <ul className="divide-y text-sm">
+              {r.byReason.map((row) => (
+                <li key={row.reason} className="flex items-center justify-between gap-3 py-2">
+                  <span className={row.reason === "No reason recorded" ? "italic text-muted-foreground" : ""}>
+                    {row.reason}
+                  </span>
+                  <span className="flex items-center gap-4 tabular-nums">
+                    <span className="font-medium">
+                      {row.count} deal{row.count === 1 ? "" : "s"}
+                    </span>
+                    <span className="w-24 text-right text-muted-foreground">
+                      {formatMoney(row.value)}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Lost reasons */}
       <Card className="mt-6">
         <CardHeader>

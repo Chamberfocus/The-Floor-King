@@ -1628,6 +1628,14 @@ export const STAGE_COLORS = [
   "zinc",
 ];
 
+// ── Cancellation reasons (why a deal/job fell through) ─────────────────────
+export interface CancelReason {
+  id: string;
+  label: string;
+  position: number;
+  active: boolean;
+}
+
 // ── Installer bills (subcontractor labor billing) ──────────────────────────
 export type InstallerBillStatus = "draft" | "approved" | "paid";
 export type BillLineSource = "from_work_order" | "manually_added";

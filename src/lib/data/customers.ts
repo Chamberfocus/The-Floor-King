@@ -119,6 +119,10 @@ export async function listCustomers(
     assignedTo?: string;
     unassignedOnly?: boolean;
     stuckOnly?: boolean;
+    /** Only cancelled jobs (the Cancelled view). */
+    cancelledOnly?: boolean;
+    /** Hide cancelled jobs (keeps the active/closed lists clean). */
+    excludeCancelled?: boolean;
   } = {},
 ): Promise<Customer[]> {
   const supabase = await createClient();
@@ -126,6 +130,11 @@ export async function listCustomers(
     .from("customers")
     .select("*")
     .order("updated_at", { ascending: false });
+
+  // Cancelled = its own state: only shown in the Cancelled view, never mixed
+  // into active/closed.
+  if (opts.cancelledOnly) query = query.not("cancelled_at", "is", null);
+  else if (opts.excludeCancelled) query = query.is("cancelled_at", null);
 
   if (opts.workflowStageId)
     query = query.eq("workflow_stage_id", opts.workflowStageId);

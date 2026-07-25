@@ -6,6 +6,7 @@ import {
   CalendarClock,
   ListChecks,
   GitBranch,
+  Ban,
   UserCog,
   BellRing,
   Truck,
@@ -83,6 +84,12 @@ const SECTIONS = [
     icon: GitBranch,
     title: "Workflow stages",
     desc: "The pipeline stages a customer moves through.",
+  },
+  {
+    href: "/settings/cancel-reasons",
+    icon: Ban,
+    title: "Cancellation reasons",
+    desc: "The pick-list shown when a job is cancelled — so lost business is captured as clean, reportable data (win/loss by reason).",
   },
   {
     href: "/settings/lead-sources",

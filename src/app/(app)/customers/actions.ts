@@ -591,21 +591,30 @@ export async function cancelCustomer(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   if (!id) return;
   const reason = str(formData.get("reason"));
+  const reasonId = nullable(formData.get("reason_id"));
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  await supabase
+  // Cancelled = its own state: out of the active pipeline (stage → lost), never
+  // "won/closed", and excluded from revenue (finance.ts). Store the structured
+  // reason id + its label text for clean win/loss-by-reason reporting.
+  const base = {
+    cancelled_at: new Date().toISOString(),
+    cancel_reason: reason || null,
+    stage: "lost" as const,
+    next_action_due: null,
+  };
+  let { error } = await supabase
     .from("customers")
-    .update({
-      cancelled_at: new Date().toISOString(),
-      cancel_reason: reason || null,
-      stage: "lost",
-      next_action_due: null,
-    })
+    .update({ ...base, cancel_reason_id: reasonId })
     .eq("id", id);
+  if (error) {
+    // Pre-migration fallback (0126 not run): cancel without the structured id.
+    ({ error } = await supabase.from("customers").update(base).eq("id", id));
+  }
 
   await supabase.from("activities").insert({
     customer_id: id,

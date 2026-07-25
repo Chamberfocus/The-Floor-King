@@ -108,6 +108,7 @@ import { GuidedFlow } from "./guided-flow";
 import { getCustomerEstimateAppointment } from "@/lib/data/scheduling";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { CancelCustomer } from "./cancel-customer";
+import { listCancelReasons } from "@/lib/data/cancel-reasons";
 import { AiFollowup } from "./ai-followup";
 import {
   CustomerTabs,
@@ -194,6 +195,8 @@ export default async function CustomerPage({
   const handoffMembers = await listHandoffMembers();
   // Read-only per-job estimated-vs-actual costing for the Job Costing tab.
   const costing = await getCustomerJobCosting(id);
+  // Manageable cancellation reasons for the Cancel dialog.
+  const cancelReasons = await listCancelReasons({ activeOnly: true });
   const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
   // Soonest scheduled install (for the at-a-glance schedule strip under the stage).
   const installJob =
@@ -649,6 +652,8 @@ export default async function CustomerPage({
               customerId={customer.id}
               name={customer.full_name}
               cancelled={!!customer.cancelled_at}
+              reasons={cancelReasons}
+              hasOpenPO={customerPOs.some((po) => po.status === "ordered")}
             />
           </div>
         </div>
