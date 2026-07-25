@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Plus, Copy, Trash2, ArrowLeft, Save, Eye, Sparkles, Printer, ChevronRight, Star, Layers } from "lucide-react";
+import { Plus, Copy, Trash2, ArrowLeft, Save, Eye, Send, Sparkles, Printer, ChevronRight, Star, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,7 +48,7 @@ import {
   DEFAULT_LABOR_PER_SQFT,
   DEFAULT_LABOR_PER_BAG,
 } from "@/lib/floor-prep";
-import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft } from "./actions";
+import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
 import { saveProductRate, createProductInline } from "../catalog/actions";
 import { writeScopeDescription } from "./ai-actions";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
@@ -1264,6 +1264,29 @@ export function EstimateBuilder({
       await flushDefaultRates();
       void clearEstimateBuilderDraft(estimate.id);
       window.print();
+    });
+
+  // Finish the build and send it to the customer in one step: save, then mark
+  // it sent + email the customer their portal link (advances the pipeline). If
+  // there's no email on file, don't silently mark it sent — save and open the
+  // estimate so an email can be added first.
+  const saveAndSend = () =>
+    startTransition(async () => {
+      const res = await saveEstimate(estimate.id, buildInput());
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      await flushDefaultRates();
+      void clearEstimateBuilderDraft(estimate.id);
+      if (!customer?.email) {
+        toast.error("Add the customer's email to send. Saved — opening the estimate.");
+        router.push(`/estimates/${estimate.id}`);
+        return;
+      }
+      await sendEstimateById(estimate.id);
+      toast.success(`Estimate sent to ${customer.full_name || "the customer"}`);
+      router.push(`/estimates/${estimate.id}`);
     });
 
   const [aiBusy, setAiBusy] = useState(false);
@@ -2921,8 +2944,16 @@ export function EstimateBuilder({
           >
             <Eye className="size-4" /> Save &amp; view
           </Button>
-          <Button type="button" disabled={isPending} onClick={() => save(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isPending}
+            onClick={() => save(false)}
+          >
             <Save className="size-4" /> {isPending ? "Saving…" : "Save"}
+          </Button>
+          <Button type="button" disabled={isPending} onClick={saveAndSend}>
+            <Send className="size-4" /> Save &amp; send
           </Button>
           </div>
         </div>
