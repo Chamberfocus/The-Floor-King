@@ -864,49 +864,62 @@ export function Questionnaire({
           }
         }
       } else if (q.kind === "cuts" && a.kind === "cuts") {
-        // Carpet cuts → total sq yd to ORDER. "Same carpet" uses one shared
-        // product for every cut; otherwise each group is its own carpet.
-        // Yardage = Σ (rollWidth × length) ÷ 9.
+        // Carpet cuts → the estimate holds ONE line PER CUT, each with its
+        // measured L×W (length_in/width_in) — the SAME structured shape the
+        // builder stores. This is what makes the cut list read straight from the
+        // estimate onto the staging sheet, work order, and PO. (The old code
+        // bundled a group into one yardage line with the sizes only in the
+        // description text, so the cut list — which needs length_in/width_in —
+        // had nothing to read, and the sizes leaked to the customer.)
+        // "Same carpet" uses one shared product for every cut; otherwise each
+        // group is its own carpet.
         const sameCarpet = a.same !== false;
         for (const g of a.groups) {
-          const y = carpetYardageFromCuts(
-            g.cuts.map((c) => ({ lengthFt: numv(c.lf), lengthIn: numv(c.li), rollWidthFt: numv(c.width) })),
-          );
-          if (y.sqyd <= 0) continue;
           const p = sameCarpet ? a.product : g.product;
-          const cutText = g.cuts
-            .filter((c) => numv(c.lf) > 0 || numv(c.li) > 0)
-            .map((c) => `${numv(c.lf)}'${numv(c.li) ? numv(c.li) + '"' : ""}×${c.width}'`)
-            .join(", ");
-          out.push({
-            room: g.area.trim() || null,
-            description: `${p?.label || "Carpet"}${cutText ? ` — cuts: ${cutText}` : ""}`,
-            category: "carpet",
-            measure_unit: "sqyd",
-            sqft: y.sqft,
-            quantity: Math.ceil(y.sqyd),
-            length_in: null,
-            width_in: null,
-            unit: "sq yd",
-            material_rate: p ? sellAt(rateFor(p.materialRate, p.unit, true)) : 0,
-            labor_rate: 0,
-            material_cost: p ? rateFor(p.materialRate, p.unit, true) : 0,
-            labor_cost: 0,
-            waste_pct: 0,
-            product_id: p?.productId || null,
-            manufacturer: p?.source === "order" && p.vendor.trim() ? p.vendor.trim() : p?.manufacturer ?? null,
-            style: p?.style ?? null,
-            color: p?.color ?? null,
-            from_stock: p?.source === "stock",
-            order_as_roll: true,
-            roll_width_ft: numv(g.cuts[0]?.width) || 12,
-          });
-          // Carpet INSTALL labor — its own line, calculated from the install
-          // rate × this group's yardage. Prefer the carpet product's own labor
-          // rate; else the question's configured per-sq-yd install rate; else a
-          // sane default — so carpet labor is ALWAYS generated, never left blank
-          // for a manual catalog add. (Catalog flooring usually carries no labor
-          // rate of its own, hence the configurable install rate.)
+          const matSell = p ? sellAt(rateFor(p.materialRate, p.unit, true)) : 0;
+          const matCost = p ? rateFor(p.materialRate, p.unit, true) : 0;
+          let groupSqyd = 0;
+          for (const c of g.cuts) {
+            const lenIn = numv(c.lf) * 12 + numv(c.li);
+            const widFt = numv(c.width) || 12;
+            if (lenIn <= 0 || widFt <= 0) continue;
+            const sqft = (lenIn / 12) * widFt;
+            const sqyd = r2(sqft / 9);
+            if (sqyd <= 0) continue;
+            groupSqyd += sqyd;
+            out.push({
+              room: g.area.trim() || null,
+              // Product label ONLY — the cut sizes live in length_in/width_in
+              // (shown on internal cut lists, kept off the customer estimate).
+              description: p?.label || "Carpet",
+              category: "carpet",
+              measure_unit: "sqyd",
+              sqft: r2(sqft),
+              quantity: sqyd,
+              length_in: lenIn,
+              width_in: widFt * 12,
+              unit: "sq yd",
+              material_rate: matSell,
+              labor_rate: 0,
+              material_cost: matCost,
+              labor_cost: 0,
+              waste_pct: 0,
+              product_id: p?.productId || null,
+              manufacturer: p?.source === "order" && p.vendor.trim() ? p.vendor.trim() : p?.manufacturer ?? null,
+              style: p?.style ?? null,
+              color: p?.color ?? null,
+              from_stock: p?.source === "stock",
+              order_as_roll: true, // PO consolidates these cuts into one roll per product+width
+              roll_width_ft: widFt,
+            });
+          }
+          if (groupSqyd <= 0) continue;
+          // Carpet INSTALL labor — its own line, from the install rate × this
+          // group's total yardage. Prefer the carpet product's own labor rate;
+          // else the question's configured per-sq-yd install rate; else a sane
+          // default — so carpet labor is ALWAYS generated. (Catalog flooring
+          // usually carries no labor rate of its own, hence the configurable
+          // install rate.)
           const instYd =
             (p ? rateFor(p.laborRate, p.unit, true) : 0) || (q.config.install_yd ?? 6);
           if (instYd > 0) {
@@ -915,8 +928,8 @@ export function Questionnaire({
               description: `Carpet installation${g.area.trim() ? ` — ${g.area.trim()}` : ""}`,
               category: "labor",
               measure_unit: "sqyd",
-              sqft: y.sqft,
-              quantity: Math.ceil(y.sqyd),
+              sqft: r2(groupSqyd * 9),
+              quantity: Math.ceil(groupSqyd),
               length_in: null,
               width_in: null,
               unit: "sq yd",
