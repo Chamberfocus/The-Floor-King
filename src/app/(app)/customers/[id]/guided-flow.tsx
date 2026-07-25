@@ -72,7 +72,8 @@ const STEP_ICON: Record<Step, typeof Phone> = {
   schedule_install: Hammer,
   waiting: PauseCircle,
   await_install: CalendarClock,
-  followup: Receipt,
+  followup: ClipboardCheck,
+  collect_balance: DollarSign,
   complete: CheckCircle2,
   generic: ArrowRight,
 };
@@ -450,6 +451,68 @@ export async function GuidedFlow({
             ))
           )}
         </div>
+      </div>
+    );
+  } else if (step === "collect_balance") {
+    // Balance owed / collected / remaining, straight from the customer's
+    // invoices — and the existing Record-payment tool. The gate opens (below)
+    // when the remaining balance hits $0.
+    const money = invoices
+      .filter((i) => i.status !== "void")
+      .reduce(
+        (a, inv) => {
+          const paid = amountPaid(inv);
+          const t = invoiceTotals(inv.items ?? [], inv.tax_rate, paid);
+          a.invoiced += t.total;
+          a.paid += paid;
+          a.remaining += t.balance;
+          return a;
+        },
+        { invoiced: 0, paid: 0, remaining: 0 },
+      );
+    body = (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Collect the final balance — the job can&apos;t close until it&apos;s paid.
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-lg border bg-card p-3 text-center">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Owed</div>
+            <div className="mt-0.5 text-lg font-bold tabular-nums">{formatMoney(money.invoiced)}</div>
+          </div>
+          <div className="rounded-lg border bg-card p-3 text-center">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Collected</div>
+            <div className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+              {formatMoney(money.paid)}
+            </div>
+          </div>
+          <div className="rounded-lg border bg-card p-3 text-center">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Remaining</div>
+            <div className={cn("mt-0.5 text-lg font-bold tabular-nums", money.remaining > 0.005 && "text-destructive")}>
+              {formatMoney(money.remaining)}
+            </div>
+          </div>
+        </div>
+        {openInvoices.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nothing outstanding — paid in full.</p>
+        ) : (
+          <div className="space-y-2">
+            {openInvoices.map(({ inv, bal }) => (
+              <div
+                key={inv.id}
+                className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
+              >
+                <span>
+                  {inv.number || "Invoice"} —{" "}
+                  <span className="font-medium">{formatMoney(bal)} due</span>
+                </span>
+                <Link href={`/invoices/${inv.id}`} className={buttonVariants({ size: "sm" })}>
+                  Record payment
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   } else if (step === "complete") {

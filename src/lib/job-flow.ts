@@ -17,6 +17,7 @@ export type FlowStep =
   | "waiting"
   | "await_install"
   | "followup"
+  | "collect_balance"
   | "complete"
   | "generic";
 
@@ -70,7 +71,8 @@ export const STEP_TITLES: Record<FlowStep, string> = {
   schedule_install: "Schedule the install",
   waiting: "Waiting on the customer",
   await_install: "Install scheduled",
-  followup: "Sign-off & collect the balance",
+  followup: "Sign-off & follow up",
+  collect_balance: "Collect the balance",
   complete: "Job complete",
   generic: "Next step",
 };
@@ -95,6 +97,9 @@ export function resolveFlowStep(
   const last = mainline[mainline.length - 1];
   if (first && stage.id === first.id) return "contact";
   if (last && stage.id === last.id) return "complete";
+  // "Collect Balance" must resolve before "follow-up" so the dedicated balance
+  // stage gets the balance gate (the Follow-up stage's NAME has no "balance").
+  if (/balance/.test(name)) return "collect_balance";
   if (/follow|installed|satisf/.test(name)) return "followup";
   if (/response|approv/.test(name)) return "approve";
   if (/wait|hold/.test(name)) return "waiting";
@@ -174,6 +179,10 @@ export function stepGate(step: FlowStep, f: FlowFacts): StepGate {
     case "await_install":
       return f.installComplete ? OK : block("Mark the install complete on the work order to advance.");
     case "followup":
+      // Follow-up is the sign-off / touch-base step; the balance is collected at
+      // its own gated stage next, so this advances freely.
+      return OK;
+    case "collect_balance":
       return f.balancePaid ? OK : block("Collect the remaining balance to advance.");
     default:
       return OK; // waiting (park), complete (terminal), generic
