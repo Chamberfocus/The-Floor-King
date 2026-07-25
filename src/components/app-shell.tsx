@@ -23,7 +23,6 @@ import { ImportJobsBanner } from "@/components/import-jobs-banner";
 import { AreaCalculator } from "@/components/area-calculator";
 import { FieldAssistant } from "@/components/field-assistant";
 import { OnMyWayFab } from "@/components/on-my-way-fab";
-import { TourRoot } from "@/components/tour/tour-root";
 import { cn } from "@/lib/utils";
 import {
   APP_NAME,
@@ -385,9 +384,8 @@ export function AppShell({
       <MobileBottomNav role={profile.role} onMore={() => setMobileOpen(true)} />
       {profile.role !== "customer" ? <FieldAssistant /> : null}
       {profile.role !== "customer" ? <OnMyWayFab /> : null}
-      {profile.role !== "customer" ? (
-        <TourRoot role={profile.role} userId={profile.id} />
-      ) : null}
+      {/* Guided tours temporarily disabled while diagnosing a load issue —
+          re-enable with <TourRoot role={profile.role} userId={profile.id} /> */}
     </div>
   );
 }
