@@ -381,11 +381,13 @@ function TourOverlay({
     </div>
   );
 
-  // Not on the right page yet (or target still loading) → centered coach card.
+  // Not on the right page yet (or target still loading) → a small, NON-BLOCKING
+  // coach card pinned to the bottom. It never covers the screen, so the tour can
+  // never trap the user; the app stays fully usable behind it.
   if (centered) {
     return (
-      <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4 print:hidden">
-        <div className="pointer-events-auto w-[22rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-4 shadow-2xl">
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[80] flex justify-center px-4 print:hidden">
+        <div className="pointer-events-auto w-[24rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-4 shadow-2xl ring-1 ring-primary/20">
           <p className="text-sm font-semibold">{step.title}</p>
           <p className="mt-1 text-sm text-muted-foreground">{step.body}</p>
           {step.target && !routeMatched ? (
