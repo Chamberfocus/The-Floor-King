@@ -6,7 +6,7 @@ import {
   isHardSurfaceCategory,
   type OrgSettings,
 } from "@/lib/types";
-import { stripRoomFromName, type CutSource } from "@/lib/job-scope";
+import { stripRoomFromName, PAD_ROLL_SQYD, type CutSource } from "@/lib/job-scope";
 import { CarpetCutList } from "@/components/carpet-cut-list";
 import type { WarehouseJob } from "@/lib/data/jobs";
 import type { JobMaterialLine } from "@/lib/data/job-materials";
@@ -183,24 +183,34 @@ export function StagingSheetDoc({
               {groups.map((g) => {
                 const isHard = isHardSurfaceCategory(g.category);
                 const isRoll = isRollGoodCategory(g.category);
+                // Padding = underlayment sold by the sq yd → tell the warehouse
+                // how many ROLLS to pull (standard PAD_ROLL_SQYD per roll).
+                const isPad =
+                  g.category === "underlayment" && /yd/i.test(g.unit || "");
                 // Hard surface pulls by the CARTON; show the sq-ft basis so the
                 // count is verifiable. Roll goods show the total + broadloom width.
                 const cartons =
                   isHard && g.sqftPerBox && g.sqftPerBox > 0
                     ? Math.ceil(g.qty / g.sqftPerBox)
                     : 0;
+                const padRolls =
+                  isPad && g.qty > 0 ? Math.ceil(g.qty / PAD_ROLL_SQYD) : 0;
                 const qtyMain = cartons
                   ? `${cartons} carton${cartons === 1 ? "" : "s"}`
-                  : g.qty > 0
-                    ? `${Math.round(g.qty * 100) / 100} ${g.unit || ""}`.trim()
-                    : "";
+                  : padRolls
+                    ? `${padRolls} roll${padRolls === 1 ? "" : "s"}`
+                    : g.qty > 0
+                      ? `${Math.round(g.qty * 100) / 100} ${g.unit || ""}`.trim()
+                      : "";
                 const qtySub = cartons
                   ? `${Math.round(g.qty * 100) / 100} sq ft ÷ ${g.sqftPerBox}/box`
                   : isHard
                     ? "⚠ set sq ft/box"
-                    : isRoll && g.rollWidthFt
-                      ? `${g.rollWidthFt} ft broadloom`
-                      : "";
+                    : padRolls
+                      ? `${Math.round(g.qty * 100) / 100} sq yd ÷ ${PAD_ROLL_SQYD}/roll`
+                      : isRoll && g.rollWidthFt
+                        ? `${g.rollWidthFt} ft broadloom`
+                        : "";
                 const manufacturer = topVote(g.mfrVotes);
                 const color = topVote(g.colorVotes);
                 const supplier = topVote(g.supplierVotes);
