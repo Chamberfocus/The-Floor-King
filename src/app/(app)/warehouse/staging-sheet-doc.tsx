@@ -248,7 +248,11 @@ export function StagingSheetDoc({
         items={lines.map(
           (m): CutSource => ({
             room: m.room,
-            description: m.productName || m.description,
+            // Prefer the raw line description — it carries the cut text
+            // ("… — cuts: 25'6\"×15'") that carpetCutList parses when length_in/
+            // width_in aren't set. The clean product name would drop the cuts;
+            // carpetCutList strips the "cuts:" suffix for the displayed name.
+            description: m.description || m.productName,
             category: m.category,
             length_in: m.lengthIn,
             width_in: m.widthIn,
