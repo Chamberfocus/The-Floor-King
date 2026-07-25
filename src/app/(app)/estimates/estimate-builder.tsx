@@ -2968,7 +2968,7 @@ export function EstimateBuilder({
           >
             <Save className="size-4" /> {isPending ? "Saving…" : "Save"}
           </Button>
-          <Button type="button" disabled={isPending} onClick={saveAndSend}>
+          <Button type="button" data-tour="estimate-send" disabled={isPending} onClick={saveAndSend}>
             <Send className="size-4" /> Save &amp; send
           </Button>
           </div>

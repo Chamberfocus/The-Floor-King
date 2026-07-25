@@ -1322,7 +1322,7 @@ export function Questionnaire({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-tour="questionnaire">
       {resumed ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
           <span className="font-medium">↩ Resumed your saved progress.</span>

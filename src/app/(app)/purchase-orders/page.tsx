@@ -136,7 +136,7 @@ export default async function PurchaseOrdersPage({
           <EmptyState title="No purchase orders match this filter" />
         )
       ) : (
-        <>
+        <div data-tour="receive-po">
           {/* Phone: tappable cards */}
           <div className="space-y-2 md:hidden">
             {pos.map((po) => (
@@ -272,7 +272,7 @@ export default async function PurchaseOrdersPage({
               </TableBody>
             </Table>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

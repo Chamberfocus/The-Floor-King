@@ -180,7 +180,7 @@ export default async function InstallerHomePage() {
       </div>
 
       {/* My jobs */}
-      <div>
+      <div data-tour="my-work">
         <h2 className="mb-2 text-lg font-bold">My jobs</h2>
         {active.length === 0 ? (
           <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">

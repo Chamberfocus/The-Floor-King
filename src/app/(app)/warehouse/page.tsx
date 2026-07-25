@@ -125,7 +125,7 @@ export default async function WarehousePage() {
         : formatDate(j.scheduled_date)
       : "Not scheduled";
     return (
-      <Card key={j.id}>
+      <Card key={j.id} data-tour="warehouse-queue">
         <CardHeader className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
@@ -153,7 +153,9 @@ export default async function WarehousePage() {
                   Materials in ✓
                 </span>
               ) : null}
-              <PrintStagingButton id={j.id} />
+              <span data-tour="staging-sheet">
+                <PrintStagingButton id={j.id} />
+              </span>
               <span
                 className={cn(
                   "rounded-md px-2.5 py-1 text-sm font-semibold",
@@ -244,7 +246,7 @@ export default async function WarehousePage() {
             ) : null}
 
             {/* Warehouse lifecycle: accept (with acknowledgment) → staged */}
-            <div>
+            <div data-tour="stage-materials">
               {j.warehouse_assignee_name ? (
                 <div className="mb-1.5 text-xs text-muted-foreground">
                   Warehouse: {j.warehouse_assignee_name}

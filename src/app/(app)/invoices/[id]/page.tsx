@@ -169,6 +169,7 @@ export default async function InvoicePage({
           {/* Record a payment */}
           <form
             action={recordPayment}
+            data-tour="record-payment"
             className="grid gap-2 border-t pt-4 sm:grid-cols-5"
           >
             <input type="hidden" name="invoice_id" value={invoice.id} />

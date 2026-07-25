@@ -1080,7 +1080,7 @@ export default async function CustomerPage({
           <Card id="invoices" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Invoices</CardTitle>
-              <form action={createInvoice}>
+              <form action={createInvoice} data-tour="create-invoice">
                 <input type="hidden" name="customer_id" value={customer.id} />
                 <SubmitButton size="sm" pendingText="Creating…" confirm="Invoice created">
                   <Receipt className="size-3.5" /> New invoice

@@ -44,7 +44,7 @@ export function CustomerForm({
   }, [state.ok, onSaved]);
 
   return (
-    <form action={formAction} className="space-y-5">
+    <form action={formAction} data-tour="customer-form" className="space-y-5">
       {isEdit ? <input type="hidden" name="id" value={customer!.id} /> : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -144,7 +144,7 @@ export function CustomerForm({
       ) : null}
 
       <div className="flex justify-end gap-2">
-        <Button type="submit" disabled={pending}>
+        <Button type="submit" data-tour="customer-save" disabled={pending}>
           {pending ? "Saving…" : isEdit ? "Save changes" : "Create customer"}
         </Button>
       </div>

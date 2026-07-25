@@ -171,14 +171,18 @@ export default async function CustomersPage({
           >
             <Upload className="size-4" /> Import customers
           </Link>
-          <Link href="/customers/new" className={buttonVariants({ size: "lg" })}>
+          <Link
+            href="/customers/new"
+            data-tour="add-customer"
+            className={buttonVariants({ size: "lg" })}
+          >
             <Plus className="size-4" /> Add customer
           </Link>
         </div>
       </PageHeader>
 
-      {/* Active | Closed | All */}
-      <div className="mb-4 inline-flex rounded-lg border p-0.5">
+      {/* Active | Closed | Cancelled | All */}
+      <div data-tour="manage-customers" className="mb-4 inline-flex rounded-lg border p-0.5">
         {VIEWS.map((t) => (
           <Link
             key={t.v}

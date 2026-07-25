@@ -71,7 +71,13 @@ export function EstimateSourceGate({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button type="button" size="sm" disabled={pending} onClick={() => onClick("guided")}>
+      <Button
+        type="button"
+        size="sm"
+        data-tour="build-estimate"
+        disabled={pending}
+        onClick={() => onClick("guided")}
+      >
         <ClipboardList className="size-3.5" /> Guided questionnaire
       </Button>
       <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => onClick("build")}>

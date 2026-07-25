@@ -294,7 +294,7 @@ export default async function JobPage({
           jobs={[{ ...progress, title: job.title, justCreated }]}
         />
       ) : null}
-      <div className={cn("mx-auto max-w-4xl print:hidden", preview && "hidden")}>
+      <div data-tour="work-order" className={cn("mx-auto max-w-4xl print:hidden", preview && "hidden")}>
       <Link
         href="/jobs"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -426,7 +426,7 @@ export default async function JobPage({
               </div>
             </div>
           ) : collectsBalance && woCollectBalance && woCollectBalance > 0 ? (
-            <div>
+            <div data-tour="collect-balance">
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Collect on site
               </div>
@@ -691,7 +691,7 @@ export default async function JobPage({
           </CardHeader>
           <CardContent className="space-y-5 text-sm">
             {/* Customer sign-off */}
-            <div>
+            <div data-tour="satisfaction">
               <div className="mb-1.5 flex items-center gap-2 font-medium">
                 Customer sign-off
                 {satisfaction || signatures.length ? (
@@ -780,7 +780,7 @@ export default async function JobPage({
             ) : null}
 
             {/* Completed photos (new completion uploads + legacy job files) */}
-            <div className="border-t pt-3">
+            <div className="border-t pt-3" data-tour="job-photos">
               <div className="mb-1.5 font-medium">
                 Completed photos
                 {jobPhotos.length + photos.length
