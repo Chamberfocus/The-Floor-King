@@ -20,6 +20,7 @@ import {
   num,
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
+import { parseCutsFromText } from "@/lib/job-scope";
 import {
   type Estimate,
   type EstimateLineItem,
@@ -392,17 +393,31 @@ export function EstimateBuilder({
       key: newKey(),
       name: o.name,
       notes: o.notes ?? "",
-      lines: (o.line_items ?? []).map((l) => ({
+      lines: (o.line_items ?? []).map((l) => {
+        // Legacy carpet lines kept the cut size only in the description text
+        // ("… — cuts: 25'6\"×15'") with null length_in/width_in. Parse it so the
+        // builder shows the cut, and clean the description — a save then writes
+        // the cut back as structured data (and drops the leaked size text).
+        const legacyCut =
+          l.length_in == null && l.width_in == null && isRollGoodCategory(l.category)
+            ? parseCutsFromText(l.description, l.roll_width_ft)[0]
+            : null;
+        const lenIn = l.length_in ?? legacyCut?.lengthIn ?? null;
+        const widIn = l.width_in ?? legacyCut?.widthIn ?? null;
+        const desc = legacyCut
+          ? (l.description ?? "").replace(/\s*[—–-]?\s*cuts?:.*$/i, "").trim()
+          : l.description ?? "";
+        return {
         key: newKey(),
         room: l.room ?? "",
-        description: l.description ?? "",
+        description: desc,
         note: l.note ?? "",
         line_type: l.line_type,
         sqft: l.sqft?.toString() ?? "",
-        len_ft: inToFt(l.length_in),
-        len_in: inToIn(l.length_in),
-        wid_ft: inToFt(l.width_in),
-        wid_in: inToIn(l.width_in),
+        len_ft: inToFt(lenIn),
+        len_in: inToIn(lenIn),
+        wid_ft: inToFt(widIn),
+        wid_in: inToIn(widIn),
         measure_unit: l.measure_unit ?? "sqft",
         material_rate: l.material_rate?.toString() ?? "",
         labor_rate: l.labor_rate?.toString() ?? "",
@@ -431,7 +446,8 @@ export function EstimateBuilder({
         prep_thickness_in: l.prep_thickness_in != null ? String(l.prep_thickness_in) : "",
         prep_key: l.prep_key ?? "",
         save_default: false,
-      })),
+        };
+      }),
     }));
     return initial.length
       ? initial

@@ -98,10 +98,36 @@ export interface CutSource {
 }
 
 /**
- * Build the carpet cut list from any line source: every roll-good piece that has
- * a measured W×L, grouped for display and summed per roll. Fill pieces are kept
- * (flagged) and still count toward yardage, so the roll ordered accounts for the
- * seams/fill. Non-carpet or dimensionless lines are ignored.
+ * Cut sizes that the legacy carpet flow stored ONLY in the line DESCRIPTION text
+ * (e.g. "Mohawk Renovate II — cuts: 25'6\"×15'") rather than in length_in/
+ * width_in. Parses each `L'I"×W'` into inches so the cut list can read a line's
+ * cuts whether they're structured or still in the text — it reads the line's own
+ * data, not a separate copy. Width falls back to the line's roll width.
+ */
+export function parseCutsFromText(
+  desc: string | null | undefined,
+  rollWidthFt?: number | null,
+): { lengthIn: number; widthIn: number }[] {
+  const out: { lengthIn: number; widthIn: number }[] = [];
+  const rollWidIn = Number(rollWidthFt) > 0 ? Number(rollWidthFt) * 12 : 0;
+  const re = /(\d+(?:\.\d+)?)\s*'\s*(?:(\d+(?:\.\d+)?)\s*")?\s*[×xX]\s*(\d+(?:\.\d+)?)\s*'?/g;
+  const s = desc ?? "";
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    const lengthIn = Math.round((parseFloat(m[1]) * 12 + (m[2] ? parseFloat(m[2]) : 0)) * 100) / 100;
+    const widthIn = m[3] ? parseFloat(m[3]) * 12 : rollWidIn;
+    if (lengthIn > 0 && widthIn > 0) out.push({ lengthIn, widthIn });
+  }
+  return out;
+}
+
+/**
+ * Build the carpet cut list from any line source: every roll-good piece with a
+ * measured W×L, grouped for display and summed per roll. Each cut is read from
+ * the line's OWN data — structured length_in/width_in when present, else the size
+ * text the legacy flow left in the description (parseCutsFromText). Fill pieces
+ * are kept (flagged) and still count toward yardage. Non-carpet or dimensionless
+ * lines are ignored.
  */
 export function carpetCutList(items: CutSource[]): {
   cuts: CarpetCut[];
@@ -115,26 +141,37 @@ export function carpetCutList(items: CutSource[]): {
     if (!isRollGoodCategory(l.category)) continue;
     const len = Number(l.length_in) || 0;
     const wid = Number(l.width_in) || 0;
-    if (len <= 0 || wid <= 0) continue;
-    const sqft = (len / 12) * (wid / 12);
-    const sqyd = Math.round((sqft / 9) * 100) / 100;
+    const lineCuts =
+      len > 0 && wid > 0
+        ? [{ lengthIn: len, widthIn: wid }]
+        : parseCutsFromText(l.description, l.roll_width_ft);
+    if (!lineCuts.length) continue;
+    // Product name without the "— cuts: …" text the legacy flow appended.
+    const baseName = (l.description ?? "").replace(/\s*[—–-]?\s*cuts?:.*$/i, "").trim();
     const name =
-      (l.description && l.description.trim()) ||
+      baseName ||
       [l.manufacturer, l.color].filter(Boolean).join(" · ") ||
       "Carpet";
-    cuts.push({
-      room: (l.room && l.room.trim()) || "Unassigned",
-      name,
-      size: `${ftIn(wid)} × ${ftIn(len)}`,
-      isFill: !!l.is_fill,
-      sqyd,
-    });
-    const width = Number(l.roll_width_ft) > 0 ? Number(l.roll_width_ft) : null;
-    const key = `${name}|${width ?? ""}`;
-    const r = rollMap.get(key) ?? { name, width, totalSqyd: 0, linft: null, count: 0 };
-    r.totalSqyd = Math.round((r.totalSqyd + sqyd) * 100) / 100;
-    r.count += 1;
-    rollMap.set(key, r);
+    for (const cut of lineCuts) {
+      const sqft = (cut.lengthIn / 12) * (cut.widthIn / 12);
+      const sqyd = Math.round((sqft / 9) * 100) / 100;
+      cuts.push({
+        room: (l.room && l.room.trim()) || "Unassigned",
+        name,
+        size: `${ftIn(cut.widthIn)} × ${ftIn(cut.lengthIn)}`,
+        isFill: !!l.is_fill,
+        sqyd,
+      });
+      const width =
+        Number(l.roll_width_ft) > 0
+          ? Number(l.roll_width_ft)
+          : Math.round((cut.widthIn / 12) * 100) / 100;
+      const key = `${name}|${width ?? ""}`;
+      const r = rollMap.get(key) ?? { name, width, totalSqyd: 0, linft: null, count: 0 };
+      r.totalSqyd = Math.round((r.totalSqyd + sqyd) * 100) / 100;
+      r.count += 1;
+      rollMap.set(key, r);
+    }
   }
   const rolls = [...rollMap.values()].map((r) => ({
     ...r,
