@@ -95,6 +95,14 @@ export interface CutSource {
   roll_width_ft?: number | null;
   manufacturer?: string | null;
   color?: string | null;
+  /** First-class measured pieces — each "add" piece is a cut. When present these
+   *  win over the single length_in/width_in (which is just the primary cut). */
+  measurements?: {
+    label?: string | null;
+    length_in: number;
+    width_in: number;
+    op?: string | null;
+  }[] | null;
 }
 
 /**
@@ -139,12 +147,26 @@ export function carpetCutList(items: CutSource[]): {
   const rollMap = new Map<string, CarpetRoll>();
   for (const l of items) {
     if (!isRollGoodCategory(l.category)) continue;
+    // Prefer the first-class measured pieces — each "add" piece is its own cut
+    // (with its own room label). Fall back to the single cut, then to any cut
+    // sizes the legacy flow left in the description text.
+    const measured = (l.measurements ?? [])
+      .filter((m) => m.op !== "subtract" && Number(m.length_in) > 0 && Number(m.width_in) > 0)
+      .map((m) => ({
+        lengthIn: Number(m.length_in),
+        widthIn: Number(m.width_in),
+        room: (m.label && m.label.trim()) || null,
+      }));
     const len = Number(l.length_in) || 0;
     const wid = Number(l.width_in) || 0;
-    const lineCuts =
-      len > 0 && wid > 0
-        ? [{ lengthIn: len, widthIn: wid }]
-        : parseCutsFromText(l.description, l.roll_width_ft);
+    const lineCuts = measured.length
+      ? measured
+      : (len > 0 && wid > 0
+          ? [{ lengthIn: len, widthIn: wid, room: null as string | null }]
+          : parseCutsFromText(l.description, l.roll_width_ft).map((c) => ({
+              ...c,
+              room: null as string | null,
+            })));
     if (!lineCuts.length) continue;
     // Product name without the "— cuts: …" text the legacy flow appended.
     const baseName = (l.description ?? "").replace(/\s*[—–-]?\s*cuts?:.*$/i, "").trim();
@@ -156,7 +178,7 @@ export function carpetCutList(items: CutSource[]): {
       const sqft = (cut.lengthIn / 12) * (cut.widthIn / 12);
       const sqyd = Math.round((sqft / 9) * 100) / 100;
       cuts.push({
-        room: (l.room && l.room.trim()) || "Unassigned",
+        room: cut.room || (l.room && l.room.trim()) || "Unassigned",
         name,
         size: `${ftIn(cut.widthIn)} × ${ftIn(cut.lengthIn)}`,
         isFill: !!l.is_fill,

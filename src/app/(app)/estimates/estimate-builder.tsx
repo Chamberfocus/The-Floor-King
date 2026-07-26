@@ -56,6 +56,12 @@ import { ProductPicker, type CustomProductInput } from "./product-picker";
 import type { AddonCatalogItem } from "@/lib/data/addon-defaults";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { AreaCalculator } from "@/components/area-calculator";
+import {
+  LineMeasurements,
+  newMeasureRow,
+  rowsSqft,
+  type MeasureRow,
+} from "./line-measurements";
 
 interface LineState {
   key: string;
@@ -99,7 +105,22 @@ interface LineState {
   prep_thickness_in: string; // prep: the pour thickness the bag calc used
   prep_key: string; // links a prep material line to its auto-populated labor line
   save_default: boolean; // "use always" — write this cost back to the catalog default on save (UI-only, never persisted on the line)
+  measurements: MeasureRow[]; // first-class measured pieces (areas / carpet cuts)
 }
+
+/** Total inches from a feet+inches pair (measure rows / cut fields). */
+const ftInToIn = (ft: string, inch: string): number =>
+  Math.round((num(ft) * 12 + num(inch)) * 100) / 100;
+
+/** A measured-piece row → the persisted {label,length_in,width_in,op} shape. */
+const rowToMeasurement = (m: MeasureRow) => ({
+  label: m.label.trim() || null,
+  length_in: ftInToIn(m.len_ft, m.len_in),
+  width_in: ftInToIn(m.wid_ft, m.wid_in),
+  op: m.op,
+});
+const rowHasDims = (m: MeasureRow): boolean =>
+  ftInToIn(m.len_ft, m.len_in) > 0 && ftInToIn(m.wid_ft, m.wid_in) > 0;
 
 const round2s = (n: number) => String(Math.round(n * 100) / 100);
 /** A line's effective margin — its own override, else the estimate overall. */
@@ -165,16 +186,6 @@ function inToIn(total: number | null | undefined): string {
   // Keep fractional inches (e.g. 6.5") instead of rounding to a whole inch, so
   // re-opening a saved line doesn't silently change its measurement.
   return String(Math.round((total % 12) * 100) / 100);
-}
-function dimsToSqft(
-  lenFt: string,
-  lenIn: string,
-  widFt: string,
-  widIn: string,
-): number | null {
-  const L = num(lenFt) * 12 + num(lenIn);
-  const W = num(widFt) * 12 + num(widIn);
-  return L > 0 && W > 0 ? (L / 12) * (W / 12) : null;
 }
 /** Our cost for a line (material × waste + labor), matching lineTotal's qty. */
 function lineOurCost(l: LineState): number {
@@ -357,6 +368,7 @@ export function EstimateBuilder({
     prep_thickness_in: "",
     prep_key: "",
     save_default: false,
+    measurements: [],
   });
 
   const [title, setTitle] = useState(draft?.title ?? estimate.title ?? "");
@@ -408,13 +420,41 @@ export function EstimateBuilder({
         const desc = legacyCut
           ? (l.description ?? "").replace(/\s*[—–-]?\s*cuts?:.*$/i, "").trim()
           : l.description ?? "";
+        // First-class measured pieces. Use the saved list when present; else, for
+        // a flooring line that already has a single cut, seed one row from it so
+        // it appears in the new measurement list (and a save writes it back).
+        const savedMeasures = Array.isArray(l.measurements) ? l.measurements : [];
+        const isFlooring =
+          isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category);
+        const measurements: MeasureRow[] = savedMeasures.length
+          ? savedMeasures.map((m) => ({
+              ...newMeasureRow(),
+              label: m.label ?? "",
+              len_ft: inToFt(m.length_in),
+              len_in: inToIn(m.length_in),
+              wid_ft: inToFt(m.width_in),
+              wid_in: inToIn(m.width_in),
+              op: m.op === "subtract" ? "subtract" : "add",
+            }))
+          : isFlooring && lenIn && widIn
+            ? [{
+                ...newMeasureRow(l.room ?? ""),
+                len_ft: inToFt(lenIn),
+                len_in: inToIn(lenIn),
+                wid_ft: inToFt(widIn),
+                wid_in: inToIn(widIn),
+              }]
+            : [];
+        const sqftStr = measurements.length
+          ? String(rowsSqft(measurements))
+          : l.sqft?.toString() ?? "";
         return {
         key: newKey(),
         room: l.room ?? "",
         description: desc,
         note: l.note ?? "",
         line_type: l.line_type,
-        sqft: l.sqft?.toString() ?? "",
+        sqft: sqftStr,
         len_ft: inToFt(lenIn),
         len_in: inToIn(lenIn),
         wid_ft: inToFt(widIn),
@@ -447,6 +487,7 @@ export function EstimateBuilder({
         prep_thickness_in: l.prep_thickness_in != null ? String(l.prep_thickness_in) : "",
         prep_key: l.prep_key ?? "",
         save_default: false,
+        measurements,
         };
       }),
     }));
@@ -457,21 +498,6 @@ export function EstimateBuilder({
 
   const updateOption = (oi: number, patch: Partial<OptionState>) =>
     setOptions((prev) => prev.map((o, i) => (i === oi ? { ...o, ...patch } : o)));
-
-  // Rooms & areas — the measurement backbone (seeded from existing line rooms).
-  // Measure a room once, then drop a flooring material into it (area auto-fills).
-  const [rooms, setRooms] = useState<{ key: string; name: string; sqft: string }[]>(() => {
-    const seen = new Map<string, string>();
-    for (const o of estimate.options ?? [])
-      for (const l of o.line_items ?? [])
-        if (l.room && !seen.has(l.room))
-          seen.set(l.room, l.sqft != null ? String(l.sqft) : "");
-    return [...seen].map(([name, sqft]) => ({ key: newKey(), name, sqft }));
-  });
-  const addRoom = () => setRooms((r) => [...r, { key: newKey(), name: "", sqft: "" }]);
-  const updateRoom = (i: number, patch: Partial<{ name: string; sqft: string }>) =>
-    setRooms((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)));
-  const removeRoom = (i: number) => setRooms((r) => r.filter((_, j) => j !== i));
 
   // --- New-builder UI state -------------------------------------------------
   // One option shown at a time (tabs), and an owner ⇄ customer preview flip.
@@ -671,32 +697,6 @@ export function EstimateBuilder({
   /** Add a FILL piece for the same area/material right below the line — same
    *  product & pricing, blank cut size, flagged as fill so it lists under its
    *  area on every doc and its yardage rolls into the order. */
-  const addFillPiece = (oi: number, li: number) => {
-    const key = newKey();
-    setOptions((prev) =>
-      prev.map((o, i) => {
-        if (i !== oi) return o;
-        const src = o.lines[li];
-        const fill: LineState = {
-          ...src,
-          key,
-          is_fill: true,
-          // Fresh, empty cut — the user measures the fill piece.
-          sqft: "",
-          quantity: "",
-          len_ft: "",
-          len_in: "",
-          wid_ft: "",
-          wid_in: "",
-        };
-        const lines = [...o.lines];
-        lines.splice(li + 1, 0, fill);
-        return { ...o, lines };
-      }),
-    );
-    setOpenLines((s) => new Set(s).add(key)); // open the new fill line for editing
-  };
-
   const updateLine = (oi: number, li: number, patch: Partial<LineState>) =>
     setOptions((prev) =>
       prev.map((o, i) =>
@@ -953,33 +953,24 @@ export function EstimateBuilder({
       ),
     );
 
-  // Update a dimension field and auto-recompute sq ft from L×W.
-  const updateDim = (oi: number, li: number, patch: Partial<LineState>) =>
-    setOptions((prev) =>
-      prev.map((o, i) =>
-        i === oi
-          ? {
-              ...o,
-              lines: o.lines.map((l, j) => {
-                if (j !== li) return l;
-                const merged = { ...l, ...patch };
-                const s = dimsToSqft(
-                  merged.len_ft,
-                  merged.len_in,
-                  merged.wid_ft,
-                  merged.wid_in,
-                );
-                // Editing dimensions means area drives the line again — drop any
-                // frozen quantity (e.g. carried over from a copied estimate) so
-                // the total recalculates from the new size.
-                return s !== null
-                  ? { ...merged, sqft: (Math.round(s * 100) / 100).toString(), quantity: "" }
-                  : merged;
-              }),
-            }
-          : o,
-      ),
-    );
+  // Persist a flooring line's measured pieces and derive its square footage from
+  // them (the list is the source of truth). The primary cut (first add-piece) is
+  // mirrored onto len/wid so the single-cut readers stay in sync.
+  const setLineMeasurements = (oi: number, li: number, rows: MeasureRow[]) => {
+    const patch: Partial<LineState> = { measurements: rows };
+    if (rows.length) {
+      patch.sqft = String(rowsSqft(rows));
+      patch.quantity = ""; // area drives the line again
+      const first = rows.find((r) => r.op === "add" && rowHasDims(r)) ?? rows[0];
+      if (first) {
+        patch.len_ft = first.len_ft;
+        patch.len_in = first.len_in;
+        patch.wid_ft = first.wid_ft;
+        patch.wid_in = first.wid_in;
+      }
+    }
+    updateLine(oi, li, patch);
+  };
 
   // Pick a catalog product for a line — fills every field the catalog knows.
   const pickProduct = (oi: number, li: number, p: Product | null) => {
@@ -1148,9 +1139,15 @@ export function EstimateBuilder({
         description: l.description,
         note: l.note,
         line_type: l.line_type,
-        sqft: l.sqft || null,
+        // The measurement list is the source of truth for a flooring line's area.
+        sqft: l.measurements.some(rowHasDims)
+          ? String(rowsSqft(l.measurements))
+          : l.sqft || null,
         length_in: num(l.len_ft) * 12 + num(l.len_in) || null,
         width_in: num(l.wid_ft) * 12 + num(l.wid_in) || null,
+        measurements: l.measurements.filter(rowHasDims).length
+          ? l.measurements.filter(rowHasDims).map(rowToMeasurement)
+          : null,
         measure_unit: l.measure_unit,
         material_rate: l.material_rate || null,
         labor_rate: l.labor_rate || null,
@@ -1482,7 +1479,6 @@ export function EstimateBuilder({
       <div className="sticky top-0 z-20 -mx-1 mb-4 flex flex-wrap gap-1 border-b bg-background/95 px-1 py-2 backdrop-blur">
         {[
           ["sec-setup", "Setup"],
-          ["sec-rooms", "Rooms"],
           ["sec-materials", "Materials"],
           ["sec-labor", "Labor"],
           ["sec-review", "Review"],
@@ -1722,66 +1718,6 @@ export function EstimateBuilder({
                 </div>
               </CardHeader>
               <CardContent className="space-y-5">
-                {/* ROOMS & AREAS — measure once; drop flooring in (area auto-fills) */}
-                <div className="space-y-2 scroll-mt-16" id="sec-rooms">
-                  <div className="flex items-center justify-between border-b pb-1.5">
-                    <h3 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
-                      Rooms &amp; areas
-                    </h3>
-                    <span className="text-sm font-semibold tabular-nums text-muted-foreground">
-                      {Math.round(rooms.reduce((s, r) => s + num(r.sqft), 0))} sq ft
-                    </span>
-                  </div>
-                  {rooms.length === 0 ? (
-                    <p className="px-1 text-xs text-muted-foreground">
-                      Add rooms and their square footage — then drop a flooring
-                      material into each; its area fills in automatically.
-                    </p>
-                  ) : null}
-                  {rooms.map((room, ri) => (
-                    <div key={room.key} className="flex flex-wrap items-center gap-2 rounded-md border px-2 py-1.5">
-                      <Input
-                        value={room.name}
-                        onChange={(e) => updateRoom(ri, { name: e.target.value })}
-                        placeholder="Room (e.g. Living Room)"
-                        className="h-9 min-w-40 flex-1"
-                      />
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          inputMode="decimal"
-                          value={room.sqft}
-                          onChange={(e) => updateRoom(ri, { sqft: e.target.value })}
-                          placeholder="sq ft"
-                          className={cn(inputSm, "w-20")}
-                        />
-                        <AreaCalculator
-                          triggerLabel="Calc"
-                          triggerVariant="ghost"
-                          triggerClassName="h-9 px-2 text-xs"
-                          title={`Square footage${room.name ? ` — ${room.name}` : ""}`}
-                          initialLabel={room.name}
-                          onApply={(area) => updateRoom(ri, { sqft: String(area) })}
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Remove room"
-                        onClick={() => removeRoom(ri)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-                  <Button type="button" variant="outline" size="sm" onClick={addRoom}>
-                    <Plus className="size-3.5" /> Add room
-                  </Button>
-                </div>
-
                 {(["mat", "labor"] as const).map((section) => {
                   const secLines = option.lines
                     .map((line, li) => ({ line, li }))
@@ -2018,108 +1954,56 @@ export function EstimateBuilder({
                         ) : null}
 
                         {line.line_type !== "flat" && !isSubfloor(line) ? (
-                          <div className="flex flex-wrap items-end gap-3">
-                            {/* Roll goods — cut dimensions (carpet / sheet vinyl).
-                                Hard surface is measured in square feet. */}
-                            {isRollGoodCategory(line.category) ? (
-                              <>
-                                <div>
-                                  <label className="mb-1 block text-xs text-muted-foreground">
-                                    Length (ft / in)
-                                  </label>
-                                  <div className="flex gap-1">
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      inputMode="decimal"
-                                      min="0"
-                                      value={line.len_ft}
-                                      onChange={(e) => updateDim(oi, li, { len_ft: e.target.value })}
-                                      placeholder="ft"
-                                      className={cn(inputSm, "w-14")}
-                                    />
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      inputMode="decimal"
-                                      min="0"
-                                      value={line.len_in}
-                                      onChange={(e) => updateDim(oi, li, { len_in: e.target.value })}
-                                      placeholder="in"
-                                      className={cn(inputSm, "w-12")}
-                                    />
-                                  </div>
-                                </div>
-                                <div>
-                                  <label className="mb-1 block text-xs text-muted-foreground">
-                                    Width (ft / in)
-                                  </label>
-                                  <div className="flex gap-1">
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      inputMode="decimal"
-                                      min="0"
-                                      value={line.wid_ft}
-                                      onChange={(e) => updateDim(oi, li, { wid_ft: e.target.value })}
-                                      placeholder="ft"
-                                      className={cn(inputSm, "w-14")}
-                                    />
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      inputMode="decimal"
-                                      min="0"
-                                      value={line.wid_in}
-                                      onChange={(e) => updateDim(oi, li, { wid_in: e.target.value })}
-                                      placeholder="in"
-                                      className={cn(inputSm, "w-12")}
-                                    />
-                                  </div>
-                                </div>
-                              </>
-                            ) : null}
-
-                            {/* AREA-billed inputs — carpet / hard surface / general
-                                area lines. Hidden entirely for count items. */}
-                            {!isCountLine(line) ? (
-                              <>
+                          isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category) ? (
+                            /* FLOORING — build the area up from measured pieces.
+                               Carpet/vinyl: each add-piece is a cut off the roll
+                               (→ staging sheet). Hard surface: pieces sum to SF. */
+                            <div className="w-full space-y-2">
+                              <LineMeasurements
+                                category={line.category}
+                                rows={line.measurements}
+                                onChange={(rows) => setLineMeasurements(oi, li, rows)}
+                                sqftPerBox={line.sqft_per_box}
+                                onSqftPerBoxChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
+                              />
+                              {/* Fallback for lines with no measured pieces yet
+                                  (e.g. older estimates) — type the sq ft directly. */}
+                              {line.measurements.length === 0 ? (
                                 <div className="flex items-end gap-2">
                                   <LabeledNumber
-                                    label="Sq ft"
+                                    label="Or enter sq ft directly"
+                                    width="w-28"
                                     value={line.sqft}
                                     onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
                                   />
-                                  <AreaCalculator
-                                    triggerLabel="Add up areas"
-                                    triggerVariant="ghost"
-                                    triggerClassName="h-9 px-2 text-xs"
-                                    title={`Square footage${line.room ? ` — ${line.room}` : ""}`}
-                                    initialLabel={line.room}
-                                    onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
-                                  />
+                                  {isRollGoodCategory(line.category) && num(line.sqft) > 0 ? (
+                                    <div className="pb-2 text-xs text-muted-foreground">
+                                      {(num(line.sqft) / 9).toFixed(1)} sq yd
+                                    </div>
+                                  ) : null}
                                 </div>
-                                {isRollGoodCategory(line.category) ? (
-                                  <div className="pb-2 text-xs text-muted-foreground">
-                                    {(num(line.sqft) / 9).toFixed(1)} sq yd
-                                  </div>
-                                ) : null}
-                                {isHardSurfaceCategory(line.category) ? (
-                                  <div className="flex items-end gap-2">
-                                    <LabeledNumber
-                                      label="Sq ft / box"
-                                      width="w-24"
-                                      value={line.sqft_per_box}
-                                      onChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
-                                    />
-                                    {num(line.sqft_per_box) > 0 && num(line.sqft) > 0 ? (
-                                      <div className="pb-2 text-xs font-medium text-muted-foreground">
-                                        = {Math.ceil(num(line.sqft) / num(line.sqft_per_box))} cartons
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                ) : null}
-                              </>
+                              ) : null}
+                            </div>
+                          ) : (
+                          <div className="flex flex-wrap items-end gap-3">
+                            {/* AREA-billed non-flooring lines (general area). Count
+                                items are handled by the calculators below. */}
+                            {!isCountLine(line) ? (
+                              <div className="flex items-end gap-2">
+                                <LabeledNumber
+                                  label="Sq ft"
+                                  value={line.sqft}
+                                  onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
+                                />
+                                <AreaCalculator
+                                  triggerLabel="Add up areas"
+                                  triggerVariant="ghost"
+                                  triggerClassName="h-9 px-2 text-xs"
+                                  title={`Square footage${line.room ? ` — ${line.room}` : ""}`}
+                                  initialLabel={line.room}
+                                  onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
+                                />
+                              </div>
                             ) : null}
 
                             {/* PREP BAG CALCULATOR — a bag/unit item with coverage:
@@ -2229,6 +2113,7 @@ export function EstimateBuilder({
                               </div>
                             ) : null}
                           </div>
+                          )
                         ) : null}
 
                         {/* 4 · PRICE — cost / margin / sell (or installed / flat). */}
@@ -2631,25 +2516,9 @@ export function EstimateBuilder({
                                 </div>
                                 {line.order_as_roll ? (
                                   <p className="mt-1 text-xs text-muted-foreground">PO orders one roll; the work order shows the cut sizes.</p>
-                                ) : null}
-                                {/* Fill piece — an extra cut off the same roll for
-                                    this area; flagged on every doc, yardage orders. */}
-                                <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs">
-                                  <input
-                                    type="checkbox"
-                                    checked={line.is_fill}
-                                    onChange={(e) => updateLine(oi, li, { is_fill: e.target.checked })}
-                                    className="size-4 rounded border-input"
-                                  />
-                                  <span>This is a <span className="font-medium">fill / seam piece</span> for the area</span>
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={() => addFillPiece(oi, li)}
-                                  className="mt-1 text-xs font-medium text-primary hover:underline"
-                                >
-                                  + Add fill piece for this area
-                                </button>
+                                ) : (
+                                  <p className="mt-1 text-xs text-muted-foreground">Each cut you add above prints on the warehouse cut sheet.</p>
+                                )}
                               </div>
                             ) : null}
 

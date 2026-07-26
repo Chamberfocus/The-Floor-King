@@ -686,6 +686,15 @@ export interface StockRoll {
   updated_at: string;
 }
 
+/** One measured piece of a flooring line — an area (and, for carpet, a cut off
+ *  the roll). A line carries a list of these; they sum to its square footage. */
+export interface LineMeasurement {
+  label?: string | null; // room / area name (also the cut's room on the staging sheet)
+  length_in: number; // inches
+  width_in: number; // inches
+  op?: "add" | "subtract" | null; // add (default) or subtract a cutout
+}
+
 export interface EstimateLineItem {
   id: string;
   option_id: string;
@@ -724,6 +733,7 @@ export interface EstimateLineItem {
   coverage_thickness_in?: number | null; // prep: reference thickness; null = flat coverage
   prep_thickness_in?: number | null; // prep: the pour thickness the bag calc used
   prep_key?: string | null; // links a prep material line to its auto-populated labor line
+  measurements?: LineMeasurement[] | null; // the measured pieces (areas / carpet cuts)
 }
 
 export interface EstimateOption {

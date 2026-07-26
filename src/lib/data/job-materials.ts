@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { lineQty, type CalcLine } from "@/lib/estimate-calc";
+import type { LineMeasurement } from "@/lib/types";
 
 export type MaterialSource = "stock" | "order";
 
@@ -19,6 +20,7 @@ export interface JobMaterialLine {
   isFill: boolean; // carpet: a fill / seam piece cut for an area
   lengthIn: number | null; // cut measurements to order (carpet especially)
   widthIn: number | null;
+  measurements: LineMeasurement[] | null; // first-class measured pieces / cuts
   qty: number; // quantity needed for the job
   unit: string;
   trackStock: boolean;
@@ -67,6 +69,7 @@ type RawLine = CalcLine & {
   roll_width_ft: number | null;
   order_as_roll: boolean | null;
   is_fill: boolean | null;
+  measurements: LineMeasurement[] | null;
 };
 
 export async function getJobMaterials(
@@ -224,6 +227,7 @@ export async function getJobMaterials(
       category: p?.category ?? l.category ?? null,
       lengthIn: l.length_in ?? null,
       widthIn: l.width_in ?? null,
+      measurements: l.measurements ?? null,
       qty,
       unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
       trackStock: canStock,

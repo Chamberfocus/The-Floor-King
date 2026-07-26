@@ -266,6 +266,7 @@ export function StagingSheetDoc({
             category: m.category,
             length_in: m.lengthIn,
             width_in: m.widthIn,
+            measurements: m.measurements,
             is_fill: m.isFill,
             roll_width_ft: m.rollWidthFt,
             manufacturer: m.manufacturer,

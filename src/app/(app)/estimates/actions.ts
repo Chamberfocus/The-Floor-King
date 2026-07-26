@@ -194,14 +194,20 @@ export async function saveEstimate(
         coverage_thickness_in: toNumOrNull(line.coverage_thickness_in ?? null),
         prep_thickness_in: toNumOrNull(line.prep_thickness_in ?? null),
         prep_key: line.prep_key || null,
+        // First-class measured pieces (areas / carpet cuts). Labor isn't measured.
+        measurements:
+          !isLabor && line.measurements && line.measurements.length
+            ? line.measurements
+            : null,
         };
       });
       let { error: lineError } = await supabase
         .from("estimate_line_items")
         .insert(lineRows);
       if (lineError) {
-        // Fallback for before the line-note column (0110) is run — save the rest.
-        const legacy = lineRows.map(({ note: _n, ...rest }) => rest);
+        // Fallback for before the line-note (0110) / measurements (0128) columns
+        // are run — save the rest so the estimate still persists.
+        const legacy = lineRows.map(({ note: _n, measurements: _m, ...rest }) => rest);
         ({ error: lineError } = await supabase.from("estimate_line_items").insert(legacy));
       }
       if (lineError) return { error: lineError.message };

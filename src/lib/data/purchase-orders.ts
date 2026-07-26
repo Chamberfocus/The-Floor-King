@@ -32,18 +32,30 @@ export async function getEstimateCutSources(
     optionId = (opt?.id as string) ?? null;
   }
   if (!optionId) return [];
-  const { data } = await supabase
-    .from("estimate_line_items")
-    .select(
-      "room, description, category, length_in, width_in, is_fill, roll_width_ft, manufacturer, color",
-    )
-    .eq("option_id", optionId)
-    .order("position", { ascending: true });
-  return (data ?? []) as CutSource[];
+  return fetchCutSources(supabase, optionId);
 }
 
 const CUT_COLS =
+  "room, description, category, length_in, width_in, measurements, is_fill, roll_width_ft, manufacturer, color";
+// Before the measurements column (0128) is run, the select above errors — fall
+// back to the legacy columns so the cut list still renders (from the single cut).
+const CUT_COLS_LEGACY =
   "room, description, category, length_in, width_in, is_fill, roll_width_ft, manufacturer, color";
+
+async function fetchCutSources(
+  supabase: SupabaseServerClient,
+  optionId: string,
+): Promise<CutSource[]> {
+  const q = (cols: string) =>
+    supabase
+      .from("estimate_line_items")
+      .select(cols)
+      .eq("option_id", optionId)
+      .order("position", { ascending: true });
+  let { data, error } = await q(CUT_COLS);
+  if (error) ({ data } = await q(CUT_COLS_LEGACY));
+  return (data ?? []) as unknown as CutSource[];
+}
 
 /**
  * The ONE way any document reads a job's carpet cuts — always live from the
@@ -60,12 +72,7 @@ export async function getJobCutSources(jobId: string): Promise<CutSource[]> {
     .eq("id", jobId)
     .maybeSingle();
   if (job?.option_id) {
-    const { data } = await supabase
-      .from("estimate_line_items")
-      .select(CUT_COLS)
-      .eq("option_id", job.option_id as string)
-      .order("position", { ascending: true });
-    return (data ?? []) as CutSource[];
+    return fetchCutSources(supabase, job.option_id as string);
   }
   return getEstimateCutSources((job?.estimate_id as string) ?? null);
 }

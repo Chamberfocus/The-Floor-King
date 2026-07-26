@@ -1,5 +1,22 @@
-import type { EstimatePresentation, LineType, MeasureUnit } from "@/lib/types";
+import type {
+  EstimatePresentation,
+  LineMeasurement,
+  LineType,
+  MeasureUnit,
+} from "@/lib/types";
 import { isAreaUnit } from "@/lib/units";
+
+/** Signed square feet of one measured piece (subtract = a cutout). */
+export function measurementSqft(m: LineMeasurement): number {
+  const area = (num(m.length_in) / 12) * (num(m.width_in) / 12);
+  return m.op === "subtract" ? -area : area;
+}
+
+/** Total square feet built up from a line's measured pieces. */
+export function measurementsSqft(list: LineMeasurement[] | null | undefined): number {
+  if (!list?.length) return 0;
+  return Math.round(list.reduce((s, m) => s + measurementSqft(m), 0) * 100) / 100;
+}
 
 /**
  * Pure pricing math shared by the live builder (client) and the server.
@@ -230,6 +247,7 @@ export interface SaveLineInput {
   coverage_thickness_in?: string | number | null;
   prep_thickness_in?: string | number | null;
   prep_key?: string | null;
+  measurements?: LineMeasurement[] | null;
 }
 
 export interface SaveOptionInput {
