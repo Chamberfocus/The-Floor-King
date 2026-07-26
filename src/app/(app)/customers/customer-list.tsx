@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, AlertTriangle } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronsUpDown, AlertTriangle } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -287,6 +287,50 @@ function MobileCard({
   );
 }
 
+type SortKey = "name" | "assigned" | "stage" | "phone" | "city" | "source" | "updated";
+
+/** A clickable, sort-toggling column header. */
+function SortTh({
+  label,
+  k,
+  sortKey,
+  dir,
+  onSort,
+  align,
+}: {
+  label: string;
+  k: SortKey;
+  sortKey: SortKey;
+  dir: "asc" | "desc";
+  onSort: (k: SortKey) => void;
+  align?: "right";
+}) {
+  const active = sortKey === k;
+  return (
+    <TableHead
+      className={align === "right" ? "text-right" : undefined}
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className={cn(
+          "inline-flex items-center gap-1 font-medium transition-colors hover:text-foreground",
+          align === "right" && "flex-row-reverse",
+          active ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {label}
+        {active ? (
+          dir === "asc" ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />
+        ) : (
+          <ChevronsUpDown className="size-3.5 opacity-40" />
+        )}
+      </button>
+    </TableHead>
+  );
+}
+
 export function CustomerList({
   customers,
   contexts,
@@ -302,11 +346,82 @@ export function CustomerList({
   const nowMs = Date.now();
   const isOverdue = (c: Customer) =>
     !!c.next_action_due && new Date(c.next_action_due).getTime() < nowMs;
+
+  // Click a column to sort by it (toggles asc/desc). Stage sorts by the pipeline
+  // ORDER (stage position), not alphabetically — New Lead → … → Closed.
+  const [sortKey, setSortKey] = useState<SortKey>("updated");
+  const [dir, setDir] = useState<"asc" | "desc">("desc");
+  const sortBy = (k: SortKey) => {
+    if (k === sortKey) setDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(k);
+      setDir(k === "updated" ? "desc" : "asc");
+    }
+  };
+
+  const stagePos = (c: Customer): number => {
+    const s = shared.stages.find((x) => x.id === c.workflow_stage_id);
+    // Unstaged rows sort to the end regardless of direction.
+    return s ? s.position : Number.MAX_SAFE_INTEGER;
+  };
+  const sortVal = (c: Customer): string | number => {
+    switch (sortKey) {
+      case "name": return (c.full_name ?? "").toLowerCase();
+      case "assigned": return assignedName(c, shared).toLowerCase();
+      case "stage": return stagePos(c);
+      case "phone": return (c.phone ?? "").toLowerCase();
+      case "city": return (c.city ?? "").toLowerCase();
+      case "source": return (c.source ? LEAD_SOURCE_LABELS[c.source] : "").toLowerCase();
+      case "updated": return new Date(c.updated_at).getTime();
+    }
+  };
+  const sorted = useMemo(() => {
+    const arr = [...customers];
+    arr.sort((a, b) => {
+      const av = sortVal(a);
+      const bv = sortVal(b);
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return dir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customers, sortKey, dir]);
+
+  const SORT_LABELS: { k: SortKey; label: string }[] = [
+    { k: "name", label: "Name" },
+    ...(isAdmin ? [{ k: "assigned" as SortKey, label: "Assigned to" }] : []),
+    { k: "stage", label: "Stage" },
+    { k: "city", label: "City" },
+    { k: "source", label: "Source" },
+    { k: "updated", label: "Updated" },
+  ];
+
   return (
     <>
-      {/* Phone: tappable cards, each expandable to quick actions */}
+      {/* Phone: a sort control, then tappable cards */}
+      <div className="mb-2 flex items-center gap-2 md:hidden">
+        <span className="text-xs text-muted-foreground">Sort by</span>
+        <select
+          value={sortKey}
+          onChange={(e) => setSortKey(e.target.value as SortKey)}
+          className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+        >
+          {SORT_LABELS.map((s) => (
+            <option key={s.k} value={s.k}>{s.label}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setDir((d) => (d === "asc" ? "desc" : "asc"))}
+          aria-label="Toggle sort direction"
+          className="inline-flex h-9 items-center gap-1 rounded-md border border-input px-2 text-sm"
+        >
+          {dir === "asc" ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+          {dir === "asc" ? "A–Z" : "Z–A"}
+        </button>
+      </div>
       <div className="space-y-2 md:hidden">
-        {customers.map((c) => (
+        {sorted.map((c) => (
           <MobileCard
             key={c.id}
             c={c}
@@ -322,18 +437,20 @@ export function CustomerList({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              {isAdmin ? <TableHead>Assigned to</TableHead> : null}
-              <TableHead>Stage</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>City</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead className="text-right">Updated</TableHead>
+              <SortTh label="Name" k="name" sortKey={sortKey} dir={dir} onSort={sortBy} />
+              {isAdmin ? (
+                <SortTh label="Assigned to" k="assigned" sortKey={sortKey} dir={dir} onSort={sortBy} />
+              ) : null}
+              <SortTh label="Stage" k="stage" sortKey={sortKey} dir={dir} onSort={sortBy} />
+              <SortTh label="Phone" k="phone" sortKey={sortKey} dir={dir} onSort={sortBy} />
+              <SortTh label="City" k="city" sortKey={sortKey} dir={dir} onSort={sortBy} />
+              <SortTh label="Source" k="source" sortKey={sortKey} dir={dir} onSort={sortBy} />
+              <SortTh label="Updated" k="updated" sortKey={sortKey} dir={dir} onSort={sortBy} align="right" />
               <TableHead className="w-10 text-right" aria-label="Quick actions" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {customers.map((c) => (
+            {sorted.map((c) => (
               <DesktopRow
                 key={c.id}
                 c={c}
