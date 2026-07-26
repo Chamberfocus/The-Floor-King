@@ -24,6 +24,8 @@ import { listWorkflowStages } from "@/lib/data/workflow";
 import { ClipboardList } from "lucide-react";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
+import { listMyAvailability } from "@/lib/data/crew-availability";
+import { MyAvailability } from "./my-availability";
 
 export const metadata: Metadata = { title: "My work" };
 export const dynamic = "force-dynamic";
@@ -57,6 +59,7 @@ export default async function InstallerHomePage() {
   const settings = await getBusinessSettings();
   const home = await getInstallerHome(profile.id, settings.installer_collects_balance);
   const flowStages = await listWorkflowStages();
+  const myAvailability = await listMyAvailability(profile.id);
   const active = home.jobs.filter((j) => j.job.status !== "completed");
   const doneCount = home.jobs.length - active.length;
 
@@ -120,6 +123,11 @@ export default async function InstallerHomePage() {
           <CalendarDays className="size-4 text-primary" /> My install calendar
         </h2>
         <InstallerCalendar events={myEvents} resources={[]} hideFilter canEdit />
+      </section>
+
+      {/* Availability — crew tell the office when they can't be scheduled. */}
+      <section>
+        <MyAvailability blocks={myAvailability} />
       </section>
 
       {/* Pay + ratings summary */}

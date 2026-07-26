@@ -15,6 +15,8 @@ import { INSTALL_ROLES } from "@/lib/types";
 import type { CalEvent, CalResource } from "./installer-calendar";
 import { InstallerGrid } from "./installer-grid";
 import { SchedulerTabs, ClientScheduleRow } from "./scheduler-ui";
+import { listCrewAvailabilityForOffice } from "@/lib/data/crew-availability";
+import { CrewAvailabilityBoard } from "./crew-availability-board";
 
 export const metadata: Metadata = { title: "Install Scheduler" };
 export const dynamic = "force-dynamic";
@@ -141,10 +143,14 @@ export default async function InstallSchedulerPage() {
     })),
   );
 
+  const crewAvailability = await listCrewAvailabilityForOffice();
+
   const name = (j: Row) => j.customer?.full_name ?? j.title ?? "Job";
 
   const list = (
     <div className="space-y-8">
+      <CrewAvailabilityBoard blocks={crewAvailability} />
+
       {jobs.length === 0 ? (
         <EmptyState
           icon={CalendarCheck}
