@@ -182,12 +182,12 @@ export function ProductPicker({
            into: "Change" reopens the search to swap it, "×" clears it. */
         <div
           className={cn(
-            "flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 shadow-sm",
-            fullWidth ? "h-11 w-full" : "h-9 w-full sm:w-72",
+            "flex items-start gap-2 rounded-md border border-input bg-muted/40 px-3 py-2 shadow-sm",
+            fullWidth ? "min-h-11 w-full" : "min-h-9 w-full sm:w-80",
           )}
         >
-          <Check className="size-4 shrink-0 text-primary" />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          <Check className="mt-0.5 size-4 shrink-0 text-primary" />
+          <span className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">
             {initialLabel || "Selected product"}
           </span>
           <button
@@ -197,7 +197,7 @@ export function ProductPicker({
               setQ("");
               setOpen(true);
             }}
-            className="shrink-0 text-xs font-medium text-primary hover:underline"
+            className="mt-0.5 shrink-0 text-xs font-medium text-primary hover:underline"
           >
             Change
           </button>
@@ -209,7 +209,7 @@ export function ProductPicker({
               setQ("");
               setOpen(false);
             }}
-            className="shrink-0 text-muted-foreground hover:text-foreground"
+            className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
             aria-label="Clear product"
           >
             <X className="size-4" />
@@ -232,7 +232,7 @@ export function ProductPicker({
             onKeyDown={onKeyDown}
             autoFocus={editing}
             placeholder="Type a product name…"
-            className={cn(inputSm, "w-full pl-8 pr-7", fullWidth && "h-11 text-base")}
+            className={cn(inputSm, "w-full pl-9 pr-7 text-base", fullWidth ? "h-12" : "h-11")}
           />
           <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 size-4 -translate-y-1/2 opacity-50" />
         </div>
@@ -241,13 +241,13 @@ export function ProductPicker({
       {open ? (
         <div
           className={cn(
-            "absolute z-30 mt-1 max-h-[min(70vh,32rem)] overflow-y-auto overscroll-contain rounded-md border bg-popover shadow-lg",
-            fullWidth ? "w-full" : "w-[min(32rem,calc(100vw-2rem))]",
+            "absolute z-30 mt-1 overflow-hidden rounded-lg border bg-popover shadow-xl",
+            fullWidth ? "w-full" : "w-[min(42rem,calc(100vw-1.5rem))]",
           )}
         >
           {
             <>
-              <div ref={listRef} className="max-h-80 overflow-y-auto py-1">
+              <div ref={listRef} className="max-h-[min(65vh,32rem)] overflow-y-auto overscroll-contain py-1">
                 {matches.length === 0 ? (
                   <p className="px-3 py-3 text-sm text-muted-foreground">
                     {loading ? "Searching…" : "No match in the catalog."}
@@ -269,18 +269,18 @@ export function ProductPicker({
                           setOpen(false);
                         }}
                         className={cn(
-                          "flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm",
+                          "flex w-full items-start justify-between gap-3 border-b border-border/40 px-3.5 py-3 text-left last:border-b-0",
                           i === activeIndex ? "bg-muted/70" : "hover:bg-muted/60",
                         )}
                       >
                         <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-1 font-medium">
+                          <span className="flex items-start gap-1.5 text-[15px] font-semibold leading-snug">
                             {p.id === value ? (
-                              <Check className="size-3.5 shrink-0 text-primary" />
+                              <Check className="mt-0.5 size-4 shrink-0 text-primary" />
                             ) : null}
-                            <span className="truncate">{productLabel(p)}</span>
+                            <span className="break-words">{productLabel(p)}</span>
                           </span>
-                          <span className="block truncate text-xs text-muted-foreground">
+                          <span className="mt-0.5 block break-words text-xs text-muted-foreground">
                             {[
                               PRODUCT_CATEGORY_LABELS[p.category],
                               p.style,
