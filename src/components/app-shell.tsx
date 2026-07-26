@@ -23,8 +23,6 @@ import { ImportJobsBanner } from "@/components/import-jobs-banner";
 import { AreaCalculator } from "@/components/area-calculator";
 import { FieldAssistant } from "@/components/field-assistant";
 import { OnMyWayFab } from "@/components/on-my-way-fab";
-import { TourRoot } from "@/components/tour/tour-root";
-import { TourBoundary } from "@/components/tour/tour-boundary";
 import { cn } from "@/lib/utils";
 import {
   APP_NAME,
@@ -386,11 +384,6 @@ export function AppShell({
       <MobileBottomNav role={profile.role} onMore={() => setMobileOpen(true)} />
       {profile.role !== "customer" ? <FieldAssistant /> : null}
       {profile.role !== "customer" ? <OnMyWayFab /> : null}
-      {profile.role !== "customer" ? (
-        <TourBoundary>
-          <TourRoot role={profile.role} userId={profile.id} />
-        </TourBoundary>
-      ) : null}
     </div>
   );
 }
