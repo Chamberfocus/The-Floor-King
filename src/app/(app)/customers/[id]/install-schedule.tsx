@@ -1,11 +1,45 @@
-import { DateField } from "@/components/ui/date-field";
-import { CalendarClock } from "lucide-react";
+import { CalendarClock, CalendarOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
-import { SearchPicker } from "@/components/ui/search-picker";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { formatDate, to12, type ArrivalWindow } from "@/lib/format";
+import { ManualBooking } from "./manual-booking";
+
+/** A crew member's posted unavailability, redacted for the office (private
+ *  blocks carry label "Unavailable" only). Used to warn before booking. */
+export interface BookingBlock {
+  id?: string;
+  installerId: string;
+  start_date: string;
+  end_date: string;
+  kind: string;
+  is_private: boolean;
+  label: string;
+}
+
+/** Does an availability block overlap the [start, end] booking window? All
+ *  date-only (YYYY-MM-DD), so lexical comparison is correct. */
+export function blockOverlaps(
+  b: BookingBlock,
+  start: string,
+  end: string | null,
+): boolean {
+  const e = end && end >= start ? end : start;
+  return b.start_date <= e && b.end_date >= start;
+}
+
+/** The blocks (if any) that conflict with booking `installerId` over the window. */
+export function conflictsFor(
+  blocks: BookingBlock[],
+  installerId: string | null,
+  start: string | null,
+  end: string | null,
+): BookingBlock[] {
+  if (!installerId || !start) return [];
+  return blocks.filter(
+    (b) => b.installerId === installerId && blockOverlaps(b, start, end),
+  );
+}
 
 export interface InstallScheduleProps {
   jobId: string;
@@ -26,6 +60,8 @@ export interface InstallScheduleProps {
   arrivalWindows: ArrivalWindow[];
   /** The customer's requested install dates (rank order) — a request to confirm. */
   preferences?: string[];
+  /** Crew-posted unavailability (redacted), to warn before double-booking. */
+  availability?: BookingBlock[];
 }
 
 /**
@@ -43,6 +79,7 @@ export function InstallSchedule({
   installerUsers,
   arrivalWindows,
   preferences = [],
+  availability = [],
 }: InstallScheduleProps) {
   const redirectTo = `/customers/${customerId}#jobs`;
   const windowLabel = schedule.window
@@ -120,10 +157,14 @@ export function InstallSchedule({
               <span className="font-normal text-muted-foreground">({suggestions.length})</span>
             </div>
             <div className="max-h-80 space-y-2 overflow-y-auto">
-            {suggestions.map((sug) => (
+            {suggestions.map((sug) => {
+              const clash = conflictsFor(availability, sug.installerId, sug.start, sug.end);
+              return (
               <div
                 key={sug.installerId}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm ${
+                  clash.length ? "border-amber-400 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/20" : ""
+                }`}
               >
                 <div>
                   <span className="font-medium">{sug.name}</span>{" "}
@@ -131,6 +172,13 @@ export function InstallSchedule({
                     — {sug.days} day{sug.days === 1 ? "" : "s"}, {formatDate(sug.start)}
                     {sug.end !== sug.start ? ` → ${formatDate(sug.end)}` : ""}
                   </span>
+                  {clash.length ? (
+                    <div className="mt-0.5 flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+                      <CalendarOff className="size-3.5" />
+                      {sug.name.split(" ")[0]} marked themselves unavailable
+                      {clash.length === 1 ? ` (${clash[0].label})` : ""}
+                    </div>
+                  ) : null}
                 </div>
                 <form action={bookInstall} className="flex items-center gap-1.5">
                   <input type="hidden" name="job_id" value={jobId} />
@@ -162,76 +210,23 @@ export function InstallSchedule({
                   </ConfirmButton>
                 </form>
               </div>
-            ))}
+              );
+            })}
             </div>
           </div>
         ) : null}
 
         {/* Manual booking — every installer, always open until the job is booked
-            so you can pick anyone (not just the suggested next-available crews). */}
-        <details className="border-t pt-3" open={!schedule.date}>
-          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
-            {schedule.date ? "Reschedule manually" : "Pick any installer & date"}
-          </summary>
-          <form action={bookInstall} className="mt-2 flex flex-wrap items-end gap-2">
-            <input type="hidden" name="job_id" value={jobId} />
-            <input type="hidden" name="redirect_to" value={redirectTo} />
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Installer</label>
-              <SearchPicker
-                name="installer_id"
-                defaultValue={schedule.installerId ?? ""}
-                placeholder="— Choose —"
-                allowClear
-                options={installerUsers}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Start</label>
-              <DateField
-                name="start"
-                required
-                defaultValue={schedule.date ?? ""}
-                className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">End</label>
-              <DateField
-                name="end"
-                defaultValue={schedule.endDate ?? ""}
-                className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">Arrival window</label>
-              <select
-                name="arrival_window"
-                defaultValue={schedule.window ?? ""}
-                className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-              >
-                <option value="">No window</option>
-                {arrivalWindows.map((w) => (
-                  <option key={`${w.start}-${w.end}`} value={`${w.start}-${w.end}`}>
-                    {w.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <ConfirmButton
-              size="sm"
-              title={schedule.date ? "Reschedule this install?" : "Book this install?"}
-              description={
-                schedule.date
-                  ? "Changes the booked install date/installer and notifies the customer and installer of the change."
-                  : "Books the install, hands the job to the warehouse, and notifies the customer and installer."
-              }
-              confirmLabel={schedule.date ? "Reschedule" : "Book install"}
-            >
-              {schedule.date ? "Save changes" : "Book install"}
-            </ConfirmButton>
-          </form>
-        </details>
+            so you can pick anyone (not just the suggested next-available crews).
+            Warns live if the picked installer is marked unavailable. */}
+        <ManualBooking
+          jobId={jobId}
+          redirectTo={redirectTo}
+          schedule={schedule}
+          installerUsers={installerUsers}
+          arrivalWindows={arrivalWindows}
+          availability={availability}
+        />
       </CardContent>
     </Card>
   );

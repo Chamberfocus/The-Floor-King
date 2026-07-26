@@ -5,6 +5,7 @@ import { installDaysForJob } from "@/lib/scheduling";
 import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
 import { parseArrivalWindows } from "@/lib/format";
 import { listInstallPreferences } from "@/lib/data/install-availability";
+import { listCrewAvailabilityForOffice } from "@/lib/data/crew-availability";
 import { INSTALL_ROLES } from "@/lib/types";
 import type { InstallScheduleProps } from "@/app/(app)/customers/[id]/install-schedule";
 
@@ -27,13 +28,15 @@ export async function buildInstallScheduleProps(
   jobId: string,
   customerId: string,
 ): Promise<InstallScheduleProps | null> {
-  const [job, settings, installCrews, jobCrew, assignable] = await Promise.all([
-    getJob(jobId),
-    getSchedulingSettings(),
-    listInstallCrews({ activeOnly: true }),
-    getJobCrew(jobId),
-    listAssignableUsers(),
-  ]);
+  const [job, settings, installCrews, jobCrew, assignable, crewAvailability] =
+    await Promise.all([
+      getJob(jobId),
+      getSchedulingSettings(),
+      listInstallCrews({ activeOnly: true }),
+      getJobCrew(jobId),
+      listAssignableUsers(),
+      listCrewAvailabilityForOffice(),
+    ]);
   if (!job) return null;
 
   const lineItems = job.line_items ?? [];
@@ -88,5 +91,14 @@ export async function buildInstallScheduleProps(
     installerUsers,
     arrivalWindows: parseArrivalWindows(settings.arrival_windows),
     preferences: (await listInstallPreferences(jobId)).map((p) => p.preferred_date),
+    availability: crewAvailability.map((b) => ({
+      id: b.id,
+      installerId: b.installer_id,
+      start_date: b.start_date,
+      end_date: b.end_date,
+      kind: b.kind,
+      is_private: b.is_private,
+      label: b.label,
+    })),
   };
 }
