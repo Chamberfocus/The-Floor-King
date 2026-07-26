@@ -211,8 +211,9 @@ function lineCostSplit(l: LineState): { mat: number; labor: number } {
     unit: l.unit, // count units price by quantity, not area
   });
   const waste = 1 + (num(l.waste_pct) || 0) / 100;
+  // A labor line has no material cost, even if a stray rate is on it.
   return {
-    mat: qty * num(l.material_cost) * waste,
+    mat: l.category === "labor" ? 0 : qty * num(l.material_cost) * waste,
     labor: qty * num(l.labor_cost),
   };
 }
@@ -1345,6 +1346,9 @@ export function EstimateBuilder({
     flat_amount: l.flat_amount,
     waste_pct: l.waste_pct,
     quantity: l.quantity,
+    // A labor line charges labor only — carry the category so the shared calc
+    // ignores any stray material rate on it.
+    category: l.category,
     // MUST carry the unit: lineQty prices count units (bag/each/lnft…) by their
     // quantity and area units by area. Dropping it made bag lines fall back to
     // area (self-leveler ×800 sq ft instead of ×16 bags).

@@ -153,7 +153,11 @@ export async function saveEstimate(
     savedOptionIds[i] = optionId;
 
     if (option.lines.length) {
-      const lineRows = option.lines.map((line, j) => ({
+      const lineRows = option.lines.map((line, j) => {
+        // A labor line charges labor only — never persist a material rate/cost on
+        // it (that's what was double-charging installation labor).
+        const isLabor = (line.category || null) === "labor";
+        return {
         option_id: optionId,
         position: j,
         room: line.room || null,
@@ -165,7 +169,7 @@ export async function saveEstimate(
         length_in: toNumOrNull(line.length_in),
         width_in: toNumOrNull(line.width_in),
         measure_unit: line.measure_unit === "sqyd" ? "sqyd" : "sqft",
-        material_rate: toNumOrNull(line.material_rate),
+        material_rate: isLabor ? null : toNumOrNull(line.material_rate),
         labor_rate: toNumOrNull(line.labor_rate),
         installed_rate: toNumOrNull(line.installed_rate),
         flat_amount: toNumOrNull(line.flat_amount),
@@ -175,7 +179,7 @@ export async function saveEstimate(
         style: line.style || null,
         color: line.color || null,
         item_no: line.item_no || null,
-        material_cost: toNumOrNull(line.material_cost ?? null),
+        material_cost: isLabor ? null : toNumOrNull(line.material_cost ?? null),
         labor_cost: toNumOrNull(line.labor_cost ?? null),
         quantity: toNumOrNull(line.quantity ?? null),
         unit: line.unit || null,
@@ -190,7 +194,8 @@ export async function saveEstimate(
         coverage_thickness_in: toNumOrNull(line.coverage_thickness_in ?? null),
         prep_thickness_in: toNumOrNull(line.prep_thickness_in ?? null),
         prep_key: line.prep_key || null,
-      }));
+        };
+      });
       let { error: lineError } = await supabase
         .from("estimate_line_items")
         .insert(lineRows);

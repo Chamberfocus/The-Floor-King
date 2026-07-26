@@ -21,7 +21,13 @@ export interface CalcLine {
   labor_cost?: number | string | null;
   quantity?: number | string | null;
   unit?: string | null;
+  // A LABOR line charges labor only — any material rate/cost on it is ignored
+  // (it belongs on its own material line, never double-charged here).
+  category?: string | null;
 }
+
+/** A labor line is priced on labor alone — material never counts on it. */
+const isLaborLine = (line: CalcLine): boolean => line.category === "labor";
 
 export function num(v: number | string | null | undefined): number {
   if (v === null || v === undefined || v === "") return 0;
@@ -69,8 +75,9 @@ export function lineTotal(line: CalcLine): number {
   switch (line.line_type) {
     case "mat_labor":
       // Waste applies to material (you order extra); labor is on actual area.
+      // A labor line charges labor only — a stray material rate is not added.
       return (
-        qty * num(line.material_rate) * wasteMult(line) +
+        (isLaborLine(line) ? 0 : qty * num(line.material_rate) * wasteMult(line)) +
         qty * num(line.labor_rate)
       );
     case "installed":
@@ -86,11 +93,12 @@ export function lineTotal(line: CalcLine): number {
  *  material you buy (you pay for the extra ordered), not labor — matching
  *  lineTotal's sell side and optionCostTotals, so margins stay consistent. */
 export function lineCost(line: CalcLine): number {
+  const labor = isLaborLine(line);
   if (line.line_type === "flat") {
-    return num(line.material_cost) + num(line.labor_cost); // flat = a single lump cost
+    return (labor ? 0 : num(line.material_cost)) + num(line.labor_cost); // flat = a single lump cost
   }
   const qty = lineQty(line);
-  return qty * num(line.material_cost) * wasteMult(line) + qty * num(line.labor_cost);
+  return (labor ? 0 : qty * num(line.material_cost) * wasteMult(line)) + qty * num(line.labor_cost);
 }
 
 export function lineProfit(line: CalcLine): number {
@@ -127,8 +135,9 @@ export function optionCostTotals(lines: CalcLine[]): CostTotals {
   let labor = 0;
   for (const line of lines) {
     const q = line.line_type === "flat" ? 1 : lineQty(line);
-    // Waste raises material purchased (and our cost), not labor.
-    material += q * num(line.material_cost) * wasteMult(line);
+    // Waste raises material purchased (and our cost), not labor. A labor line
+    // contributes labor only.
+    material += isLaborLine(line) ? 0 : q * num(line.material_cost) * wasteMult(line);
     labor += q * num(line.labor_cost);
   }
   return { material, labor, cost: material + labor };
