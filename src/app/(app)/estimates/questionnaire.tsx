@@ -864,21 +864,28 @@ export function Questionnaire({
           }
         }
       } else if (q.kind === "cuts" && a.kind === "cuts") {
-        // Carpet cuts → the estimate holds ONE line PER CUT, each with its
-        // measured L×W (length_in/width_in) — the SAME structured shape the
-        // builder stores. This is what makes the cut list read straight from the
-        // estimate onto the staging sheet, work order, and PO. (The old code
-        // bundled a group into one yardage line with the sizes only in the
-        // description text, so the cut list — which needs length_in/width_in —
-        // had nothing to read, and the sizes leaked to the customer.)
-        // "Same carpet" uses one shared product for every cut; otherwise each
-        // group is its own carpet.
+        // Carpet cuts → ONE carpet line carrying its cuts as first-class
+        // MEASUREMENTS (the same shape the builder stores). Each cut is a measured
+        // piece labeled with its area, so the cut list reads straight from the
+        // estimate onto the staging sheet, work order, and PO — and the customer
+        // sees one clean carpet line (total yardage), never the cut sizes.
+        // "Same carpet" → one shared line for the whole job; otherwise one line
+        // per area.
         const sameCarpet = a.same !== false;
-        for (const g of a.groups) {
-          const p = sameCarpet ? a.product : g.product;
-          const matSell = p ? sellAt(rateFor(p.materialRate, p.unit, true)) : 0;
-          const matCost = p ? rateFor(p.materialRate, p.unit, true) : 0;
-          let groupSqyd = 0;
+
+        // Each cut → a measured PIECE (the same first-class shape the builder
+        // stores). Every add-piece is a cut off the roll (labeled with its area),
+        // and the pieces sum to the line's yardage.
+        type Piece = {
+          label: string | null;
+          lenIn: number;
+          widIn: number;
+          sqft: number;
+          sqyd: number;
+          widthFt: number;
+        };
+        const groupPieces = (g: CarpetGroup): Piece[] => {
+          const pieces: Piece[] = [];
           for (const c of g.cuts) {
             const lenIn = numv(c.lf) * 12 + numv(c.li);
             const widFt = numv(c.width) || 12;
@@ -886,50 +893,70 @@ export function Questionnaire({
             const sqft = (lenIn / 12) * widFt;
             const sqyd = r2(sqft / 9);
             if (sqyd <= 0) continue;
-            groupSqyd += sqyd;
-            out.push({
-              room: g.area.trim() || null,
-              // Product label ONLY — the cut sizes live in length_in/width_in
-              // (shown on internal cut lists, kept off the customer estimate).
-              description: p?.label || "Carpet",
-              category: "carpet",
-              measure_unit: "sqyd",
-              sqft: r2(sqft),
-              quantity: sqyd,
-              length_in: lenIn,
-              width_in: widFt * 12,
-              unit: "sq yd",
-              material_rate: matSell,
-              labor_rate: 0,
-              material_cost: matCost,
-              labor_cost: 0,
-              waste_pct: 0,
-              product_id: p?.productId || null,
-              manufacturer: p?.source === "order" && p.vendor.trim() ? p.vendor.trim() : p?.manufacturer ?? null,
-              style: p?.style ?? null,
-              color: p?.color ?? null,
-              from_stock: p?.source === "stock",
-              order_as_roll: true, // PO consolidates these cuts into one roll per product+width
-              roll_width_ft: widFt,
-            });
+            pieces.push({ label: g.area.trim() || null, lenIn, widIn: widFt * 12, sqft, sqyd, widthFt: widFt });
           }
-          if (groupSqyd <= 0) continue;
-          // Carpet INSTALL labor — its own line, from the install rate × this
-          // group's total yardage. Prefer the carpet product's own labor rate;
-          // else the question's configured per-sq-yd install rate; else a sane
-          // default — so carpet labor is ALWAYS generated. (Catalog flooring
-          // usually carries no labor rate of its own, hence the configurable
-          // install rate.)
-          const instYd =
-            (p ? rateFor(p.laborRate, p.unit, true) : 0) || (q.config.install_yd ?? 6);
+          return pieces;
+        };
+
+        // ONE carpet MATERIAL line (with all its cuts as measurements) + ONE
+        // install LABOR line, built from a product and its cuts.
+        const emitCarpet = (
+          p: ProductAns | null,
+          pieces: Piece[],
+          roomLabel: string | null,
+        ) => {
+          if (!pieces.length) return;
+          const matSell = p ? sellAt(rateFor(p.materialRate, p.unit, true)) : 0;
+          const matCost = p ? rateFor(p.materialRate, p.unit, true) : 0;
+          const totalSqft = r2(pieces.reduce((s, x) => s + x.sqft, 0));
+          const totalSqyd = r2(pieces.reduce((s, x) => s + x.sqyd, 0));
+          if (totalSqyd <= 0) return;
+          const first = pieces[0];
+          out.push({
+            room: roomLabel,
+            // Product label ONLY — the cut sizes live in measurements (shown on
+            // internal cut lists, kept off the customer estimate).
+            description: p?.label || "Carpet",
+            category: "carpet",
+            measure_unit: "sqyd",
+            sqft: totalSqft,
+            quantity: totalSqyd,
+            // Primary cut mirrored onto len/wid for single-cut readers.
+            length_in: first.lenIn,
+            width_in: first.widIn,
+            unit: "sq yd",
+            material_rate: matSell,
+            labor_rate: 0,
+            material_cost: matCost,
+            labor_cost: 0,
+            waste_pct: 0,
+            product_id: p?.productId || null,
+            manufacturer: p?.source === "order" && p.vendor.trim() ? p.vendor.trim() : p?.manufacturer ?? null,
+            style: p?.style ?? null,
+            color: p?.color ?? null,
+            from_stock: p?.source === "stock",
+            order_as_roll: true, // PO consolidates these cuts into one roll per product+width
+            roll_width_ft: first.widthFt,
+            measurements: pieces.map((x) => ({
+              label: x.label,
+              length_in: x.lenIn,
+              width_in: x.widIn,
+              op: "add" as const,
+            })),
+          });
+          // Carpet INSTALL labor — its own line, from the install rate × total
+          // yardage. Prefer the carpet product's own labor rate; else the
+          // question's configured per-sq-yd install rate; else a sane default —
+          // so carpet labor is ALWAYS generated.
+          const instYd = (p ? rateFor(p.laborRate, p.unit, true) : 0) || (q.config.install_yd ?? 6);
           if (instYd > 0) {
             out.push({
-              room: g.area.trim() || null,
-              description: `Carpet installation${g.area.trim() ? ` — ${g.area.trim()}` : ""}`,
+              room: roomLabel,
+              description: `Carpet installation${roomLabel ? ` — ${roomLabel}` : ""}`,
               category: "labor",
               measure_unit: "sqyd",
-              sqft: r2(groupSqyd * 9),
-              quantity: Math.ceil(groupSqyd),
+              sqft: r2(totalSqyd * 9),
+              quantity: Math.ceil(totalSqyd),
               length_in: null,
               width_in: null,
               unit: "sq yd",
@@ -945,6 +972,14 @@ export function Questionnaire({
               from_stock: false,
             });
           }
+        };
+
+        if (sameCarpet) {
+          // One carpet for the whole job → ONE line, every cut labeled by its area.
+          emitCarpet(a.product, a.groups.flatMap(groupPieces), null);
+        } else {
+          // Different carpet per area → one line per area (each with its cuts).
+          for (const g of a.groups) emitCarpet(g.product, groupPieces(g), g.area.trim() || null);
         }
       } else if (q.kind === "stairs" && a.kind === "stairs") {
         // Stairs → step LABOR + the CARPET the steps consume (waterfall vs

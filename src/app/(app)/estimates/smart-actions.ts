@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
-import type { ProductCategory } from "@/lib/types";
+import type { LineMeasurement, ProductCategory } from "@/lib/types";
 import { sendEstimateById } from "./actions";
 
 /** Clear a saved flooring-type default. */
@@ -116,6 +116,9 @@ export interface SmartLine {
   // Carpet cuts: order one roll of this width; the builder keeps the cut sizes.
   order_as_roll?: boolean;
   roll_width_ft?: number | null;
+  // First-class measured pieces (carpet cuts / hard-surface areas) — each piece
+  // sums to the line's sq ft, and each carpet piece is a cut on the staging sheet.
+  measurements?: LineMeasurement[] | null;
 }
 
 export interface SmartEstimateInput {
@@ -226,10 +229,16 @@ export async function createSmartEstimate(
     prep_thickness_in: l.prep_thickness_in && l.prep_thickness_in > 0 ? l.prep_thickness_in : null,
     order_as_roll: !!l.order_as_roll,
     roll_width_ft: l.roll_width_ft && l.roll_width_ft > 0 ? l.roll_width_ft : null,
+    measurements: l.measurements && l.measurements.length ? l.measurements : null,
   }));
-  const { error: lineErr } = await supabase
+  let { error: lineErr } = await supabase
     .from("estimate_line_items")
     .insert(rows);
+  if (lineErr) {
+    // Fallback for before the measurements column (0128) is run.
+    const legacy = rows.map(({ measurements: _m, ...rest }) => rest);
+    ({ error: lineErr } = await supabase.from("estimate_line_items").insert(legacy));
+  }
   if (lineErr) return { error: lineErr.message };
 
   // The estimate is finalized — clear any saved in-progress draft for this
