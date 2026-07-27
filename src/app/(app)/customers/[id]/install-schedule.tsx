@@ -1,6 +1,7 @@
 import { CalendarClock, CalendarOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SchedulePush } from "@/components/schedule-push";
+import { ArrivalWindowField } from "@/components/ui/arrival-window-field";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { formatDate, to12, type ArrivalWindow } from "@/lib/format";
 import { ManualBooking } from "./manual-booking";
@@ -180,25 +181,18 @@ export function InstallSchedule({
                     </div>
                   ) : null}
                 </div>
-                <form action={bookInstall} className="flex items-center gap-1.5">
+                <form action={bookInstall} className="flex flex-wrap items-end gap-2">
                   <input type="hidden" name="job_id" value={jobId} />
                   <input type="hidden" name="installer_id" value={sug.installerId} />
                   <input type="hidden" name="start" value={sug.start} />
                   <input type="hidden" name="end" value={sug.end} />
                   <input type="hidden" name="redirect_to" value={redirectTo} />
-                  <select
-                    name="arrival_window"
+                  <ArrivalWindowField
+                    label="Arrival window"
+                    combinedName="arrival_window"
                     defaultValue={schedule.window ?? ""}
-                    aria-label="Arrival window"
-                    className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
-                  >
-                    <option value="">No window</option>
-                    {arrivalWindows.map((w) => (
-                      <option key={`${w.start}-${w.end}`} value={`${w.start}-${w.end}`}>
-                        {w.label}
-                      </option>
-                    ))}
-                  </select>
+                    presets={arrivalWindows}
+                  />
                   <SchedulePush
                     size="sm"
                     variant="outline"

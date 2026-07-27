@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SchedulePush } from "@/components/schedule-push";
+import { ArrivalWindowField } from "@/components/ui/arrival-window-field";
 import { formatDate, to12, parseArrivalWindows } from "@/lib/format";
 import type { ArrivalWindow } from "@/lib/format";
 import {
@@ -48,7 +49,6 @@ export function EstimateScheduler({
   const [mode, setMode] = useState<"assigned" | "closest">("assigned");
   const [pending, startTransition] = useTransition();
   const [showManual, setShowManual] = useState(false);
-  const [win, setWin] = useState(0);
   const [rep, setRep] = useState(defaultRep ?? "");
   const [windows, setWindows] = useState<ArrivalWindow[]>(() =>
     parseArrivalWindows(null),
@@ -214,8 +214,6 @@ export function EstimateScheduler({
               {redirectTo ? (
                 <input type="hidden" name="redirect_to" value={redirectTo} />
               ) : null}
-              <input type="hidden" name="time" value={windows[win]?.start ?? ""} />
-              <input type="hidden" name="end_time" value={windows[win]?.end ?? ""} />
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -224,22 +222,16 @@ export function EstimateScheduler({
                 <DateField name="date" required className={fieldCls} />
               </div>
 
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  Arrival window
-                </label>
-                <select
-                  value={win}
-                  onChange={(e) => setWin(Number(e.target.value))}
-                  className={fieldCls}
-                >
-                  {windows.map((w, i) => (
-                    <option key={i} value={i}>
-                      {w.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <ArrivalWindowField
+                label="Arrival window"
+                fromName="time"
+                toName="end_time"
+                required
+                defaultValue={
+                  windows[0] ? `${windows[0].start}-${windows[0].end}` : ""
+                }
+                presets={windows}
+              />
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">

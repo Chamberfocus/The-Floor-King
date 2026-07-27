@@ -5,6 +5,7 @@ import { CalendarOff, Lock } from "lucide-react";
 import { DateField } from "@/components/ui/date-field";
 import { SchedulePush } from "@/components/schedule-push";
 import { SearchPicker } from "@/components/ui/search-picker";
+import { ArrivalWindowField } from "@/components/ui/arrival-window-field";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { formatDate, type ArrivalWindow } from "@/lib/format";
 import {
@@ -114,21 +115,12 @@ export function ManualBooking({
             className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
           />
         </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Arrival window</label>
-          <select
-            name="arrival_window"
-            defaultValue={schedule.window ?? ""}
-            className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-          >
-            <option value="">No window</option>
-            {arrivalWindows.map((w) => (
-              <option key={`${w.start}-${w.end}`} value={`${w.start}-${w.end}`}>
-                {w.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <ArrivalWindowField
+          label="Arrival window"
+          combinedName="arrival_window"
+          defaultValue={schedule.window ?? ""}
+          presets={arrivalWindows}
+        />
         <SchedulePush
           size="sm"
           assigneeRole="installer"
