@@ -17,6 +17,7 @@ import { listInstallCrews, getCrewPayoutTotals } from "@/lib/data/install-crews"
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { InviteTeamForm } from "./invite-form";
 import { RoleSelect } from "./role-select";
+import { MemberLogin } from "./member-login";
 import { RemoveMember } from "./remove-member";
 import { ActiveToggle } from "./active-toggle";
 import { InstallCrewsManager } from "../install-crews/install-crews-manager";
@@ -202,6 +203,7 @@ export default async function TeamPage() {
                       Set phone PIN
                     </Button>
                   </form>
+                  <MemberLogin id={m.id} email={m.email} />
                   {m.role === "crew" ? (
                     <form
                       action={setMemberSkills}

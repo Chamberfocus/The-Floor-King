@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
+import { ArrivalWindowField } from "@/components/ui/arrival-window-field";
 import { to12, parseLocalDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { rescheduleInstall } from "@/app/(app)/jobs/actions";
@@ -83,9 +84,9 @@ export function InstallerGrid({
 
   const rows = filter === "all" ? resources : resources.filter((r) => r.id === filter);
 
-  const doMove = (jobId: string, day: Date, resId: string) =>
+  const doMove = (jobId: string, day: Date, resId: string, window: string) =>
     startTransition(async () => {
-      const res = await rescheduleInstall(jobId, ymd(day), resId);
+      const res = await rescheduleInstall(jobId, ymd(day), resId, window);
       if (res.ok) {
         toast.success("Moved — customer & installer notified.");
         router.refresh();
@@ -95,23 +96,28 @@ export function InstallerGrid({
     });
 
   // Drag-drop is easy to trigger by accident and it notifies the customer +
-  // installer — so a drop asks to confirm before it actually reschedules.
+  // installer — so a drop asks to confirm (and set the arrival window) before it
+  // actually reschedules.
   const [pendingMove, setPendingMove] = useState<{
     jobId: string;
     day: Date;
     resId: string;
     jobName: string;
     resName: string;
+    window: string;
   } | null>(null);
+  const [moveWindow, setMoveWindow] = useState("");
   const move: Move = (jobId, day, resId) => {
     const ev = events.find((e) => e.id === jobId);
     const res = resources.find((r) => r.id === resId);
+    setMoveWindow(ev?.window ?? "");
     setPendingMove({
       jobId,
       day,
       resId,
       jobName: ev?.name ?? "this install",
       resName: res?.name ?? "this installer",
+      window: ev?.window ?? "",
     });
   };
 
@@ -289,6 +295,14 @@ export function InstallerGrid({
               ) : null}
             </DialogDescription>
           </DialogHeader>
+          {pendingMove ? (
+            <ArrivalWindowField
+              key={pendingMove.jobId}
+              label="Arrival window (edit if it changed)"
+              defaultValue={pendingMove.window}
+              onChange={setMoveWindow}
+            />
+          ) : null}
           <DialogFooter>
             <Button
               type="button"
@@ -301,7 +315,7 @@ export function InstallerGrid({
               type="button"
               onClick={() => {
                 if (pendingMove)
-                  doMove(pendingMove.jobId, pendingMove.day, pendingMove.resId);
+                  doMove(pendingMove.jobId, pendingMove.day, pendingMove.resId, moveWindow);
                 setPendingMove(null);
               }}
             >

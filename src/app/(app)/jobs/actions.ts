@@ -518,6 +518,9 @@ export async function rescheduleInstall(
   /** Optional target row on the installer grid: a user id, `crew:<id>`, or
    *  "unassigned". Staff only — reassigns the job to that installer/crew. */
   resourceId?: string,
+  /** New arrival window "HH:MM-HH:MM" (or "" to clear). Omit to keep the
+   *  existing window. */
+  arrivalWindow?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!jobId || !/^\d{4}-\d{2}-\d{2}$/.test(newDate))
     return { ok: false, error: "Missing job or a valid date." };
@@ -567,8 +570,13 @@ export async function rescheduleInstall(
       newCrew !== ((job.assigned_crew_id as string | null) ?? null);
   }
 
+  const oldWindow = (job.arrival_window as string | null) ?? null;
+  const nextWindow =
+    arrivalWindow !== undefined ? arrivalWindow || null : oldWindow;
+  const windowChanged = nextWindow !== oldWindow;
+
   const oldStart = (job.scheduled_date as string | null) ?? null;
-  if (oldStart === newDate && !reassigned) return { ok: true }; // nothing changed
+  if (oldStart === newDate && !reassigned && !windowChanged) return { ok: true }; // nothing changed
   const oldEnd = (job.scheduled_end as string | null) || oldStart;
   let newEnd = newDate;
   if (oldStart && oldEnd) {
@@ -584,6 +592,7 @@ export async function rescheduleInstall(
       scheduled_date: newDate,
       scheduled_end: newEnd,
       status: "scheduled",
+      ...(arrivalWindow !== undefined ? { arrival_window: nextWindow } : {}),
       ...(reassigned
         ? {
             assigned_to: newInstaller,
@@ -606,7 +615,7 @@ export async function rescheduleInstall(
         installerId: newInstaller,
         crewId: newCrew,
         title: (job.title as string | null) ?? null,
-        window: (job.arrival_window as string | null) ?? null,
+        window: nextWindow,
         newDate,
         actorId: user.id,
       });

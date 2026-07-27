@@ -147,6 +147,67 @@ export async function setMemberPhonePin(formData: FormData): Promise<void> {
   revalidatePath("/settings/team");
 }
 
+/** Change a team member's LOGIN email (and keep their profile email in sync). */
+export async function setMemberEmail(
+  _prev: { error: string | null; ok?: boolean },
+  formData: FormData,
+): Promise<{ error: string | null; ok?: boolean }> {
+  await assertRole(["admin"]);
+  const id = str(formData.get("id"));
+  const email = str(formData.get("email")).trim().toLowerCase();
+  if (!id) return { error: "Missing member." };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "Enter a valid email address." };
+  }
+
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return { error: "Admin access isn't configured." };
+  }
+  // Don't steal an email already used by another account.
+  const { data: dupe } = await admin
+    .from("profiles")
+    .select("id")
+    .ilike("email", email)
+    .neq("id", id)
+    .maybeSingle();
+  if (dupe) return { error: "Another team member already uses that email." };
+
+  const { error: authErr } = await admin.auth.admin.updateUserById(id, {
+    email,
+    email_confirm: true,
+  });
+  if (authErr) return { error: authErr.message };
+  await admin.from("profiles").update({ email }).eq("id", id);
+  revalidatePath("/settings/team");
+  return { error: null, ok: true };
+}
+
+/** Set a new password for a team member's email login. */
+export async function setMemberPassword(
+  _prev: { error: string | null; ok?: boolean },
+  formData: FormData,
+): Promise<{ error: string | null; ok?: boolean }> {
+  await assertRole(["admin"]);
+  const id = str(formData.get("id"));
+  const password = str(formData.get("password"));
+  if (!id) return { error: "Missing member." };
+  if (password.length < 6) return { error: "Use at least 6 characters." };
+
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return { error: "Admin access isn't configured." };
+  }
+  const { error } = await admin.auth.admin.updateUserById(id, { password });
+  if (error) return { error: error.message };
+  revalidatePath("/settings/team");
+  return { error: null, ok: true };
+}
+
 export async function setMemberHome(formData: FormData): Promise<void> {
   await assertRole(["admin"]);
   const id = str(formData.get("id"));

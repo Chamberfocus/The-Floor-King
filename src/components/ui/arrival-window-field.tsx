@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { ArrivalWindow } from "@/lib/format";
 
@@ -24,6 +24,7 @@ export function ArrivalWindowField({
   label,
   className,
   required = false,
+  onChange,
 }: {
   /** "HH:MM-HH:MM" to prefill both sides. */
   defaultValue?: string;
@@ -35,6 +36,8 @@ export function ArrivalWindowField({
   className?: string;
   /** Require the start time (e.g. an estimate slot needs a real start). */
   required?: boolean;
+  /** Fires with the combined "HH:MM-HH:MM" whenever it changes (dialog use). */
+  onChange?: (value: string) => void;
 }) {
   const [initFrom, initTo] = (() => {
     const [a, b] = (defaultValue || "").split("-");
@@ -44,6 +47,11 @@ export function ArrivalWindowField({
   const [to, setTo] = useState(initTo);
 
   const combined = from && to ? `${from}-${to}` : from || to || "";
+
+  useEffect(() => {
+    onChange?.(combined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [combined]);
 
   return (
     <div className={className}>
