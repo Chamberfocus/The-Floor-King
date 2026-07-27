@@ -28,8 +28,8 @@ const SECTIONS = [
   {
     href: "/settings/preferences",
     icon: SlidersHorizontal,
-    title: "My page setup",
-    desc: "Personal to your login — which quick actions & tabs show on the customer pages, and in what order.",
+    title: "My page setup & Google Calendar",
+    desc: "Personal to your login — connect your Google Calendar sync, and choose which quick actions & tabs show on the customer pages.",
   },
   {
     href: "/settings/targets",
