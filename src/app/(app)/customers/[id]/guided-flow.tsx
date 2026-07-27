@@ -229,6 +229,8 @@ export async function GuidedFlow({
         </p>
         <EstimateScheduler
           customerId={customer.id}
+          customerName={customer.full_name}
+          customerEmail={customer.email}
           autoOpen={step === "schedule_estimate"}
           reps={repOptions}
           defaultRep={customer.assigned_to}
@@ -249,6 +251,8 @@ export async function GuidedFlow({
           <div className="mt-2">
             <EstimateScheduler
               customerId={customer.id}
+              customerName={customer.full_name}
+              customerEmail={customer.email}
               reps={repOptions}
               defaultRep={customer.assigned_to}
             />

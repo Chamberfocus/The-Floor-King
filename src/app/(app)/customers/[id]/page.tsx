@@ -975,7 +975,12 @@ export default async function CustomerPage({
             tab="messages"
             title={`Messages${messages.length ? ` (${messages.length})` : ""}`}
           >
-            <CustomerChat customerId={customer.id} messages={messages} />
+            <CustomerChat
+              customerId={customer.id}
+              customerName={customer.full_name}
+              customerEmail={customer.email}
+              messages={messages}
+            />
           </TabCollapse>
           {!customer.cancelled_at ? (
             <TabCollapse tab="messages" title="AI follow-up draft">

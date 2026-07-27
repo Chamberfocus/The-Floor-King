@@ -57,6 +57,9 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   const endTime = str(formData.get("end_time"));
   const address = str(formData.get("address"));
   const driveMin = parseInt(str(formData.get("drive_minutes")), 10);
+  // The "send to client" popup can book the appointment WITHOUT emailing/texting
+  // the customer (the salesperson is still notified).
+  const skipClientEmail = str(formData.get("send_email")) === "no";
   // Land back on the customer file by default; the LIST passes its own URL.
   const redirectTo = str(formData.get("redirect_to")) || null;
   if (!customerId || !date || !time) return;
@@ -175,7 +178,7 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
       });
     }
   }
-  if (cust?.email) {
+  if (!skipClientEmail && cust?.email) {
     await sendEmail({
       to: cust.email as string,
       subject: "Your flooring estimate is confirmed 🎉",
@@ -198,7 +201,7 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
       ),
     });
   }
-  if (cust?.phone) {
+  if (!skipClientEmail && cust?.phone) {
     await sendSms(
       cust.phone as string,
       `Cleveland Floor King: thank you for the opportunity! Your flooring estimate is confirmed for ${niceDate}, arriving ${arrivalWindow}. Reply with any questions!`,

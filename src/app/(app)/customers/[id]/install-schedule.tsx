@@ -1,6 +1,6 @@
 import { CalendarClock, CalendarOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ConfirmButton } from "@/components/ui/confirm-button";
+import { SendToClient } from "@/components/send-to-client";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { formatDate, to12, type ArrivalWindow } from "@/lib/format";
 import { ManualBooking } from "./manual-booking";
@@ -199,15 +199,16 @@ export function InstallSchedule({
                       </option>
                     ))}
                   </select>
-                  <ConfirmButton
+                  <SendToClient
                     size="sm"
                     variant="outline"
                     title={`Book ${sug.name} for this install?`}
-                    description="Books the install, hands the job to the warehouse, and notifies the customer and installer."
-                    confirmLabel="Book install"
+                    description="The install books and goes to the warehouse either way. Send emails the customer their date & arrival window."
+                    sendLabel="Book & notify"
+                    skipLabel="Book, no email"
                   >
                     Book
-                  </ConfirmButton>
+                  </SendToClient>
                 </form>
               </div>
               );

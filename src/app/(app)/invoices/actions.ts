@@ -430,6 +430,8 @@ export async function setInvoiceStatus(formData: FormData): Promise<void> {
 export async function emailInvoice(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   if (!id) return;
+  // The "send to client" popup can mark the invoice sent WITHOUT emailing.
+  const skipClientEmail = str(formData.get("send_email")) === "no";
   const supabase = await createClient();
   await supabase.from("invoices").update({ status: "sent" }).eq("id", id);
 
@@ -442,15 +444,17 @@ export async function emailInvoice(formData: FormData): Promise<void> {
     full_name: string | null;
     email: string | null;
   } | null;
-  if (cust?.email) {
+  if (!skipClientEmail && cust?.email) {
     await sendEmail({
       to: cust.email,
       subject: `Invoice ${inv?.number ?? ""} from Cleveland Floor King`.trim(),
       html: emailLayout(
-        "You have a new invoice",
+        "Your invoice is ready",
         `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
-         <p>Your invoice${inv?.number ? ` ${inv.number}` : ""} is ready. Tap below to view it.</p>`,
-        { label: "View invoice", url: `${siteUrl()}/portal/invoices/${id}` },
+         <p>Thank you for your business — it's truly appreciated! Your invoice${inv?.number ? ` ${inv.number}` : ""} is ready to view whenever you are.</p>
+         <p>If you have any questions, just reply to this email and we'll be glad to help.</p>`,
+        { label: "View your invoice", url: `${siteUrl()}/portal/invoices/${id}` },
+        { preheader: `Your invoice${inv?.number ? ` ${inv.number}` : ""} is ready to view.` },
       ),
     });
   }

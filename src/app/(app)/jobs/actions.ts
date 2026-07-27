@@ -228,6 +228,9 @@ export async function bookInstall(formData: FormData): Promise<void> {
   let end = str(formData.get("end")) || start;
   if (end < start) end = start; // never store an end date before the start
   const arrivalWindow = str(formData.get("arrival_window"));
+  // The "send to client" popup can book the install WITHOUT emailing/texting the
+  // customer (the install still books and submits to the warehouse).
+  const skipClientEmail = str(formData.get("send_email")) === "no";
   if (!id || !start) return;
   const supabase = await createClient();
   await supabase
@@ -275,15 +278,17 @@ export async function bookInstall(formData: FormData): Promise<void> {
   revalidateJobEverywhere(id, job?.customer_id as string | null);
 
   // Tell the customer their install is booked, with the arrival window — after
-  // the response so the booking feels instant. Best-effort (guarded).
-  after(() =>
-    notifyInstallBooked({
-      customerId: (job?.customer_id as string | null) ?? null,
-      title: (job?.title as string | null) ?? null,
-      date: start,
-      window: arrivalWindow || null,
-    }),
-  );
+  // the response so the booking feels instant. Best-effort (guarded). Skipped
+  // when the "send to client" popup opted out.
+  if (!skipClientEmail)
+    after(() =>
+      notifyInstallBooked({
+        customerId: (job?.customer_id as string | null) ?? null,
+        title: (job?.title as string | null) ?? null,
+        date: start,
+        window: arrivalWindow || null,
+      }),
+    );
 
   // When invoked from the customer LIST, return there; the guided flow / file
   // pass nothing and stay put (revalidate only), as before.

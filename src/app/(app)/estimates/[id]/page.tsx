@@ -23,6 +23,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
+import { SendToClient } from "@/components/send-to-client";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate, getEstimatorName } from "@/lib/data/estimates";
@@ -219,14 +220,17 @@ export default async function EstimatePage({
                 <form action={setEstimateStatus}>
                   <input type="hidden" name="id" value={estimate.id} />
                   <input type="hidden" name="status" value="sent" />
-                  <ConfirmButton
+                  <SendToClient
                     size="lg"
+                    clientName={customer.full_name}
+                    email={customer.email}
                     title={`Send this estimate to ${customer.full_name}?`}
-                    description={`Emails the estimate to ${customer.email} so they can review, approve, or request changes.`}
-                    confirmLabel="Send estimate"
+                    description="They'll get your branded estimate email with a link to review, approve, or request changes."
+                    sendLabel="Send estimate"
+                    skipLabel="Mark sent, no email"
                   >
                     <Send className="size-4" /> Send to customer
-                  </ConfirmButton>
+                  </SendToClient>
                 </form>
               </div>
             ) : (

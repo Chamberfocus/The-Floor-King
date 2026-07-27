@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
+import { SendToClient } from "@/components/send-to-client";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { getInvoice, amountPaid, getInvoiceScope } from "@/lib/data/invoices";
@@ -88,14 +89,17 @@ export default async function InvoicePage({
         </div>
         <form action={emailInvoice}>
           <input type="hidden" name="id" value={invoice.id} />
-          <ConfirmButton
+          <SendToClient
             size="lg"
+            clientName={customer?.full_name}
+            email={customer?.email}
             title="Email this invoice to the customer?"
-            description="Marks the invoice as sent and emails the customer their invoice link."
-            confirmLabel="Send invoice"
+            description="Marks the invoice as sent and emails them their branded invoice with a link to view it."
+            sendLabel="Send invoice"
+            skipLabel="Mark sent, no email"
           >
             <Send className="size-4" /> Email to customer
-          </ConfirmButton>
+          </SendToClient>
         </form>
       </div>
 

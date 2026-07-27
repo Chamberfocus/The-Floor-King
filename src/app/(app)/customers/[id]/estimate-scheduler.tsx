@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { SubmitButton } from "@/components/ui/submit-button";
+import { SendToClient } from "@/components/send-to-client";
 import { formatDate, to12, parseArrivalWindows } from "@/lib/format";
 import type { ArrivalWindow } from "@/lib/format";
 import {
@@ -26,12 +26,16 @@ const fieldCls =
 
 export function EstimateScheduler({
   customerId,
+  customerName,
+  customerEmail,
   autoOpen,
   reps = [],
   defaultRep = null,
   redirectTo,
 }: {
   customerId: string;
+  customerName?: string | null;
+  customerEmail?: string | null;
   autoOpen?: boolean;
   reps?: { id: string; name: string }[];
   /** The client's assigned salesperson — pre-selected so the estimate is
@@ -169,14 +173,18 @@ export function EstimateScheduler({
                     name="drive_minutes"
                     value={s.driveMinutes ?? ""}
                   />
-                  <SubmitButton
+                  <SendToClient
                     size="sm"
                     variant="outline"
-                    pendingText="Booking…"
-                    confirm="Appointment booked"
+                    clientName={customerName}
+                    email={customerEmail}
+                    title="Confirm this estimate appointment?"
+                    description="We'll book it and, if you send, email/text the customer their confirmation with the arrival window."
+                    sendLabel="Book & notify"
+                    skipLabel="Book, no email"
                   >
                     Book
-                  </SubmitButton>
+                  </SendToClient>
                 </form>
               </div>
             ))}
@@ -257,13 +265,17 @@ export function EstimateScheduler({
                 ) : null}
               </div>
 
-              <SubmitButton
+              <SendToClient
                 className="w-full"
-                pendingText="Booking…"
-                confirm="Appointment booked"
+                clientName={customerName}
+                email={customerEmail}
+                title="Confirm this estimate appointment?"
+                description="We'll book it and, if you send, email/text the customer their confirmation with the arrival window."
+                sendLabel="Book & notify"
+                skipLabel="Book, no email"
               >
                 Book appointment
-              </SubmitButton>
+              </SendToClient>
             </form>
           ) : null}
         </div>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CalendarOff, Lock } from "lucide-react";
 import { DateField } from "@/components/ui/date-field";
-import { ConfirmButton } from "@/components/ui/confirm-button";
+import { SendToClient } from "@/components/send-to-client";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { formatDate, type ArrivalWindow } from "@/lib/format";
@@ -129,20 +129,20 @@ export function ManualBooking({
             ))}
           </select>
         </div>
-        <ConfirmButton
+        <SendToClient
           size="sm"
           title={schedule.date ? "Reschedule this install?" : "Book this install?"}
           description={
-            clashes.length
-              ? `Heads up: ${installerLabel} marked themselves unavailable for this window. Book anyway?`
-              : schedule.date
-                ? "Changes the booked install date/installer and notifies the customer and installer of the change."
-                : "Books the install, hands the job to the warehouse, and notifies the customer and installer."
+            (clashes.length
+              ? `Heads up: ${installerLabel} marked themselves unavailable for this window. `
+              : "") +
+            "The install books and goes to the warehouse either way. Send emails the customer their date & arrival window."
           }
-          confirmLabel={schedule.date ? "Reschedule" : "Book install"}
+          sendLabel={schedule.date ? "Save & notify" : "Book & notify"}
+          skipLabel={schedule.date ? "Save, no email" : "Book, no email"}
         >
           {schedule.date ? "Save changes" : "Book install"}
-        </ConfirmButton>
+        </SendToClient>
       </form>
     </details>
   );

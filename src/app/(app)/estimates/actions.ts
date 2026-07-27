@@ -258,6 +258,9 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   const status = str(formData.get("status")) as EstimateStatus;
   if (!id || !status) return;
+  // The "send to client" popup can opt OUT of the customer email (still marks
+  // the estimate sent — just doesn't email). Absent field = send (back-compat).
+  const skipClientEmail = str(formData.get("send_email")) === "no";
 
   const patch: Record<string, unknown> = { status };
   if (status === "sent") {
@@ -301,7 +304,7 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
     if (ec?.customer_id) revalidatePath(`/customers/${ec.customer_id}`);
   }
 
-  if (status === "sent") {
+  if (status === "sent" && !skipClientEmail) {
     const { data: est } = await supabase
       .from("estimates")
       .select("title, customer:customers(full_name, email)")
@@ -703,7 +706,10 @@ export async function setEstimateProjectDetails(id: string, show: boolean): Prom
  * customer's workflow stage. No redirect — callers decide where to go next
  * (the builder's "Save & send" sends here, then goes to the dashboard).
  */
-export async function sendEstimateById(id: string): Promise<void> {
+export async function sendEstimateById(
+  id: string,
+  notifyClient = true,
+): Promise<void> {
   if (!id) return;
   const supabase = await createClient();
   await supabase
@@ -728,7 +734,7 @@ export async function sendEstimateById(id: string): Promise<void> {
     full_name: string | null;
     email: string | null;
   } | null;
-  if (cust?.email) {
+  if (notifyClient && cust?.email) {
     await sendEmail({
       to: cust.email,
       subject: "Your estimate from Cleveland Floor King 🎉",

@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Lock, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SendToClient } from "@/components/send-to-client";
 import { cn } from "@/lib/utils";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { formatDateTime } from "@/lib/format";
@@ -14,9 +15,13 @@ const initialState: MessageFormState = { error: null };
 
 export function CustomerChat({
   customerId,
+  customerName,
+  customerEmail,
   messages,
 }: {
   customerId: string;
+  customerName?: string | null;
+  customerEmail?: string | null;
   messages: MessageWithAuthor[];
 }) {
   const [channel, setChannel] = useState<MessageChannel>("internal");
@@ -128,22 +133,30 @@ export function CustomerChat({
           }
           className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
-        <Button
-          type="submit"
-          disabled={pending}
-          className={cn(
-            "w-full",
-            isInternal
-              ? "bg-amber-600 text-white hover:bg-amber-700"
-              : "bg-blue-600 text-white hover:bg-blue-700",
-          )}
-        >
-          {pending
-            ? "Sending…"
-            : isInternal
-              ? "Post to team (private)"
-              : "Send to customer"}
-        </Button>
+        {isInternal ? (
+          // Private team notes never email — just post.
+          <Button
+            type="submit"
+            disabled={pending}
+            className="w-full bg-amber-600 text-white hover:bg-amber-700"
+          >
+            {pending ? "Posting…" : "Post to team (private)"}
+          </Button>
+        ) : (
+          // Customer messages ask first whether to also email the customer.
+          <SendToClient
+            clientName={customerName}
+            email={customerEmail}
+            title="Send this message to the customer?"
+            description="It'll show in their project portal. Emailing also sends them a nudge with your message."
+            sendLabel="Post & email"
+            skipLabel="Post only, no email"
+            disabled={pending}
+            className="w-full bg-blue-600 text-white hover:bg-blue-700"
+          >
+            {pending ? "Sending…" : "Send to customer"}
+          </SendToClient>
+        )}
       </form>
     </div>
     </>

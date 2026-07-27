@@ -56,6 +56,7 @@ import { ProductPicker, type CustomProductInput } from "./product-picker";
 import type { AddonCatalogItem } from "@/lib/data/addon-defaults";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { AreaCalculator } from "@/components/area-calculator";
+import { SendToClient } from "@/components/send-to-client";
 import {
   LineMeasurements,
   newMeasureRow,
@@ -1284,7 +1285,7 @@ export function EstimateBuilder({
   // it sent + email the customer their portal link (advances the pipeline). If
   // there's no email on file, don't silently mark it sent — save and open the
   // estimate so an email can be added first.
-  const saveAndSend = () =>
+  const saveAndSend = (sendEmail = true) =>
     startTransition(async () => {
       const res = await saveEstimate(estimate.id, buildInput());
       if (res.error) {
@@ -1293,13 +1294,12 @@ export function EstimateBuilder({
       }
       await flushDefaultRates();
       void clearEstimateBuilderDraft(estimate.id);
-      if (!customer?.email) {
-        toast.error("Add the customer's email to send. Saved — opening the estimate.");
-        router.push(`/estimates/${estimate.id}`);
-        return;
-      }
-      await sendEstimateById(estimate.id);
-      toast.success(`Estimate sent to ${customer.full_name || "the customer"}`);
+      await sendEstimateById(estimate.id, sendEmail);
+      toast.success(
+        sendEmail
+          ? `Estimate sent to ${customer?.full_name || "the customer"}`
+          : "Estimate saved & marked sent (no email)",
+      );
       router.push(`/estimates/${estimate.id}`);
     });
 
@@ -2841,9 +2841,18 @@ export function EstimateBuilder({
           >
             <Save className="size-4" /> {isPending ? "Saving…" : "Save"}
           </Button>
-          <Button type="button" data-tour="estimate-send" disabled={isPending} onClick={saveAndSend}>
+          <SendToClient
+            clientName={customer?.full_name}
+            email={customer?.email}
+            title="Send this estimate to the customer?"
+            description="We'll save it, mark it sent, and email your branded estimate with a link to review & approve."
+            sendLabel="Save & send"
+            skipLabel="Save, no email"
+            disabled={isPending}
+            onChoose={(send) => saveAndSend(send)}
+          >
             <Send className="size-4" /> Save &amp; send
-          </Button>
+          </SendToClient>
           </div>
         </div>
       </div>

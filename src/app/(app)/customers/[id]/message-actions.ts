@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import type { MessageChannel } from "@/lib/types";
 
 export interface MessageFormState {
@@ -37,6 +38,34 @@ export async function postMessage(
     body,
   });
   if (error) return { error: error.message };
+
+  // A CLIENT message can also email the customer — gated by the "send to client"
+  // popup. Internal team notes never email. Skipped → the message still shows in
+  // the customer's portal, just with no email nudge.
+  if (channel === "client" && str(formData.get("send_email")) !== "no") {
+    const { data: cust } = await supabase
+      .from("customers")
+      .select("full_name, email")
+      .eq("id", customerId)
+      .maybeSingle();
+    const email = (cust?.email as string | null) ?? null;
+    if (email) {
+      const first = (cust?.full_name as string | null)?.split(" ")[0] ?? "there";
+      await sendEmail({
+        to: email,
+        subject: "A new message from Cleveland Floor King",
+        html: emailLayout(
+          "You have a new message",
+          `<p>Hi ${first},</p>
+           <p>You have a new message from our team:</p>
+           <blockquote style="margin:16px 0;padding:12px 16px;border-left:3px solid #123a63;background:#eef4fb;border-radius:8px;color:#374151;white-space:pre-wrap;">${body.replace(/</g, "&lt;")}</blockquote>
+           <p>Reply right here in your project portal and we'll get back to you.</p>`,
+          { label: "Open your project", url: `${siteUrl()}/portal` },
+          { preheader: body.slice(0, 120) },
+        ),
+      }).catch(() => {});
+    }
+  }
 
   revalidatePath(`/customers/${customerId}`);
   return { error: null, ok: true };
