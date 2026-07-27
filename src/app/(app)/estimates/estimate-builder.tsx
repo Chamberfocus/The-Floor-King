@@ -58,6 +58,12 @@ import { SegmentedField } from "@/components/ui/segmented-field";
 import { AreaCalculator } from "@/components/area-calculator";
 import { SendToClient } from "@/components/send-to-client";
 import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   LineMeasurements,
   newMeasureRow,
   rowsSqft,
@@ -536,14 +542,11 @@ export function EstimateBuilder({
   const [previewCustomer, setPreviewCustomer] = useState(false);
 
   // Which line editors are expanded — visual only (tap a line to edit it).
-  const [openLines, setOpenLines] = useState<Set<string>>(new Set());
+  // Which line's edit panel is open — one at a time, so you edit a single line
+  // in a focused box instead of the whole page at once.
+  const [activeLine, setActiveLine] = useState<string | null>(null);
   const toggleLine = (key: string) =>
-    setOpenLines((s) => {
-      const n = new Set(s);
-      if (n.has(key)) n.delete(key);
-      else n.add(key);
-      return n;
-    });
+    setActiveLine((cur) => (cur === key ? null : key));
 
   const addOption = () =>
     setOptions((prev) => [
@@ -629,7 +632,7 @@ export function EstimateBuilder({
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
-    setOpenLines((s) => new Set(s).add(line.key)); // open the new line for editing
+    setActiveLine(line.key); // open the new line for editing
   };
 
   // Add a catalog add-on as a pre-priced line — configured in Settings →
@@ -657,7 +660,7 @@ export function EstimateBuilder({
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
-    setOpenLines((s) => new Set(s).add(line.key));
+    setActiveLine(line.key);
   };
 
   /** Add a subfloor line (underlayment, priced by the sheet). */
@@ -674,7 +677,7 @@ export function EstimateBuilder({
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
     );
-    setOpenLines((s) => new Set(s).add(line.key));
+    setActiveLine(line.key);
   };
 
   const removeLine = (oi: number, li: number) =>
@@ -780,7 +783,7 @@ export function EstimateBuilder({
         return { ...o, lines };
       }),
     );
-    setOpenLines((s) => new Set(s).add(key));
+    setActiveLine(key);
   };
 
   // R&R (remove & replace) for trim — baseboard / quarter round / shoe molding:
@@ -813,7 +816,7 @@ export function EstimateBuilder({
         return { ...o, lines };
       }),
     );
-    setOpenLines((s) => new Set([...s, removeK, installK]));
+    setActiveLine(installK);
   };
 
   // Recompute a prep line's bag count from area/thickness, and keep any linked
@@ -882,7 +885,7 @@ export function EstimateBuilder({
         return { ...o, lines };
       }),
     );
-    setOpenLines((s) => new Set(s).add(laborKey));
+    setActiveLine(laborKey);
   };
 
   // Change the estimate-wide margin → re-price every line that doesn't have its
@@ -1772,7 +1775,7 @@ export function EstimateBuilder({
                   const sSell = lineTotal(summ);
                   const sCost = lineOurCost(line);
                   const sMargin = sSell > 0 ? ((sSell - sCost) / sSell) * 100 : 0;
-                  const isOpen = openLines.has(line.key);
+                  const isOpen = activeLine === line.key;
                   // Flooring (roll goods / hard surface) — color is part of its
                   // at-a-glance identity, so it stays an essential for these.
                   const isFlooring =
@@ -1843,9 +1846,24 @@ export function EstimateBuilder({
                         </div>
                       </button>
 
-                      {/* Editor — only when expanded */}
-                      {isOpen ? (
-                      <div className="space-y-4 border-t bg-muted/20 p-4">
+                      {/* Editor — opens in a focused side panel, one line at a
+                          time, so you're never editing the whole page at once. */}
+                      <Sheet
+                        open={isOpen}
+                        onOpenChange={(o) => {
+                          if (!o) setActiveLine(null);
+                        }}
+                      >
+                        <SheetContent
+                          side="right"
+                          className="w-full gap-0 p-0 sm:max-w-2xl"
+                        >
+                          <SheetHeader className="border-b p-4">
+                            <SheetTitle className="truncate pr-8 text-base">
+                              {displayName || "New line"}
+                            </SheetTitle>
+                          </SheetHeader>
+                          <div className="space-y-4 p-4">
                         {/* 1 · PRODUCT — the single per-line search. Shows the
                             picked product and lets you swap it; the section-top
                             box is the only place that ADDS a new line. */}
@@ -2609,8 +2627,9 @@ export function EstimateBuilder({
                             <Trash2 className="size-3.5" />
                           </Button>
                         </div>
-                      </div>
-                      ) : null}
+                          </div>
+                        </SheetContent>
+                      </Sheet>
                     </div>
                   );
                 })}
