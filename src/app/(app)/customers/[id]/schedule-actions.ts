@@ -57,9 +57,10 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   const endTime = str(formData.get("end_time"));
   const address = str(formData.get("address"));
   const driveMin = parseInt(str(formData.get("drive_minutes")), 10);
-  // The "send to client" popup can book the appointment WITHOUT emailing/texting
-  // the customer (the salesperson is still notified).
+  // The booking popup decides who gets notified: the customer (send_email) and
+  // the assigned estimator (notify_assignee). Absent = notify (back-compat).
   const skipClientEmail = str(formData.get("send_email")) === "no";
+  const notifyAssignee = str(formData.get("notify_assignee")) !== "no";
   // Land back on the customer file by default; the LIST passes its own URL.
   const redirectTo = str(formData.get("redirect_to")) || null;
   if (!customerId || !date || !time) return;
@@ -159,24 +160,37 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   const arrivalWindow = endTime
     ? `${to12(time)} – ${to12(endTime)}`
     : `around ${to12(time)}`;
-  if (salesperson) {
+  if (notifyAssignee && salesperson) {
     const { data: rep } = await supabase
       .from("profiles")
-      .select("email")
+      .select("email, phone")
       .eq("id", salesperson)
       .maybeSingle();
     if (rep?.email) {
       await sendEmail({
         to: rep.email as string,
-        subject: `New estimate: ${cust?.full_name ?? "customer"} — ${when}`,
+        subject: `📋 Estimate scheduled — ${cust?.full_name ?? "customer"}`,
         html: emailLayout(
-          "New estimate appointment",
-          `<p>You're booked for an estimate with <strong>${cust?.full_name ?? "a customer"}</strong> on <strong>${when}</strong>.</p>
-           ${address ? `<p>${address}</p>` : ""}`,
-          { label: "Open customer", url: `${siteUrl()}/customers/${customerId}` },
+          "You have an estimate scheduled",
+          `<p>You're booked to run an estimate for <strong>${cust?.full_name ?? "a customer"}</strong>.</p>
+           ${emailInfoCard(
+             [
+               { label: "Date", value: niceDate },
+               { label: "Arrival window", value: arrivalWindow },
+               ...(address ? [{ label: "Address", value: address }] : []),
+             ],
+             { title: "Your appointment" },
+           )}`,
+          { label: "Open the customer file", url: `${siteUrl()}/customers/${customerId}` },
+          { preheader: `${cust?.full_name ?? "Customer"} · ${niceDate}, ${arrivalWindow}` },
         ),
-      });
+      }).catch(() => {});
     }
+    if (rep?.phone)
+      await sendSms(
+        rep.phone as string,
+        `Floor King: estimate scheduled — ${cust?.full_name ?? "customer"} on ${niceDate}, ${arrivalWindow}.`,
+      ).catch(() => {});
   }
   if (!skipClientEmail && cust?.email) {
     await sendEmail({

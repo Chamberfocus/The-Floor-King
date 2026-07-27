@@ -214,6 +214,94 @@ async function notifyInstallBooked(o: {
     ).catch(() => {});
 }
 
+/** Tell the assigned installer / crew they've been scheduled for an install,
+ *  with the date, arrival window, and site address. Best-effort (guarded). */
+async function notifyInstallerAssigned(o: {
+  jobId: string;
+  installerId: string | null; // login installer (profiles.id)
+  crewId: string | null; // subcontractor crew (install_crews.id)
+  customerId: string | null;
+  title: string | null;
+  date: string;
+  window: string | null; // raw "HH:MM-HH:MM"
+}): Promise<void> {
+  const admin = createAdminClient();
+
+  // Resolve the recipient (a login installer, else the assigned crew).
+  let email: string | null = null;
+  let phone: string | null = null;
+  if (o.installerId) {
+    const { data: p } = await admin
+      .from("profiles")
+      .select("email, phone")
+      .eq("id", o.installerId)
+      .maybeSingle();
+    email = (p?.email as string | null) ?? null;
+    phone = (p?.phone as string | null) ?? null;
+  } else if (o.crewId) {
+    const { data: cr } = await admin
+      .from("install_crews")
+      .select("email, phone")
+      .eq("id", o.crewId)
+      .maybeSingle();
+    email = (cr?.email as string | null) ?? null;
+    phone = (cr?.phone as string | null) ?? null;
+  }
+  if (!email && !phone) return;
+
+  // Customer name + site address for the job.
+  let custName = "a customer";
+  if (o.customerId) {
+    const { data: c } = await admin
+      .from("customers")
+      .select("full_name")
+      .eq("id", o.customerId)
+      .maybeSingle();
+    custName = (c?.full_name as string | null) ?? custName;
+  }
+  const { data: j } = await admin
+    .from("jobs")
+    .select("site_street, site_city, site_state")
+    .eq("id", o.jobId)
+    .maybeSingle();
+  const site =
+    [j?.site_street, j?.site_city, j?.site_state].filter(Boolean).join(", ") ||
+    null;
+
+  const niceDate = formatDate(o.date);
+  const win = o.window
+    ? o.window.split("-").map((t) => to12(t.trim())).join(" – ")
+    : null;
+  const label = o.title || custName;
+
+  if (email)
+    await sendEmail({
+      to: email,
+      subject: `🧰 You're scheduled for an install — ${custName}`,
+      html: emailLayout(
+        "You've got an install scheduled",
+        `<p>You've been assigned an installation${label ? ` for <strong>${label}</strong>` : ""}.</p>
+         ${emailInfoCard(
+           [
+             { label: "Customer", value: custName },
+             { label: "Date", value: niceDate },
+             ...(win ? [{ label: "Arrival window", value: win }] : []),
+             ...(site ? [{ label: "Address", value: site }] : []),
+           ],
+           { title: "Your install" },
+         )}
+         <p>Open your schedule for the full work order and cut list.</p>`,
+        { label: "Open my schedule", url: `${siteUrl()}/installer` },
+        { preheader: `${custName} · ${niceDate}${win ? `, ${win}` : ""}` },
+      ),
+    }).catch(() => {});
+  if (phone)
+    await sendSms(
+      phone,
+      `Floor King: you're scheduled to install for ${custName} on ${niceDate}${win ? `, ${win}` : ""}. Open the app for the work order.`,
+    ).catch(() => {});
+}
+
 export async function bookInstall(formData: FormData): Promise<void> {
   const id = str(formData.get("job_id"));
   // One picker, one assignment. The value is either a login installer's profile
@@ -228,9 +316,10 @@ export async function bookInstall(formData: FormData): Promise<void> {
   let end = str(formData.get("end")) || start;
   if (end < start) end = start; // never store an end date before the start
   const arrivalWindow = str(formData.get("arrival_window"));
-  // The "send to client" popup can book the install WITHOUT emailing/texting the
-  // customer (the install still books and submits to the warehouse).
+  // The booking popup decides who gets notified: the customer (send_email) and
+  // the assigned installer (notify_assignee). Absent = notify (back-compat).
   const skipClientEmail = str(formData.get("send_email")) === "no";
+  const notifyAssignee = str(formData.get("notify_assignee")) !== "no";
   if (!id || !start) return;
   const supabase = await createClient();
   await supabase
@@ -279,10 +368,25 @@ export async function bookInstall(formData: FormData): Promise<void> {
 
   // Tell the customer their install is booked, with the arrival window — after
   // the response so the booking feels instant. Best-effort (guarded). Skipped
-  // when the "send to client" popup opted out.
+  // when the booking popup opted out.
   if (!skipClientEmail)
     after(() =>
       notifyInstallBooked({
+        customerId: (job?.customer_id as string | null) ?? null,
+        title: (job?.title as string | null) ?? null,
+        date: start,
+        window: arrivalWindow || null,
+      }),
+    );
+
+  // Tell the assigned installer / crew they're scheduled, with the date, arrival
+  // window, and site address. Skipped when the popup opted out.
+  if (notifyAssignee)
+    after(() =>
+      notifyInstallerAssigned({
+        jobId: id,
+        installerId: installer || null,
+        crewId: crewDirect,
         customerId: (job?.customer_id as string | null) ?? null,
         title: (job?.title as string | null) ?? null,
         date: start,

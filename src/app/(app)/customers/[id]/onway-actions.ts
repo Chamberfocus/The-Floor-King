@@ -8,6 +8,8 @@ import { getDriveTime } from "@/lib/maps";
 
 export async function notifyOnTheWay(
   customerId: string,
+  /** false → skip the email + text (still drops the note in their portal). */
+  alsoEmail = true,
 ): Promise<{ error: string | null; eta?: string }> {
   if (!customerId) return { error: "Missing customer." };
   const supabase = await createClient();
@@ -27,7 +29,7 @@ export async function notifyOnTheWay(
   } = await supabase.auth.getUser();
 
   // Email the customer.
-  if (c.email) {
+  if (alsoEmail && c.email) {
     await sendEmail({
       to: c.email as string,
       subject: "Your Cleveland Floor King team is on the way 🚚",
@@ -41,7 +43,7 @@ export async function notifyOnTheWay(
   }
 
   // Text the customer (if we have a number).
-  if (c.phone) {
+  if (alsoEmail && c.phone) {
     await sendSms(
       c.phone as string,
       `Cleveland Floor King is on the way${etaText ? ` — ETA about ${etaText}` : ""}. See you soon!`,

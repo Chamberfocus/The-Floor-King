@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { SendToClient } from "@/components/send-to-client";
+import { SchedulePush } from "@/components/schedule-push";
 import { formatDate, to12, parseArrivalWindows } from "@/lib/format";
 import type { ArrivalWindow } from "@/lib/format";
 import {
@@ -173,18 +173,18 @@ export function EstimateScheduler({
                     name="drive_minutes"
                     value={s.driveMinutes ?? ""}
                   />
-                  <SendToClient
+                  <SchedulePush
                     size="sm"
                     variant="outline"
-                    clientName={customerName}
-                    email={customerEmail}
+                    customerName={customerName}
+                    customerEmail={customerEmail}
+                    assigneeRole="estimator"
                     title="Confirm this estimate appointment?"
-                    description="We'll book it and, if you send, email/text the customer their confirmation with the arrival window."
-                    sendLabel="Book & notify"
-                    skipLabel="Book, no email"
+                    description="We'll book it — choose who to notify."
+                    confirmLabel="Book"
                   >
                     Book
-                  </SendToClient>
+                  </SchedulePush>
                 </form>
               </div>
             ))}
@@ -265,17 +265,17 @@ export function EstimateScheduler({
                 ) : null}
               </div>
 
-              <SendToClient
+              <SchedulePush
                 className="w-full"
-                clientName={customerName}
-                email={customerEmail}
+                customerName={customerName}
+                customerEmail={customerEmail}
+                assigneeRole="estimator"
                 title="Confirm this estimate appointment?"
-                description="We'll book it and, if you send, email/text the customer their confirmation with the arrival window."
-                sendLabel="Book & notify"
-                skipLabel="Book, no email"
+                description="We'll book it — choose who to notify."
+                confirmLabel="Book appointment"
               >
                 Book appointment
-              </SendToClient>
+              </SchedulePush>
             </form>
           ) : null}
         </div>

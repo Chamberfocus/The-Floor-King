@@ -611,7 +611,11 @@ export default async function CustomerPage({
               home on the page (stage → hero, owner → header, dates → Schedule). */}
           {!customer.cancelled_at ? (
             <>
-              <OnTheWayButton customerId={customer.id} />
+              <OnTheWayButton
+                customerId={customer.id}
+                customerName={customer.full_name}
+                customerEmail={customer.email}
+              />
               <QuickActions
                 customerId={customer.id}
                 stages={stages.map((s) => ({ id: s.id, name: s.name }))}
