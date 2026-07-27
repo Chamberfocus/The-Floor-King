@@ -314,12 +314,15 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
     if (cust?.email) {
       await sendEmail({
         to: cust.email,
-        subject: "Your estimate from Cleveland Floor King",
+        subject: "Your estimate from Cleveland Floor King 🎉",
         html: emailLayout(
-          "Your estimate is ready",
+          "Thank you for the opportunity!",
           `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
-           <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or request changes.</p>`,
-          { label: "View & approve", url: `${siteUrl()}/portal/estimates/${id}` },
+           <p>Thank you so much for the opportunity to earn your business — we truly appreciate it and would be delighted to bring your floors to life.</p>
+           <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or request changes — whatever works best for you.</p>
+           <p>We can't wait to work with you!</p>`,
+          { label: "View & approve your estimate", url: `${siteUrl()}/portal/estimates/${id}` },
+          { preheader: "Thank you for the opportunity — your estimate is ready to review." },
         ),
         tags: [
           { name: "category", value: "estimate" },
@@ -728,12 +731,15 @@ export async function sendEstimateById(id: string): Promise<void> {
   if (cust?.email) {
     await sendEmail({
       to: cust.email,
-      subject: "Your estimate from Cleveland Floor King",
+      subject: "Your estimate from Cleveland Floor King 🎉",
       html: emailLayout(
-        "Your estimate is ready",
+        "Thank you for the opportunity!",
         `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
-         <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or request changes.</p>`,
-        { label: "View & approve", url: `${siteUrl()}/portal/estimates/${id}` },
+         <p>Thank you so much for the opportunity to earn your business — we truly appreciate it and would be delighted to bring your floors to life.</p>
+         <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or request changes — whatever works best for you.</p>
+         <p>We can't wait to work with you!</p>`,
+        { label: "View & approve your estimate", url: `${siteUrl()}/portal/estimates/${id}` },
+        { preheader: "Thank you for the opportunity — your estimate is ready to review." },
       ),
       tags: [
         { name: "category", value: "estimate" },

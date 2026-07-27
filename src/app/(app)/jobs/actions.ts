@@ -5,10 +5,10 @@ import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { sendEmail, emailLayout, emailInfoCard, siteUrl, ownerEmail } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
 import { addDaysYmd } from "@/lib/scheduling";
-import { to12 } from "@/lib/format";
+import { to12, formatDate } from "@/lib/format";
 import {
   moveToAutoActionStage,
   advanceToNamedStage,
@@ -163,6 +163,57 @@ function revalidateJobEverywhere(id: string, customerId?: string | null): void {
 }
 
 /** Book a smart-scheduled install: assign installer + date range. */
+/** Confirm to the customer that their install is booked, with the arrival
+ *  window. Best-effort: every send is guarded so one failure never blocks. */
+async function notifyInstallBooked(o: {
+  customerId: string | null;
+  title: string | null;
+  date: string;
+  window: string | null; // raw "HH:MM-HH:MM"
+}): Promise<void> {
+  if (!o.customerId) return;
+  const admin = createAdminClient();
+  const { data: c } = await admin
+    .from("customers")
+    .select("full_name, email, phone")
+    .eq("id", o.customerId)
+    .maybeSingle();
+  if (!c) return;
+  const first = (c.full_name as string | null)?.split(" ")[0] ?? "there";
+  const niceDate = formatDate(o.date);
+  const win = o.window
+    ? o.window.split("-").map((t) => to12(t.trim())).join(" – ")
+    : null;
+  if (c.email)
+    await sendEmail({
+      to: c.email as string,
+      subject: "Your installation is scheduled 🎉",
+      html: emailLayout(
+        "Your installation is booked!",
+        `<p>Hi ${first},</p>
+         <p>Great news — your flooring installation is on the calendar, and we can't wait to get started!</p>
+         ${emailInfoCard(
+           [
+             { label: "Date", value: niceDate },
+             ...(win ? [{ label: "Arrival window", value: win }] : []),
+           ],
+           { title: "Your installation" },
+         )}
+         <p>Our team will arrive within the window above. If you have any questions beforehand, just reply to this email — we're happy to help.</p>
+         <p>Thank you for choosing us. See you soon!</p>`,
+        { label: "View your project", url: `${siteUrl()}/portal` },
+        {
+          preheader: `Installation scheduled for ${niceDate}${win ? `, arriving ${win}` : ""}.`,
+        },
+      ),
+    }).catch(() => {});
+  if (c.phone)
+    await sendSms(
+      c.phone as string,
+      `Cleveland Floor King: your installation is scheduled for ${niceDate}${win ? `, arriving ${win}` : ""}. We look forward to seeing you!`,
+    ).catch(() => {});
+}
+
 export async function bookInstall(formData: FormData): Promise<void> {
   const id = str(formData.get("job_id"));
   // One picker, one assignment. The value is either a login installer's profile
@@ -202,7 +253,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
   // Install booked → advance out of the "schedule install" stage.
   const { data: job } = await supabase
     .from("jobs")
-    .select("customer_id")
+    .select("customer_id, title")
     .eq("id", id)
     .maybeSingle();
   // Install booked → move the customer to the "Install Scheduled" stage so the
@@ -222,6 +273,17 @@ export async function bookInstall(formData: FormData): Promise<void> {
   }
 
   revalidateJobEverywhere(id, job?.customer_id as string | null);
+
+  // Tell the customer their install is booked, with the arrival window — after
+  // the response so the booking feels instant. Best-effort (guarded).
+  after(() =>
+    notifyInstallBooked({
+      customerId: (job?.customer_id as string | null) ?? null,
+      title: (job?.title as string | null) ?? null,
+      date: start,
+      window: arrivalWindow || null,
+    }),
+  );
 
   // When invoked from the customer LIST, return there; the guided flow / file
   // pass nothing and stay put (revalidate only), as before.
@@ -276,11 +338,21 @@ async function alertReschedule(
     if (c?.email)
       await sendEmail({
         to: c.email as string,
-        subject: "Your installation date has changed",
+        subject: "Your new installation date 🗓️",
         html: emailLayout(
-          "Installation rescheduled",
-          `<p>Hi ${first},</p><p>${line}</p><p>If this doesn't work for you, just reply and we'll sort it out.</p>`,
+          "Your installation has been rescheduled",
+          `<p>Hi ${first},</p>
+           <p>Just a heads-up — we've updated your flooring installation to a new date. Here are the latest details:</p>
+           ${emailInfoCard(
+             [
+               { label: "New date", value: nice },
+               ...(win ? [{ label: "Arrival window", value: win }] : []),
+             ],
+             { title: "Your installation" },
+           )}
+           <p>If this new time doesn't work for you, just reply and we'll happily sort it out. Thank you for your flexibility!</p>`,
           { label: "View your project", url: `${siteUrl()}/portal` },
+          { preheader: line },
         ),
       }).catch(() => {});
     if (c?.phone)

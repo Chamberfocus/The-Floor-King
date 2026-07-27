@@ -9,10 +9,10 @@ import {
   getSchedulingSettings,
   type EstimateSlot,
 } from "@/lib/data/scheduling";
-import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import { sendEmail, emailLayout, emailInfoCard, siteUrl } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
 import { advanceFromAutoAction } from "@/lib/workflow-engine";
-import { parseArrivalWindows, type ArrivalWindow } from "@/lib/format";
+import { parseArrivalWindows, to12, formatDate, type ArrivalWindow } from "@/lib/format";
 import { todayLocalYmd } from "@/lib/booking";
 
 export interface SuggestResult {
@@ -151,6 +151,11 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
     .eq("id", customerId)
     .maybeSingle();
   const when = `${date} at ${time}`;
+  // A friendly arrival window for the customer email/text.
+  const niceDate = formatDate(date);
+  const arrivalWindow = endTime
+    ? `${to12(time)} – ${to12(endTime)}`
+    : `around ${to12(time)}`;
   if (salesperson) {
     const { data: rep } = await supabase
       .from("profiles")
@@ -173,18 +178,30 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   if (cust?.email) {
     await sendEmail({
       to: cust.email as string,
-      subject: "Your estimate appointment is confirmed",
+      subject: "Your flooring estimate is confirmed 🎉",
       html: emailLayout(
-        "Estimate confirmed",
+        "Thank you for the opportunity!",
         `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
-         <p>Your in-home flooring estimate is confirmed for <strong>${when}</strong>. We look forward to seeing you!</p>`,
+         <p>Thank you so much for the opportunity to earn your business — we're excited to see your space and help you find the perfect floors.</p>
+         <p>Your in-home flooring estimate is confirmed. Here are the details:</p>
+         ${emailInfoCard(
+           [
+             { label: "Date", value: niceDate },
+             { label: "Arrival window", value: arrivalWindow },
+             ...(address ? [{ label: "Address", value: address }] : []),
+           ],
+           { title: "Your appointment" },
+         )}
+         <p>We look forward to seeing you! If anything changes, just reply to this email.</p>`,
+        undefined,
+        { preheader: `Estimate confirmed for ${niceDate}, arriving ${arrivalWindow}.` },
       ),
     });
   }
   if (cust?.phone) {
     await sendSms(
       cust.phone as string,
-      `Cleveland Floor King: your flooring estimate is confirmed for ${when}. Reply with any questions!`,
+      `Cleveland Floor King: thank you for the opportunity! Your flooring estimate is confirmed for ${niceDate}, arriving ${arrivalWindow}. Reply with any questions!`,
     );
   }
 
