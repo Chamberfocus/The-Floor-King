@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { CalendarClock } from "lucide-react";
-import { PhoneInput } from "@/components/ui/phone-input";
 import {
   Card,
   CardContent,
@@ -16,19 +15,9 @@ import { listTeamMembers } from "@/lib/data/team";
 import { listInstallCrews, getCrewPayoutTotals } from "@/lib/data/install-crews";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { InviteTeamForm } from "./invite-form";
-import { RoleSelect } from "./role-select";
-import { MemberLogin } from "./member-login";
-import { RemoveMember } from "./remove-member";
-import { ActiveToggle } from "./active-toggle";
+import { TeamMemberRow } from "./team-member-row";
 import { InstallCrewsManager } from "../install-crews/install-crews-manager";
-import {
-  setMemberTitle,
-  setMemberHome,
-  setMemberPhonePin,
-  setMemberName,
-  setMemberSkills,
-  setInstallerCollects,
-} from "./actions";
+import { setInstallerCollects } from "./actions";
 
 export const metadata: Metadata = { title: "Team" };
 
@@ -110,133 +99,17 @@ export default async function TeamPage() {
           {members.length === 0 ? (
             <p className="text-sm text-muted-foreground">No team members yet.</p>
           ) : (
-            <ul className="divide-y text-sm">
+            <ul className="divide-y">
               {members.map((m) => (
-                <li
+                <TeamMemberRow
                   key={m.id}
-                  className={m.active ? "space-y-2 py-3" : "space-y-2 py-3 opacity-60"}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <form
-                      action={setMemberName}
-                      className="flex min-w-0 items-center gap-1"
-                    >
-                      <input type="hidden" name="id" value={m.id} />
-                      <input
-                        name="full_name"
-                        defaultValue={m.full_name ?? ""}
-                        placeholder="Full name"
-                        className="h-8 w-44 rounded-md border border-input bg-transparent px-2 text-sm font-medium"
-                      />
-                      <Button type="submit" variant="ghost" size="sm">
-                        Save
-                      </Button>
-                      {!m.active ? (
-                        <span className="ml-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600">
-                          Deactivated
-                        </span>
-                      ) : null}
-                      <span className="ml-1 hidden truncate text-xs text-muted-foreground sm:inline">
-                        {m.email}
-                        {m.id === me.id ? " · you" : ""}
-                      </span>
-                    </form>
-                    <div className="flex items-center gap-2">
-                      <form action={setMemberTitle} className="flex items-center gap-1">
-                        <input type="hidden" name="id" value={m.id} />
-                        <input
-                          name="title"
-                          defaultValue={m.title ?? ""}
-                          placeholder="Job title"
-                          className="h-8 w-36 rounded-md border border-input bg-transparent px-2 text-sm"
-                        />
-                        <Button type="submit" variant="outline" size="sm">
-                          Save
-                        </Button>
-                      </form>
-                      <RoleSelect id={m.id} role={m.role} />
-                      {m.id !== me.id ? (
-                        <ActiveToggle
-                          id={m.id}
-                          name={m.full_name || m.email}
-                          active={m.active}
-                        />
-                      ) : null}
-                      {m.id !== me.id &&
-                      !(m.role === "admin" && adminCount <= 1) ? (
-                        <RemoveMember
-                          id={m.id}
-                          name={m.full_name || m.email}
-                        />
-                      ) : null}
-                    </div>
-                  </div>
-                  <form action={setMemberHome} className="flex items-center gap-1">
-                    <input type="hidden" name="id" value={m.id} />
-                    <input
-                      name="home_address"
-                      defaultValue={m.home_address ?? ""}
-                      placeholder="Home base address (routes their estimates)"
-                      className="h-8 flex-1 rounded-md border border-input bg-transparent px-2 text-sm"
-                    />
-                    <Button type="submit" variant="ghost" size="sm">
-                      Save base
-                    </Button>
-                  </form>
-                  <form
-                    action={setMemberPhonePin}
-                    className="flex items-center gap-1"
-                  >
-                    <input type="hidden" name="id" value={m.id} />
-                    <PhoneInput
-                      name="phone"
-                      defaultValue={m.phone ?? ""}
-                      placeholder="Phone for sign-in"
-                      className="h-8 w-40 text-sm"
-                    />
-                    <input
-                      name="pin"
-                      placeholder="New PIN (6+)"
-                      className="h-8 w-28 rounded-md border border-input bg-transparent px-2 text-sm"
-                    />
-                    <Button type="submit" variant="ghost" size="sm">
-                      Set phone PIN
-                    </Button>
-                  </form>
-                  <MemberLogin id={m.id} email={m.email} />
-                  {m.role === "crew" ? (
-                    <form
-                      action={setMemberSkills}
-                      className="flex flex-wrap items-center gap-3"
-                    >
-                      <input type="hidden" name="id" value={m.id} />
-                      <input type="hidden" name="name" value={m.full_name ?? ""} />
-                      <span className="text-xs text-muted-foreground">
-                        Installs (controls their Job Board):
-                      </span>
-                      {(
-                        [
-                          ["carpet", "Carpet"],
-                          ["hard", "Hard surface"],
-                        ] as const
-                      ).map(([v, lbl]) => (
-                        <label key={v} className="flex items-center gap-1.5 text-sm">
-                          <input
-                            type="checkbox"
-                            name="skills"
-                            value={v}
-                            defaultChecked={(skillsByProfile.get(m.id) ?? []).includes(v)}
-                            className="size-4 rounded border-input"
-                          />
-                          {lbl}
-                        </label>
-                      ))}
-                      <Button type="submit" variant="ghost" size="sm">
-                        Save skills
-                      </Button>
-                    </form>
-                  ) : null}
-                </li>
+                  member={m}
+                  isMe={m.id === me.id}
+                  canToggleActive={m.id !== me.id}
+                  canRemove={m.id !== me.id && !(m.role === "admin" && adminCount <= 1)}
+                  isCrew={m.role === "crew"}
+                  skills={skillsByProfile.get(m.id) ?? []}
+                />
               ))}
             </ul>
           )}

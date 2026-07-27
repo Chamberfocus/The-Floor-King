@@ -87,7 +87,11 @@ export function InstallCrewsManager({
           <Card key={c.id} className={cn(!c.active && "opacity-60")}>
             <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-2 font-medium">
+                <button
+                  type="button"
+                  onClick={() => setEditing(c)}
+                  className="flex items-center gap-2 text-left font-medium hover:underline"
+                >
                   {c.name}
                   <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
                     {c.kind === "employee" ? "Employee" : "Subcontractor"}
@@ -104,7 +108,7 @@ export function InstallCrewsManager({
                   {!c.active ? (
                     <span className="text-xs text-amber-600">inactive</span>
                   ) : null}
-                </div>
+                </button>
                 <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                   {c.phone ? (
                     <span className="flex items-center gap-1">
