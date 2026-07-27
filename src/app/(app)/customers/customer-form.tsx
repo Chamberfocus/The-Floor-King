@@ -1,8 +1,10 @@
 "use client";
 
 import { useActionState, useEffect } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { AlertTriangle, ExternalLink } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
@@ -143,10 +145,62 @@ export function CustomerForm({
         </p>
       ) : null}
 
+      {/* Possible duplicate — surfaced on create so the same client isn't added
+          twice. A warning, not a wall: they can open the match or add anyway. */}
+      {!isEdit && state.duplicates?.length ? (
+        <div className="space-y-2 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="size-4" />
+            {state.duplicates.length === 1
+              ? "This might already be in your customers"
+              : "These might already be in your customers"}
+          </div>
+          <ul className="space-y-1.5">
+            {state.duplicates.map((d) => (
+              <li
+                key={d.id}
+                className="flex items-center justify-between gap-3 rounded-md border bg-background px-2.5 py-2 text-sm"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{d.full_name}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {[d.phone, d.email, d.city].filter(Boolean).join(" · ") || "No contact details"}
+                  </div>
+                  <div className="text-[11px] text-amber-700 dark:text-amber-400">
+                    Same {d.reason === "name" ? "name" : d.reason}
+                  </div>
+                </div>
+                <Link
+                  href={`/customers/${d.id}`}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                >
+                  <ExternalLink className="size-3.5" /> Open
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">
+            If this is a different person, add them anyway.
+          </p>
+        </div>
+      ) : null}
+
       <div className="flex justify-end gap-2">
-        <Button type="submit" data-tour="customer-save" disabled={pending}>
-          {pending ? "Saving…" : isEdit ? "Save changes" : "Create customer"}
-        </Button>
+        {!isEdit && state.duplicates?.length ? (
+          <Button
+            type="submit"
+            name="force_create"
+            value="1"
+            variant="outline"
+            disabled={pending}
+          >
+            {pending ? "Adding…" : "Add anyway"}
+          </Button>
+        ) : (
+          <Button type="submit" data-tour="customer-save" disabled={pending}>
+            {pending ? "Saving…" : isEdit ? "Save changes" : "Create customer"}
+          </Button>
+        )}
       </div>
     </form>
   );

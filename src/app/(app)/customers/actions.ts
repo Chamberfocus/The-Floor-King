@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { advanceFromFirstStage, deriveLeadStage } from "@/lib/workflow-engine";
 import { requireProfile } from "@/lib/auth";
+import { normalizePhone } from "@/lib/auth-admin";
 import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
 import { listCustomers } from "@/lib/data/customers";
 import {
@@ -15,9 +16,82 @@ import {
   type LeadStage,
 } from "@/lib/types";
 
+export interface DuplicateMatch {
+  id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  reason: "phone" | "email" | "name";
+}
+
 export interface CustomerFormState {
   error: string | null;
   ok?: boolean;
+  /** Likely-existing customers found on create — the form asks to confirm. */
+  duplicates?: DuplicateMatch[];
+}
+
+/**
+ * Find customers that look like the one being added — same phone (digits),
+ * same email, or the exact same name. A soft guard: it warns, it never blocks
+ * (two different people can share a name), so the caller can still force-create.
+ */
+async function findDuplicateCustomers(
+  fields: { full_name: string; email: string | null; phone: string | null },
+): Promise<DuplicateMatch[]> {
+  const name = (fields.full_name || "").trim();
+  const email = (fields.email || "").trim().toLowerCase();
+  const phone10 = normalizePhone(fields.phone || "");
+  const cols = "id, full_name, email, phone, city";
+  // Service-role read so it catches EVERY existing customer, even ones a
+  // role-scoped user (e.g. a salesman) can't normally see — so the same client
+  // can't be added twice across reps.
+  const supabase = createAdminClient();
+  const rank = { phone: 3, email: 2, name: 1 } as const;
+  const found = new Map<string, DuplicateMatch>();
+  const add = (
+    r: { id: string; full_name: string; email: string | null; phone: string | null; city: string | null },
+    reason: DuplicateMatch["reason"],
+  ) => {
+    const existing = found.get(r.id);
+    if (!existing) {
+      found.set(r.id, { id: r.id, full_name: r.full_name, email: r.email, phone: r.phone, city: r.city, reason });
+    } else if (rank[reason] > rank[existing.reason]) {
+      existing.reason = reason;
+    }
+  };
+
+  const jobs: Promise<void>[] = [];
+  type Row = { id: string; full_name: string; email: string | null; phone: string | null; city: string | null };
+  if (email)
+    jobs.push(
+      (async () => {
+        const { data } = await supabase.from("customers").select(cols).ilike("email", email).limit(10);
+        (data as Row[] | null ?? []).forEach((r) => add(r, "email"));
+      })(),
+    );
+  if (name)
+    jobs.push(
+      (async () => {
+        const { data } = await supabase.from("customers").select(cols).ilike("full_name", name).limit(10);
+        (data as Row[] | null ?? []).forEach((r) => add(r, "name"));
+      })(),
+    );
+  if (phone10.length === 10)
+    jobs.push(
+      (async () => {
+        // Narrow by the last 4 digits (bounded), then confirm the full number
+        // regardless of how it was formatted when it was saved.
+        const { data } = await supabase.from("customers").select(cols).ilike("phone", `%${phone10.slice(-4)}`).limit(50);
+        (data as Row[] | null ?? [])
+          .filter((r) => normalizePhone(r.phone || "") === phone10)
+          .forEach((r) => add(r, "phone"));
+      })(),
+    );
+  await Promise.all(jobs);
+  // Strongest signal first.
+  return [...found.values()].sort((a, b) => rank[b.reason] - rank[a.reason]);
 }
 
 /**
@@ -129,6 +203,14 @@ export async function createCustomer(
   const stage = (str(formData.get("stage")) || "new") as LeadStage;
 
   const supabase = await createClient();
+
+  // Guard against adding the same customer twice. Unless the user has confirmed
+  // ("Create anyway"), surface any likely match so they can open it instead.
+  if (str(formData.get("force_create")) !== "1") {
+    const duplicates = await findDuplicateCustomers(fields);
+    if (duplicates.length) return { error: null, duplicates };
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
