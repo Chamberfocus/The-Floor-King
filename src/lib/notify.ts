@@ -124,6 +124,9 @@ export async function sendEmail(opts: {
       body: JSON.stringify({
         from,
         to: opts.to,
+        // Replies reach the shop even when the send domain differs from the
+        // brand domain (e.g. sending from a verified fallback domain).
+        reply_to: process.env.NOTIFY_REPLY_TO || ownerEmail(),
         subject: opts.subject,
         html: opts.html,
         ...(opts.tags ? { tags: opts.tags } : {}),
