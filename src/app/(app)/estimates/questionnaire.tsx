@@ -16,6 +16,14 @@ import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { priceFromMargin } from "@/lib/estimate-calc";
@@ -363,6 +371,7 @@ export function Questionnaire({
   const [step, setStep] = useState(draft?.step ?? 0);
   const [resumed, setResumed] = useState(!!draft);
   const [saving, startSave] = useTransition();
+  const [priceCheck, setPriceCheck] = useState(false);
 
   const set = (id: string, a: Answer) => setAnswers((p) => ({ ...p, [id]: a }));
 
@@ -1291,13 +1300,24 @@ export function Questionnaire({
   };
   const canNext = !q || !q.required || answered(q);
 
-  const save = () =>
+  const save = (blankCatalogPrices = false) =>
     startSave(async () => {
-      const built = lines.filter((l) => l.description.trim());
-      if (!built.length) {
+      const raw = lines.filter((l) => l.description.trim());
+      if (!raw.length) {
         toast.error("Answer a few questions first — add areas and a product.");
         return;
       }
+      // "I'll price it in the builder" → drop the catalog PRICE off every catalog
+      // material line (product_id set) so nothing wrong-priced is carried in;
+      // the structure, cuts, quantities & labor all stay. You set the real price
+      // in the builder. Labor and custom add-ons keep their entered amounts.
+      const built = blankCatalogPrices
+        ? raw.map((l) =>
+            l.product_id && l.category !== "labor"
+              ? { ...l, material_rate: 0, material_cost: 0 }
+              : l,
+          )
+        : raw;
       // Save the measured areas to the customer (their dashboard card) first —
       // createSmartEstimate redirects on success.
       const areaRooms: AreaRow[] = [];
@@ -1471,12 +1491,71 @@ export function Questionnaire({
               <Sparkles className="mr-1 inline size-3.5 text-primary" />
               Building opens the full estimate so you can review every line, adjust prices, and send — nothing is finalized yet.
             </p>
-            <Button type="button" size="lg" className="w-full" onClick={save} disabled={saving}>
+            <Button
+              type="button"
+              size="lg"
+              className="w-full"
+              onClick={() => setPriceCheck(true)}
+              disabled={saving}
+            >
               {saving ? "Building…" : "Build the estimate →"}
             </Button>
           </CardContent>
         </Card>
       )}
+
+      {/* Catalog prices can be off — confirm them, or carry the job into the
+          builder unpriced and set the real prices there. */}
+      <Dialog open={priceCheck} onOpenChange={setPriceCheck}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Are these catalog prices accurate?</DialogTitle>
+            <DialogDescription>
+              This estimate is priced from your catalog
+              {grand > 0 ? (
+                <>
+                  {" "}
+                  — <span className="font-semibold text-foreground">{formatMoney(grand)}</span>{" "}
+                  before tax
+                </>
+              ) : null}
+              . If the catalog price looks off, build it now and set the real
+              prices in the builder instead.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => {
+                setPriceCheck(false);
+                save(false);
+              }}
+            >
+              Prices are right — use them
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setPriceCheck(false);
+                save(true);
+              }}
+            >
+              I&apos;ll set prices in the builder
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full"
+              onClick={() => setPriceCheck(false)}
+            >
+              Keep answering
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Nav */}
       <div className="flex items-center justify-between">
