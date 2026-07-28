@@ -1,33 +1,50 @@
+"use client";
+
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { CreditCard } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { CreditCard, ExternalLink } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { recordCardPayment } from "@/app/(app)/invoices/actions";
+import { formatMoney } from "@/lib/format";
 
 /**
- * Opens the shop's external card processor (virtual terminal / payment page) in
- * a new tab so an estimator can run a card. The CRM never handles card data — it
- * only links out. Renders nothing until an admin sets the link in Settings →
- * Branding (a subtle setup prompt shows for admins).
+ * Process a card on the shop's external processor AND log it on the client in
+ * one flow: open the processor (run the card), then record the amount so it
+ * lands on the customer as a card payment/deposit and updates their balance.
+ * (The processor can't report back on its own — this captures it here.)
  */
 export function ProcessCardButton({
   url,
+  customerId,
+  clientName,
+  balance = 0,
   isAdmin = false,
 }: {
   url: string | null | undefined;
+  customerId: string;
+  clientName?: string | null;
+  balance?: number;
   isAdmin?: boolean;
 }) {
-  if (url && url.trim()) {
-    return (
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className={buttonVariants({ variant: "outline", size: "lg" })}
-      >
-        <CreditCard className="size-4" /> Process card
-      </a>
-    );
-  }
-  if (isAdmin) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState(balance > 0 ? String(balance) : "");
+  const [note, setNote] = useState("");
+  const [pending, start] = useTransition();
+  const router = useRouter();
+
+  // No processor link configured yet.
+  if (!url || !url.trim()) {
+    if (!isAdmin) return null;
     return (
       <Link
         href="/settings/branding"
@@ -37,5 +54,107 @@ export function ProcessCardButton({
       </Link>
     );
   }
-  return null;
+
+  const record = () => {
+    const amt = parseFloat(amount);
+    if (!(amt > 0)) {
+      toast.error("Enter the amount you charged.");
+      return;
+    }
+    start(async () => {
+      const res = await recordCardPayment(customerId, amt, note || null);
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`Recorded ${formatMoney(amt)} card payment.`);
+      setOpen(false);
+      setNote("");
+      router.refresh();
+    });
+  };
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="lg"
+        onClick={() => {
+          setAmount(balance > 0 ? String(balance) : "");
+          setOpen(true);
+        }}
+      >
+        <CreditCard className="size-4" /> Process card
+      </Button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Card payment{clientName ? ` — ${clientName}` : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Run the card on your processor, then record the amount here so it
+              lands on the client&apos;s account.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className={buttonVariants({ className: "w-full" })}
+            >
+              <ExternalLink className="size-4" /> Open card processor
+            </a>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Amount charged</label>
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-semibold text-muted-foreground">$</span>
+                <Input
+                  type="number"
+                  step="any"
+                  min="0"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="h-11 text-lg font-semibold"
+                  autoFocus
+                />
+              </div>
+              {balance > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setAmount(String(balance))}
+                  className="text-xs text-primary hover:underline"
+                >
+                  Use full balance ({formatMoney(balance)})
+                </button>
+              ) : null}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Note (optional)</label>
+              <Input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="e.g. Deposit · auth #1234"
+              />
+            </div>
+
+            <Button type="button" className="w-full" disabled={pending} onClick={record}>
+              {pending ? "Recording…" : "Record card payment"}
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              Records as a card payment on the client — no card details are stored.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }

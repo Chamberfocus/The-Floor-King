@@ -622,6 +622,9 @@ export default async function CustomerPage({
               {(SALES_ROLES as string[]).includes(profile.role) ? (
                 <ProcessCardButton
                   url={orgSettings.card_processing_url}
+                  customerId={customer.id}
+                  clientName={customer.full_name}
+                  balance={money.balance}
                   isAdmin={profile.role === "admin"}
                 />
               ) : null}

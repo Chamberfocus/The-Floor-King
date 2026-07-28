@@ -403,6 +403,71 @@ export async function recordPayment(formData: FormData): Promise<void> {
   refreshMoneyViews();
 }
 
+/**
+ * Log a card payment straight onto a CUSTOMER (from the "Process card" flow).
+ * Records it against the customer's active invoice, creating a minimal one if
+ * they don't have any yet — so a card run always lands on the client as a
+ * payment/deposit and updates their balance. Card data stays in the processor;
+ * we only store the amount + method.
+ */
+export async function recordCardPayment(
+  customerId: string,
+  amount: number,
+  note?: string | null,
+): Promise<{ error: string | null }> {
+  if (!customerId) return { error: "Missing customer." };
+  if (!Number.isFinite(amount) || amount <= 0)
+    return { error: "Enter the amount you charged." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Prefer the customer's most recent non-void invoice; else create one so the
+  // deposit has somewhere to live.
+  const { data: existing } = await supabase
+    .from("invoices")
+    .select("id")
+    .eq("customer_id", customerId)
+    .neq("status", "void")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  let invoiceId = (existing?.id as string | undefined) ?? undefined;
+  if (!invoiceId) {
+    const { data: inv, error } = await supabase
+      .from("invoices")
+      .insert({
+        customer_id: customerId,
+        number: await nextInvoiceNumber(supabase),
+        issue_date: today(),
+        created_by: user?.id ?? null,
+      })
+      .select("id")
+      .single();
+    if (error || !inv) return { error: error?.message ?? "Could not create an invoice." };
+    invoiceId = inv.id as string;
+  }
+
+  const { error: payErr } = await supabase.from("payments").insert({
+    invoice_id: invoiceId,
+    amount,
+    method: "card" as PaymentMethod,
+    reference: note?.trim() || "Card (SwipeSimple)",
+    paid_at: today(),
+    created_by: user?.id ?? null,
+  });
+  if (payErr) return { error: payErr.message };
+
+  await recomputeStatus(supabase, invoiceId);
+  await advanceFromAutoAction(customerId, "collect_deposit");
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath(`/invoices/${invoiceId}`);
+  refreshMoneyViews();
+  return { error: null };
+}
+
 export async function deletePayment(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   const invoiceId = str(formData.get("invoice_id"));
