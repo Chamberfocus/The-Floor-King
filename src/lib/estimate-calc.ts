@@ -48,16 +48,27 @@ const isLaborLine = (line: CalcLine): boolean => line.category === "labor";
 
 export function num(v: number | string | null | undefined): number {
   if (v === null || v === undefined || v === "") return 0;
-  const n = typeof v === "number" ? v : parseFloat(v);
+  // Strip currency symbols, thousands separators, and spaces so a pasted value
+  // like "$1,250.00" parses as 1250, not 1 (parseFloat stops at the comma).
+  const n =
+    typeof v === "number" ? v : parseFloat(v.replace(/[$,\s]/g, ""));
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Area in square feet: from L×W (inches) when present, else the sqft field. */
+/**
+ * Area in square feet used for PRICING. The measured TOTAL lives in `sqft` — for
+ * a multi-cut line, length_in/width_in hold only the FIRST cut (they exist for
+ * the warehouse cut list), so pricing off L×W would bill just one piece. Prefer
+ * the total `sqft`; fall back to a single L×W only for legacy lines that stored
+ * no sqft.
+ */
 export function lineAreaSqft(line: CalcLine): number {
+  const sf = num(line.sqft);
+  if (sf > 0) return sf;
   const len = num(line.length_in);
   const wid = num(line.width_in);
   if (len > 0 && wid > 0) return (len / 12) * (wid / 12);
-  return num(line.sqft);
+  return 0;
 }
 
 export function lineAreaSqyd(line: CalcLine): number {
@@ -151,9 +162,14 @@ export function optionCostTotals(lines: CalcLine[]): CostTotals {
   let material = 0;
   let labor = 0;
   for (const line of lines) {
-    const q = line.line_type === "flat" ? 1 : lineQty(line);
-    // Waste raises material purchased (and our cost), not labor. A labor line
-    // contributes labor only.
+    // A FLAT line is a single lump cost — no quantity, no waste (matches
+    // lineCost). Everything else: waste raises the material bought, not labor.
+    if (line.line_type === "flat") {
+      material += isLaborLine(line) ? 0 : num(line.material_cost);
+      labor += num(line.labor_cost);
+      continue;
+    }
+    const q = lineQty(line);
     material += isLaborLine(line) ? 0 : q * num(line.material_cost) * wasteMult(line);
     labor += q * num(line.labor_cost);
   }
