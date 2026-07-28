@@ -1114,7 +1114,7 @@ export default async function CustomerPage({
               ) : (
                 <div className="space-y-2">
                   {invoiceRows.map((inv) => (
-                    <InvoiceRow key={inv.id} inv={inv} />
+                    <InvoiceRow key={inv.id} inv={inv} customerId={customer.id} />
                   ))}
                 </div>
               )}

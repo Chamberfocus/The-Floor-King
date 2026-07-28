@@ -8,6 +8,7 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { JobScopeView } from "@/components/job-scope-view";
 import { DeleteEstimateButton } from "@/app/(app)/estimates/estimate-list-actions";
+import { DeleteInvoiceButton } from "@/app/(app)/invoices/delete-invoice-button";
 import { formatMoney, formatDate } from "@/lib/format";
 import type { EstimateStatus, InvoiceStatus, JobStatus } from "@/lib/types";
 import type { JobScope } from "@/lib/job-scope";
@@ -197,7 +198,13 @@ export interface InvoiceRowData {
   lines: { id: string; label: string; amount: number }[];
 }
 
-export function InvoiceRow({ inv }: { inv: InvoiceRowData }) {
+export function InvoiceRow({
+  inv,
+  customerId,
+}: {
+  inv: InvoiceRowData;
+  customerId?: string;
+}) {
   return (
     <ExpandRow
       icon={<Receipt className="size-4" />}
@@ -240,6 +247,14 @@ export function InvoiceRow({ inv }: { inv: InvoiceRowData }) {
           <span>Balance</span>
           <span className="tabular-nums">{formatMoney(inv.balance)}</span>
         </div>
+      </div>
+      <div className="mt-2 flex justify-end border-t pt-2">
+        <DeleteInvoiceButton
+          id={inv.id}
+          customerId={customerId ?? null}
+          label={inv.number || "this invoice"}
+          size="sm"
+        />
       </div>
     </ExpandRow>
   );
