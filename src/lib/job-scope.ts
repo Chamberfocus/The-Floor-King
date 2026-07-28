@@ -3,6 +3,7 @@ import {
   isHardSurfaceCategory,
   type EstimateLineItem,
 } from "@/lib/types";
+import { lineQty, type CalcLine } from "@/lib/estimate-calc";
 
 // Carpet padding is bought by the roll; the shop's standard roll covers this
 // many square yards (matches the estimate builder's roll math).
@@ -47,8 +48,11 @@ export function lineSpec(l: {
   width_in: number | null;
   category: string | null;
   is_fill?: boolean | null;
-}): { qty: string; cut: string; rolls: number; isFill: boolean } {
-  const q = Number(l.quantity) || 0;
+}): { qty: string; qtyNum: number; unit: string; cut: string; rolls: number; isFill: boolean } {
+  // Use the SAME billed quantity as the estimate and invoice (measured area for
+  // area lines, count for count lines) — never the raw stored quantity, which
+  // could be waste-baked or off by rounding and made the work order disagree.
+  const q = lineQty(l as unknown as CalcLine);
   const unit = l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft");
   const qty = q > 0 ? `${Math.round(q * 100) / 100} ${unit}` : l.sqft ? `${l.sqft} sq ft` : "";
   // Cuts only apply to roll goods (carpet / sheet vinyl). Hard surface is sold
@@ -60,7 +64,7 @@ export function lineSpec(l: {
       : "";
   const sqyd = q > 0 ? (unit.toLowerCase().includes("yd") ? q : q / 9) : 0;
   const rolls = l.category === "underlayment" && sqyd > 0 ? Math.ceil(sqyd / PAD_ROLL_SQYD) : 0;
-  return { qty, cut, rolls, isFill: isRoll && !!l.is_fill };
+  return { qty, qtyNum: q, unit, cut, rolls, isFill: isRoll && !!l.is_fill };
 }
 
 /**

@@ -25,9 +25,10 @@ import type { JobDetail } from "@/lib/data/jobs";
 function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean }) {
   const spec = lineSpec(l);
   // Hard surface installs by the carton — show the box count so the crew knows
-  // how many to open, with the sq-ft basis.
+  // how many to open, with the sq-ft basis. Use the SAME billed area as the
+  // estimate (spec.qtyNum), not the raw stored quantity.
   const spb = Number(l.sqft_per_box) || 0;
-  const sf = Number(l.quantity) || Number(l.sqft) || 0;
+  const sf = spec.qtyNum || Number(l.sqft) || 0;
   const cartons =
     isHardSurfaceCategory(l.category) && spb > 0 && sf > 0 ? Math.ceil(sf / spb) : 0;
   return (
