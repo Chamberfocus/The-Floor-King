@@ -162,21 +162,28 @@ export async function createInvoiceFromEstimate(
         rate: l.flat_amount,
       };
     }
-    // Match the estimate's lineTotal: waste raises the material you ordered, so
-    // it must ride in the invoice rate too — otherwise the invoice undercharges
-    // vs. the quote the customer approved.
+    // Bill the EXACT same line total the customer approved. Waste raises the
+    // material you ordered, so it rides in the rate. The estimate prices on the
+    // FULL quantity; rounding it here (to a clean 2-dp quantity) would drift the
+    // total, so we carry the precision in the rate instead:
+    //   line total = fullQty × unitRate  (exactly the estimate's lineTotal)
+    //   shown as    roundedQty × adjRate (same amount, tidy quantity)
     const wasteMult = 1 + (Number(l.waste_pct) || 0) / 100;
-    const rate =
+    const unitRate =
       l.line_type === "mat_labor"
         ? (l.material_rate ?? 0) * wasteMult + (l.labor_rate ?? 0)
         : (l.installed_rate ?? 0) * wasteMult;
+    const fullQty = lineQty(l);
+    const shownQty = Math.round(fullQty * 100) / 100;
+    const lineTotal = fullQty * unitRate;
+    const adjRate = shownQty > 0 ? lineTotal / shownQty : unitRate;
     return {
       invoice_id: invoice.id,
       position: i,
       description: l.room ? `${l.room} — ${l.description}` : l.description,
-      quantity: Math.round(lineQty(l) * 100) / 100,
+      quantity: shownQty,
       unit: l.measure_unit === "sqyd" ? "sqyd" : "sqft",
-      rate,
+      rate: adjRate,
     };
   });
   // Carry the estimate's discount as a line so the invoice bills the same total
@@ -257,21 +264,28 @@ export async function createInvoiceFromSelection(
         rate: l.flat_amount,
       };
     }
-    // Match the estimate's lineTotal: waste raises the material you ordered, so
-    // it must ride in the invoice rate too — otherwise the invoice undercharges
-    // vs. the quote the customer approved.
+    // Bill the EXACT same line total the customer approved. Waste raises the
+    // material you ordered, so it rides in the rate. The estimate prices on the
+    // FULL quantity; rounding it here (to a clean 2-dp quantity) would drift the
+    // total, so we carry the precision in the rate instead:
+    //   line total = fullQty × unitRate  (exactly the estimate's lineTotal)
+    //   shown as    roundedQty × adjRate (same amount, tidy quantity)
     const wasteMult = 1 + (Number(l.waste_pct) || 0) / 100;
-    const rate =
+    const unitRate =
       l.line_type === "mat_labor"
         ? (l.material_rate ?? 0) * wasteMult + (l.labor_rate ?? 0)
         : (l.installed_rate ?? 0) * wasteMult;
+    const fullQty = lineQty(l);
+    const shownQty = Math.round(fullQty * 100) / 100;
+    const lineTotal = fullQty * unitRate;
+    const adjRate = shownQty > 0 ? lineTotal / shownQty : unitRate;
     return {
       invoice_id: invoice.id,
       position: i,
       description: l.room ? `${l.room} — ${l.description}` : l.description,
-      quantity: Math.round(lineQty(l) * 100) / 100,
+      quantity: shownQty,
       unit: l.measure_unit === "sqyd" ? "sqyd" : "sqft",
-      rate,
+      rate: adjRate,
     };
   });
   if (items.length) await supabase.from("invoice_items").insert(items);
