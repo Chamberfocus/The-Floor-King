@@ -585,6 +585,10 @@ export async function deleteInvoice(formData: FormData): Promise<void> {
 
   refreshMoneyViews();
   revalidatePath("/orders");
+  revalidatePath("/invoices");
   if (customerId) revalidatePath(`/customers/${customerId}`);
-  redirect(customerId ? `/customers/${customerId}` : "/invoices");
+  // Deleting from the list stays on the list; from a customer/invoice page it
+  // returns to the customer file.
+  const redirectTo = str(formData.get("redirect_to"));
+  redirect(redirectTo || (customerId ? `/customers/${customerId}` : "/invoices"));
 }

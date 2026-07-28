@@ -236,29 +236,26 @@ export default async function InvoicePage({
       ) : null}
 
       {!preview ? (
-      <details className="mt-4 ml-auto w-fit print:hidden">
-        <summary className="cursor-pointer list-none text-right text-xs text-muted-foreground hover:text-destructive [&::-webkit-details-marker]:hidden">
-          Delete invoice
-        </summary>
-        <form action={deleteInvoice} className="mt-2 flex flex-col items-end gap-2">
+      <div className="mt-6 flex flex-col items-end gap-1.5 border-t pt-4 print:hidden">
+        <form action={deleteInvoice}>
           <input type="hidden" name="id" value={invoice.id} />
           <input type="hidden" name="customer_id" value={invoice.customer_id} />
-          <span className="max-w-xs text-right text-xs text-muted-foreground">
-            Permanently delete this invoice and all its recorded payments. Any
-            order linked to it is unlinked. This can&apos;t be undone.
-          </span>
           <ConfirmButton
-            variant="destructive"
+            variant="outline"
             size="sm"
             title="Delete this invoice and all its payments?"
             description="Permanently deletes the invoice, its line items, and every recorded payment. Any linked order is unlinked. This can't be undone."
             confirmLabel="Delete invoice"
             destructive
           >
-            <Trash2 className="size-3.5" /> Delete invoice &amp; payments
+            <Trash2 className="size-3.5 text-destructive" /> Delete invoice
           </ConfirmButton>
         </form>
-      </details>
+        <span className="max-w-xs text-right text-xs text-muted-foreground">
+          Permanently removes the invoice and its recorded payments — can&apos;t be
+          undone.
+        </span>
+      </div>
       ) : null}
     </div>
   );
