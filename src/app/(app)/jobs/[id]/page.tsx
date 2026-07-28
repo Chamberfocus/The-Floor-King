@@ -1166,12 +1166,24 @@ export default async function JobPage({
                 </tbody>
               </table>
             </div>
+            {costAnalysis.draftPoMaterial > 0 ? (
+              <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+                <span className="font-semibold">
+                  {formatMoney(costAnalysis.draftPoMaterial)} in material is
+                  still on draft purchase orders
+                </span>{" "}
+                and isn&apos;t counted as cost yet — so this job&apos;s margin
+                reads high. Mark those POs <strong>Ordered</strong> (on the
+                Purchasing tab) to fold the real material cost into these
+                numbers.
+              </p>
+            ) : null}
             <p className="mt-2 text-xs text-muted-foreground">
               Estimated revenue = the price the customer approved (after any
               discount). Actual revenue = what we&apos;ve actually invoiced on
               this job (falls back to the sold price until it&apos;s billed).
-              Actual material = purchase orders on this estimate; actual
-              labor/other = expenses logged to this job.
+              Actual material = ordered/received purchase orders on this
+              estimate; actual labor/other = expenses logged to this job.
             </p>
           </CardContent>
         </Card>

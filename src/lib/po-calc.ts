@@ -19,6 +19,17 @@ export function poTotal(items: CalcPoItem[]): number {
   return items.reduce((sum, i) => sum + poItemTotal(i), 0);
 }
 
+/**
+ * The ONE definition of a PO whose cost is real. A PO counts as committed spend
+ * / job material cost only once it's been Ordered, Received, or Closed — never
+ * while it's a draft (not yet a real order) or cancelled/void (called off).
+ * Every financial view (period net, job profitability, per-job cost analysis,
+ * purchasing spend) must use this so they can't disagree.
+ */
+export function isCommittedPoStatus(status: string | null | undefined): boolean {
+  return status === "ordered" || status === "received" || status === "closed";
+}
+
 export interface SavePoItemInput {
   product_id: string | null;
   description: string;

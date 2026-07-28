@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { isCommittedPoStatus } from "@/lib/po-calc";
 import type { PoItem, PurchaseOrder } from "@/lib/types";
 import type { CutSource } from "@/lib/job-scope";
 
@@ -323,8 +324,7 @@ export async function getVendorSummary(supplierId: string): Promise<VendorSummar
   let openTotal = 0;
   for (const p of list) {
     const t = poLineTotal(p);
-    const issued = p.status === "ordered" || p.status === "received" || p.status === "closed";
-    if (issued) totalSpend += t;
+    if (isCommittedPoStatus(p.status)) totalSpend += t;
     if (p.status === "ordered" || p.status === "received") {
       openCount += 1;
       openTotal += t;

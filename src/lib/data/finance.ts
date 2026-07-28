@@ -3,7 +3,7 @@ import { fetchAll } from "@/lib/supabase/paginate";
 import { listInvoices, amountPaid } from "@/lib/data/invoices";
 import { invoiceTotals } from "@/lib/invoice-calc";
 import { listPurchaseOrders } from "@/lib/data/purchase-orders";
-import { poTotal } from "@/lib/po-calc";
+import { poTotal, isCommittedPoStatus } from "@/lib/po-calc";
 import { listJobs } from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
 import { laborCostByJob } from "@/lib/data/job-labor";
@@ -129,10 +129,10 @@ export async function getPeriodSummary(
   const poSpend =
     pos
       .filter((p) => {
-        // Only real spend: a PO that's actually been ordered or received. Drafts
-        // (incl. the ones auto-generated when an estimate is approved) and
-        // cancelled POs are NOT money out yet.
-        if (p.status !== "ordered" && p.status !== "received") return false;
+        // Only real spend: a PO that's actually been ordered, received, or
+        // closed. Drafts (incl. the ones auto-generated when an estimate is
+        // approved) and cancelled/void POs are NOT money out.
+        if (!isCommittedPoStatus(p.status)) return false;
         // Skip POs for cancelled customers (same as collected / expenses / labor).
         if (p.customer_id && cancelled.has(p.customer_id)) return false;
         const d = p.created_at.slice(0, 10);
@@ -351,9 +351,9 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   const pos = await listPurchaseOrders();
   const poByEstimate = new Map<string, number>();
   for (const p of pos) {
-    // Only count committed POs (ordered/received) as real material cost — not
-    // drafts auto-generated on approval, and not cancelled ones.
-    if (p.status !== "ordered" && p.status !== "received") continue;
+    // Only count committed POs (ordered/received/closed) as real material cost
+    // — not drafts auto-generated on approval, and not cancelled/void ones.
+    if (!isCommittedPoStatus(p.status)) continue;
     if (p.estimate_id) {
       poByEstimate.set(
         p.estimate_id,
@@ -576,7 +576,8 @@ export interface JobCostAnalysis {
   estProfit: number;
   estMargin: number;
   actualRevenue: number; // what we've actually billed (falls back to quoted)
-  actualMaterial: number; // from purchase orders
+  draftPoMaterial: number; // material in DRAFT POs, not yet counted as cost
+  actualMaterial: number; // from committed purchase orders
   actualLabor: number; // from subcontractor payouts
   actualExpense: number; // from logged expenses
   actualCost: number;
@@ -635,8 +636,18 @@ export async function getJobCostAnalysis(
   const estProfit = estRevenue - estCost;
 
   const pos = await listPurchaseOrders();
-  const poMaterial = pos
-    .filter((p) => p.estimate_id && p.estimate_id === job.estimate_id)
+  const jobPos = pos.filter(
+    (p) => p.estimate_id && p.estimate_id === job.estimate_id,
+  );
+  const poMaterial = jobPos
+    // Same committed-only rule as the profit dashboard: a draft or
+    // cancelled/void PO is not a real cost yet, so the two views agree.
+    .filter((p) => isCommittedPoStatus(p.status))
+    .reduce((s, p) => s + poTotal(p.items ?? []), 0);
+  // Material sitting in DRAFT POs isn't counted yet — surfaced so the job page
+  // can nudge "mark these Ordered to count them" instead of silently showing $0.
+  const draftPoMaterial = jobPos
+    .filter((p) => p.status === "draft")
     .reduce((s, p) => s + poTotal(p.items ?? []), 0);
   // Plus any material pulled from our own stock for this job.
   const { data: pullRows } = await supabase
@@ -700,6 +711,7 @@ export async function getJobCostAnalysis(
     estProfit,
     estMargin: marginPct(estRevenue, estCost),
     actualRevenue,
+    draftPoMaterial,
     actualMaterial,
     actualLabor,
     actualExpense,
@@ -761,7 +773,7 @@ export async function getPipelineForecast(): Promise<PipelineForecast> {
   // 3) Value of quotes still open (status = sent).
   const { data: sent } = await supabase
     .from("estimates")
-    .select("id, accepted_option_id")
+    .select("id, accepted_option_id, discount_kind, discount_value")
     .eq("status", "sent");
   let openQuoteValue = 0;
   if (sent && sent.length) {
@@ -781,6 +793,18 @@ export async function getPipelineForecast(): Promise<PipelineForecast> {
       const eid = o.estimate_id as string;
       if (!optionByEstimate.has(eid)) optionByEstimate.set(eid, o.id as string);
     }
+    // Which estimate each chosen option belongs to (to apply its discount).
+    const estByOption = new Map<string, string>();
+    for (const [eid, oid] of optionByEstimate) estByOption.set(oid, eid);
+    const discByEstimate = new Map<
+      string,
+      { kind: string | null; value: number | null }
+    >();
+    for (const e of sent)
+      discByEstimate.set(e.id as string, {
+        kind: (e.discount_kind as string | null) ?? null,
+        value: (e.discount_value as number | null) ?? null,
+      });
     const useOptionIds = [...optionByEstimate.values()];
     if (useOptionIds.length) {
       const { data: lineData } = await supabase
@@ -796,7 +820,11 @@ export async function getPipelineForecast(): Promise<PipelineForecast> {
         byOption.set(l.option_id, arr);
       }
       for (const oid of useOptionIds) {
-        openQuoteValue += optionTotals(byOption.get(oid) ?? [], 0).subtotal;
+        const sub = optionTotals(byOption.get(oid) ?? [], 0).subtotal;
+        // Weight the pipeline by the price the customer would actually pay.
+        const eid = estByOption.get(oid);
+        const d = eid ? discByEstimate.get(eid) : null;
+        openQuoteValue += d ? sub - discountAmount(sub, d.kind, d.value) : sub;
       }
     }
   }
