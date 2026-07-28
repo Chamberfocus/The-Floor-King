@@ -959,29 +959,56 @@ export function EstimateBuilder({
       return;
     }
     const k = target / currentSub;
-    // 6 decimals keeps rate fields sane while the subtotal lands exactly on target.
+    // 6 decimals keeps rate fields sane while the subtotal lands on target. The
+    // DB stores rates at 6dp too (migration 0133), so the solved price survives
+    // the save — without that, rates truncated to cents and the total drifted
+    // (a $1,971.42 quote saved as $1,971.19).
     const r6 = (n: number) => String(Math.round(n * 1e6) / 1e6);
     const scale = (v: string) => {
       const n = num(v);
       return n !== 0 ? r6(n * k) : v;
     };
+    const scaled = opt.lines.map((l) => ({
+      ...l,
+      material_rate: scale(l.material_rate),
+      labor_rate: scale(l.labor_rate),
+      installed_rate: scale(l.installed_rate),
+      flat_amount: scale(l.flat_amount),
+      // Prices are now explicit; drop stale per-line margin overrides.
+      margin_pct: "",
+    }));
+    // Scaling + rounding can leave a fractional-cent residual. Absorb it fully
+    // into the biggest line so the subtotal equals the typed total to the penny.
+    const residual = target - scaled.reduce((s, l) => s + lineTotal(toCalc(l)), 0);
+    if (Math.abs(residual) >= 5e-7) {
+      let bi = -1;
+      let bt = -Infinity;
+      scaled.forEach((l, i) => {
+        const t = Math.abs(lineTotal(toCalc(l)));
+        if (t > bt) {
+          bt = t;
+          bi = i;
+        }
+      });
+      const l = bi >= 0 ? scaled[bi] : null;
+      if (l && l.line_type === "flat") {
+        l.flat_amount = r6(num(l.flat_amount) + residual);
+      } else if (l) {
+        const qty = lineQty(toCalc(l));
+        if (qty > 0) {
+          const waste = 1 + (num(l.waste_pct) || 0) / 100;
+          if (l.line_type === "installed") {
+            l.installed_rate = r6(num(l.installed_rate) + residual / (qty * waste));
+          } else if (l.category !== "labor" && num(l.material_rate) > 0) {
+            l.material_rate = r6(num(l.material_rate) + residual / (qty * waste));
+          } else {
+            l.labor_rate = r6(num(l.labor_rate) + residual / qty);
+          }
+        }
+      }
+    }
     setOptions((prev) =>
-      prev.map((o, oi) =>
-        oi !== safeActive
-          ? o
-          : {
-              ...o,
-              lines: o.lines.map((l) => ({
-                ...l,
-                material_rate: scale(l.material_rate),
-                labor_rate: scale(l.labor_rate),
-                installed_rate: scale(l.installed_rate),
-                flat_amount: scale(l.flat_amount),
-                // Prices are now explicit; drop stale per-line margin overrides.
-                margin_pct: "",
-              })),
-            },
-      ),
+      prev.map((o, oi) => (oi !== safeActive ? o : { ...o, lines: scaled })),
     );
     // The real, honest margin for this total given the line costs.
     const trueMargin = target > 0 ? (1 - totalCost / target) * 100 : 0;
