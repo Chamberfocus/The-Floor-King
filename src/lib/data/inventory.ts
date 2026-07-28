@@ -15,6 +15,34 @@ export function isAged(p: Product): boolean {
   return p.track_stock && p.on_hand > 0 && daysIdle(p) >= AGED_DAYS;
 }
 
+/** Each product's primary (lowest-position) recorded unit cost from its
+ *  vendors. The one source of truth for valuing inventory AT COST. */
+export async function primaryCostByProduct(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  productIds: string[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const ids = [...new Set(productIds)].filter(Boolean);
+  if (!ids.length) return out;
+  const best = new Map<string, { cost: number; position: number }>();
+  for (let i = 0; i < ids.length; i += 300) {
+    const { data } = await supabase
+      .from("product_vendors")
+      .select("product_id, cost, position")
+      .in("product_id", ids.slice(i, i + 300));
+    for (const v of data ?? []) {
+      if (v.cost == null) continue;
+      const pid = v.product_id as string;
+      const pos = Number(v.position) || 0;
+      const cur = best.get(pid);
+      if (!cur || pos < cur.position)
+        best.set(pid, { cost: Number(v.cost), position: pos });
+    }
+  }
+  for (const [pid, b] of best) out.set(pid, b.cost);
+  return out;
+}
+
 export interface InventorySummary {
   trackedCount: number;
   lowStockCount: number;
@@ -60,11 +88,18 @@ export async function listUntracked(search = ""): Promise<Product[]> {
 
 export async function inventorySummary(): Promise<InventorySummary> {
   const items = await listInventory();
+  // Value at COST (what we paid), matching the "at cost" label — fall back to
+  // the sell rate only when a product has no recorded vendor cost.
+  const supabase = await createClient();
+  const costByProduct = await primaryCostByProduct(
+    supabase,
+    items.map((p) => p.id),
+  );
   let lowStockCount = 0;
   let totalValue = 0;
   for (const p of items) {
     if (p.reorder_point > 0 && p.on_hand <= p.reorder_point) lowStockCount++;
-    totalValue += p.on_hand * (p.material_rate || 0);
+    totalValue += p.on_hand * (costByProduct.get(p.id) ?? (p.material_rate || 0));
   }
   return { trackedCount: items.length, lowStockCount, totalValue };
 }

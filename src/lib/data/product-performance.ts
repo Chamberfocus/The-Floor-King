@@ -8,7 +8,7 @@ import {
   marginPct,
   type CalcLine,
 } from "@/lib/estimate-calc";
-import { daysIdle } from "@/lib/data/inventory";
+import { daysIdle, primaryCostByProduct } from "@/lib/data/inventory";
 import type { Product } from "@/lib/types";
 
 export interface ProductPerf {
@@ -84,6 +84,9 @@ export async function getProductPerformance(): Promise<ProductPerf[]> {
   }
 
   const agg = new Map<string, ProductPerf>();
+  // Options already counted toward each product's job tally, so a product on
+  // TWO lines of the same option isn't counted as two jobs.
+  const optionsSeen = new Map<string, Set<string>>();
   for (const r of rows) {
     const pid = r.product_id;
     if (!pid) continue;
@@ -105,7 +108,12 @@ export async function getProductPerformance(): Promise<ProductPerf[]> {
     cur.units += lineQty(r);
     cur.revenue += lineTotal(r);
     cur.cost += lineCost(r);
-    cur.jobs += jobsPerOption.get(r.option_id) ?? 1;
+    const seen = optionsSeen.get(pid) ?? new Set<string>();
+    if (!seen.has(r.option_id)) {
+      seen.add(r.option_id);
+      optionsSeen.set(pid, seen);
+      cur.jobs += jobsPerOption.get(r.option_id) ?? 1;
+    }
     agg.set(pid, cur);
   }
 
@@ -136,11 +144,18 @@ export async function getDeadStock(minDays = 90): Promise<DeadStockItem[]> {
     .eq("track_stock", true)
     .gt("on_hand", 0);
   const items = (data ?? []) as Product[];
+  // Tied-up cash is what we PAID (cost), not what we'd sell it for. Cost lives
+  // on product_vendors (lowest position = primary); fall back to the sell rate
+  // only when no cost is on file, so the number is never blank.
+  const costByProduct = await primaryCostByProduct(
+    supabase,
+    items.map((p) => p.id),
+  );
   return items
     .map((p) => ({
       product: p,
       idleDays: daysIdle(p),
-      value: p.on_hand * (p.material_rate || 0),
+      value: p.on_hand * (costByProduct.get(p.id) ?? (p.material_rate || 0)),
     }))
     .filter((d) => d.idleDays >= minDays)
     .sort((a, b) => b.value - a.value);
