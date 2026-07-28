@@ -913,9 +913,12 @@ export function EstimateBuilder({
     );
   };
 
-  // Back-solve the overall margin from a target PRE-TAX subtotal for the option
-  // being built. Lines with their own margin (or flat/installed) keep their sell;
-  // the rest re-price so the subtotal hits the target. Then all lines re-price.
+  // Price this option to an exact PRE-TAX total. We scale every line's sell
+  // proportionally so the subtotal lands on the number exactly — this works no
+  // matter how the lines are costed (a margin-only approach breaks on a line
+  // that has a price but no cost, e.g. a material you priced in the builder). We
+  // then set the margin field to the TRUE overall margin = (total − cost) / total
+  // so it reflects the real numbers.
   const solveMarginForTarget = () => {
     const target = num(targetPrice);
     const opt = options[safeActive];
@@ -924,47 +927,50 @@ export function EstimateBuilder({
       toast.error("Enter the total you sold it for (before tax).");
       return;
     }
-    let followCost = 0; // cost of lines that follow the overall margin
-    let fixedSell = 0; // sell of lines that DON'T (overrides, flat, installed)
-    for (const l of opt.lines) {
-      const follows = l.line_type === "mat_labor" && l.margin_pct.trim() === "";
-      if (follows) followCost += lineOurCost(l);
-      else fixedSell += lineTotal(toCalc(l));
+    const currentSub = opt.lines.reduce((s, l) => s + lineTotal(toCalc(l)), 0);
+    if (currentSub <= 0) {
+      toast.error("Give the lines a starting price first, then set the total.");
+      return;
     }
-    const room = target - fixedSell;
-    if (followCost <= 0 || room <= 0) {
+    const totalCost = opt.lines.reduce((s, l) => s + lineOurCost(l), 0);
+    if (target < totalCost) {
       toast.error(
-        followCost <= 0
-          ? "Add priced material/labor lines first."
-          : "That total is below the fixed-price lines already on the estimate.",
+        `That total is below your cost (${formatMoney(totalCost)}). It would be a loss.`,
       );
       return;
     }
-    const m = (1 - followCost / room) * 100;
-    if (m <= 0) {
-      toast.error("That total is at or below your cost — no margin to set.");
-      return;
-    }
-    // Re-price the follow-lines at the EXACT margin with high-precision rates
-    // (rounding each per-unit rate to cents is what made the subtotal drift off
-    // the target). 6 decimals keeps the rate fields sane while the subtotal lands
-    // on the number exactly. Overridden / flat / installed lines keep their sell.
+    const k = target / currentSub;
+    // 6 decimals keeps rate fields sane while the subtotal lands exactly on target.
     const r6 = (n: number) => String(Math.round(n * 1e6) / 1e6);
-    setOverallMargin(round2s(m)); // clean value in the margin field
+    const scale = (v: string) => {
+      const n = num(v);
+      return n !== 0 ? r6(n * k) : v;
+    };
     setOptions((prev) =>
-      prev.map((o) => ({
-        ...o,
-        lines: o.lines.map((l) => {
-          if (l.line_type !== "mat_labor" || l.margin_pct.trim() !== "") return l;
-          const patch: Partial<LineState> = {};
-          if (num(l.material_cost) > 0) patch.material_rate = r6(priceFromMargin(num(l.material_cost), m));
-          if (num(l.labor_cost) > 0) patch.labor_rate = r6(priceFromMargin(num(l.labor_cost), m));
-          return { ...l, ...patch };
-        }),
-      })),
+      prev.map((o, oi) =>
+        oi !== safeActive
+          ? o
+          : {
+              ...o,
+              lines: o.lines.map((l) => ({
+                ...l,
+                material_rate: scale(l.material_rate),
+                labor_rate: scale(l.labor_rate),
+                installed_rate: scale(l.installed_rate),
+                flat_amount: scale(l.flat_amount),
+                // Prices are now explicit; drop stale per-line margin overrides.
+                margin_pct: "",
+              })),
+            },
+      ),
     );
+    // The real, honest margin for this total given the line costs.
+    const trueMargin = target > 0 ? (1 - totalCost / target) * 100 : 0;
+    setOverallMargin(round2s(Math.max(trueMargin, 0)));
     setTargetPrice("");
-    toast.success(`Priced to ${formatMoney(target)} before tax.`);
+    toast.success(
+      `Priced to ${formatMoney(target)} — ${Math.round(trueMargin)}% margin.`,
+    );
   };
 
   // Set/clear a line's margin override → re-price that line. "" = follow overall.
@@ -1595,8 +1601,9 @@ export function EstimateBuilder({
             <div className="min-w-0">
               <div className="text-sm font-semibold">Price it to a total</div>
               <div className="text-xs text-muted-foreground">
-                Sold at a set price? Enter the pre-tax total and I&apos;ll set the
-                margin so this option&apos;s subtotal lands there.
+                Sold at a set price? Enter the pre-tax total — the lines scale to
+                land on it exactly, and the margin shows your real margin at that
+                price. (A line with no price stays $0 — give it one first.)
               </div>
             </div>
             <div className="flex items-center gap-2">
