@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { listAllEstimates } from "@/lib/data/estimates";
 import { getProfileNames } from "@/lib/data/customers";
-import { optionTotals } from "@/lib/estimate-calc";
+import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
 import { LEAD_SOURCE_LABELS, type LeadSource } from "@/lib/types";
 
 export interface LeadSourceRow {
@@ -134,12 +134,22 @@ export async function getWinLossReport(
     const d = iso.slice(0, 10);
     return (!start || d >= start) && (!end || d <= end);
   };
+  // A deal is worth its true REVENUE: pre-tax (tax isn't ours) and after the
+  // discount the customer agreed to — the same basis the pipeline forecast
+  // uses, so the two pipeline views can't disagree on a quote's worth.
   const dealValue = (e: (typeof estimates)[number]) => {
     const opts = e.options ?? [];
     const opt =
       (e.accepted_option_id && opts.find((o) => o.id === e.accepted_option_id)) ||
       opts[0];
-    return opt ? optionTotals(opt.line_items ?? [], e.tax_rate).total : 0;
+    return opt
+      ? optionTotalsWithDiscount(
+          opt.line_items ?? [],
+          0,
+          e.discount_kind,
+          e.discount_value,
+        ).total
+      : 0;
   };
 
   let won = 0, lost = 0, open = 0, wonValue = 0, lostValue = 0, openValue = 0;
