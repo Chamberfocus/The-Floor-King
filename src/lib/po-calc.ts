@@ -20,14 +20,16 @@ export function poTotal(items: CalcPoItem[]): number {
 }
 
 /**
- * The ONE definition of a PO whose cost is real. A PO counts as committed spend
- * / job material cost only once it's been Ordered, Received, or Closed — never
- * while it's a draft (not yet a real order) or cancelled/void (called off).
- * Every financial view (period net, job profitability, per-job cost analysis,
- * purchasing spend) must use this so they can't disagree.
+ * The ONE set of PO statuses whose cost is real: Ordered, Received, or Closed —
+ * never a draft (not a real order yet) or cancelled/void (called off). Every
+ * financial view (period net, job profitability, per-job cost analysis,
+ * purchasing spend, customer costing) uses this so they can't disagree. Exposed
+ * as an array too, for Supabase `.in("status", ...)` filters.
  */
+export const COMMITTED_PO_STATUSES = ["ordered", "received", "closed"] as const;
+
 export function isCommittedPoStatus(status: string | null | undefined): boolean {
-  return status === "ordered" || status === "received" || status === "closed";
+  return (COMMITTED_PO_STATUSES as readonly string[]).includes(status ?? "");
 }
 
 export interface SavePoItemInput {

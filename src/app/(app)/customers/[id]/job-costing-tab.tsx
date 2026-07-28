@@ -1,14 +1,41 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Calculator } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CustomerCosting, CostComponent } from "@/lib/data/job-costing";
+import type { JobProfit } from "@/lib/data/finance";
 
 const NOT_COSTED = "Not yet costed";
+
+/** The owner-only profit view for one job (fuel/car/commission are internal). */
+export type JobProfitLite = Pick<
+  JobProfit,
+  | "revenue"
+  | "revenueIsActual"
+  | "billed"
+  | "quotedRevenue"
+  | "materialCost"
+  | "laborCost"
+  | "otherCost"
+  | "fuelCost"
+  | "carCost"
+  | "commissionCost"
+  | "cost"
+  | "profit"
+  | "margin"
+>;
 
 function tone(v: number | null): string {
   if (v == null || v === 0) return "text-muted-foreground";
@@ -55,8 +82,16 @@ function Trio({ label, c }: { label: string; c: CostComponent }) {
   );
 }
 
-export function JobCostingTab({ data }: { data: CustomerCosting }) {
+export function JobCostingTab({
+  data,
+  profit,
+}: {
+  data: CustomerCosting;
+  /** Per-job profit breakdown, keyed by job id. Owner-only (omit for others). */
+  profit?: Record<string, JobProfitLite>;
+}) {
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [profitJob, setProfitJob] = useState<string | null>(null);
   const toggle = (id: string) =>
     setOpen((prev) => {
       const next = new Set(prev);
@@ -66,6 +101,10 @@ export function JobCostingTab({ data }: { data: CustomerCosting }) {
     });
 
   const { rows, summary } = data;
+  const activeProfit = profitJob ? profit?.[profitJob] : null;
+  const activeTitle = profitJob
+    ? (rows.find((r) => r.jobId === profitJob)?.title ?? "Job")
+    : "";
 
   return (
     <Card id="costing" className="scroll-mt-24">
@@ -155,6 +194,20 @@ export function JobCostingTab({ data }: { data: CustomerCosting }) {
                             />
                             {r.title}
                           </div>
+                          {profit?.[r.jobId] ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="mt-1.5 h-7 gap-1 text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setProfitJob(r.jobId);
+                              }}
+                            >
+                              <Calculator className="size-3.5" /> Cost vs profit
+                            </Button>
+                          ) : null}
                         </td>
                         <td className="px-3 py-2.5">
                           <JobStatusBadge status={r.status} />
@@ -229,6 +282,100 @@ export function JobCostingTab({ data }: { data: CustomerCosting }) {
           </div>
         )}
       </CardContent>
+
+      {/* Owner-only cost → profit breakdown for one job */}
+      <Dialog open={profitJob != null} onOpenChange={(o) => !o && setProfitJob(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cost vs profit — {activeTitle}</DialogTitle>
+            <DialogDescription>
+              The real math on this job: revenue minus every cost, including fuel,
+              vehicle, and commission. Internal only — never shown to the customer.
+            </DialogDescription>
+          </DialogHeader>
+          {activeProfit ? <ProfitBreakdown p={activeProfit} /> : null}
+        </DialogContent>
+      </Dialog>
     </Card>
+  );
+}
+
+/** A single cost line in the waterfall (shown as a subtraction). */
+function CostLine({ label, value, hint }: { label: string; value: number; hint?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
+      <span className="text-muted-foreground">
+        {label}
+        {hint ? <span className="ml-1 text-xs text-muted-foreground/70">{hint}</span> : null}
+      </span>
+      <span className="tabular-nums">
+        {value > 0 ? "−" : ""}
+        {formatMoney(Math.abs(value))}
+      </span>
+    </div>
+  );
+}
+
+/** Revenue → costs → profit waterfall, with the internal overheads broken out
+ *  so the owner sees exactly what's left after fuel, vehicle, and commission. */
+function ProfitBreakdown({ p }: { p: JobProfitLite }) {
+  const profitable = p.profit >= 0;
+  return (
+    <div className="space-y-3">
+      {/* Revenue */}
+      <div className="flex items-baseline justify-between gap-3 rounded-md bg-muted/50 px-3 py-2">
+        <span className="text-sm font-medium">
+          Revenue
+          <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+            {p.revenueIsActual ? "(invoiced)" : "(quoted)"}
+          </span>
+        </span>
+        <span className="text-lg font-semibold tabular-nums">{formatMoney(p.revenue)}</span>
+      </div>
+
+      {/* Direct job costs */}
+      <div className="border-b pb-2">
+        <CostLine label="Material" value={p.materialCost} />
+        <CostLine label="Labor" value={p.laborCost} />
+        {p.otherCost !== 0 ? <CostLine label="Other expenses" value={p.otherCost} /> : null}
+      </div>
+
+      {/* Internal overheads — the lines the owner asked to see */}
+      <div className="border-b pb-2">
+        <div className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Internal (hidden from customer)
+        </div>
+        <CostLine label="Fuel" value={p.fuelCost} />
+        <CostLine label="Vehicle / car" value={p.carCost} />
+        <CostLine label="Commission" value={p.commissionCost} hint="% of revenue" />
+      </div>
+
+      {/* Totals */}
+      <div className="flex items-baseline justify-between gap-3 text-sm">
+        <span className="font-medium">Total cost</span>
+        <span className="tabular-nums">{formatMoney(p.cost)}</span>
+      </div>
+      <div
+        className={cn(
+          "flex items-baseline justify-between gap-3 rounded-md px-3 py-2",
+          profitable
+            ? "bg-emerald-50 dark:bg-emerald-500/10"
+            : "bg-destructive/10",
+        )}
+      >
+        <span className="text-sm font-semibold">Profit</span>
+        <span
+          className={cn(
+            "text-lg font-bold tabular-nums",
+            profitable ? "text-emerald-600 dark:text-emerald-400" : "text-destructive",
+          )}
+        >
+          {formatMoney(p.profit)}
+          <span className="ml-2 text-sm font-medium">
+            {p.margin.toFixed(1)}%
+          </span>
+        </span>
+      </div>
+    </div>
   );
 }

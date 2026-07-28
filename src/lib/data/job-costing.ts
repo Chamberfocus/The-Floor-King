@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { optionCostTotals } from "@/lib/estimate-calc";
+import { COMMITTED_PO_STATUSES } from "@/lib/po-calc";
 import { round2, variancePercent } from "@/lib/job-costing";
 import type { EstimateLineItem, JobStatus } from "@/lib/types";
 
@@ -40,7 +41,7 @@ export interface CustomerCosting {
   };
 }
 
-const COMMITTED: string[] = ["ordered", "received"]; // real material spend (finance.ts)
+const COMMITTED: readonly string[] = COMMITTED_PO_STATUSES; // real material spend (finance.ts)
 
 /**
  * Read-only per-customer cost comparison. Estimated figures come from the job's
@@ -141,7 +142,7 @@ export async function getCustomerJobCosting(
       .from("purchase_orders")
       .select(poSelect)
       .in("estimate_id", estimateIds)
-      .in("status", COMMITTED);
+      .in("status", [...COMMITTED]);
     for (const p of (data ?? []) as never[]) attributePo(p);
   }
   {
@@ -149,7 +150,7 @@ export async function getCustomerJobCosting(
       .from("purchase_orders")
       .select(poSelect)
       .in("job_id", jobIds)
-      .in("status", COMMITTED);
+      .in("status", [...COMMITTED]);
     for (const p of (data ?? []) as never[]) attributePo(p);
   }
   // Materials pulled from our own stock — real cost to the job.

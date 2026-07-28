@@ -127,7 +127,8 @@ import { QuickActions } from "./quick-actions";
 import { CustomerSwitcher } from "./customer-switcher";
 import { DocumentShortcuts, type DocJob } from "./document-shortcuts";
 import { getCustomerJobCosting } from "@/lib/data/job-costing";
-import { JobCostingTab } from "./job-costing-tab";
+import { getJobProfitability } from "@/lib/data/finance";
+import { JobCostingTab, type JobProfitLite } from "./job-costing-tab";
 import { getUserPreferences } from "@/lib/data/preferences";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
@@ -198,6 +199,32 @@ export default async function CustomerPage({
   const handoffMembers = await listHandoffMembers();
   // Read-only per-job estimated-vs-actual costing for the Job Costing tab.
   const costing = await getCustomerJobCosting(id);
+  // Owner-only real profit breakdown (revenue − material/labor/other + the
+  // internal fuel/car/commission), keyed by job for the "cost vs profit" popup.
+  // Uses the ONE source of truth (getJobProfitability) so it matches the
+  // dashboard/scorecard exactly. Never computed for non-owners.
+  const jobProfit: Record<string, JobProfitLite> = {};
+  if (profile.role === "admin" && costing.rows.length) {
+    const ids = new Set(costing.rows.map((r) => r.jobId));
+    for (const jp of await getJobProfitability()) {
+      if (!ids.has(jp.jobId)) continue;
+      jobProfit[jp.jobId] = {
+        revenue: jp.revenue,
+        revenueIsActual: jp.revenueIsActual,
+        billed: jp.billed,
+        quotedRevenue: jp.quotedRevenue,
+        materialCost: jp.materialCost,
+        laborCost: jp.laborCost,
+        otherCost: jp.otherCost,
+        fuelCost: jp.fuelCost,
+        carCost: jp.carCost,
+        commissionCost: jp.commissionCost,
+        cost: jp.cost,
+        profit: jp.profit,
+        margin: jp.margin,
+      };
+    }
+  }
   // Manageable cancellation reasons for the Cancel dialog.
   const cancelReasons = await listCancelReasons({ activeOnly: true });
   const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
@@ -983,7 +1010,7 @@ export default async function CustomerPage({
         >
           {/* Job Costing — read-only estimated vs actual, per job (off Overview) */}
           <TabSection tab="costing" overview={false}>
-            <JobCostingTab data={costing} />
+            <JobCostingTab data={costing} profit={jobProfit} />
           </TabSection>
 
           {/* Chat + AI follow-up draft — Messages tab */}

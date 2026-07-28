@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { isCommittedPoStatus } from "@/lib/po-calc";
+import { isCommittedPoStatus, COMMITTED_PO_STATUSES } from "@/lib/po-calc";
 import type { PoItem, PurchaseOrder } from "@/lib/types";
 import type { CutSource } from "@/lib/job-scope";
 
@@ -356,7 +356,7 @@ export async function getPurchasingSpend(
     const { data: posData } = await supabase
       .from("purchase_orders")
       .select("id, supplier, supplier_id, status, supplier_rec:suppliers(name, kind)")
-      .in("status", ["ordered", "received", "closed"])
+      .in("status", [...COMMITTED_PO_STATUSES])
       .gte("created_at", startISO)
       .lte("created_at", endISO);
     const pos = posData ?? [];
