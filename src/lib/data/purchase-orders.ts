@@ -36,11 +36,11 @@ export async function getEstimateCutSources(
 }
 
 const CUT_COLS =
-  "room, description, category, length_in, width_in, measurements, is_fill, roll_width_ft, manufacturer, color";
+  "room, description, category, length_in, width_in, sqft, measurements, is_fill, roll_width_ft, manufacturer, color";
 // Before the measurements column (0128) is run, the select above errors — fall
 // back to the legacy columns so the cut list still renders (from the single cut).
 const CUT_COLS_LEGACY =
-  "room, description, category, length_in, width_in, is_fill, roll_width_ft, manufacturer, color";
+  "room, description, category, length_in, width_in, sqft, is_fill, roll_width_ft, manufacturer, color";
 
 async function fetchCutSources(
   supabase: SupabaseServerClient,

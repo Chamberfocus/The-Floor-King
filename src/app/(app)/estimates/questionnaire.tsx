@@ -32,6 +32,7 @@ import { profileFor } from "@/lib/flooring-profiles";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets } from "@/lib/questionnaire-calc";
 import { bagsNeeded } from "@/lib/floor-prep";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
+import { isRollGoodCategory } from "@/lib/types";
 import { AreaCalculator } from "@/components/area-calculator";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
 import {
@@ -728,16 +729,51 @@ export function Questionnaire({
         const matLine = (
           p: ProductAns,
           qty: number,
-          size?: { room?: string | null; sqft?: number | null; lenIn?: number | null; widIn?: number | null },
-        ): SmartLine => ({
+          size?: {
+            room?: string | null;
+            sqft?: number | null;
+            lenIn?: number | null;
+            widIn?: number | null;
+            /** Explicit cut pieces (roll goods) → each becomes a warehouse cut. */
+            cuts?: { label: string | null; lenIn: number; widIn: number }[];
+          },
+        ): SmartLine => {
+          // For carpet / sheet vinyl, ALWAYS carry the cut(s) so the warehouse
+          // cut sheet can never come up empty: use explicit cuts, else the single
+          // L×W, else derive one from the area at the roll width.
+          const roll = isRollGoodCategory(cat);
+          let measurements: SmartLine["measurements"] = null;
+          if (roll) {
+            const pieces = (size?.cuts ?? []).filter((c) => c.lenIn > 0 && c.widIn > 0);
+            if (pieces.length) {
+              measurements = pieces.map((c) => ({
+                label: c.label,
+                length_in: c.lenIn,
+                width_in: c.widIn,
+                op: "add" as const,
+              }));
+            } else if ((size?.lenIn ?? 0) > 0 && (size?.widIn ?? 0) > 0) {
+              measurements = [
+                { label: size?.room ?? null, length_in: size!.lenIn!, width_in: size!.widIn!, op: "add" as const },
+              ];
+            } else if ((size?.sqft ?? 0) > 0) {
+              // No dimensions measured — derive one cut from the area @ 12' roll.
+              const sf = size!.sqft!;
+              measurements = [
+                { label: size?.room ?? null, length_in: r2((sf / 12) * 12), width_in: 144, op: "add" as const },
+              ];
+            }
+          }
+          return {
           room: size?.room ?? null,
           description: p.label || cat,
           category: cat,
           measure_unit: b.measureUnit,
           sqft: size?.sqft ?? null, // the measurement, carried for confirmation
           quantity: qty,
-          length_in: size?.lenIn ?? null,
-          width_in: size?.widIn ?? null,
+          length_in: measurements?.[0]?.length_in ?? size?.lenIn ?? null,
+          width_in: measurements?.[0]?.width_in ?? size?.widIn ?? null,
+          measurements,
           unit: b.unitLabel,
           material_rate: sellAt(rateFor(p.materialRate, p.unit, b.wantYd)),
           labor_rate: 0,
@@ -752,7 +788,8 @@ export function Questionnaire({
           color: p.color,
           from_stock: p.source === "stock",
           sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
-        });
+          };
+        };
         // Quantity to order/charge for `sf` sq ft of a product. Waste is baked
         // in; if a box size is set we snap UP to whole cartons so you charge for
         // exactly the material you buy.
@@ -785,7 +822,22 @@ export function Questionnaire({
               if (qty > 0) out.push(matLine(p, qty, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
             }
           } else if (coverSf > 0) {
-            out.push(matLine(p, qtyForProduct(coverSf, p), { sqft: coverSf }));
+            // A bundled roll-good (carpet/vinyl) line still carries EVERY measured
+            // room as its own cut, so the warehouse cut sheet is never short a
+            // piece. Rooms measured by L×W become exact cuts; the rest fall back
+            // to the area in matLine.
+            const bundledCuts =
+              isRollGoodCategory(cat)
+                ? allRooms
+                    .filter((rm) => (rm.lenIn ?? 0) > 0 && (rm.widIn ?? 0) > 0)
+                    .map((rm) => ({ label: rm.name || null, lenIn: rm.lenIn as number, widIn: rm.widIn as number }))
+                : undefined;
+            out.push(
+              matLine(p, qtyForProduct(coverSf, p), {
+                sqft: coverSf,
+                cuts: bundledCuts && bundledCuts.length ? bundledCuts : undefined,
+              }),
+            );
           }
           // Install labor — bundled, with the total area recorded.
           const lr = rateFor(p.laborRate, p.unit, b.wantYd);

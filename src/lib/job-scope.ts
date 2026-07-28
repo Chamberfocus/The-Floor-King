@@ -91,6 +91,9 @@ export interface CutSource {
   category: string | null;
   length_in: number | null;
   width_in: number | null;
+  /** The line's area — a safety net so a carpet line with yardage but no cut
+   *  dimensions still yields a cut (derived from sq ft ÷ roll width). */
+  sqft?: number | null;
   is_fill?: boolean | null;
   roll_width_ft?: number | null;
   manufacturer?: string | null;
@@ -159,7 +162,7 @@ export function carpetCutList(items: CutSource[]): {
       }));
     const len = Number(l.length_in) || 0;
     const wid = Number(l.width_in) || 0;
-    const lineCuts = measured.length
+    let lineCuts = measured.length
       ? measured
       : (len > 0 && wid > 0
           ? [{ lengthIn: len, widthIn: wid, room: null as string | null }]
@@ -167,6 +170,18 @@ export function carpetCutList(items: CutSource[]): {
               ...c,
               room: null as string | null,
             })));
+    // SAFETY NET: a carpet line with real yardage but no cut dimensions must
+    // NEVER vanish from the cut sheet. Derive one cut from the area at the roll
+    // width (default 12'), labelled with its room, so the warehouse still gets it.
+    if (!lineCuts.length) {
+      const sf = Number(l.sqft) || 0;
+      if (sf > 0) {
+        const rollFt = Number(l.roll_width_ft) > 0 ? Number(l.roll_width_ft) : 12;
+        const widthIn = rollFt * 12;
+        const lengthIn = Math.round((sf / rollFt) * 12 * 100) / 100;
+        lineCuts = [{ lengthIn, widthIn, room: (l.room && l.room.trim()) || null }];
+      }
+    }
     if (!lineCuts.length) continue;
     // Product name without the "— cuts: …" text the legacy flow appended.
     const baseName = (l.description ?? "").replace(/\s*[—–-]?\s*cuts?:.*$/i, "").trim();

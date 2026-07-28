@@ -20,6 +20,7 @@ export interface JobMaterialLine {
   isFill: boolean; // carpet: a fill / seam piece cut for an area
   lengthIn: number | null; // cut measurements to order (carpet especially)
   widthIn: number | null;
+  sqftArea: number | null; // the line's measured area (cut-list safety net)
   measurements: LineMeasurement[] | null; // first-class measured pieces / cuts
   qty: number; // quantity needed for the job
   unit: string;
@@ -227,6 +228,7 @@ export async function getJobMaterials(
       category: p?.category ?? l.category ?? null,
       lengthIn: l.length_in ?? null,
       widthIn: l.width_in ?? null,
+      sqftArea: l.sqft == null || l.sqft === "" ? null : Number(l.sqft),
       measurements: l.measurements ?? null,
       qty,
       unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
