@@ -44,6 +44,38 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
         </p>
       </div>
 
+      <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
+        <div className="text-sm font-semibold">
+          Per-job internal costs{" "}
+          <span className="font-normal text-muted-foreground">
+            — folded into your true profit, never shown to the customer
+          </span>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Fuel &amp; vehicle per job ($)</label>
+          <Input
+            name="job_fuel_fee"
+            inputMode="decimal"
+            defaultValue={String(settings.job_fuel_fee)}
+          />
+          <p className="text-xs text-muted-foreground">
+            A flat amount added to every job&apos;s cost (fuel reimbursement, car
+            repair). Reduces the profit you see while pricing.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Commission (% of the sale)</label>
+          <Input
+            name="job_commission_pct"
+            inputMode="decimal"
+            defaultValue={String(settings.job_commission_pct)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Deducted from every job&apos;s profit as a percent of the sale price.
+          </p>
+        </div>
+      </div>
+
       <Button type="submit" disabled={pending}>
         {pending ? "Saving…" : "Save targets"}
       </Button>

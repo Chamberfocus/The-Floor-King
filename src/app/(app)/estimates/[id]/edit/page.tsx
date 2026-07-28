@@ -4,6 +4,7 @@ import { getEstimate, listLineSuggestions } from "@/lib/data/estimates";
 import { listAddonCatalog } from "@/lib/data/addon-defaults";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
+import { getBusinessSettings } from "@/lib/data/business-settings";
 import { createClient } from "@/lib/supabase/server";
 import { getEstimateBuilderDraft } from "../../actions";
 import { EstimateBuilder } from "../../estimate-builder";
@@ -23,6 +24,7 @@ export default async function EditEstimatePage({
 
   const customer = await getCustomer(estimate.customer_id);
   const org = await getOrgSettings();
+  const biz = await getBusinessSettings();
   const suggestions = await listLineSuggestions();
   const addonCatalog = await listAddonCatalog();
   const autoPrint = (await searchParams).print === "1";
@@ -65,6 +67,8 @@ export default async function EditEstimatePage({
       customerName={customer?.full_name ?? "customer"}
       customer={customer}
       org={org}
+      fuelFee={biz.job_fuel_fee}
+      commissionPct={biz.job_commission_pct}
       autoPrint={autoPrint}
       colorSuggestions={suggestions.colors}
       manufacturerSuggestions={suggestions.manufacturers}

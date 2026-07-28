@@ -287,6 +287,8 @@ export function EstimateBuilder({
   customerName,
   customer = null,
   org,
+  fuelFee = 0,
+  commissionPct = 0,
   autoPrint = false,
   colorSuggestions = [],
   manufacturerSuggestions = [],
@@ -299,6 +301,10 @@ export function EstimateBuilder({
   customerName: string;
   customer?: Customer | null;
   org?: OrgSettings;
+  /** Flat per-job fuel/vehicle cost + commission % of sale — internal, folded
+   *  into the owner's true profit, NEVER shown to the customer. */
+  fuelFee?: number;
+  commissionPct?: number;
   autoPrint?: boolean;
   /** Unsaved in-progress edits (auto-saved as you type), restored on return. */
   builderDraft?: unknown;
@@ -545,6 +551,9 @@ export function EstimateBuilder({
   // Which line's edit panel is open — one at a time, so you edit a single line
   // in a focused box instead of the whole page at once.
   const [activeLine, setActiveLine] = useState<string | null>(null);
+  // "Sold it for a round number" tool — type the pre-tax total and it back-solves
+  // the overall margin so this option's subtotal lands there.
+  const [targetPrice, setTargetPrice] = useState("");
   const toggleLine = (key: string) =>
     setActiveLine((cur) => (cur === key ? null : key));
 
@@ -900,6 +909,42 @@ export function EstimateBuilder({
         lines: o.lines.map((l) => (l.margin_pct.trim() !== "" ? l : { ...l, ...ratesFromMargin(l, m) })),
       })),
     );
+  };
+
+  // Back-solve the overall margin from a target PRE-TAX subtotal for the option
+  // being built. Lines with their own margin (or flat/installed) keep their sell;
+  // the rest re-price so the subtotal hits the target. Then all lines re-price.
+  const solveMarginForTarget = () => {
+    const target = num(targetPrice);
+    const opt = options[safeActive];
+    if (!opt) return;
+    if (target <= 0) {
+      toast.error("Enter the total you sold it for (before tax).");
+      return;
+    }
+    let followCost = 0; // cost of lines that follow the overall margin
+    let fixedSell = 0; // sell of lines that DON'T (overrides, flat, installed)
+    for (const l of opt.lines) {
+      const follows = l.line_type === "mat_labor" && l.margin_pct.trim() === "";
+      if (follows) followCost += lineOurCost(l);
+      else fixedSell += lineTotal(toCalc(l));
+    }
+    const room = target - fixedSell;
+    if (followCost <= 0 || room <= 0) {
+      toast.error(
+        followCost <= 0
+          ? "Add priced material/labor lines first."
+          : "That total is below the fixed-price lines already on the estimate.",
+      );
+      return;
+    }
+    const m = (1 - followCost / room) * 100;
+    if (m <= 0) {
+      toast.error("That total is at or below your cost — no margin to set.");
+      return;
+    }
+    changeOverallMargin(round2s(Math.min(m, 99)));
+    toast.success(`Margin set to hit ${formatMoney(target)} before tax.`);
   };
 
   // Set/clear a line's margin override → re-price that line. "" = follow overall.
@@ -1524,6 +1569,41 @@ export function EstimateBuilder({
             </div>
           </div>
 
+          {/* Sold it for a price? Type the total (before tax) and it sets the
+              margin to hit it exactly. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/30 p-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">Price it to a total</div>
+              <div className="text-xs text-muted-foreground">
+                Sold at a set price? Enter the pre-tax total and I&apos;ll set the
+                margin so this option&apos;s subtotal lands there.
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-semibold text-muted-foreground">$</span>
+              <Input
+                type="number"
+                step="any"
+                min="0"
+                inputMode="decimal"
+                value={targetPrice}
+                onChange={(e) => setTargetPrice(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    solveMarginForTarget();
+                  }
+                }}
+                placeholder="12,000"
+                className="h-11 w-32 text-lg font-semibold"
+                aria-label="Target total before tax"
+              />
+              <Button type="button" onClick={solveMarginForTarget}>
+                Set margin
+              </Button>
+            </div>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="title">Estimate title</Label>
@@ -1654,7 +1734,12 @@ export function EstimateBuilder({
             },
             { mat: 0, labor: 0 },
           );
-          const optionProfit = netRevenue - optionCost;
+          // Internal per-job costs the customer never sees: flat fuel/vehicle +
+          // commission % of the sale. Folded into TRUE profit.
+          const fuel = netRevenue > 0 ? num(fuelFee) : 0;
+          const commission = (num(commissionPct) / 100) * netRevenue;
+          const optionCostAll = optionCost + fuel + commission;
+          const optionProfit = netRevenue - optionCostAll;
           const optionMargin =
             netRevenue > 0 ? (optionProfit / netRevenue) * 100 : 0;
 
@@ -2789,7 +2874,19 @@ export function EstimateBuilder({
                           </span>
                         </div>
                       ) : null}
-                      <div className="flex justify-between text-muted-foreground">
+                      {fuel > 0 ? (
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Fuel &amp; vehicle</span>
+                          <span className="tabular-nums">{formatMoney(fuel)}</span>
+                        </div>
+                      ) : null}
+                      {commission > 0 ? (
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Commission ({num(commissionPct)}%)</span>
+                          <span className="tabular-nums">{formatMoney(commission)}</span>
+                        </div>
+                      ) : null}
+                      <div className="flex justify-between font-medium text-foreground">
                         <span>Profit</span>
                         <span className="tabular-nums">
                           {formatMoney(optionProfit)}

@@ -12,6 +12,8 @@ const DEFAULTS: BusinessSettings = {
   installer_collects_balance: false,
   notify_staff: true,
   notify_customers: false,
+  job_fuel_fee: 160,
+  job_commission_pct: 3.5,
   updated_at: "",
 };
 

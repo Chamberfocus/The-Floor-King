@@ -1411,6 +1411,8 @@ export interface BusinessSettings {
   installer_collects_balance: boolean; // installers can collect the balance on site
   notify_staff: boolean; // texts/emails to staff, installers, warehouse, sales
   notify_customers: boolean; // texts/emails to customers (off until ready)
+  job_fuel_fee: number; // flat internal fuel/vehicle cost per job (hidden from customer)
+  job_commission_pct: number; // internal commission % of the sale (hidden from customer)
   updated_at: string;
 }
 
