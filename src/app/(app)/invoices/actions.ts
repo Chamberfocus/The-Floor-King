@@ -55,11 +55,32 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** The sell price of one estimate line — the exact number the invoice bills.
+ *  Mirrors estimate-calc's lineTotal: waste rides on material, labor lines
+ *  charge labor only, area lines price by measured area × rate × waste. */
+function sellLineTotal(l: EstimateLineItem): number {
+  if (l.line_type === "flat") return Number(l.flat_amount) || 0;
+  const wasteMult = 1 + (Number(l.waste_pct) || 0) / 100;
+  const isLabor = (l.category ?? null) === "labor";
+  const unitRate =
+    l.line_type === "mat_labor"
+      ? (isLabor ? 0 : (Number(l.material_rate) || 0) * wasteMult) +
+        (Number(l.labor_rate) || 0)
+      : (Number(l.installed_rate) || 0) * wasteMult;
+  return lineQty(l) * unitRate;
+}
+
 async function nextInvoiceNumber(supabase: SupabaseServerClient): Promise<string> {
-  const { count } = await supabase
-    .from("invoices")
-    .select("id", { count: "exact", head: true });
-  return `INV-${1000 + (count ?? 0) + 1}`;
+  // Base the next number on the HIGHEST existing "INV-####", not the row count —
+  // counting breaks when an invoice is deleted (the count drops and the next
+  // number reuses a live one). Scan the current numbers and take max + 1.
+  const { data } = await supabase.from("invoices").select("number").limit(10000);
+  let max = 1000;
+  for (const r of data ?? []) {
+    const m = /(\d+)\s*$/.exec((r.number as string | null) ?? "");
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `INV-${max + 1}`;
 }
 
 /** Recompute paid/partial status from items + payments. */
@@ -169,9 +190,12 @@ export async function createInvoiceFromEstimate(
     //   line total = fullQty × unitRate  (exactly the estimate's lineTotal)
     //   shown as    roundedQty × adjRate (same amount, tidy quantity)
     const wasteMult = 1 + (Number(l.waste_pct) || 0) / 100;
+    // A labor line charges labor only — never re-add a stray material rate (this
+    // must match the estimate's lineTotal, which zeroes material on labor lines).
+    const isLabor = (l.category ?? null) === "labor";
     const unitRate =
       l.line_type === "mat_labor"
-        ? (l.material_rate ?? 0) * wasteMult + (l.labor_rate ?? 0)
+        ? (isLabor ? 0 : (l.material_rate ?? 0) * wasteMult) + (l.labor_rate ?? 0)
         : (l.installed_rate ?? 0) * wasteMult;
     const fullQty = lineQty(l);
     const shownQty = Math.round(fullQty * 100) / 100;
@@ -221,7 +245,7 @@ export async function createInvoiceFromSelection(
   const supabase = await createClient();
   const { data: est } = await supabase
     .from("estimates")
-    .select("id, customer_id, tax_rate")
+    .select("id, customer_id, tax_rate, discount_kind, discount_value")
     .eq("id", estimateId)
     .maybeSingle();
   if (!est) return;
@@ -271,9 +295,12 @@ export async function createInvoiceFromSelection(
     //   line total = fullQty × unitRate  (exactly the estimate's lineTotal)
     //   shown as    roundedQty × adjRate (same amount, tidy quantity)
     const wasteMult = 1 + (Number(l.waste_pct) || 0) / 100;
+    // A labor line charges labor only — never re-add a stray material rate (this
+    // must match the estimate's lineTotal, which zeroes material on labor lines).
+    const isLabor = (l.category ?? null) === "labor";
     const unitRate =
       l.line_type === "mat_labor"
-        ? (l.material_rate ?? 0) * wasteMult + (l.labor_rate ?? 0)
+        ? (isLabor ? 0 : (l.material_rate ?? 0) * wasteMult) + (l.labor_rate ?? 0)
         : (l.installed_rate ?? 0) * wasteMult;
     const fullQty = lineQty(l);
     const shownQty = Math.round(fullQty * 100) / 100;
@@ -288,6 +315,46 @@ export async function createInvoiceFromSelection(
       rate: adjRate,
     };
   });
+
+  // Carry the estimate's discount so a billed subset matches the approved
+  // price. A PERCENT discount applies cleanly to whatever subset is billed. A
+  // FIXED-dollar discount belongs to the WHOLE estimate, so we bill only the
+  // selected share of it (prorated by sell value) — never the full dollar
+  // amount against a partial invoice.
+  if (est.discount_value && Number(est.discount_value) > 0) {
+    const selectedSub = lines.reduce((s, l) => s + sellLineTotal(l), 0);
+    let disc = 0;
+    if (est.discount_kind === "percent") {
+      disc = discountAmount(selectedSub, "percent", est.discount_value);
+    } else {
+      // Prorate the fixed discount against the FULL option(s) the selected
+      // lines belong to (line items are keyed by option, not estimate).
+      const optionIds = [...new Set(lines.map((l) => l.option_id))];
+      const { data: allLines } = optionIds.length
+        ? await supabase
+            .from("estimate_line_items")
+            .select("*")
+            .in("option_id", optionIds)
+        : { data: [] };
+      const fullSub = ((allLines ?? []) as EstimateLineItem[]).reduce(
+        (s, l) => s + sellLineTotal(l),
+        0,
+      );
+      const share = fullSub > 0 ? Math.min(1, selectedSub / fullSub) : 0;
+      disc = Math.min(Number(est.discount_value) * share, selectedSub);
+    }
+    if (disc > 0) {
+      items.push({
+        invoice_id: invoice.id,
+        position: items.length,
+        description: "Discount",
+        quantity: 1,
+        unit: "ea",
+        rate: -Math.round(disc * 100) / 100,
+      });
+    }
+  }
+
   if (items.length) await supabase.from("invoice_items").insert(items);
 
   revalidatePath("/invoices");
@@ -438,17 +505,33 @@ export async function recordCardPayment(
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Prefer the customer's most recent non-void invoice; else create one so the
-  // deposit has somewhere to live.
-  const { data: existing } = await supabase
+  // Apply the card to the customer's invoice with an OPEN balance (the one they
+  // actually owe on) — NOT just the most recent, which could be a fully-paid
+  // invoice for a different job. If none is open, make a fresh invoice so the
+  // deposit lands on its own record and never overpays a closed contract.
+  const { data: candidates } = await supabase
     .from("invoices")
-    .select("id")
+    .select("id, tax_rate, status")
     .eq("customer_id", customerId)
     .neq("status", "void")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  let invoiceId = (existing?.id as string | undefined) ?? undefined;
+    .order("created_at", { ascending: false });
+  let invoiceId: string | undefined;
+  for (const inv of candidates ?? []) {
+    const [{ data: items }, { data: pays }] = await Promise.all([
+      supabase.from("invoice_items").select("quantity, rate").eq("invoice_id", inv.id),
+      supabase.from("payments").select("amount").eq("invoice_id", inv.id),
+    ]);
+    const total = invoiceTotals(
+      (items ?? []) as { quantity: number | null; rate: number | null }[],
+      inv.tax_rate as number,
+      0,
+    ).total;
+    const paid = (pays ?? []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    if (total - paid > 0.005) {
+      invoiceId = inv.id as string;
+      break;
+    }
+  }
   if (!invoiceId) {
     const { data: inv, error } = await supabase
       .from("invoices")
