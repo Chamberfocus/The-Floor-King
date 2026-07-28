@@ -721,14 +721,16 @@ export function Questionnaire({
       } else if (q.kind === "product" && a.kind === "product") {
         const cat = q.config.category || "other";
         const b = billing(cat);
-        // Editable waste per product (falls back to the category default). Baked
-        // into the ordered quantity — waste_pct stays 0 so the price isn't
-        // double-charged (pricing multiplies material_rate by waste_pct).
+        // Editable waste per product (falls back to the category default).
+        // Flooring is AREA-billed: the builder prices measured area ×
+        // material_cost × (1 + waste_pct/100) and IGNORES the stored quantity,
+        // so waste MUST ride through waste_pct — baking it into quantity drops
+        // it (the same bug that was fixed on the per-room path). Box count is
+        // derived from sqft ÷ sqft_per_box in the builder, display-only.
         const defWaste = profileFor(cat)?.waste ?? 0;
         const wasteOf = (p: ProductAns) => (p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste);
         const matLine = (
           p: ProductAns,
-          qty: number,
           size?: {
             room?: string | null;
             sqft?: number | null;
@@ -770,7 +772,9 @@ export function Questionnaire({
           category: cat,
           measure_unit: b.measureUnit,
           sqft: size?.sqft ?? null, // the measurement, carried for confirmation
-          quantity: qty,
+          // Raw measured area in the billing unit (no waste, no box snap) — the
+          // waste is applied via waste_pct so area pricing charges it.
+          quantity: b.wantYd ? r2((size?.sqft ?? 0) / 9) : r2(size?.sqft ?? 0),
           length_in: measurements?.[0]?.length_in ?? size?.lenIn ?? null,
           width_in: measurements?.[0]?.width_in ?? size?.widIn ?? null,
           measurements,
@@ -779,7 +783,7 @@ export function Questionnaire({
           labor_rate: 0,
           material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
           labor_cost: 0,
-          waste_pct: 0,
+          waste_pct: wasteOf(p),
           product_id: p.productId || null,
           // Vendor override rides on manufacturer (the PO's name fallback) only
           // when you explicitly set one; otherwise keep the real manufacturer.
@@ -789,19 +793,6 @@ export function Questionnaire({
           from_stock: p.source === "stock",
           sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
           };
-        };
-        // Quantity to order/charge for `sf` sq ft of a product. Waste is baked
-        // in; if a box size is set we snap UP to whole cartons so you charge for
-        // exactly the material you buy.
-        const qtyForProduct = (sf: number, p: ProductAns) => {
-          const adj = sf * (1 + wasteOf(p) / 100);
-          const spb = numv(p.sqftPerBox);
-          if (spb > 0) {
-            const boxes = Math.ceil(adj / spb);
-            const billed = boxes * spb;
-            return b.wantYd ? r2(billed / 9) : billed;
-          }
-          return Math.ceil(b.wantYd ? adj / 9 : adj);
         };
         if (a.product) {
           const p = a.product;
@@ -818,8 +809,7 @@ export function Questionnaire({
             cat !== "underlayment" && cat !== "trim" && cat !== "other" && allRooms.length > 0 && !boxed;
           if (perRoomFloor) {
             for (const rm of allRooms) {
-              const qty = qtyForProduct(rm.sqft, p);
-              if (qty > 0) out.push(matLine(p, qty, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
+              if (rm.sqft > 0) out.push(matLine(p, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
             }
           } else if (coverSf > 0) {
             // A bundled roll-good (carpet/vinyl) line still carries EVERY measured
@@ -833,7 +823,7 @@ export function Questionnaire({
                     .map((rm) => ({ label: rm.name || null, lenIn: rm.lenIn as number, widIn: rm.widIn as number }))
                 : undefined;
             out.push(
-              matLine(p, qtyForProduct(coverSf, p), {
+              matLine(p, {
                 sqft: coverSf,
                 cuts: bundledCuts && bundledCuts.length ? bundledCuts : undefined,
               }),
@@ -870,8 +860,7 @@ export function Questionnaire({
         // stairs) — each its own material line, quantity from its own area.
         for (const ex of a.extras) {
           if (!ex.product || numv(ex.sqft) <= 0) continue;
-          const qty = qtyForProduct(numv(ex.sqft), ex.product);
-          if (qty > 0) out.push(matLine(ex.product, qty));
+          out.push(matLine(ex.product, { sqft: numv(ex.sqft) }));
         }
       } else if (q.kind === "product" && a.kind === "trims") {
         // Trims / moldings — each row is a quick-picked type (with color/size) or
