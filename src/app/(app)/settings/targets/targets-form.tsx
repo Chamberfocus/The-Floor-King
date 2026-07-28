@@ -52,25 +52,37 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
           </span>
         </div>
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">Fuel per job ($)</label>
+          <label className="text-sm font-medium">Fuel charge to customer ($)</label>
+          <Input
+            name="job_fuel_charge"
+            inputMode="decimal"
+            defaultValue={String(settings.job_fuel_charge)}
+          />
+          <p className="text-xs text-muted-foreground">
+            What you charge the customer for fuel — built into the price, never
+            itemized to them. Tracked as part of revenue.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Salesperson gas per job ($)</label>
           <Input
             name="job_fuel_fee"
             inputMode="decimal"
             defaultValue={String(settings.job_fuel_fee)}
           />
           <p className="text-xs text-muted-foreground">
-            A flat fuel reimbursement added to every job&apos;s cost.
+            Paid to the salesperson to cover gas — a cost on every job.
           </p>
         </div>
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">Car allowance per job ($)</label>
+          <label className="text-sm font-medium">Fleet upkeep per job ($)</label>
           <Input
             name="job_car_allowance"
             inputMode="decimal"
             defaultValue={String(settings.job_car_allowance)}
           />
           <p className="text-xs text-muted-foreground">
-            A flat vehicle / car-repair allowance added to every job&apos;s cost.
+            Vehicle fleet upkeep — the balance of your per-job vehicle cost.
           </p>
         </div>
         <div className="space-y-1.5">

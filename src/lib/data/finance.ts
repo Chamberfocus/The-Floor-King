@@ -727,14 +727,15 @@ export async function getJobCostAnalysis(
 
 export interface InvoiceProfit {
   revenue: number; // pre-tax, after discount — what this invoice bills
+  fuelCharge: number; // the fuel amount included in the price (hidden memo)
   materialCost: number; // our cost (freight-adjusted)
   laborCost: number;
   cost: number; // material + labor
-  fuel: number;
-  car: number;
+  salesGas: number; // gas comp paid to the salesperson
+  fleetUpkeep: number; // vehicle fleet upkeep
   commissionPct: number;
   commission: number; // % of revenue
-  totalCost: number; // cost + fuel + car + commission
+  totalCost: number; // cost + gas + fleet + commission
   profit: number;
   margin: number;
 }
@@ -792,19 +793,23 @@ export async function getInvoiceProfit(invoice: {
 
   const biz = await getBusinessSettings();
   const hasRev = revenue > 0;
-  const fuel = hasRev ? Number(biz.job_fuel_fee) || 0 : 0;
-  const car = hasRev ? Number(biz.job_car_allowance) || 0 : 0;
+  // Fuel charge is part of the price the customer already pays (a memo, not an
+  // addition) — so profit isn't overstated. Gas + fleet + commission are costs.
+  const fuelCharge = hasRev ? Number(biz.job_fuel_charge) || 0 : 0;
+  const salesGas = hasRev ? Number(biz.job_fuel_fee) || 0 : 0;
+  const fleetUpkeep = hasRev ? Number(biz.job_car_allowance) || 0 : 0;
   const commissionPct = Number(biz.job_commission_pct) || 0;
   const commission = hasRev ? (commissionPct / 100) * revenue : 0;
-  const totalCost = cost + fuel + car + commission;
+  const totalCost = cost + salesGas + fleetUpkeep + commission;
   const profit = revenue - totalCost;
   return {
     revenue,
+    fuelCharge,
     materialCost,
     laborCost,
     cost,
-    fuel,
-    car,
+    salesGas,
+    fleetUpkeep,
     commissionPct,
     commission,
     totalCost,

@@ -345,8 +345,8 @@ function ProfitBreakdown({ p }: { p: JobProfitLite }) {
         <div className="mb-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Internal (hidden from customer)
         </div>
-        <CostLine label="Fuel" value={p.fuelCost} />
-        <CostLine label="Vehicle / car" value={p.carCost} />
+        <CostLine label="Salesperson gas" value={p.fuelCost} />
+        <CostLine label="Fleet upkeep" value={p.carCost} />
         <CostLine label="Commission" value={p.commissionCost} hint="% of revenue" />
       </div>
 

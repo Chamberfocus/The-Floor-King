@@ -12,8 +12,9 @@ const DEFAULTS: BusinessSettings = {
   installer_collects_balance: false,
   notify_staff: true,
   notify_customers: false,
-  job_fuel_fee: 160,
-  job_car_allowance: 0,
+  job_fuel_charge: 60, // charged to the customer (hidden), revenue
+  job_fuel_fee: 50, // salesperson gas comp (cost)
+  job_car_allowance: 110, // fleet upkeep — balance of the $160 vehicle cost (cost)
   job_commission_pct: 3.5,
   updated_at: "",
 };

@@ -2950,13 +2950,13 @@ export function EstimateBuilder({
                       ) : null}
                       {fuel > 0 ? (
                         <div className="flex justify-between text-muted-foreground">
-                          <span>Fuel</span>
+                          <span>Salesperson gas</span>
                           <span className="tabular-nums">{formatMoney(fuel)}</span>
                         </div>
                       ) : null}
                       {car > 0 ? (
                         <div className="flex justify-between text-muted-foreground">
-                          <span>Car allowance</span>
+                          <span>Fleet upkeep</span>
                           <span className="tabular-nums">{formatMoney(car)}</span>
                         </div>
                       ) : null}

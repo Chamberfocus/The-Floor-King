@@ -141,6 +141,11 @@ export default async function InvoicePage({
                 <span className="text-muted-foreground">Revenue (pre-tax)</span>
                 <span className="tabular-nums">{formatMoney(invProfit.revenue)}</span>
               </div>
+              {invProfit.fuelCharge > 0 ? (
+                <div className="flex justify-between pl-3 text-xs text-muted-foreground/80">
+                  <span>↳ incl. {formatMoney(invProfit.fuelCharge)} fuel charge</span>
+                </div>
+              ) : null}
               <div className="flex justify-between text-muted-foreground">
                 <span>Our cost</span>
                 <span className="tabular-nums">−{formatMoney(invProfit.cost)}</span>
@@ -153,16 +158,16 @@ export default async function InvoicePage({
                   </span>
                 </div>
               ) : null}
-              {invProfit.fuel > 0 ? (
+              {invProfit.salesGas > 0 ? (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Fuel</span>
-                  <span className="tabular-nums">−{formatMoney(invProfit.fuel)}</span>
+                  <span>Salesperson gas</span>
+                  <span className="tabular-nums">−{formatMoney(invProfit.salesGas)}</span>
                 </div>
               ) : null}
-              {invProfit.car > 0 ? (
+              {invProfit.fleetUpkeep > 0 ? (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Car allowance</span>
-                  <span className="tabular-nums">−{formatMoney(invProfit.car)}</span>
+                  <span>Fleet upkeep</span>
+                  <span className="tabular-nums">−{formatMoney(invProfit.fleetUpkeep)}</span>
                 </div>
               ) : null}
               {invProfit.commission > 0 ? (
