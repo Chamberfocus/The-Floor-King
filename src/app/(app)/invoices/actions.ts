@@ -55,6 +55,16 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** The unit LABEL to bill a line under — the line's own unit (lnft / each /
+ *  flat / sq yd…), matching exactly what the estimate shows. Only when a line
+ *  has no unit do we fall back to its area measure. This is why a trim line no
+ *  longer prints as "sqft" on the invoice. */
+function unitLabelFor(l: EstimateLineItem): string {
+  const u = (l.unit ?? "").trim();
+  if (u) return u;
+  return l.measure_unit === "sqyd" ? "sqyd" : "sqft";
+}
+
 /** The sell price of one estimate line — the exact number the invoice bills.
  *  Mirrors estimate-calc's lineTotal: waste rides on material, labor lines
  *  charge labor only, area lines price by measured area × rate × waste. */
@@ -206,7 +216,9 @@ export async function createInvoiceFromEstimate(
       position: i,
       description: l.room ? `${l.room} — ${l.description}` : l.description,
       quantity: shownQty,
-      unit: l.measure_unit === "sqyd" ? "sqyd" : "sqft",
+      // Use the line's OWN unit (lnft / each / flat / sq yd…), exactly like the
+      // estimate — never force sqft, which mislabeled every non-area line.
+      unit: unitLabelFor(l),
       rate: adjRate,
     };
   });
@@ -311,7 +323,7 @@ export async function createInvoiceFromSelection(
       position: i,
       description: l.room ? `${l.room} — ${l.description}` : l.description,
       quantity: shownQty,
-      unit: l.measure_unit === "sqyd" ? "sqyd" : "sqft",
+      unit: unitLabelFor(l),
       rate: adjRate,
     };
   });
