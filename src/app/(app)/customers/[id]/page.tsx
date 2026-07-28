@@ -41,6 +41,8 @@ import { listCustomerMessages } from "@/lib/data/messages";
 import { listCustomerDocuments } from "@/lib/data/documents";
 import { listCustomerCheckouts } from "@/lib/data/samples";
 import { getBusinessSettings } from "@/lib/data/business-settings";
+import { getOrgSettings } from "@/lib/data/org";
+import { ProcessCardButton } from "./process-card-button";
 import { SamplesCard } from "./samples-card";
 import { PropertyCard } from "./property-card";
 import { CustomerOrdersCard } from "./customer-orders-card";
@@ -182,7 +184,7 @@ export default async function CustomerPage({
   const messages = await listCustomerMessages(id);
   const documents = await listCustomerDocuments(id);
   const customerAreas = await listCustomerAreas(id);
-  const [sampleCheckouts, bizSettings, customerPOs, stockPulls, serviceAddresses, attributedPoLines] =
+  const [sampleCheckouts, bizSettings, customerPOs, stockPulls, serviceAddresses, attributedPoLines, orgSettings] =
     await Promise.all([
       listCustomerCheckouts(id),
       getBusinessSettings(),
@@ -190,6 +192,7 @@ export default async function CustomerPage({
       getCustomerStockPulls(id),
       listServiceAddresses(id),
       listAttributedPoItemsForCustomer(id),
+      getOrgSettings(),
     ]);
   const stages = await listWorkflowStages();
   const handoffMembers = await listHandoffMembers();
@@ -616,6 +619,12 @@ export default async function CustomerPage({
                 customerName={customer.full_name}
                 customerEmail={customer.email}
               />
+              {(SALES_ROLES as string[]).includes(profile.role) ? (
+                <ProcessCardButton
+                  url={orgSettings.card_processing_url}
+                  isAdmin={profile.role === "admin"}
+                />
+              ) : null}
               <QuickActions
                 customerId={customer.id}
                 stages={stages.map((s) => ({ id: s.id, name: s.name }))}

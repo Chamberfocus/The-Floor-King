@@ -175,6 +175,22 @@ export function BrandingForm({ org }: { org: OrgSettings }) {
               financing.
             </p>
           </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="card_processing_url">Credit card processing link</Label>
+            <Input
+              id="card_processing_url"
+              name="card_processing_url"
+              defaultValue={org.card_processing_url ?? ""}
+              placeholder="https://...  (your processor's virtual terminal / payment page)"
+            />
+            <p className="text-xs text-muted-foreground">
+              Your card processor&apos;s link (Square, Clover, Stripe, Authorize.net,
+              etc.). A <span className="font-medium">Process card</span> button on
+              each customer opens it so estimators can run a payment. The CRM never
+              touches card data.
+            </p>
+          </div>
         </CardContent>
       </Card>
 

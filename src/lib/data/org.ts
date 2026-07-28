@@ -13,6 +13,7 @@ const DEFAULTS: OrgSettings = {
   website: null,
   financing_url: null,
   google_review_url: null,
+  card_processing_url: null,
   fuel_surcharge_pct: 0,
   freight_markup_pct: 0,
   quote_valid_days: 30,

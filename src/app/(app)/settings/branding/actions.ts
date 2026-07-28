@@ -28,6 +28,7 @@ export async function saveBranding(
     website: str(formData.get("website")) || null,
     financing_url: str(formData.get("financing_url")) || null,
     google_review_url: str(formData.get("google_review_url")) || null,
+    card_processing_url: str(formData.get("card_processing_url")) || null,
     updated_at: new Date().toISOString(),
   };
   const logoUrl = str(formData.get("logo_url"));
@@ -37,10 +38,11 @@ export async function saveBranding(
     .from("org_settings")
     .update(update)
     .eq("id", "default");
-  // `website` is added by migration 0102. If it hasn't run yet, drop it and
-  // retry so branding still saves — the field just won't persist until then.
-  if (error && /website/i.test(error.message)) {
+  // Columns added by later migrations (website=0102, card_processing_url=0129).
+  // If one hasn't run yet, drop it and retry so branding still saves.
+  if (error && /website|card_processing_url/i.test(error.message)) {
     delete update.website;
+    delete update.card_processing_url;
     ({ error } = await supabase
       .from("org_settings")
       .update(update)
