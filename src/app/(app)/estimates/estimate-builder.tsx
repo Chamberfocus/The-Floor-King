@@ -932,6 +932,25 @@ export function EstimateBuilder({
       toast.error("Give the lines a starting price first, then set the total.");
       return;
     }
+    // A material/flooring line with no price would stay $0 (scaling can't lift $0)
+    // — catch it by name so a free line never slips onto the estimate.
+    const unpriced = opt.lines.filter(
+      (l) =>
+        l.description.trim() &&
+        !isLaborLine(l) &&
+        l.line_type !== "flat" &&
+        lineTotal(toCalc(l)) <= 0,
+    );
+    if (unpriced.length) {
+      const names = unpriced
+        .map((l) => [l.room, l.description].filter((x) => x && x.trim()).join(" — ") || "a material")
+        .slice(0, 4);
+      toast.error(
+        `Price ${unpriced.length === 1 ? "this line" : "these lines"} first — ${unpriced.length === 1 ? "it has" : "they have"} no price and would be free: ${names.join(", ")}${unpriced.length > 4 ? ", …" : ""}`,
+        { duration: 8000 },
+      );
+      return;
+    }
     const totalCost = opt.lines.reduce((s, l) => s + lineOurCost(l), 0);
     if (target < totalCost) {
       toast.error(
