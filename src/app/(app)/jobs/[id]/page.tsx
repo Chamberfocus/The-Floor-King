@@ -1070,6 +1070,20 @@ export default async function JobPage({
                 </thead>
                 <tbody className="divide-y">
                   <tr>
+                    <td className="px-3 py-2">Revenue</td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.estRevenue)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.actualRevenue)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">
+                      {formatMoney(
+                        costAnalysis.actualRevenue - costAnalysis.estRevenue,
+                      )}
+                    </td>
+                  </tr>
+                  <tr>
                     <td className="px-3 py-2">Material cost</td>
                     <td className="px-3 py-2 text-right">
                       {formatMoney(costAnalysis.estMaterial)}
@@ -1117,7 +1131,7 @@ export default async function JobPage({
                     </td>
                   </tr>
                   <tr>
-                    <td className="px-3 py-2">Profit (at sold price)</td>
+                    <td className="px-3 py-2">Profit</td>
                     <td className="px-3 py-2 text-right">
                       {formatMoney(costAnalysis.estProfit)}
                     </td>
@@ -1153,9 +1167,11 @@ export default async function JobPage({
               </table>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Actual material = purchase orders on this estimate. Actual
-              labor/other = expenses logged to this job. Revenue held at the sold
-              price to show whether the job hit its target margin.
+              Estimated revenue = the price the customer approved (after any
+              discount). Actual revenue = what we&apos;ve actually invoiced on
+              this job (falls back to the sold price until it&apos;s billed).
+              Actual material = purchase orders on this estimate; actual
+              labor/other = expenses logged to this job.
             </p>
           </CardContent>
         </Card>

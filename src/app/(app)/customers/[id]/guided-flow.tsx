@@ -469,7 +469,8 @@ export async function GuidedFlow({
           const t = invoiceTotals(inv.items ?? [], inv.tax_rate, paid);
           a.invoiced += t.total;
           a.paid += paid;
-          a.remaining += t.balance;
+          // Floor at 0 — a credit invoice can't erase debt owed elsewhere.
+          a.remaining += Math.max(0, t.balance);
           return a;
         },
         { invoiced: 0, paid: 0, remaining: 0 },

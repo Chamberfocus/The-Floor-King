@@ -7,7 +7,7 @@ import { poTotal } from "@/lib/po-calc";
 import { listJobs } from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
 import { laborCostByJob } from "@/lib/data/job-labor";
-import { optionTotals, optionCostTotals, marginPct } from "@/lib/estimate-calc";
+import { optionTotals, optionCostTotals, marginPct, discountAmount } from "@/lib/estimate-calc";
 import { getOrgSettings } from "@/lib/data/org";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { freightMultiplier } from "@/lib/freight";
@@ -20,8 +20,10 @@ export interface PeriodSummary {
   expenses: number;
   poSpend: number;
   subLabor: number;
+  salesTax: number; // tax portion of what was collected (owed to the state, not profit)
+  revenue: number; // pre-tax income = collected − salesTax
   jobOverhead: number; // fuel + car allowance + commission across the period's jobs
-  net: number;
+  net: number; // net PROFIT on pre-tax income
 }
 
 /** Customers that have been cancelled — excluded from all financial totals. */
@@ -146,12 +148,26 @@ export async function getPeriodSummary(
   const invoiceJob = new Map(
     liveInvoices.map((i) => [i.id, (i.job_id as string | null) ?? null] as const),
   );
+  // Sales tax the customer paid us is NOT revenue or profit — we owe it to the
+  // state. Split each collected payment into its pre-tax portion using its
+  // invoice's tax rate, so net profit is computed on real (pre-tax) income.
+  const invoiceTax = new Map(
+    liveInvoices.map((i) => [i.id, Number(i.tax_rate) || 0] as const),
+  );
+  let salesTax = 0;
+  for (const p of collectedPays) {
+    const tr = invoiceTax.get(p.invoice_id) ?? 0;
+    if (tr > 0) salesTax += (Number(p.amount) || 0) * (tr / (100 + tr));
+  }
+  const collectedPreTax = collected - salesTax;
+
   const jobsCollected = new Set<string>();
   for (const p of collectedPays) {
     const jid = invoiceJob.get(p.invoice_id);
     if (jid) jobsCollected.add(jid);
   }
-  const commissionCost = ((Number(biz.job_commission_pct) || 0) / 100) * collected;
+  // Commission is on the pre-tax sale, matching the per-job report.
+  const commissionCost = ((Number(biz.job_commission_pct) || 0) / 100) * collectedPreTax;
   const vehicleCost =
     ((Number(biz.job_fuel_fee) || 0) + (Number(biz.job_car_allowance) || 0)) *
     jobsCollected.size;
@@ -163,8 +179,11 @@ export async function getPeriodSummary(
     expenses,
     poSpend,
     subLabor,
+    salesTax,
+    revenue: collectedPreTax,
     jobOverhead,
-    net: collected - expenses - poSpend - subLabor - jobOverhead,
+    // Net PROFIT on pre-tax income (tax excluded — it's not ours).
+    net: collectedPreTax - expenses - poSpend - subLabor - jobOverhead,
   };
 }
 
@@ -252,8 +271,13 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   const jobs = (await listJobs()).filter(
     // Carry-over jobs are excluded from profit analytics — their costs live in
     // the old system, so any "profit" would be fiction. They still show on the
-    // job board and their balances still show in AR.
-    (j) => j.option_id && !cancelled.has(j.customer_id) && !j.migrated,
+    // job board and their balances still show in AR. CANCELLED jobs are excluded
+    // too — a cancelled job with a deposit would otherwise drag margins/profit.
+    (j) =>
+      j.option_id &&
+      !cancelled.has(j.customer_id) &&
+      !j.migrated &&
+      j.status !== "cancelled",
   );
   if (!jobs.length) return [];
 
@@ -304,13 +328,21 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     ),
   ] as string[];
   const authorByEstimate = new Map<string, string | null>();
+  // The estimate's discount — the customer approved the DISCOUNTED price, so
+  // quoted revenue / estimated profit must reflect it (not the pre-discount sub).
+  const discountByEstimate = new Map<string, { kind: string | null; value: number | null }>();
   if (estimateIds.length) {
     const { data: estRows } = await supabase
       .from("estimates")
-      .select("id, created_by")
+      .select("id, created_by, discount_kind, discount_value")
       .in("id", estimateIds);
-    for (const e of estRows ?? [])
+    for (const e of estRows ?? []) {
       authorByEstimate.set(e.id as string, (e.created_by as string | null) ?? null);
+      discountByEstimate.set(e.id as string, {
+        kind: (e.discount_kind as string | null) ?? null,
+        value: (e.discount_value as number | null) ?? null,
+      });
+    }
   }
   const salesNames = await getProfileNames(
     [...authorByEstimate.values()].filter(Boolean) as string[],
@@ -328,6 +360,14 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
         (poByEstimate.get(p.estimate_id) ?? 0) + poTotal(p.items ?? []),
       );
     }
+  }
+  // A PO is written against the ESTIMATE, not one job. If an estimate spawned
+  // several jobs, its material cost must land on ONE of them (the first), or
+  // every job gets charged the full PO and profit is understated N× over.
+  const poJobForEstimate = new Map<string, string>();
+  for (const j of jobs) {
+    const eid = (j as { estimate_id?: string | null }).estimate_id ?? null;
+    if (eid && !poJobForEstimate.has(eid)) poJobForEstimate.set(eid, j.id);
   }
 
   const jobIds = jobs.map((j) => j.id);
@@ -390,16 +430,23 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   }
 
   return jobs.map((j) => {
-    const quotedRevenue = j.option_id
-      ? (subtotalByOption.get(j.option_id) ?? 0)
-      : 0;
+    const rawQuoted = j.option_id ? (subtotalByOption.get(j.option_id) ?? 0) : 0;
+    // The customer approved the DISCOUNTED price — quoted revenue must reflect
+    // the estimate's discount, not the pre-discount line subtotal.
+    const disc = j.estimate_id ? discountByEstimate.get(j.estimate_id) : null;
+    const quotedRevenue = disc
+      ? rawQuoted - discountAmount(rawQuoted, disc.kind, disc.value)
+      : rawQuoted;
     const billed = billedByJob.get(j.id) ?? 0;
     const collected = collectedByJob.get(j.id) ?? 0;
     const revenueIsActual = billed > 0;
     const revenue = revenueIsActual ? billed : quotedRevenue;
 
+    // Only the estimate's designated first job carries its PO material cost.
+    const ownsPO =
+      !!j.estimate_id && poJobForEstimate.get(j.estimate_id) === j.id;
     const materialCost =
-      ((j.estimate_id ? (poByEstimate.get(j.estimate_id) ?? 0) : 0) +
+      ((ownsPO ? (poByEstimate.get(j.estimate_id!) ?? 0) : 0) +
         (stockCostByJob.get(j.id) ?? 0)) *
       freightMult;
     const laborCost = laborByJob.get(j.id) ?? 0;
@@ -528,6 +575,7 @@ export interface JobCostAnalysis {
   estCost: number;
   estProfit: number;
   estMargin: number;
+  actualRevenue: number; // what we've actually billed (falls back to quoted)
   actualMaterial: number; // from purchase orders
   actualLabor: number; // from subcontractor payouts
   actualExpense: number; // from logged expenses
@@ -562,7 +610,25 @@ export async function getJobCostAnalysis(
   // Freight & fees markup lands on material cost only (never labor).
   const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
 
-  const estRevenue = optionTotals(lines, 0).subtotal;
+  // Quoted revenue = the DISCOUNTED price the customer approved, not the raw
+  // line subtotal.
+  const rawSub = optionTotals(lines, 0).subtotal;
+  let estRevenue = rawSub;
+  if (job.estimate_id) {
+    const { data: est } = await supabase
+      .from("estimates")
+      .select("discount_kind, discount_value")
+      .eq("id", job.estimate_id)
+      .maybeSingle();
+    if (est)
+      estRevenue =
+        rawSub -
+        discountAmount(
+          rawSub,
+          (est.discount_kind as string | null) ?? null,
+          (est.discount_value as number | null) ?? null,
+        );
+  }
   const ct = optionCostTotals(lines);
   const estMaterial = ct.material * freightMult;
   const estCost = estMaterial + ct.labor;
@@ -603,8 +669,28 @@ export async function getJobCostAnalysis(
     0,
   );
 
+  // Actual revenue = what we've actually BILLED this job (pre-tax). Until an
+  // invoice exists we fall back to the quoted price so margins stay meaningful.
+  const { data: invRows } = await supabase
+    .from("invoices")
+    .select("tax_rate, status, items:invoice_items(quantity, rate)")
+    .eq("job_id", jobId);
+  const billed = (invRows ?? [])
+    .filter((i) => i.status !== "void")
+    .reduce(
+      (s, i) =>
+        s +
+        invoiceTotals(
+          (i.items ?? []) as { quantity: number; rate: number }[],
+          0,
+          0,
+        ).subtotal,
+      0,
+    );
+  const actualRevenue = billed > 0 ? billed : estRevenue;
+
   const actualCost = actualMaterial + actualLabor + actualExpense;
-  const actualProfit = estRevenue - actualCost;
+  const actualProfit = actualRevenue - actualCost;
 
   return {
     estRevenue,
@@ -613,14 +699,16 @@ export async function getJobCostAnalysis(
     estCost,
     estProfit,
     estMargin: marginPct(estRevenue, estCost),
+    actualRevenue,
     actualMaterial,
     actualLabor,
     actualExpense,
     actualCost,
     actualProfit,
-    actualMargin: marginPct(estRevenue, actualCost),
+    actualMargin: marginPct(actualRevenue, actualCost),
     costVariance: actualCost - estCost,
-    marginDelta: marginPct(estRevenue, actualCost) - marginPct(estRevenue, estCost),
+    marginDelta:
+      marginPct(actualRevenue, actualCost) - marginPct(estRevenue, estCost),
     hasEstimateCosts: estCost > 0,
   };
 }

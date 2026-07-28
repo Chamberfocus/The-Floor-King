@@ -111,8 +111,10 @@ export async function draftMessage(
     const balance = invoices
       .filter((i) => i.status !== "void")
       .reduce(
+        // Floor each invoice at 0 — an overpaid (credit) invoice must not cancel
+        // out real debt owed on another invoice.
         (s, i) =>
-          s + invoiceTotals(i.items ?? [], i.tax_rate, amountPaid(i)).balance,
+          s + Math.max(0, invoiceTotals(i.items ?? [], i.tax_rate, amountPaid(i)).balance),
         0,
       );
     if (balance > 0.5)

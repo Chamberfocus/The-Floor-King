@@ -108,10 +108,13 @@ export async function getBusinessPulse(): Promise<BusinessPulse> {
   const costedRealized = realized.filter(
     (j) => j.materialCost > 0 || j.laborCost > 0,
   );
-  const avgJobMargin =
-    costedRealized.length > 0
-      ? costedRealized.reduce((s, j) => s + j.margin, 0) / costedRealized.length
-      : 0;
+  // Revenue-WEIGHTED blended margin (a $100k job at 50% must outweigh a $1k job
+  // at 10% — a plain average of the percentages misreads the business).
+  const avgJobMargin = (() => {
+    const rev = costedRealized.reduce((s, j) => s + j.revenue, 0);
+    const prof = costedRealized.reduce((s, j) => s + j.profit, 0);
+    return rev > 0 ? (prof / rev) * 100 : 0;
+  })();
 
   // Profit by completed job, grouped by the month each job was completed.
   const inMonth = (iso: string | null, r: { start: string; end: string }) => {
@@ -149,10 +152,8 @@ export async function getBusinessPulse(): Promise<BusinessPulse> {
     jobProfitThisMonth,
     jobProfitDelta: jobProfitThisMonth - jobProfitLastMonth,
     completedJobsThisMonth: completedThis.length,
-    marginThisMonth: marginPct(
-      thisMonth.collected,
-      thisMonth.collected - thisMonth.net,
-    ),
+    // Margin on PRE-TAX income (tax isn't revenue), matching the net figure.
+    marginThisMonth: marginPct(thisMonth.revenue, thisMonth.revenue - thisMonth.net),
     goalProgressPct:
       settings.monthly_revenue_goal > 0
         ? (thisMonth.collected / settings.monthly_revenue_goal) * 100
