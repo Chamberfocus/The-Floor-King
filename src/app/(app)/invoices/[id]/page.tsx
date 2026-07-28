@@ -17,7 +17,10 @@ import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { getInvoice, amountPaid, getInvoiceScope } from "@/lib/data/invoices";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
+import { getInvoiceProfit } from "@/lib/data/finance";
+import { requireProfile } from "@/lib/auth";
 import { invoiceTotals } from "@/lib/invoice-calc";
+import { cn } from "@/lib/utils";
 import { formatDate, formatMoney } from "@/lib/format";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/types";
 import { InvoiceBuilder } from "../invoice-builder";
@@ -52,6 +55,13 @@ export default async function InvoicePage({
   const invoiceScope = await getInvoiceScope(invoice);
   const paid = amountPaid(invoice);
   const totals = invoiceTotals(invoice.items ?? [], invoice.tax_rate, paid);
+  // Owner-only profit view (fuel + car + commission), same structure as the
+  // estimate. Never computed for non-owners; never shown on the printed invoice.
+  const profile = await requireProfile();
+  const invProfit =
+    profile.role === "admin" && !preview
+      ? await getInvoiceProfit(invoice)
+      : null;
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -112,6 +122,82 @@ export default async function InvoicePage({
         narrative={invoiceScope?.narrative ?? null}
         preview={preview}
       />
+
+      {/* Owner-only profit — the estimate's fuel/car/commission structure,
+          carried onto the invoice. Internal; never printed or shown to client. */}
+      {invProfit ? (
+        <Card className="mt-2 border-dashed print:hidden">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              Profit{" "}
+              <span className="text-xs font-normal text-muted-foreground">
+                (internal — never shown to the customer)
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="ml-auto max-w-xs space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Revenue (pre-tax)</span>
+                <span className="tabular-nums">{formatMoney(invProfit.revenue)}</span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Our cost</span>
+                <span className="tabular-nums">−{formatMoney(invProfit.cost)}</span>
+              </div>
+              {invProfit.materialCost > 0 || invProfit.laborCost > 0 ? (
+                <div className="flex justify-between pl-3 text-xs text-muted-foreground/80">
+                  <span>
+                    ↳ Material {formatMoney(invProfit.materialCost)} · Labor{" "}
+                    {formatMoney(invProfit.laborCost)}
+                  </span>
+                </div>
+              ) : null}
+              {invProfit.fuel > 0 ? (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Fuel</span>
+                  <span className="tabular-nums">−{formatMoney(invProfit.fuel)}</span>
+                </div>
+              ) : null}
+              {invProfit.car > 0 ? (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Car allowance</span>
+                  <span className="tabular-nums">−{formatMoney(invProfit.car)}</span>
+                </div>
+              ) : null}
+              {invProfit.commission > 0 ? (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Commission ({invProfit.commissionPct}%)</span>
+                  <span className="tabular-nums">−{formatMoney(invProfit.commission)}</span>
+                </div>
+              ) : null}
+              <div className="mt-1 flex justify-between border-t pt-1 font-semibold">
+                <span>Profit</span>
+                <span
+                  className={cn(
+                    "tabular-nums",
+                    invProfit.profit >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-destructive",
+                  )}
+                >
+                  {formatMoney(invProfit.profit)}
+                  <span className="ml-2 text-xs font-medium">
+                    {invProfit.margin.toFixed(1)}%
+                  </span>
+                </span>
+              </div>
+            </div>
+            {invProfit.cost === 0 ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                No costs are on the source estimate, so this shows revenue minus
+                only the fuel/car/commission overheads. Add material &amp; labor
+                costs on the estimate for a true margin.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Payments */}
       {!preview ? (

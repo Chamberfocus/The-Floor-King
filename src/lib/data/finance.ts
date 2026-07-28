@@ -725,6 +725,94 @@ export async function getJobCostAnalysis(
   };
 }
 
+export interface InvoiceProfit {
+  revenue: number; // pre-tax, after discount — what this invoice bills
+  materialCost: number; // our cost (freight-adjusted)
+  laborCost: number;
+  cost: number; // material + labor
+  fuel: number;
+  car: number;
+  commissionPct: number;
+  commission: number; // % of revenue
+  totalCost: number; // cost + fuel + car + commission
+  profit: number;
+  margin: number;
+}
+
+/**
+ * The OWNER-only profit on one invoice, using the SAME internal structure as
+ * the estimate builder: revenue (pre-tax, discounted) minus our estimated
+ * material/labor cost and the internal fuel + car + commission overheads. This
+ * is the estimate's profit view carried onto the invoice — never shown to the
+ * customer. Cost comes from the linked estimate's costed lines.
+ */
+export async function getInvoiceProfit(invoice: {
+  estimate_id?: string | null;
+  items?: { quantity: number | null; rate: number | null }[] | null;
+}): Promise<InvoiceProfit> {
+  const supabase = await createClient();
+  // Revenue = pre-tax invoice subtotal (the discount rides as a negative line).
+  const revenue = invoiceTotals(invoice.items ?? [], 0, 0).subtotal;
+
+  // Our cost = the estimate's costed material + labor (matches the estimate's
+  // own internal profit block). Material carries the freight markup.
+  let material = 0;
+  let labor = 0;
+  if (invoice.estimate_id) {
+    const { data: est } = await supabase
+      .from("estimates")
+      .select("accepted_option_id")
+      .eq("id", invoice.estimate_id)
+      .maybeSingle();
+    let optionId = (est?.accepted_option_id as string | null) ?? null;
+    if (!optionId) {
+      const { data: opt } = await supabase
+        .from("estimate_options")
+        .select("id")
+        .eq("estimate_id", invoice.estimate_id)
+        .order("position", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      optionId = (opt?.id as string) ?? null;
+    }
+    if (optionId) {
+      const { data: lines } = await supabase
+        .from("estimate_line_items")
+        .select("*")
+        .eq("option_id", optionId);
+      const ct = optionCostTotals((lines ?? []) as unknown as CalcLine[]);
+      material = ct.material;
+      labor = ct.labor;
+    }
+  }
+  const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
+  const materialCost = material * freightMult;
+  const laborCost = labor;
+  const cost = materialCost + laborCost;
+
+  const biz = await getBusinessSettings();
+  const hasRev = revenue > 0;
+  const fuel = hasRev ? Number(biz.job_fuel_fee) || 0 : 0;
+  const car = hasRev ? Number(biz.job_car_allowance) || 0 : 0;
+  const commissionPct = Number(biz.job_commission_pct) || 0;
+  const commission = hasRev ? (commissionPct / 100) * revenue : 0;
+  const totalCost = cost + fuel + car + commission;
+  const profit = revenue - totalCost;
+  return {
+    revenue,
+    materialCost,
+    laborCost,
+    cost,
+    fuel,
+    car,
+    commissionPct,
+    commission,
+    totalCost,
+    profit,
+    margin: revenue > 0 ? (profit / revenue) * 100 : 0,
+  };
+}
+
 export async function listExpenses(): Promise<Expense[]> {
   const supabase = await createClient();
   const { data } = await supabase
