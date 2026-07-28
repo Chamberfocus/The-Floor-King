@@ -60,9 +60,14 @@ export default async function FinancialsPage({
     { label: "Billed", value: summary.billed, hint: "Invoiced in period" },
     { label: "Expenses", value: summary.expenses, hint: "Recorded spend" },
     {
+      label: "Fuel / car / comm.",
+      value: summary.jobOverhead,
+      hint: "Fuel + car allowance + commission on this period's jobs",
+    },
+    {
       label: "Net cash",
       value: summary.net,
-      hint: "Collected − expenses − POs − crew pay",
+      hint: "Collected − expenses − POs − crew pay − fuel/car/commission",
     },
   ];
 

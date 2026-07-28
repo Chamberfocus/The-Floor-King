@@ -20,6 +20,7 @@ export interface PeriodSummary {
   expenses: number;
   poSpend: number;
   subLabor: number;
+  jobOverhead: number; // fuel + car allowance + commission across the period's jobs
   net: number;
 }
 
@@ -73,10 +74,11 @@ export async function getPeriodSummary(
       .lte("paid_at", end)
       .range(from, to),
   );
-  const collected = pays
+  const collectedPays = pays.filter(
     // Carry-over deposits (pre-go-live money) don't count as new collections.
-    .filter((p) => !p.migrated && !cancelledInvoiceIds.has(p.invoice_id))
-    .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    (p) => !p.migrated && !cancelledInvoiceIds.has(p.invoice_id),
+  );
+  const collected = collectedPays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
   const exps = await fetchAll<{ amount: number; job_id: string | null }>(
     (from, to) =>
@@ -136,13 +138,33 @@ export async function getPeriodSummary(
       })
       .reduce((s, p) => s + poTotal(p.items ?? []), 0) * freightMult;
 
+  // Per-job internal overheads for the period (hidden from customers):
+  //  • commission = % of what was collected this period
+  //  • fuel + car = a flat amount for each distinct job that collected money in
+  //    the period (invoice → job).
+  const biz = await getBusinessSettings();
+  const invoiceJob = new Map(
+    liveInvoices.map((i) => [i.id, (i.job_id as string | null) ?? null] as const),
+  );
+  const jobsCollected = new Set<string>();
+  for (const p of collectedPays) {
+    const jid = invoiceJob.get(p.invoice_id);
+    if (jid) jobsCollected.add(jid);
+  }
+  const commissionCost = ((Number(biz.job_commission_pct) || 0) / 100) * collected;
+  const vehicleCost =
+    ((Number(biz.job_fuel_fee) || 0) + (Number(biz.job_car_allowance) || 0)) *
+    jobsCollected.size;
+  const jobOverhead = commissionCost + vehicleCost;
+
   return {
     collected,
     billed,
     expenses,
     poSpend,
     subLabor,
-    net: collected - expenses - poSpend - subLabor,
+    jobOverhead,
+    net: collected - expenses - poSpend - subLabor - jobOverhead,
   };
 }
 
