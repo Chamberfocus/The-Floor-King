@@ -288,6 +288,7 @@ export function EstimateBuilder({
   customer = null,
   org,
   fuelFee = 0,
+  carAllowance = 0,
   commissionPct = 0,
   autoPrint = false,
   colorSuggestions = [],
@@ -301,9 +302,10 @@ export function EstimateBuilder({
   customerName: string;
   customer?: Customer | null;
   org?: OrgSettings;
-  /** Flat per-job fuel/vehicle cost + commission % of sale — internal, folded
+  /** Flat per-job fuel + car allowance + commission % of sale — internal, folded
    *  into the owner's true profit, NEVER shown to the customer. */
   fuelFee?: number;
+  carAllowance?: number;
   commissionPct?: number;
   autoPrint?: boolean;
   /** Unsaved in-progress edits (auto-saved as you type), restored on return. */
@@ -943,8 +945,26 @@ export function EstimateBuilder({
       toast.error("That total is at or below your cost — no margin to set.");
       return;
     }
-    changeOverallMargin(round2s(Math.min(m, 99)));
-    toast.success(`Margin set to hit ${formatMoney(target)} before tax.`);
+    // Re-price the follow-lines at the EXACT margin with high-precision rates
+    // (rounding each per-unit rate to cents is what made the subtotal drift off
+    // the target). 6 decimals keeps the rate fields sane while the subtotal lands
+    // on the number exactly. Overridden / flat / installed lines keep their sell.
+    const r6 = (n: number) => String(Math.round(n * 1e6) / 1e6);
+    setOverallMargin(round2s(m)); // clean value in the margin field
+    setOptions((prev) =>
+      prev.map((o) => ({
+        ...o,
+        lines: o.lines.map((l) => {
+          if (l.line_type !== "mat_labor" || l.margin_pct.trim() !== "") return l;
+          const patch: Partial<LineState> = {};
+          if (num(l.material_cost) > 0) patch.material_rate = r6(priceFromMargin(num(l.material_cost), m));
+          if (num(l.labor_cost) > 0) patch.labor_rate = r6(priceFromMargin(num(l.labor_cost), m));
+          return { ...l, ...patch };
+        }),
+      })),
+    );
+    setTargetPrice("");
+    toast.success(`Priced to ${formatMoney(target)} before tax.`);
   };
 
   // Set/clear a line's margin override → re-price that line. "" = follow overall.
@@ -1734,11 +1754,12 @@ export function EstimateBuilder({
             },
             { mat: 0, labor: 0 },
           );
-          // Internal per-job costs the customer never sees: flat fuel/vehicle +
-          // commission % of the sale. Folded into TRUE profit.
+          // Internal per-job costs the customer never sees: flat fuel + car
+          // allowance + commission % of the sale. Folded into TRUE profit.
           const fuel = netRevenue > 0 ? num(fuelFee) : 0;
+          const car = netRevenue > 0 ? num(carAllowance) : 0;
           const commission = (num(commissionPct) / 100) * netRevenue;
-          const optionCostAll = optionCost + fuel + commission;
+          const optionCostAll = optionCost + fuel + car + commission;
           const optionProfit = netRevenue - optionCostAll;
           const optionMargin =
             netRevenue > 0 ? (optionProfit / netRevenue) * 100 : 0;
@@ -2876,8 +2897,14 @@ export function EstimateBuilder({
                       ) : null}
                       {fuel > 0 ? (
                         <div className="flex justify-between text-muted-foreground">
-                          <span>Fuel &amp; vehicle</span>
+                          <span>Fuel</span>
                           <span className="tabular-nums">{formatMoney(fuel)}</span>
+                        </div>
+                      ) : null}
+                      {car > 0 ? (
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Car allowance</span>
+                          <span className="tabular-nums">{formatMoney(car)}</span>
                         </div>
                       ) : null}
                       {commission > 0 ? (

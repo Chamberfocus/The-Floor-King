@@ -52,15 +52,25 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
           </span>
         </div>
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">Fuel &amp; vehicle per job ($)</label>
+          <label className="text-sm font-medium">Fuel per job ($)</label>
           <Input
             name="job_fuel_fee"
             inputMode="decimal"
             defaultValue={String(settings.job_fuel_fee)}
           />
           <p className="text-xs text-muted-foreground">
-            A flat amount added to every job&apos;s cost (fuel reimbursement, car
-            repair). Reduces the profit you see while pricing.
+            A flat fuel reimbursement added to every job&apos;s cost.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Car allowance per job ($)</label>
+          <Input
+            name="job_car_allowance"
+            inputMode="decimal"
+            defaultValue={String(settings.job_car_allowance)}
+          />
+          <p className="text-xs text-muted-foreground">
+            A flat vehicle / car-repair allowance added to every job&apos;s cost.
           </p>
         </div>
         <div className="space-y-1.5">

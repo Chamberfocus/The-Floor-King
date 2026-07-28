@@ -9,6 +9,7 @@ import { getProfileNames } from "@/lib/data/customers";
 import { laborCostByJob } from "@/lib/data/job-labor";
 import { optionTotals, optionCostTotals, marginPct } from "@/lib/estimate-calc";
 import { getOrgSettings } from "@/lib/data/org";
+import { getBusinessSettings } from "@/lib/data/business-settings";
 import { freightMultiplier } from "@/lib/freight";
 import type { CalcLine } from "@/lib/estimate-calc";
 import type { Expense, LineType } from "@/lib/types";
@@ -201,7 +202,11 @@ export interface JobProfit {
   materialCost: number;
   laborCost: number; // subcontractor payouts
   otherCost: number; // logged expenses tagged to the job
-  cost: number;
+  // Per-job internal overheads, each tracked on its own (settings-driven).
+  fuelCost: number; // flat fuel per job
+  carCost: number; // flat car allowance per job
+  commissionCost: number; // commission % of revenue
+  cost: number; // all of the above combined
   profit: number;
   margin: number; // gross margin % of revenue
   completedAt: string | null; // when the job was marked complete (for by-job profit)
@@ -217,6 +222,10 @@ export interface JobProfit {
 export async function getJobProfitability(): Promise<JobProfit[]> {
   const supabase = await createClient();
   const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
+  const biz = await getBusinessSettings();
+  const jobFuel = Number(biz.job_fuel_fee) || 0;
+  const jobCar = Number(biz.job_car_allowance) || 0;
+  const jobCommPct = Number(biz.job_commission_pct) || 0;
   const cancelled = await cancelledCustomerIds(supabase);
   const jobs = (await listJobs()).filter(
     // Carry-over jobs are excluded from profit analytics — their costs live in
@@ -373,7 +382,13 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
       freightMult;
     const laborCost = laborByJob.get(j.id) ?? 0;
     const otherCost = expByJob.get(j.id) ?? 0;
-    const cost = materialCost + laborCost + otherCost;
+    // Per-job internal overheads — only once the job is real (has revenue), so
+    // dead/quoted jobs aren't charged fuel/commission. Each tracked separately.
+    const hasRevenue = revenue > 0;
+    const fuelCost = hasRevenue ? jobFuel : 0;
+    const carCost = hasRevenue ? jobCar : 0;
+    const commissionCost = hasRevenue ? (jobCommPct / 100) * revenue : 0;
+    const cost = materialCost + laborCost + otherCost + fuelCost + carCost + commissionCost;
     const profit = revenue - cost;
     const estCost = j.option_id ? (estCostByOption.get(j.option_id) ?? 0) : 0;
     const estProfit = quotedRevenue - estCost;
@@ -393,6 +408,9 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
       materialCost,
       laborCost,
       otherCost,
+      fuelCost,
+      carCost,
+      commissionCost,
       cost,
       profit,
       margin: marginPct(revenue, cost),

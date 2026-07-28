@@ -68,6 +68,7 @@ export default async function EditEstimatePage({
       customer={customer}
       org={org}
       fuelFee={biz.job_fuel_fee}
+      carAllowance={biz.job_car_allowance}
       commissionPct={biz.job_commission_pct}
       autoPrint={autoPrint}
       colorSuggestions={suggestions.colors}

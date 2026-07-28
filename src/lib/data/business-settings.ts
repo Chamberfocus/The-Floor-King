@@ -13,6 +13,7 @@ const DEFAULTS: BusinessSettings = {
   notify_staff: true,
   notify_customers: false,
   job_fuel_fee: 160,
+  job_car_allowance: 0,
   job_commission_pct: 3.5,
   updated_at: "",
 };

@@ -228,6 +228,24 @@ export default async function FinancialsPage({
                           {formatMoney(j.otherCost)}
                         </div>
                       </div>
+                      {j.fuelCost > 0 ? (
+                        <div>
+                          <div className="text-xs text-muted-foreground">Fuel</div>
+                          <div className="font-medium">{formatMoney(j.fuelCost)}</div>
+                        </div>
+                      ) : null}
+                      {j.carCost > 0 ? (
+                        <div>
+                          <div className="text-xs text-muted-foreground">Car allowance</div>
+                          <div className="font-medium">{formatMoney(j.carCost)}</div>
+                        </div>
+                      ) : null}
+                      {j.commissionCost > 0 ? (
+                        <div>
+                          <div className="text-xs text-muted-foreground">Commission</div>
+                          <div className="font-medium">{formatMoney(j.commissionCost)}</div>
+                        </div>
+                      ) : null}
                       <div>
                         <div className="text-xs text-muted-foreground">
                           Profit
@@ -264,6 +282,9 @@ export default async function FinancialsPage({
                       <TableHead className="text-right">Material</TableHead>
                       <TableHead className="text-right">Crew pay</TableHead>
                       <TableHead className="text-right">Other</TableHead>
+                      <TableHead className="text-right">Fuel</TableHead>
+                      <TableHead className="text-right">Car</TableHead>
+                      <TableHead className="text-right">Comm.</TableHead>
                       <TableHead className="text-right">Profit</TableHead>
                       <TableHead className="text-right">Margin</TableHead>
                     </TableRow>
@@ -296,6 +317,15 @@ export default async function FinancialsPage({
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
                         {formatMoney(j.otherCost)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {j.fuelCost > 0 ? formatMoney(j.fuelCost) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {j.carCost > 0 ? formatMoney(j.carCost) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {j.commissionCost > 0 ? formatMoney(j.commissionCost) : "—"}
                       </TableCell>
                       <TableCell
                         className={
