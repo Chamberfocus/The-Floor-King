@@ -91,9 +91,12 @@ export function StagingSheetDoc({
   const groups: ProductGroup[] = [];
   const byKey = new Map<string, ProductGroup>();
   for (const m of lines) {
-    // Drop the room the questionnaire baked onto the description so the same
-    // product in several rooms collapses to one line.
-    const name = stripRoomFromName(m.productName || m.description || "Material", m.room);
+    // Show what's actually on the ESTIMATE (the line description) — not the
+    // linked catalog product's name, which can be wrong if a product was picked
+    // on a line by mistake (e.g. a "Tear-out" line linked to a staples product
+    // showed as "Staples"). Drop the room baked onto the description so the same
+    // item across rooms collapses to one line.
+    const name = stripRoomFromName(m.description || m.productName || "Material", m.room);
     const identity = m.productId ?? name.toLowerCase();
     const key = [
       identity,
