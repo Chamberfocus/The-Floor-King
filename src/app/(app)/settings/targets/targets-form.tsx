@@ -75,14 +75,14 @@ export function TargetsForm({ settings }: { settings: BusinessSettings }) {
           </p>
         </div>
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">Fleet upkeep per job ($)</label>
+          <label className="text-sm font-medium">Car allowance per job ($)</label>
           <Input
             name="job_car_allowance"
             inputMode="decimal"
             defaultValue={String(settings.job_car_allowance)}
           />
           <p className="text-xs text-muted-foreground">
-            Vehicle fleet upkeep — the balance of your per-job vehicle cost.
+            Vehicle / fleet upkeep — the balance of your per-job vehicle cost.
           </p>
         </div>
         <div className="space-y-1.5">

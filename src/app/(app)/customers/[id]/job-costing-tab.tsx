@@ -346,7 +346,7 @@ function ProfitBreakdown({ p }: { p: JobProfitLite }) {
           Internal (hidden from customer)
         </div>
         <CostLine label="Salesperson gas" value={p.fuelCost} />
-        <CostLine label="Fleet upkeep" value={p.carCost} />
+        <CostLine label="Car allowance" value={p.carCost} />
         <CostLine label="Commission" value={p.commissionCost} hint="% of revenue" />
       </div>
 

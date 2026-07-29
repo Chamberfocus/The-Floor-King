@@ -166,7 +166,7 @@ export default async function InvoicePage({
               ) : null}
               {invProfit.fleetUpkeep > 0 ? (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Fleet upkeep</span>
+                  <span>Car allowance</span>
                   <span className="tabular-nums">−{formatMoney(invProfit.fleetUpkeep)}</span>
                 </div>
               ) : null}

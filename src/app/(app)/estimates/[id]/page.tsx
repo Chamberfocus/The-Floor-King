@@ -29,9 +29,18 @@ import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate, getEstimatorName } from "@/lib/data/estimates";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
-import { optionTotalsWithDiscount, lineTotal, lineQty } from "@/lib/estimate-calc";
+import { getBusinessSettings } from "@/lib/data/business-settings";
+import { requireProfile } from "@/lib/auth";
+import { freightMultiplier } from "@/lib/freight";
+import {
+  optionTotalsWithDiscount,
+  optionCostTotals,
+  lineTotal,
+  lineQty,
+} from "@/lib/estimate-calc";
 import { parseProjectDetails } from "@/lib/customer-scope";
 import { formatMoney, formatDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, duplicateOption } from "../actions";
 import { DeleteEstimateButton } from "../estimate-list-actions";
@@ -95,6 +104,40 @@ export default async function EstimatePage({
       estimate.discount_kind,
       estimate.discount_value,
     );
+
+  // Owner-only internal profit: same fuel/car/commission structure as the
+  // builder and the invoice. Never shown to the customer (this whole page is
+  // staff-facing; the customer's copy is EstimatePrintDoc above).
+  const profile = await requireProfile();
+  const biz = profile.role === "admin" ? await getBusinessSettings() : null;
+  const freightMult = freightMultiplier(org.freight_markup_pct);
+  const profitFor = (o: EstimateOption) => {
+    if (!biz) return null;
+    const t = totalsFor(o);
+    const revenue = t.subtotal - t.discount; // pre-tax, discounted
+    const ct = optionCostTotals(o.line_items ?? []);
+    const cost = ct.material * freightMult + ct.labor;
+    const hasRev = revenue > 0;
+    const fuelCharge = hasRev ? Number(biz.job_fuel_charge) || 0 : 0;
+    const salesGas = hasRev ? Number(biz.job_fuel_fee) || 0 : 0;
+    const carAllowance = hasRev ? Number(biz.job_car_allowance) || 0 : 0;
+    const commissionPct = Number(biz.job_commission_pct) || 0;
+    const commission = hasRev ? (commissionPct / 100) * revenue : 0;
+    const profit = revenue - cost - salesGas - carAllowance - commission;
+    return {
+      revenue,
+      fuelCharge,
+      material: ct.material * freightMult,
+      labor: ct.labor,
+      cost,
+      salesGas,
+      carAllowance,
+      commissionPct,
+      commission,
+      profit,
+      margin: revenue > 0 ? (profit / revenue) * 100 : 0,
+    };
+  };
 
   return (
     <>
@@ -490,6 +533,75 @@ export default async function EstimatePage({
                       <span>{formatMoney(totals.total)}</span>
                     </div>
                   </div>
+
+                  {/* Owner-only profit — fuel charge (in the price) + our cost,
+                      gas, car allowance, commission → true profit. Internal. */}
+                  {(() => {
+                    const p = profitFor(option);
+                    if (!p) return null;
+                    return (
+                      <div className="ml-auto mt-2 w-full max-w-xs space-y-1 rounded-md border border-dashed p-3 text-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Profit — internal, not shown to customer
+                        </div>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Revenue (pre-tax)</span>
+                          <span className="tabular-nums">{formatMoney(p.revenue)}</span>
+                        </div>
+                        {p.fuelCharge > 0 ? (
+                          <div className="flex justify-between pl-3 text-xs text-muted-foreground/80">
+                            <span>↳ incl. {formatMoney(p.fuelCharge)} fuel charge</span>
+                          </div>
+                        ) : null}
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Our cost</span>
+                          <span className="tabular-nums">−{formatMoney(p.cost)}</span>
+                        </div>
+                        {p.material > 0 || p.labor > 0 ? (
+                          <div className="flex justify-between pl-3 text-xs text-muted-foreground/80">
+                            <span>
+                              ↳ Material {formatMoney(p.material)} · Labor{" "}
+                              {formatMoney(p.labor)}
+                            </span>
+                          </div>
+                        ) : null}
+                        {p.salesGas > 0 ? (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Salesperson gas</span>
+                            <span className="tabular-nums">−{formatMoney(p.salesGas)}</span>
+                          </div>
+                        ) : null}
+                        {p.carAllowance > 0 ? (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Car allowance</span>
+                            <span className="tabular-nums">−{formatMoney(p.carAllowance)}</span>
+                          </div>
+                        ) : null}
+                        {p.commission > 0 ? (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Commission ({p.commissionPct}%)</span>
+                            <span className="tabular-nums">−{formatMoney(p.commission)}</span>
+                          </div>
+                        ) : null}
+                        <div className="mt-1 flex justify-between border-t pt-1 font-semibold">
+                          <span>Profit</span>
+                          <span
+                            className={cn(
+                              "tabular-nums",
+                              p.profit >= 0
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-destructive",
+                            )}
+                          >
+                            {formatMoney(p.profit)}
+                            <span className="ml-2 text-xs font-medium">
+                              {p.margin.toFixed(1)}%
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             );

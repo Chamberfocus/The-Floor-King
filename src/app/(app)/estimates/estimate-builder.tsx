@@ -2956,7 +2956,7 @@ export function EstimateBuilder({
                       ) : null}
                       {car > 0 ? (
                         <div className="flex justify-between text-muted-foreground">
-                          <span>Fleet upkeep</span>
+                          <span>Car allowance</span>
                           <span className="tabular-nums">{formatMoney(car)}</span>
                         </div>
                       ) : null}
