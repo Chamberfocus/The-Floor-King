@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { lineQty, type CalcLine } from "@/lib/estimate-calc";
+import { isMaterialLine } from "@/lib/job-scope";
 import type { LineMeasurement } from "@/lib/types";
 
 export type MaterialSource = "stock" | "order";
@@ -103,7 +104,9 @@ export async function getJobMaterials(
     .neq("line_type", "flat")
     .neq("category", "labor") // labor (install, tear-out, prep) isn't material
     .order("position", { ascending: true });
-  const lines = (lineData ?? []) as RawLine[];
+  // Materials only — drop labor + service "other" lines (they're work-order
+  // items, not things the warehouse stages/orders).
+  const lines = ((lineData ?? []) as RawLine[]).filter(isMaterialLine);
   if (!lines.length) return empty;
 
   // Which ordered lines have their PO received (the material is physically in)?

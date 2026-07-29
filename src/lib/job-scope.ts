@@ -278,6 +278,48 @@ const isLabor = (l: EstimateLineItem) => l.category === "labor";
 /** Money-only flat lines (discounts, fees) don't belong on a work order. */
 const isMoneyFlat = (l: EstimateLineItem) => l.line_type === "flat" && l.category !== "labor";
 
+// Categories that are physical MATERIAL (staged by the warehouse). Everything
+// else — labor, and services in the "other" catch-all (tear-out, appliance
+// move, haul-away) — is work, not material.
+const MATERIAL_CATEGORIES = new Set([
+  "carpet",
+  "lvp",
+  "hardwood",
+  "laminate",
+  "tile",
+  "vinyl",
+  "underlayment",
+  "trim",
+]);
+
+/**
+ * Is this line a physical material (vs. labor / a service)? The ONE rule shared
+ * by the staging sheet (what to pull/order) and the work order (material vs
+ * labor grouping) so they can't disagree. A definite material category is
+ * always material; a bare "other" line with no product identity is a service.
+ */
+export function isMaterialLine(l: {
+  category?: string | null;
+  line_type?: string | null;
+  product_id?: string | null;
+  manufacturer?: string | null;
+  color?: string | null;
+  sqft_per_box?: number | null;
+  roll_width_ft?: number | null;
+}): boolean {
+  if (l.line_type === "flat") return false;
+  const cat = (l.category ?? "").toLowerCase();
+  if (cat === "labor") return false;
+  if (MATERIAL_CATEGORIES.has(cat)) return true;
+  return !!(
+    l.product_id ||
+    (l.manufacturer && l.manufacturer.trim()) ||
+    (l.color && l.color.trim()) ||
+    l.sqft_per_box ||
+    l.roll_width_ft
+  );
+}
+
 export interface ScopeRoom {
   name: string;
   products: EstimateLineItem[];
@@ -365,13 +407,17 @@ export function buildJobScope(
 
   for (const l of lineItems) {
     if (isMoneyFlat(l)) continue;
+    // Materials go under products; labor AND services (tear-out, appliance move,
+    // haul-away — the "other" catch-all) go under labor, matching the staging
+    // sheet's material/labor split so the two documents agree.
+    const material = isMaterialLine(l);
     const room = (l.room ?? "").trim();
     if (!room) {
-      (isLabor(l) ? wholeJob.labor : wholeJob.products).push(l);
+      (material ? wholeJob.products : wholeJob.labor).push(l);
       continue;
     }
     const r = ensure(room);
-    if (isLabor(l)) r.labor.push(l);
+    if (!material) r.labor.push(l);
     else {
       r.products.push(l);
       const sf = Number(l.sqft) || 0;
