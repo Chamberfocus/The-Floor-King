@@ -1704,6 +1704,9 @@ function QuestionBody({
   jobAnswers?: Record<string, Answer>;
   floorRooms?: { name: string; sqft: number; lenIn: number | null; widIn: number | null }[];
 }) {
+  // "How many stairs?" quick-fill for the trims step (one tread + one riser per
+  // stair). Declared unconditionally so hook order is stable across kinds.
+  const [stairCount, setStairCount] = useState("");
   if (q.kind === "areas" && answer?.kind === "areas") {
     const rooms = answer.rooms;
     const upd = (rs: AreaRow[]) => set({ kind: "areas", rooms: rs });
@@ -1994,6 +1997,24 @@ function QuestionBody({
     const upd = (rs: TrimRow[]) => set({ kind: "trims", rows: rs });
     const patch = (id: string, pp: Partial<TrimRow>) =>
       upd(rows.map((x) => (x.id === id ? { ...x, ...pp } : x)));
+    // Set the count on the Stair tread + Stair riser rows (adding either if
+    // missing) — one of each per stair.
+    const fillStairs = () => {
+      const n = numv(stairCount);
+      if (n <= 0) return;
+      let rs = [...rows];
+      const ensure = (re: RegExp, label: string) => {
+        const idx = rs.findIndex((x) => re.test(x.type));
+        if (idx >= 0) rs[idx] = { ...rs[idx], qty: String(n) };
+        else {
+          const t = TRIM_TYPES.find((x) => x.label === label);
+          rs = [...rs, { ...newTrimRow(t), qty: String(n) }];
+        }
+      };
+      ensure(/tread/i, "Stair tread");
+      ensure(/riser/i, "Stair riser");
+      upd(rs);
+    };
     return (
       <div className="space-y-3">
         {/* Quick-add: click the trims you need. */}
@@ -2016,6 +2037,28 @@ function QuestionBody({
           >
             + Other
           </button>
+        </div>
+
+        {/* Stairs quick-fill — one tread & one riser per stair. */}
+        <div className="flex flex-wrap items-end gap-2 rounded-md border border-dashed bg-primary/5 p-2.5">
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              How many stairs?
+            </label>
+            <Input
+              value={stairCount}
+              onChange={(e) => setStairCount(e.target.value)}
+              inputMode="numeric"
+              placeholder="e.g. 13"
+              className="h-9 w-24 text-base"
+            />
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={fillStairs}>
+            Add stair treads &amp; risers
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Adds one tread &amp; one riser per stair — then pick the product on each.
+          </span>
         </div>
 
         {rows.map((row) => (
