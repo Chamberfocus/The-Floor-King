@@ -489,14 +489,17 @@ export async function createPOsFromEstimateSelection(
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Vendors that already have a PO for this estimate — never double-order them.
+  // A company that already has a DRAFT PO for this estimate → add the newly
+  // checked items to that PO instead of making a second one. A PO that's already
+  // been Ordered/Received is left alone; new items go on a fresh PO.
   const { data: existingPos } = await supabase
     .from("purchase_orders")
-    .select("supplier_id")
+    .select("id, supplier_id, status")
     .eq("estimate_id", estimateId);
-  const vendorHasPo = new Set(
-    (existingPos ?? []).map((p) => p.supplier_id as string).filter(Boolean),
-  );
+  const draftPoBySupplier = new Map<string, string>();
+  for (const p of existingPos ?? [])
+    if (p.supplier_id && p.status === "draft")
+      draftPoBySupplier.set(p.supplier_id as string, p.id as string);
 
   // Persist any assign-to-company choices back to the product (so it's
   // remembered on the next estimate).
@@ -552,26 +555,43 @@ export async function createPOsFromEstimateSelection(
 
   let firstPoId: string | null = null;
   for (const [, group] of groups) {
-    // Never create a second PO for a company that already has one this estimate.
-    if (group.supplierId && vendorHasPo.has(group.supplierId)) continue;
-    const { data: po, error } = await supabase
-      .from("purchase_orders")
-      .insert({
-        customer_id: est.customer_id,
-        estimate_id: estimateId,
-        supplier: group.name,
-        supplier_id: group.supplierId,
-        source_type: group.sourceType,
-        created_by: user?.id ?? null,
-      })
-      .select("id")
-      .single();
-    if (error || !po) continue;
-    if (!firstPoId) firstPoId = po.id as string;
+    // Append to this company's existing DRAFT PO, else start a new one.
+    const draftPoId = group.supplierId
+      ? draftPoBySupplier.get(group.supplierId)
+      : null;
+    let poId: string;
+    let startPos = 0;
+    if (draftPoId) {
+      poId = draftPoId;
+      const { data: last } = await supabase
+        .from("po_items")
+        .select("position")
+        .eq("po_id", poId)
+        .order("position", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      startPos = ((last?.position as number) ?? -1) + 1;
+    } else {
+      const { data: po, error } = await supabase
+        .from("purchase_orders")
+        .insert({
+          customer_id: est.customer_id,
+          estimate_id: estimateId,
+          supplier: group.name,
+          supplier_id: group.supplierId,
+          source_type: group.sourceType,
+          created_by: user?.id ?? null,
+        })
+        .select("id")
+        .single();
+      if (error || !po) continue;
+      poId = po.id as string;
+    }
+    if (!firstPoId) firstPoId = poId;
     const items = buildPoItemRows(group.lines, { costOf, nameOf }).map((r, i) => ({
       ...r,
-      po_id: po.id,
-      position: i,
+      po_id: poId,
+      position: startPos + i,
     }));
     if (items.length) await insertPoItemsSafe(supabase, items);
   }

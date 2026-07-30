@@ -190,7 +190,9 @@ export function OrderMaterials({ plan }: { plan: EstimateOrderPlan }) {
                     href={`/purchase-orders/${v.existingPoId}`}
                     className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 hover:underline dark:bg-amber-950/50 dark:text-amber-300"
                   >
-                    PO already exists — won’t reorder
+                    {v.existingPoDraft
+                      ? "PO exists — checked items are added to it"
+                      : "PO already ordered — checked items go on a new PO"}
                   </Link>
                 ) : (
                   <span className="text-xs font-normal text-muted-foreground tabular-nums">

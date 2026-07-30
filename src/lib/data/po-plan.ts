@@ -28,6 +28,7 @@ export interface OrderPlanVendor {
   supplierId: string | null;
   hasExistingPo: boolean;
   existingPoId: string | null;
+  existingPoDraft: boolean; // existing PO is still a draft → items append to it
   lines: OrderPlanLine[];
 }
 
@@ -118,14 +119,15 @@ export async function getEstimateOrderPlan(
   // guard — po_items has no line_id, so we can't guard per line).
   const { data: existingPos } = await supabase
     .from("purchase_orders")
-    .select("id, supplier_id, supplier")
+    .select("id, supplier_id, supplier, status")
     .eq("estimate_id", estimateId);
-  const poBySupplierId = new Map<string, string>();
-  const poBySupplierName = new Map<string, string>();
+  const poBySupplierId = new Map<string, { id: string; draft: boolean }>();
+  const poBySupplierName = new Map<string, { id: string; draft: boolean }>();
   for (const p of existingPos ?? []) {
-    if (p.supplier_id) poBySupplierId.set(p.supplier_id as string, p.id as string);
+    const rec = { id: p.id as string, draft: p.status === "draft" };
+    if (p.supplier_id) poBySupplierId.set(p.supplier_id as string, rec);
     if (p.supplier)
-      poBySupplierName.set((p.supplier as string).trim().toLowerCase(), p.id as string);
+      poBySupplierName.set((p.supplier as string).trim().toLowerCase(), rec);
   }
 
   const costOf = (l: EstimateLineItem) =>
@@ -176,7 +178,7 @@ export async function getEstimateOrderPlan(
       unassigned.push(planLine);
       continue;
     }
-    const existingPoId =
+    const existing =
       poBySupplierId.get(resolved.ref.id) ??
       poBySupplierName.get(resolved.name.trim().toLowerCase()) ??
       null;
@@ -186,8 +188,9 @@ export async function getEstimateOrderPlan(
         key: resolved.key,
         name: resolved.name,
         supplierId: resolved.ref.id,
-        hasExistingPo: !!existingPoId,
-        existingPoId,
+        hasExistingPo: !!existing,
+        existingPoId: existing?.id ?? null,
+        existingPoDraft: existing?.draft ?? false,
         lines: [],
       } satisfies OrderPlanVendor);
     g.lines.push(planLine);
