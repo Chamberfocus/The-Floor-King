@@ -45,7 +45,6 @@ import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, duplicateOption } from "../actions";
 import { DeleteEstimateButton } from "../estimate-list-actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
-import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
 import { CopyEstimate } from "./copy-estimate";
 import { AddFromNotes } from "./add-from-notes";
 import {
@@ -224,19 +223,14 @@ export default async function EstimatePage({
                     <Wrench className="size-4" /> Create job
                   </ConfirmButton>
                 </form>
-                <form action={createPOFromEstimate}>
-                  <input type="hidden" name="estimate_id" value={estimate.id} />
-                  <ConfirmButton
-                    variant="outline"
-                    size="lg"
-                    className="w-full"
-                    title="Create a purchase order from this estimate?"
-                    description="Generates POs (grouped by supplier) for this estimate's material lines."
-                    confirmLabel="Create PO"
-                  >
-                    <ShoppingCart className="size-4" /> Create PO
-                  </ConfirmButton>
-                </form>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="w-full"
+                  render={<Link href={`/estimates/${estimate.id}/order`} />}
+                >
+                  <ShoppingCart className="size-4" /> Order materials
+                </Button>
                 <Link
                   href={`/estimates/${estimate.id}/invoice`}
                   className={buttonVariants({ variant: "outline", size: "lg", className: "w-full" })}

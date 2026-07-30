@@ -422,6 +422,165 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
   redirect("/purchase-orders");
 }
 
+/**
+ * Create purchase orders from a REVIEWED selection off the estimate — one PO per
+ * company, containing only the lines the user checked. Unassigned lines can be
+ * routed to a company here (and the choice saved back to the product). The
+ * money and quantities are recomputed server-side from the real line/product;
+ * client numbers are never trusted. Reuses buildPoItemRows so ordered yardage
+ * matches the cut list exactly. See getEstimateOrderPlan for the review data.
+ */
+export async function createPOsFromEstimateSelection(
+  formData: FormData,
+): Promise<void> {
+  const estimateId = str(formData.get("estimate_id"));
+  if (!estimateId) return;
+  const lineIds = formData.getAll("line").map(String).filter(Boolean);
+  // Vendor overrides: "lineId:supplierId" per assigned line; persist = save it
+  // back to the product.
+  const assignBy = new Map<string, string>();
+  for (const raw of formData.getAll("assign").map(String)) {
+    const [lid, sid] = raw.split(":");
+    if (lid && sid) assignBy.set(lid, sid);
+  }
+  const persist = new Set(formData.getAll("persist").map(String));
+  if (!lineIds.length) {
+    redirect(`/estimates/${estimateId}/order`);
+  }
+
+  const supabase = await createClient();
+  const { data: est } = await supabase
+    .from("estimates")
+    .select("id, customer_id")
+    .eq("id", estimateId)
+    .maybeSingle();
+  if (!est) redirect(`/estimates/${estimateId}/order`);
+
+  const { data: lineData } = await supabase
+    .from("estimate_line_items")
+    .select("*")
+    .in("id", lineIds)
+    .order("position", { ascending: true });
+  const lines = (lineData ?? []) as EstimateLineItem[];
+  if (!lines.length) redirect(`/estimates/${estimateId}/order`);
+
+  const productIds = [
+    ...new Set(lines.map((l) => l.product_id).filter(Boolean) as string[]),
+  ];
+  const productCost = new Map<string, number>();
+  const productName = new Map<string, string>();
+  const productSupplier = new Map<string, string | null>();
+  const productSupplierId = new Map<string, string | null>();
+  if (productIds.length) {
+    const { data: prods } = await supabase
+      .from("products")
+      .select("id, name, material_rate, supplier, supplier_id")
+      .in("id", productIds);
+    for (const p of prods ?? []) {
+      productCost.set(p.id as string, Number(p.material_rate) || 0);
+      productName.set(p.id as string, (p.name as string) ?? "");
+      productSupplier.set(p.id as string, (p.supplier as string) || null);
+      productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
+    }
+  }
+
+  const lookup = await buildSupplierLookup(supabase);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Vendors that already have a PO for this estimate — never double-order them.
+  const { data: existingPos } = await supabase
+    .from("purchase_orders")
+    .select("supplier_id")
+    .eq("estimate_id", estimateId);
+  const vendorHasPo = new Set(
+    (existingPos ?? []).map((p) => p.supplier_id as string).filter(Boolean),
+  );
+
+  // Persist any assign-to-company choices back to the product (so it's
+  // remembered on the next estimate).
+  for (const l of lines) {
+    const sid = assignBy.get(l.id);
+    if (!sid || !l.product_id || !persist.has(l.id)) continue;
+    const ref = lookup.byId.get(sid);
+    if (ref)
+      await supabase
+        .from("products")
+        .update({ supplier_id: ref.id, supplier: ref.name })
+        .eq("id", l.product_id);
+  }
+
+  // Group each selected line by its resolved (or assigned) vendor.
+  const groups = new Map<
+    string,
+    { name: string; supplierId: string | null; sourceType: PoSourceType; lines: EstimateLineItem[] }
+  >();
+  for (const l of lines) {
+    const assigned = assignBy.get(l.id);
+    const ref = assigned
+      ? lookup.byId.get(assigned) ?? null
+      : resolveLineSupplier(lookup, {
+          productSupplierId: l.product_id ? productSupplierId.get(l.product_id) : null,
+          supplierName:
+            (l.product_id ? productSupplier.get(l.product_id) : null) ||
+            l.manufacturer ||
+            null,
+        }).ref;
+    const key = ref ? `id:${ref.id}` : "name:special order";
+    const g = groups.get(key) ?? {
+      name: ref?.name ?? "Special order",
+      supplierId: ref?.id ?? null,
+      sourceType: (ref?.kind ?? "distributor") as PoSourceType,
+      lines: [],
+    };
+    g.lines.push(l);
+    groups.set(key, g);
+  }
+
+  const costOf = (l: EstimateLineItem) =>
+    (l.material_cost ?? 0) > 0
+      ? (l.material_cost as number)
+      : l.product_id
+        ? (productCost.get(l.product_id) ?? 0)
+        : 0;
+  const nameOf = (l: EstimateLineItem) =>
+    l.description ||
+    (l.product_id ? productName.get(l.product_id) : null) ||
+    l.room ||
+    "Material";
+
+  let firstPoId: string | null = null;
+  for (const [, group] of groups) {
+    // Never create a second PO for a company that already has one this estimate.
+    if (group.supplierId && vendorHasPo.has(group.supplierId)) continue;
+    const { data: po, error } = await supabase
+      .from("purchase_orders")
+      .insert({
+        customer_id: est.customer_id,
+        estimate_id: estimateId,
+        supplier: group.name,
+        supplier_id: group.supplierId,
+        source_type: group.sourceType,
+        created_by: user?.id ?? null,
+      })
+      .select("id")
+      .single();
+    if (error || !po) continue;
+    if (!firstPoId) firstPoId = po.id as string;
+    const items = buildPoItemRows(group.lines, { costOf, nameOf }).map((r, i) => ({
+      ...r,
+      po_id: po.id,
+      position: i,
+    }));
+    if (items.length) await insertPoItemsSafe(supabase, items);
+  }
+
+  revalidatePath("/purchase-orders");
+  if (firstPoId) redirect(`/purchase-orders/${firstPoId}`);
+  redirect(`/estimates/${estimateId}/order`);
+}
+
 export async function savePurchaseOrder(
   poId: string,
   input: SavePoInput,

@@ -54,7 +54,6 @@ import { OwnerOverride } from "./owner-override";
 import { JobMaterialsCard } from "@/app/(app)/jobs/[id]/job-materials-card";
 import { SatisfactionForm } from "@/app/(app)/jobs/[id]/satisfaction-form";
 import { setEstimateStatus } from "@/app/(app)/estimates/actions";
-import { createPOFromEstimate } from "@/app/(app)/purchase-orders/actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 
 // Step vocabulary, step resolution, off-spine detection, and next-stage all come
@@ -365,12 +364,12 @@ export async function GuidedFlow({
             </form>
           ) : null}
           {approvedEstimate ? (
-            <form action={createPOFromEstimate}>
-              <input type="hidden" name="estimate_id" value={approvedEstimate.id} />
-              <SubmitButton size="sm" variant="outline" pendingText="Creating…" confirm="PO created">
-                <Boxes className="size-3.5" /> Create purchase order
-              </SubmitButton>
-            </form>
+            <Link
+              href={`/estimates/${approvedEstimate.id}/order`}
+              className={buttonVariants({ size: "sm", variant: "outline" })}
+            >
+              <Boxes className="size-3.5" /> Order materials
+            </Link>
           ) : null}
           <Link
             href="/purchase-orders"
