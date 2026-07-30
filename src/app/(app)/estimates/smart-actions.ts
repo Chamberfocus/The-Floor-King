@@ -273,6 +273,7 @@ export interface EstimateDraft {
   answers: Record<string, unknown>;
   overrides: Record<string, unknown>;
   step: number;
+  cashCarry?: boolean; // materials-only (no labor) mode
 }
 
 /** Load a customer's in-progress questionnaire draft (null if none / not set up). */

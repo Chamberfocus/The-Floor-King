@@ -140,6 +140,8 @@ const TRIM_TYPES: { label: string; unit: string; cost: number; sized?: boolean }
   { label: "Quarter round", unit: "lnft", cost: 1.0 },
   { label: "Cove base", unit: "lnft", cost: 1.5, sized: true },
   { label: "Stair nose", unit: "each", cost: 45, sized: true },
+  { label: "Stair tread", unit: "each", cost: 169, sized: true },
+  { label: "Stair riser", unit: "each", cost: 95, sized: true },
   { label: "J-channel", unit: "lnft", cost: 1.2, sized: true },
   { label: "T-mold", unit: "each", cost: 25 },
   { label: "Reducer", unit: "each", cost: 28 },
@@ -307,6 +309,28 @@ function rekeyAnswer(a: Answer): Answer {
   }
 }
 
+/**
+ * A question that produces ONLY labor (install, tear-out, haul-away, furniture,
+ * door shave, toilets, appliances, demo, all-labor floor prep). In cash & carry
+ * mode these are hidden — the customer buys material only. Mixed questions
+ * (stairs, subfloor, self-leveler) stay; their labor is dropped at the line
+ * level so their MATERIAL still comes through.
+ */
+function isPureLaborQuestion(q: EstimateQuestion): boolean {
+  const c = (q.config ?? {}) as {
+    emit?: { role?: string };
+    options?: { emit?: { role?: string } }[];
+  };
+  if (c.emit?.role === "labor") return true;
+  const opts = c.options;
+  if (Array.isArray(opts) && opts.length > 0) {
+    const withEmit = opts.filter((o) => o?.emit);
+    if (withEmit.length > 0 && withEmit.every((o) => o.emit?.role === "labor"))
+      return true;
+  }
+  return false;
+}
+
 export function Questionnaire({
   customerId,
   customerName,
@@ -373,6 +397,11 @@ export function Questionnaire({
   const [resumed, setResumed] = useState(!!draft);
   const [saving, startSave] = useTransition();
   const [priceCheck, setPriceCheck] = useState(false);
+  // Cash & carry: materials only, no labor. Hides every labor question and drops
+  // all labor from the resulting estimate lines.
+  const [cashCarry, setCashCarry] = useState<boolean>(
+    (draft as { cashCarry?: boolean } | undefined)?.cashCarry ?? false,
+  );
 
   const set = (id: string, a: Answer) => setAnswers((p) => ({ ...p, [id]: a }));
 
@@ -393,12 +422,12 @@ export function Questionnaire({
     }
     setDraftStatus("saving");
     const t = setTimeout(() => {
-      saveEstimateDraft(customerId, { serviceAddressId, answers, overrides, step })
+      saveEstimateDraft(customerId, { serviceAddressId, answers, overrides, step, cashCarry })
         .then((ok) => setDraftStatus(ok ? "saved" : "error"))
         .catch(() => setDraftStatus("error"));
     }, 1200);
     return () => clearTimeout(t);
-  }, [customerId, serviceAddressId, answers, overrides, step]);
+  }, [customerId, serviceAddressId, answers, overrides, step, cashCarry]);
   const startOver = () => {
     setAnswers(buildDefaults());
     setOverrides({});
@@ -482,8 +511,10 @@ export function Questionnaire({
       }
       if (!changed) break;
     }
+    // Cash & carry: hide every pure-labor question (materials only).
+    if (cashCarry) for (const q of questions) if (isPureLaborQuestion(q)) vis[q.id] = false;
     return vis;
-  }, [questions, answers, overrides]);
+  }, [questions, answers, overrides, cashCarry]);
   const visibleQuestions = useMemo(
     () => questions.filter((q) => visible[q.id]),
     [questions, visible],
@@ -1230,9 +1261,20 @@ export function Questionnaire({
         }
       }
     }
-    return out;
+    // Cash & carry: strip ALL labor — drop dedicated labor lines, and zero any
+    // labor embedded on a surviving material/trim line (e.g. trim R&R). The one
+    // guarantee that a cash & carry quote is materials only.
+    return cashCarry
+      ? out
+          .filter((l) => l.category !== "labor")
+          .map((l) =>
+            l.labor_rate || l.labor_cost
+              ? { ...l, labor_rate: 0, labor_cost: 0 }
+              : l,
+          )
+      : out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms]);
+  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry]);
 
   const notes = useMemo(() => {
     // "Job conditions" — flagged choice / yes-no answers (subfloor, tackless…)
@@ -1431,6 +1473,22 @@ export function Questionnaire({
           </button>
         </div>
       ) : null}
+      {/* Cash & carry — materials only, no labor. Hides every labor question and
+          strips labor from the quote. */}
+      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm has-[:checked]:border-primary/50 has-[:checked]:bg-primary/5">
+        <span>
+          <span className="font-medium">Cash &amp; carry</span>
+          <span className="ml-2 text-muted-foreground">
+            Materials only — no labor{cashCarry ? " (labor questions hidden)" : ""}
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          className="size-4 accent-primary"
+          checked={cashCarry}
+          onChange={(e) => setCashCarry(e.target.checked)}
+        />
+      </label>
       {/* Progress */}
       <div className="flex items-center gap-2">
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
