@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, FileText, Users } from "lucide-react";
+import { Plus, FileText, Users, Zap} from "lucide-react";
 import {
   Table,
   TableBody,
@@ -40,6 +40,12 @@ export default async function EstimatesPage() {
       >
         <div className="flex items-center gap-2">
           <ClearDraftsButton />
+          <Link
+            href="/estimates/quick"
+            className={buttonVariants({ size: "lg", variant: "outline" })}
+          >
+            <Zap className="size-4" /> Quick estimate
+          </Link>
           <Link href="/estimates/start" className={buttonVariants({ size: "lg" })}>
             <Plus className="size-4" /> New estimate
           </Link>

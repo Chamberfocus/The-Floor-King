@@ -8,7 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Receipt } from "lucide-react";
+import { Receipt, Zap} from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
@@ -27,7 +28,11 @@ export default async function InvoicesPage() {
       <PageHeader
         title="Invoices"
         description="Bill customers and track who still owes you."
-      />
+      >
+        <Link href="/invoices/quick" className={buttonVariants({ size: "lg" })}>
+          <Zap className="size-4" /> Counter sale
+        </Link>
+      </PageHeader>
 
       {invoices.length === 0 ? (
         <EmptyState
