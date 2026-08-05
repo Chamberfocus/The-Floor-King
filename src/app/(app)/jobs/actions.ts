@@ -25,6 +25,8 @@ import { estimatedMaterialCostForOption } from "@/lib/job-costing";
 // silently no-op. Excludes any "needs" scheduling stage.
 const STAGE_INSTALL_SCHEDULED = /^(?!.*\bneeds\b).*install.*sched/;
 const STAGE_INSTALLED = /installed|follow/;
+/** The crew is on site — its own stage, between scheduled and installed. */
+const STAGE_INSTALL_IN_PROGRESS = /in progress|in-progress/;
 import { prepareJobMaterialsFor } from "./material-actions";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getJobOpenBalance } from "@/lib/data/invoices";
@@ -960,7 +962,10 @@ export async function updateJob(
     if (newStatus === "completed")
       await advanceToNamedStage(customerId, STAGE_INSTALLED);
     else if (newStatus === "in_progress")
-      await advanceToNamedStage(customerId, STAGE_INSTALL_SCHEDULED);
+      // Starting work now lands on its own stage. It used to advance only as far
+      // as "Install Scheduled", so a job being worked on read the same as one
+      // merely booked.
+      await advanceToNamedStage(customerId, STAGE_INSTALL_IN_PROGRESS);
   }
   revalidateJobEverywhere(id, customerId);
   return { error: null, ok: true };
@@ -987,7 +992,7 @@ export async function setJobStatus(formData: FormData): Promise<void> {
     if (status === "completed")
       await advanceToNamedStage(customerId, STAGE_INSTALLED);
     else if (status === "in_progress")
-      await advanceToNamedStage(customerId, STAGE_INSTALL_SCHEDULED);
+      await advanceToNamedStage(customerId, STAGE_INSTALL_IN_PROGRESS);
   }
 
   // Fan out to every view that shows the job (installer, warehouse, board,

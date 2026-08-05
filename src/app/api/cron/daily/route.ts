@@ -3,8 +3,41 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
 import { triggerImportProcessing } from "@/lib/import-worker";
+import { advanceToNamedStage } from "@/lib/workflow-engine";
+import { invoiceTotals } from "@/lib/invoice-calc";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * What a customer still owes across their open invoices. Uses the same
+ * invoiceTotals the invoice screen does, so the cron can't disagree with what
+ * the office is looking at.
+ */
+async function outstandingBalance(
+  admin: ReturnType<typeof createAdminClient>,
+  customerId: string,
+): Promise<number> {
+  const { data: invoices } = await admin
+    .from("invoices")
+    .select("id, tax_rate, status, items:invoice_items(quantity, rate), payments(amount)")
+    .eq("customer_id", customerId)
+    .neq("status", "void");
+
+  let owed = 0;
+  for (const inv of invoices ?? []) {
+    const paid = ((inv.payments ?? []) as { amount: number }[]).reduce(
+      (sum, p) => sum + (Number(p.amount) || 0),
+      0,
+    );
+    const t = invoiceTotals(
+      (inv.items ?? []) as Parameters<typeof invoiceTotals>[0],
+      inv.tax_rate as number,
+      paid,
+    );
+    if (t.balance > 0) owed += t.balance;
+  }
+  return Math.round(owed * 100) / 100;
+}
 
 /**
  * Scheduled jobs (Vercel Cron):
@@ -117,6 +150,54 @@ export async function GET(request: NextRequest) {
       .update({ reminder_sent_at: new Date(now).toISOString() })
       .eq("id", j.id);
     reminders += 1;
+  }
+
+  // --- Install day arrived → put the job In Progress -------------------------
+  // Jobs sat on "scheduled" long after their install date because nothing moved
+  // them; the crew is on site and the pipeline still says "waiting to install".
+  // Forward-only, and it never touches a job somebody already advanced.
+  let started = 0;
+  let staleScheduled = 0;
+  const todayStr = new Date(now).toISOString().slice(0, 10);
+  // Look back a fortnight, not forever. A job whose install date passed weeks
+  // ago is not "in progress" — it finished and nobody closed it out, and
+  // labelling it in-progress would be a confident lie. Those are counted and
+  // reported instead, so the backlog surfaces without being mislabelled.
+  const lookback = new Date(now - 14 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const { data: due } = await admin
+    .from("jobs")
+    .select("id, customer_id, scheduled_date")
+    .eq("status", "scheduled")
+    .not("scheduled_date", "is", null)
+    .lte("scheduled_date", todayStr);
+  for (const j of due ?? []) {
+    if ((j.scheduled_date as string) < lookback) {
+      staleScheduled += 1;
+      continue;
+    }
+    await admin.from("jobs").update({ status: "in_progress" }).eq("id", j.id as string);
+    if (j.customer_id) {
+      await advanceToNamedStage(j.customer_id as string, /in progress|in-progress/);
+    }
+    started += 1;
+  }
+
+  // --- Install finished but money still out → Collect Balance ----------------
+  // Completing a job moves the customer to "Installed — Follow-up". If there is
+  // still a balance, the job isn't really done — surface it as its own stage so
+  // the last payment doesn't quietly age.
+  let balanceChased = 0;
+  const { data: finished } = await admin
+    .from("jobs")
+    .select("id, customer_id")
+    .eq("status", "completed")
+    .not("customer_id", "is", null);
+  for (const j of finished ?? []) {
+    const owed = await outstandingBalance(admin, j.customer_id as string);
+    if (owed > 0.005) {
+      await advanceToNamedStage(j.customer_id as string, /balance/);
+      balanceChased += 1;
+    }
   }
 
   // --- Review request after a completed job ---
@@ -348,6 +429,9 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
+    started,
+    staleScheduled,
+    balanceChased,
     ok: true,
     thankyou,
     reminders,

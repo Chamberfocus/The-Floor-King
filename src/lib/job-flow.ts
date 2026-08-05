@@ -16,6 +16,7 @@ export type FlowStep =
   | "schedule_install"
   | "waiting"
   | "await_install"
+  | "install_in_progress"
   | "followup"
   | "collect_balance"
   | "complete"
@@ -71,6 +72,7 @@ export const STEP_TITLES: Record<FlowStep, string> = {
   schedule_install: "Schedule the install",
   waiting: "Waiting on the customer",
   await_install: "Install scheduled",
+  install_in_progress: "Install in progress",
   followup: "Sign-off & follow up",
   collect_balance: "Collect the balance",
   complete: "Job complete",
@@ -100,6 +102,9 @@ export function resolveFlowStep(
   // "Collect Balance" must resolve before "follow-up" so the dedicated balance
   // stage gets the balance gate (the Follow-up stage's NAME has no "balance").
   if (/balance/.test(name)) return "collect_balance";
+  // Must beat the generic /install/ test below, which would file an in-flight
+  // install as "still waiting to be installed".
+  if (/in progress|in-progress/.test(name)) return "install_in_progress";
   if (/follow|installed|satisf/.test(name)) return "followup";
   if (/response|approv/.test(name)) return "approve";
   if (/wait|hold/.test(name)) return "waiting";
@@ -177,6 +182,10 @@ export function stepGate(step: FlowStep, f: FlowFacts): StepGate {
     case "schedule_install":
       return f.installBooked ? OK : block("Book the install date in the scheduler to advance.");
     case "await_install":
+      return f.installComplete ? OK : block("Mark the install complete on the work order to advance.");
+    case "install_in_progress":
+      // The crew is on site. Same gate as awaiting it — the work order is what
+      // says the job is done, not a stage click.
       return f.installComplete ? OK : block("Mark the install complete on the work order to advance.");
     case "followup":
       // Follow-up is the sign-off / touch-base step; the balance is collected at

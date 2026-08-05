@@ -71,6 +71,7 @@ const STEP_ICON: Record<Step, typeof Phone> = {
   schedule_install: Hammer,
   waiting: PauseCircle,
   await_install: CalendarClock,
+  install_in_progress: Hammer,
   followup: ClipboardCheck,
   collect_balance: DollarSign,
   complete: CheckCircle2,
