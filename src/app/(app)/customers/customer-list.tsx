@@ -173,6 +173,13 @@ function DesktopRow({
   return (
     <>
       <TableRow>
+        {/* First column, so the expander is always in view — it used to sit in
+            the last of eight columns and needed a horizontal scroll to reach. */}
+        <TableCell className="w-9 pr-0 align-top">
+          {hasActions ? (
+            <ExpandToggle open={open} onClick={() => setOpen((v) => !v)} />
+          ) : null}
+        </TableCell>
         <TableCell className="font-medium">
           <Link href={`/customers/${c.id}`} className="hover:underline">
             {c.full_name}
@@ -205,11 +212,6 @@ function DesktopRow({
         </TableCell>
         <TableCell className="text-right text-muted-foreground">
           {formatDate(c.updated_at)}
-        </TableCell>
-        <TableCell className="text-right">
-          {hasActions ? (
-            <ExpandToggle open={open} onClick={() => setOpen((v) => !v)} />
-          ) : null}
         </TableCell>
       </TableRow>
       {open && hasActions ? (
@@ -437,6 +439,7 @@ export function CustomerList({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-9" aria-label="Quick actions" />
               <SortTh label="Name" k="name" sortKey={sortKey} dir={dir} onSort={sortBy} />
               {isAdmin ? (
                 <SortTh label="Assigned to" k="assigned" sortKey={sortKey} dir={dir} onSort={sortBy} />
@@ -446,7 +449,6 @@ export function CustomerList({
               <SortTh label="City" k="city" sortKey={sortKey} dir={dir} onSort={sortBy} />
               <SortTh label="Source" k="source" sortKey={sortKey} dir={dir} onSort={sortBy} />
               <SortTh label="Updated" k="updated" sortKey={sortKey} dir={dir} onSort={sortBy} align="right" />
-              <TableHead className="w-10 text-right" aria-label="Quick actions" />
             </TableRow>
           </TableHeader>
           <TableBody>
