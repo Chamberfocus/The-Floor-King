@@ -17,9 +17,11 @@ import {
   optionTotalsWithDiscount,
   priceFromMargin,
   marginPct,
+  lineCost,
   num,
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
+import { jobProfit, marginShortfall } from "@/lib/job-profit";
 import { parseCutsFromText } from "@/lib/job-scope";
 import {
   type Estimate,
@@ -138,6 +140,13 @@ function effMargin(l: LineState, overall: number): number {
  *  legacy line with a hand-typed rate but no cost is never zeroed. */
 function ratesFromMargin(l: LineState, m: number): Partial<LineState> {
   const patch: Partial<LineState> = {};
+  // A FLAT line is priced by its lump amount, not by rates — re-price that too,
+  // or the margin slider silently leaves flat-priced work at its old price.
+  if (l.line_type === "flat") {
+    const cost = num(l.material_cost) + num(l.labor_cost);
+    if (cost > 0) patch.flat_amount = round2s(priceFromMargin(cost, m));
+    return patch;
+  }
   if (num(l.material_cost) > 0) patch.material_rate = round2s(priceFromMargin(num(l.material_cost), m));
   if (num(l.labor_cost) > 0) patch.labor_rate = round2s(priceFromMargin(num(l.labor_cost), m));
   return patch;
@@ -196,8 +205,11 @@ function inToIn(total: number | null | undefined): string {
 }
 /** Our cost for a line (material × waste + labor), matching lineTotal's qty. */
 function lineOurCost(l: LineState): number {
-  if (l.line_type === "flat") return 0;
-  const qty = lineQty({
+  // Delegates to the shared cost so the builder can't drift from the estimate,
+  // the invoice, or job costing. It used to return 0 for a FLAT line (making
+  // flat-priced work look like pure profit) and to charge a stray material cost
+  // sitting on a LABOR line — the shared one gets both right.
+  return lineCost({
     line_type: l.line_type,
     sqft: l.sqft,
     measure_unit: l.measure_unit,
@@ -206,11 +218,12 @@ function lineOurCost(l: LineState): number {
     installed_rate: l.installed_rate,
     flat_amount: l.flat_amount,
     waste_pct: l.waste_pct,
+    material_cost: l.material_cost,
+    labor_cost: l.labor_cost,
     quantity: l.quantity,
-    unit: l.unit, // count units price by quantity, not area
+    unit: l.unit,
+    category: l.category,
   });
-  const waste = 1 + (num(l.waste_pct) || 0) / 100;
-  return qty * num(l.material_cost) * waste + qty * num(l.labor_cost);
 }
 
 /** Our cost for a line, split into material vs labor (matches lineOurCost). */
@@ -913,6 +926,23 @@ export function EstimateBuilder({
     );
   };
 
+  /** Un-pin every line so they all follow the overall margin again. */
+  const releaseAllMargins = () => {
+    const m = num(overallMargin);
+    if (m <= 0 || m >= 100) return;
+    setOptions((prev) =>
+      prev.map((o) => ({
+        ...o,
+        lines: o.lines.map((l) =>
+          l.margin_pct.trim() === ""
+            ? l
+            : { ...l, margin_pct: "", ...ratesFromMargin(l, m) },
+        ),
+      })),
+    );
+    toast.success(`All lines back on ${m}%.`);
+  };
+
   // Price this option to an exact PRE-TAX total. We scale every line's sell
   // proportionally so the subtotal lands on the number exactly — this works no
   // matter how the lines are costed (a margin-only approach breaks on a line
@@ -1477,8 +1507,31 @@ export function EstimateBuilder({
     discountKind,
     discountValue,
   );
-  const grandCost = options.flatMap((o) => o.lines).reduce((s, l) => s + lineOurCost(l), 0);
-  const grandMargin = marginPct(grand.subtotal, grandCost);
+  // THE margin — same definition the saved estimate, invoice and job costing
+  // use. It used to be (subtotal − cost) / subtotal, which ignored the discount,
+  // freight on material, sales gas, the car allowance and commission, so the
+  // number you priced against was always the optimistic one.
+  const grandProfit = jobProfit(
+    options.flatMap((o) => o.lines.map(toCalc)),
+    {
+      discountKind,
+      discountValue,
+      freightMarkupPct: org?.freight_markup_pct ?? 0,
+      fuelFee,
+      carAllowance,
+      commissionPct,
+    },
+  );
+  const grandMargin = grandProfit.margin;
+  // Which lines are keeping the job off its target, and what that costs. A
+  // blended margin below target is usually a pinned line, not bad arithmetic —
+  // so name it instead of leaving the estimator to wonder.
+  const shortfall = marginShortfall(
+    options[Math.min(Math.max(activeOption, 0), Math.max(options.length - 1, 0))]?.lines.map(toCalc) ?? [],
+    num(overallMargin),
+    org?.freight_markup_pct ?? 0,
+  );
+  const pinnedCount = options.flatMap((o) => o.lines).filter((l) => l.margin_pct.trim() !== "").length;
   // Active option, clamped so removing an option never points off the end.
   const safeActive = Math.min(Math.max(activeOption, 0), Math.max(options.length - 1, 0));
 
@@ -1638,6 +1691,72 @@ export function EstimateBuilder({
                 aria-label="Overall profit margin percent"
               />
               <span className="text-lg font-semibold">%</span>
+            </div>
+
+            {/* What you actually get. The box above is what you ASKED for; a
+                pinned line or a line with no cost can stop the job reaching it,
+                and showing only the target is how the number stopped being
+                trustworthy. */}
+            <div className="w-full border-t border-primary/20 pt-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                <span className="text-muted-foreground">
+                  Actual margin on this job
+                </span>
+                <span
+                  className={`text-lg font-semibold tabular-nums ${
+                    Math.abs(grandMargin - num(overallMargin)) < 0.05
+                      ? "text-emerald-600"
+                      : "text-amber-600"
+                  }`}
+                >
+                  {grandMargin.toFixed(2)}%
+                </span>
+              </div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                {formatMoney(grandProfit.revenue)} revenue −{" "}
+                {formatMoney(grandProfit.cost)} cost
+                {grandProfit.discount > 0
+                  ? ` (after ${formatMoney(grandProfit.discount)} discount)`
+                  : ""}
+                {grandProfit.commission > 0
+                  ? ` − ${formatMoney(grandProfit.commission)} commission`
+                  : ""}
+                {grandProfit.fuelFee + grandProfit.carAllowance > 0
+                  ? ` − ${formatMoney(grandProfit.fuelFee + grandProfit.carAllowance)} gas & vehicle`
+                  : ""}{" "}
+                = {formatMoney(grandProfit.profit)} profit
+              </div>
+
+              {shortfall.offTarget.length > 0 ? (
+                <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs dark:bg-amber-950/40">
+                  <div className="font-medium text-amber-900 dark:text-amber-200">
+                    {shortfall.offTarget.length}{" "}
+                    {shortfall.offTarget.length === 1 ? "line is" : "lines are"}{" "}
+                    below {shortfall.target}% — {formatMoney(shortfall.totalShortfall)}{" "}
+                    less than pricing them at target
+                  </div>
+                  <ul className="mt-1 space-y-0.5 text-amber-900/80 dark:text-amber-200/80">
+                    {shortfall.offTarget.slice(0, 4).map((l) => (
+                      <li key={l.index} className="flex justify-between gap-3">
+                        <span className="truncate">{l.description}</span>
+                        <span className="shrink-0 tabular-nums">
+                          {l.margin.toFixed(1)}% · {formatMoney(l.shortfall)} short
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {pinnedCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={releaseAllMargins}
+                      className="mt-1.5 font-medium underline underline-offset-2"
+                    >
+                      Put all {pinnedCount} pinned{" "}
+                      {pinnedCount === 1 ? "line" : "lines"} back on {overallMargin}%
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
 
