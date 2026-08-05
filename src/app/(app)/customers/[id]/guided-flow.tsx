@@ -16,6 +16,7 @@ import {
   XCircle,
   Ruler,
   AlertTriangle,
+  Truck,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
@@ -68,6 +69,7 @@ const STEP_ICON: Record<Step, typeof Phone> = {
   approve: ClipboardCheck,
   collect_deposit: DollarSign,
   materials: Boxes,
+  awaiting_materials: Truck,
   schedule_install: Hammer,
   waiting: PauseCircle,
   await_install: CalendarClock,

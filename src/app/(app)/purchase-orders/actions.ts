@@ -13,6 +13,8 @@ import { advanceToNamedStage } from "@/lib/workflow-engine";
 // "Materials Received" pipeline stage — receiving a PO advances the customer here
 // (forward-only), teeing up the install scheduling.
 const STAGE_MATERIALS_RECEIVED = /material.*received|received.*material/;
+/** PO placed, nothing here yet — the waiting-on-delivery stage. */
+const STAGE_AWAITING_MATERIALS = /wait.*material|await.*material/;
 import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
 import { buildPoItemRows, carpetSignature, type PoItemRow } from "@/lib/po-build";
 import { isRollGoodCategory } from "@/lib/types";
@@ -817,6 +819,14 @@ export async function setPurchaseOrderStatus(
   // "ordered" — the status button was silently skipping it.
   if (prev !== "ordered" && status === "ordered") {
     await notifyPoOrdered(supabase, id);
+    // Issuing the PO is the moment the job starts waiting on delivery — move
+    // the pipeline with it instead of leaving it on "Ordering Materials", which
+    // reads as though the order still hasn't been placed.
+    if (cur?.customer_id) {
+      await advanceToNamedStage(cur.customer_id as string, STAGE_AWAITING_MATERIALS);
+      revalidatePath("/pipeline");
+      revalidatePath("/dashboard");
+    }
   }
 
   // Receiving the material advances the customer to "Materials Received" so the

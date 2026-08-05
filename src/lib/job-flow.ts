@@ -13,6 +13,7 @@ export type FlowStep =
   | "approve"
   | "collect_deposit"
   | "materials"
+  | "awaiting_materials"
   | "schedule_install"
   | "waiting"
   | "await_install"
@@ -56,8 +57,15 @@ export interface StageLike {
 export const isLostStage = (s: { name: string }) =>
   /lost|declin|dead|cancel/.test(s.name.toLowerCase());
 /** On-hold park stage — reachable any time, not a numbered step. */
-export const isParkStage = (s: { name: string }) =>
-  /\bwaiting\b|\bon hold\b|\bhold\b|\bpark/.test(s.name.toLowerCase());
+export const isParkStage = (s: { name: string }) => {
+  const n = s.name.toLowerCase();
+  // Waiting on a specific, tracked thing — a material order, a delivery — is a
+  // real step ON the spine. Only an open-ended hold ("on hold", "parked") is a
+  // park. Without this, "Waiting for Materials" would be filed off-spine and
+  // vanish from the pipeline it belongs in.
+  if (/material|deliver/.test(n)) return false;
+  return /\bwaiting\b|\bon hold\b|\bhold\b|\bpark/.test(n);
+};
 export const isOffSpine = (s: { name: string }) => isLostStage(s) || isParkStage(s);
 
 /** Human title per step — shared so every surface labels it identically. */
@@ -69,6 +77,7 @@ export const STEP_TITLES: Record<FlowStep, string> = {
   approve: "Get the quote approved",
   collect_deposit: "Collect the deposit",
   materials: "Order & prep materials",
+  awaiting_materials: "Waiting for materials",
   schedule_install: "Schedule the install",
   waiting: "Waiting on the customer",
   await_install: "Install scheduled",
@@ -107,9 +116,13 @@ export function resolveFlowStep(
   if (/in progress|in-progress/.test(name)) return "install_in_progress";
   if (/follow|installed|satisf/.test(name)) return "followup";
   if (/response|approv/.test(name)) return "approve";
+  // Materials before the generic wait test: "Waiting for Materials" is about
+  // materials, not an open-ended hold.
+  if (/material|deliver/.test(name))
+    return /wait|await|transit|expect/.test(name) ? "awaiting_materials" : "materials";
   if (/wait|hold/.test(name)) return "waiting";
   if (/install/.test(name)) return "await_install";
-  if (/material|order|warehouse|stag/.test(name)) return "materials";
+  if (/order|warehouse|stag/.test(name)) return "materials";
   if (/estimate|measur/.test(name)) return "estimate_booked";
 
   const posOf = (aa: string) =>
@@ -179,6 +192,11 @@ export function stepGate(step: FlowStep, f: FlowFacts): StepGate {
       return f.depositPaid ? OK : block("Record the deposit payment to advance.");
     case "materials":
       return f.workOrderExists ? OK : block("Create the work order to advance.");
+    case "awaiting_materials":
+      // Receiving the PO advances this automatically, and materials can also
+      // arrive without one, so it isn't hard-gated — but it says what it's
+      // waiting on rather than sitting silently.
+      return OK;
     case "schedule_install":
       return f.installBooked ? OK : block("Book the install date in the scheduler to advance.");
     case "await_install":
