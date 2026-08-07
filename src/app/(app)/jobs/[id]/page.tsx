@@ -17,6 +17,7 @@ import {
   Warehouse,
   Star,
   Pencil,
+  Scale,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -336,12 +337,24 @@ export default async function JobPage({
         {isStaff || isAssignedToMe ? (
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             {isStaff ? (
-              <Link
-                href={`/jobs/${id}/edit`}
-                className={buttonVariants({ variant: "outline", size: "sm" })}
-              >
-                <Pencil className="size-4" /> Edit
-              </Link>
+              <>
+                <Link
+                  href={`/jobs/${id}/edit`}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                >
+                  <Pencil className="size-4" /> Edit
+                </Link>
+                <Link
+                  href={`/jobs/${id}/closeout`}
+                  className={buttonVariants({
+                    variant: job.closed_out_at ? "outline" : "default",
+                    size: "sm",
+                  })}
+                >
+                  <Scale className="size-4" />
+                  {job.closed_out_at ? "Costs" : "Close out"}
+                </Link>
+              </>
             ) : null}
             {installProps ? (
               <div className="w-full sm:w-auto">

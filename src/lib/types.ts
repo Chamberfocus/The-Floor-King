@@ -949,6 +949,16 @@ export interface Job {
   // installer ids see it on the board.
   board_installer_ids?: string[] | null;
   reminder_sent_at: string | null;
+  /** What the job REALLY cost, recorded at close-out. Null ≠ zero: null means
+   *  nobody has said yet, and closed_out_at is what distinguishes them. */
+  estimated_material_cost?: number | null;
+  estimated_labor_cost?: number | null;
+  actual_material_cost?: number | null;
+  actual_labor_cost?: number | null;
+  actual_other_cost?: number | null;
+  closeout_notes?: string | null;
+  closed_out_at?: string | null;
+  closed_out_by?: string | null;
   show_prices?: boolean; // show prices on this work order
   installer_collects_balance?: boolean | null; // per-job override; null = inherit global
   created_by: string | null;
