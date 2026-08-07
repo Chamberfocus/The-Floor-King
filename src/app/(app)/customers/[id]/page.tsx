@@ -130,6 +130,7 @@ import { getCustomerJobCosting } from "@/lib/data/job-costing";
 import { getJobProfitability } from "@/lib/data/finance";
 import { JobCostingTab, type JobProfitLite } from "./job-costing-tab";
 import { getUserPreferences } from "@/lib/data/preferences";
+import { pickCloseoutJob } from "@/lib/job-flow";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
 
@@ -321,6 +322,19 @@ export default async function CustomerPage({
           : null,
       }
     : null;
+  // Which job the close-out action opens — the SAME rule the customer list
+  // uses, so the two surfaces never point at different jobs.
+  const closeoutTarget = pickCloseoutJob(
+    jobs.map((j) => ({
+      id: j.id,
+      status: j.status ?? null,
+      scheduled_date: j.scheduled_date ?? null,
+      closed_out_at: j.closed_out_at ?? null,
+    })),
+  );
+  const canCloseOut = ["admin", "office", "sales_manager"].includes(
+    profile.role,
+  );
   // The job the guided spine acts on (its satisfaction sign-off feeds the
   // follow-up stage). Mirrors GuidedFlow's own active-job pick.
   const guidedActiveJob =
@@ -676,6 +690,8 @@ export default async function CustomerPage({
                     : null
                 }
                 job={quickJob}
+                closeout={closeoutTarget}
+                canCloseOut={canCloseOut}
                 arrivalWindows={arrivalWindows}
                 actions={prefs.quickActions}
                 installScheduler={

@@ -5,6 +5,7 @@ import {
   type Customer,
   type LeadStage,
 } from "@/lib/types";
+import { pickCloseoutJob, type CloseoutTarget } from "@/lib/job-flow";
 
 /** Strip characters that would break PostgREST's `or` filter grammar. */
 function sanitize(term: string) {
@@ -20,6 +21,10 @@ export interface CustomerRowContext {
     installerId: string | null;
   } | null;
   estimate: { startsAt: string; salespersonId: string | null } | null;
+  /** The job the close-out action targets. Deliberately a SEPARATE pick from
+   *  `job` above: that one prefers a schedulable (open) job, while close-out
+   *  wants the finished one — the same row can't answer both. */
+  closeout: CloseoutTarget | null;
 }
 
 /**
@@ -39,7 +44,7 @@ export async function getCustomerRowContexts(
     supabase
       .from("jobs")
       .select(
-        "id, customer_id, status, scheduled_date, scheduled_end, arrival_window, assigned_to",
+        "id, customer_id, status, scheduled_date, scheduled_end, arrival_window, assigned_to, closed_out_at",
       )
       .in("customer_id", ids),
     supabase
@@ -100,6 +105,14 @@ export async function getCustomerRowContexts(
             salespersonId: (ap.salesperson_id as string) ?? null,
           }
         : null,
+      closeout: pickCloseoutJob(
+        jobs.map((j) => ({
+          id: j.id as string,
+          status: (j.status as string) ?? null,
+          scheduled_date: (j.scheduled_date as string) ?? null,
+          closed_out_at: (j.closed_out_at as string) ?? null,
+        })),
+      ),
     };
   }
   return out;

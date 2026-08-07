@@ -9,6 +9,7 @@ import {
   UserCog,
   CalendarClock,
   Hammer,
+  Scale,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { formatDate, formatWallDateTime, to12 } from "@/lib/format";
 import type { ArrivalWindow } from "@/lib/format";
 import { QUICK_ACTION_ORDER, type QuickAction } from "@/lib/preferences";
+import type { CloseoutTarget } from "@/lib/job-flow";
 import { advanceWorkflow, reassignCustomer, type ReassignState } from "../actions";
 import { bookInstall } from "@/app/(app)/jobs/actions";
 import { EstimateScheduler } from "./estimate-scheduler";
@@ -79,6 +81,8 @@ export function QuickActions({
   job,
   arrivalWindows,
   assignedRepId = null,
+  closeout = null,
+  canCloseOut = false,
   actions = QUICK_ACTION_ORDER,
   showSwitcher = true,
   showValues = true,
@@ -101,6 +105,13 @@ export function QuickActions({
   arrivalWindows: ArrivalWindow[];
   /** The client's assigned salesperson — pre-selects the estimate rep. */
   assignedRepId?: string | null;
+  /** Which job the close-out action opens, and whether it's already done.
+   *  Null when there's nothing to close out (no job, or only cancelled ones). */
+  closeout?: CloseoutTarget | null;
+  /** Whether this viewer may close a job out. The close-out page itself
+   *  requires admin/office/sales_manager, so showing the button to a crew
+   *  member would only hand them a permission error. */
+  canCloseOut?: boolean;
   /** Which actions to show, in order (personal preference). */
   actions?: QuickAction[];
   /** Show the "jump to another customer" search (off inside a list row). */
@@ -202,21 +213,51 @@ export function QuickActions({
           ) : null}
         </Button>
       );
-    return (
-      <Button
-        key="install"
-        variant="outline"
-        size="sm"
-        onClick={() => launch("install")}
-      >
-        <Hammer className="size-3.5" /> Install
-        {showValues ? (
-          <span className="ml-1 text-muted-foreground">
-            · {job?.date ? formatDate(job.date) : "Set"}
-          </span>
-        ) : null}
-      </Button>
-    );
+    if (a === "install")
+      return (
+        <Button
+          key="install"
+          variant="outline"
+          size="sm"
+          onClick={() => launch("install")}
+        >
+          <Hammer className="size-3.5" /> Install
+          {showValues ? (
+            <span className="ml-1 text-muted-foreground">
+              · {job?.date ? formatDate(job.date) : "Set"}
+            </span>
+          ) : null}
+        </Button>
+      );
+    // Close-out is a full screen (three cost boxes plus a row per problem), so
+    // it navigates instead of opening a dialog — there's no honest way to fit
+    // it inside a list row. Hidden entirely when there's nothing to close out,
+    // rather than shown as a dead button.
+    if (a === "closeout") {
+      if (!canCloseOut || !closeout) return null;
+      return (
+        <Button
+          key="closeout"
+          variant="outline"
+          size="sm"
+          render={
+            <Link
+              href={`/jobs/${closeout.jobId}/closeout${
+                redirectTo ? `?back=${encodeURIComponent(redirectTo)}` : ""
+              }`}
+            />
+          }
+        >
+          <Scale className="size-3.5" /> Close out
+          {showValues ? (
+            <span className="ml-1 text-muted-foreground">
+              · {closeout.closedOut ? "Done" : closeout.ready ? "Ready" : "Early"}
+            </span>
+          ) : null}
+        </Button>
+      );
+    }
+    return null;
   };
 
   return (

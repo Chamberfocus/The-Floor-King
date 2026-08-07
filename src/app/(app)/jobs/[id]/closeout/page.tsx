@@ -13,17 +13,25 @@ export const dynamic = "force-dynamic";
 
 export default async function CloseoutPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ back?: string }>;
 }) {
   await requireRole(["admin", "office", "sales_manager"]);
   const { id } = await params;
+  const rawBack = (await searchParams).back ?? null;
+  // In-app paths only — a caller-supplied absolute URL would be an open redirect.
+  const back =
+    rawBack && rawBack.startsWith("/") && !rawBack.startsWith("//")
+      ? rawBack
+      : null;
   const supabase = await createClient();
 
   const { data: job } = await supabase
     .from("jobs")
     .select(
-      "id, title, status, estimated_material_cost, estimated_labor_cost, closeout_notes, closed_out_at, customer:customers(full_name)",
+      "id, title, status, estimated_material_cost, estimated_labor_cost, actual_material_cost, actual_labor_cost, actual_other_cost, closeout_notes, closed_out_at, customer:customers(full_name)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -62,10 +70,11 @@ export default async function CloseoutPage({
   return (
     <div className="mx-auto max-w-3xl">
       <Link
-        href={`/jobs/${id}`}
+        href={back ?? `/jobs/${id}`}
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" /> Back to the work order
+        <ArrowLeft className="size-4" />{" "}
+        {back ? "Back to the list" : "Back to the work order"}
       </Link>
       <PageHeader
         title="Close out the job"
@@ -79,6 +88,16 @@ export default async function CloseoutPage({
         jobId={id}
         estMaterial={Number(job.estimated_material_cost ?? 0)}
         estLabor={Number(job.estimated_labor_cost ?? 0)}
+        actual={{
+          material:
+            job.actual_material_cost == null
+              ? null
+              : Number(job.actual_material_cost),
+          labor:
+            job.actual_labor_cost == null ? null : Number(job.actual_labor_cost),
+          other:
+            job.actual_other_cost == null ? null : Number(job.actual_other_cost),
+        }}
         suggested={suggested}
         people={(people ?? []).map((p) => ({
           id: p.id as string,
@@ -91,6 +110,7 @@ export default async function CloseoutPage({
         existing={existing}
         existingNotes={(job.closeout_notes as string) ?? ""}
         alreadyClosed={job.closed_out_at != null}
+        back={back}
       />
     </div>
   );

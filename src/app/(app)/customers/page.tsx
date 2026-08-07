@@ -116,6 +116,9 @@ export default async function CustomersPage({
       .map((m) => ({ id: m.id, name: m.name })),
     arrivalWindows: parseArrivalWindows(schedSettings.arrival_windows),
     listActions: prefs.listActions,
+    // Same roles the close-out page itself requires — showing the button to
+    // anyone else would only hand them a permission error.
+    canCloseOut: ["admin", "office", "sales_manager"].includes(profile.role),
     listHref: (() => {
       const params = new URLSearchParams();
       if (q) params.set("q", q);

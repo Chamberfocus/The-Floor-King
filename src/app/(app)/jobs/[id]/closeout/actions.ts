@@ -23,6 +23,9 @@ export interface CloseoutInput {
   actualOther: string | number | null;
   notes: string;
   issues: IssueInput[];
+  /** Where to land afterwards — a customer-list row sends its own URL so you
+   *  come back to the (filtered) list you left, not the job page. */
+  redirectTo?: string | null;
 }
 
 const n = (v: string | number | null | undefined): number | null => {
@@ -100,8 +103,15 @@ export async function saveCloseout(input: CloseoutInput): Promise<{
   }
 
   revalidatePath(`/jobs/${input.jobId}`);
+  revalidatePath("/customers");
   revalidatePath("/reports");
-  redirect(`/jobs/${input.jobId}`);
+  // Only ever an in-app path — never trust a caller-supplied absolute URL.
+  const back = input.redirectTo;
+  redirect(
+    back && back.startsWith("/") && !back.startsWith("//")
+      ? back
+      : `/jobs/${input.jobId}`,
+  );
 }
 
 /** What the records imply the job cost — the pre-fill, never the last word. */

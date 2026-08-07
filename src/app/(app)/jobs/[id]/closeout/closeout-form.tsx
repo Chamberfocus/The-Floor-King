@@ -49,20 +49,30 @@ const num = (v: string | number | null) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/** Money already on file → an editable string. Null stays blank, because a
+ *  blank cost means "nobody has said", not "$0". */
+const seed = (v: number | null) => (v == null ? "" : String(v));
+
 export function CloseoutForm({
   jobId,
   estMaterial,
   estLabor,
+  actual,
   suggested,
   people,
   suppliers,
   existing,
   existingNotes,
   alreadyClosed,
+  back,
 }: {
   jobId: string;
   estMaterial: number;
   estLabor: number;
+  /** What's already recorded. Re-opening a closed-out job MUST show these —
+   *  saving replaces the row wholesale, so starting blank would quietly erase
+   *  costs that were already entered. */
+  actual: { material: number | null; labor: number | null; other: number | null };
   suggested: {
     material: number | null;
     labor: number | null;
@@ -74,12 +84,12 @@ export function CloseoutForm({
   existing: (IssueInput & { id: string })[];
   existingNotes: string;
   alreadyClosed: boolean;
+  /** Where to go after saving — the list row that sent us here, if any. */
+  back?: string | null;
 }) {
-  const [material, setMaterial] = useState(
-    existing.length || alreadyClosed ? "" : "",
-  );
-  const [labor, setLabor] = useState("");
-  const [other, setOther] = useState("");
+  const [material, setMaterial] = useState(seed(actual.material));
+  const [labor, setLabor] = useState(seed(actual.labor));
+  const [other, setOther] = useState(seed(actual.other));
   const [notes, setNotes] = useState(existingNotes);
   const [rows, setRows] = useState<Row[]>(
     existing.map((e, i) => ({ ...e, key: `e${i}` })),
@@ -111,6 +121,7 @@ export function CloseoutForm({
         actualOther: other,
         notes,
         issues: rows,
+        redirectTo: back ?? null,
       });
       if (res?.error) toast.error(res.error);
     });

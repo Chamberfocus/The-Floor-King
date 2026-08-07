@@ -7,7 +7,12 @@
 
 // --- Quick actions ----------------------------------------------------------
 
-export type QuickAction = "stage" | "assignee" | "estimate" | "install";
+export type QuickAction =
+  | "stage"
+  | "assignee"
+  | "estimate"
+  | "install"
+  | "closeout";
 
 /** Canonical order + the full set of quick actions. */
 export const QUICK_ACTION_ORDER: QuickAction[] = [
@@ -15,6 +20,7 @@ export const QUICK_ACTION_ORDER: QuickAction[] = [
   "assignee",
   "estimate",
   "install",
+  "closeout",
 ];
 
 export const QUICK_ACTION_LABELS: Record<QuickAction, string> = {
@@ -22,6 +28,7 @@ export const QUICK_ACTION_LABELS: Record<QuickAction, string> = {
   assignee: "Reassign owner",
   estimate: "Estimate date",
   install: "Install date",
+  closeout: "Close out the job",
 };
 
 // --- Customer-file tabs -----------------------------------------------------
@@ -85,7 +92,15 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   defaultTab: "overview",
 };
 
-/** Keep only known values, in the given order, de-duplicated. */
+/**
+ * Keep only known values, in the given order, de-duplicated.
+ *
+ * Note the deliberate trade-off: a saved list is treated as exhaustive, so a
+ * NEWLY added action does not appear for anyone who has already customised
+ * theirs — they'd have to tick it in Settings → Preferences. That's the price of
+ * letting people switch an action off and have it stay off. (Nobody had saved
+ * preferences when "closeout" was added, so everyone got it.)
+ */
 function clean<T extends string>(
   raw: unknown,
   allowed: readonly T[],

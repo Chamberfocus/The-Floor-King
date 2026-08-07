@@ -44,6 +44,9 @@ export interface ListShared {
   listActions: QuickAction[];
   /** URL to return to after a row action, so we stay on the (filtered) list. */
   listHref: string;
+  /** Whether this viewer may close a job out (admin / office / sales manager) —
+   *  the close-out page enforces the same roles. */
+  canCloseOut: boolean;
 }
 
 /** Map a customer + its context + shared data into QuickActions props (role-
@@ -89,12 +92,28 @@ function quickProps(
     job: ctx?.job
       ? { ...ctx.job, installerName: nameById(ctx.job.installerId) }
       : null,
+    closeout: ctx?.closeout ?? null,
+    canCloseOut: shared.canCloseOut,
     arrivalWindows: shared.arrivalWindows,
     actions: shared.listActions,
     showSwitcher: false,
     compact: true,
     redirectTo: shared.listHref,
   };
+}
+
+/**
+ * Would this row's dropdown actually contain anything? Close-out hides itself
+ * when there's no job to close out, so a row whose only enabled action is
+ * close-out must not offer a chevron that opens an empty panel.
+ */
+function rowHasActions(
+  ctx: CustomerRowContext | undefined,
+  shared: ListShared,
+): boolean {
+  return shared.listActions.some((a) =>
+    a === "closeout" ? shared.canCloseOut && !!ctx?.closeout : true,
+  );
 }
 
 function ExpandToggle({
@@ -169,7 +188,7 @@ function DesktopRow({
   overdue: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const hasActions = shared.listActions.length > 0;
+  const hasActions = rowHasActions(ctx, shared);
   return (
     <>
       <TableRow>
@@ -239,7 +258,7 @@ function MobileCard({
   overdue: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const hasActions = shared.listActions.length > 0;
+  const hasActions = rowHasActions(ctx, shared);
   return (
     <div className="rounded-lg border p-3">
       <div className="flex items-start justify-between gap-2">

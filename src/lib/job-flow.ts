@@ -157,6 +157,74 @@ export function spinePosition(
   return { index, total: mainline.length };
 }
 
+// ---------------------------------------------------------------------------
+// Close-out: which job a customer's "what did it really cost" action targets.
+// ---------------------------------------------------------------------------
+
+/** The shape every surface has on hand — the list rows, the customer file, and
+ *  the job page all read jobs with at least these columns. */
+export interface CloseoutJobLike {
+  id: string;
+  status: string | null;
+  scheduled_date?: string | null;
+  closed_out_at?: string | null;
+}
+
+export interface CloseoutTarget {
+  jobId: string;
+  /** Already closed out — the button offers to revisit rather than to record. */
+  closedOut: boolean;
+  /** The install has happened, so the real costs are knowable now. */
+  ready: boolean;
+}
+
+/**
+ * THE rule for which job a close-out action opens, shared by the customer list,
+ * the customer file, and anywhere else that offers it — so they never disagree
+ * about which job a customer's costs belong to.
+ *
+ * Preference order:
+ *  1. A finished job not yet closed out — the one actually asking to be done.
+ *  2. The most recent finished job (already closed out; open it to revise).
+ *  3. A job whose install date has passed, even if nobody marked it complete —
+ *     the crew is off the site and the money is real whatever the status says.
+ *  4. Any live job, so the action still leads somewhere sensible mid-flow.
+ *
+ * Cancelled jobs never qualify: there's no close-out on work that didn't happen.
+ */
+export function pickCloseoutJob(
+  jobs: CloseoutJobLike[],
+  today = new Date().toISOString().slice(0, 10),
+): CloseoutTarget | null {
+  const live = jobs.filter((j) => j.status !== "cancelled");
+  if (!live.length) return null;
+
+  // Most recent first, undated last — "the job you just finished" is the one
+  // you mean, not the oldest on file.
+  const recent = [...live].sort((a, b) =>
+    (b.scheduled_date ?? "").localeCompare(a.scheduled_date ?? ""),
+  );
+  const done = recent.filter((j) => j.status === "completed");
+  const past = recent.filter(
+    (j) => !!j.scheduled_date && j.scheduled_date <= today,
+  );
+
+  const target =
+    done.find((j) => !j.closed_out_at) ??
+    done[0] ??
+    past.find((j) => !j.closed_out_at) ??
+    past[0] ??
+    recent.find((j) => !j.closed_out_at) ??
+    recent[0];
+
+  if (!target) return null;
+  return {
+    jobId: target.id,
+    closedOut: !!target.closed_out_at,
+    ready: target.status === "completed" || past.some((j) => j.id === target.id),
+  };
+}
+
 export interface StepGate {
   /** Is this step's action complete — i.e. is it OK to advance? */
   done: boolean;
