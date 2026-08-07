@@ -11,6 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
+import { IncomingDeliveries, type IncomingPo } from "./incoming-deliveries";
+import { listIncomingPos } from "./receiving-actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { requireProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -103,6 +105,9 @@ export default async function WarehousePage() {
   const stockChecks = (await listOrders(wh)).filter(
     (o) => o.status === "submitted",
   );
+
+  // Purchase orders the warehouse should be expecting.
+  const incoming: IncomingPo[] = await listIncomingPos();
 
   // One print-ready staging sheet per job (hidden until its button is clicked).
   const sheets = jobs.map((j) => ({
@@ -374,8 +379,18 @@ export default async function WarehousePage() {
       <RealtimeRefresh table="orders" />
       <PageHeader
         title="Warehouse"
-        description="Materials to prep, stage, and deliver for upcoming jobs."
+        description="What's on order, what's landed, and what to prep for upcoming jobs."
       />
+
+      {/* Incoming deliveries — check what arrived against what was ordered.
+          The warehouse could see the jobs but never the POs behind them, so a
+          short shipment only surfaced when an installer opened the box. */}
+      <div className="mb-6 space-y-2">
+        <h2 className="text-sm font-semibold">
+          Incoming deliveries ({incoming.filter((p) => p.status === "ordered").length} on order)
+        </h2>
+        <IncomingDeliveries pos={incoming} />
+      </div>
 
       {/* New remnants to shelve — give each a location + a reusability call. */}
       {remnantsToShelve.length > 0 ? (
