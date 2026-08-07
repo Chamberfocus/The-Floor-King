@@ -3,12 +3,17 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { MessageSquarePlus, Printer, EyeOff, Pencil, Trash2 } from "lucide-react";
+import { MessageSquarePlus, Printer, EyeOff, Pencil, Trash2, Package, Siren } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/format";
-import { addJobNote, updateJobNote, deleteJobNote, type JobNote } from "./note-actions";
+import {
+  addWorkNote,
+  updateWorkNote,
+  deleteWorkNote,
+  type WorkNote,
+} from "./note-actions";
 
 const TEXTAREA =
   "w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -18,7 +23,7 @@ function NoteRow({
   jobId,
   canEdit,
 }: {
-  note: JobNote;
+  note: WorkNote;
   jobId: string;
   canEdit: boolean;
 }) {
@@ -26,6 +31,8 @@ function NoteRow({
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(note.body);
   const [onWo, setOnWo] = useState(note.on_work_order);
+  const [forWhEdit, setForWhEdit] = useState(note.for_warehouse);
+  const [urgentEdit, setUrgentEdit] = useState(note.urgent);
   const [busy, start] = useTransition();
 
   const save = () =>
@@ -35,7 +42,9 @@ function NoteRow({
       fd.set("job_id", jobId);
       fd.set("body", body);
       if (onWo) fd.set("on_work_order", "on");
-      const res = await updateJobNote(fd);
+      if (forWhEdit) fd.set("for_warehouse", "on");
+      if (forWhEdit && urgentEdit) fd.set("urgent", "on");
+      const res = await updateWorkNote(fd);
       if (res.error) {
         toast.error(res.error);
         return;
@@ -49,7 +58,7 @@ function NoteRow({
       const fd = new FormData();
       fd.set("id", note.id);
       fd.set("job_id", jobId);
-      const res = await deleteJobNote(fd);
+      const res = await deleteWorkNote(fd);
       if (res.error) {
         toast.error(res.error);
         return;
@@ -76,6 +85,26 @@ function NoteRow({
           />
           Print on the crew&apos;s work order
         </label>
+        <label className="mt-1 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={forWhEdit}
+            onChange={(e) => setForWhEdit(e.target.checked)}
+            className="size-4"
+          />
+          Show the warehouse
+        </label>
+        {forWhEdit ? (
+          <label className="mt-1 flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
+            <input
+              type="checkbox"
+              checked={urgentEdit}
+              onChange={(e) => setUrgentEdit(e.target.checked)}
+              className="size-4"
+            />
+            Urgent — text them too
+          </label>
+        ) : null}
         <div className="mt-2 flex items-center gap-2">
           <Button size="sm" onClick={save} disabled={busy}>
             {busy ? "Saving…" : "Save"}
@@ -130,11 +159,22 @@ function NoteRow({
           <Badge variant="outline" className="gap-1">
             <Printer className="size-3" /> On work order
           </Badge>
-        ) : (
+        ) : null}
+        {note.for_warehouse ? (
+          <Badge variant="outline" className="gap-1">
+            <Package className="size-3" /> Warehouse
+          </Badge>
+        ) : null}
+        {note.urgent ? (
+          <Badge className="gap-1 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+            <Siren className="size-3" /> Urgent
+          </Badge>
+        ) : null}
+        {!note.on_work_order && !note.for_warehouse ? (
           <Badge variant="outline" className="gap-1">
             <EyeOff className="size-3" /> Office only
           </Badge>
-        )}
+        ) : null}
       </div>
     </li>
   );
@@ -155,7 +195,7 @@ export function JobNotesCard({
   isCrew,
 }: {
   jobId: string;
-  notes: JobNote[];
+  notes: WorkNote[];
   canEdit: boolean;
   isCrew: boolean;
 }) {
@@ -163,6 +203,8 @@ export function JobNotesCard({
   const formRef = useRef<HTMLFormElement>(null);
   const [body, setBody] = useState("");
   const [onWo, setOnWo] = useState(true);
+  const [forWh, setForWh] = useState(false);
+  const [urgent, setUrgent] = useState(false);
   const [busy, start] = useTransition();
 
   const add = () =>
@@ -171,14 +213,17 @@ export function JobNotesCard({
       fd.set("job_id", jobId);
       fd.set("body", body);
       if (onWo) fd.set("on_work_order", "on");
-      const res = await addJobNote(fd);
+      if (forWh) fd.set("for_warehouse", "on");
+      if (forWh && urgent) fd.set("urgent", "on");
+      const res = await addWorkNote(fd);
       if (res.error) {
         toast.error(res.error);
         return;
       }
       setBody("");
+      setUrgent(false);
       formRef.current?.querySelector("textarea")?.focus();
-      toast.success("Note added");
+      toast.success(forWh ? "Note added — the warehouse has been told" : "Note added");
       router.refresh();
     });
 
@@ -220,15 +265,37 @@ export function JobNotesCard({
                 Your notes always show on the work order.
               </span>
             ) : (
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={onWo}
-                  onChange={(e) => setOnWo(e.target.checked)}
-                  className="size-4"
-                />
-                Print on the crew&apos;s work order
-              </label>
+              <>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={onWo}
+                    onChange={(e) => setOnWo(e.target.checked)}
+                    className="size-4"
+                  />
+                  Print on the crew&apos;s work order
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={forWh}
+                    onChange={(e) => setForWh(e.target.checked)}
+                    className="size-4"
+                  />
+                  Show the warehouse
+                </label>
+                {forWh ? (
+                  <label className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
+                    <input
+                      type="checkbox"
+                      checked={urgent}
+                      onChange={(e) => setUrgent(e.target.checked)}
+                      className="size-4"
+                    />
+                    Urgent — text them too
+                  </label>
+                ) : null}
+              </>
             )}
           </div>
         </form>

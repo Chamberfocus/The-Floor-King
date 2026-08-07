@@ -13,6 +13,8 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { IncomingDeliveries, type IncomingPo } from "./incoming-deliveries";
 import { listIncomingPos } from "./receiving-actions";
+import { WarehouseNotes } from "./warehouse-notes";
+import { listWarehouseNotes } from "@/app/(app)/jobs/[id]/note-actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { requireProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -108,11 +110,20 @@ export default async function WarehousePage() {
 
   // Purchase orders the warehouse should be expecting.
   const incoming: IncomingPo[] = await listIncomingPos();
+  // Everything aimed at the shop — job notes, order notes, and shop-wide ones.
+  const warehouseNotes = await listWarehouseNotes();
 
   // One print-ready staging sheet per job (hidden until its button is clicked).
   const sheets = jobs.map((j) => ({
     id: j.id,
-    node: <StagingSheetDoc org={org} job={j} lines={sourced.get(j.id)?.lines ?? []} />,
+    node: (
+      <StagingSheetDoc
+        org={org}
+        job={j}
+        lines={sourced.get(j.id)?.lines ?? []}
+        shopNotes={warehouseNotes.filter((n) => n.job_id === j.id)}
+      />
+    ),
   }));
 
   // Staged jobs are done with prep → move them to the searchable archive; the
@@ -381,6 +392,17 @@ export default async function WarehousePage() {
         title="Warehouse"
         description="What's on order, what's landed, and what to prep for upcoming jobs."
       />
+
+      {/* Notes for the shop. The warehouse used to read jobs.notes — the
+          STRUCTURED scope field the questionnaire writes — which was never a
+          message channel, it just happened to be visible. This is one. */}
+      <div className="mb-6 space-y-2">
+        <h2 className="text-sm font-semibold">
+          Notes for the shop
+          {warehouseNotes.length ? ` (${warehouseNotes.length})` : ""}
+        </h2>
+        <WarehouseNotes notes={warehouseNotes} canPost />
+      </div>
 
       {/* Incoming deliveries — check what arrived against what was ordered.
           The warehouse could see the jobs but never the POs behind them, so a

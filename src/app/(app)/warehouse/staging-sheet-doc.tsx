@@ -26,7 +26,9 @@ export function StagingSheetDoc({
   org,
   job,
   lines,
+  shopNotes = [],
 }: {
+  shopNotes?: { body: string; authorName: string }[];
   org: OrgSettings;
   job: WarehouseJob;
   lines: JobMaterialLine[];
@@ -286,6 +288,20 @@ export function StagingSheetDoc({
           <span className="font-semibold">⚠ Lot / dye lot:</span> verify all cartons
           for each product are the <span className="font-semibold">same lot / dye lot</span>{" "}
           before staging. Do not mix lots.
+        </div>
+      ) : null}
+
+      {shopNotes.length ? (
+        <div className="mt-2 break-inside-avoid border border-black px-2 py-1 text-[12px]">
+          <div className="font-bold uppercase tracking-wide">Notes for the shop</div>
+          <ul className="mt-0.5 space-y-0.5">
+            {shopNotes.map((n, i) => (
+              <li key={i}>
+                • {n.body}
+                <span className="ml-1 text-[10px] text-gray-500">— {n.authorName}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
