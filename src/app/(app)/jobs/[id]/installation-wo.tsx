@@ -150,6 +150,7 @@ export function InstallationWorkOrderDoc({
   collectOnSite = null,
   expectedDays = null,
   showPrices = false,
+  crewNotes = [],
   preview = false,
 }: {
   org: OrgSettings;
@@ -161,6 +162,8 @@ export function InstallationWorkOrderDoc({
   expectedDays?: number | null;
   /** Show prices on the work order — staff only; installers never see them. */
   showPrices?: boolean;
+  /** Notes flagged to print — office and crew both write these. */
+  crewNotes?: { body: string; authorName: string; created_at: string }[];
   /** On-screen document preview: show the doc as a white sheet (not print-only). */
   preview?: boolean;
 }) {
@@ -279,6 +282,24 @@ export function InstallationWorkOrderDoc({
         <div className="mt-2 break-inside-avoid border border-black px-2 py-1 text-[12px]">
           <span className="font-bold uppercase tracking-wide">Conditions — all areas: </span>
           <span className="font-semibold text-black">{scope.conditions.join("   ·   ")}</span>
+        </div>
+      ) : null}
+
+      {/* Notes for the crew — boxed like the conditions, because the whole
+          reason for flagging a note "on work order" is that it must be read. */}
+      {crewNotes.length ? (
+        <div className="mt-2 break-inside-avoid border border-black px-2 py-1 text-[12px]">
+          <div className="font-bold uppercase tracking-wide">Notes</div>
+          <ul className="mt-0.5 space-y-0.5">
+            {crewNotes.map((n, i) => (
+              <li key={i} className="text-black">
+                • {n.body}
+                <span className="ml-1 text-[10px] text-gray-500">
+                  — {n.authorName}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 

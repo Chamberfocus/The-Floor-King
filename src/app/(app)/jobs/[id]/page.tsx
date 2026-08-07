@@ -16,6 +16,7 @@ import {
   FileText,
   Warehouse,
   Star,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -80,6 +81,8 @@ import { buildJobScope, lineSpec, PAD_ROLL_SQYD } from "@/lib/job-scope";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
 import { JobTabs, JobTabPanel, type JobTab } from "./job-tabs";
+import { JobNotesCard } from "./job-notes-card";
+import { listJobNotes } from "./note-actions";
 import { JobDocuments } from "./job-documents";
 import { listJobDocuments } from "@/lib/data/job-documents";
 
@@ -224,6 +227,9 @@ export default async function JobPage({
   };
   const canInstallerTools = isStaff || isAssignedToMe;
   const jobPhotos = canInstallerTools ? await getJobPhotos(id) : [];
+  // The running note log — separate from jobs.notes, which is the structured
+  // scope the questionnaire writes.
+  const jobNotes = await listJobNotes(id);
   const satisfaction = canInstallerTools ? await getJobSatisfaction(id) : null;
   const balanceInfo =
     collectsBalance && canInstallerTools ? await getJobOpenBalance(id) : null;
@@ -287,6 +293,7 @@ export default async function JobPage({
         collectOnSite={woCollectBalance}
         expectedDays={installProps?.installEst?.days ?? null}
         showPrices={showPrices}
+        crewNotes={jobNotes.filter((n) => n.on_work_order)}
         preview={preview}
       />
       {!preview ? (
@@ -328,6 +335,14 @@ export default async function JobPage({
             on-site actions go big and full-width; Print tucks to the side. */}
         {isStaff || isAssignedToMe ? (
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            {isStaff ? (
+              <Link
+                href={`/jobs/${id}/edit`}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                <Pencil className="size-4" /> Edit
+              </Link>
+            ) : null}
             {installProps ? (
               <div className="w-full sm:w-auto">
                 <ScheduleInstallButton
@@ -678,6 +693,15 @@ export default async function JobPage({
           ) : null}
         </CardContent>
       </Card>
+
+      <div className="mb-6">
+        <JobNotesCard
+          jobId={id}
+          notes={jobNotes}
+          canEdit={isStaff}
+          isCrew={profile.role === "crew"}
+        />
+      </div>
 
       </JobTabPanel>
 
