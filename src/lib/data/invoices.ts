@@ -210,11 +210,27 @@ export async function listInvoicesForJob(jobId: string): Promise<Invoice[]> {
   return attach(supabase, (data ?? []) as Invoice[]);
 }
 
+/**
+ * Open invoices on the dashboard.
+ *
+ * Cancelled customers are excluded, the same as everywhere money is counted
+ * (see finance.ts). Without this, closing a customer removed them from every
+ * revenue figure but left their unpaid invoice on the dashboard — chasing money
+ * from someone you'd already written off.
+ */
 export async function getOutstandingInvoiceCount(): Promise<number> {
   const supabase = await createClient();
-  const { count } = await supabase
+  const { data } = await supabase
     .from("invoices")
-    .select("id", { count: "exact", head: true })
+    .select("id, customer:customers(cancelled_at)")
     .in("status", ["sent", "partial"]);
-  return count ?? 0;
+  return (data ?? []).filter((row) => {
+    // PostgREST returns a to-one embed as an array in some shapes.
+    const c = row.customer as
+      | { cancelled_at: string | null }
+      | { cancelled_at: string | null }[]
+      | null;
+    const cancelled = Array.isArray(c) ? c[0]?.cancelled_at : c?.cancelled_at;
+    return !cancelled;
+  }).length;
 }
