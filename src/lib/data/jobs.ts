@@ -15,7 +15,19 @@ export interface JobListRow extends Job {
 }
 
 export async function listJobs(
-  opts: { assignedTo?: string } = {},
+  opts: {
+    /** Installer scoping — crew see only what's assigned to them. */
+    assignedTo?: string;
+    /**
+     * "My jobs" for anyone who isn't an installer.
+     *
+     * Deliberately NOT jobs.assigned_to: that column holds the INSTALLER, so
+     * scoping a salesperson by it returns nothing. A job is yours when you're
+     * the customer's salesperson, when you own the current workflow step, or
+     * when you happen to be the installer too.
+     */
+    mineFor?: string;
+  } = {},
 ): Promise<JobListRow[]> {
   const supabase = await createClient();
   let query = supabase
@@ -23,6 +35,18 @@ export async function listJobs(
     .select("*, customer:customers(full_name)")
     .order("created_at", { ascending: false });
   if (opts.assignedTo) query = query.eq("assigned_to", opts.assignedTo);
+
+  if (opts.mineFor) {
+    const { data: mine } = await supabase
+      .from("customers")
+      .select("id")
+      .or(`assigned_to.eq.${opts.mineFor},workflow_owner_id.eq.${opts.mineFor}`);
+    const ids = (mine ?? []).map((c) => c.id as string);
+    // Mine = a job for one of my customers, OR one I'm installing myself.
+    query = ids.length
+      ? query.or(`customer_id.in.(${ids.join(",")}),assigned_to.eq.${opts.mineFor}`)
+      : query.eq("assigned_to", opts.mineFor);
+  }
 
   const { data } = await query;
   const rows = (data ?? []) as (Job & {

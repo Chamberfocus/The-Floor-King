@@ -34,15 +34,33 @@ const LANES: { key: Lane; title: string; hint: string; accent: string; next: (j:
   { key: "done", title: "Done", hint: "Completed / cancelled", accent: "border-muted", next: (j) => (j.status === "cancelled" ? "Cancelled" : "Completed") },
 ];
 
-export default async function JobsPage() {
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ who?: string }>;
+}) {
   const profile = await requireProfile();
   const isStaff = profile.role === "admin" || profile.role === "office";
   const isCrew = profile.role === "crew";
+  const mine = (await searchParams).who === "mine";
 
   // Installers see ONLY their own jobs here (the open board is its own page).
   // Scoped at the query level — not just RLS — so another installer's jobs are
-  // never sent to the client. Everyone else gets the full list.
-  const jobs = await listJobs(isCrew ? { assignedTo: profile.id } : {});
+  // never sent to the client. Everyone else gets the full list, or just theirs
+  // when they've asked for it.
+  const jobs = await listJobs(
+    isCrew
+      ? { assignedTo: profile.id }
+      : mine
+        ? { mineFor: profile.id }
+        : {},
+  );
+  // Both counts, always — the tab has to show what you'd get before you click,
+  // and "All (22)" next to "Mine (20)" is the whole point of the toggle.
+  const mineCount = isCrew
+    ? jobs.length
+    : (await listJobs({ mineFor: profile.id })).length;
+  const allCount = isCrew ? jobs.length : (await listJobs()).length;
   const users = isStaff ? await listAssignableUsers() : [];
   const nameById = new Map(users.map((u) => [u.id, u.name]));
   const claims = isStaff ? await claimRequestCounts() : new Map<string, number>();
@@ -124,7 +142,13 @@ export default async function JobsPage() {
     <div>
       <PageHeader
         title="Jobs"
-        description={isStaff ? "Every job by where it is in its lifecycle." : "Your assigned jobs."}
+        description={
+          isCrew
+            ? "Your assigned jobs."
+            : mine
+              ? "Jobs on your customers — by where each one is in its lifecycle."
+              : "Every job by where it is in its lifecycle."
+        }
       >
         <div className="flex gap-2">
           {/* Scheduling lives in one place — the Install Scheduler (in the nav for
@@ -137,14 +161,60 @@ export default async function JobsPage() {
         </div>
       </PageHeader>
 
+      {/* Mine / All. A view, not a second login: switching identity would mean
+          signing out to see everything, and would split your history across two
+          accounts. "Mine" is the customer's salesperson or the current step's
+          owner — NOT jobs.assigned_to, which is the installer. */}
+      {!isCrew ? (
+        <div className="mb-4 inline-flex rounded-lg border p-0.5">
+          {[
+            { key: "mine", label: "My jobs", n: mineCount, href: "/jobs?who=mine" },
+            { key: "all", label: "All jobs", n: allCount, href: "/jobs" },
+          ].map((t) => {
+            const active = (t.key === "mine") === mine;
+            return (
+              <Link
+                key={t.key}
+                href={t.href}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                {t.label}
+                <span
+                  className={cn(
+                    "ml-1.5 tabular-nums",
+                    active ? "text-primary-foreground/80" : "text-muted-foreground/70",
+                  )}
+                >
+                  {t.n}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
+
       {jobs.length === 0 ? (
         <EmptyState
           icon={HardHat}
-          title={isStaff ? "No jobs yet" : "No jobs assigned to you yet"}
+          title={
+            mine
+              ? "No jobs on your customers"
+              : isStaff
+                ? "No jobs yet"
+                : "No jobs assigned to you yet"
+          }
           description={
-            isStaff
-              ? "Approve an estimate and create a job to get started."
-              : undefined
+            mine
+              ? `Nothing is assigned to you right now. There ${allCount === 1 ? "is" : "are"} ${allCount} job${allCount === 1 ? "" : "s"} in total — switch to All jobs to see everything.`
+              : isStaff
+                ? "Approve an estimate and create a job to get started."
+                : undefined
           }
         />
       ) : (
