@@ -25,6 +25,8 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { SendToClient } from "@/components/send-to-client";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
+import { EstimateDeliveryCard } from "@/components/estimate-delivery-card";
+import { getEstimateDelivery } from "@/lib/data/estimate-delivery";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate, getEstimatorName } from "@/lib/data/estimates";
 import { getCustomer } from "@/lib/data/customers";
@@ -93,6 +95,7 @@ export default async function EstimatePage({
   const customer = await getCustomer(estimate.customer_id);
   const org = await getOrgSettings();
   const preparedBy = await getEstimatorName(estimate.created_by);
+  const delivery = await getEstimateDelivery(id);
   const options = estimate.options ?? [];
   const detailed = estimate.presentation === "detailed";
 
@@ -308,6 +311,7 @@ export default async function EstimatePage({
             )
           ) : estimate.status === "sent" || estimate.status === "changes_requested" ? (
             // Sent → waiting on the customer; approving lives in the workflow card.
+            <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="font-semibold">
@@ -338,6 +342,9 @@ export default async function EstimatePage({
                   <Check className="size-4" /> Approve &amp; continue
                 </ConfirmButton>
               </form>
+            </div>
+            {/* Did it land, and have they read it? */}
+            <EstimateDeliveryCard d={delivery} />
             </div>
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-3">

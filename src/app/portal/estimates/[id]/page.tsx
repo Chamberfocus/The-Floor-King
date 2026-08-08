@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { CustomerScopeView } from "@/components/customer-scope-view";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
+import { EstimateViewBeacon } from "@/components/estimate-view-beacon";
 import { getEstimate } from "@/lib/data/estimates";
 import { getOrgSettings } from "@/lib/data/org";
 import { buildCustomerScope, parseProjectDetails, customerLineLabel } from "@/lib/customer-scope";
@@ -76,6 +77,9 @@ export default async function PortalEstimatePage({
 
   return (
     <div>
+      {/* Records the open. The API ignores it unless the estimate was actually
+          sent, and dedupes repeat loads within the half hour. */}
+      <EstimateViewBeacon estimateId={id} />
       <Link
         href="/portal"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
