@@ -176,6 +176,22 @@ export function pinnedItemsForRole(role: UserRole): NavItem[] {
 }
 
 /**
+ * Where the Home button lands. The customer list for everyone who works deals —
+ * it's the page the office actually starts from. Crew are NOT in SALES_VIEW and
+ * would hit a permission wall there, so they go to My Work instead; anyone else
+ * falls back to the first destination their role can open, so Home is never a
+ * dead link for any role.
+ */
+export function homeHrefForRole(role: UserRole): string {
+  const customers = NAV_GROUPS.flatMap((g) => g.items).find(
+    (i) => i.href === "/customers",
+  );
+  if (customers?.roles.includes(role)) return "/customers";
+  if (role === "crew") return "/installer";
+  return navItemsForRole(role)[0]?.href ?? "/customers";
+}
+
+/**
  * The groups a role sees, each trimmed to the items that role may open, empty
  * groups dropped, and the role's primary group moved to the front.
  */

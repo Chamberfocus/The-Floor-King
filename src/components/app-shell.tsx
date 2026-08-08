@@ -9,6 +9,9 @@ import {
   MoreHorizontal,
   SlidersHorizontal,
   ChevronDown,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +30,7 @@ import { cn } from "@/lib/utils";
 import {
   APP_NAME,
   COMPANY_NAME,
+  homeHrefForRole,
   navItemsForRole,
   navGroupsForRole,
   pinnedItemsForRole,
@@ -194,15 +198,15 @@ function NavLinks({ role, onNavigate }: { role: Profile["role"]; onNavigate?: ()
   );
 }
 
-function Brand({ org }: { org?: OrgSettings }) {
+function Brand({ org, homeHref }: { org?: OrgSettings; homeHref?: string }) {
   const name = org?.company_name || COMPANY_NAME;
   const initials = name
     .split(/\s+/)
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase())
     .join("");
-  return (
-    <div className="flex items-center gap-3 px-5 py-4">
+  const inner = (
+    <>
       {org?.logo_url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -222,7 +226,19 @@ function Brand({ org }: { org?: OrgSettings }) {
         <div className="text-sm font-semibold">{name}</div>
         <div className="text-xs text-muted-foreground">{APP_NAME}</div>
       </div>
-    </div>
+    </>
+  );
+  // The logo is the affordance people reach for first, so it goes home too —
+  // the same place the Home button lands.
+  return homeHref ? (
+    <Link
+      href={homeHref}
+      className="flex items-center gap-3 px-5 py-4 transition-opacity hover:opacity-80"
+    >
+      {inner}
+    </Link>
+  ) : (
+    <div className="flex items-center gap-3 px-5 py-4">{inner}</div>
   );
 }
 
@@ -314,22 +330,44 @@ function MobileBottomNav({
   );
 }
 
+/** Cookie the collapsed state lives in. A cookie rather than localStorage so the
+ *  server renders the sidebar already in the right state — with localStorage the
+ *  bar flashes open on every page load before the effect runs. */
+export const SIDEBAR_COOKIE = "fk_sidebar";
+
 export function AppShell({
   profile,
   org,
+  defaultCollapsed = false,
   children,
 }: {
   profile: Profile;
   org?: OrgSettings;
+  /** Read from the cookie on the server so there's no flash on first paint. */
+  defaultCollapsed?: boolean;
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const homeHref = homeHrefForRole(profile.role);
+
+  const toggleSidebar = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    document.cookie = `${SIDEBAR_COOKIE}=${next ? "collapsed" : "open"}; path=/; max-age=31536000; samesite=lax`;
+  };
 
   return (
     <div className="flex min-h-svh flex-1">
-      {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex print:!hidden">
-        <Brand org={org} />
+      {/* Desktop sidebar — collapses fully to the left, giving the page the
+          whole width back (wide tables: customers, the estimate builder). */}
+      <aside
+        className={cn(
+          "hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground print:!hidden",
+          collapsed ? "md:hidden" : "md:flex",
+        )}
+      >
+        <Brand org={org} homeHref={homeHref} />
         <div className="flex-1 overflow-y-auto py-2">
           <NavLinks role={profile.role} />
         </div>
@@ -350,7 +388,7 @@ export function AppShell({
               </SheetTrigger>
               <SheetContent side="left" className="flex w-72 flex-col bg-sidebar p-0 text-sidebar-foreground">
                 <SheetTitle className="sr-only">Navigation</SheetTitle>
-                <Brand org={org} />
+                <Brand org={org} homeHref={homeHref} />
                 <div className="flex-1 overflow-y-auto py-2">
                   <NavLinks
                     role={profile.role}
@@ -361,6 +399,32 @@ export function AppShell({
               </SheetContent>
             </Sheet>
           </div>
+          {/* Desktop only — phones already have the menu button beside this. */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleSidebar}
+            aria-label={collapsed ? "Show the menu" : "Hide the menu"}
+            aria-expanded={!collapsed}
+            title={collapsed ? "Show the menu" : "Hide the menu"}
+            className="hidden shrink-0 md:inline-flex"
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="size-5" />
+            ) : (
+              <PanelLeftClose className="size-5" />
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            render={<Link href={homeHref} />}
+            aria-label="Home"
+            title="Home"
+            className="shrink-0"
+          >
+            <Home className="size-5" />
+          </Button>
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <GlobalSearch className="w-full max-w-xl" />
           </div>
