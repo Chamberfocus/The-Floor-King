@@ -80,6 +80,36 @@ function sellLineTotal(l: EstimateLineItem): number {
   return lineQty(l) * unitRate;
 }
 
+/**
+ * The job an estimate's invoice belongs to.
+ *
+ * invoices.job_id was written by exactly one path (the cash-and-carry order
+ * flow), so every invoice raised from an estimate had it NULL — and everything
+ * keyed off it was silently dead: getJobOpenBalance returned zero, so the
+ * installer's on-site "collect the balance" button could never fire; the job's
+ * Documents tab showed no invoice; the customer file couldn't match an invoice
+ * to its job.
+ *
+ * Best-effort by design: a missing link must never block raising the invoice.
+ */
+async function jobIdForEstimate(
+  supabase: SupabaseServerClient,
+  estimateId: string,
+  optionId?: string | null,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("jobs")
+    .select("id, option_id, status, created_at")
+    .eq("estimate_id", estimateId)
+    .neq("status", "cancelled")
+    .order("created_at", { ascending: true });
+  const jobs = data ?? [];
+  if (!jobs.length) return null;
+  // With multiple options sold, bill against the job for THIS option.
+  const exact = optionId ? jobs.find((j) => j.option_id === optionId) : null;
+  return ((exact ?? jobs[0]).id as string) ?? null;
+}
+
 async function nextInvoiceNumber(supabase: SupabaseServerClient): Promise<string> {
   // Base the next number on the HIGHEST existing "INV-####", not the row count —
   // counting breaks when an invoice is deleted (the count drops and the next
@@ -173,6 +203,9 @@ export async function createInvoiceFromEstimate(
     .insert({
       customer_id: est.customer_id,
       estimate_id: estimateId,
+      // Link the invoice to its job so the balance reaches the installer, the
+      // job's Documents tab, and the customer file.
+      job_id: await jobIdForEstimate(supabase, estimateId, optionId),
       number: await nextInvoiceNumber(supabase),
       tax_rate: est.tax_rate,
       issue_date: today(),
@@ -280,6 +313,15 @@ export async function createInvoiceFromSelection(
     .insert({
       customer_id: est.customer_id,
       estimate_id: estimateId,
+      // Link the invoice to its job so the balance reaches the installer, the
+      // job's Documents tab, and the customer file.
+      // A partial invoice bills a subset of ONE option's lines, so take the
+      // option from the selected lines themselves.
+      job_id: await jobIdForEstimate(
+        supabase,
+        estimateId,
+        lines[0]?.option_id ?? null,
+      ),
       number: await nextInvoiceNumber(supabase),
       tax_rate: est.tax_rate,
       issue_date: today(),

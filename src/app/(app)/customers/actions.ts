@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { advanceFromFirstStage, deriveLeadStage } from "@/lib/workflow-engine";
-import { requireProfile } from "@/lib/auth";
+import { requireProfile, assertRole } from "@/lib/auth";
 import { normalizePhone } from "@/lib/auth-admin";
 import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
 import { listCustomers } from "@/lib/data/customers";
@@ -261,6 +261,15 @@ export async function inviteCustomerToPortal(
   _prev: CustomerFormState,
   formData: FormData,
 ): Promise<CustomerFormState> {
+  // This mints a CONFIRMED auth user bound to a customer record, which grants
+  // that customer's whole file via the portal RLS policies. It had no caller
+  // check at all — anyone signed in could issue themselves a login onto any
+  // customer. Office-and-above only.
+  try {
+    await assertRole(["admin", "office"]);
+  } catch {
+    return { error: "You don't have permission to create a portal login." };
+  }
   const customerId = str(formData.get("customer_id"));
   const email = str(formData.get("email")).toLowerCase();
   const password = str(formData.get("password"));

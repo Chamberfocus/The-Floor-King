@@ -445,12 +445,39 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     // Only the estimate's designated first job carries its PO material cost.
     const ownsPO =
       !!j.estimate_id && poJobForEstimate.get(j.estimate_id) === j.id;
-    const materialCost =
+
+    /**
+     * What a job COST, per component, preferring what a human recorded.
+     *
+     * The derived figures (committed POs, stock pulls, installer bills, logged
+     * expenses) are the best guess until someone closes the job out. Once they
+     * have typed the real number, that IS the cost — it's the whole point of
+     * the close-out screen, and until now those columns were written and then
+     * read by nothing, so closing a job out moved no number anywhere.
+     *
+     * Per component, not all-or-nothing: leaving material blank at close-out
+     * shouldn't wipe the material cost the POs already prove. And null still
+     * means "nobody said", never zero.
+     *
+     * Freight markup is applied ONLY to the derived figure — it's an estimating
+     * assumption for landed cost. A typed actual is what was really paid.
+     */
+    const derivedMaterial =
       ((ownsPO ? (poByEstimate.get(j.estimate_id!) ?? 0) : 0) +
         (stockCostByJob.get(j.id) ?? 0)) *
       freightMult;
-    const laborCost = laborByJob.get(j.id) ?? 0;
-    const otherCost = expByJob.get(j.id) ?? 0;
+    const materialCost =
+      j.actual_material_cost != null
+        ? Number(j.actual_material_cost)
+        : derivedMaterial;
+    const laborCost =
+      j.actual_labor_cost != null
+        ? Number(j.actual_labor_cost)
+        : (laborByJob.get(j.id) ?? 0);
+    const otherCost =
+      j.actual_other_cost != null
+        ? Number(j.actual_other_cost)
+        : (expByJob.get(j.id) ?? 0);
     // Per-job internal overheads — only once the job is real (has revenue), so
     // dead/quoted jobs aren't charged fuel/commission. Each tracked separately.
     const hasRevenue = revenue > 0;

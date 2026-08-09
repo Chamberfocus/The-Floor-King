@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireProfile } from "@/lib/auth";
+import { requireProfile, assertRole } from "@/lib/auth";
 import { syncPosForEstimate } from "@/app/(app)/purchase-orders/actions";
 import {
   num,
@@ -518,7 +518,9 @@ export interface EstimateDeleteImpact {
 export async function getEstimateDeleteImpact(id: string): Promise<EstimateDeleteImpact> {
   const empty = { jobs: 0, purchaseOrders: 0, invoices: 0 };
   if (!id) return empty;
-  await requireProfile();
+  // Same gate as the delete it previews — otherwise it confirms which estimate
+  // ids are real, and how much damage each one would do, to anyone signed in.
+  await assertRole(["admin", "office"]);
   let admin;
   try {
     admin = createAdminClient();
@@ -547,7 +549,12 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   let customerId = str(formData.get("customer_id"));
   if (!id) return;
-  await requireProfile();
+  // requireProfile only proves you are SIGNED IN — it returns any role,
+  // including a portal customer. This function then elevates to the service
+  // role and cascade-deletes invoices AND their payments, which is the
+  // accounting history. It must be office-and-above, matching the is_staff()
+  // policy the service role is bypassing.
+  await assertRole(["admin", "office"]);
 
   // Cascade EVERYTHING tied to this estimate. Jobs/POs/invoices reference the
   // estimate with `on delete set null`, so deleting the estimate alone would
