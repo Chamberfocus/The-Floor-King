@@ -122,7 +122,7 @@ export default async function InstallerHomePage() {
         <h2 className="mb-2 flex items-center gap-2 text-base font-semibold">
           <CalendarDays className="size-4 text-primary" /> My install calendar
         </h2>
-        <InstallerCalendar events={myEvents} resources={[]} hideFilter canEdit />
+        <InstallerCalendar events={myEvents} resources={[]} hideFilter canEdit linkTo="job" />
       </section>
 
       {/* Availability — crew tell the office when they can't be scheduled. */}

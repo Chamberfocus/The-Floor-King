@@ -28,6 +28,22 @@ export interface CalResource {
   name: string;
 }
 
+/** Where tapping an install goes. */
+type LinkTo = "customer" | "job";
+
+/**
+ * Crew are blocked from /customers by design (it shows estimates, invoices and
+ * balances), so on their own calendar every event must point at the work order
+ * — otherwise every tap silently bounced them back to where they started. The
+ * event id IS the job id. Falls back to the job when there's no customer, so a
+ * tap is never a dead href="#".
+ */
+function eventHref(e: CalEvent, linkTo: LinkTo): string {
+  return linkTo === "job" || !e.customerId
+    ? `/jobs/${e.id}`
+    : `/customers/${e.customerId}#jobs`;
+}
+
 type View = "month" | "week" | "day";
 type Drag = {
   move: (jobId: string, ymd: string) => void;
@@ -68,6 +84,7 @@ export function InstallerCalendar({
   resources,
   canEdit = false,
   hideFilter = false,
+  linkTo = "customer",
 }: {
   events: CalEvent[];
   resources: CalResource[];
@@ -75,6 +92,13 @@ export function InstallerCalendar({
   canEdit?: boolean;
   /** Hide the installer filter (e.g. an installer only sees their own). */
   hideFilter?: boolean;
+  /**
+   * Where tapping an install goes. Crew are blocked from /customers by design
+   * (it shows estimates, invoices and balances), so on their own calendar every
+   * event must point at the work order instead — otherwise every tap bounced
+   * them back to where they started with no explanation.
+   */
+  linkTo?: LinkTo;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -193,11 +217,11 @@ export function InstallerCalendar({
         </div>
 
         {view === "month" ? (
-          <MonthView anchor={anchor} onDay={onDay} filter={filter} drag={drag} />
+          <MonthView anchor={anchor} onDay={onDay} filter={filter} drag={drag} linkTo={linkTo} />
         ) : view === "week" ? (
-          <WeekView anchor={anchor} onDay={onDay} filter={filter} drag={drag} />
+          <WeekView anchor={anchor} onDay={onDay} filter={filter} drag={drag} linkTo={linkTo} />
         ) : (
-          <DayView anchor={anchor} onDay={onDay} filter={filter} />
+          <DayView anchor={anchor} onDay={onDay} filter={filter} linkTo={linkTo} />
         )}
         {canEdit ? (
           <p className="mt-2 text-xs text-muted-foreground">
@@ -220,16 +244,18 @@ function Chip({
   e,
   showInstaller,
   canDrag = false,
+  linkTo,
 }: {
   e: CalEvent;
   showInstaller: boolean;
   canDrag?: boolean;
+  linkTo: LinkTo;
 }) {
   const hue = hueOf(e.resourceId);
   const wl = windowLabel(e.window);
   return (
     <Link
-      href={e.customerId ? `/customers/${e.customerId}#jobs` : "#"}
+      href={eventHref(e, linkTo)}
       draggable={canDrag}
       onDragStart={
         canDrag
@@ -268,11 +294,13 @@ function MonthView({
   onDay,
   filter,
   drag,
+  linkTo,
 }: {
   anchor: Date;
   onDay: (d: Date) => CalEvent[];
   filter: string;
   drag: Drag | null;
+  linkTo: LinkTo;
 }) {
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const gridStart = startOfWeek(first);
@@ -330,7 +358,7 @@ function MonthView({
                 </div>
                 <div className="space-y-0.5">
                   {evs.slice(0, 3).map((e) => (
-                    <Chip key={e.id} e={e} showInstaller={filter === "all"} canDrag={!!drag} />
+                    <Chip key={e.id} e={e} showInstaller={filter === "all"} canDrag={!!drag} linkTo={linkTo} />
                   ))}
                   {evs.length > 3 ? (
                     <div className="px-1 text-[10px] text-muted-foreground">
@@ -352,11 +380,13 @@ function WeekView({
   onDay,
   filter,
   drag,
+  linkTo,
 }: {
   anchor: Date;
   onDay: (d: Date) => CalEvent[];
   filter: string;
   drag: Drag | null;
+  linkTo: LinkTo;
 }) {
   const start = startOfWeek(anchor);
   const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
@@ -398,7 +428,7 @@ function WeekView({
               </div>
               <div className="min-h-32 space-y-1 p-1">
                 {evs.map((e) => (
-                  <Chip key={e.id} e={e} showInstaller={filter === "all"} canDrag={!!drag} />
+                  <Chip key={e.id} e={e} showInstaller={filter === "all"} canDrag={!!drag} linkTo={linkTo} />
                 ))}
               </div>
             </div>
@@ -413,10 +443,12 @@ function DayView({
   anchor,
   onDay,
   filter,
+  linkTo,
 }: {
   anchor: Date;
   onDay: (d: Date) => CalEvent[];
   filter: string;
+  linkTo: LinkTo;
 }) {
   const evs = onDay(anchor);
   if (!evs.length)
@@ -433,7 +465,7 @@ function DayView({
         return (
           <Link
             key={e.id}
-            href={e.customerId ? `/customers/${e.customerId}#jobs` : "#"}
+            href={eventHref(e, linkTo)}
             style={{ borderLeft: `4px solid hsl(${hue} 60% 48%)` }}
             className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-card px-3 py-2 hover:bg-muted/50"
           >
