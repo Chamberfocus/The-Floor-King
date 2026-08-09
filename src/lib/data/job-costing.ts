@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { optionCostTotals } from "@/lib/estimate-calc";
 import { COMMITTED_PO_STATUSES } from "@/lib/po-calc";
-import { round2, variancePercent } from "@/lib/job-costing";
+import { round2, variancePercent, estimatedCostFor } from "@/lib/job-costing";
 import type { EstimateLineItem, JobStatus } from "@/lib/types";
 
 export interface CostComponent {
@@ -193,16 +193,15 @@ export async function getCustomerJobCosting(
 
   const rows: JobCostRow[] = jobs.map((j) => {
     const jobId = j.id as string;
+    // Same rule as the close-out screen — snapshot if we have it, else recompute
+    // from the estimate's lines. Shared so the two can never drift apart.
     const fallback = j.option_id ? estByOption.get(j.option_id as string) : undefined;
-    const estMaterial = round2(
-      j.estimated_material_cost != null
-        ? Number(j.estimated_material_cost)
-        : (fallback?.material ?? 0),
-    );
-    const estLabor = round2(
-      j.estimated_labor_cost != null
-        ? Number(j.estimated_labor_cost)
-        : (fallback?.labor ?? 0),
+    const { material: estMaterial, labor: estLabor } = estimatedCostFor(
+      {
+        material: j.estimated_material_cost as number | null,
+        labor: j.estimated_labor_cost as number | null,
+      },
+      fallback ?? null,
     );
 
     const actualMaterial = materialRecorded.has(jobId)

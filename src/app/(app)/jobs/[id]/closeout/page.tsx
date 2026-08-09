@@ -7,6 +7,8 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { CloseoutForm } from "./closeout-form";
 import { suggestedActuals, type IssueInput } from "./actions";
+import { estimatedCostFor, costTotalsForLines } from "@/lib/job-costing";
+import type { EstimateLineItem } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Close out the job" };
 export const dynamic = "force-dynamic";
@@ -31,11 +33,30 @@ export default async function CloseoutPage({
   const { data: job } = await supabase
     .from("jobs")
     .select(
-      "id, title, status, estimated_material_cost, estimated_labor_cost, actual_material_cost, actual_labor_cost, actual_other_cost, closeout_notes, closed_out_at, customer:customers(full_name)",
+      "id, title, status, option_id, estimated_material_cost, estimated_labor_cost, actual_material_cost, actual_labor_cost, actual_other_cost, closeout_notes, closed_out_at, customer:customers(full_name)",
     )
     .eq("id", id)
     .maybeSingle();
   if (!job) notFound();
+
+  // Jobs created before the snapshot columns existed have no estimated cost on
+  // the row. Recompute it from the estimate's own lines rather than comparing
+  // against zero — the same rule the Job Costing tab uses.
+  let fallbackCost: { material: number; labor: number } | null = null;
+  if (job.estimated_material_cost == null && job.estimated_labor_cost == null && job.option_id) {
+    const { data: lines } = await supabase
+      .from("estimate_line_items")
+      .select("*")
+      .eq("option_id", job.option_id as string);
+    if (lines?.length) fallbackCost = costTotalsForLines(lines as EstimateLineItem[]);
+  }
+  const est = estimatedCostFor(
+    {
+      material: job.estimated_material_cost as number | null,
+      labor: job.estimated_labor_cost as number | null,
+    },
+    fallbackCost,
+  );
 
   const [{ data: issues }, { data: people }, { data: suppliers }, suggested] =
     await Promise.all([
@@ -86,8 +107,8 @@ export default async function CloseoutPage({
       />
       <CloseoutForm
         jobId={id}
-        estMaterial={Number(job.estimated_material_cost ?? 0)}
-        estLabor={Number(job.estimated_labor_cost ?? 0)}
+        estMaterial={est.material}
+        estLabor={est.labor}
         actual={{
           material:
             job.actual_material_cost == null
