@@ -27,6 +27,116 @@ type PoDb = Awaited<ReturnType<typeof createClient>>;
  * Shared by the PO builder save AND the quick status button so both do the same
  * customer-facing follow-through. Returns the customer id (for revalidation).
  */
+/**
+ * A backorder needs chasing, so everyone who can chase it gets told: the owner,
+ * the warehouse, the customer's rep, and the customer themselves.
+ *
+ * Extracted so the WAREHOUSE can fire it too. A short shipment discovered on
+ * the dock is the case that most needs this email — and it was the one path
+ * that sent nothing, because only the PO builder had the code.
+ */
+export async function notifyBackordered(
+  supabase: PoDb,
+  poId: string,
+  opts: {
+    supplier: string | null;
+    etaDate: string | null;
+    customerId: string | null;
+    /** Set when the shortfall was found while checking a delivery in. */
+    foundOnDelivery?: { shortUnits: number; note: string };
+  },
+): Promise<void> {
+  const { supplier, etaDate, customerId, foundOnDelivery } = opts;
+  const etaText = etaDate
+    ? new Date(etaDate).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "TBD";
+
+  const recipients = new Set<string>([ownerEmail()]);
+  const { data: wh } = await supabase
+    .from("profiles")
+    .select("email")
+    .eq("role", "warehouse");
+  for (const w of wh ?? []) if (w.email) recipients.add(w.email as string);
+
+  let cust: { full_name: string | null; email: string | null } | null = null;
+  if (customerId) {
+    const { data: c } = await supabase
+      .from("customers")
+      .select("full_name, email, assigned_to, workflow_owner_id")
+      .eq("id", customerId)
+      .maybeSingle();
+    cust = (c as { full_name: string | null; email: string | null }) ?? null;
+    const repId =
+      (c?.assigned_to as string | null) ??
+      (c?.workflow_owner_id as string | null) ??
+      null;
+    if (repId) {
+      const { data: rep } = await supabase
+        .from("profiles")
+        .select("email")
+        .eq("id", repId)
+        .maybeSingle();
+      if (rep?.email) recipients.add(rep.email as string);
+    }
+  }
+
+  const headline = foundOnDelivery
+    ? "Delivery came up short"
+    : "Material backordered";
+  const detail = foundOnDelivery
+    ? `<p>A delivery${supplier ? ` from ${supplier}` : ""} was checked in and came up <strong>${foundOnDelivery.shortUnits.toLocaleString("en-US", { maximumFractionDigits: 2 })} short</strong>. The rest is still outstanding and needs chasing with the supplier.</p>${
+        foundOnDelivery.note
+          ? `<p style="color:#555">Warehouse note: ${foundOnDelivery.note}</p>`
+          : ""
+      }`
+    : `<p>A purchase order${supplier ? ` from ${supplier}` : ""} is on <strong>backorder</strong>. Expected arrival: <strong>${etaText}</strong>.</p>`;
+
+  for (const to of recipients) {
+    await sendEmail({
+      to,
+      subject: foundOnDelivery
+        ? `⚠️ Short delivery — ${supplier || "materials"}`
+        : `⚠️ Backorder — ${supplier || "materials"}`,
+      html: emailLayout(
+        headline,
+        `${detail}${cust?.full_name ? `<p>Customer: ${cust.full_name}</p>` : ""}`,
+        { label: "Open PO", url: `${siteUrl()}/purchase-orders/${poId}` },
+      ),
+    });
+  }
+
+  // The customer hears a plain-English version — never the shortfall maths.
+  if (customerId && cust?.email) {
+    await sendEmail({
+      to: cust.email,
+      subject: "Update on your materials",
+      html: emailLayout(
+        "A quick update on your materials",
+        `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
+         <p>One of the items for your project is on backorder from the supplier.${
+           etaDate ? ` We now expect it by <strong>${etaText}</strong> and will` : " We'll"
+         } keep you posted.</p>`,
+        { label: "View your project", url: `${siteUrl()}/portal` },
+      ),
+    });
+  }
+  if (customerId) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    await supabase.from("messages").insert({
+      customer_id: customerId,
+      channel: "client",
+      author_id: user?.id ?? null,
+      body: `⏳ Heads up: an item is on backorder${etaDate ? ` — new ETA ${etaText}` : ""}. We'll keep you updated.`,
+    });
+  }
+}
+
 async function notifyPoOrdered(supabase: PoDb, poId: string): Promise<string | null> {
   const { data: po } = await supabase
     .from("purchase_orders")
@@ -642,79 +752,11 @@ export async function savePurchaseOrder(
 
   // Newly backordered → alert the whole team + warehouse + the customer.
   if (input.backordered && !before?.backordered) {
-    const customerId = (before?.customer_id as string | null) ?? null;
-    const etaText = input.eta_date
-      ? new Date(input.eta_date).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })
-      : "TBD";
-
-    const recipients = new Set<string>([ownerEmail()]);
-    const { data: wh } = await supabase
-      .from("profiles")
-      .select("email")
-      .eq("role", "warehouse");
-    for (const w of wh ?? []) if (w.email) recipients.add(w.email as string);
-
-    let cust: { full_name: string | null; email: string | null } | null = null;
-    if (customerId) {
-      const { data: c } = await supabase
-        .from("customers")
-        .select("full_name, email, assigned_to, workflow_owner_id")
-        .eq("id", customerId)
-        .maybeSingle();
-      cust = (c as { full_name: string | null; email: string | null }) ?? null;
-      const repId =
-        (c?.assigned_to as string | null) ??
-        (c?.workflow_owner_id as string | null) ??
-        null;
-      if (repId) {
-        const { data: rep } = await supabase
-          .from("profiles")
-          .select("email")
-          .eq("id", repId)
-          .maybeSingle();
-        if (rep?.email) recipients.add(rep.email as string);
-      }
-    }
-
-    for (const to of recipients) {
-      await sendEmail({
-        to,
-        subject: `⚠️ Backorder — ${input.supplier || "materials"}`,
-        html: emailLayout(
-          "Material backordered",
-          `<p>A purchase order${input.supplier ? ` from ${input.supplier}` : ""} is on <strong>backorder</strong>. Expected arrival: <strong>${etaText}</strong>.</p>${cust?.full_name ? `<p>Customer: ${cust.full_name}</p>` : ""}`,
-          { label: "Open PO", url: `${siteUrl()}/purchase-orders/${poId}` },
-        ),
-      });
-    }
-
-    if (customerId && cust?.email) {
-      await sendEmail({
-        to: cust.email,
-        subject: "Update on your materials",
-        html: emailLayout(
-          "A quick update on your materials",
-          `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
-           <p>One of the items for your project is on backorder from the supplier. We now expect it by <strong>${etaText}</strong> and will keep you posted.</p>`,
-          { label: "View your project", url: `${siteUrl()}/portal` },
-        ),
-      });
-    }
-    if (customerId) {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      await supabase.from("messages").insert({
-        customer_id: customerId,
-        channel: "client",
-        author_id: user?.id ?? null,
-        body: `⏳ Heads up: an item is on backorder — new ETA ${etaText}. We'll keep you updated.`,
-      });
-    }
+    await notifyBackordered(supabase, poId, {
+      supplier: input.supplier || null,
+      etaDate: input.eta_date || null,
+      customerId: (before?.customer_id as string | null) ?? null,
+    });
   }
 
   // When a PO is newly marked "ordered", let the customer know.
@@ -793,8 +835,27 @@ export async function setPurchaseOrderStatus(
   const id = str(formData.get("id"));
   const status = str(formData.get("status")) as PoStatus;
   if (!id || !status) return;
-  const supabase = await createClient();
+  await applyPoStatus(await createClient(), id, status);
+}
 
+/**
+ * The PO status transition and EVERYTHING downstream of it — restock, the
+ * customer's pipeline stage, the supplier notification, the revalidations.
+ *
+ * Takes its client as a parameter because the caller decides how it was
+ * authorised. The warehouse receiving flow checks the role itself and then
+ * elevates, since is_staff() is admin/office only and there is no warehouse
+ * policy on purchase_orders: handing it an RLS-scoped client made the read at
+ * the top return null, which tripped the missing-supplier guard and returned
+ * silently. A full delivery was checked in, the status stayed "ordered", stock
+ * never moved, the customer stayed stuck on "Waiting for Materials" — and the
+ * screen said it worked.
+ */
+export async function applyPoStatus(
+  supabase: PoDb,
+  id: string,
+  status: PoStatus,
+): Promise<void> {
   // Look at the prior status so we only restock on the transition into/out of
   // "received" — re-saving "received" must not double-count.
   const { data: cur } = await supabase

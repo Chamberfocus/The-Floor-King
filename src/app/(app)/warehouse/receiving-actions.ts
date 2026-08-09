@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
-import { setPurchaseOrderStatus } from "@/app/(app)/purchase-orders/actions";
+import { applyPoStatus, notifyBackordered } from "@/app/(app)/purchase-orders/actions";
 
 const RECEIVERS = ["admin", "office", "warehouse"] as const;
 
@@ -44,7 +44,7 @@ export async function receivePoLines(input: {
 
   const { data: po } = await db
     .from("purchase_orders")
-    .select("id, status")
+    .select("id, status, backordered")
     .eq("id", input.poId)
     .maybeSingle();
   if (!po) return { error: "That purchase order no longer exists." };
@@ -93,13 +93,31 @@ export async function receivePoLines(input: {
     .eq("id", input.poId);
 
   if (fullyReceived && po.status !== "received") {
-    // Reuse the existing path so everything downstream still fires: the job's
-    // material lines flip to "arrived", the customer advances to Materials
-    // Received, and the pipeline/dashboard revalidate.
-    const fd = new FormData();
-    fd.set("id", input.poId);
-    fd.set("status", "received");
-    await setPurchaseOrderStatus(fd);
+    // Same downstream path as the office's own status button — restock, the
+    // customer advancing to Materials Received, the job's material lines
+    // flipping to "arrived", the revalidations. Passed the ELEVATED client:
+    // this action authorised the caller by role above, and the warehouse role
+    // has no RLS reach into purchase_orders, so an RLS-scoped client here read
+    // nothing and bailed out silently.
+    await applyPoStatus(db, input.poId, "received");
+  }
+
+  // A short delivery found on the dock is exactly the case that needs chasing,
+  // and it was the one path that told nobody — the PO builder had this alert,
+  // receiving didn't. Only on the transition INTO short, so re-checking the
+  // same delivery doesn't re-send.
+  if (everyLineChecked && short > 0.005 && !po.backordered) {
+    const { data: full } = await db
+      .from("purchase_orders")
+      .select("supplier, eta_date, customer_id")
+      .eq("id", input.poId)
+      .maybeSingle();
+    await notifyBackordered(db as never, input.poId, {
+      supplier: (full?.supplier as string | null) ?? null,
+      etaDate: (full?.eta_date as string | null) ?? null,
+      customerId: (full?.customer_id as string | null) ?? null,
+      foundOnDelivery: { shortUnits: short, note: input.note.trim() },
+    });
   }
 
   revalidatePath("/warehouse");
