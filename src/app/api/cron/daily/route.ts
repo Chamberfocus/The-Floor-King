@@ -62,11 +62,17 @@ export async function GET(request: NextRequest) {
   let thankyou = 0;
   let reminders = 0;
 
-  // --- 2-hour thank-you ---
+  // --- 2-hour follow-up ---
+  //
+  // This used to repeat the send email almost word for word ("Thank you for the
+  // opportunity to earn your business…"), so every customer got the same
+  // message twice, two hours apart. It's now a light nudge — and it is SKIPPED
+  // for anyone who has already opened the estimate, because chasing someone who
+  // read it twenty minutes ago is noise, not service.
   const cutoff = new Date(now - 2 * 3600 * 1000).toISOString();
   const { data: ests } = await admin
     .from("estimates")
-    .select("id, title, customer:customers(full_name, email)")
+    .select("id, title, viewed_at, customer:customers(full_name, email)")
     .is("thankyou_sent_at", null)
     .not("sent_at", "is", null)
     .lte("sent_at", cutoff);
@@ -75,14 +81,23 @@ export async function GET(request: NextRequest) {
       full_name: string | null;
       email: string | null;
     } | null;
-    if (cust?.email) {
+    // Already read it? Then say nothing and close it out.
+    const { count: opens } = await admin
+      .from("estimate_events")
+      .select("id", { count: "exact", head: true })
+      .eq("estimate_id", e.id)
+      .eq("kind", "viewed");
+    const alreadyRead = (opens ?? 0) > 0 || e.viewed_at != null;
+
+    if (cust?.email && !alreadyRead) {
       await sendEmail({
         to: cust.email,
-        subject: "Thank you from Cleveland Floor King",
+        subject: "Did your estimate come through?",
         html: emailLayout(
-          "Thank you for the opportunity",
+          "Just checking it reached you",
           `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
-           <p>Thank you for the opportunity to earn your business. Your estimate is ready to review — if you have any questions at all, please don't hesitate to reach out. We're happy to help.</p>`,
+           <p>We sent your estimate a little earlier today and wanted to make sure it landed — sometimes they end up in a spam folder.</p>
+           <p>Any questions at all, just reply to this email or give us a call. No rush.</p>`,
           { label: "View your estimate", url: `${siteUrl()}/portal` },
         ),
       });

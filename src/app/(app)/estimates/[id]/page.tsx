@@ -698,18 +698,37 @@ export default async function EstimatePage({
             </details>
           ) : null}
 
-          {estimate.status === "approved" ? (
+          {/* Reopening was approved-only, so a declined estimate — including one
+              declined by a mis-tap in the portal, where the customer has no way
+              back either — was a terminal state with no control on the page. */}
+          {estimate.status === "approved" ||
+          estimate.status === "declined" ? (
             <form action={setEstimateStatus}>
               <input type="hidden" name="id" value={estimate.id} />
               <input type="hidden" name="status" value="sent" />
+              {/* Don't re-email on a reopen from declined — they said no; the
+                  rep will follow up in person. */}
+              {estimate.status === "declined" ? (
+                <input type="hidden" name="send_email" value="no" />
+              ) : null}
               <ConfirmButton
                 variant="outline"
                 size="sm"
-                title="Reopen this estimate?"
-                description="Moves it back to Sent. If the customer has an email on file, this re-sends the estimate to them."
+                title={
+                  estimate.status === "declined"
+                    ? "Put this estimate back in play?"
+                    : "Reopen this estimate?"
+                }
+                description={
+                  estimate.status === "declined"
+                    ? "Moves it back to Sent so you can revise it or take another run at it. The customer is NOT emailed."
+                    : "Moves it back to Sent. If the customer has an email on file, this re-sends the estimate to them."
+                }
                 confirmLabel="Reopen"
               >
-                Reopen (back to sent)
+                {estimate.status === "declined"
+                  ? "Put back in play"
+                  : "Reopen (back to sent)"}
               </ConfirmButton>
             </form>
           ) : null}

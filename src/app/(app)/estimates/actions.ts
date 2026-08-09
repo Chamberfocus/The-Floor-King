@@ -15,6 +15,7 @@ import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import {
   moveToAutoActionStage,
   advanceFromAutoAction,
+  advanceToNamedStage,
 } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
@@ -265,7 +266,11 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
   const patch: Record<string, unknown> = { status };
   if (status === "sent") {
     patch.sent_at = new Date().toISOString();
-    patch.thankyou_sent_at = null;
+    // The 2-hour follow-up is driven off thankyou_sent_at being null. When the
+    // send popup opts OUT of emailing the client, stamp it now so the cron
+    // doesn't email them anyway — the opt-out was being honoured for two hours
+    // and then quietly overridden.
+    patch.thankyou_sent_at = skipClientEmail ? new Date().toISOString() : null;
   }
   if (status === "approved") {
     patch.accepted_option_id = str(formData.get("accepted_option_id")) || null;
@@ -277,6 +282,8 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
 
   const supabase = await createClient();
   await supabase.from("estimates").update(patch).eq("id", id);
+
+  if (status === "declined") await onEstimateDeclined(supabase, id);
 
   // Intelligent flow: approved → jump the customer to the deposit stage;
   // sent → advance out of the "build/price the quote" stage.
@@ -545,6 +552,53 @@ export async function getEstimateDeleteImpact(id: string): Promise<EstimateDelet
   };
 }
 
+/**
+ * What actually happens when a quote is turned down.
+ *
+ * Declining used to write a status string and stop: the customer stayed on
+ * "Awaiting Customer Response" in the pipeline, and next_action_due kept firing
+ * the daily "stuck too long" nudge at the rep forever. The win/loss report
+ * counted them as lost (it reads estimate status) while the pipeline counted
+ * them as live (it reads workflow_stage_id) — two sources of truth disagreeing
+ * about the same customer.
+ *
+ * Deliberately does NOT move the customer when they still have another live
+ * quote: someone weighing two options who declines one is very much still a
+ * live client. And it never sets cancelled_at — a declined quote is real
+ * lost-business data that the win/loss report needs, not a cancellation.
+ */
+export async function onEstimateDeclined(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  estimateId: string,
+): Promise<void> {
+  const { data: est } = await supabase
+    .from("estimates")
+    .select("customer_id")
+    .eq("id", estimateId)
+    .maybeSingle();
+  const customerId = (est?.customer_id as string | null) ?? null;
+  if (!customerId) return;
+
+  const { data: others } = await supabase
+    .from("estimates")
+    .select("id, status")
+    .eq("customer_id", customerId)
+    .neq("id", estimateId);
+  const LIVE = ["draft", "sent", "changes_requested", "approved"];
+  if ((others ?? []).some((o) => LIVE.includes(o.status as string))) return;
+
+  await advanceToNamedStage(customerId, /lost|declin/i);
+  // Stop the daily nudge chasing a dead lead, and let the coarse stage agree
+  // with the detailed one.
+  await supabase
+    .from("customers")
+    .update({ stage: "lost", next_action_due: null })
+    .eq("id", customerId);
+  revalidatePath("/pipeline");
+  revalidatePath("/dashboard");
+  revalidatePath(`/customers/${customerId}`);
+}
+
 export async function deleteEstimate(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   let customerId = str(formData.get("customer_id"));
@@ -724,7 +778,9 @@ export async function sendEstimateById(
     .update({
       status: "sent",
       sent_at: new Date().toISOString(),
-      thankyou_sent_at: null,
+      // Same rule as setEstimateStatus: not emailing the client must also mean
+      // not emailing them two hours later from the cron.
+      thankyou_sent_at: notifyClient ? null : new Date().toISOString(),
     })
     .eq("id", id);
 

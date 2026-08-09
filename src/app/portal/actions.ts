@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { onEstimateDeclined } from "@/app/(app)/estimates/actions";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
@@ -234,6 +235,9 @@ export async function portalDeclineEstimate(formData: FormData): Promise<void> {
     .from("estimates")
     .update({ status: "declined", customer_response_note: note || null })
     .eq("id", id);
+  // Same follow-through as the staff-side decline — the pipeline must not keep
+  // showing a dead lead as awaiting a response.
+  await onEstimateDeclined(supabase, id);
   await notifyOwner(
     supabase,
     id,
