@@ -9,6 +9,7 @@ import { sendEmail, emailLayout, emailInfoCard, siteUrl, ownerEmail } from "@/li
 import { sendSms } from "@/lib/sms";
 import { addDaysYmd } from "@/lib/scheduling";
 import { to12, formatDate } from "@/lib/format";
+import { releaseJobReservations } from "@/lib/po-stock";
 import {
   moveToAutoActionStage,
   advanceToNamedStage,
@@ -967,6 +968,13 @@ export async function updateJob(
       // merely booked.
       await advanceToNamedStage(customerId, STAGE_INSTALL_IN_PROGRESS);
   }
+  // Same unwind as the quick-status path — cancelling from the edit form must
+  // free the reserved material too, or the two routes disagree.
+  if (newStatus === "cancelled") {
+    await releaseJobReservations(supabase, [id]);
+    revalidatePath("/inventory");
+    revalidatePath("/warehouse");
+  }
   revalidateJobEverywhere(id, customerId);
   return { error: null, ok: true };
 }
@@ -993,6 +1001,14 @@ export async function setJobStatus(formData: FormData): Promise<void> {
       await advanceToNamedStage(customerId, STAGE_INSTALLED);
     else if (status === "in_progress")
       await advanceToNamedStage(customerId, STAGE_INSTALL_IN_PROGRESS);
+  }
+  // Cancelling used to change the status and nothing else, so the material
+  // stayed reserved against a job that will never happen — inventory read as
+  // committed and the next job couldn't have it.
+  if (status === "cancelled") {
+    await releaseJobReservations(supabase, [id]);
+    revalidatePath("/inventory");
+    revalidatePath("/warehouse");
   }
 
   // Fan out to every view that shows the job (installer, warehouse, board,
@@ -1869,6 +1885,12 @@ export async function deleteJob(formData: FormData): Promise<void> {
   if (!id) return;
 
   const supabase = await createClient();
+  // MUST happen before the delete. stock_movements.job_id is ON DELETE SET
+  // NULL, and releaseJobReservations derives the amount to give back from
+  // exactly those rows — once the job is gone they're orphaned and the
+  // reserved quantity is stuck on the product forever with nothing to
+  // reconcile against.
+  await releaseJobReservations(supabase, [id]);
   await supabase.from("jobs").delete().eq("id", id);
 
   // A deleted job could be on the warehouse queue, installer page, board, or

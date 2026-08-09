@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAll } from "@/lib/supabase/paginate";
 import { getJobOpenBalance } from "./invoices";
 import { getJobPhotos } from "./documents";
 import { buildJobScope, type JobScope } from "@/lib/job-scope";
@@ -48,12 +49,18 @@ export async function getInstallerHome(
   const optionIds = jobsRaw.map((j) => j.option_id).filter(Boolean) as string[];
   const linesByOption = new Map<string, EstimateLineItem[]>();
   if (optionIds.length) {
-    const { data: lines } = await admin
-      .from("estimate_line_items")
-      .select("*")
-      .in("option_id", optionIds)
-      .order("position", { ascending: true });
-    for (const l of (lines ?? []) as EstimateLineItem[]) {
+    // PAGED. This is the crew's on-site material list. A silent truncation
+    // here doesn't just make a number wrong — it sends an installer to a house
+    // with rooms missing from the work order.
+    const lines = await fetchAll<EstimateLineItem>((from, to) =>
+      admin
+        .from("estimate_line_items")
+        .select("*")
+        .in("option_id", optionIds)
+        .order("position", { ascending: true })
+        .range(from, to),
+    );
+    for (const l of lines) {
       const arr = linesByOption.get(l.option_id) ?? [];
       arr.push(l);
       linesByOption.set(l.option_id, arr);

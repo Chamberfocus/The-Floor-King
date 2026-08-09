@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/supabase/paginate";
 import type {
   Estimate,
   EstimateLineItem,
@@ -30,22 +31,31 @@ async function attachOptions(
   if (!estimates.length) return estimates;
 
   const estimateIds = estimates.map((e) => e.id);
-  const { data: optionData } = await supabase
-    .from("estimate_options")
-    .select("*")
-    .in("estimate_id", estimateIds)
-    .order("position", { ascending: true });
-  const options = (optionData ?? []) as EstimateOption[];
+  // PAGED. PostgREST caps a result set at 1000 rows and returns NO error when
+  // it truncates. listAllEstimates() attaches options and lines for EVERY
+  // estimate in the system, so past that ceiling the estimates list and the
+  // win/loss report would quietly total only part of each option — a $14,000
+  // quote rendering as $3,200 with nothing to indicate anything was wrong.
+  const options = await fetchAll<EstimateOption>((from, to) =>
+    supabase
+      .from("estimate_options")
+      .select("*")
+      .in("estimate_id", estimateIds)
+      .order("position", { ascending: true })
+      .range(from, to),
+  );
 
   const optionIds = options.map((o) => o.id);
   let lines: EstimateLineItem[] = [];
   if (optionIds.length) {
-    const { data: lineData } = await supabase
-      .from("estimate_line_items")
-      .select("*")
-      .in("option_id", optionIds)
-      .order("position", { ascending: true });
-    lines = (lineData ?? []) as EstimateLineItem[];
+    lines = await fetchAll<EstimateLineItem>((from, to) =>
+      supabase
+        .from("estimate_line_items")
+        .select("*")
+        .in("option_id", optionIds)
+        .order("position", { ascending: true })
+        .range(from, to),
+    );
   }
 
   const linesByOption = new Map<string, EstimateLineItem[]>();

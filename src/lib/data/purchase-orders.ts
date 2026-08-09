@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/supabase/paginate";
 import { isCommittedPoStatus, COMMITTED_PO_STATUSES } from "@/lib/po-calc";
 import type { PoItem, PurchaseOrder } from "@/lib/types";
 import type { CutSource } from "@/lib/job-scope";
@@ -84,12 +85,18 @@ async function attachItems(
 ): Promise<PurchaseOrder[]> {
   if (!pos.length) return pos;
   const ids = pos.map((p) => p.id);
-  const { data } = await supabase
-    .from("po_items")
-    .select("*")
-    .in("po_id", ids)
-    .order("position", { ascending: true });
-  const items = (data ?? []) as PoItem[];
+  // PAGED. listPurchaseOrders() fetches every PO, and these items are reduced
+  // into poSpend (net profit) and per-job material cost. A silent truncation
+  // here understates cost, which OVERSTATES profit — the number most trusted,
+  // wrong in the flattering direction, with no error anywhere.
+  const items = await fetchAll<PoItem>((from, to) =>
+    supabase
+      .from("po_items")
+      .select("*")
+      .in("po_id", ids)
+      .order("position", { ascending: true })
+      .range(from, to),
+  );
   const byPo = new Map<string, PoItem[]>();
   for (const it of items) {
     const arr = byPo.get(it.po_id) ?? [];
