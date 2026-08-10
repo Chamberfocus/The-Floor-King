@@ -27,6 +27,7 @@ export const CARPET_ADDONS: AddonDef[] = [
   { label: "Transition strips (carpet to hard)", unit: "each", labor: false },
   { label: "Place on curb", unit: "each", labor: true },
   { label: "Dumpster / disposal fee", unit: "each", labor: false },
+  { label: "Delivery", unit: "each", labor: false }, // see the note in HARD_ADDONS
 ];
 
 export const HARD_ADDONS: AddonDef[] = [
@@ -48,6 +49,19 @@ export const HARD_ADDONS: AddonDef[] = [
   { label: "Grout sealing (tile)", unit: "sqft", labor: true },
   { label: "Place on curb", unit: "each", labor: true },
   { label: "Dumpster / disposal fee", unit: "each", labor: false },
+  /**
+   * The fuel / vehicle charge, recovered in the PRICE.
+   *
+   * It existed only as job_fuel_charge in settings — a memo the profit panel
+   * noted as "already inside the price", which assumed someone had padded the
+   * rates by hand. Nobody had, so it was never actually charged.
+   *
+   * As a real line it IS charged, it flows through to the invoice, and the
+   * lines still sum to the subtotal. Labelled "Delivery" because that is what
+   * it is to the customer; the gas and car allowance behind it stay internal,
+   * in the profit panel. Set the amount in Settings -> Default pricing.
+   */
+  { label: "Delivery", unit: "each", labor: false },
 ];
 
 /**
