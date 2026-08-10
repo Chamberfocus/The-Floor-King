@@ -76,6 +76,15 @@ export function ProductPicker({
   // flips this on to reveal the search field so you can swap it — you never
   // re-type the name in a second box.
   const [editing, setEditing] = useState(false);
+  /**
+   * A product chosen but not yet committed.
+   *
+   * Picking a product silently rewrites the line's cost, unit, category and
+   * waste. When the line already HAS a product, that's a swap worth seeing
+   * before it happens — especially the unit, since a sq ft rate on a line that
+   * bills by the square yard is multiplied by nine.
+   */
+  const [pending, setPending] = useState<Product | null>(null);
   const [q, setQ] = useState(initialLabel);
   const [results, setResults] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
@@ -157,6 +166,11 @@ export function ProductPicker({
       if (activeIndex < matches.length) {
         const p = matches[activeIndex];
         if (p) {
+          if (value && p.id !== value) {
+            setPending(p);
+            setOpen(false);
+            return;
+          }
           onPick(p);
           setOpen(false);
         }
@@ -177,6 +191,61 @@ export function ProductPicker({
       <label className="mb-1 block text-xs text-muted-foreground">
         {label}
       </label>
+
+      {/* CONFIRM A SWAP — what's actually about to change, before it changes.
+          The unit is spelled out because it drives the pricing: a sq ft rate on
+          a line that bills per square yard gets multiplied by nine. */}
+      {pending ? (
+        <div className="mb-2 rounded-lg border border-primary/50 bg-primary/5 p-3">
+          <div className="text-sm font-semibold">Change this line&apos;s product?</div>
+          <div className="mt-2 space-y-1 text-sm">
+            <div className="flex items-baseline gap-2">
+              <span className="w-10 shrink-0 text-xs text-muted-foreground">from</span>
+              <span className="min-w-0 break-words text-muted-foreground line-through">
+                {initialLabel || "the current product"}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="w-10 shrink-0 text-xs text-muted-foreground">to</span>
+              <span className="min-w-0 break-words font-medium">
+                {productLabel(pending)}
+              </span>
+            </div>
+          </div>
+          <p className="mt-2 rounded-md bg-background/60 px-2 py-1.5 text-xs text-muted-foreground">
+            Cost becomes{" "}
+            <span className="font-semibold text-foreground">
+              {formatMoney(pending.material_rate)} per {pending.unit || "unit"}
+            </span>
+            {pending.category ? (
+              <> · {PRODUCT_CATEGORY_LABELS[pending.category]}</>
+            ) : null}
+            . This replaces the line&apos;s cost, unit and category — anything you
+            typed over them is lost.
+          </p>
+          <div className="mt-2.5 flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                onPick(pending);
+                setPending(null);
+                setEditing(false);
+              }}
+            >
+              <Check className="size-4" /> Use this product
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setPending(null)}
+            >
+              Keep what I had
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {value && !editing ? (
         /* SELECTED — show the product once, as a display. No text box to re-type
            into: "Change" reopens the search to swap it, "×" clears it. */
@@ -226,15 +295,28 @@ export function ProductPicker({
               setAdding(false);
             }}
             onFocus={(e) => {
-              setOpen(true);
+              // Deliberately does NOT open the list. Landing in this box — or
+              // opening a line to edit it — used to throw the whole catalog up
+              // over the form before you'd decided you wanted to change
+              // anything. Type, press the arrow key, or tap the chevron.
               e.currentTarget.select();
             }}
             onKeyDown={onKeyDown}
             autoFocus={editing}
             placeholder="Type a product name…"
-            className={cn(inputSm, "w-full pl-9 pr-7 text-base", fullWidth ? "h-12" : "h-11")}
+            className={cn(inputSm, "w-full pl-9 pr-9 text-base", fullWidth ? "h-12" : "h-11")}
           />
-          <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 size-4 -translate-y-1/2 opacity-50" />
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            aria-label={open ? "Hide the catalog" : "Browse the catalog"}
+            aria-expanded={open}
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <ChevronDown
+              className={cn("size-4 transition-transform", open && "rotate-180")}
+            />
+          </button>
         </div>
       )}
 
@@ -265,6 +347,14 @@ export function ProductPicker({
                         type="button"
                         onMouseEnter={() => setActiveIndex(i)}
                         onClick={() => {
+                          // Replacing an existing product? Stage it and ask.
+                          // A first pick on an empty line commits straight away
+                          // — there's nothing to lose and nothing to compare.
+                          if (value && p.id !== value) {
+                            setPending(p);
+                            setOpen(false);
+                            return;
+                          }
                           onPick(p);
                           setOpen(false);
                         }}
