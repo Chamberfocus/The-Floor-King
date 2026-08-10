@@ -144,6 +144,46 @@ export function PoBuilder({
   const updateItem = (i: number, patch: Partial<ItemState>) =>
     setItems((prev) => prev.map((it, j) => (j === i ? { ...it, ...patch } : it)));
   const addItem = () => setItems((prev) => [...prev, emptyItem()]);
+
+  /**
+   * Charges that appear on a supplier's invoice but are not products.
+   *
+   * Every line on this form leads with a catalog search, so there was no way to
+   * put freight on a PO — the thing you're reconciling against the supplier's
+   * invoice more often than anything else. Searching the catalog for "freight"
+   * finds nothing, because freight isn't something you stock.
+   */
+  const CHARGES = [
+    "Freight",
+    "Fuel surcharge",
+    "Delivery",
+    "Cut charge",
+    "Small order fee",
+    "Sample charge",
+  ];
+  const addCharge = (label: string) =>
+    setItems((prev) => [
+      ...prev,
+      {
+        ...emptyItem(),
+        description: label,
+        quantity: "1",
+        unit: "flat",
+        category: "other",
+      },
+    ]);
+
+  // Which rows have the catalog search open. A row that already has a product
+  // shows it; an empty row asks first, so adding a charge doesn't drag 13,000
+  // products onto the screen.
+  const [pickerOpen, setPickerOpen] = useState<Set<string>>(new Set());
+  const togglePicker = (key: string) =>
+    setPickerOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   const removeItem = (i: number) =>
     setItems((prev) => prev.filter((_, j) => j !== i));
   // Pick from the catalog → fill the WHOLE line (no retyping), in the VENDOR's
@@ -509,14 +549,24 @@ export function PoBuilder({
         <CardContent className="space-y-3">
           {items.map((it, i) => (
             <div key={it.key} className="rounded-md border p-3">
-              <ProductPicker
-                value={it.product_id}
-                initialLabel={it.description}
-                label="Find in catalog — name, manufacturer, color, style, SKU, category, or vendor"
-                fullWidth
-                onPick={(p) => applyProduct(i, p)}
-                onCreated={(p) => applyProduct(i, p)}
-              />
+              {it.product_id || pickerOpen.has(it.key) ? (
+                <ProductPicker
+                  value={it.product_id}
+                  initialLabel={it.description}
+                  label="Find in catalog — name, manufacturer, color, style, SKU, category, or vendor"
+                  fullWidth
+                  onPick={(p) => applyProduct(i, p)}
+                  onCreated={(p) => applyProduct(i, p)}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => togglePicker(it.key)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Find this in the catalog
+                </button>
+              )}
               <Input
                 value={it.description}
                 onChange={(e) => updateItem(i, { description: e.target.value })}
@@ -702,6 +752,16 @@ export function PoBuilder({
           <Button type="button" variant="outline" size="sm" onClick={addItem}>
             <Plus className="size-3.5" /> Add item
           </Button>
+          {CHARGES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => addCharge(c)}
+              className="rounded-full border px-2.5 py-1 text-xs font-medium hover:bg-muted"
+            >
+              + {c}
+            </button>
+          ))}
 
           <div className="ml-auto w-full max-w-xs border-t pt-3 text-sm">
             <div className="flex justify-between text-base font-semibold">
