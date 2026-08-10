@@ -18,6 +18,7 @@ import {
   priceFromMargin,
   marginPct,
   lineCost,
+  optionCostTotals,
   num,
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
@@ -140,11 +141,27 @@ function effMargin(l: LineState, overall: number): number {
  *  legacy line with a hand-typed rate but no cost is never zeroed. */
 function ratesFromMargin(l: LineState, m: number): Partial<LineState> {
   const patch: Partial<LineState> = {};
+  // A gross margin is only meaningful in [0, 100). priceFromMargin returns the
+  // bare COST outside that range, so typing "100" into a line's margin box —
+  // meaning "100% markup" — silently sold that line at cost, with the field
+  // still reading 100. The estimate-wide slider already refused out-of-range
+  // values; the per-line box did not. Refuse here so both agree.
+  if (!(m >= 0 && m < 100)) return patch;
+
   // A FLAT line is priced by its lump amount, not by rates — re-price that too,
   // or the margin slider silently leaves flat-priced work at its old price.
   if (l.line_type === "flat") {
     const cost = num(l.material_cost) + num(l.labor_cost);
     if (cost > 0) patch.flat_amount = round2s(priceFromMargin(cost, m));
+    return patch;
+  }
+  // An INSTALLED line prices off installed_rate alone (a blended material+labor
+  // rate). It was the one line type the margin never touched, so changing the
+  // estimate's margin left it at its old price and the option's real margin
+  // drifted away from the number on screen with nothing to show for it.
+  if (l.line_type === "installed") {
+    const cost = num(l.material_cost) + num(l.labor_cost);
+    if (cost > 0) patch.installed_rate = round2s(priceFromMargin(cost, m));
     return patch;
   }
   if (num(l.material_cost) > 0) patch.material_rate = round2s(priceFromMargin(num(l.material_cost), m));
@@ -228,7 +245,17 @@ function lineOurCost(l: LineState): number {
 
 /** Our cost for a line, split into material vs labor (matches lineOurCost). */
 function lineCostSplit(l: LineState): { mat: number; labor: number } {
-  if (l.line_type === "flat") return { mat: 0, labor: 0 };
+  // A FLAT line has a real cost — lineCost/lineOurCost both count it. Returning
+  // zeros here made the "↳ Material X · Labor Y" breakdown disagree with the
+  // "Our cost" figure printed directly above it: a flat stair-wrap costed at
+  // $400 material and $300 labor showed as "Material $0.00 · Labor $0.00"
+  // under a cost line that included all $700.
+  if (l.line_type === "flat") {
+    return {
+      mat: isLaborLine(l) ? 0 : num(l.material_cost),
+      labor: num(l.labor_cost),
+    };
+  }
   const qty = lineQty({
     line_type: l.line_type,
     sqft: l.sqft,
@@ -981,10 +1008,25 @@ export function EstimateBuilder({
       );
       return;
     }
-    const totalCost = opt.lines.reduce((s, l) => s + lineOurCost(l), 0);
-    if (target < totalCost) {
+    // Judge the target against the SAME cost the rest of the app uses: freight
+    // on material, plus fuel, car allowance and commission. The old guard
+    // compared against raw line cost alone, so a price that cleared material
+    // and labor but not the overheads sailed straight through — $14,500
+    // against $14,000 of line cost passed as "3% margin" while actually losing
+    // $967.50 once freight, gas, car and commission were counted.
+    //
+    // Commission scales with revenue, so the all-in cost is a function of the
+    // TARGET, not of the current prices.
+    const ct = optionCostTotals(opt.lines.map(toCalc));
+    const freightMult = 1 + num(org?.freight_markup_pct ?? 0) / 100;
+    const lineCostAllIn = ct.material * freightMult + ct.labor;
+    const costAtTarget = (revenue: number) =>
+      lineCostAllIn + fuelFee + carAllowance + (num(commissionPct) / 100) * revenue;
+    const trueCostAtTarget = costAtTarget(target);
+    if (target < trueCostAtTarget) {
       toast.error(
-        `That total is below your cost (${formatMoney(totalCost)}). It would be a loss.`,
+        `That total is below your all-in cost (${formatMoney(trueCostAtTarget)} once freight, gas, car allowance and commission are counted). It would be a loss.`,
+        { duration: 8000 },
       );
       return;
     }
@@ -1040,8 +1082,10 @@ export function EstimateBuilder({
     setOptions((prev) =>
       prev.map((o, oi) => (oi !== safeActive ? o : { ...o, lines: scaled })),
     );
-    // The real, honest margin for this total given the line costs.
-    const trueMargin = target > 0 ? (1 - totalCost / target) * 100 : 0;
+    // The real margin at this price — all-in, not just line cost. Reporting
+    // "44%" when the honest number was 36.7% overstated by $1,835 on the very
+    // screen where the price gets decided.
+    const trueMargin = target > 0 ? (1 - trueCostAtTarget / target) * 100 : 0;
     setOverallMargin(round2s(Math.max(trueMargin, 0)));
     setTargetPrice("");
     toast.success(
@@ -1894,6 +1938,11 @@ export function EstimateBuilder({
         {options.map((option, oi) => {
           if (oi !== safeActive) return null;
           const calcLines = option.lines.map((l) => ({
+            // MUST carry category — lineTotal charges a labor line's labor only,
+            // and that guard is off when category is undefined. Without it the
+            // option card's Total could bill a stray material rate that the
+            // section subtotal and the SAVED estimate both correctly ignore.
+            category: l.category,
             line_type: l.line_type,
             sqft: l.sqft,
             measure_unit: l.measure_unit,
@@ -2037,6 +2086,9 @@ export function EstimateBuilder({
                       ) : null}
                       {secLines.map(({ line, li }) => {
                   const summ = {
+                    // Carry category, or a labor line's per-line price shows a
+                    // material rate the option total doesn't charge.
+                    category: line.category,
                     line_type: line.line_type,
                     sqft: line.sqft,
                     measure_unit: line.measure_unit,
@@ -3216,6 +3268,12 @@ function EstimatePrintDoc({
 }) {
   const detailed = presentation === "detailed";
   const calc = (l: LineState) => ({
+    // This is the CUSTOMER'S document. Dropping category turned off the
+    // labor-line guard in lineTotal, so the printed estimate could bill a stray
+    // material rate that the saved estimate, the portal copy and the invoice
+    // all correctly ignore — handing the customer a page whose numbers don't
+    // match the ones the business is working from.
+    category: l.category,
     line_type: l.line_type,
     sqft: l.sqft,
     measure_unit: l.measure_unit,
