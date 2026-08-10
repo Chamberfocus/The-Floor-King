@@ -80,14 +80,19 @@ export async function listProducts(
       .order("name", { ascending: true })
       .range(from, from + PAGE - 1);
     if (opts.activeOnly) query = query.eq("active", true);
-    if (!opts.includeLabor) query = query.neq("category", "labor");
     const { data, error } = await query;
     if (error) throw error;
     const batch = (data ?? []) as Product[];
     all.push(...batch);
     if (batch.length < PAGE) break;
   }
-  return attachProductVendors(supabase, all);
+  // Labor is dropped HERE, not in SQL. `category <> 'labor'` matches almost
+  // every row, so Postgres gains nothing from it and — with an index on
+  // (active, category) — can be talked into walking that index instead of
+  // scanning, which cost 2.4s on 13,558 products and timed the PO page out.
+  // Fourteen rows filtered in memory is free.
+  const rows = opts.includeLabor ? all : all.filter((p) => p.category !== "labor");
+  return attachProductVendors(supabase, rows);
 }
 
 // Text fields a catalog search does a partial (ilike) match across — including
@@ -221,9 +226,6 @@ export async function searchCatalogWith(
     .order("name", { ascending: true })
     .limit(pool);
   if (opts.activeOnly) q = q.eq("active", true);
-  // The estimate builder's material picker searches this. Labor is added on its
-  // own lines from Settings → Pricing, never picked as a product.
-  if (!opts.includeLabor) q = q.neq("category", "labor");
   for (const token of tokens) {
     const like = likePattern(token);
     // Each token: OR across the text columns; if the token names a category,
@@ -240,7 +242,11 @@ export async function searchCatalogWith(
     q = q.or(parts.join(","));
   }
   const { data } = await q;
-  const rows = (data ?? []) as Product[];
+  // Labor filtered in memory, same reason as listProducts — the picker searches
+  // materials, and a <> on the category column only slows the query down.
+  const rows = ((data ?? []) as Product[]).filter(
+    (p) => opts.includeLabor || p.category !== "labor",
+  );
   if (!tokens.length) return rows.slice(0, displayLimit);
   return rankProducts(rows, tokens).slice(0, displayLimit);
 }
@@ -279,9 +285,9 @@ export async function productCount(): Promise<number> {
   const supabase = await createClient();
   const { count } = await supabase
     .from("products")
-    .select("id", { count: "exact", head: true })
-    // Matches listProducts — the catalog count must not include labor.
-    .neq("category", "labor");
+    .select("id", { count: "exact", head: true });
+  // Labor is a rounding error against the catalog and not worth a second query;
+  // the list itself excludes it.
   return count ?? 0;
 }
 
