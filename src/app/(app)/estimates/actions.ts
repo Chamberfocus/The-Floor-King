@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireProfile, assertRole } from "@/lib/auth";
+import { releaseJobReservations } from "@/lib/po-stock";
 import { syncPosForEstimate } from "@/app/(app)/purchase-orders/actions";
 import {
   num,
@@ -597,6 +598,148 @@ export async function onEstimateDeclined(
   revalidatePath("/pipeline");
   revalidatePath("/dashboard");
   revalidatePath(`/customers/${customerId}`);
+}
+
+export interface UnapproveResult {
+  error: string | null;
+  removedJob?: boolean;
+  releasedPos?: number;
+}
+
+/**
+ * Undo an estimate approval.
+ *
+ * Approving is not a status change — it creates a job, reserves stock, raises
+ * purchase orders and moves the customer to Collect Deposit. The "Reopen" button
+ * only flipped the status back, leaving all of that behind: a phantom job on the
+ * board, material held for work nobody sold, and a customer reading as Won.
+ *
+ * REFUSES when the job has real progress behind it. Once an invoice exists, a
+ * payment has landed, material has been received or the crew has started, this
+ * is no longer a mis-click to undo — it's a cancellation, and cancelling has its
+ * own path that keeps the paperwork. Silently deleting that history to be
+ * helpful would be the worst thing this function could do.
+ */
+export async function unapproveEstimate(
+  formData: FormData,
+): Promise<void> {
+  const id = str(formData.get("id"));
+  if (!id) return;
+  await assertRole(["admin", "office", "sales_manager"]);
+  const supabase = await createClient();
+
+  const { data: est } = await supabase
+    .from("estimates")
+    .select("id, customer_id, status, title")
+    .eq("id", id)
+    .maybeSingle();
+  if (!est || est.status !== "approved") return;
+
+  const { data: jobs } = await supabase
+    .from("jobs")
+    .select("id, status, scheduled_date, completed_at, actual_labor_cost")
+    .eq("estimate_id", id);
+
+  for (const j of jobs ?? []) {
+    // Anything that means the world has moved on.
+    const blockers: string[] = [];
+    if (j.status === "completed") blockers.push("the job is completed");
+    if (j.scheduled_date) blockers.push("the install is booked");
+    if (j.actual_labor_cost != null) blockers.push("labor has been costed");
+
+    const { count: invCount } = await supabase
+      .from("invoices")
+      .select("id", { count: "exact", head: true })
+      .eq("job_id", j.id);
+    if ((invCount ?? 0) > 0) blockers.push("an invoice has been raised");
+
+    const { data: received } = await supabase
+      .from("purchase_orders")
+      .select("id, status")
+      .eq("estimate_id", id)
+      .in("status", ["received", "closed"]);
+    if (received?.length) blockers.push("material has been received");
+
+    if (blockers.length) {
+      redirect(
+        `/estimates/${id}?undo=blocked&why=${encodeURIComponent(blockers.join("; "))}`,
+      );
+    }
+  }
+
+  const jobIds = (jobs ?? []).map((j) => j.id as string);
+
+  // Give back anything the approval reserved, and drop the POs it auto-raised.
+  // Only DRAFTS — an issued PO has a number the supplier has seen, and voiding
+  // that is a deliberate act, not a side effect of undoing a click.
+  let releasedPos = 0;
+  if (jobIds.length) await releaseJobReservations(supabase, jobIds);
+  const { data: draftPos } = await supabase
+    .from("purchase_orders")
+    .select("id")
+    .eq("estimate_id", id)
+    .eq("status", "draft");
+  if (draftPos?.length) {
+    const ids = draftPos.map((p) => p.id as string);
+    await supabase.from("po_items").delete().in("po_id", ids);
+    await supabase.from("purchase_orders").delete().in("id", ids);
+    releasedPos = ids.length;
+  }
+  if (jobIds.length) await supabase.from("jobs").delete().in("id", jobIds);
+
+  await supabase
+    .from("estimates")
+    .update({ status: "sent", accepted_option_id: null })
+    .eq("id", id);
+
+  // Put the customer back where they were: awaiting an answer, not Won. The
+  // engine only moves forward, so this is written directly.
+  //
+  // But ONLY if nothing else of theirs is sold. A customer with two quotes who
+  // un-approves one is still Won on the other, and dragging them back to
+  // "Awaiting Customer Response" would take a live job off the pipeline. This
+  // is exactly what happened undoing the Behun tile approval while the flooring
+  // estimate was approved.
+  if (est.customer_id) {
+    const { count: stillSold } = await supabase
+      .from("estimates")
+      .select("id", { count: "exact", head: true })
+      .eq("customer_id", est.customer_id)
+      .eq("status", "approved")
+      .neq("id", id);
+
+    if (!stillSold) {
+      const { data: stages } = await supabase
+        .from("workflow_stages")
+        .select("id, name, position")
+        .order("position");
+      const back = (stages ?? []).find((s) =>
+        /awaiting customer|customer response/i.test((s.name as string) ?? ""),
+      );
+      const patch: Record<string, unknown> = { stage: "quoted" };
+      if (back) patch.workflow_stage_id = back.id;
+      await supabase.from("customers").update(patch).eq("id", est.customer_id);
+    }
+
+    await supabase.from("activities").insert({
+      customer_id: est.customer_id,
+      type: "system",
+      body: `Approval undone on "${est.title ?? "estimate"}" — back to Sent.${
+        jobIds.length ? ` The job it created was removed.` : ""
+      }${releasedPos ? ` ${releasedPos} draft purchase order(s) removed.` : ""} Any reserved material was released.`,
+    });
+    revalidatePath(`/customers/${est.customer_id}`);
+  }
+
+  revalidatePath(`/estimates/${id}`);
+  revalidatePath("/estimates");
+  revalidatePath("/jobs");
+  revalidatePath("/board");
+  revalidatePath("/pipeline");
+  revalidatePath("/dashboard");
+  revalidatePath("/purchase-orders");
+  revalidatePath("/inventory");
+  redirect(`/estimates/${id}?undo=ok`);
 }
 
 export async function deleteEstimate(formData: FormData): Promise<void> {

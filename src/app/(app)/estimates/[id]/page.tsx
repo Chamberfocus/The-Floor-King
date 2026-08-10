@@ -44,7 +44,7 @@ import { parseProjectDetails } from "@/lib/customer-scope";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { EstimateLineItem, EstimateOption } from "@/lib/types";
-import { setEstimateStatus, duplicateOption } from "../actions";
+import { setEstimateStatus, duplicateOption, unapproveEstimate } from "../actions";
 import { DeleteEstimateButton } from "../estimate-list-actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 import { CopyEstimate } from "./copy-estimate";
@@ -698,37 +698,41 @@ export default async function EstimatePage({
             </details>
           ) : null}
 
-          {/* Reopening was approved-only, so a declined estimate — including one
-              declined by a mis-tap in the portal, where the customer has no way
-              back either — was a terminal state with no control on the page. */}
-          {estimate.status === "approved" ||
-          estimate.status === "declined" ? (
+          {/* APPROVED → a real undo. Approving creates a job, reserves stock,
+              raises POs and moves the customer to Collect Deposit; the old
+              "Reopen" only flipped the status and left all of that behind. */}
+          {estimate.status === "approved" ? (
+            <form action={unapproveEstimate}>
+              <input type="hidden" name="id" value={estimate.id} />
+              <ConfirmButton
+                variant="outline"
+                size="sm"
+                title="Undo this approval?"
+                description="Puts the estimate back to Sent, removes the job it created, deletes any draft purchase orders and releases reserved material. The customer goes back to Awaiting Customer Response. Refuses if the job has already been invoiced, scheduled, or had material received."
+                confirmLabel="Undo approval"
+              >
+                Undo approval
+              </ConfirmButton>
+            </form>
+          ) : null}
+
+          {/* Reopening a DECLINED estimate — including one declined by a mis-tap
+              in the portal, where the customer has no way back either. */}
+          {estimate.status === "declined" ? (
             <form action={setEstimateStatus}>
               <input type="hidden" name="id" value={estimate.id} />
               <input type="hidden" name="status" value="sent" />
               {/* Don't re-email on a reopen from declined — they said no; the
                   rep will follow up in person. */}
-              {estimate.status === "declined" ? (
-                <input type="hidden" name="send_email" value="no" />
-              ) : null}
+              <input type="hidden" name="send_email" value="no" />
               <ConfirmButton
                 variant="outline"
                 size="sm"
-                title={
-                  estimate.status === "declined"
-                    ? "Put this estimate back in play?"
-                    : "Reopen this estimate?"
-                }
-                description={
-                  estimate.status === "declined"
-                    ? "Moves it back to Sent so you can revise it or take another run at it. The customer is NOT emailed."
-                    : "Moves it back to Sent. If the customer has an email on file, this re-sends the estimate to them."
-                }
+                title="Put this estimate back in play?"
+                description="Moves it back to Sent so you can revise it or take another run at it. The customer is NOT emailed."
                 confirmLabel="Reopen"
               >
-                {estimate.status === "declined"
-                  ? "Put back in play"
-                  : "Reopen (back to sent)"}
+                Put back in play
               </ConfirmButton>
             </form>
           ) : null}
