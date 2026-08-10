@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, Phone, Mail, MapPin, FileText } from "lucide-react";
+import { ArrowLeft, Phone, Mail, MapPin, FileText, Plug } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { requireProfile } from "@/lib/auth";
@@ -53,6 +54,12 @@ export default async function VendorPage({ params }: { params: Promise<{ id: str
             Inactive
           </span>
         ) : null}
+        <Link
+          href={`/settings/suppliers/${vendor.id}/connect`}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          <Plug className="size-4" /> Connect price feed
+        </Link>
       </div>
 
       {/* Contact + terms */}
