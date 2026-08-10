@@ -55,8 +55,20 @@ async function attachProductVendors(db: Db, products: Product[]): Promise<Produc
  * Load products. The catalog can exceed Supabase's 1000-row request cap, so we
  * page through with .range() until every row is fetched.
  */
+/**
+ * The product catalog — physical goods you buy, stock and sell.
+ *
+ * LABOR IS NOT A PRODUCT and is excluded by default. It has no SKU, no maker,
+ * no carton, no roll width and nothing to stock; it sits in this table only
+ * because it shares a rate and a unit. Listing it as a catalog item invited the
+ * fault already found there — labor rows carrying a material cost, which then
+ * billed material the job never bought — and would sweep labor into supplier
+ * price feeds that match on SKU.
+ *
+ * Labor rates live in Settings → Pricing. Pass includeLabor to see them here.
+ */
 export async function listProducts(
-  opts: { activeOnly?: boolean } = {},
+  opts: { activeOnly?: boolean; includeLabor?: boolean } = {},
 ): Promise<Product[]> {
   const supabase = await createClient();
   const all: Product[] = [];
@@ -68,6 +80,7 @@ export async function listProducts(
       .order("name", { ascending: true })
       .range(from, from + PAGE - 1);
     if (opts.activeOnly) query = query.eq("active", true);
+    if (!opts.includeLabor) query = query.neq("category", "labor");
     const { data, error } = await query;
     if (error) throw error;
     const batch = (data ?? []) as Product[];
@@ -134,7 +147,7 @@ function likePattern(token: string): string {
  */
 export async function searchCatalog(
   query: string,
-  opts: { activeOnly?: boolean; limit?: number } = {},
+  opts: { activeOnly?: boolean; limit?: number; includeLabor?: boolean } = {},
 ): Promise<Product[]> {
   return searchCatalogWith(await createClient(), query, opts);
 }
@@ -149,7 +162,7 @@ export async function searchCatalogWith(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: { from: (t: string) => any },
   query: string,
-  opts: { activeOnly?: boolean; limit?: number } = {},
+  opts: { activeOnly?: boolean; limit?: number; includeLabor?: boolean } = {},
 ): Promise<Product[]> {
   const displayLimit = opts.limit ?? 50;
   const tokens = query.trim().split(/\s+/).filter(Boolean);
@@ -164,6 +177,9 @@ export async function searchCatalogWith(
     .order("name", { ascending: true })
     .limit(pool);
   if (opts.activeOnly) q = q.eq("active", true);
+  // The estimate builder's material picker searches this. Labor is added on its
+  // own lines from Settings → Pricing, never picked as a product.
+  if (!opts.includeLabor) q = q.neq("category", "labor");
   for (const token of tokens) {
     const like = likePattern(token);
     // Each token: OR across the text columns; if the token names a category,
@@ -213,7 +229,9 @@ export async function productCount(): Promise<number> {
   const supabase = await createClient();
   const { count } = await supabase
     .from("products")
-    .select("id", { count: "exact", head: true });
+    .select("id", { count: "exact", head: true })
+    // Matches listProducts — the catalog count must not include labor.
+    .neq("category", "labor");
   return count ?? 0;
 }
 
