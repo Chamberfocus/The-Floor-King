@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
-import { advanceFromFirstStage, deriveLeadStage } from "@/lib/workflow-engine";
+import { advanceFromFirstStage, deriveLeadStage,
+  settleJobsForStage,
+} from "@/lib/workflow-engine";
 import { requireProfile, assertRole } from "@/lib/auth";
 import { normalizePhone } from "@/lib/auth-admin";
 import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
@@ -437,6 +439,27 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
     body: `Moved to "${stage?.name ?? "stage"}"${note ? ` — ${note}` : ""}`,
   });
 
+  // Moving someone to the end of the pipeline by hand must finish their work
+  // too — the same rule the auto-advance engine applies. Without this, dragging
+  // a customer to Closed left the job scheduled and it stayed on the board, the
+  // schedule and the warehouse queue indefinitely.
+  if (stage) {
+    await settleJobsForStage(
+      supabase,
+      id,
+      { name: stage.name ?? "", position: stage.position ?? 0 },
+      (allStages ?? []).map((sst) => ({
+        name: (sst.name as string) ?? "",
+        position: (sst.position as number) ?? 0,
+      })),
+    );
+    revalidatePath("/jobs");
+    revalidatePath("/board");
+    revalidatePath("/warehouse");
+    revalidatePath("/install-scheduler");
+    revalidatePath("/installer");
+  }
+
   // Notify the new owner (best-effort).
   if (toUser && toUser !== user?.id) {
     const { data: prof } = await supabase
@@ -707,6 +730,28 @@ export async function cancelCustomer(formData: FormData): Promise<void> {
     ({ error } = await supabase.from("customers").update(base).eq("id", id));
   }
 
+  // Cancelling the customer must cancel their WORK too, and give back anything
+  // the warehouse was holding. This used to stop at the customer row, so a
+  // written-off customer's install stayed booked: on the crew's list, in the
+  // warehouse queue, and still receiving the day-before reminder — by email AND
+  // text — because the cron filters on job status, which nobody had changed.
+  const { data: liveJobs } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("customer_id", id)
+    .not("status", "in", "(completed,cancelled)");
+  if (liveJobs?.length) {
+    const jobIds = liveJobs.map((j) => j.id as string);
+    await releaseJobReservations(supabase, jobIds);
+    await supabase.from("jobs").update({ status: "cancelled" }).in("id", jobIds);
+    await supabase.from("activities").insert({
+      customer_id: id,
+      user_id: user?.id ?? null,
+      type: "system",
+      body: `${jobIds.length} booked job${jobIds.length === 1 ? "" : "s"} cancelled and any reserved material released.`,
+    });
+  }
+
   await supabase.from("activities").insert({
     customer_id: id,
     user_id: user?.id ?? null,
@@ -717,6 +762,12 @@ export async function cancelCustomer(formData: FormData): Promise<void> {
   refreshCustomerViews(id);
   revalidatePath("/pipeline");
   revalidatePath("/dashboard");
+  // The crew-facing views the customer refresh never covered.
+  revalidatePath("/jobs");
+  revalidatePath("/board");
+  revalidatePath("/warehouse");
+  revalidatePath("/install-scheduler");
+  revalidatePath("/installer");
   redirect(`/customers/${id}`);
 }
 

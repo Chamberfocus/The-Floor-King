@@ -124,6 +124,83 @@ async function applyMove(
     type: "stage_change",
     body: `Auto-advanced to "${stage.name}"`,
   });
+
+  // Landing on a terminal stage finishes the work too.
+  await settleJobsForStage(
+    supabase,
+    customerId,
+    stage,
+    ((anchors as AnchorRow[]) ?? []).map((a) => ({
+      name: a.name ?? "",
+      position: a.position,
+    })),
+  );
+}
+
+/**
+ * Reaching the end of the pipeline must finish the WORK, not just the customer.
+ *
+ * Moving someone to "Closed" or "Collect Balance" never touched their jobs, so
+ * a job stayed `scheduled` or `in_progress` forever — still on the job board,
+ * still on the install schedule, still in the warehouse queue, still on the
+ * installer's list. Twelve customers were sitting like that.
+ *
+ * The two ends of the pipeline mean opposite things:
+ *   past the install  -> the work happened  -> complete the job
+ *   lost / declined    -> it never will      -> cancel it and free the material
+ *
+ * Position alone can't tell them apart: "Lost / Declined" (120) sits BETWEEN
+ * "Collect Balance" (115) and "Closed" (130), so this matches on name.
+ *
+ * Never touches a job that is already completed or cancelled, and never
+ * re-opens one — this only ever moves work forward to a finished state.
+ */
+export async function settleJobsForStage(
+  supabase: DB,
+  customerId: string,
+  stage: { name: string; position: number },
+  allStages: { name: string; position: number }[],
+): Promise<void> {
+  const lost = /lost|declin|dead/i.test(stage.name);
+  // Where "the install has happened" begins, read from the stage list rather
+  // than hard-coded, so renaming or renumbering stages can't silently break it.
+  const installedPos =
+    allStages.find((s) => /installed|follow/i.test(s.name))?.position ?? Infinity;
+  const finished = !lost && stage.position >= installedPos;
+  if (!lost && !finished) return;
+
+  const { data: live } = await supabase
+    .from("jobs")
+    .select("id, status, scheduled_date")
+    .eq("customer_id", customerId)
+    .not("status", "in", "(completed,cancelled)");
+  if (!live?.length) return;
+
+  for (const j of live) {
+    if (lost) {
+      await supabase.from("jobs").update({ status: "cancelled" }).eq("id", j.id);
+      continue;
+    }
+    // Date it when the install was actually booked, not the moment somebody
+    // finally moved the stage — otherwise a July job lands in August's profit.
+    const today = new Date().toISOString().slice(0, 10);
+    const when =
+      j.scheduled_date && (j.scheduled_date as string) <= today
+        ? `${j.scheduled_date}T12:00:00.000Z`
+        : new Date().toISOString();
+    await supabase
+      .from("jobs")
+      .update({ status: "completed", completed_at: when })
+      .eq("id", j.id);
+  }
+
+  await supabase.from("activities").insert({
+    customer_id: customerId,
+    type: "system",
+    body: `${live.length} job${live.length === 1 ? "" : "s"} ${
+      lost ? "cancelled" : "marked complete"
+    } automatically — the customer reached "${stage.name}".`,
+  });
 }
 
 async function loadCustomer(
