@@ -823,6 +823,11 @@ export function EstimateBuilder({
           measure_unit: src.measure_unit,
           quantity: src.quantity,
           sqft: src.sqft,
+          // Carry the waste. We charge for the square footage we SELL — waste
+          // included — and that applies to the labor as well as the material.
+          // Without this the labor line was priced on the bare measured area
+          // while the material beside it billed the waste-inclusive footage.
+          waste_pct: src.waste_pct,
           labor_cost: src.labor_cost,
           labor_rate: src.labor_rate,
           margin_pct: src.margin_pct,
@@ -848,7 +853,14 @@ export function EstimateBuilder({
       prev.map((o, i) => {
         if (i !== oi) return o;
         const src = o.lines[li];
-        const laborLine = (key: string, desc: string): LineState => ({
+        const laborLine = (
+          key: string,
+          desc: string,
+          // Install follows the material you lay, so it bills the sold
+          // (waste-inclusive) footage. TEAR-OUT does not: you rip up the floor
+          // that's actually there, and there is no waste on demolition.
+          carryWaste: boolean,
+        ): LineState => ({
           ...emptyLine(),
           key,
           category: "labor",
@@ -858,12 +870,13 @@ export function EstimateBuilder({
           measure_unit: src.measure_unit,
           quantity: src.quantity,
           sqft: src.sqft,
+          waste_pct: carryWaste ? src.waste_pct : "",
           margin_pct: src.margin_pct,
         });
         const lines = [...o.lines];
-        lines.splice(li, 0, laborLine(removeK, src.description ? `Remove existing ${src.description}` : "Remove existing"));
+        lines.splice(li, 0, laborLine(removeK, src.description ? `Remove existing ${src.description}` : "Remove existing", false));
         // material shifted to li+1; install goes after it.
-        lines.splice(li + 2, 0, laborLine(installK, src.description ? `Install ${src.description}` : "Install new"));
+        lines.splice(li + 2, 0, laborLine(installK, src.description ? `Install ${src.description}` : "Install new", true));
         return { ...o, lines };
       }),
     );

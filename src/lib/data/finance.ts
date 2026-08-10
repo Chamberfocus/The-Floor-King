@@ -124,8 +124,12 @@ export async function getPeriodSummary(
     );
 
   const pos = await listPurchaseOrders();
-  // Freight & fees markup lands on material spend (PO costs are bare prices).
-  const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
+  // Bare supplier prices — NOT freight-marked-up. The supplier bills freight as
+  // a separate line on their invoice, which is entered as an EXPENSE and
+  // subtracted from net in its own right. Marking up actual PO spend on top of
+  // that charged the same freight twice — roughly $4,000 of phantom cost per
+  // $50k of material. The markup stays on the ESTIMATE side, where it projects
+  // landed cost before any freight invoice exists.
   const poSpend =
     pos
       .filter((p) => {
@@ -138,7 +142,7 @@ export async function getPeriodSummary(
         const d = p.created_at.slice(0, 10);
         return d >= start && d <= end;
       })
-      .reduce((s, p) => s + poTotal(p.items ?? []), 0) * freightMult;
+      .reduce((s, p) => s + poTotal(p.items ?? []), 0);
 
   // Per-job internal overheads for the period (hidden from customers):
   //  • commission = % of what was collected this period
@@ -462,10 +466,11 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
      * Freight markup is applied ONLY to the derived figure — it's an estimating
      * assumption for landed cost. A typed actual is what was really paid.
      */
+    // Bare supplier prices, NOT freight-marked-up — the real freight invoice is
+    // entered as an expense and already counted in otherCost below.
     const derivedMaterial =
-      ((ownsPO ? (poByEstimate.get(j.estimate_id!) ?? 0) : 0) +
-        (stockCostByJob.get(j.id) ?? 0)) *
-      freightMult;
+      (ownsPO ? (poByEstimate.get(j.estimate_id!) ?? 0) : 0) +
+      (stockCostByJob.get(j.id) ?? 0);
     const materialCost =
       j.actual_material_cost != null
         ? Number(j.actual_material_cost)
@@ -686,7 +691,9 @@ export async function getJobCostAnalysis(
     (s, m) => s + Math.abs(Number(m.qty) || 0) * (Number(m.unit_cost) || 0),
     0,
   );
-  const actualMaterial = (poMaterial + stockMaterial) * freightMult;
+  // Actual spend is what the supplier actually charged. Freight arrives on its
+  // own invoice and is picked up from expenses, so no markup here.
+  const actualMaterial = poMaterial + stockMaterial;
 
   const { data: expData } = await supabase
     .from("expenses")
