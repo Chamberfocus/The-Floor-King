@@ -102,11 +102,15 @@ export function lineTotal(line: CalcLine): number {
   const qty = lineQty(line);
   switch (line.line_type) {
     case "mat_labor":
-      // Waste applies to material (you order extra); labor is on actual area.
+      // Waste rides on the WHOLE area line, labor included. This shop sells —
+      // and pays its installers on — the square footage sold, waste in. Billing
+      // labor on the bare measured area while the material beside it billed the
+      // waste-inclusive footage under-charged every job that had any waste.
       // A labor line charges labor only — a stray material rate is not added.
       return (
-        (isLaborLine(line) ? 0 : qty * num(line.material_rate) * wasteMult(line)) +
-        qty * num(line.labor_rate)
+        wasteMult(line) *
+        ((isLaborLine(line) ? 0 : qty * num(line.material_rate)) +
+          qty * num(line.labor_rate))
       );
     case "installed":
       return qty * num(line.installed_rate) * wasteMult(line);
@@ -117,16 +121,19 @@ export function lineTotal(line: CalcLine): number {
   }
 }
 
-/** OUR cost for a line (material + labor), quantity-aware. Waste raises the
- *  material you buy (you pay for the extra ordered), not labor — matching
- *  lineTotal's sell side and optionCostTotals, so margins stay consistent. */
+/** OUR cost for a line (material + labor), quantity-aware. Waste raises BOTH:
+ *  you buy the extra material AND you pay the installer on the footage sold.
+ *  Mirrors lineTotal exactly, so a line priced at margin m returns margin m. */
 export function lineCost(line: CalcLine): number {
   const labor = isLaborLine(line);
   if (line.line_type === "flat") {
     return (labor ? 0 : num(line.material_cost)) + num(line.labor_cost); // flat = a single lump cost
   }
   const qty = lineQty(line);
-  return (labor ? 0 : qty * num(line.material_cost) * wasteMult(line)) + qty * num(line.labor_cost);
+  return (
+    wasteMult(line) *
+    ((labor ? 0 : qty * num(line.material_cost)) + qty * num(line.labor_cost))
+  );
 }
 
 export function lineProfit(line: CalcLine): number {
@@ -163,15 +170,17 @@ export function optionCostTotals(lines: CalcLine[]): CostTotals {
   let labor = 0;
   for (const line of lines) {
     // A FLAT line is a single lump cost — no quantity, no waste (matches
-    // lineCost). Everything else: waste raises the material bought, not labor.
+    // lineCost). Everything else: waste raises the material bought AND the
+    // labor paid, because installers are paid on the footage sold.
     if (line.line_type === "flat") {
       material += isLaborLine(line) ? 0 : num(line.material_cost);
       labor += num(line.labor_cost);
       continue;
     }
     const q = lineQty(line);
-    material += isLaborLine(line) ? 0 : q * num(line.material_cost) * wasteMult(line);
-    labor += q * num(line.labor_cost);
+    const w = wasteMult(line);
+    material += isLaborLine(line) ? 0 : q * num(line.material_cost) * w;
+    labor += q * num(line.labor_cost) * w;
   }
   return { material, labor, cost: material + labor };
 }
