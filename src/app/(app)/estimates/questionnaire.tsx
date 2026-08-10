@@ -1390,14 +1390,19 @@ export function Questionnaire({
         toast.error("Answer a few questions first — add areas and a product.");
         return;
       }
-      // "I'll price it in the builder" → drop the catalog PRICE off every catalog
-      // material line (product_id set) so nothing wrong-priced is carried in;
-      // the structure, cuts, quantities & labor all stay. You set the real price
-      // in the builder. Labor and custom add-ons keep their entered amounts.
+      // "I'll set prices in the builder" → clear the SELL rate off every catalog
+      // material line so nothing wrong-priced is carried in. The structure,
+      // cuts, quantities and labor all stay.
+      //
+      // material_COST is deliberately KEPT. It's not a price — it's what the
+      // material costs you, and it's the one number you're not overriding.
+      // Clearing it too meant arriving in the builder with no cost on any line,
+      // so every margin read 100% and the margin slider had nothing to price
+      // from — you'd have to re-enter the cost of every product by hand.
       const built = blankCatalogPrices
         ? raw.map((l) =>
             l.product_id && l.category !== "labor"
-              ? { ...l, material_rate: 0, material_cost: 0 }
+              ? { ...l, material_rate: 0 }
               : l,
           )
         : raw;

@@ -139,6 +139,50 @@ function likePattern(token: string): string {
 }
 
 /**
+ * Extra spellings of a search token that mean the same thing to a flooring
+ * person but not to a database.
+ *
+ * Padding is the case that prompted this: "1/2 8" is how you say half-inch
+ * eight-pound pad out loud, but the catalog might spell it 0.5" 8lb, .5 8#, or
+ * 1/2in 8 lbs. Typing the obvious thing found nothing.
+ */
+export function tokenAliases(token: string): string[] {
+  const out = new Set<string>([token]);
+  const t = token.trim().toLowerCase();
+
+  // Fractions <-> decimals: 1/2 <-> 0.5 <-> .5
+  const frac = /^(\d+)\s*\/\s*(\d+)$/.exec(t);
+  if (frac) {
+    const v = Number(frac[1]) / Number(frac[2]);
+    if (Number.isFinite(v) && v > 0) {
+      out.add(String(v));            // 0.5
+      out.add(String(v).replace(/^0/, "")); // .5
+    }
+  }
+  const dec = /^0?\.(\d+)$/.exec(t);
+  if (dec) {
+    const v = Number(`0.${dec[1]}`);
+    for (const d of [2, 4, 8, 16]) {
+      const n = v * d;
+      if (Math.abs(n - Math.round(n)) < 1e-9) out.add(`${Math.round(n)}/${d}`);
+    }
+  }
+
+  // Pound weight: 8 <-> 8lb <-> 8lbs <-> 8# — how pad density is written.
+  const wt = /^(\d+(?:\.\d+)?)\s*(?:lbs?|#)$/.exec(t);
+  const bare = /^(\d+(?:\.\d+)?)$/.exec(t);
+  const n = wt?.[1] ?? bare?.[1];
+  if (n) {
+    out.add(`${n}lb`);
+    out.add(`${n} lb`);
+    out.add(`${n}lbs`);
+    out.add(`${n}#`);
+    if (wt) out.add(n);
+  }
+  return [...out];
+}
+
+/**
  * Smart, server-side product search. Splits the query into words and requires
  * EVERY word to appear somewhere in the name / sku / manufacturer / style /
  * color (in any order) — so "coretec mustang", "oak reducer 94", and "1/2
@@ -184,7 +228,13 @@ export async function searchCatalogWith(
     const like = likePattern(token);
     // Each token: OR across the text columns; if the token names a category,
     // also match products of that category (eq — enums can't be ilike'd).
-    const parts = SEARCH_COLS.map((c) => `${c}.ilike.${like}`);
+    // Every spelling of the token, ORed together — so "1/2" also matches 0.5
+    // and "8" also matches 8lb.
+    const parts: string[] = [];
+    for (const alias of tokenAliases(token)) {
+      const pat = alias === token ? like : likePattern(alias);
+      for (const c of SEARCH_COLS) parts.push(`${c}.ilike.${pat}`);
+    }
     const cat = tokenCategory(token);
     if (cat) parts.push(`category.eq.${cat}`);
     q = q.or(parts.join(","));
