@@ -258,6 +258,51 @@ let xpid = 0;
 const newExtra = (): ExtraPad => ({ id: `x${xpid++}`, product: null, sqft: "" });
 
 let rid = 0;
+/** The areas a flooring job actually names, in the order you'd walk a house. */
+const QUICK_ROOMS = [
+  "Living room",
+  "Dining room",
+  "Family room",
+  "Bedroom",
+  "Hallway",
+  "Stairs",
+  "Closet",
+  "Office",
+  "Basement",
+];
+
+/** The whole-house carpet set — the common case, in walking order. Bedroom
+ *  appears four times because that's the house most people are quoting. */
+const WHOLE_HOUSE = [
+  "Living room",
+  "Dining room",
+  "Hallway",
+  "Bedroom",
+  "Bedroom",
+  "Bedroom",
+  "Bedroom",
+  "Stairs",
+];
+
+/** "Bedroom 3" -> "Bedroom", so copying a numbered room re-numbers cleanly. */
+const baseRoomName = (name: string): string =>
+  name.replace(/\s*\d+\s*$/, "").trim() || "Area";
+
+/**
+ * The next free name for a label: first "Bedroom", then "Bedroom 2", "Bedroom 3".
+ * Singles stay unnumbered — a house has one living room, and calling it
+ * "Living room 1" reads like a mistake.
+ */
+function nextRoomName(rooms: { name: string }[], label: string): string {
+  const taken = new Set(rooms.map((r) => r.name.trim().toLowerCase()));
+  if (!taken.has(label.toLowerCase())) return label;
+  for (let n = 2; n < 99; n++) {
+    const candidate = `${label} ${n}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+  return label;
+}
+
 const newRow = (name = ""): AreaRow => ({
   id: `a${rid++}`, name, lf: "", li: "", wf: "", wi: "", override: "", differs: false,
 });
@@ -1823,10 +1868,69 @@ function QuestionBody({
           );
         })}
 
+        {/* QUICK ADD — a whole-house carpet job is eight areas before you
+            measure anything, and every one of them needed a click and a typed
+            name first. These drop in already named. "Bedroom" numbers itself,
+            so tapping it four times gives Bedroom 1-4. */}
+        <div className="rounded-lg border border-dashed p-2.5">
+          <div className="mb-1.5 text-xs font-medium text-muted-foreground">
+            Quick add
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_ROOMS.map((label) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => upd([...rooms, newRow(nextRoomName(rooms, label))])}
+                className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted"
+              >
+                + {label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                // The common whole-house set, in the order you'd walk it.
+                let next = [...rooms];
+                for (const label of WHOLE_HOUSE)
+                  next = [...next, newRow(nextRoomName(next, label))];
+                upd(next);
+              }}
+              className="rounded-full border border-primary bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/20"
+            >
+              + Whole house
+            </button>
+          </div>
+        </div>
+
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => upd([...rooms, newRow()])}>
-            <Plus className="size-4" /> Add area
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => upd([...rooms, newRow()])}>
+              <Plus className="size-4" /> Add area
+            </Button>
+            {rooms.length ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // Same size again — bedrooms in a row are usually close
+                  // enough that copying and nudging beats re-measuring.
+                  const last = rooms[rooms.length - 1];
+                  upd([
+                    ...rooms,
+                    {
+                      ...last,
+                      id: `a${Date.now()}`,
+                      name: nextRoomName(rooms, baseRoomName(last.name)),
+                    },
+                  ]);
+                }}
+              >
+                <Plus className="size-4" /> Copy last
+              </Button>
+            ) : null}
+          </div>
           <span className="rounded-md bg-primary/10 px-3 py-1.5 text-sm">
             Total <span className="font-bold tabular-nums">{r2(total)}</span> sq ft
             <span className="ml-1 font-semibold text-primary tabular-nums">· {r2(total / 9)} sq yd</span>
