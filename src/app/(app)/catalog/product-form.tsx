@@ -34,6 +34,18 @@ export function ProductForm({
   vendors?: VendorOption[];
 }) {
   const isEdit = Boolean(product);
+  /**
+   * Labor is not a product.
+   *
+   * It shares this table for convenience, but nearly every field here describes
+   * a physical thing: a SKU, a maker, a style and colour, cartons per box, roll
+   * width, bag coverage. None of it means anything for "tear-out" or "stair
+   * tread installation" — and leaving the fields on screen invites exactly the
+   * mistake already sitting in the catalog: a labor item carrying a MATERIAL
+   * rate, which then bills material the job never bought.
+   */
+  const [category, setCategory] = useState<string>(product?.category ?? "lvp");
+  const isLabor = category === "labor";
   const [state, formAction, pending] = useActionState(
     isEdit ? updateProduct : createProduct,
     initialState,
@@ -65,6 +77,7 @@ export function ProductForm({
           <SegmentedField
             name="category"
             defaultValue={product?.category ?? "lvp"}
+            onChange={setCategory}
             options={PRODUCT_CATEGORY_ORDER.map((c) => ({
               value: c,
               label: PRODUCT_CATEGORY_LABELS[c],
@@ -81,20 +94,33 @@ export function ProductForm({
           />
         </div>
 
+        {isLabor ? (
+          /* Labor has no material cost. Posting 0 explicitly means switching an
+             existing item to Labor CLEARS whatever material rate it carried,
+             rather than leaving it hidden but live. Two items are in exactly
+             that state today. */
+          <input type="hidden" name="material_rate" value="0" />
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="material_rate">Material cost ($ / unit)</Label>
+            <Input
+              id="material_rate"
+              name="material_rate"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={product?.material_rate ?? ""}
+              placeholder="3.50"
+            />
+            <p className="text-xs text-muted-foreground">
+              What you pay for it — not what you sell it for.
+            </p>
+          </div>
+        )}
         <div className="space-y-2">
-          <Label htmlFor="material_rate">Material rate ($ / unit)</Label>
-          <Input
-            id="material_rate"
-            name="material_rate"
-            type="number"
-            step="0.01"
-            min="0"
-            defaultValue={product?.material_rate ?? ""}
-            placeholder="3.50"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="labor_rate">Labor rate ($ / unit)</Label>
+          <Label htmlFor="labor_rate">
+            {isLabor ? "Your cost ($ / unit) *" : "Labor rate ($ / unit)"}
+          </Label>
           <Input
             id="labor_rate"
             name="labor_rate"
@@ -102,10 +128,21 @@ export function ProductForm({
             step="0.01"
             min="0"
             defaultValue={product?.labor_rate ?? ""}
-            placeholder="2.00"
+            placeholder={isLabor ? "0.12" : "2.00"}
           />
+          {isLabor ? (
+            <p className="text-xs text-muted-foreground">
+              What this work costs YOU per unit — what you pay the installer, not
+              what the customer pays. The sell price comes off your margin.
+            </p>
+          ) : null}
         </div>
 
+        {/* Attributes of a physical, manufactured item. Labor has none of
+            them — and a labor row carrying a SKU would be swept into a supplier
+            price feed that matches on exactly that. */}
+        {!isLabor ? (
+          <>
         <div className="space-y-2">
           <Label htmlFor="sqft_per_box">Sq ft / box (hard surface)</Label>
           <Input
@@ -202,6 +239,8 @@ export function ProductForm({
             placeholder="e.g. Honey Oak"
           />
         </div>
+          </>
+        ) : null}
         <div className="space-y-2 sm:col-span-2">
           <Label>Vendors (who you buy it from)</Label>
           <VendorRows vendors={vendors} initial={product?.vendors ?? []} />
