@@ -91,12 +91,18 @@ export function validateRow(r: PriceRow): RowStatus {
   if (!(p > 0)) return { level: "flag", reason: "price is $0" };
   const u = r.unit;
   if (r.category === "carpet") {
+    // Carpet is always sq yd here. A plausible sq ft price was already
+    // converted upstream, so anything still arriving as sq ft is a sq yd price
+    // wearing the wrong label — the fault that turned $45 carpet into $407.
+    if (u === "sqft")
+      return {
+        level: "flag",
+        reason: `$${p}/sq ft is too high for carpet — this looks like a per-sq-yd price mislabelled`,
+      };
     if (u === "sqyd" && p < 2)
       return { level: "flag", reason: `$${p}/sq yd is very low — is this a per-sq-ft price?` };
-    if (u === "sqft" && p > 8)
-      return { level: "flag", reason: `$${p}/sq ft is high for carpet — is this a per-sq-yd price?` };
-    if (u !== "sqyd" && u !== "sqft")
-      return { level: "flag", reason: `carpet unit "${u}" — expected sq yd` };
+    if (u !== "sqyd")
+      return { level: "flag", reason: `carpet unit "${u}" — carpet must be sq yd` };
   }
   if (["lvp", "hardwood", "laminate", "tile"].includes(r.category)) {
     if (u === "sqft" && p > 20)
@@ -387,13 +393,30 @@ export function SmartImporter({ suppliers = [] }: { suppliers?: string[] }) {
       if (!name) continue;
       const catCell = cell(row, "category");
       const unitCell = cell(row, "unit");
+      const rawCategory = catCell ? mapCategory(catCell) : defCategory;
+      const rawUnit = unitCell ? normUnit(unitCell) : defUnit;
+      const rawMat = toNum(cell(row, "material_rate"));
+      const rawLab = toNum(cell(row, "labor_rate"));
+      // House rule: carpet is ALWAYS quoted per square yard, hard surface per
+      // square foot. A supplier sending carpet per sq ft is converted here
+      // rather than left to be converted (or not) later — the same money per
+      // area, said the way the business says it.
+      //
+      // Only when the sq ft price is PLAUSIBLE as a sq ft price. Above $8/sq ft
+      // a square yard would cost over $72, which no carpet does — that's a sq
+      // yard price wearing a sq ft label, and multiplying it again is exactly
+      // how $45 carpet became $407. Those still get flagged for a human.
+      const yardify =
+        rawCategory === "carpet" && rawUnit === "sqft" && rawMat != null && rawMat > 0 && rawMat <= 8;
+      const x9 = (v: number | null) =>
+        v == null ? v : Math.round(v * 9 * 100) / 100;
       out.push({
         name,
-        category: catCell ? mapCategory(catCell) : defCategory,
-        unit: unitCell ? normUnit(unitCell) : defUnit,
+        category: rawCategory,
+        unit: yardify ? "sqyd" : rawUnit,
         sku: cell(row, "sku") || null,
-        material_rate: toNum(cell(row, "material_rate")),
-        labor_rate: toNum(cell(row, "labor_rate")),
+        material_rate: yardify ? x9(rawMat) : rawMat,
+        labor_rate: yardify ? x9(rawLab) : rawLab,
         manufacturer: cell(row, "manufacturer") || null,
         style: cell(row, "style") || null,
         color: cell(row, "color") || null,
