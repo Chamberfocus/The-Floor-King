@@ -203,7 +203,40 @@ async function createPOForLines(
       .single();
     if (error || !po) continue;
 
-    const items = glines.map((l, i) => {
+    /**
+     * Nothing but MATERIAL goes on a purchase order.
+     *
+     * The category filter upstream drops anything marked labor, but it only
+     * catches what was marked correctly. Three lines — tear-out, stair install,
+     * appliance disconnect — were saved as "other" and sailed through, and one
+     * of them became a $220,428 purchase order: a tear-out priced per "each"
+     * with a square-footage quantity.
+     *
+     * Two belt-and-braces checks, on the way to the PO rather than after:
+     *  1. A line that reads as work, whatever its category, is not material.
+     *  2. A COUNT unit (each / piece / bag) carrying an area-sized quantity is
+     *     the signature of that exact fault — 803.75 "each" is not a count of
+     *     anything. Skipped rather than ordered.
+     */
+    const LOOKS_LIKE_WORK =
+      /tear-?out|install(ation)?\b|disconnect|haul|dispos|furniture|door shav|demo\b|labou?r/i;
+    const COUNT_UNITS = new Set([
+      "each", "ea", "pc", "piece", "bag", "box", "sheet", "roll", "gallon", "pail", "step", "flat",
+    ]);
+    const buyable = glines.filter((l) => {
+      if (l.category === "labor") return false;
+      if (!l.product_id && LOOKS_LIKE_WORK.test(l.description ?? "")) return false;
+      const unit = String(l.unit ?? "").toLowerCase().replace(/[^a-z]/g, "");
+      if (!l.product_id && COUNT_UNITS.has(unit) && lineQty(l) > 50) return false;
+      return true;
+    });
+    if (!buyable.length) {
+      // Every line in this group was work — don't leave an empty PO behind.
+      await db.from("purchase_orders").delete().eq("id", po.id);
+      continue;
+    }
+
+    const items = buyable.map((l, i) => {
       const base =
         l.description || (l.product_id ? pname.get(l.product_id) : "") || "Item";
       // Carpet & any measured line: show the cut size to order, not just yards.
