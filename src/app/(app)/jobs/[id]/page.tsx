@@ -1134,17 +1134,62 @@ export default async function JobPage({
                       )}
                     </td>
                   </tr>
+                  {/* Labor and other cost are SEPARATE rows. They used to be
+                      one row that showed logged expenses against ESTIMATED
+                      LABOR — comparing two unrelated things — while the real
+                      actual labor was computed, returned, and never displayed.
+                      The rows therefore didn't add up to the Total cost line
+                      beneath them: a job with $4,200 of subcontractor payouts
+                      and $300 of expenses showed "$300" against a total that
+                      included all $4,500, and reported labor as $3,700 UNDER
+                      estimate when it was $200 over. */}
                   <tr>
-                    <td className="px-3 py-2">Labor / other cost</td>
+                    <td className="px-3 py-2">Labor cost</td>
                     <td className="px-3 py-2 text-right">
                       {formatMoney(costAnalysis.estLabor)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.actualLabor)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">
+                      {formatMoney(
+                        costAnalysis.actualLabor - costAnalysis.estLabor,
+                      )}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-3 py-2">
+                      Other cost
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        expenses logged to this job
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">
+                      —
                     </td>
                     <td className="px-3 py-2 text-right">
                       {formatMoney(costAnalysis.actualExpense)}
                     </td>
                     <td className="px-3 py-2 text-right text-muted-foreground">
+                      {formatMoney(costAnalysis.actualExpense)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-3 py-2">
+                      Overhead
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        gas, car allowance, commission
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.estOverhead)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatMoney(costAnalysis.actualOverhead)}
+                    </td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">
                       {formatMoney(
-                        costAnalysis.actualExpense - costAnalysis.estLabor,
+                        costAnalysis.actualOverhead - costAnalysis.estOverhead,
                       )}
                     </td>
                   </tr>

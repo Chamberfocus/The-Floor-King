@@ -615,6 +615,10 @@ export interface JobCostAnalysis {
   actualCost: number;
   actualProfit: number;
   actualMargin: number;
+  /** Fuel + car allowance + commission. Charged on the ESTIMATED side too, so
+   *  the two columns compare like with like. */
+  estOverhead: number;
+  actualOverhead: number;
   costVariance: number; // actual − estimated (positive = over budget)
   marginDelta: number; // actual − estimated margin points
   hasEstimateCosts: boolean;
@@ -734,16 +738,32 @@ export async function getJobCostAnalysis(
     );
   const actualRevenue = billed > 0 ? billed : estRevenue;
 
-  const actualCost = actualMaterial + actualLabor + actualExpense;
+  // The SAME per-job overheads getJobProfitability charges — fuel, car
+  // allowance and commission. This function left them out, so the job page and
+  // the Pulse/dashboard reported two different margins for one job: on a
+  // $25,000 job with $15,300 of direct cost, 38.80% here against 34.66% there.
+  // Same job, four margin points apart, depending which screen you opened.
+  const bizJ = await getBusinessSettings();
+  const overheadOn = (revenue: number) =>
+    revenue > 0
+      ? (Number(bizJ.job_fuel_fee) || 0) +
+        (Number(bizJ.job_car_allowance) || 0) +
+        ((Number(bizJ.job_commission_pct) || 0) / 100) * revenue
+      : 0;
+  const estOverhead = overheadOn(estRevenue);
+  const actualOverhead = overheadOn(actualRevenue);
+
+  const estCostAllIn = estCost + estOverhead;
+  const actualCost = actualMaterial + actualLabor + actualExpense + actualOverhead;
   const actualProfit = actualRevenue - actualCost;
 
   return {
     estRevenue,
     estMaterial,
     estLabor: ct.labor,
-    estCost,
-    estProfit,
-    estMargin: marginPct(estRevenue, estCost),
+    estCost: estCostAllIn,
+    estProfit: estRevenue - estCostAllIn,
+    estMargin: marginPct(estRevenue, estCostAllIn),
     actualRevenue,
     draftPoMaterial,
     actualMaterial,
@@ -752,10 +772,12 @@ export async function getJobCostAnalysis(
     actualCost,
     actualProfit,
     actualMargin: marginPct(actualRevenue, actualCost),
-    costVariance: actualCost - estCost,
+    estOverhead,
+    actualOverhead,
+    costVariance: actualCost - estCostAllIn,
     marginDelta:
-      marginPct(actualRevenue, actualCost) - marginPct(estRevenue, estCost),
-    hasEstimateCosts: estCost > 0,
+      marginPct(actualRevenue, actualCost) - marginPct(estRevenue, estCostAllIn),
+    hasEstimateCosts: estCostAllIn > 0,
   };
 }
 
