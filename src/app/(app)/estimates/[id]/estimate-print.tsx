@@ -177,12 +177,21 @@ export function EstimatePrintDoc({
   customer,
   estimate,
   preparedBy,
+  siteAddress = null,
   preview = false,
 }: {
   org: OrgSettings;
   customer: Customer | null;
   estimate: Estimate;
   preparedBy?: string | null;
+  /** The property the work is at, when it isn't the account's own address. */
+  siteAddress?: {
+    label: string | null;
+    street: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+  } | null;
   /** On-screen document preview: show the doc as a white sheet (not print-only). */
   preview?: boolean;
 }) {
@@ -271,6 +280,29 @@ export function EstimatePrintDoc({
   const custContact = customer
     ? [customer.phone, customer.email].filter(Boolean).join("   ·   ")
     : "";
+  /**
+   * The job site, printed.
+   *
+   * A landlord's five estimates were identical on paper — same name, same
+   * billing address — so the only way to tell which unit a quote covered was to
+   * open it. Shown only when it differs from the billing address, so a normal
+   * homeowner's estimate doesn't gain a redundant second address.
+   */
+  const siteLine = siteAddress
+    ? [
+        siteAddress.street,
+        [siteAddress.city, siteAddress.state].filter(Boolean).join(", "),
+        siteAddress.zip,
+      ]
+        .filter(Boolean)
+        .join(", ")
+    : "";
+  const siteText = siteAddress
+    ? siteAddress.label && siteLine
+      ? `${siteAddress.label} — ${siteLine}`
+      : siteAddress.label || siteLine
+    : "";
+  const showSite = !!siteText && siteText !== custAddr;
   const website = org.website
     ? org.website.startsWith("http")
       ? org.website
@@ -321,6 +353,14 @@ export function EstimatePrintDoc({
             <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#b51a00]">Prepared for</div>
             <div className="text-2xl font-extrabold leading-tight">{customer.full_name}</div>
             {custAddr ? <div className="mt-1 text-[15px] text-gray-700">{custAddr}</div> : null}
+            {showSite ? (
+              <div className="mt-2 text-[15px]">
+                <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#b51a00]">
+                  Job site
+                </span>
+                <div className="font-semibold text-gray-900">{siteText}</div>
+              </div>
+            ) : null}
             {custContact ? <div className="mt-2 text-[15px] text-gray-700">{custContact}</div> : null}
           </div>
           <div className="shrink-0 text-right text-[13px] text-gray-700">

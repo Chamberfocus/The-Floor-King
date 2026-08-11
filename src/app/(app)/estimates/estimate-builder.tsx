@@ -337,10 +337,14 @@ export function EstimateBuilder({
   productUnits = {},
   productDefaults = {},
   builderDraft = null,
+  siteAddress = "",
 }: {
   estimate: Estimate;
   customerName: string;
   customer?: Customer | null;
+  /** The property the work is at, already formatted. Printed on the customer's
+   *  copy so a landlord's five identical-looking estimates can be told apart. */
+  siteAddress?: string;
   org?: OrgSettings;
   /** Flat per-job fuel + car allowance + commission % of sale — internal, folded
    *  into the owner's true profit, NEVER shown to the customer. */
@@ -3241,6 +3245,7 @@ export function EstimateBuilder({
       <EstimatePrintDoc
         org={org}
         customer={customer}
+        siteAddress={siteAddress}
         title={title}
         presentation={presentation}
         jobDescription={jobDescription}
@@ -3259,6 +3264,7 @@ export function EstimateBuilder({
 function EstimatePrintDoc({
   org,
   customer,
+  siteAddress = "",
   title,
   presentation,
   jobDescription,
@@ -3270,6 +3276,7 @@ function EstimatePrintDoc({
 }: {
   org: OrgSettings;
   customer: Customer | null;
+  siteAddress?: string;
   title: string;
   presentation: EstimatePresentation;
   jobDescription: string;
@@ -3319,6 +3326,12 @@ function EstimatePrintDoc({
           <div className="text-xs uppercase tracking-wide text-gray-500">Prepared for</div>
           <div className="font-medium">{customer.full_name}</div>
           {addr ? <div className="text-xs text-gray-600">{addr}</div> : null}
+          {siteAddress && siteAddress !== addr ? (
+            <div className="mt-1 text-xs">
+              <span className="uppercase tracking-wide text-gray-500">Job site</span>{" "}
+              <span className="font-medium text-gray-800">{siteAddress}</span>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

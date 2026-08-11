@@ -78,6 +78,8 @@ export interface EstimateRowData {
   total: number;
   optionName: string | null;
   lines: { id: string; label: string; amount: number }[];
+  /** Which property, on accounts that have more than one. */
+  siteLabel?: string | null;
 }
 
 export function EstimateRow({
@@ -92,7 +94,20 @@ export function EstimateRow({
   return (
     <ExpandRow
       icon={<FileText className="size-4" />}
-      title={e.title}
+      title={
+        e.siteLabel ? (
+          <span className="block">
+            <span className="block">{e.title}</span>
+            {/* Which unit. Without it a landlord's estimates are five identical
+                rows and you have to open each one to tell them apart. */}
+            <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
+              {e.siteLabel}
+            </span>
+          </span>
+        ) : (
+          e.title
+        )
+      }
       href={`/estimates/${e.id}`}
       openLabel="Open full estimate"
       right={

@@ -1063,6 +1063,110 @@ export interface CopyAddressInput {
   } | null;
 }
 
+/**
+ * Change which property an EXISTING estimate is for.
+ *
+ * Until now the service address could only be set when the estimate was
+ * created (guided/AI/smart) or when it was copied. Get it wrong on a landlord
+ * or builder account — where every estimate is for the same customer but a
+ * different unit — and there was no way back short of rebuilding the estimate.
+ *
+ * Follows through, because the address is not just a label on the estimate:
+ *  - the job created from it inherits service_address_id (ensureJobForEstimate),
+ *    so an estimate fixed BEFORE the job is enough;
+ *  - a job that already exists is re-pointed here, site_* fields and all, or the
+ *    crew still gets sent to the old door.
+ */
+export async function setEstimateAddress(
+  estimateId: string,
+  address: CopyAddressInput = {},
+): Promise<{ error: string | null }> {
+  if (!estimateId) return { error: "No estimate." };
+  await assertRole(["admin", "office"]);
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: est } = await supabase
+    .from("estimates")
+    .select("id, customer_id")
+    .eq("id", estimateId)
+    .maybeSingle();
+  if (!est) return { error: "Estimate not found." };
+  const customerId = est.customer_id as string;
+
+  // A typed address is saved against the customer, so the next estimate for
+  // that property picks it from the list instead of retyping it.
+  let serviceAddressId: string | null = address.serviceAddressId || null;
+  const na = address.newAddress;
+  if (!serviceAddressId && na && (na.street?.trim() || na.label?.trim())) {
+    const { data: created, error } = await supabase
+      .from("service_addresses")
+      .insert({
+        customer_id: customerId,
+        label: na.label?.trim() || null,
+        street: na.street?.trim() || null,
+        city: na.city?.trim() || null,
+        state: na.state?.trim() || null,
+        zip: na.zip?.trim() || null,
+        created_by: user?.id ?? null,
+      })
+      .select("id")
+      .single();
+    if (error || !created) return { error: error?.message || "Couldn't save the address." };
+    serviceAddressId = created.id as string;
+  }
+
+  const { error: updErr } = await supabase
+    .from("estimates")
+    .update({ service_address_id: serviceAddressId })
+    .eq("id", estimateId);
+  if (updErr) return { error: updErr.message };
+
+  // Re-point any job already made from this estimate. Copying the site_* fields
+  // matters: the staging sheet, the work order and the warehouse all read those,
+  // not the service_addresses row.
+  const { data: jobs } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("estimate_id", estimateId);
+  if (jobs?.length) {
+    let site: { street: string | null; city: string | null; state: string | null; zip: string | null } = {
+      street: null, city: null, state: null, zip: null,
+    };
+    const src = serviceAddressId
+      ? await supabase.from("service_addresses").select("street, city, state, zip").eq("id", serviceAddressId).maybeSingle()
+      : await supabase.from("customers").select("street, city, state, zip").eq("id", customerId).maybeSingle();
+    if (src.data)
+      site = {
+        street: (src.data.street as string) ?? null,
+        city: (src.data.city as string) ?? null,
+        state: (src.data.state as string) ?? null,
+        zip: (src.data.zip as string) ?? null,
+      };
+    for (const j of jobs) {
+      await supabase
+        .from("jobs")
+        .update({
+          service_address_id: serviceAddressId,
+          site_street: site.street,
+          site_city: site.city,
+          site_state: site.state,
+          site_zip: site.zip,
+        })
+        .eq("id", j.id as string);
+      revalidatePath(`/jobs/${j.id}`);
+    }
+    revalidatePath("/jobs");
+    revalidatePath("/warehouse");
+  }
+
+  revalidatePath(`/estimates/${estimateId}`);
+  revalidatePath(`/customers/${customerId}`);
+  return { error: null };
+}
+
 export async function duplicateEstimateToCustomer(
   estimateId: string,
   customerId: string,

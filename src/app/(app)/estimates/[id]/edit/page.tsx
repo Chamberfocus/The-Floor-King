@@ -61,6 +61,30 @@ export default async function EditEstimatePage({
     }
   }
 
+  // The property this estimate is for — printed on the customer's copy from
+  // inside the builder too, not just from the estimate page.
+  const svcId =
+    (estimate as { service_address_id?: string | null }).service_address_id ?? null;
+  const sa = svcId
+    ? (
+        await (await createClient())
+          .from("service_addresses")
+          .select("label, street, city, state, zip")
+          .eq("id", svcId)
+          .maybeSingle()
+      ).data
+    : null;
+  const siteAddress = sa
+    ? [
+        sa.label,
+        [sa.street, [sa.city, sa.state].filter(Boolean).join(", "), sa.zip]
+          .filter(Boolean)
+          .join(", "),
+      ]
+        .filter(Boolean)
+        .join(" — ")
+    : "";
+
   return (
     <EstimateBuilder
       estimate={estimate}
@@ -77,6 +101,7 @@ export default async function EditEstimatePage({
       productUnits={productUnits}
       productDefaults={productDefaults}
       builderDraft={builderDraft}
+      siteAddress={siteAddress}
     />
   );
 }

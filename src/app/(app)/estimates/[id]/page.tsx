@@ -47,7 +47,9 @@ import type { EstimateLineItem, EstimateOption } from "@/lib/types";
 import { setEstimateStatus, duplicateOption, unapproveEstimate } from "../actions";
 import { DeleteEstimateButton } from "../estimate-list-actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
+import { createClient } from "@/lib/supabase/server";
 import { CopyEstimate } from "./copy-estimate";
+import { EstimateAddress } from "./estimate-address";
 import { AddFromNotes } from "./add-from-notes";
 import {
   EstimatePrintDoc,
@@ -93,6 +95,23 @@ export default async function EstimatePage({
   if (!estimate) notFound();
 
   const customer = await getCustomer(estimate.customer_id);
+  // Which property this estimate is for. Only meaningful on accounts that have
+  // more than one — but it has to be READABLE on all of them, or a wrong one
+  // stays invisible until a crew turns up at the wrong door.
+  const svcAddrId = (estimate as { service_address_id?: string | null })
+    .service_address_id ?? null;
+  const siteAddress = svcAddrId
+    ? ((
+        await (await createClient())
+          .from("service_addresses")
+          .select("id, label, street, city, state, zip")
+          .eq("id", svcAddrId)
+          .maybeSingle()
+      ).data as {
+        id: string; label: string | null; street: string | null;
+        city: string | null; state: string | null; zip: string | null;
+      } | null)
+    : null;
   const org = await getOrgSettings();
   const preparedBy = await getEstimatorName(estimate.created_by);
   const delivery = await getEstimateDelivery(id);
@@ -148,6 +167,7 @@ export default async function EstimatePage({
         org={org}
         customer={customer}
         estimate={estimate}
+        siteAddress={siteAddress}
         preparedBy={preparedBy}
         preview={preview}
       />
@@ -179,6 +199,24 @@ export default async function EstimatePage({
             {customer?.full_name} · Created {formatDate(estimate.created_at)} ·{" "}
             {detailed ? "Itemized" : "Lump sum"}
           </p>
+          <div className="mt-2">
+            <EstimateAddress
+              estimateId={estimate.id}
+              customerId={estimate.customer_id}
+              current={siteAddress}
+              billingAddress={
+                customer
+                  ? [
+                      customer.street,
+                      [customer.city, customer.state].filter(Boolean).join(", "),
+                      customer.zip,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")
+                  : ""
+              }
+            />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Link

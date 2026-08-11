@@ -582,6 +582,17 @@ export default async function CustomerPage({
     }
   }
 
+  /**
+   * Which property each estimate is for — only worth showing when the account
+   * HAS more than one, otherwise it's the same line repeated on every row.
+   */
+  const addrLabel = new Map(
+    serviceAddresses.map((a) => [
+      a.id,
+      a.label || formatServiceAddress(a) || "Property",
+    ]),
+  );
+  const showSites = serviceAddresses.length > 1;
   const estimateRows: EstimateRowData[] = estimates.map((e) => {
     const opts = e.options ?? [];
     const opt =
@@ -593,6 +604,11 @@ export default async function CustomerPage({
       status: e.status,
       total: opt ? optionTotals(lines, e.tax_rate).total : 0,
       optionName: opts.length > 1 ? (opt?.name ?? null) : null,
+      siteLabel: showSites
+        ? (addrLabel.get(
+            (e as { service_address_id?: string | null }).service_address_id ?? "",
+          ) ?? "Account address")
+        : null,
       lines: lines.map((l) => ({
         id: l.id,
         label: [l.room, l.description].filter(Boolean).join(" — ") || "Line item",
