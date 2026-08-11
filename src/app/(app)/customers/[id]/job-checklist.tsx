@@ -15,9 +15,23 @@ import {
  * order. Every row is a real record — done means the record exists, not that
  * somebody ticked a box — and every row links to the thing it's about.
  */
-export function JobChecklist({ steps }: { steps: ChecklistStep[] }) {
+export function JobChecklist({
+  steps,
+  stageName,
+  stagePosition,
+  stageTotal,
+  ownerName,
+}: {
+  steps: ChecklistStep[];
+  /** The workflow stage the customer is parked on right now. */
+  stageName?: string | null;
+  stagePosition?: number | null;
+  stageTotal?: number | null;
+  ownerName?: string | null;
+}) {
   const { done, total, pct } = checklistProgress(steps);
   const current = steps.find((s) => s.state === "current") ?? null;
+  const skipped = steps.filter((s) => s.state === "skipped");
 
   return (
     <div className="rounded-lg border">
@@ -28,6 +42,24 @@ export function JobChecklist({ steps }: { steps: ChecklistStep[] }) {
             {done} of {total} done
           </span>
         </div>
+        {/* The STAGE, said plainly. The checklist shows what's been done; the
+            stage is what the pipeline, the reports and everyone else is going
+            on — and the two are not always the same thing. */}
+        {stageName ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+              {stageName}
+            </span>
+            {stagePosition != null && stageTotal ? (
+              <span className="text-xs text-muted-foreground">
+                stage {stagePosition} of {stageTotal}
+              </span>
+            ) : null}
+            {ownerName ? (
+              <span className="text-xs text-muted-foreground">· {ownerName}</span>
+            ) : null}
+          </div>
+        ) : null}
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
           <div
             className="h-full rounded-full bg-primary transition-all"
@@ -61,6 +93,12 @@ export function JobChecklist({ steps }: { steps: ChecklistStep[] }) {
             Every step is done — this job is finished and closed out.
           </p>
         )}
+        {skipped.length ? (
+          <p className="mt-2 text-xs text-amber-600">
+            {skipped.length === 1 ? "1 step was" : `${skipped.length} steps were`}{" "}
+            passed over: {skipped.map((s) => s.title.toLowerCase()).join(", ")}
+          </p>
+        ) : null}
       </div>
 
       <ol className="divide-y">

@@ -35,6 +35,8 @@ export interface HistoryEvent {
   propertyId: string | null;
   propertyLabel: string | null;
   detail?: string | null;
+  /** Every document this event can open — view, print, staging sheet, PDF. */
+  links?: { label: string; href: string }[];
 }
 
 export interface HistoryProperty {
@@ -177,6 +179,12 @@ export async function getCustomerHistory(
       href: `/estimates/${e.id}`,
       propertyId: sa,
       propertyLabel: sa ? (addrById.get(sa) ?? null) : null,
+      links: [
+        { label: "Open", href: `/estimates/${e.id}` },
+        { label: "Customer copy", href: `/estimates/${e.id}?preview=1` },
+        { label: "Print", href: `/estimates/${e.id}?print=1` },
+        { label: "Edit", href: `/estimates/${e.id}/edit` },
+      ],
     });
   }
 
@@ -197,6 +205,12 @@ export async function getCustomerHistory(
         : j.scheduled_date
           ? `install ${String(j.scheduled_date).slice(0, 10)}`
           : null,
+      links: [
+        { label: "Work order", href: `/jobs/${j.id}` },
+        { label: "Staging sheet", href: `/jobs/${j.id}/staging-sheet` },
+        { label: "Installer bill", href: `/jobs/${j.id}/bill` },
+        { label: "Close-out", href: `/jobs/${j.id}/closeout` },
+      ],
     });
   }
 
@@ -225,6 +239,10 @@ export async function getCustomerHistory(
       href: `/invoices/${i.id}`,
       propertyId: sa,
       propertyLabel: sa ? (addrById.get(sa) ?? null) : null,
+      links: [
+        { label: "Open", href: `/invoices/${i.id}` },
+        { label: "Print", href: `/invoices/${i.id}?print=1` },
+      ],
     });
   }
 

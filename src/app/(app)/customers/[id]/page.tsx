@@ -106,7 +106,6 @@ import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
 import { CustomerChat } from "./customer-chat";
 import { OnTheWayButton } from "./on-the-way-button";
-import { GuidedFlow } from "./guided-flow";
 import { JobChecklist } from "./job-checklist";
 import { buildChecklist } from "@/lib/job-checklist";
 import { getCustomerEstimateAppointment } from "@/lib/data/scheduling";
@@ -134,7 +133,9 @@ import { JobCostingTab, type JobProfitLite } from "./job-costing-tab";
 import { HistoryTab } from "./history-tab";
 import { getCustomerHistory } from "@/lib/data/customer-history";
 import { getUserPreferences } from "@/lib/data/preferences";
-import { pickCloseoutJob } from "@/lib/job-flow";
+import { pickCloseoutJob,
+  spinePosition,
+} from "@/lib/job-flow";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
 
@@ -280,6 +281,9 @@ export default async function CustomerPage({
     },
     { invoiced: 0, paid: 0, balance: 0 },
   );
+  // "Stage 6 of 12" — where they are on the linear spine, so the badge means
+  // something without knowing the stage list by heart.
+  const spinePos = spinePosition(currentStage, stages);
   const ownerName = customer.workflow_owner_id
     ? (names[customer.workflow_owner_id] ?? null)
     : null;
@@ -588,7 +592,7 @@ export default async function CustomerPage({
 
   return (
     <div className="mx-auto max-w-5xl">
-      {/* The guided spine (GuidedFlow) is the single source of "where this job
+      {/* The checklist is the single source of "where this job
           is" on the dashboard — the job-status next-step popup lived here too and
           could show a second, conflicting progression, so it's removed. It still
           appears on the job & installer pages, which have no spine. */}
@@ -615,14 +619,18 @@ export default async function CustomerPage({
               <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
                 {customer.full_name}
               </h1>
-              {/* A small, always-visible stage chip so stage is at-a-glance on
-                  every tab. Kept understated (neutral, no icon) so on Overview it
-                  doesn't compete with the guided hero, which remains the place you
-                  actually advance the job. */}
+              {/* The stage, stated loudly, on every tab. It used to be kept
+                  deliberately quiet so it wouldn't compete with the guided
+                  hero — but that hero is gone, and "what stage is this client
+                  in" is the first thing you want to know on opening the file. */}
               {currentStage ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/60 px-2.5 py-1 text-xs font-semibold text-foreground/80">
-                  <span className="size-1.5 rounded-full bg-warm" aria-hidden />
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-bold text-primary-foreground shadow-sm">
                   {currentStage.name}
+                  {spinePos.index >= 0 && spinePos.total ? (
+                    <span className="font-medium opacity-75">
+                      {spinePos.index + 1}/{spinePos.total}
+                    </span>
+                  ) : null}
                 </span>
               ) : (
                 <StageBadge stage={customer.stage} />
@@ -794,10 +802,14 @@ export default async function CustomerPage({
       ) : null}
 
       {/* Hybrid tabs: Overview shows the whole file; each tab zooms into one part.
-          Job Costing is always present, even for users whose saved tab order
-          predates it. */}
+          Saved tab orders are treated as exhaustive (see resolvePreferences), so
+          tabs added AFTER someone customised theirs would silently never appear.
+          Costing and History are both newer than that setting — patch them in. */}
       <CustomerTabs
-        tabs={prefs.tabs.includes("costing") ? prefs.tabs : [...prefs.tabs, "costing"]}
+        tabs={["costing", "history"].reduce(
+          (acc, k) => (acc.includes(k as never) ? acc : [...acc, k as never]),
+          prefs.tabs,
+        )}
         defaultTab={prefs.defaultTab}
         counts={{
           estimates: estimates.length,
@@ -808,35 +820,32 @@ export default async function CustomerPage({
           messages: messages.length,
         }}
       >
-        {/* Guided flow — progress + owner/money + the one next step inline. */}
+        {/* Overview — the checklist, the documents, and the money rail. */}
         {!customer.cancelled_at ? (
           <TabSection tab="overview">
             <div className="mb-6 grid gap-6 lg:grid-cols-3">
               {/* Left: the guided "do this next" hero + progress */}
               <div className="lg:col-span-2">
-                {/* The checklist first — the whole path, clickable at any point.
-                    The guided panel below it still drives the CURRENT step's
-                    inline tools (scheduler, approve, collect), which the list
-                    deliberately doesn't duplicate. */}
+                {/* The checklist: the whole path, clickable at any point, with
+                    the stage said out loud at the top. */}
                 <div className="mb-6">
-                  <JobChecklist steps={checklist} />
+                  <JobChecklist
+                    steps={checklist}
+                    stageName={currentStage?.name ?? null}
+                    stagePosition={
+                      spinePos.index >= 0 ? spinePos.index + 1 : null
+                    }
+                    stageTotal={spinePos.total || null}
+                    ownerName={ownerName}
+                  />
                 </div>
-                <GuidedFlow
-                  customer={customer}
-                  stages={stages}
-                  currentStage={currentStage}
-                  estimates={estimates}
-                  jobs={jobs}
-                  invoices={invoices}
-                  repOptions={repOptions}
-                  installScheduleProps={installScheduleProps}
-                  jobSatisfaction={guidedSatisfaction}
-                  hasActivity={activities.length > 0}
-                  estimateBooked={!!estimateAppointment}
-                  isOwner={profile.role === "admin"}
-                  sourceOk={sourceOk}
-                  sources={leadSources}
-                />
+                {/* The old GuidedFlow panel lived here: one step at a time,
+                    755 lines of bespoke UI, and no way to see where the job had
+                    got to. The checklist above replaces it — every step, every
+                    link, and the stage stated plainly. The tools it used to
+                    host inline are all one click away: Stage / Assignee /
+                    Estimate / Install sit in Quick actions, approving lives on
+                    the estimate, collecting on the invoice. */}
 
                 {/* One click to open/print the four key documents for this
                     customer's job (pick the job if there's more than one). */}

@@ -29,14 +29,16 @@ const TONE: Record<HistoryEvent["kind"], string> = {
 function Row({ e, showProperty }: { e: HistoryEvent; showProperty: boolean }) {
   const Icon = ICON[e.kind];
   return (
-    <Link
-      href={e.href}
-      className="flex items-start gap-3 border-b px-3 py-2.5 last:border-b-0 hover:bg-muted/50"
-    >
+    <div className="flex items-start gap-3 border-b px-3 py-2.5 last:border-b-0">
       <Icon className={cn("mt-0.5 size-4 shrink-0", TONE[e.kind])} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-          <span className="min-w-0 break-words text-sm font-medium">{e.title}</span>
+          <Link
+            href={e.href}
+            className="min-w-0 break-words text-sm font-medium hover:underline"
+          >
+            {e.title}
+          </Link>
           {e.amount != null ? (
             <span className="shrink-0 text-sm tabular-nums">
               {formatMoney(e.amount)}
@@ -53,8 +55,23 @@ function Row({ e, showProperty }: { e: HistoryEvent; showProperty: boolean }) {
             </span>
           ) : null}
         </div>
+        {/* Every document this event can open, named. Hunting for the staging
+            sheet through tabs is what made this hard. */}
+        {e.links?.length ? (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {e.links.map((l) => (
+              <Link
+                key={l.href + l.label}
+                href={l.href}
+                className="rounded-full border px-2 py-0.5 text-[11px] font-medium hover:bg-muted"
+              >
+                {l.label}
+              </Link>
+            ))}
+          </div>
+        ) : null}
       </div>
-    </Link>
+    </div>
   );
 }
 
