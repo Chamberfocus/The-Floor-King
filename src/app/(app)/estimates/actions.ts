@@ -520,11 +520,23 @@ export interface EstimateDeleteImpact {
   jobs: number; // work orders
   purchaseOrders: number;
   invoices: number;
+  payments: number;
+  /** Job photos / site files that go with the work orders. */
+  documents: number;
+  /** Money records against the job — expenses and supplier bills. */
+  moneyRecords: number;
+  /** Stock movements and roll allocations that get undone. */
+  stockRecords: number;
+  /** The customer is sitting on a won stage because of THIS estimate. */
+  movesStageBack: boolean;
 }
 
 /** Count everything a delete would take down, so the warning is honest. */
 export async function getEstimateDeleteImpact(id: string): Promise<EstimateDeleteImpact> {
-  const empty = { jobs: 0, purchaseOrders: 0, invoices: 0 };
+  const empty: EstimateDeleteImpact = {
+    jobs: 0, purchaseOrders: 0, invoices: 0, payments: 0,
+    documents: 0, moneyRecords: 0, stockRecords: 0, movesStageBack: false,
+  };
   if (!id) return empty;
   // Same gate as the delete it previews — otherwise it confirms which estimate
   // ids are real, and how much damage each one would do, to anyone signed in.
@@ -546,10 +558,63 @@ export async function getEstimateDeleteImpact(id: string): Promise<EstimateDelet
       .or(orParts.join(","));
     return count ?? 0;
   };
+  // Counts for the job-scoped tables that DON'T cascade — the ones a delete
+  // used to leave behind, and the reason this warning was understating itself.
+  const countJobScoped = async (tables: string[]) => {
+    if (!jobIds.length) return 0;
+    let n = 0;
+    for (const table of tables) {
+      const { count, error } = await admin
+        .from(table)
+        .select("id", { count: "exact", head: true })
+        .in("job_id", jobIds);
+      if (!error) n += count ?? 0;
+    }
+    return n;
+  };
+
+  // Payments ride on the invoices, so they die with them — and they're the one
+  // thing on this list you can never rebuild from memory.
+  let payments = 0;
+  const { data: invRows } = await admin
+    .from("invoices")
+    .select("id")
+    .or([`estimate_id.eq.${id}`, ...(jobIds.length ? [`job_id.in.(${jobIds.join(",")})`] : [])].join(","));
+  const invIds = (invRows ?? []).map((i) => i.id as string);
+  if (invIds.length) {
+    const { count } = await admin
+      .from("payments")
+      .select("id", { count: "exact", head: true })
+      .in("invoice_id", invIds);
+    payments = count ?? 0;
+  }
+
+  // Would this delete drag the customer off a won stage?
+  let movesStageBack = false;
+  const { data: est } = await admin
+    .from("estimates")
+    .select("customer_id, status")
+    .eq("id", id)
+    .maybeSingle();
+  if (est?.status === "approved" && est.customer_id) {
+    const { count: others } = await admin
+      .from("estimates")
+      .select("id", { count: "exact", head: true })
+      .eq("customer_id", est.customer_id as string)
+      .eq("status", "approved")
+      .neq("id", id);
+    movesStageBack = !others;
+  }
+
   return {
     jobs: jobIds.length,
     purchaseOrders: await countWhere("purchase_orders"),
     invoices: await countWhere("invoices"),
+    payments,
+    documents: await countJobScoped(["documents"]),
+    moneyRecords: await countJobScoped(["expenses", "bills"]),
+    stockRecords: await countJobScoped(["stock_movements", "stock_rolls"]),
+    movesStageBack,
   };
 }
 
@@ -765,25 +830,99 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
     admin = await createClient(); // fall back (may leave orphans under RLS)
   }
 
-  // Always know the customer (some delete buttons don't pass it) — needed to wipe
-  // that customer's questionnaire state below and to redirect back.
-  if (!customerId) {
-    const { data: estRow } = await admin
-      .from("estimates")
-      .select("customer_id")
-      .eq("id", id)
-      .maybeSingle();
-    customerId = (estRow?.customer_id as string) || "";
-  }
+  // Read the estimate ONCE, before anything is removed: the customer (some
+  // delete buttons don't pass it), the title for the log, and whether this was
+  // the approved one — none of which can be looked up afterwards.
+  const { data: estRow } = await admin
+    .from("estimates")
+    .select("customer_id, title, status")
+    .eq("id", id)
+    .maybeSingle();
+  if (!customerId) customerId = (estRow?.customer_id as string) || "";
+  const estTitle = (estRow?.title as string) || "";
+  const wasApproved = estRow?.status === "approved";
 
   const { data: jobRows } = await admin.from("jobs").select("id").eq("estimate_id", id);
   const jobIds = (jobRows ?? []).map((j) => j.id as string);
+
+  /**
+   * Give back whatever the estimate reserved BEFORE its jobs disappear.
+   *
+   * Approving an estimate reserves stock against its jobs. Deleting the
+   * estimate dropped the jobs without ever releasing that hold, so the material
+   * stayed reserved to a work order that no longer existed — invisible, and
+   * only findable by counting the shelf. unapproveEstimate has always done
+   * this; delete never did.
+   */
+  if (jobIds.length) {
+    try {
+      await releaseJobReservations(admin as never, jobIds);
+    } catch {
+      // Reservations are best-effort — never block the delete on them.
+    }
+  }
+
   const del = async (table: string) => {
     // Delete rows tied directly to the estimate…
     await admin.from(table).delete().eq("estimate_id", id);
     // …and rows tied to any of this estimate's work orders.
     if (jobIds.length) await admin.from(table).delete().in("job_id", jobIds);
   };
+
+  /**
+   * Everything that hangs off this estimate's work orders but is NOT set to
+   * cascade.
+   *
+   * Postgres only cascades where the migration said so. These seven all use
+   * `on delete set null`, which means the row SURVIVES the job with its link
+   * quietly blanked: job photos still in the customer's files, stock movements
+   * still holding inventory down, expenses and supplier bills still on the
+   * books against work that no longer exists. Deleting the estimate looked
+   * clean and wasn't.
+   *
+   * po_items is deliberately absent: a line on a SHARED purchase order can
+   * belong to another customer entirely, and its `for_job_id` going null is the
+   * correct outcome — the order stands, only the attribution goes.
+   */
+  const JOB_SCOPED = [
+    "documents",       // job photos and site files
+    "expenses",        // money out against the job
+    "bills",           // supplier bills
+    "orders",          // material orders
+    "stock_movements", // inventory pulled for the job
+    "stock_rolls",     // rolls allocated to the job
+  ];
+  const removed: Record<string, number> = {};
+  if (jobIds.length) {
+    for (const table of JOB_SCOPED) {
+      // Storage objects have to go with their rows or the files are orphaned
+      // in the bucket with nothing left pointing at them.
+      if (table === "documents") {
+        const { data: docs } = await admin
+          .from("documents")
+          .select("id, path")
+          .in("job_id", jobIds);
+        const paths = (docs ?? []).map((d) => d.path as string).filter(Boolean);
+        if (paths.length) {
+          try {
+            await admin.storage.from("documents").remove(paths);
+          } catch {
+            // A missing object must not stop the row from going.
+          }
+        }
+      }
+      const { count, error } = await admin
+        .from(table)
+        .delete({ count: "exact" })
+        .in("job_id", jobIds);
+      // A table that isn't there yet is fine; anything else is worth knowing.
+      if (!error && count) removed[table] = count;
+    }
+  }
+
+  // The measure visit booked for this estimate goes with it.
+  await admin.from("appointments").delete().eq("estimate_id", id);
+
   await del("purchase_orders"); // PO items cascade
   await del("invoices"); // invoice items + payments cascade
   // Work orders — their labor, materials, stock movements, satisfaction, photos
@@ -791,6 +930,51 @@ export async function deleteEstimate(formData: FormData): Promise<void> {
   await admin.from("jobs").delete().eq("estimate_id", id);
   // Finally the estimate itself (options + line items cascade).
   await admin.from("estimates").delete().eq("id", id);
+
+  /**
+   * Put the customer back where they belong.
+   *
+   * Deleting the estimate that WON the job left the customer parked on "Won —
+   * Collect Deposit" with a checklist showing progress toward work that no
+   * longer exists. Same rule unapproveEstimate uses: only walk them back if
+   * nothing else of theirs is still sold.
+   */
+  if (customerId && wasApproved) {
+    const { count: stillSold } = await admin
+      .from("estimates")
+      .select("id", { count: "exact", head: true })
+      .eq("customer_id", customerId)
+      .eq("status", "approved");
+    if (!stillSold) {
+      const { data: stages } = await admin
+        .from("workflow_stages")
+        .select("id, name, position")
+        .order("position");
+      const back = (stages ?? []).find((s) =>
+        /awaiting customer|customer response/i.test((s.name as string) ?? ""),
+      );
+      const patch: Record<string, unknown> = { stage: "quoted" };
+      if (back) patch.workflow_stage_id = back.id;
+      await admin.from("customers").update(patch).eq("id", customerId);
+    }
+  }
+
+  // Say what went, so a delete is never silent about the records it took with
+  // it — money rows especially.
+  if (customerId) {
+    const extras = Object.entries(removed)
+      .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
+      .join(", ");
+    await admin.from("activities").insert({
+      customer_id: customerId,
+      type: "system",
+      body: `Estimate deleted${estTitle ? ` — "${estTitle}"` : ""}.${
+        jobIds.length ? ` ${jobIds.length} work order(s) removed.` : ""
+      }${extras ? ` Also removed: ${extras}.` : ""}${
+        wasApproved ? " The customer was moved back off the won stage." : ""
+      }`,
+    });
+  }
 
   // Start-clean: wipe this customer's questionnaire state so a NEW guided estimate
   // begins completely blank — both any leftover in-progress answers (draft) and

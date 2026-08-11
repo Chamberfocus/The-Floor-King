@@ -55,6 +55,15 @@ export function DeleteEstimateButton({
     if (impact.jobs) bits.push(`${impact.jobs} work order${impact.jobs === 1 ? "" : "s"}`);
     if (impact.purchaseOrders) bits.push(`${impact.purchaseOrders} purchase order${impact.purchaseOrders === 1 ? "" : "s"}`);
     if (impact.invoices) bits.push(`${impact.invoices} invoice${impact.invoices === 1 ? "" : "s"}`);
+    // The ones you can't rebuild from memory, named separately.
+    if (impact.payments)
+      bits.push(`${impact.payments} recorded payment${impact.payments === 1 ? "" : "s"}`);
+    if (impact.moneyRecords)
+      bits.push(`${impact.moneyRecords} expense/supplier bill${impact.moneyRecords === 1 ? "" : "s"}`);
+    if (impact.documents)
+      bits.push(`${impact.documents} job photo/file${impact.documents === 1 ? "" : "s"}`);
+    if (impact.stockRecords)
+      bits.push(`${impact.stockRecords} stock movement${impact.stockRecords === 1 ? "" : "s"} (material goes back)`);
   }
 
   return (
@@ -90,13 +99,20 @@ export function DeleteEstimateButton({
                   ))}
                 </ul>
                 <span className="mt-2 block text-muted-foreground">
-                  …plus all their line items, materials, labor, payments, and photos.
+                  …plus all their line items, materials and labor. Any reserved
+                  stock is released.
                 </span>
               </>
             ) : (
-              <span className="text-muted-foreground"> — no jobs, POs, or invoices are attached.</span>
+              <span className="text-muted-foreground"> — nothing else is attached.</span>
             )}
           </p>
+          {impact?.movesStageBack ? (
+            <p className="rounded-md bg-amber-100 px-3 py-2 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              This is the estimate that won the job — the customer moves back to
+              awaiting a response.
+            </p>
+          ) : null}
           <p className="rounded-md bg-destructive/10 px-3 py-2 font-medium text-destructive">
             This cannot be undone.
           </p>
