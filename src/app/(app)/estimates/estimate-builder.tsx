@@ -270,9 +270,15 @@ function lineCostSplit(l: LineState): { mat: number; labor: number } {
   });
   const waste = 1 + (num(l.waste_pct) || 0) / 100;
   // A labor line has no material cost, even if a stray rate is on it.
+  //
+  // Waste raises BOTH halves — you buy the extra material AND you pay the
+  // installer on the footage sold. lineCost has done it that way since the
+  // waste fix; this split didn't, so on any line with waste the
+  // "Material X · Labor Y" breakdown didn't add up to the "Our cost" printed
+  // directly above it.
   return {
     mat: l.category === "labor" ? 0 : qty * num(l.material_cost) * waste,
-    labor: qty * num(l.labor_cost),
+    labor: qty * num(l.labor_cost) * waste,
   };
 }
 
@@ -1561,6 +1567,19 @@ export function EstimateBuilder({
     // quantity and area units by area. Dropping it made bag lines fall back to
     // area (self-leveler ×800 sq ft instead of ×16 bags).
     unit: l.unit,
+    // MUST carry the COST. These feed jobProfit, optionCostTotals and the
+    // price-to-a-total solver, all of which compute OUR COST from this object —
+    // and without these two fields every line costed ZERO. The headline margin
+    // then read revenue minus only gas, car allowance and commission: 86% on a
+    // $1,628 job that actually runs at 24%. The solver judged a target total
+    // against that same phantom cost, so "price it to $X" would happily quote
+    // below cost and report a margin that was never real.
+    //
+    // The per-line "Our cost" box was right the whole time (it goes through
+    // lineOurCost, which does pass them) — which is exactly why this hid: the
+    // costs were on screen, just not in the total.
+    material_cost: l.material_cost,
+    labor_cost: l.labor_cost,
   });
   const grand = optionTotalsWithDiscount(
     options.flatMap((o) => o.lines.map(toCalc)),
