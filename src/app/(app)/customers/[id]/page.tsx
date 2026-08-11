@@ -129,6 +129,8 @@ import { DocumentShortcuts, type DocJob } from "./document-shortcuts";
 import { getCustomerJobCosting } from "@/lib/data/job-costing";
 import { getJobProfitability } from "@/lib/data/finance";
 import { JobCostingTab, type JobProfitLite } from "./job-costing-tab";
+import { HistoryTab } from "./history-tab";
+import { getCustomerHistory } from "@/lib/data/customer-history";
 import { getUserPreferences } from "@/lib/data/preferences";
 import { pickCloseoutJob } from "@/lib/job-flow";
 import { createClient } from "@/lib/supabase/server";
@@ -200,6 +202,7 @@ export default async function CustomerPage({
   const handoffMembers = await listHandoffMembers();
   // Read-only per-job estimated-vs-actual costing for the Job Costing tab.
   const costing = await getCustomerJobCosting(id);
+  const history = await getCustomerHistory(id);
   // Owner-only real profit breakdown (revenue − material/labor/other + the
   // internal fuel/car/commission), keyed by job for the "cost vs profit" popup.
   // Uses the ONE source of truth (getJobProfitability) so it matches the
@@ -1027,6 +1030,12 @@ export default async function CustomerPage({
           {/* Job Costing — read-only estimated vs actual, per job (off Overview) */}
           <TabSection tab="costing" overview={false}>
             <JobCostingTab data={costing} profit={jobProfit} />
+          </TabSection>
+
+          {/* History — every estimate, job, invoice and payment in time order,
+              grouped by property. The view a commercial account needs. */}
+          <TabSection tab="history" overview={false}>
+            <HistoryTab history={history} />
           </TabSection>
 
           {/* Chat + AI follow-up draft — Messages tab */}

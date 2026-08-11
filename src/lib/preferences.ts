@@ -39,6 +39,7 @@ export type CustomerTab =
   | "estimates"
   | "jobs"
   | "costing"
+  | "history"
   | "invoices"
   | "materials"
   | "files"
@@ -52,6 +53,7 @@ export const TAB_ORDER: CustomerTab[] = [
   "estimates",
   "jobs",
   "costing",
+  "history",
   "invoices",
   "materials",
   "files",
@@ -65,6 +67,7 @@ export const TAB_LABELS: Record<CustomerTab, string> = {
   estimates: "Estimates",
   jobs: "Work orders",
   costing: "Job Costing",
+  history: "History",
   invoices: "Invoices",
   materials: "Materials & POs",
   files: "Files",
