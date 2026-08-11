@@ -1032,9 +1032,41 @@ export async function searchCustomersForCopy(
 }
 
 /** Copy a whole estimate (every option + line) to a NEW estimate for a chosen client. */
+/** A customer's saved service addresses, for the copy dialog's picker. */
+export async function serviceAddressesForCustomer(customerId: string): Promise<
+  { id: string; label: string | null; street: string | null; city: string | null; state: string | null; zip: string | null }[]
+> {
+  if (!customerId) return [];
+  await requireProfile();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("service_addresses")
+    .select("id, label, street, city, state, zip")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: true });
+  return (data ?? []) as {
+    id: string; label: string | null; street: string | null;
+    city: string | null; state: string | null; zip: string | null;
+  }[];
+}
+
+export interface CopyAddressInput {
+  /** An existing saved address on the target customer. */
+  serviceAddressId?: string | null;
+  /** Or a new one to create and attach. */
+  newAddress?: {
+    label?: string;
+    street?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  } | null;
+}
+
 export async function duplicateEstimateToCustomer(
   estimateId: string,
   customerId: string,
+  address: CopyAddressInput = {},
 ): Promise<{ error: string | null; estimateId?: string }> {
   if (!estimateId || !customerId) return { error: "Pick a client first." };
   const supabase = await createClient();
@@ -1049,6 +1081,36 @@ export async function duplicateEstimateToCustomer(
     .maybeSingle();
   if (!src) return { error: "Original estimate not found." };
 
+  /**
+   * Where the work happens.
+   *
+   * A copy is usually the same scope at a DIFFERENT property — a landlord's
+   * next unit, a builder's next lot. The copy dropped service_address_id
+   * entirely, so the new estimate silently inherited the customer's billing
+   * address and the crew was sent to the wrong door.
+   *
+   * A typed address is saved against the customer, so the second time you quote
+   * that property it's already in the list.
+   */
+  let serviceAddressId: string | null = address.serviceAddressId || null;
+  const na = address.newAddress;
+  if (!serviceAddressId && na && (na.street?.trim() || na.label?.trim())) {
+    const { data: created } = await supabase
+      .from("service_addresses")
+      .insert({
+        customer_id: customerId,
+        label: na.label?.trim() || null,
+        street: na.street?.trim() || null,
+        city: na.city?.trim() || null,
+        state: na.state?.trim() || null,
+        zip: na.zip?.trim() || null,
+        created_by: user?.id ?? null,
+      })
+      .select("id")
+      .single();
+    serviceAddressId = (created?.id as string) ?? null;
+  }
+
   const { data: est, error: estErr } = await supabase
     .from("estimates")
     .insert({
@@ -1058,6 +1120,7 @@ export async function duplicateEstimateToCustomer(
       tax_rate: src.tax_rate,
       presentation: src.presentation,
       job_description: src.job_description,
+      service_address_id: serviceAddressId,
       created_by: user?.id ?? null,
     })
     .select("id")
