@@ -107,6 +107,8 @@ import { CustomerInfoCard } from "./customer-info-card";
 import { CustomerChat } from "./customer-chat";
 import { OnTheWayButton } from "./on-the-way-button";
 import { GuidedFlow } from "./guided-flow";
+import { JobChecklist } from "./job-checklist";
+import { buildChecklist } from "@/lib/job-checklist";
 import { getCustomerEstimateAppointment } from "@/lib/data/scheduling";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { CancelCustomer } from "./cancel-customer";
@@ -203,6 +205,7 @@ export default async function CustomerPage({
   // Read-only per-job estimated-vs-actual costing for the Job Costing tab.
   const costing = await getCustomerJobCosting(id);
   const history = await getCustomerHistory(id);
+
   // Owner-only real profit breakdown (revenue − material/labor/other + the
   // internal fuel/car/commission), keyed by job for the "cost vs profit" popup.
   // Uses the ONE source of truth (getJobProfitability) so it matches the
@@ -347,6 +350,59 @@ export default async function CustomerPage({
   const guidedSatisfaction = guidedActiveJob
     ? await getJobSatisfaction(guidedActiveJob.id)
     : null;
+  // The job as a checklist — every step, what's done, and a way into each one.
+  // Reads the same records the guided flow does; nothing new to keep in step.
+  const checklistEstimate =
+    estimates.find((e) => e.status === "sent") ??
+    estimates.find((e) => e.status === "approved") ??
+    estimates.find((e) => e.status === "draft") ??
+    estimates[0] ??
+    null;
+  const checklistJob =
+    jobs.find((j) => j.status !== "completed" && j.status !== "cancelled") ??
+    jobs[0] ??
+    null;
+  const liveInvoices = invoices
+    .filter((i) => i.status !== "void")
+    .map((i) => ({
+      inv: i,
+      bal: invoiceTotals(i.items ?? [], i.tax_rate, amountPaid(i)).balance,
+    }));
+  const outstanding = liveInvoices.reduce((s, x) => s + Math.max(0, x.bal), 0);
+  // Materials count as ordered only when a PO is actually ISSUED — a draft is
+  // not an order, which is the distinction the whole PO flow turns on.
+  const { count: issuedPoCount } = await (await createClient())
+    .from("purchase_orders")
+    .select("id", { count: "exact", head: true })
+    .eq("customer_id", id)
+    .in("status", ["ordered", "received", "closed"]);
+  const checklist = buildChecklist({
+    customerId: id,
+    estimate: checklistEstimate
+      ? { id: checklistEstimate.id, status: checklistEstimate.status }
+      : null,
+    approvedEstimateId:
+      estimates.find((e) => e.status === "approved")?.id ?? null,
+    job: checklistJob
+      ? {
+          id: checklistJob.id,
+          status: checklistJob.status,
+          scheduledDate: checklistJob.scheduled_date ?? null,
+          warehouseReadyAt: checklistJob.warehouse_ready_at ?? null,
+          warehouseSubmittedAt: checklistJob.warehouse_submitted_at ?? null,
+          closedOutAt: checklistJob.closed_out_at ?? null,
+        }
+      : null,
+    invoice: liveInvoices.length
+      ? { id: liveInvoices[0].inv.id, balance: liveInvoices[0].bal }
+      : null,
+    depositPaid: invoices.some((i) => amountPaid(i) > 0),
+    balanceOutstanding: outstanding,
+    hasActivity: activities.length > 0,
+    estimateBooked: !!estimateAppointment,
+    materialsOrdered: (issuedPoCount ?? 0) > 0,
+    satisfactionSigned: !!guidedSatisfaction,
+  });
 
   // Install smart-scheduler for the active job — lives here on the customer file
   // (its home). Computed only for the schedulable job to keep the page light.
@@ -758,6 +814,13 @@ export default async function CustomerPage({
             <div className="mb-6 grid gap-6 lg:grid-cols-3">
               {/* Left: the guided "do this next" hero + progress */}
               <div className="lg:col-span-2">
+                {/* The checklist first — the whole path, clickable at any point.
+                    The guided panel below it still drives the CURRENT step's
+                    inline tools (scheduler, approve, collect), which the list
+                    deliberately doesn't duplicate. */}
+                <div className="mb-6">
+                  <JobChecklist steps={checklist} />
+                </div>
                 <GuidedFlow
                   customer={customer}
                   stages={stages}
