@@ -13,6 +13,8 @@ import {
   ArrowLeftRight,
   Info,
   Wrench,
+  Check,
+  Boxes,
   Receipt,
   Sparkles,
   ClipboardList,
@@ -35,7 +37,11 @@ import {
 } from "@/lib/data/customers";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer } from "@/lib/data/jobs";
-import { createJob } from "@/app/(app)/jobs/actions";
+import {
+  createJob,
+  createJobFromEstimate,
+  submitJobToWarehouse,
+} from "@/app/(app)/jobs/actions";
 import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
 import { listCustomerMessages } from "@/lib/data/messages";
 import { listCustomerDocuments } from "@/lib/data/documents";
@@ -110,6 +116,7 @@ import { JobChecklist } from "./job-checklist";
 import { buildChecklist } from "@/lib/job-checklist";
 import { getCustomerEstimateAppointment } from "@/lib/data/scheduling";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { setEstimateStatus } from "@/app/(app)/estimates/actions";
 import { CancelCustomer } from "./cancel-customer";
 import { listCancelReasons } from "@/lib/data/cancel-reasons";
 import { AiFollowup } from "./ai-followup";
@@ -407,6 +414,53 @@ export default async function CustomerPage({
     materialsOrdered: (issuedPoCount ?? 0) > 0,
     satisfactionSigned: !!guidedSatisfaction,
   });
+
+  /**
+   * The real actions, on the step they belong to.
+   *
+   * These are the three things the old guided panel could do that a link
+   * cannot: approve an estimate, turn it into a job, and hand the job to the
+   * warehouse. Each is one click, each is reversible, and each now sits on its
+   * own checklist row instead of only appearing when the panel happened to be
+   * showing that step.
+   *
+   * Deliberately NOT here: "mark sent". Sending emails the customer, and a
+   * one-click send off a checklist row is too easy to hit by accident — that
+   * one keeps its confirmation popup on the estimate page.
+   */
+  const approvedEstId = estimates.find((e) => e.status === "approved")?.id ?? null;
+  const checklistSlots: Record<string, React.ReactNode> = {};
+  if (checklistEstimate && checklistEstimate.status !== "approved") {
+    checklistSlots.approve = (
+      <form action={setEstimateStatus}>
+        <input type="hidden" name="id" value={checklistEstimate.id} />
+        <input type="hidden" name="status" value="approved" />
+        <SubmitButton size="sm" pendingText="Approving…" confirm="Estimate approved">
+          <Check className="size-3.5" /> Mark approved
+        </SubmitButton>
+      </form>
+    );
+  }
+  if (!checklistJob && approvedEstId) {
+    checklistSlots.workorder = (
+      <form action={createJobFromEstimate}>
+        <input type="hidden" name="estimate_id" value={approvedEstId} />
+        <SubmitButton size="sm" pendingText="Creating…" confirm="Work order created">
+          <Wrench className="size-3.5" /> Create the work order
+        </SubmitButton>
+      </form>
+    );
+  }
+  if (checklistJob && !checklistJob.warehouse_submitted_at) {
+    checklistSlots.staging = (
+      <form action={submitJobToWarehouse}>
+        <input type="hidden" name="job_id" value={checklistJob.id} />
+        <SubmitButton size="sm" pendingText="Sending…" confirm="Sent to the warehouse">
+          <Boxes className="size-3.5" /> Send to the warehouse
+        </SubmitButton>
+      </form>
+    );
+  }
 
   // Install smart-scheduler for the active job — lives here on the customer file
   // (its home). Computed only for the schedulable job to keep the page light.
@@ -768,6 +822,42 @@ export default async function CustomerPage({
                 showValues={false}
                 showSwitcher={false}
               />
+
+              {/* Start new work for an existing customer. Both of these already
+                  existed, buried in the Estimates and Jobs tabs — which is the
+                  last place you look when a repeat customer rings up about a
+                  second room. Same controls, hoisted to where they're seen. */}
+              <span className="mx-1 h-6 w-px bg-border" aria-hidden />
+              <EstimateSourceGate
+                customerId={customer.id}
+                sourceOk={sourceOk}
+                sources={leadSources}
+              />
+              <form action={createJob} className="flex items-center gap-1.5">
+                <input type="hidden" name="customer_id" value={customer.id} />
+                {serviceAddresses.length > 0 ? (
+                  <select
+                    name="service_address_id"
+                    className="h-8 max-w-[9rem] rounded-md border border-input bg-transparent px-2 text-xs"
+                    aria-label="Job site address"
+                  >
+                    <option value="">Primary address</option>
+                    {serviceAddresses.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label || formatServiceAddress(a)}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                <SubmitButton
+                  size="sm"
+                  variant="outline"
+                  pendingText="Creating…"
+                  confirm="Job created"
+                >
+                  <Wrench className="size-3.5" /> New job
+                </SubmitButton>
+              </form>
             </>
           ) : null}
           <div className="ml-auto flex items-center gap-2">
@@ -831,6 +921,7 @@ export default async function CustomerPage({
                 <div className="mb-6">
                   <JobChecklist
                     steps={checklist}
+                    actionSlots={checklistSlots}
                     stageName={currentStage?.name ?? null}
                     stagePosition={
                       spinePos.index >= 0 ? spinePos.index + 1 : null
@@ -1131,14 +1222,17 @@ export default async function CustomerPage({
           {/* Estimates */}
           <TabSection tab="estimates" overview={false}>
           <Card id="estimates" className="scroll-mt-24">
+            {/* No create buttons here — they moved to the header bar, which is
+                visible from every tab. Two identical pairs on one screen is
+                what "confusing" looks like. */}
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
               <CardTitle className="text-base">Estimates</CardTitle>
-              <EstimateSourceGate customerId={customer.id} sourceOk={sourceOk} sources={leadSources} />
             </CardHeader>
             <CardContent>
               {estimateRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No estimates yet. Click &ldquo;Build estimate&rdquo; to build an estimate.
+                  No estimates yet — use &ldquo;Guided questionnaire&rdquo; or
+                  &ldquo;Build estimate&rdquo; at the top of this page.
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -1172,30 +1266,13 @@ export default async function CustomerPage({
           <Card id="jobs" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Jobs</CardTitle>
-              <form action={createJob} className="flex items-center gap-2">
-                <input type="hidden" name="customer_id" value={customer.id} />
-                {serviceAddresses.length > 0 ? (
-                  <select
-                    name="service_address_id"
-                    className="h-9 max-w-[10rem] rounded-md border border-input bg-transparent px-2 text-xs"
-                    aria-label="Job site address"
-                  >
-                    <option value="">Primary address</option>
-                    {serviceAddresses.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.label || formatServiceAddress(a)}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                <SubmitButton size="sm" pendingText="Creating…" confirm="Job created">
-                  <Wrench className="size-3.5" /> New job
-                </SubmitButton>
-              </form>
             </CardHeader>
             <CardContent className="space-y-4">
               {workOrderRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No jobs yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  No jobs yet — use &ldquo;New job&rdquo; at the top of this page,
+                  or create one from an approved estimate.
+                </p>
               ) : (
                 <div className="space-y-2">
                   {workOrderRows.map((j) => (

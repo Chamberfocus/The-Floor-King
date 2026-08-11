@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { Check, ArrowRight, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ export function JobChecklist({
   stagePosition,
   stageTotal,
   ownerName,
+  actionSlots,
 }: {
   steps: ChecklistStep[];
   /** The workflow stage the customer is parked on right now. */
@@ -28,6 +30,10 @@ export function JobChecklist({
   stagePosition?: number | null;
   stageTotal?: number | null;
   ownerName?: string | null;
+  /** Real one-click actions, keyed by step — approve, create the job, send it
+   *  to the warehouse. Supplied by the page because they're server actions with
+   *  the ids already in hand; the checklist model stays pure. */
+  actionSlots?: Record<string, ReactNode>;
 }) {
   const { done, total, pct } = checklistProgress(steps);
   const current = steps.find((s) => s.state === "current") ?? null;
@@ -79,14 +85,19 @@ export function JobChecklist({
                 </span>
               ) : null}
             </span>
-            {current.href ? (
-              <Link
-                href={current.href}
-                className={cn(buttonVariants({ size: "sm" }), "shrink-0")}
-              >
-                {current.linkLabel ?? "Open"} <ArrowRight className="size-3.5" />
-              </Link>
-            ) : null}
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {/* The real action for THIS step, right here — no hunting for the
+                  page that hosts it. */}
+              {actionSlots?.[current.key] ?? null}
+              {current.href ? (
+                <Link
+                  href={current.href}
+                  className={cn(buttonVariants({ size: "sm" }))}
+                >
+                  {current.linkLabel ?? "Open"} <ArrowRight className="size-3.5" />
+                </Link>
+              ) : null}
+            </div>
           </div>
         ) : (
           <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
@@ -144,6 +155,22 @@ export function JobChecklist({
                 ) : s.detail ? (
                   <span className="mt-0.5 block text-xs text-muted-foreground">
                     {s.detail}
+                  </span>
+                ) : null}
+                {/* Everything else this step can do. On the row, so you never
+                    have to guess which page hides the staging sheet. */}
+                {actionSlots?.[s.key] || s.extras.length ? (
+                  <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {actionSlots?.[s.key] ?? null}
+                    {s.extras.map((x) => (
+                      <Link
+                        key={x.href + x.label}
+                        href={x.href}
+                        className="rounded-full border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        {x.label}
+                      </Link>
+                    ))}
                   </span>
                 ) : null}
               </span>

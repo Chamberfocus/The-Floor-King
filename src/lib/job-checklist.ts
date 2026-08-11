@@ -23,6 +23,9 @@ export interface ChecklistStep {
   state: ChecklistState;
   /** Shown under the title when it matters — a date, an amount, a blocker. */
   detail: string | null;
+  /** Everything else worth clicking from this step. The primary link opens the
+   *  step; these are the neighbours you reach for while you're there. */
+  extras: { label: string; href: string }[];
 }
 
 export interface ChecklistInput {
@@ -63,7 +66,7 @@ export function buildChecklist(i: ChecklistInput): ChecklistStep[] {
   const est = i.estimate;
   const job = i.job;
 
-  const raw: Omit<ChecklistStep, "state">[] = [
+  const raw: Omit<ChecklistStep, "state" | "extras">[] = [
     {
       key: "contact",
       title: "Talk to the customer",
@@ -221,12 +224,30 @@ export function buildChecklist(i: ChecklistInput): ChecklistStep[] {
    * useful part. "You never collected a deposit on this one" is worth knowing;
    * burying it as a to-do is not.
    */
+  // The other things you click from a given step. Kept here, with the steps,
+  // so there is one place that knows what a step is about.
+  const extras: Record<string, { label: string; href: string }[]> = {
+    build: est
+      ? [{ label: "Guided questionnaire", href: `/estimates/guided?customer=${i.customerId}` }]
+      : [],
+    send: est ? [{ label: "Customer copy", href: `/estimates/${est.id}?preview=1` }] : [],
+    approve: est ? [{ label: "Customer copy", href: `/estimates/${est.id}?preview=1` }] : [],
+    order: [{ label: "All purchase orders", href: "/purchase-orders" }],
+    workorder: job ? [{ label: "Staging sheet", href: `/jobs/${job.id}/staging-sheet` }] : [],
+    staging: job ? [{ label: "Warehouse board", href: "/warehouse" }] : [],
+    schedule: job ? [{ label: "Install calendar", href: "/jobs/calendar" }] : [],
+    install: job ? [{ label: "Staging sheet", href: `/jobs/${job.id}/staging-sheet` }] : [],
+    balance: i.invoice ? [{ label: "Print invoice", href: `/invoices/${i.invoice.id}?print=1` }] : [],
+    closeout: job ? [{ label: "Installer bill", href: `/jobs/${job.id}/bill` }] : [],
+  };
+
   const lastDone = raw.reduce((acc, s, idx) => (done[s.key] ? idx : acc), -1);
   const currentIdx = raw.findIndex((s, idx) => !done[s.key] && idx > lastDone);
 
   return raw.map((s, idx) => ({
     ...s,
     detail: detail[s.key] ?? null,
+    extras: extras[s.key] ?? [],
     state: done[s.key]
       ? "done"
       : idx === currentIdx
