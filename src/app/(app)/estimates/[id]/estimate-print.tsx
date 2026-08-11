@@ -11,6 +11,7 @@ import { customerLineLabel } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
+import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
 import type { Customer, Estimate, OrgSettings } from "@/lib/types";
 import { saveEstimateNotes, setEstimatePresentation, setEstimateProjectDetails } from "../actions";
 
@@ -208,13 +209,58 @@ export function EstimatePrintDoc({
   // DESCRIPTION of the job (the estimate notes). No cuts, quantities, or costs.
   const areas = [...new Set(lines.map((l) => (l.room ?? "").trim()).filter(Boolean))];
   const description = (estimate.notes ?? "").trim();
-  // Headline material for the lump row — the priciest non-labor line.
-  const primary = lines
-    .filter((l) => l.category !== "labor" && lineTotal(l) > 0)
-    .sort((a, b) => lineTotal(b) - lineTotal(a))[0];
-  const primaryLabel = primary
-    ? customerLineLabel(primary)
-    : estimate.title || "Flooring — materials & installation";
+  /**
+   * The headline on a lump-sum quote.
+   *
+   * It used to be whichever PRODUCT cost most, run through customerLineLabel —
+   * so a quote went out headed "Perfect 10 TBD", a placeholder product name
+   * sitting where the description of the work should be. On a summary quote
+   * that line is the first thing the customer reads.
+   *
+   * Describe the WORK instead, from the material categories actually on the
+   * option: "Luxury vinyl plank & carpet — materials and installation". No
+   * single product can hijack it, and a mixed job stops being described by one
+   * of its parts.
+   */
+  const primaryLabel = (() => {
+    // Only the floor itself names the job. Underlayment, trim and sundries are
+    // companions — they ride along with whatever is being laid, and a quote
+    // headed "Underlayment" describes nothing.
+    const FLOOR = new Set([
+      "carpet",
+      "lvp",
+      "hardwood",
+      "laminate",
+      "tile",
+      "vinyl",
+    ]);
+    const named = [
+      ...new Set(
+        lines
+          .filter(
+            (l) => l.category && FLOOR.has(l.category) && lineTotal(l) > 0,
+          )
+          .map((l) => PRODUCT_CATEGORY_LABELS[l.category!])
+          .filter(Boolean),
+      ),
+    ].slice(0, 3);
+    if (named.length) {
+      const list =
+        named.length === 1
+          ? named[0]
+          : `${named.slice(0, -1).join(", ")} & ${named[named.length - 1]}`;
+      return `${list} — materials and installation`;
+    }
+    // No recognised floor category — a tile job written as one lump, say. Fall
+    // back to the priciest line's own label, which is usually written for the
+    // customer already, then to the estimate title.
+    const primary = lines
+      .filter((l) => l.category !== "labor" && lineTotal(l) > 0)
+      .sort((a, b) => lineTotal(b) - lineTotal(a))[0];
+    return primary
+      ? customerLineLabel(primary)
+      : estimate.title || "Flooring — materials and installation";
+  })();
   const taxLabel =
     Number(estimate.tax_rate) > 0 ? `Tax (${estimate.tax_rate}%)` : "Tax (Non-taxable 0%)";
   const custAddr = customer
