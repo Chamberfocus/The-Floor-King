@@ -583,8 +583,12 @@ export default async function CustomerPage({
   }
 
   /**
-   * Which property each estimate is for — only worth showing when the account
-   * HAS more than one, otherwise it's the same line repeated on every row.
+   * Which property each estimate is for.
+   *
+   * Shown as soon as the account has ANY named property, not only when it has
+   * two. With one property and several estimates, "Unit 813" against one row
+   * and "Account address" against the others is exactly the distinction you
+   * need; a homeowner with no properties still sees nothing.
    */
   const addrLabel = new Map(
     serviceAddresses.map((a) => [
@@ -592,7 +596,7 @@ export default async function CustomerPage({
       a.label || formatServiceAddress(a) || "Property",
     ]),
   );
-  const showSites = serviceAddresses.length > 1;
+  const showSites = serviceAddresses.length > 0;
   const estimateRows: EstimateRowData[] = estimates.map((e) => {
     const opts = e.options ?? [];
     const opt =
