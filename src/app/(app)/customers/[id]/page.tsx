@@ -850,6 +850,7 @@ export default async function CustomerPage({
                     the stage said out loud at the top. */}
                 <div className="mb-6">
                   <JobRollUp
+                    customerId={id}
                     jobs={jobChecklists}
                     stageName={currentStage?.name ?? null}
                     stagePosition={spinePos.index >= 0 ? spinePos.index + 1 : null}

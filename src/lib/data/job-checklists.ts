@@ -30,6 +30,10 @@ export interface JobProgress {
   total: number;
   pct: number;
   current: ChecklistStep | null;
+  /** Nothing has ever been attached to it — no estimate, no invoice, no PO, no
+   *  date, no address. A stray "New job" click, and safe to remove from here.
+   *  A real job keeps its delete on the job page, behind the full warning. */
+  isBlank: boolean;
 }
 
 interface JobRow {
@@ -287,5 +291,14 @@ async function buildOne({
     total,
     pct,
     current: steps.find((s) => s.state === "current") ?? null,
+    isBlank:
+      !!job &&
+      !estimateId &&
+      !job.scheduled_date &&
+      !job.service_address_id &&
+      !job.closed_out_at &&
+      !job.warehouse_submitted_at &&
+      !invoices.length &&
+      issuedPos === 0,
   };
 }

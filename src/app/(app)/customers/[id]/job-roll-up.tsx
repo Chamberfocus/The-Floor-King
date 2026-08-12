@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { ArrowRight, Check, MapPin, Wrench, FileText } from "lucide-react";
+import { ArrowRight, Check, MapPin, Wrench, FileText, Trash2 } from "lucide-react";
+import { ConfirmButton } from "@/components/ui/confirm-button";
+import { deleteJob } from "@/app/(app)/jobs/actions";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import type { JobProgress } from "@/lib/data/job-checklists";
@@ -13,12 +15,14 @@ import type { JobProgress } from "@/lib/data/job-checklists";
  * step and no way in. A job is the unit of work; this lists them.
  */
 export function JobRollUp({
+  customerId,
   jobs,
   stageName,
   stagePosition,
   stageTotal,
   ownerName,
 }: {
+  customerId: string;
   jobs: JobProgress[];
   stageName?: string | null;
   stagePosition?: number | null;
@@ -112,15 +116,35 @@ export function JobRollUp({
                     ) : null}
                   </span>
                 )}
-                {href ? (
-                  <Link
-                    href={href}
-                    className={cn(buttonVariants({ size: "sm", variant: finished ? "outline" : "default" }), "shrink-0")}
-                  >
-                    {j.jobId ? "Open the job" : (j.current?.linkLabel ?? "Open")}{" "}
-                    <ArrowRight className="size-3.5" />
-                  </Link>
-                ) : null}
+                <span className="flex shrink-0 items-center gap-2">
+                  {/* A blank job is a stray "New job" click — nothing is
+                      attached to it, and no estimate delete can ever remove it
+                      because it was never tied to one. Let it go from here. */}
+                  {j.isBlank && j.jobId ? (
+                    <form action={deleteJob}>
+                      <input type="hidden" name="id" value={j.jobId} />
+                      <input type="hidden" name="customer_id" value={customerId} />
+                      <ConfirmButton
+                        size="sm"
+                        variant="ghost"
+                        title="Remove this empty job?"
+                        description="Nothing is attached to it — no estimate, no invoice, no purchase order, no date."
+                        confirmLabel="Remove it"
+                      >
+                        <Trash2 className="size-3.5" /> Remove
+                      </ConfirmButton>
+                    </form>
+                  ) : null}
+                  {href ? (
+                    <Link
+                      href={href}
+                      className={cn(buttonVariants({ size: "sm", variant: finished ? "outline" : "default" }))}
+                    >
+                      {j.jobId ? "Open the job" : (j.current?.linkLabel ?? "Open")}{" "}
+                      <ArrowRight className="size-3.5" />
+                    </Link>
+                  ) : null}
+                </span>
               </div>
             </li>
           );
