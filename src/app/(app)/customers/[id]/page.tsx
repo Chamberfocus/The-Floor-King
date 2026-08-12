@@ -112,8 +112,8 @@ import { AddActivityForm } from "./add-activity-form";
 import { CustomerInfoCard } from "./customer-info-card";
 import { CustomerChat } from "./customer-chat";
 import { OnTheWayButton } from "./on-the-way-button";
-import { JobChecklist } from "./job-checklist";
-import { buildChecklist } from "@/lib/job-checklist";
+import { JobRollUp } from "./job-roll-up";
+import { getCustomerChecklists } from "@/lib/data/job-checklists";
 import { getCustomerEstimateAppointment } from "@/lib/data/scheduling";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { setEstimateStatus } from "@/app/(app)/estimates/actions";
@@ -361,106 +361,16 @@ export default async function CustomerPage({
   const guidedSatisfaction = guidedActiveJob
     ? await getJobSatisfaction(guidedActiveJob.id)
     : null;
-  // The job as a checklist — every step, what's done, and a way into each one.
-  // Reads the same records the guided flow does; nothing new to keep in step.
-  const checklistEstimate =
-    estimates.find((e) => e.status === "sent") ??
-    estimates.find((e) => e.status === "approved") ??
-    estimates.find((e) => e.status === "draft") ??
-    estimates[0] ??
-    null;
-  const checklistJob =
-    jobs.find((j) => j.status !== "completed" && j.status !== "cancelled") ??
-    jobs[0] ??
-    null;
-  const liveInvoices = invoices
-    .filter((i) => i.status !== "void")
-    .map((i) => ({
-      inv: i,
-      bal: invoiceTotals(i.items ?? [], i.tax_rate, amountPaid(i)).balance,
-    }));
-  const outstanding = liveInvoices.reduce((s, x) => s + Math.max(0, x.bal), 0);
-  // Materials count as ordered only when a PO is actually ISSUED — a draft is
-  // not an order, which is the distinction the whole PO flow turns on.
-  const { count: issuedPoCount } = await (await createClient())
-    .from("purchase_orders")
-    .select("id", { count: "exact", head: true })
-    .eq("customer_id", id)
-    .in("status", ["ordered", "received", "closed"]);
-  const checklist = buildChecklist({
-    customerId: id,
-    estimate: checklistEstimate
-      ? { id: checklistEstimate.id, status: checklistEstimate.status }
-      : null,
-    approvedEstimateId:
-      estimates.find((e) => e.status === "approved")?.id ?? null,
-    job: checklistJob
-      ? {
-          id: checklistJob.id,
-          status: checklistJob.status,
-          scheduledDate: checklistJob.scheduled_date ?? null,
-          warehouseReadyAt: checklistJob.warehouse_ready_at ?? null,
-          warehouseSubmittedAt: checklistJob.warehouse_submitted_at ?? null,
-          closedOutAt: checklistJob.closed_out_at ?? null,
-        }
-      : null,
-    invoice: liveInvoices.length
-      ? { id: liveInvoices[0].inv.id, balance: liveInvoices[0].bal }
-      : null,
-    depositPaid: invoices.some((i) => amountPaid(i) > 0),
-    balanceOutstanding: outstanding,
-    hasActivity: activities.length > 0,
-    estimateBooked: !!estimateAppointment,
-    materialsOrdered: (issuedPoCount ?? 0) > 0,
-    satisfactionSigned: !!guidedSatisfaction,
-  });
-
   /**
-   * The real actions, on the step they belong to.
+   * One checklist PER JOB.
    *
-   * These are the three things the old guided panel could do that a link
-   * cannot: approve an estimate, turn it into a job, and hand the job to the
-   * warehouse. Each is one click, each is reversible, and each now sits on its
-   * own checklist row instead of only appearing when the panel happened to be
-   * showing that step.
-   *
-   * Deliberately NOT here: "mark sent". Sending emails the customer, and a
-   * one-click send off a checklist row is too easy to hit by accident — that
-   * one keeps its confirmation popup on the estimate page.
+   * This page used to build a single checklist and pick "the" job for it — the
+   * oldest unfinished one. With one job that's invisible; with two it silently
+   * tracks the wrong one. The account is the account; the work is the job.
+   * Every step, and the tools to do it, now live on the job page.
    */
-  const approvedEstId = estimates.find((e) => e.status === "approved")?.id ?? null;
-  const checklistSlots: Record<string, React.ReactNode> = {};
-  if (checklistEstimate && checklistEstimate.status !== "approved") {
-    checklistSlots.approve = (
-      <form action={setEstimateStatus}>
-        <input type="hidden" name="id" value={checklistEstimate.id} />
-        <input type="hidden" name="status" value="approved" />
-        <SubmitButton size="sm" pendingText="Approving…" confirm="Estimate approved">
-          <Check className="size-3.5" /> Mark approved
-        </SubmitButton>
-      </form>
-    );
-  }
-  if (!checklistJob && approvedEstId) {
-    checklistSlots.workorder = (
-      <form action={createJobFromEstimate}>
-        <input type="hidden" name="estimate_id" value={approvedEstId} />
-        <SubmitButton size="sm" pendingText="Creating…" confirm="Work order created">
-          <Wrench className="size-3.5" /> Create the work order
-        </SubmitButton>
-      </form>
-    );
-  }
-  if (checklistJob && !checklistJob.warehouse_submitted_at) {
-    checklistSlots.staging = (
-      <form action={submitJobToWarehouse}>
-        <input type="hidden" name="job_id" value={checklistJob.id} />
-        <SubmitButton size="sm" pendingText="Sending…" confirm="Sent to the warehouse">
-          <Boxes className="size-3.5" /> Send to the warehouse
-        </SubmitButton>
-      </form>
-    );
-  }
+  const jobChecklists = await getCustomerChecklists(id);
+
 
   // Install smart-scheduler for the active job — lives here on the customer file
   // (its home). Computed only for the schedulable job to keep the page light.
@@ -939,13 +849,10 @@ export default async function CustomerPage({
                 {/* The checklist: the whole path, clickable at any point, with
                     the stage said out loud at the top. */}
                 <div className="mb-6">
-                  <JobChecklist
-                    steps={checklist}
-                    actionSlots={checklistSlots}
+                  <JobRollUp
+                    jobs={jobChecklists}
                     stageName={currentStage?.name ?? null}
-                    stagePosition={
-                      spinePos.index >= 0 ? spinePos.index + 1 : null
-                    }
+                    stagePosition={spinePos.index >= 0 ? spinePos.index + 1 : null}
                     stageTotal={spinePos.total || null}
                     ownerName={ownerName}
                   />

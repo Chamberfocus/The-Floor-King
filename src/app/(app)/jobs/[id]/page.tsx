@@ -81,7 +81,12 @@ import { EditWantedDatesButton } from "./edit-wanted-dates-button";
 import { buildJobScope, lineSpec, PAD_ROLL_SQYD } from "@/lib/job-scope";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
+import { createClient } from "@/lib/supabase/server";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { JobTabs, JobTabPanel, type JobTab } from "./job-tabs";
+import { JobChecklist } from "@/components/job-checklist";
+import { getJobChecklist } from "@/lib/data/job-checklists";
+import { setEstimateStatus } from "@/app/(app)/estimates/actions";
 import { JobNotesCard } from "./job-notes-card";
 import { listJobNotes } from "./note-actions";
 import { JobDocuments } from "./job-documents";
@@ -283,6 +288,47 @@ export default async function JobPage({
     canInstallerTools && job.customer_id
       ? await buildInstallScheduleProps(job.id, job.customer_id)
       : null;
+
+  /**
+   * The checklist for THIS job, plus the one-click actions for whichever step
+   * is next. Approve / create the work order / send to the warehouse are the
+   * three things a link can't do, and they belong where the work is.
+   */
+  const checklist = await getJobChecklist(job.id);
+  const stageName = flowStage?.name ?? null;
+  const checklistSlots: Record<string, React.ReactNode> = {};
+  // The estimate this work order came from — approving it is the step the
+  // checklist can't do with a link.
+  const jobEstimate = job.estimate_id
+    ? ((
+        await (await createClient())
+          .from("estimates")
+          .select("id, status")
+          .eq("id", job.estimate_id)
+          .maybeSingle()
+      ).data as { id: string; status: string } | null)
+    : null;
+  if (jobEstimate && jobEstimate.status !== "approved") {
+    checklistSlots.approve = (
+      <form action={setEstimateStatus}>
+        <input type="hidden" name="id" value={jobEstimate.id} />
+        <input type="hidden" name="status" value="approved" />
+        <SubmitButton size="sm" pendingText="Approving…" confirm="Estimate approved">
+          Mark approved
+        </SubmitButton>
+      </form>
+    );
+  }
+  if (!job.warehouse_submitted_at) {
+    checklistSlots.staging = (
+      <form action={submitJobToWarehouse}>
+        <input type="hidden" name="job_id" value={job.id} />
+        <SubmitButton size="sm" pendingText="Sending…" confirm="Sent to the warehouse">
+          Send to the warehouse
+        </SubmitButton>
+      </form>
+    );
+  }
 
   return (
     <>
@@ -537,6 +583,21 @@ export default async function JobPage({
             ) : null}
           </CardContent>
         </Card>
+      ) : null}
+
+      {/* Where THIS job is — every step, what's done, and the tool for the one
+          that's next. It used to live on the customer file, which had to pick a
+          single job to be about; on an account with two open jobs it tracked
+          the wrong one. It belongs on the work order. */}
+      {checklist ? (
+        <div className="mb-6">
+          <JobChecklist
+            steps={checklist.steps}
+            stageName={stageName}
+            ownerName={null}
+            actionSlots={checklistSlots}
+          />
+        </div>
       ) : null}
 
       <JobTabs show={tabsToShow}>
