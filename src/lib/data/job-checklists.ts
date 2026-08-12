@@ -59,8 +59,13 @@ export async function getCustomerChecklists(
   if (!customerId) return [];
   const supabase = await createClient();
 
-  const [{ data: jobs }, { data: ests }, { data: addrs }, { count: activityCount }] =
-    await Promise.all([
+  const [
+    { data: jobs },
+    { data: ests },
+    { data: addrs },
+    { count: activityCount },
+    { count: apptCount },
+  ] = await Promise.all([
       supabase
         .from("jobs")
         .select(
@@ -81,6 +86,10 @@ export async function getCustomerChecklists(
         .from("activities")
         .select("id", { count: "exact", head: true })
         .eq("customer_id", customerId),
+      supabase
+        .from("appointments")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_id", customerId),
     ]);
 
   const jobRows = (jobs ?? []) as JobRow[];
@@ -89,22 +98,18 @@ export async function getCustomerChecklists(
     (addrs ?? []).map((a) => [a.id as string, (a.label as string) || (a.street as string) || "Property"]),
   );
   const hasActivity = (activityCount ?? 0) > 0;
-
-  // The customer's estimate appointment is an account-level fact — booking a
-  // measure visit isn't per work order.
-  const { count: apptCount } = await supabase
-    .from("appointments")
-    .select("id", { count: "exact", head: true })
-    .eq("customer_id", customerId);
+  // Booking a measure visit is an account-level fact, not a per-work-order one.
   const estimateBooked = (apptCount ?? 0) > 0;
 
-  const out: JobProgress[] = [];
   const claimedEstimates = new Set<string>();
+  for (const job of jobRows) if (job.estimate_id) claimedEstimates.add(job.estimate_id);
 
-  for (const job of jobRows) {
-    if (job.estimate_id) claimedEstimates.add(job.estimate_id);
-    out.push(
-      await buildOne({
+  // Every job's checklist at once. Built one at a time in a loop this was N+1
+  // — each job waiting on the one before it for queries that have nothing to do
+  // with each other.
+  const out: JobProgress[] = await Promise.all(
+    jobRows.map((job) =>
+      buildOne({
         supabase,
         customerId,
         job,
@@ -114,8 +119,8 @@ export async function getCustomerChecklists(
         hasActivity,
         estimateBooked,
       }),
-    );
-  }
+    ),
+  );
 
   /**
    * An estimate with no work order behind it is still live work — it's the
@@ -215,7 +220,10 @@ async function buildOne({
   let issuedPos = 0;
   let satisfaction = false;
   if (job) {
-    const [{ data: inv }, { count: poCount }, { data: sat }] = await Promise.all([
+    // POs raised straight off the estimate, before the job existed, count too —
+    // fetched alongside rather than after, so it costs no extra round trip.
+    const [{ data: inv }, { count: poCount }, { data: sat }, { count: estPo }] =
+      await Promise.all([
       supabase.from("invoices").select("*, items:invoice_items(*), payments(*)").eq("job_id", job.id),
       supabase
         .from("purchase_orders")
@@ -223,19 +231,19 @@ async function buildOne({
         .eq("job_id", job.id)
         .in("status", ["ordered", "received", "closed"]),
       supabase.from("job_satisfaction").select("id").eq("job_id", job.id).maybeSingle(),
+      estimate
+        ? supabase
+            .from("purchase_orders")
+            .select("id", { count: "exact", head: true })
+            .eq("estimate_id", estimate.id)
+            .in("status", ["ordered", "received", "closed"])
+        : Promise.resolve({ count: 0 }),
     ]);
+    const estPoCount = estPo ?? 0;
     invoices = (inv ?? []) as unknown as Invoice[];
     issuedPos = poCount ?? 0;
     satisfaction = !!sat;
-    // POs raised straight off the estimate, before the job existed, count too.
-    if (!issuedPos && estimate) {
-      const { count } = await supabase
-        .from("purchase_orders")
-        .select("id", { count: "exact", head: true })
-        .eq("estimate_id", estimate.id)
-        .in("status", ["ordered", "received", "closed"]);
-      issuedPos = count ?? 0;
-    }
+    issuedPos = issuedPos || estPoCount;
   } else if (estimate) {
     const { count } = await supabase
       .from("purchase_orders")
