@@ -1400,7 +1400,12 @@ export function Questionnaire({
       w.push({ id: "ceramic_base", text: "Ceramic removal usually takes the base with it — plan for shoe molding or quarter round." });
     }
     const hardwoodOrGlue = has("surface_type", "Hardwood") || has("install_method", "Glue-down");
-    const climateOk = has("ac_available", "Yes") && has("heat_available", "Yes");
+    // AC and heat used to be two yes/no questions; they're one multi-select now.
+    // Both readings are accepted so an estimate started before the change still
+    // evaluates instead of firing a false acclimation warning.
+    const climateOk =
+      (has("climate_control", "AC") && has("climate_control", "Heat")) ||
+      (has("ac_available", "Yes") && has("heat_available", "Yes"));
     if (hardwoodOrGlue && !climateOk)
       w.push({ id: "climate", text: "Hardwood / glue-down without confirmed AC and heat — acclimation & adhesion are at risk. Confirm climate control." });
     return w;
