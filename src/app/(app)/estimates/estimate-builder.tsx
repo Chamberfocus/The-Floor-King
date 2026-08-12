@@ -289,8 +289,10 @@ interface OptionState {
   lines: LineState[];
 }
 
+// h-11 on a phone (44px — a thumb's worth), h-9 from sm: up where there's a
+// mouse and vertical space is worth more than tap accuracy.
 const inputSm =
-  "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "h-11 sm:h-9 rounded-md border border-input bg-transparent px-2 text-base sm:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 function LabeledNumber({
   label,
@@ -1886,7 +1888,7 @@ export function EstimateBuilder({
                 placeholder="e.g. Whole-home flooring"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Show customer</Label>
                 <SegmentedField
@@ -2293,7 +2295,7 @@ export function EstimateBuilder({
                               onChange={(e) => updateLine(oi, li, { color: e.target.value })}
                               placeholder={line.category === "carpet" ? "e.g. Seagull" : "Color / finish"}
                               list="estimate-color-suggestions"
-                              className="h-9"
+                              className="h-11 sm:h-9 text-base sm:text-sm"
                             />
                           </div>
                         ) : null}
@@ -2508,7 +2510,11 @@ export function EstimateBuilder({
                             const overriding = line.margin_pct.trim() !== "";
                             return (
                               <div className="w-full space-y-1.5 rounded-lg border bg-card p-3">
-                                <div className="grid grid-cols-3 gap-2">
+                                {/* Stacked on a phone. Three number inputs side
+                                    by side is ~100px each on a 375px screen —
+                                    the row a rep uses most, and the hardest to
+                                    hit. */}
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                   <LabeledNumber
                                     label={`Our cost /${unitLbl}`}
                                     prefix="$"
@@ -2523,7 +2529,7 @@ export function EstimateBuilder({
                                       onChange={(e) => changeLineMargin(oi, li, e.target.value)}
                                       placeholder={overallMargin}
                                       inputMode="decimal"
-                                      className="h-9"
+                                      className="h-11 sm:h-9 text-base sm:text-sm"
                                     />
                                   </div>
                                   <LabeledNumber
@@ -2720,7 +2726,7 @@ export function EstimateBuilder({
                                 value={line.room}
                                 onChange={(e) => updateLine(oi, li, { room: e.target.value })}
                                 placeholder="e.g. Living Room"
-                                className="h-9"
+                                className="h-11 sm:h-9 text-base sm:text-sm"
                               />
                               <p className="mt-1 text-[11px] text-muted-foreground">
                                 Inherited from the room you added this under — change only to move it.
@@ -2738,7 +2744,7 @@ export function EstimateBuilder({
                                 value={line.description}
                                 onChange={(e) => updateLine(oi, li, { description: e.target.value })}
                                 placeholder={displayName || "Defaults to the product name"}
-                                className="h-9"
+                                className="h-11 sm:h-9 text-base sm:text-sm"
                               />
                             </div>
 
@@ -2772,7 +2778,7 @@ export function EstimateBuilder({
                                   );
                                 })()
                               ) : (
-                                <div className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                   <div>
                                     <label className="mb-1 block text-xs text-muted-foreground">Manufacturer</label>
                                     <Input
@@ -2780,7 +2786,7 @@ export function EstimateBuilder({
                                       onChange={(e) => updateLine(oi, li, { manufacturer: e.target.value })}
                                       placeholder="e.g. Shaw"
                                       list="estimate-manufacturer-suggestions"
-                                      className="h-9"
+                                      className="h-11 sm:h-9 text-base sm:text-sm"
                                     />
                                   </div>
                                   {!isFlooring ? (
@@ -2791,7 +2797,7 @@ export function EstimateBuilder({
                                         onChange={(e) => updateLine(oi, li, { color: e.target.value })}
                                         placeholder="Color / finish"
                                         list="estimate-color-suggestions"
-                                        className="h-9"
+                                        className="h-11 sm:h-9 text-base sm:text-sm"
                                       />
                                     </div>
                                   ) : null}
@@ -2801,7 +2807,7 @@ export function EstimateBuilder({
                                       value={line.style}
                                       onChange={(e) => updateLine(oi, li, { style: e.target.value })}
                                       placeholder="Style"
-                                      className="h-9"
+                                      className="h-11 sm:h-9 text-base sm:text-sm"
                                     />
                                   </div>
                                   <div>
@@ -2810,7 +2816,7 @@ export function EstimateBuilder({
                                       value={line.item_no}
                                       onChange={(e) => updateLine(oi, li, { item_no: e.target.value })}
                                       placeholder="Item #"
-                                      className="h-9"
+                                      className="h-11 sm:h-9 text-base sm:text-sm"
                                     />
                                   </div>
                                 </div>
