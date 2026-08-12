@@ -1416,7 +1416,37 @@ export function Questionnaire({
 
   // Steps: the currently-visible questions (conditionals reveal as you answer),
   // plus a final Review step.
+  /**
+   * Moving between questions.
+   *
+   * setStep on its own changed the content and left your scroll position where
+   * it was — so answering a long question (eight rooms, a cuts editor, a trim
+   * list) and pressing Next dropped you at the BOTTOM of the next one, past its
+   * title, sometimes on blank space. Nothing told you the question had changed.
+   *
+   * Every move now goes through here: put the new question's heading at the top
+   * of the view, and mark it so it can announce itself.
+   */
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const goTo = (next: number) => {
+    setStep(next);
+    // After React paints the new question, not before.
+    requestAnimationFrame(() => {
+      const el = cardRef.current;
+      if (!el) return;
+      const y = el.getBoundingClientRect().top + window.scrollY - 84; // clear the header
+      window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+    });
+  };
   const total = stepQuestions.length;
+  // The sections in play, in order, each with the step that starts it.
+  const sectionRail = useMemo(() => {
+    const seen = new Map<string, number>();
+    stepQuestions.forEach((sq, i) => {
+      if (sq.section && !seen.has(sq.section)) seen.set(sq.section, i);
+    });
+    return [...seen.entries()].map(([name, firstIndex]) => ({ name, firstIndex }));
+  }, [stepQuestions]);
   const atReview = step >= total;
   const q = atReview ? null : stepQuestions[step];
   const answered = (qq: EstimateQuestion): boolean => {
@@ -1544,6 +1574,41 @@ export function Questionnaire({
           onChange={(e) => setCashCarry(e.target.checked)}
         />
       </label>
+      {/*
+        Section rail — where you are in the whole thing, and a way back.
+    
+        A bare "12 / 27" tells you how far along you are but nothing about what
+        is left or how to get back to something you want to change. Going back
+        six questions meant pressing Back six times. Sections you've reached are
+        one tap.
+      */}
+      {sectionRail.length > 1 ? (
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+          {sectionRail.map((s) => {
+            const isCurrent = s.name === q?.section;
+            const reached = s.firstIndex <= step;
+            return (
+              <button
+                key={s.name}
+                type="button"
+                disabled={!reached}
+                onClick={() => goTo(s.firstIndex)}
+                className={cn(
+                  "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                  isCurrent
+                    ? "bg-primary text-primary-foreground"
+                    : reached
+                      ? "bg-muted text-foreground hover:bg-muted/70"
+                      : "text-muted-foreground/50",
+                )}
+              >
+                {s.name}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       {/* Progress */}
       <div className="flex items-center gap-2">
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
@@ -1571,7 +1636,11 @@ export function Questionnaire({
       </div>
 
       {q ? (
-        <Card className="border-primary/20">
+        <Card
+          ref={cardRef}
+          key={q.id}
+          className="animate-in fade-in slide-in-from-bottom-2 border-primary/20 duration-200"
+        >
           <CardContent className="space-y-4 p-4 sm:p-6">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">{q.section}</div>
@@ -1711,22 +1780,36 @@ export function Questionnaire({
         </DialogContent>
       </Dialog>
 
-      {/* Nav */}
-      <div className="flex items-center justify-between">
-        <Button type="button" variant="ghost" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>
-          <ArrowLeft className="size-4" /> Back
-        </Button>
-        {atReview ? (
-          <span className="text-xs text-muted-foreground">{lines.length} line item{lines.length === 1 ? "" : "s"}</span>
-        ) : (
-          <Button type="button" onClick={() => setStep((s) => s + 1)} disabled={!canNext}>
-            {step === total - 1 ? "Review" : "Next"} <ArrowRight className="size-4" />
+      {/*
+        Nav — pinned to the bottom of the screen.
+    
+        It used to sit in the page flow after the question. On a question with
+        eight rooms or a full trim list that put "Next" a long scroll away, so
+        the rhythm of the whole thing became: answer, hunt for the button,
+        press, get lost. It stays put now, and says WHY it's disabled instead of
+        leaving you to work it out from a greyed-out button.
+      */}
+      <div className="sticky bottom-0 z-10 -mx-1 mt-2 border-t bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="flex items-center justify-between gap-3">
+          <Button type="button" variant="ghost" onClick={() => goTo(Math.max(0, step - 1))} disabled={step === 0}>
+            <ArrowLeft className="size-4" /> Back
           </Button>
-        )}
+          <span className="min-w-0 flex-1 text-center text-xs text-muted-foreground">
+            {atReview
+              ? `${lines.length} line item${lines.length === 1 ? "" : "s"}`
+              : !canNext
+                ? <span className="font-medium text-amber-600">Answer this one to carry on</span>
+                : q?.section}
+          </span>
+          {atReview ? (
+            <span className="w-[5.5rem]" />
+          ) : (
+            <Button type="button" onClick={() => goTo(step + 1)} disabled={!canNext}>
+              {step === total - 1 ? "Review" : "Next"} <ArrowRight className="size-4" />
+            </Button>
+          )}
+        </div>
       </div>
-      {!canNext ? (
-        <p className="text-right text-xs text-amber-600">This question is required.</p>
-      ) : null}
     </div>
   );
 }
