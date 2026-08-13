@@ -93,6 +93,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Pipeline", href: "/pipeline", icon: Route, roles: OFFICE_PLUS },
       { label: "Samples", href: "/samples", icon: Layers, roles: SALES_VIEW },
       { label: "Saved for later", href: "/saved", icon: Bookmark, roles: SALES },
+      // The customer order link. It already existed on Customer Orders, which
+      // lives under Money and is admin/office only — so the sales team, the
+      // people actually stood in front of a customer, could never reach it.
+      { label: "Quick order", href: "/quick-order", icon: ShoppingBag, roles: SALES_VIEW },
     ],
   },
   {

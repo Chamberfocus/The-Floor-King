@@ -27,7 +27,7 @@ import {
 } from "./actions";
 import { Trash2 } from "lucide-react";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
-import { OrderLinkCard } from "./order-link-card";
+import { OrderLinkCard } from "@/components/order-link-card";
 import { COMPANY_NAME } from "@/lib/nav";
 
 export const metadata: Metadata = { title: "Customer Orders" };
