@@ -2,8 +2,15 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv, isSupabaseConfigured } from "@/lib/env";
 
-/** Paths reachable without being signed in. */
-const PUBLIC_PREFIXES = ["/login", "/auth", "/forgot-password", "/book"];
+/**
+ * Paths reachable without being signed in.
+ *
+ * /order is the customer-facing order form — the whole point of it is that you
+ * send the link to someone who does NOT have a login. It was missing here, so
+ * every customer who clicked it was bounced to a sign-in page they can't get
+ * past. Its submit already runs on the service role for exactly this reason.
+ */
+const PUBLIC_PREFIXES = ["/login", "/auth", "/forgot-password", "/book", "/order"];
 
 function isPublicPath(pathname: string) {
   return PUBLIC_PREFIXES.some(
