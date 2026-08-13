@@ -1246,10 +1246,18 @@ export function EstimateBuilder({
                   material_cost: round2(p.material_rate * factor),
                   labor_cost: "0",
                   labor_rate: "0",
-                  manufacturer: p.manufacturer ?? l.manufacturer,
-                  style: p.style ?? l.style,
-                  color: p.color ?? l.color,
-                  item_no: p.sku ?? l.item_no,
+                  /**
+                   * Picking a product REPLACES what was on the line.
+                   *
+                   * These used to fall back to the previous product's values, so
+                   * swapping to something with no style or colour on file left
+                   * the old one's behind and the line became a mix of two
+                   * products — on the customer's estimate and on the PO.
+                   */
+                  manufacturer: p.manufacturer ?? "",
+                  style: p.style ?? "",
+                  color: p.color ?? "",
+                  item_no: p.sku ?? "",
                   measure_unit,
                   unit: lineUnit,
                   // Snapshot the product's coverage so the estimate's bag math is
@@ -1271,7 +1279,27 @@ export function EstimateBuilder({
                       ? l.waste_pct
                       : l.waste_pct ||
                         (WASTE_BY_CATEGORY[p.category] ? String(WASTE_BY_CATEGORY[p.category]) : ""),
-                  description: l.description || p.name,
+                  /**
+                   * The line is now THIS product, and says so.
+                   *
+                   * This read `l.description || p.name` — the product's name was
+                   * only used when the line had no description at all. Every line
+                   * out of the questionnaire already has one, so changing the
+                   * product swapped the cost, the brand and the SKU underneath
+                   * while the line went on reading the OLD product's name. On
+                   * screen, on the customer's copy, and on the purchase order.
+                   * That is "the product is not changing".
+                   *
+                   * A room prefix the estimator typed is kept — "Living room —
+                   * Dreamweaver" becomes "Living room — <new product>" — because
+                   * that part is about the space, not the product.
+                   */
+                  description: (() => {
+                    const prev = l.description?.trim() ?? "";
+                    if (!prev) return p.name;
+                    const sep = prev.indexOf(" — ");
+                    return sep > 0 ? `${prev.slice(0, sep)} — ${p.name}` : p.name;
+                  })(),
                 };
                 return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin))) };
               }),
