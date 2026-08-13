@@ -139,16 +139,20 @@ async function createPOForLines(
     ...new Set(lines.map((l) => l.product_id).filter(Boolean) as string[]),
   ];
   const cost = new Map<string, number>();
+  // The unit that catalog cost is PER. Without it there's no way to tell that a
+  // $109.99 price is per pail, not per square foot.
+  const punit = new Map<string, string>();
   const pname = new Map<string, string>();
   const psupplier = new Map<string, string | null>();
   const psupplierId = new Map<string, string | null>();
   if (productIds.length) {
     const { data: prods } = await db
       .from("products")
-      .select("id, name, material_rate, supplier, supplier_id")
+      .select("id, name, unit, material_rate, supplier, supplier_id")
       .in("id", productIds);
     for (const p of prods ?? []) {
       cost.set(p.id as string, Number(p.material_rate) || 0);
+      punit.set(p.id as string, String(p.unit ?? "").toLowerCase());
       pname.set(p.id as string, p.name as string);
       psupplier.set(p.id as string, (p.supplier as string) || null);
       psupplierId.set(p.id as string, (p.supplier_id as string) || null);
@@ -251,9 +255,40 @@ async function createPOForLines(
         description: `${base}${dims}`,
         quantity: round(lineQty(l)),
         unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
-        unit_cost:
-          (l.product_id ? cost.get(l.product_id) : undefined) ??
-          (Number(l.material_cost) || Number(l.material_rate) || 0),
+        /**
+         * The catalog rate is only usable when it is PER THE SAME UNIT as the
+         * quantity we're ordering.
+         *
+         * This took the catalog price whenever the line had a product, with no
+         * check on units. Sika 5800 adhesive is priced per pail (unit "each",
+         * $109.99); the estimate line measures 639 SQ FT of floor to glue. The
+         * PO multiplied the two and ordered $70,283.61 of adhesive on a job
+         * that needs about $128 of it — sitting in a draft, one click from a
+         * supplier.
+         *
+         * When the units disagree, the line's own cost is the right one: it was
+         * priced against this very quantity, so the two always agree.
+         */
+        unit_cost: (() => {
+          const lineUnit = String(
+            l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+          )
+            .toLowerCase()
+            .replace(/\s+/g, "");
+          const catUnit = (l.product_id ? punit.get(l.product_id) : "")?.replace(
+            /\s+/g,
+            "",
+          );
+          const catCost = l.product_id ? cost.get(l.product_id) : undefined;
+          const unitsAgree =
+            !!catUnit &&
+            (catUnit === lineUnit ||
+              // sqft/sq ft/sf all mean the same thing to a supplier.
+              (["sqft", "sf"].includes(catUnit) && ["sqft", "sf"].includes(lineUnit)) ||
+              (["sqyd", "sy"].includes(catUnit) && ["sqyd", "sy"].includes(lineUnit)));
+          const ownCost = Number(l.material_cost) || Number(l.material_rate) || 0;
+          return unitsAgree && catCost != null ? catCost : ownCost;
+        })(),
         manufacturer: l.manufacturer ?? null,
         style: l.style ?? null,
         color: l.color ?? null,
