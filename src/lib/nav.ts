@@ -8,6 +8,7 @@ import {
   Settings,
   ShoppingCart,
   ClipboardList,
+  FileText,
   Warehouse,
   Boxes,
   Layers,
@@ -90,6 +91,12 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Users,
     items: [
       { label: "Customers", href: "/customers", icon: Users, roles: SALES_VIEW },
+      /**
+       * Estimates had NO sidebar link. The list, and the "New estimate" button
+       * on it, could only be reached by opening a customer first — which is why
+       * the customer list became the only way to start anything.
+       */
+      { label: "Estimates", href: "/estimates", icon: FileText, roles: SALES },
       { label: "Pipeline", href: "/pipeline", icon: Route, roles: OFFICE_PLUS },
       { label: "Samples", href: "/samples", icon: Layers, roles: SALES_VIEW },
       { label: "Saved for later", href: "/saved", icon: Bookmark, roles: SALES },

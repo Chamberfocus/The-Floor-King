@@ -1217,6 +1217,39 @@ export async function searchCustomersForCopy(
 
 /** Copy a whole estimate (every option + line) to a NEW estimate for a chosen client. */
 /** A customer's saved service addresses, for the copy dialog's picker. */
+/**
+ * What a customer already has, for starting the NEXT piece of work.
+ *
+ * Repeat work is the normal case — Pamela Haba wants another room, a landlord
+ * wants the next unit — and the answer was always "go to the customer list,
+ * find them, open them, then look for a button". This gives the estimates page
+ * everything it needs to start without leaving.
+ */
+export async function customerWorkContext(customerId: string): Promise<{
+  sourceOk: boolean;
+  estimates: { id: string; title: string; status: string; createdAt: string }[];
+}> {
+  if (!customerId) return { sourceOk: false, estimates: [] };
+  await requireProfile();
+  const { ok } = await getCustomerSourceStatus(customerId);
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("estimates")
+    .select("id, title, status, created_at")
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false })
+    .limit(6);
+  return {
+    sourceOk: ok,
+    estimates: (data ?? []).map((e) => ({
+      id: e.id as string,
+      title: (e.title as string) || "Estimate",
+      status: e.status as string,
+      createdAt: e.created_at as string,
+    })),
+  };
+}
+
 export async function serviceAddressesForCustomer(customerId: string): Promise<
   { id: string; label: string | null; street: string | null; city: string | null; state: string | null; zip: string | null }[]
 > {

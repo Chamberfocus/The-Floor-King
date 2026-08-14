@@ -3,13 +3,13 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
-import { listCustomers } from "@/lib/data/customers";
+import { listLeadSources } from "@/lib/data/lead-sources";
 import { StartEstimate } from "../start-estimate";
 
 export const metadata: Metadata = { title: "New estimate" };
 
 export default async function StartEstimatePage() {
-  const customers = await listCustomers();
+  const sources = await listLeadSources();
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -21,16 +21,11 @@ export default async function StartEstimatePage() {
       </Link>
       <PageHeader
         title="New estimate"
-        description="Pick the customer, then build it with the Wizard or a Quick estimate."
+        description="Find the customer, then start it — guided questionnaire, straight into the builder, or a copy of what you quoted them before."
       />
       <Card>
         <CardContent className="pt-6">
-          <StartEstimate
-            customers={customers.map((c) => ({
-              id: c.id,
-              full_name: c.full_name,
-            }))}
-          />
+          <StartEstimate sources={sources} />
         </CardContent>
       </Card>
     </div>
