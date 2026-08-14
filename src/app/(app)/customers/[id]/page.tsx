@@ -1072,7 +1072,7 @@ export default async function CustomerPage({
         <TabGrid>
         {/* Left: contact & property (its own tab — Overview stays a summary) */}
         <TabColumn show={["contact"]} className="space-y-6">
-          <TabSection tab="contact">
+          <TabSection tab="contact" overview={false}>
             {customer.qualified ? (
               <Card>
                 <CardContent className="flex items-center justify-between gap-3 py-4">
@@ -1093,11 +1093,11 @@ export default async function CustomerPage({
             ) : null}
           </TabSection>
 
-          <TabSection tab="contact">
+          <TabSection tab="contact" overview={false}>
             <CustomerInfoCard customer={customer} sources={leadSources} />
           </TabSection>
 
-          <TabSection tab="contact">
+          <TabSection tab="contact" overview={false}>
             <PropertyCard
               customer={customer}
               hasMaps={!!process.env.GOOGLE_MAPS_API_KEY}
@@ -1105,7 +1105,7 @@ export default async function CustomerPage({
             />
           </TabSection>
 
-          <TabSection tab="contact">
+          <TabSection tab="contact" overview={false}>
             <ServiceAddressesCard
               customerId={customer.id}
               addresses={serviceAddresses}
