@@ -109,6 +109,9 @@ export const NAV_GROUPS: NavGroup[] = [
       // lives under Money and is admin/office only — so the sales team, the
       // people actually stood in front of a customer, could never reach it.
       { label: "Quick order", href: "/quick-order", icon: ShoppingBag, roles: SALES_VIEW },
+      // Cash & carry at the desk: a paid invoice against a real customer, which
+      // is what a walk-in sale is. Previously it had nowhere to go at all.
+      { label: "Counter sale", href: "/counter-sale", icon: Receipt, roles: SALES },
     ],
   },
   {
