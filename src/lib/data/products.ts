@@ -243,13 +243,52 @@ export async function searchCatalogWith(
    */
   if (supabase.rpc) {
     try {
-      const { data, error } = await supabase.rpc("search_products", {
-        q: query,
-        lim: displayLimit,
-        include_labor: !!opts.includeLabor,
-        active_only: opts.activeOnly !== false,
-      });
-      if (!error && Array.isArray(data)) return data as Product[];
+      /**
+       * A token can name a CATEGORY rather than appear in any product's text.
+       * "cushion" returns nothing on words alone — the catalog's 102 padding
+       * products are named "Underlayment", "Moisture Block", "Quiet Walk". The
+       * function searches text; the category match is added here so both count.
+       */
+      const cats = [
+        ...new Set(tokens.map(tokenCategory).filter(Boolean) as string[]),
+      ];
+      const [byText, byCat] = await Promise.all([
+        supabase.rpc("search_products", {
+          q: query,
+          lim: displayLimit,
+          include_labor: !!opts.includeLabor,
+          active_only: opts.activeOnly !== false,
+        }),
+        cats.length
+          ? (() => {
+              let cq = supabase
+                .from("products")
+                .select("*")
+                .in("category", cats)
+                .order("name", { ascending: true })
+                .limit(displayLimit * 4);
+              if (opts.activeOnly !== false) cq = cq.eq("active", true);
+              return cq;
+            })()
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (!byText.error && Array.isArray(byText.data)) {
+        const seen = new Set<string>();
+        const merged: Product[] = [];
+        for (const p of byText.data as Product[]) {
+          if (seen.has(p.id)) continue;
+          seen.add(p.id);
+          merged.push(p);
+        }
+        // Category hits fill in behind the text matches, ranked against the
+        // words that AREN'T the category name ("8lb" in "8lb cushion").
+        const rest = tokens.filter((tk) => !tokenCategory(tk));
+        const catRows = ((byCat.data ?? []) as Product[]).filter(
+          (p) => !seen.has(p.id) && (opts.includeLabor || p.category !== "labor"),
+        );
+        merged.push(...(rest.length ? rankProducts(catRows, rest) : catRows));
+        return merged.slice(0, displayLimit);
+      }
     } catch {
       // Falls through to the original path — see below.
     }
