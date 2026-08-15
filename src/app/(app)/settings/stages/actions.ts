@@ -23,7 +23,7 @@ function slaHours(formData: FormData): number {
 
 function refresh() {
   revalidatePath("/settings/stages");
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
 }
 
 /**
@@ -114,7 +114,7 @@ export async function resyncAllStages(): Promise<{
 
   revalidatePath("/dashboard");
   revalidatePath("/customers");
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   revalidatePath("/settings/stages");
   return { ok: true, synced, assigned };
 }

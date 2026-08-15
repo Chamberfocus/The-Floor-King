@@ -97,7 +97,12 @@ export const NAV_GROUPS: NavGroup[] = [
        * the customer list became the only way to start anything.
        */
       { label: "Estimates", href: "/estimates", icon: FileText, roles: SALES },
-      { label: "Pipeline", href: "/pipeline", icon: Route, roles: OFFICE_PLUS },
+      /**
+       * Was "Pipeline", listing the same customers under thirteen stage
+       * headings. Same information, folded into six lanes that each say what
+       * happens next — the shape the jobs board already uses and reads better.
+       */
+      { label: "Client status", href: "/client-status", icon: Route, roles: SALES_VIEW },
       { label: "Samples", href: "/samples", icon: Layers, roles: SALES_VIEW },
       { label: "Saved for later", href: "/saved", icon: Bookmark, roles: SALES },
       // The customer order link. It already existed on Customer Orders, which

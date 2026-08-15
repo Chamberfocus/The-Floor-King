@@ -146,8 +146,8 @@ export default async function JobsPage({
           isCrew
             ? "Your assigned jobs."
             : mine
-              ? "Jobs on your customers — by where each one is in its lifecycle."
-              : "Every job by where it is in its lifecycle."
+              ? "Sold work on your customers, from scheduling through to done. Client status covers everything before this."
+              : "Sold work, from scheduling through to done. Client status covers everything before this."
         }
       >
         <div className="flex gap-2">

@@ -157,7 +157,7 @@ async function revalidateEstimateStaffViews(
     .maybeSingle();
   revalidatePath(`/estimates/${estimateId}`);
   revalidatePath("/estimates");
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   revalidatePath("/dashboard");
   if (e?.customer_id) revalidatePath(`/customers/${e.customer_id}`);
 }

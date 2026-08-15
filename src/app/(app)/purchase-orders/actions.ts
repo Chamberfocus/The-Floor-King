@@ -885,7 +885,7 @@ export async function applyPoStatus(
     // reads as though the order still hasn't been placed.
     if (cur?.customer_id) {
       await advanceToNamedStage(cur.customer_id as string, STAGE_AWAITING_MATERIALS);
-      revalidatePath("/pipeline");
+      revalidatePath("/client-status");
       revalidatePath("/dashboard");
     }
   }
@@ -896,7 +896,7 @@ export async function applyPoStatus(
   // "arrived" and the warehouse/job page show it.
   if (prev !== "received" && status === "received" && cur?.customer_id) {
     await advanceToNamedStage(cur.customer_id as string, STAGE_MATERIALS_RECEIVED);
-    revalidatePath("/pipeline");
+    revalidatePath("/client-status");
     revalidatePath("/dashboard");
     revalidatePath("/installer");
     if (cur.job_id) revalidatePath(`/jobs/${cur.job_id}`);

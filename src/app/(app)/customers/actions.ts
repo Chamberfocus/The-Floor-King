@@ -146,7 +146,7 @@ function refreshCustomerViews(id?: string) {
   revalidatePath("/customers");
   revalidatePath("/leads");
   revalidatePath("/dashboard");
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   // Anything that changes a customer can change the money picture too.
   revalidatePath("/pulse");
   revalidatePath("/financials");
@@ -483,7 +483,7 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
   }
 
   refreshCustomerViews(id);
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   // Redirect back so the command-center form closes and the new stage shows.
   redirect(redirectTo ?? `/customers/${id}`);
 }
@@ -561,7 +561,7 @@ export async function overrideAdvanceWorkflow(formData: FormData): Promise<void>
   });
 
   refreshCustomerViews(id);
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   redirect(redirectTo ?? `/customers/${id}`);
 }
 
@@ -760,7 +760,7 @@ export async function cancelCustomer(formData: FormData): Promise<void> {
   });
 
   refreshCustomerViews(id);
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   revalidatePath("/dashboard");
   // The crew-facing views the customer refresh never covered.
   revalidatePath("/jobs");
@@ -812,7 +812,7 @@ export async function reopenCustomer(formData: FormData): Promise<void> {
   });
 
   refreshCustomerViews(id);
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   redirect(`/customers/${id}`);
 }
 

@@ -115,7 +115,7 @@ export async function createQuickInstall(
   revalidatePath("/install-scheduler");
   revalidatePath("/warehouse");
   revalidatePath("/jobs/calendar");
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   revalidatePath("/dashboard");
   return { error: null, ok: true, jobId: job.id as string };
 }

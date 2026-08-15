@@ -306,7 +306,7 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
       } = await supabase.auth.getUser();
       await ensureJobForEstimate(id, user?.id ?? null);
     }
-    revalidatePath("/pipeline");
+    revalidatePath("/client-status");
     revalidatePath("/dashboard");
     revalidatePath("/jobs");
     if (ec?.customer_id) revalidatePath(`/customers/${ec.customer_id}`);
@@ -660,7 +660,7 @@ export async function onEstimateDeclined(
     .from("customers")
     .update({ stage: "lost", next_action_due: null })
     .eq("id", customerId);
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   revalidatePath("/dashboard");
   revalidatePath(`/customers/${customerId}`);
 }
@@ -800,7 +800,7 @@ export async function unapproveEstimate(
   revalidatePath("/estimates");
   revalidatePath("/jobs");
   revalidatePath("/board");
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   revalidatePath("/dashboard");
   revalidatePath("/purchase-orders");
   revalidatePath("/inventory");
@@ -1146,7 +1146,7 @@ export async function sendEstimateById(
 
   revalidatePath(`/estimates/${id}`);
   revalidatePath("/estimates");
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   revalidatePath("/dashboard");
 }
 

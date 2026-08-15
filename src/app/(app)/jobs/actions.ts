@@ -158,7 +158,7 @@ function revalidateJobEverywhere(id: string, customerId?: string | null): void {
     "/install-scheduler",
     "/warehouse",
     "/board",
-    "/pipeline",
+    "/client-status",
     "/dashboard",
   ]) {
     revalidatePath(p);

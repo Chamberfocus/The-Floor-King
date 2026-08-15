@@ -332,7 +332,7 @@ export async function confirmRequest(formData: FormData): Promise<void> {
   }
   revalidatePath("/calendar");
   revalidatePath("/schedule");
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   revalidatePath("/dashboard");
 }
 

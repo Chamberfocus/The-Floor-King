@@ -227,7 +227,7 @@ export async function bookEstimateAppointment(formData: FormData): Promise<void>
   await advanceFromAutoAction(customerId, "schedule_estimate");
 
   revalidatePath(`/customers/${customerId}`);
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   revalidatePath("/dashboard");
   revalidatePath("/schedule");
   revalidatePath("/calendar");

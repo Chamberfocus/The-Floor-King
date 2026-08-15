@@ -57,7 +57,7 @@ const JOB_STATUSES = [
 const NAV_PREFIXES = [
   "/customers", "/jobs", "/estimates", "/calendar", "/schedule", "/catalog",
   "/purchase-orders", "/invoices", "/board", "/inventory", "/pulse",
-  "/dashboard", "/reports", "/warehouse", "/pipeline",
+  "/dashboard", "/reports", "/warehouse", "/client-status",
 ];
 
 /** Pull the first JSON object out of the model's reply, tolerantly. */
@@ -305,7 +305,7 @@ export async function runAssistantAction(
       revalidatePath(`/jobs/${safe.jobId}`);
       revalidatePath("/jobs");
       revalidatePath("/calendar");
-      revalidatePath("/pipeline");
+      revalidatePath("/client-status");
       revalidatePath("/dashboard");
       const when = new Date(safe.date + "T00:00:00").toLocaleDateString("en-US", {
         weekday: "short", month: "short", day: "numeric",
@@ -342,7 +342,7 @@ export async function runAssistantAction(
         .eq("id", safe.customerId);
       if (error) return { ok: false, message: error.message };
       revalidatePath(`/customers/${safe.customerId}`);
-      revalidatePath("/pipeline");
+      revalidatePath("/client-status");
       const when = new Date(safe.date + "T00:00:00").toLocaleDateString("en-US", {
         weekday: "short", month: "short", day: "numeric",
       });

@@ -87,7 +87,7 @@ export async function qualifyAndAssign(formData: FormData): Promise<void> {
   await moveToAutoActionStage(customerId, "schedule_estimate");
 
   revalidatePath(`/customers/${customerId}`);
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   redirect(`/customers/${customerId}`);
 }
 

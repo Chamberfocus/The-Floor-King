@@ -257,7 +257,7 @@ export async function carryOverDeal(
   if (!isSold) {
     // Open quote — done. Lands in the pipeline.
     revalidatePath("/estimates");
-    revalidatePath("/pipeline");
+    revalidatePath("/client-status");
     revalidatePath(`/customers/${customerId}`);
     revalidatePath("/customers");
     return { error: null, ok: true, customerId };
@@ -361,7 +361,7 @@ export async function carryOverDeal(
   revalidatePath("/board");
   revalidatePath("/invoices");
   revalidatePath("/estimates");
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   revalidatePath("/pulse");
   return { error: null, ok: true, customerId };
 }

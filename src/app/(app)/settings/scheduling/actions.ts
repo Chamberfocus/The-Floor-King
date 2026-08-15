@@ -36,7 +36,7 @@ function revalidateSchedulingConsumers(): void {
     "/team",
     "/warehouse", // arrival windows on staging
     "/dashboard",
-    "/pipeline",
+    "/client-status",
   ]) {
     revalidatePath(p);
   }

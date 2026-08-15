@@ -141,6 +141,6 @@ export async function submitBookingRequest(input: {
   // and pipeline right away (staff otherwise only get the email).
   revalidatePath("/calendar");
   revalidatePath("/customers");
-  revalidatePath("/pipeline");
+  revalidatePath("/client-status");
   return { error: null, ok: true };
 }
