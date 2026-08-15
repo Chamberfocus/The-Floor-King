@@ -4,6 +4,7 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { deleteJob } from "@/app/(app)/jobs/actions";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
+import { JobChecklist } from "@/components/job-checklist";
 import type { JobProgress } from "@/lib/data/job-checklists";
 
 /**
@@ -31,6 +32,38 @@ export function JobRollUp({
 }) {
   if (!jobs.length) return null;
   const multiple = jobs.length > 1;
+
+  /**
+   * One job — which is 39 of 40 accounts — gets the FULL checklist here.
+   *
+   * Splitting the checklist onto the job page fixed the two-job case and broke
+   * the ordinary one: opening a customer stopped showing the steps and left a
+   * progress bar with "Next: …". The list IS the thing you work from. Only when
+   * there is genuinely more than one job does it collapse to a card each, and
+   * even then every card opens onto its own full list.
+   */
+  if (!multiple) {
+    const only = jobs[0];
+    return (
+      <div className="space-y-3">
+        <JobChecklist
+          steps={only.steps}
+          stageName={stageName}
+          stagePosition={stagePosition}
+          stageTotal={stageTotal}
+          ownerName={ownerName}
+        />
+        {only.jobId ? (
+          <Link
+            href={`/jobs/${only.jobId}`}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full")}
+          >
+            <Wrench className="size-3.5" /> Open the work order
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border">
@@ -146,6 +179,18 @@ export function JobRollUp({
                   ) : null}
                 </span>
               </div>
+
+              {/* The steps, right here — a card that only says "8 of 14" makes
+                  you open the job to find out which eight. */}
+              <details className="group/steps mt-2">
+                <summary className="cursor-pointer list-none text-xs font-medium text-primary hover:underline">
+                  <span className="group-open/steps:hidden">Show the steps</span>
+                  <span className="hidden group-open/steps:inline">Hide the steps</span>
+                </summary>
+                <div className="mt-2">
+                  <JobChecklist steps={j.steps} />
+                </div>
+              </details>
             </li>
           );
         })}
