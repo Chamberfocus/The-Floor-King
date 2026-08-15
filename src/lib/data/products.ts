@@ -121,9 +121,24 @@ const CATEGORY_VALUES = [
 ] as const;
 const CATEGORY_SYNONYMS: Record<string, string> = {
   pad: "underlayment",
+  pads: "underlayment",
   padding: "underlayment",
+  // What the trade says vs what the catalog says. "cushion" returned nothing.
+  cushion: "underlayment",
+  cushions: "underlayment",
+  underlay: "underlayment",
   plank: "lvp",
+  planks: "lvp",
+  vinyl: "lvp",
+  lvt: "lvp",
   wood: "hardwood",
+  timber: "hardwood",
+  ceramic: "tile",
+  porcelain: "tile",
+  molding: "trim",
+  moulding: "trim",
+  transition: "trim",
+  transitions: "trim",
 };
 /** The category a search token names (exact/prefix or synonym), else null. */
 function tokenCategory(token: string): string | null {
@@ -209,16 +224,39 @@ export async function searchCatalog(
  */
 export async function searchCatalogWith(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: { from: (t: string) => any },
+  supabase: { from: (t: string) => any; rpc?: (fn: string, args: object) => any },
   query: string,
   opts: { activeOnly?: boolean; limit?: number; includeLabor?: boolean } = {},
 ): Promise<Product[]> {
   const displayLimit = opts.limit ?? 50;
   const tokens = query.trim().split(/\s+/).filter(Boolean);
-  // Gather a broad candidate pool, then RANK by relevance and slice — so the best
-  // matches surface (name matches first), not just the alphabetical first-N. This
-  // is the fix for "the item I know is there doesn't come up": ordering by name +
-  // a small limit hid matches; ranking + a bigger pool brings them to the top.
+
+  /**
+   * Search and rank in Postgres, where the trigram index can be used.
+   *
+   * The old path below ORed an ILIKE across six columns per token, pulled 400
+   * rows back and ranked them here. That cost 200-430ms on 13,574 products and,
+   * worse, ANDed the tokens as literal substrings — so "cushion", "1/2 8lb" and
+   * "anso nylon" all returned nothing at all. search_products does strict
+   * matching first and falls back to similarity rather than showing an empty
+   * list. (Migration 0143.)
+   */
+  if (supabase.rpc) {
+    try {
+      const { data, error } = await supabase.rpc("search_products", {
+        q: query,
+        lim: displayLimit,
+        include_labor: !!opts.includeLabor,
+        active_only: opts.activeOnly !== false,
+      });
+      if (!error && Array.isArray(data)) return data as Product[];
+    } catch {
+      // Falls through to the original path — see below.
+    }
+  }
+
+  // Fallback: the pre-0143 behaviour, so the picker still works on a database
+  // where the migration hasn't been run yet.
   const pool = tokens.length ? Math.max(displayLimit * 8, 400) : displayLimit;
   let q = supabase
     .from("products")
@@ -228,10 +266,6 @@ export async function searchCatalogWith(
   if (opts.activeOnly) q = q.eq("active", true);
   for (const token of tokens) {
     const like = likePattern(token);
-    // Each token: OR across the text columns; if the token names a category,
-    // also match products of that category (eq — enums can't be ilike'd).
-    // Every spelling of the token, ORed together — so "1/2" also matches 0.5
-    // and "8" also matches 8lb.
     const parts: string[] = [];
     for (const alias of tokenAliases(token)) {
       const pat = alias === token ? like : likePattern(alias);
@@ -242,14 +276,13 @@ export async function searchCatalogWith(
     q = q.or(parts.join(","));
   }
   const { data } = await q;
-  // Labor filtered in memory, same reason as listProducts — the picker searches
-  // materials, and a <> on the category column only slows the query down.
   const rows = ((data ?? []) as Product[]).filter(
     (p) => opts.includeLabor || p.category !== "labor",
   );
   if (!tokens.length) return rows.slice(0, displayLimit);
   return rankProducts(rows, tokens).slice(0, displayLimit);
 }
+
 
 /**
  * Relevance rank: matches in the NAME beat matches in other fields, a name that
