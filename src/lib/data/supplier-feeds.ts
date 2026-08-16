@@ -7,6 +7,11 @@ import {
   priceFromResponse,
   type CatalogPriceRow,
 } from "@/lib/fcb2b";
+import { fetchNewCatalogs, type SftpTarget } from "@/lib/sftp-832";
+import type { ImportLine } from "@/lib/price-import";
+
+export { isSafeToApply, costSwing } from "@/lib/price-import";
+export type { ImportLine } from "@/lib/price-import";
 
 /**
  * Supplier price feeds — getting a supplier's costs into our catalog.
@@ -22,14 +27,22 @@ type DB = Awaited<ReturnType<typeof createClient>>;
 
 export type FeedKind = "fcb2b_rest" | "fcb2b_832" | "file" | "manual";
 
+/** How a catalog reaches us: someone uploads it, or we poll their mailbox. */
+export type FeedTransport = "upload" | "sftp";
+
 export interface SupplierFeed {
   id: string;
   supplier_id: string;
   kind: FeedKind;
+  transport: FeedTransport;
   client_identifier: string | null;
   endpoint_url: string | null;
   credential_key: string | null;
   price_service_path: string | null;
+  sftp_host: string | null;
+  sftp_port: number | null;
+  sftp_username: string | null;
+  sftp_remote_path: string | null;
   cadence_days: number | null;
   last_success_at: string | null;
   last_error: string | null;
@@ -38,7 +51,7 @@ export interface SupplierFeed {
 }
 
 const FEED_COLUMNS =
-  "id, supplier_id, kind, client_identifier, endpoint_url, credential_key, price_service_path, cadence_days, last_success_at, last_error, active, notes";
+  "id, supplier_id, kind, transport, client_identifier, endpoint_url, credential_key, price_service_path, sftp_host, sftp_port, sftp_username, sftp_remote_path, cadence_days, last_success_at, last_error, active, notes";
 
 /** The path to call for prices when the supplier hasn't named a different one. */
 export const DEFAULT_PRICE_SERVICE = "/priceinquiry";
@@ -416,6 +429,108 @@ export async function fetchPricesOverRest(
   };
 }
 
+/* ---------------------------------------------------------------------------
+ * SFTP mailboxes
+ * ------------------------------------------------------------------------ */
+
+export interface SftpRunResult {
+  /** One staged import per new catalog file. */
+  imports: { importId: string; fileName: string; changed: number; matched: number }[];
+  filesSeen: number;
+  warnings: string[];
+  error: string | null;
+}
+
+/** Build the connection target, pulling the password out of the environment. */
+export function sftpTargetFor(feed: SupplierFeed): SftpTarget {
+  return {
+    host: feed.sftp_host ?? "",
+    port: feed.sftp_port ?? 22,
+    username: feed.sftp_username ?? "",
+    password: (feed.credential_key && process.env[feed.credential_key]) || "",
+    remotePath: feed.sftp_remote_path,
+  };
+}
+
+/**
+ * Poll a supplier's SFTP mailbox and stage every new catalog it holds.
+ *
+ * Each file becomes its OWN draft import. A mill that changed prices three
+ * times this week sent three files, and collapsing them into one review would
+ * hide which change came from which agreement update.
+ */
+export async function collectCatalogsOverSftp(
+  db: DB,
+  feed: SupplierFeed,
+  supplierName: string,
+  createdBy?: string | null,
+): Promise<SftpRunResult> {
+  const { data: had } = await db
+    .from("supplier_feed_files")
+    .select("file_name")
+    .eq("feed_id", feed.id);
+  const alreadyHave = new Set(((had ?? []) as { file_name: string }[]).map((f) => f.file_name));
+
+  const fetched = await fetchNewCatalogs(sftpTargetFor(feed), alreadyHave);
+  if (fetched.error) {
+    return { imports: [], filesSeen: fetched.seen, warnings: fetched.warnings, error: fetched.error };
+  }
+
+  const imports: SftpRunResult["imports"] = [];
+  const warnings = [...fetched.warnings];
+
+  for (const file of fetched.files) {
+    const read = readCatalogFile(file.text, file.name);
+    warnings.push(...read.warnings.map((w) => `${file.name}: ${w}`));
+    if (read.error) {
+      warnings.push(`${file.name}: ${read.error}`);
+      // Still record it — otherwise every poll re-downloads a file we can't read.
+      await db.from("supplier_feed_files").insert({
+        feed_id: feed.id,
+        file_name: file.name,
+        file_size: file.size,
+        remote_mtime: file.modifiedAt,
+      });
+      continue;
+    }
+
+    const staged = await stagePriceImport(db, {
+      supplierId: feed.supplier_id,
+      kind: "fcb2b_832",
+      sourceName: file.name,
+      effectiveDate: read.effectiveDate,
+      rows: read.rows,
+      createdBy: createdBy ?? null,
+      warnings: read.warnings,
+    });
+    warnings.push(...staged.warnings.map((w) => `${file.name}: ${w}`));
+
+    await db.from("supplier_feed_files").insert({
+      feed_id: feed.id,
+      file_name: file.name,
+      file_size: file.size,
+      remote_mtime: file.modifiedAt,
+      import_id: staged.importId,
+    });
+
+    if (staged.importId) {
+      imports.push({
+        importId: staged.importId,
+        fileName: file.name,
+        changed: staged.changed,
+        matched: staged.matched,
+      });
+    }
+  }
+
+  return {
+    imports,
+    filesSeen: fetched.seen,
+    warnings,
+    error: null,
+  };
+}
+
 /** Record how a fetch went, so a feed that quietly died is visible. */
 export async function recordFeedRun(
   db: DB,
@@ -435,19 +550,6 @@ export async function recordFeedRun(
 /* ==========================================================================
  * Review and apply
  * ======================================================================== */
-
-export interface ImportLine {
-  id: string;
-  supplier_sku: string | null;
-  description: string | null;
-  new_cost: number | null;
-  uom: string | null;
-  product_id: string | null;
-  old_cost: number | null;
-  match_kind: string | null;
-  applied: boolean;
-  raw: Record<string, unknown> | null;
-}
 
 export interface PriceImport {
   id: string;
@@ -494,25 +596,6 @@ export async function listPriceImports(
     .order("created_at", { ascending: false })
     .limit(limit);
   return (data ?? []) as PriceImport[];
-}
-
-/** Would applying this line move a cost, and is it safe to do unattended? */
-export function isSafeToApply(l: ImportLine): boolean {
-  const raw = l.raw ?? {};
-  return (
-    l.match_kind === "exact" &&
-    l.product_id != null &&
-    l.new_cost != null &&
-    l.new_cost !== l.old_cost &&
-    raw.uom_mismatch !== true &&
-    raw.list_price !== true
-  );
-}
-
-/** How big a jump this is, as a fraction (0.25 = 25% up). Null if unknowable. */
-export function costSwing(l: ImportLine): number | null {
-  if (l.old_cost == null || l.new_cost == null || l.old_cost === 0) return null;
-  return (l.new_cost - l.old_cost) / l.old_cost;
 }
 
 export interface ApplyResult {
@@ -608,15 +691,20 @@ export async function discardPriceImport(
   return { error: error?.message ?? null };
 }
 
+/** Can this feed be collected without a person? */
+export function isPollable(feed: SupplierFeed): boolean {
+  return feed.transport === "sftp" || feed.kind === "fcb2b_rest";
+}
+
 /** Active feeds whose cadence says they're due for a pull. */
 export async function feedsDue(db: DB): Promise<(SupplierFeed & { supplier_name: string })[]> {
   const { data } = await db
     .from("supplier_feeds")
     .select(`${FEED_COLUMNS}, suppliers ( name )`)
-    .eq("active", true)
-    .eq("kind", "fcb2b_rest");
+    .eq("active", true);
   const out: (SupplierFeed & { supplier_name: string })[] = [];
   for (const row of (data ?? []) as unknown as (SupplierFeed & { suppliers: { name: string } | null })[]) {
+    if (!isPollable(row)) continue;
     const cadence = row.cadence_days ?? 0;
     if (cadence <= 0) continue; // no cadence = pull by hand only
     if (row.last_success_at) {

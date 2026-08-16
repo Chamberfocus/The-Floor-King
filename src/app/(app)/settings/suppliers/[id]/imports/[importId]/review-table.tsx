@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { AlertTriangle, ArrowRight, Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { costSwing, isSafeToApply, type ImportLine } from "@/lib/data/supplier-feeds";
+import { costSwing, isSafeToApply, type ImportLine } from "@/lib/price-import";
 import { applyImport, discardImport } from "./actions";
 
 /** Costs are held to 4 decimals — a per-sq-ft price rounded to cents is wrong. */

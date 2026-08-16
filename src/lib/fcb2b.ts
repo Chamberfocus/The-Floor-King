@@ -336,6 +336,17 @@ export function parse832(raw: string): Parsed832 {
         break;
       }
 
+      case "MEA": {
+        // Measurements. Broadloom carries roll width and standard length here;
+        // which qualifiers a mill uses varies, so keep them all and interpret
+        // downstream rather than guessing at parse time.
+        if (!cur) break;
+        const list = (cur.raw.measurements as unknown[]) ?? [];
+        list.push({ qualifier: (el[2] ?? "").toUpperCase(), value: num(el[3]), uom: (el[4] ?? "").split(sep.component)[0] ?? "" });
+        cur.raw.measurements = list;
+        break;
+      }
+
       case "DTM": {
         // 007 = effective, 008 = purchase order, 036 = expiration.
         const d = x12Date(el[2]);

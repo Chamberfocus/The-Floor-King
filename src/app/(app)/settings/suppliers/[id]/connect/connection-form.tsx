@@ -8,11 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { FeedKind, SupplierFeed } from "@/lib/data/supplier-feeds";
+import type { FeedKind, FeedTransport, SupplierFeed } from "@/lib/data/supplier-feeds";
 import {
   fetchPricesNow,
+  pullFromSftp,
   saveFeedConnection,
   testFeedConnection,
+  testSftpConnection,
   uploadCatalogFile,
   type FeedState,
 } from "./actions";
@@ -56,6 +58,7 @@ export function ConnectionForm({
   const [state, action, pending] = useActionState(saveFeedConnection, initial);
   const [upload, uploadAction, uploading] = useActionState(uploadCatalogFile, initial);
   const [kind, setKind] = useState<FeedKind>(feed?.kind ?? "fcb2b_rest");
+  const [transport, setTransport] = useState<FeedTransport>(feed?.transport ?? "sftp");
   const [busy, startBusy] = useTransition();
   const [probe, setProbe] = useState<string | null>(null);
 
@@ -90,6 +93,8 @@ export function ConnectionForm({
 
   const rest = kind === "fcb2b_rest";
   const file832 = kind === "fcb2b_832";
+  const sftp = file832 && transport === "sftp";
+  const pollable = rest || sftp;
   const active = KINDS.find((k) => k.value === kind);
 
   return (
@@ -121,6 +126,86 @@ export function ConnectionForm({
               </select>
               <p className="text-xs text-muted-foreground">{active?.hint}</p>
             </div>
+
+            {file832 ? (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+                <Label htmlFor="transport" className="text-sm font-semibold">
+                  How does the file reach us?
+                </Label>
+                <select
+                  id="transport"
+                  name="transport"
+                  value={transport}
+                  onChange={(e) => setTransport(e.target.value as FeedTransport)}
+                  className={`${fieldClass} mt-1.5`}
+                >
+                  <option value="sftp">We collect it from their SFTP mailbox</option>
+                  <option value="upload">Someone uploads it here</option>
+                </select>
+                {transport === "sftp" ? (
+                  <>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                      <div className="space-y-1.5 sm:col-span-2">
+                        <Label htmlFor="sftp_host">SFTP host</Label>
+                        <Input
+                          id="sftp_host"
+                          name="sftp_host"
+                          placeholder="shawedi.shawfloors.com"
+                          defaultValue={feed?.sftp_host ?? ""}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="sftp_port">Port</Label>
+                        <Input
+                          id="sftp_port"
+                          name="sftp_port"
+                          type="number"
+                          min="1"
+                          placeholder="22"
+                          defaultValue={feed?.sftp_port ?? 22}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="sftp_username">Username</Label>
+                        <Input
+                          id="sftp_username"
+                          name="sftp_username"
+                          placeholder="edi07639"
+                          defaultValue={feed?.sftp_username ?? ""}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="sftp_remote_path">Directory</Label>
+                        <Input
+                          id="sftp_remote_path"
+                          name="sftp_remote_path"
+                          placeholder="leave blank for the home directory"
+                          defaultValue={feed?.sftp_remote_path ?? ""}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-1.5">
+                      <Label htmlFor="credential_key" className="flex items-center gap-1.5">
+                        <KeyRound className="size-3.5" /> Password env var
+                      </Label>
+                      <Input
+                        id="credential_key"
+                        name="credential_key"
+                        placeholder="SHAW_SFTP_PASSWORD"
+                        defaultValue={feed?.credential_key ?? ""}
+                        className="font-mono"
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      The <em>name</em> of the Vercel environment variable holding the SFTP
+                      password — never the password itself, and never in the database.
+                    </p>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
 
             {rest ? (
               <>
@@ -199,12 +284,12 @@ export function ConnectionForm({
                   min="0"
                   placeholder="7"
                   defaultValue={feed?.cadence_days ?? ""}
-                  disabled={!rest}
+                  disabled={!pollable}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {rest
-                    ? "The nightly job pulls prices this often and emails you when anything changed. Blank or 0 = only when you ask."
-                    : "Scheduled pulls need a live web-service connection."}
+                  {pollable
+                    ? "The nightly job collects this often and emails you when anything changed. Blank or 0 = only when you ask."
+                    : "Scheduled pulls need a live web-service or SFTP connection."}
                 </p>
               </div>
               <div className="space-y-1.5">
@@ -244,6 +329,33 @@ export function ConnectionForm({
               </Button>
             </div>
           </form>
+
+          {sftp && feed ? (
+            <div className="mt-4 flex flex-wrap gap-2 border-t pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => run(() => testSftpConnection(supplierId), "Signed in")}
+              >
+                <PlugZap className="size-4" /> Test SFTP login
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => run(() => pullFromSftp(supplierId), "Mailbox checked")}
+              >
+                <RefreshCw className="size-4" /> Collect catalogs now
+              </Button>
+              {linkedWithSku === 0 ? (
+                <p className="self-center text-xs text-muted-foreground">
+                  A catalog can be read now, but it will match nothing until products are
+                  attributed to {supplierName}.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {rest && feed ? (
             <div className="mt-4 flex flex-wrap gap-2 border-t pt-4">

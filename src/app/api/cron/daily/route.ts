@@ -6,6 +6,7 @@ import { triggerImportProcessing } from "@/lib/import-worker";
 import { advanceToNamedStage } from "@/lib/workflow-engine";
 import { invoiceTotals } from "@/lib/invoice-calc";
 import {
+  collectCatalogsOverSftp,
   feedsDue,
   fetchPricesOverRest,
   recordFeedRun,
@@ -457,7 +458,57 @@ export async function GET(request: NextRequest) {
   let priceImports = 0;
   try {
     const feedDb = admin as unknown as Parameters<typeof feedsDue>[0];
+
+    /** One email per staged catalog that actually moved a price. */
+    const announce = async (
+      supplierId: string,
+      supplierName: string,
+      importId: string,
+      changed: number,
+      warnings: string[],
+      source: string,
+    ) => {
+      if (changed <= 0) return;
+      const url = `${siteUrl()}/settings/suppliers/${supplierId}/imports/${importId}`;
+      await sendEmail({
+        to: ownerEmail(),
+        subject: `${supplierName} changed ${changed} price${changed === 1 ? "" : "s"}`,
+        html: emailLayout(
+          "Supplier prices changed",
+          `<p><strong>${supplierName}</strong> sent updated pricing on
+            <strong>${changed}</strong> item${changed === 1 ? "" : "s"} we stock (${source.replace(/</g, "&lt;")}).</p>
+           <p>Nothing has changed in the catalog yet — review the list and choose what to apply.
+            Until you do, estimates keep using the costs you already have.</p>
+           ${
+             warnings.length
+               ? `<p style="color:#8a6d3b">${warnings.map((w) => w.replace(/</g, "&lt;")).join("<br>")}</p>`
+               : ""
+           }`,
+          { label: "Review the changes", url },
+        ),
+      });
+    };
+
     for (const feed of await feedsDue(feedDb)) {
+      // A mailbox we poll: every new 832 becomes its own draft.
+      if (feed.transport === "sftp") {
+        const run = await collectCatalogsOverSftp(feedDb, feed, feed.supplier_name);
+        await recordFeedRun(feedDb, feed.id, run.error);
+        if (run.error) continue;
+        for (const imp of run.imports) {
+          priceImports += 1;
+          await announce(
+            feed.supplier_id,
+            feed.supplier_name,
+            imp.importId,
+            imp.changed,
+            run.warnings,
+            imp.fileName,
+          );
+        }
+        continue;
+      }
+
       const fetched = await fetchPricesOverRest(feedDb, feed, feed.supplier_name);
       await recordFeedRun(feedDb, feed.id, fetched.error);
       if (fetched.error || !fetched.rows.length) continue;
@@ -472,28 +523,14 @@ export async function GET(request: NextRequest) {
       });
       if (!staged.importId) continue;
       priceImports += 1;
-
-      // Only worth an email when something actually moved.
-      if (staged.changed > 0) {
-        const url = `${siteUrl()}/settings/suppliers/${feed.supplier_id}/imports/${staged.importId}`;
-        await sendEmail({
-          to: ownerEmail(),
-          subject: `${feed.supplier_name} changed ${staged.changed} price${staged.changed === 1 ? "" : "s"}`,
-          html: emailLayout(
-            "Supplier prices changed",
-            `<p><strong>${feed.supplier_name}</strong> sent updated pricing on
-              <strong>${staged.changed}</strong> item${staged.changed === 1 ? "" : "s"} we stock.</p>
-             <p>Nothing has changed in the catalog yet — review the list and choose what to apply.
-              Until you do, estimates keep using the costs you already have.</p>
-             ${
-               staged.warnings.length
-                 ? `<p style="color:#8a6d3b">${staged.warnings.map((w) => w.replace(/</g, "&lt;")).join("<br>")}</p>`
-                 : ""
-             }`,
-            { label: "Review the changes", url },
-          ),
-        });
-      }
+      await announce(
+        feed.supplier_id,
+        feed.supplier_name,
+        staged.importId,
+        staged.changed,
+        staged.warnings,
+        "scheduled price inquiry",
+      );
     }
   } catch {
     /* supplier_feeds may not exist yet (migrations 0140/0145 not run) */
