@@ -119,6 +119,8 @@ interface StagedLineRow {
   old_cost: number | null;
   match_kind: string;
   applied: boolean;
+  roll_width_ft: number | null;
+  roll_length_ft: number | null;
   raw: Record<string, unknown>;
 }
 
@@ -208,6 +210,8 @@ export async function stagePriceImport(
       new_cost: newCost,
       uom: r.uom,
       applied: false,
+      roll_width_ft: r.rollWidthFt,
+      roll_length_ft: r.rollLengthFt,
       raw: {
         ...r.raw,
         price_qualifier: r.priceQualifier,

@@ -105,6 +105,9 @@ export interface CatalogPriceRow {
   /** Which price this is (their qualifier code) — net cost vs list matters. */
   priceQualifier: string | null;
   effectiveDate: string | null; // ISO yyyy-mm-dd
+  /** Broadloom roll dimensions, when the mill states them in feet. */
+  rollWidthFt: number | null;
+  rollLengthFt: number | null;
   /** Everything we saw for this item, so a bad import is diagnosable. */
   raw: Record<string, unknown>;
 }
@@ -123,6 +126,25 @@ export interface CatalogPriceRow {
  */
 export const COST_QUALIFIERS = ["NET", "UCP", "CST", "DEA", "DIS", "WHL"] as const;
 export const LIST_QUALIFIERS = ["MSR", "RES", "CAT", "LST", "SRP"] as const;
+
+/**
+ * Observed in the wild: Shaw sends every price as `LPR`, and confirmed in
+ * writing that it is "the price on the agreement that was added by your Shaw
+ * sales rep" — i.e. our negotiated cost. It is left UNRANKED rather than added
+ * to COST_QUALIFIERS, because the same three letters at another mill may well
+ * mean list price, and a wrong guess there loads retail in as cost.
+ */
+
+/**
+ * Identifiers a mill may hang the item's SKU on, best first.
+ *
+ * Shaw's 832 carries no VP at all: the style is on `ST` (and mirrored on GS,
+ * MS and UX), while `SK` inside the SLN sublines is the colour-level code. Our
+ * catalog stores STYLE numbers, and the price is quoted per style, so ST is
+ * what we match on — checked against a real file: 176 of our 177 Shaw SKUs are
+ * styles, and none are colour codes.
+ */
+const SKU_QUALIFIERS = ["ST", "GS", "MS", "UX", "VP", "SK", "BP", "UP", "IN"] as const;
 
 /**
  * X12 unit-of-measure codes → the words this app's catalog already uses.
@@ -194,6 +216,22 @@ function x12Date(v: string | undefined): string | null {
   return null;
 }
 
+/**
+ * X12 hangs identifiers off a segment as qualifier/value PAIRS.
+ *
+ * `from` differs by segment — LIN starts them at element 2, SLN at 9 — and
+ * empty pairs are common padding, so the alignment must be kept by stepping in
+ * twos rather than by skipping blanks.
+ */
+function qualifierPairs(el: string[], from: number): Record<string, string> {
+  const pairs: Record<string, string> = {};
+  for (let i = from; i + 1 < el.length; i += 2) {
+    const q = (el[i] ?? "").toUpperCase();
+    if (q && !(q in pairs)) pairs[q] = el[i + 1] ?? "";
+  }
+  return pairs;
+}
+
 /** Rank a CTP price qualifier — lower is better. */
 function qualifierRank(q: string | null): number {
   if (!q) return 50;
@@ -248,17 +286,26 @@ export function parse832(raw: string): Parsed832 {
   // The item being built up, plus the best price seen for it so far.
   let cur: CatalogPriceRow | null = null;
   let curRank = Number.POSITIVE_INFINITY;
-  const allPrices: { qualifier: string | null; price: number | null; uom: string | null }[] = [];
+  // The colourway currently being described, when we are inside an SLN.
+  let curColor: { sku: string | null; name: string | null; code: string | null } | null = null;
+  const allPrices: {
+    qualifier: string | null;
+    price: number | null;
+    uom: string | null;
+    basis?: string | null;
+  }[] = [];
 
   const flush = () => {
     if (!cur) return;
     cur.raw.prices = [...allPrices];
+    cur.raw.color_count = (cur.raw.colors as unknown[])?.length ?? 0;
     if (!cur.supplierSku) {
       warnings.push(`An item was skipped because it carried no SKU: ${cur.description ?? "(no description)"}`);
     } else {
       rows.push(cur);
     }
     cur = null;
+    curColor = null;
     curRank = Number.POSITIVE_INFINITY;
     allPrices.length = 0;
   };
@@ -275,34 +322,69 @@ export function parse832(raw: string): Parsed832 {
 
       case "LIN": {
         flush();
-        // LIN01 is a line number; the rest are qualifier/value PAIRS.
-        const pairs: Record<string, string> = {};
-        for (let i = 2; i + 1 < el.length; i += 2) {
-          const q = (el[i] ?? "").toUpperCase();
-          if (q && !(q in pairs)) pairs[q] = el[i + 1] ?? "";
+        const pairs = qualifierPairs(el, 2);
+        let sku = "";
+        for (const q of SKU_QUALIFIERS) {
+          if (pairs[q]?.trim()) {
+            sku = pairs[q].trim();
+            break;
+          }
         }
-        // VP = the vendor's own part number. That is the one on their invoice
-        // and their 850, so it is the one we match against.
-        const sku = pairs.VP || pairs.SK || pairs.BP || pairs.UP || pairs.IN || "";
         cur = {
-          supplierSku: sku.trim(),
-          description: null,
+          supplierSku: sku,
+          // The mill's own name for the item (LIN `MN`) is a better starting
+          // point than nothing, and PID*TRN usually replaces it below.
+          description: pairs.MN?.trim() || null,
           cost: null,
           uom: null,
           rawUom: null,
           priceQualifier: null,
           effectiveDate: null,
-          raw: { lin: pairs },
+          rollWidthFt: null,
+          rollLengthFt: null,
+          raw: { lin: pairs, manufacturer: pairs.MF?.trim() || null, colors: [] },
         };
+        curColor = null;
         break;
       }
 
-      case "PID":
-        // PID05 carries the free-form description.
-        if (cur && el[5]) {
-          cur.description = cur.description ? `${cur.description} ${el[5]}`.trim() : el[5].trim();
+      case "SLN": {
+        /**
+         * A subline: one colourway of the style above it.
+         *
+         * Shaw prices the STYLE, then lists every colour it comes in — a dozen
+         * or more, each with its own SK code. We don't price from these (our
+         * catalog is keyed on the style), but carrying them makes the review
+         * screen able to say what a single price actually covers.
+         */
+        if (!cur) break;
+        const pairs = qualifierPairs(el, 9);
+        curColor = { sku: pairs.SK?.trim() || null, name: null, code: null };
+        (cur.raw.colors as unknown[]).push(curColor);
+        break;
+      }
+
+      case "PID": {
+        if (!cur) break;
+        const kind = (el[2] ?? "").toUpperCase();
+        const value = (el[5] ?? "").trim();
+        if (!value) break;
+        if (curColor) {
+          // Inside a colourway: 73 is its name, 35 its number.
+          if (kind === "73") curColor.name = value;
+          else if (kind === "35") curColor.code = value;
+          break;
+        }
+        // At item level, TRN is the trade name — the one a human recognises.
+        // The others are classifications; keep them, but out of the title.
+        if (kind === "TRN") cur.description = value;
+        else {
+          const cls = (cur.raw.classifications as Record<string, string>) ?? {};
+          cls[kind] = value;
+          cur.raw.classifications = cls;
         }
         break;
+      }
 
       case "CTP": {
         if (!cur) break;
@@ -310,8 +392,10 @@ export function parse832(raw: string): Parsed832 {
         const price = num(el[3]);
         // CTP05 is a composite: the UOM code is its first component.
         const uomRaw = (el[5] ?? "").split(sep.component)[0]?.trim() || null;
-        allPrices.push({ qualifier, price, uom: uomRaw });
-        if (price == null) break;
+        allPrices.push({ qualifier, price, uom: uomRaw, basis: (el[9] ?? "").trim() || null });
+        // A zero is not a price. Shaw sends a second CTP per style carrying
+        // 0 — taking it would wipe the item's cost to nothing.
+        if (price == null || price === 0) break;
         const rank = qualifierRank(qualifier);
         // Keep the best-ranked price. Ties keep the first, which is the order
         // the supplier chose to send them in.
@@ -337,13 +421,21 @@ export function parse832(raw: string): Parsed832 {
       }
 
       case "MEA": {
-        // Measurements. Broadloom carries roll width and standard length here;
-        // which qualifiers a mill uses varies, so keep them all and interpret
-        // downstream rather than guessing at parse time.
+        // Measurements. Keep them all — mills disagree on qualifiers — but
+        // promote the two we can actually use: a roll's width and length.
+        // Only when stated in FEET; the same WD/LN qualifiers also arrive in
+        // other units for trims, where they describe a moulding, not a roll.
         if (!cur) break;
+        const qualifier = (el[2] ?? "").toUpperCase();
+        const value = num(el[3]);
+        const uom = ((el[4] ?? "").split(sep.component)[0] ?? "").toUpperCase();
         const list = (cur.raw.measurements as unknown[]) ?? [];
-        list.push({ qualifier: (el[2] ?? "").toUpperCase(), value: num(el[3]), uom: (el[4] ?? "").split(sep.component)[0] ?? "" });
+        list.push({ qualifier, value, uom });
         cur.raw.measurements = list;
+        if (uom === "FT" && value != null) {
+          if (qualifier === "WD") cur.rollWidthFt = value;
+          else if (qualifier === "LN") cur.rollLengthFt = value;
+        }
         break;
       }
 
@@ -480,6 +572,8 @@ export function priceFromResponse(body: string, supplierSku: string): CatalogPri
     rawUom: uomRaw,
     priceQualifier: null,
     effectiveDate: eff && /^\d{4}-\d{2}-\d{2}/.test(eff) ? eff.slice(0, 10) : x12Date(eff ?? undefined),
+    rollWidthFt: null,
+    rollLengthFt: null,
     raw: { body: body.slice(0, 4000) },
   };
 }
