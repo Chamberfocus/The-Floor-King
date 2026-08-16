@@ -5,6 +5,12 @@ import { sendSms } from "@/lib/sms";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import { advanceToNamedStage } from "@/lib/workflow-engine";
 import { invoiceTotals } from "@/lib/invoice-calc";
+import {
+  feedsDue,
+  fetchPricesOverRest,
+  recordFeedRun,
+  stagePriceImport,
+} from "@/lib/data/supplier-feeds";
 
 export const dynamic = "force-dynamic";
 
@@ -443,10 +449,61 @@ export async function GET(request: NextRequest) {
     /* sample_checkouts may not exist yet (migration 0052 not run) */
   }
 
+  // --- Supplier price feeds ---
+  //
+  // Pull each live fcB2B connection that is due, and stage what comes back as a
+  // DRAFT. The cron never changes a cost — a supplier raising prices overnight
+  // has to cross a person's desk, because every estimate margin depends on it.
+  let priceImports = 0;
+  try {
+    const feedDb = admin as unknown as Parameters<typeof feedsDue>[0];
+    for (const feed of await feedsDue(feedDb)) {
+      const fetched = await fetchPricesOverRest(feedDb, feed, feed.supplier_name);
+      await recordFeedRun(feedDb, feed.id, fetched.error);
+      if (fetched.error || !fetched.rows.length) continue;
+
+      const staged = await stagePriceImport(feedDb, {
+        supplierId: feed.supplier_id,
+        kind: "fcb2b_rest",
+        sourceName: `${fetched.sourceName} — scheduled`,
+        effectiveDate: fetched.effectiveDate,
+        rows: fetched.rows,
+        warnings: fetched.warnings,
+      });
+      if (!staged.importId) continue;
+      priceImports += 1;
+
+      // Only worth an email when something actually moved.
+      if (staged.changed > 0) {
+        const url = `${siteUrl()}/settings/suppliers/${feed.supplier_id}/imports/${staged.importId}`;
+        await sendEmail({
+          to: ownerEmail(),
+          subject: `${feed.supplier_name} changed ${staged.changed} price${staged.changed === 1 ? "" : "s"}`,
+          html: emailLayout(
+            "Supplier prices changed",
+            `<p><strong>${feed.supplier_name}</strong> sent updated pricing on
+              <strong>${staged.changed}</strong> item${staged.changed === 1 ? "" : "s"} we stock.</p>
+             <p>Nothing has changed in the catalog yet — review the list and choose what to apply.
+              Until you do, estimates keep using the costs you already have.</p>
+             ${
+               staged.warnings.length
+                 ? `<p style="color:#8a6d3b">${staged.warnings.map((w) => w.replace(/</g, "&lt;")).join("<br>")}</p>`
+                 : ""
+             }`,
+            { label: "Review the changes", url },
+          ),
+        });
+      }
+    }
+  } catch {
+    /* supplier_feeds may not exist yet (migrations 0140/0145 not run) */
+  }
+
   return NextResponse.json({
     started,
     staleScheduled,
     balanceChased,
+    priceImports,
     ok: true,
     thankyou,
     reminders,

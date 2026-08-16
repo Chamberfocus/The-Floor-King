@@ -13,7 +13,9 @@ import {
   FCB2B_REQUEST_PARAMS,
   ONBOARDING_ASKS,
 } from "@/lib/fcb2b";
+import { getSupplierFeed, listPriceImports } from "@/lib/data/supplier-feeds";
 import { CopyBrief } from "./copy-brief";
+import { ConnectionForm } from "./connection-form";
 
 export const metadata: Metadata = { title: "Connect supplier" };
 export const dynamic = "force-dynamic";
@@ -54,6 +56,11 @@ export default async function SupplierConnectPage({
     ]);
 
   const ready = (linkedSku ?? 0) > 0;
+
+  const [feed, imports] = await Promise.all([
+    getSupplierFeed(supabase, id),
+    listPriceImports(supabase, id, 8),
+  ]);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -106,6 +113,54 @@ export default async function SupplierConnectPage({
           </p>
         </div>
       </div>
+
+      <ConnectionForm
+        supplierId={id}
+        supplierName={supplier.name}
+        feed={feed}
+        linkedWithSku={linkedSku ?? 0}
+      />
+
+      {/* Price runs, newest first — the record of what this feed has done. */}
+      {imports.length ? (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Price imports</CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y">
+            {imports.map((imp) => (
+              <Link
+                key={imp.id}
+                href={`/settings/suppliers/${id}/imports/${imp.id}`}
+                className="flex items-center justify-between gap-3 py-2.5 text-sm hover:text-primary"
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{imp.source_name ?? "Price import"}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {new Date(imp.created_at).toLocaleDateString()} · {imp.matched} matched ·{" "}
+                    {imp.unmatched} unmatched
+                  </div>
+                </div>
+                <span
+                  className={
+                    imp.status === "applied"
+                      ? "shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                      : imp.status === "discarded"
+                        ? "shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                        : "shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                  }
+                >
+                  {imp.status === "applied"
+                    ? `${imp.changed} applied`
+                    : imp.status === "discarded"
+                      ? "discarded"
+                      : "needs review"}
+                </span>
+              </Link>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* The brief to send them */}
       <Card className="mb-6">

@@ -240,8 +240,9 @@ export async function saveProductRate(input: {
   measureUnit: "sqft" | "sqyd";
 }): Promise<{ error: string | null }> {
   if (!input.productId) return { error: "Missing product." };
+  let actor: string | null = null;
   try {
-    await assertRole(["admin", "office", "sales_manager", "salesman"]);
+    actor = (await assertRole(["admin", "office", "sales_manager", "salesman"])).id;
   } catch {
     return { error: "You don't have permission to update catalog rates." };
   }
@@ -251,7 +252,11 @@ export async function saveProductRate(input: {
   } catch {
     return { error: "Catalog isn't configured on the server." };
   }
-  const { data: p } = await admin.from("products").select("unit").eq("id", input.productId).maybeSingle();
+  const { data: p } = await admin
+    .from("products")
+    .select("unit, material_rate")
+    .eq("id", input.productId)
+    .maybeSingle();
   if (!p) return { error: "Product not found." };
 
   const num = (v: number | string) => {
@@ -272,6 +277,25 @@ export async function saveProductRate(input: {
     .update({ material_rate, labor_rate })
     .eq("id", input.productId);
   if (error) return { error: error.message };
+
+  // Log it the same way a supplier feed does. Price history is only worth
+  // anything if EVERY cost change is in it — an estimator saving a new default
+  // from the builder moves the cost just as surely as a price catalog does.
+  const oldCost = p.material_rate == null ? null : Number(p.material_rate);
+  if (oldCost !== material_rate) {
+    try {
+      await admin.from("product_price_history").insert({
+        product_id: input.productId,
+        old_cost: oldCost,
+        new_cost: material_rate,
+        source: "manual",
+        changed_by: actor,
+      });
+    } catch {
+      /* product_price_history may not exist yet (migration 0140 not run) */
+    }
+  }
+
   revalidatePath("/catalog");
   revalidatePath("/inventory");
   return { error: null };
