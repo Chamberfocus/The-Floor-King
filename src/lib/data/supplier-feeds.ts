@@ -96,6 +96,19 @@ async function productsForSkus(db: DB, skus: string[]): Promise<CatalogProduct[]
   return out;
 }
 
+/** One row on its way into price_import_lines. */
+interface StagedLineRow {
+  supplier_sku: string;
+  description: string | null;
+  new_cost: number | null;
+  uom: string | null;
+  product_id: string | null;
+  old_cost: number | null;
+  match_kind: string;
+  applied: boolean;
+  raw: Record<string, unknown>;
+}
+
 export interface StagedCounts {
   importId: string | null;
   matched: number;
@@ -143,15 +156,24 @@ export async function stagePriceImport(
   }
 
   const products = await productsForSkus(db, rows.map((r) => r.supplierSku));
-  // Prefer this supplier's own product for a SKU; fall back to anyone's.
-  const mine = new Map<string, CatalogProduct>();
-  const anyone = new Map<string, CatalogProduct>();
+  /**
+   * A SKU maps to MANY products, not one.
+   *
+   * Shaw prices carpet by STYLE — style 2896V "Homeward" covers a dozen
+   * colourways, and every one of them carries that same number in our catalog.
+   * Keeping only the first match would update one colourway and leave the rest
+   * on last year's cost, with nothing on screen to say so. So every product
+   * sharing the SKU gets its own reviewable line.
+   */
+  const mine = new Map<string, CatalogProduct[]>();
+  const anyone = new Map<string, CatalogProduct[]>();
   for (const p of products) {
     const k = skuKey(p.sku);
     if (!k) continue;
-    if (p.supplier_id === input.supplierId) {
-      if (!mine.has(k)) mine.set(k, p);
-    } else if (!anyone.has(k)) anyone.set(k, p);
+    const bucket = p.supplier_id === input.supplierId ? mine : anyone;
+    const list = bucket.get(k);
+    if (list) list.push(p);
+    else bucket.set(k, [p]);
   }
 
   let matched = 0;
@@ -159,33 +181,19 @@ export async function stagePriceImport(
   let changed = 0;
   let uomMismatches = 0;
 
-  const lines = rows.map((r) => {
+  const lines = rows.flatMap((r): StagedLineRow[] => {
     const key = skuKey(r.supplierSku);
-    const exact = mine.get(key);
-    const loose = exact ? undefined : anyone.get(key);
-    const product = exact ?? loose;
-    const matchKind = exact ? "exact" : loose ? "sku" : "none";
-    if (product) matched++;
-    else unmatched++;
-
-    const oldCost = product?.material_rate == null ? null : round4(Number(product.material_rate));
+    const own = mine.get(key) ?? [];
+    const others = own.length ? [] : (anyone.get(key) ?? []);
+    const candidates = own.length ? own : others;
+    const matchKind = own.length ? "exact" : others.length ? "sku" : "none";
     const newCost = r.cost == null ? null : round4(r.cost);
-    const isChange = product != null && newCost != null && oldCost !== newCost;
-    if (isChange) changed++;
 
-    // Their unit vs ours. Not fatal — but it must never apply unattended.
-    const productUnit = normalizeUnit(product?.unit) || null;
-    const uomMismatch = !!(product && r.uom && productUnit && r.uom !== productUnit);
-    if (uomMismatch) uomMismatches++;
-
-    return {
+    const base = {
       supplier_sku: r.supplierSku,
       description: r.description,
       new_cost: newCost,
       uom: r.uom,
-      product_id: product?.id ?? null,
-      old_cost: oldCost,
-      match_kind: matchKind,
       applied: false,
       raw: {
         ...r.raw,
@@ -193,12 +201,49 @@ export async function stagePriceImport(
         list_price: isListPrice(r.priceQualifier),
         raw_uom: r.rawUom,
         effective_date: r.effectiveDate,
-        product_unit: productUnit,
-        product_name: product?.name ?? null,
-        uom_mismatch: uomMismatch,
         matched_other_supplier: matchKind === "sku",
+        // How many of our products this one price covers. A reviewer seeing
+        // "Homeward" eleven times deserves to know why.
+        covers_products: candidates.length,
       },
     };
+
+    if (!candidates.length) {
+      unmatched++;
+      return [
+        {
+          ...base,
+          product_id: null,
+          old_cost: null,
+          match_kind: "none",
+          raw: { ...base.raw, product_unit: null, product_name: null, uom_mismatch: false },
+        },
+      ];
+    }
+
+    return candidates.map((product) => {
+      matched++;
+      const oldCost = product.material_rate == null ? null : round4(Number(product.material_rate));
+      if (newCost != null && oldCost !== newCost) changed++;
+
+      // Their unit vs ours. Not fatal — but it must never apply unattended.
+      const productUnit = normalizeUnit(product.unit) || null;
+      const uomMismatch = !!(r.uom && productUnit && r.uom !== productUnit);
+      if (uomMismatch) uomMismatches++;
+
+      return {
+        ...base,
+        product_id: product.id,
+        old_cost: oldCost,
+        match_kind: matchKind,
+        raw: {
+          ...base.raw,
+          product_unit: productUnit,
+          product_name: product.name,
+          uom_mismatch: uomMismatch,
+        },
+      };
+    });
   });
 
   if (uomMismatches) {

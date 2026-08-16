@@ -50,6 +50,13 @@ function flagsFor(l: ImportLine): Flag[] {
     });
   if (l.new_cost == null)
     out.push({ label: "no price", tone: "info", title: "They sent the item but no usable price." });
+  const covers = Number(raw.covers_products ?? 0);
+  if (covers > 1)
+    out.push({
+      label: `1 of ${covers} on this SKU`,
+      tone: "info",
+      title: `This supplier prices by style, and ${covers} of our products share this number — usually colourways of the same carpet. Each gets its own line so you can see what every one of them costs today.`,
+    });
   return out;
 }
 
