@@ -98,13 +98,28 @@ function skuKey(sku: string | null | undefined): string {
 async function productsForSkus(db: DB, skus: string[]): Promise<CatalogProduct[]> {
   const unique = [...new Set(skus.filter(Boolean))];
   const out: CatalogProduct[] = [];
-  for (let i = 0; i < unique.length; i += 200) {
-    const chunk = unique.slice(i, i + 200);
-    const { data } = await db
-      .from("products")
-      .select("id, name, sku, unit, material_rate, supplier_id")
-      .in("sku", chunk);
-    if (data) out.push(...(data as CatalogProduct[]));
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    /**
+     * Page through each chunk.
+     *
+     * A mill prices by STYLE and we stock many colours of each, so one chunk
+     * of SKUs can match thousands of products — well past the 1000-row cap on
+     * a single response. Taking the first page silently lost products, and,
+     * far worse, a lost product made its SKU look unattributed, so the price
+     * then matched some OTHER supplier's item with the same number. Ordering
+     * is required: range paging without it can repeat and skip rows.
+     */
+    for (let from = 0; ; from += 1000) {
+      const { data } = await db
+        .from("products")
+        .select("id, name, sku, unit, material_rate, supplier_id")
+        .in("sku", chunk)
+        .order("id")
+        .range(from, from + 999);
+      if (data) out.push(...(data as CatalogProduct[]));
+      if (!data || data.length < 1000) break;
+    }
   }
   return out;
 }
