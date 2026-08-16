@@ -14,6 +14,13 @@ import {
 } from "@/lib/data/supplier-feeds";
 
 export const dynamic = "force-dynamic";
+/**
+ * This job was always long — thank-yous, reminders, stage advances, chasers —
+ * and it now also signs in to supplier mailboxes, downloads price catalogs and
+ * stages thousands of lines. On the default limit the feed collection is the
+ * part that gets cut off, silently, after everything else has already run.
+ */
+export const maxDuration = 300;
 
 /**
  * What a customer still owes across their open invoices. Uses the same
