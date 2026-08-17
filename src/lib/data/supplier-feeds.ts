@@ -710,6 +710,14 @@ export async function discardPriceImport(
   return { error: error?.message ?? null };
 }
 
+/**
+ * How early a feed may be collected against its cadence.
+ *
+ * Wide enough to absorb a fixed-time cron and a hand-run test on the same day;
+ * far short of half a day, so a weekly feed can't creep into running twice.
+ */
+const DUE_GRACE_HOURS = 6;
+
 /** Can this feed be collected without a person? */
 export function isPollable(feed: SupplierFeed): boolean {
   return feed.transport === "sftp" || feed.kind === "fcb2b_rest";
@@ -727,8 +735,17 @@ export async function feedsDue(db: DB): Promise<(SupplierFeed & { supplier_name:
     const cadence = row.cadence_days ?? 0;
     if (cadence <= 0) continue; // no cadence = pull by hand only
     if (row.last_success_at) {
-      const days = (Date.now() - new Date(row.last_success_at).getTime()) / 86400000;
-      if (days < cadence) continue;
+      /**
+       * Measured with a grace window, not as a strict multiple of 24 hours.
+       *
+       * The cron fires at a fixed time each day, so two consecutive runs are
+       * a few minutes short of 24 hours apart — and any manual test earlier in
+       * the day makes the gap much shorter. Compared strictly, a feed set to
+       * "every 1 day" would skip the next run and collect every OTHER day,
+       * which reads as an unreliable supplier rather than a scheduling bug.
+       */
+      const hours = (Date.now() - new Date(row.last_success_at).getTime()) / 3_600_000;
+      if (hours < cadence * 24 - DUE_GRACE_HOURS) continue;
     }
     out.push({ ...row, supplier_name: row.suppliers?.name ?? "Supplier" });
   }
