@@ -54,7 +54,9 @@ begin
         coalesce(color, '') || ' ' ||
         coalesce(sku, '') || ' ' ||
         coalesce(supplier, '') || ' ' ||
-        coalesce(category, '')
+        -- category is the product_category ENUM, so it has to be text before
+        -- coalesce can put an empty string in its place.
+        coalesce(category::text, '')
       ) stored;
   end if;
 end
