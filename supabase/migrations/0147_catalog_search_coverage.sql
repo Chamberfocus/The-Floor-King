@@ -28,44 +28,22 @@
 -- word sort above everything else, so a precise search stays precise, and a
 -- loose one degrades by how much it actually matched instead of by how the
 -- letters happen to line up.
+--
+-- NOTE ON CATEGORY
+--
+-- "carpet", "pad" and "trim" are how people search, but they live only in the
+-- category column — which is why "8lb pad" had to reach past every padding to
+-- find a mop. Category is NOT added to the generated search_text column:
+-- category is the product_category enum, and an enum-to-text cast is only
+-- STABLE (labels can be renamed), so Postgres rejects it in a generated
+-- expression — "generation expression is not immutable". It is folded in here
+-- at query time instead, which needs no table rewrite.
 
 create extension if not exists pg_trgm;
-
--- 1 · Category belongs in the searchable text --------------------------------
--- "carpet", "underlayment" and "trim" are how people search, but they are only
--- in the category column — which is why "8lb pad" had to reach past every
--- padding to find a mop. A generated column can't be altered in place, so it is
--- rebuilt; on 13.5k products that is a few seconds.
-do $$
-begin
-  if not exists (
-    select 1 from information_schema.columns
-     where table_schema = 'public' and table_name = 'products'
-       and column_name = 'search_text'
-       and generation_expression ilike '%category%'
-  ) then
-    alter table public.products drop column if exists search_text;
-    alter table public.products
-      add column search_text text
-      generated always as (
-        coalesce(name, '') || ' ' ||
-        coalesce(manufacturer, '') || ' ' ||
-        coalesce(style, '') || ' ' ||
-        coalesce(color, '') || ' ' ||
-        coalesce(sku, '') || ' ' ||
-        coalesce(supplier, '') || ' ' ||
-        -- category is the product_category ENUM, so it has to be text before
-        -- coalesce can put an empty string in its place.
-        coalesce(category::text, '')
-      ) stored;
-  end if;
-end
-$$;
 
 create index if not exists products_search_trgm_idx
   on public.products using gin (search_text gin_trgm_ops);
 
--- 2 · The search -------------------------------------------------------------
 create or replace function public.search_products(
   q text,
   lim int default 50,
@@ -107,40 +85,44 @@ begin
   end if;
 
   return query
-  with scored as (
+  with base as (
     select
       p,
+      lower(p.name) as nm,
+      -- Everything worth matching, category included.
+      lower(p.search_text || ' ' || coalesce(p.category::text, '')) as hay
+    from public.products p
+    where (not active_only or p.active)
+      and (include_labor or p.category is distinct from 'labor')
+  ),
+  scored as (
+    select
+      b.p,
+      b.nm,
       /**
        * What this row accounts for, word by word.
        *
        * position() rather than LIKE: a token is matched LITERALLY, so "1/2",
        * "3/4" and "50%" mean themselves instead of being read as wildcards.
-       * The CASE stops at the first hit, so the expensive fuzzy comparison only
-       * runs for words that weren't found outright.
+       * The CASE stops at the first hit, so the expensive fuzzy comparison
+       * only runs for words that weren't found outright.
        */
       (select coalesce(sum(
          case
-           when position(t in lower(p.name)) > 0 then 4
-           when position(t in lower(p.search_text)) > 0 then 3
+           when position(t in b.nm) > 0 then 4
+           when position(t in b.hay) > 0 then 3
            -- Close enough to be a typo. Short words are excluded: at three
            -- characters almost everything is "similar" to everything.
            when length(t) >= 4
-                and word_similarity(t, lower(p.search_text)) >= 0.6 then 2
+                and word_similarity(t, b.hay) >= 0.6 then 2
            else 0
          end), 0)
        from unnest(toks) t) as score,
       (select count(*) from unnest(toks) t
-        where position(t in lower(p.search_text)) > 0
-           or (length(t) >= 4 and word_similarity(t, lower(p.search_text)) >= 0.6)
+        where position(t in b.hay) > 0
+           or (length(t) >= 4 and word_similarity(t, b.hay) >= 0.6)
       ) as hits
-    from public.products p
-    where (not active_only or p.active)
-      and (include_labor or p.category is distinct from 'labor')
-      and exists (
-        select 1 from unnest(toks) t
-         where position(t in lower(p.search_text)) > 0
-            or (length(t) >= 4 and word_similarity(t, lower(p.search_text)) >= 0.6)
-      )
+    from base b
   )
   select (s.p).*
     from scored s
@@ -151,7 +133,7 @@ begin
      -- Then by how much of it was found, and how well.
      s.score desc,
      -- Then the closest name, so the most on-the-nose one leads its group.
-     similarity(lower((s.p).name), lower(q)) desc,
+     similarity(s.nm, lower(q)) desc,
      (s.p).name
    limit lim;
 end;
