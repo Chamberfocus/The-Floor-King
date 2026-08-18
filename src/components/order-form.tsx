@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, CheckCircle2, Send } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +38,10 @@ export interface OrderProduct {
 
 const UNITS = ["sq yd", "sq ft", "lnft", "roll", "each"];
 
+/** Row keys only need to be unique within a list, so a plain counter does it —
+ *  a ref can't be read during render, which is what React was complaining about. */
+let lineSeq = 0;
+
 const num = (v: string) => {
   const x = parseFloat(v);
   return Number.isFinite(x) ? x : 0;
@@ -61,10 +65,9 @@ export function OrderForm({
 }) {
   const [pending, start] = useTransition();
   const [done, setDone] = useState(false);
-  const counter = useRef(0);
   const newCut = (): Cut => ({ width: "12", ft: "", in: "" });
   const newLine = (): Line => ({
-    key: `l${counter.current++}`,
+    key: `l${lineSeq++}`,
     productId: "",
     description: "",
     color: "",
@@ -78,8 +81,10 @@ export function OrderForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [dateNeeded, setDateNeeded] = useState("");
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<Line[]>([newLine()]);
+  // Lazy initialiser so the first row is built once, not on every render.
+  const [lines, setLines] = useState<Line[]>(() => [newLine()]);
 
   const update = (i: number, patch: Partial<Line>) =>
     setLines((prev) => prev.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -112,16 +117,27 @@ export function OrderForm({
           quantity: num(l.quantity),
           unit: l.unit,
           cutNotes: l.cuts.map(formatCut).filter(Boolean).join(" | "),
+          // The same cuts as data, so the warehouse reads measurements rather
+          // than a sentence someone has to parse by eye.
+          cuts: l.cuts
+            .filter((c) => c.ft || c.in)
+            .map((c) => ({
+              widthFt: num(c.width),
+              lengthFt: num(c.ft),
+              lengthIn: num(c.in),
+            })),
           retailPrice: priceOf(l),
           requestedPrice: num(l.requested),
         }));
       if (requireContact && !name.trim()) { toast.error("Enter your name."); return; }
       if (requireContact && !phone.trim()) { toast.error("Enter a phone number."); return; }
+      if (!dateNeeded) { toast.error("Tell us the date you need this by."); return; }
       if (!items.length) { toast.error("Add at least one item."); return; }
       const res = await action({
         contactName: name,
         contactPhone: phone,
         contactEmail: email,
+        dateNeeded,
         notes,
         items,
       });
@@ -171,6 +187,30 @@ export function OrderForm({
           </CardContent>
         </Card>
       ) : null}
+
+      {/* When they need it. Its own card, above the items — it changes how the
+          office and the warehouse treat everything below it. */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">When do you need it?</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="max-w-xs">
+            <Label htmlFor="date_needed">Date needed *</Label>
+            <Input
+              id="date_needed"
+              type="date"
+              value={dateNeeded}
+              min={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => setDateNeeded(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            We&apos;ll tell you right away if anything won&apos;t make that date.
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-3">

@@ -1171,6 +1171,13 @@ export const ORDER_STATUS_BADGE: Record<OrderStatus, string> = {
   cancelled: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
 };
 
+/** One measured cut on an order line: 12' wide x 14'6" long. */
+export interface OrderCutRow {
+  width_ft: number;
+  length_ft: number;
+  length_in: number;
+}
+
 export interface OrderItem {
   id: string;
   order_id: string;
@@ -1182,6 +1189,8 @@ export interface OrderItem {
   quantity: number | null;
   unit: string;
   cut_notes: string | null;
+  /** The cuts as data (migration 0148). cut_notes holds the same as text. */
+  cuts: OrderCutRow[] | null;
   retail_price: number | null; // unit retail the customer was shown
   requested_price: number | null; // unit price the customer asked to pay
 }
@@ -1214,6 +1223,8 @@ export interface Order {
   contact_email: string | null;
   status: OrderStatus;
   source: "portal" | "public";
+  /** When the customer needs it (yyyy-mm-dd). Asked on the order form. */
+  date_needed: string | null;
   notes: string | null;
   decline_reason: string | null;
   stock_status: OrderStockStatus;

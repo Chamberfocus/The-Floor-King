@@ -24,8 +24,11 @@ import { listWorkflowStages } from "@/lib/data/workflow";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { newRemnants } from "@/lib/data/stock-rolls";
 import { getJobMaterials } from "@/lib/data/job-materials";
-import { listOrders } from "@/lib/data/orders";
+import { listOrders, getProductStock } from "@/lib/data/orders";
 import { reportOrderStock } from "../orders/actions";
+import { CutList } from "@/components/cut-list";
+import { DateNeeded } from "@/components/date-needed";
+import { cutsTotalSqYd } from "@/lib/order-cuts";
 import {
   JOB_DELIVERY_LABELS,
   WAREHOUSE_STATUS_LABELS,
@@ -106,6 +109,11 @@ export default async function WarehousePage() {
   const org = await getOrgSettings();
   const stockChecks = (await listOrders(wh)).filter(
     (o) => o.status === "submitted",
+  );
+  // What we actually have of each ordered product, so "in stock?" is answered
+  // from the shelf count rather than from memory.
+  const orderStock = await getProductStock(
+    stockChecks.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? "")),
   );
 
   // Purchase orders the warehouse should be expecting.
@@ -453,22 +461,70 @@ export default async function WarehousePage() {
                     </span>
                   ) : null}
                 </div>
-                <ul className="text-sm">
-                  {(o.items ?? []).map((it) => (
-                    <li key={it.id}>
-                      •{" "}
-                      {[it.description, it.color, it.style]
-                        .filter(Boolean)
-                        .join(" · ") || "Item"}
-                      {it.quantity ? ` — ${it.quantity} ${it.unit}` : ""}
-                      {it.cut_notes ? (
-                        <span className="text-muted-foreground">
-                          {" "}
-                          (cuts: {it.cut_notes.split(" | ").join(", ")})
-                        </span>
-                      ) : null}
-                    </li>
-                  ))}
+                <DateNeeded date={o.date_needed} />
+                {/* One item per block: what it is, what we have, and the cuts
+                    to make — the three things needed to answer "in stock?". */}
+                <ul className="space-y-2">
+                  {(o.items ?? []).map((it) => {
+                    const s = it.product_id ? orderStock.get(it.product_id) : undefined;
+                    const avail = s
+                      ? Math.round((s.on_hand - s.reserved) * 100) / 100
+                      : null;
+                    const needed = cutsTotalSqYd(it) ?? it.quantity ?? null;
+                    // Only a like-for-like comparison is worth showing: their
+                    // cuts are square yards, so the product must price that way.
+                    const comparable =
+                      avail != null && needed != null && (s?.unit ?? "").includes("yd");
+                    return (
+                      <li key={it.id} className="rounded-md border p-2 text-sm">
+                        <div className="font-medium">
+                          {[it.description, it.color, it.style]
+                            .filter(Boolean)
+                            .join(" · ") || "Item"}
+                          {it.quantity ? (
+                            <span className="ml-1 font-normal text-muted-foreground">
+                              — {it.quantity} {it.unit}
+                            </span>
+                          ) : null}
+                        </div>
+                        {s ? (
+                          <div className="mt-0.5 text-xs">
+                            <span
+                              className={
+                                avail && avail > 0
+                                  ? "font-medium text-emerald-600"
+                                  : "font-medium text-destructive"
+                              }
+                            >
+                              {avail && avail > 0
+                                ? `${avail} ${s.unit} on hand`
+                                : "none on hand"}
+                            </span>
+                            {comparable ? (
+                              <span
+                                className={
+                                  (avail as number) >= (needed as number)
+                                    ? " text-muted-foreground"
+                                    : " font-medium text-destructive"
+                                }
+                              >
+                                {" · needs "}
+                                {needed} sq yd
+                                {(avail as number) >= (needed as number)
+                                  ? " — covered"
+                                  : " — SHORT"}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : it.product_id ? null : (
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            Not a catalog item — check by hand.
+                          </div>
+                        )}
+                        <CutList item={it} />
+                      </li>
+                    );
+                  })}
                 </ul>
                 <form
                   action={reportOrderStock}

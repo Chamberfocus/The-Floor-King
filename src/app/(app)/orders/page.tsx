@@ -28,6 +28,8 @@ import {
 import { Trash2 } from "lucide-react";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { OrderLinkCard } from "@/components/order-link-card";
+import { CutList } from "@/components/cut-list";
+import { DateNeeded } from "@/components/date-needed";
 import { COMPANY_NAME } from "@/lib/nav";
 
 export const metadata: Metadata = { title: "Customer Orders" };
@@ -73,6 +75,7 @@ export default async function OrdersPage() {
               {o.source === "public" ? "Public order" : "Portal order"} ·{" "}
               {formatDateTime(o.created_at)}
             </div>
+            <DateNeeded date={o.date_needed} className="mt-1" />
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", ORDER_STATUS_BADGE[o.status])}>
@@ -113,11 +116,7 @@ export default async function OrdersPage() {
                     ) : null}
                   </div>
                 ) : null}
-                {it.cut_notes ? (
-                  <div className="text-xs text-muted-foreground">
-                    Cuts: {it.cut_notes.split(" | ").join(", ")}
-                  </div>
-                ) : null}
+                <CutList item={it} />
               </li>
             ))}
           </ul>
