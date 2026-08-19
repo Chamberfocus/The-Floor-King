@@ -85,6 +85,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { JobTabs, JobTabPanel, type JobTab } from "./job-tabs";
 import { JobChecklist } from "@/components/job-checklist";
+import { MarkContacted } from "@/app/(app)/customers/[id]/mark-contacted";
 import { getJobChecklist } from "@/lib/data/job-checklists";
 import { setEstimateStatus } from "@/app/(app)/estimates/actions";
 import { JobNotesCard } from "./job-notes-card";
@@ -297,6 +298,13 @@ export default async function JobPage({
   const checklist = await getJobChecklist(job.id);
   const stageName = flowStage?.name ?? null;
   const checklistSlots: Record<string, React.ReactNode> = {};
+  // Step one, tickable here too — the work order shows the same list, and
+  // sending someone to the customer file to prove they made a call is the
+  // detour this replaces.
+  const contactStep = checklist?.steps.find((s) => s.key === "contact");
+  if (job.customer_id && contactStep && contactStep.state !== "done") {
+    checklistSlots.contact = <MarkContacted customerId={job.customer_id} />;
+  }
   // The estimate this work order came from — approving it is the step the
   // checklist can't do with a link.
   const jobEstimate = job.estimate_id

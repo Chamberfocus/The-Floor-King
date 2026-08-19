@@ -353,6 +353,38 @@ export async function addActivity(
 }
 
 /**
+ * Tick step one — "we've spoken to them" — in a single click.
+ *
+ * The checklist's first step is proved by a real contact record, not a flag, so
+ * this writes the same `activities` row that typing a note by hand would. The
+ * Activity tab, the checklist and the pipeline all keep reading the one source
+ * of truth, and a brand-new lead still gets nudged off stage one exactly as it
+ * does for a hand-written note. Nothing to keep in step afterwards.
+ */
+export async function markContacted(formData: FormData): Promise<void> {
+  const customerId = str(formData.get("customer_id"));
+  if (!customerId) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { error } = await supabase.from("activities").insert({
+    customer_id: customerId,
+    user_id: user?.id ?? null,
+    type: "note" satisfies ActivityType,
+    body: "Contacted the customer.",
+  });
+  if (error) return;
+
+  await advanceFromFirstStage(customerId);
+
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/customers");
+}
+
+/**
  * Advance (or move) a customer to a workflow stage, assign the owner, set the
  * next-action due date from the stage SLA, log a handoff + activity, and notify
  * the new owner. This is the engine behind the customer command center.

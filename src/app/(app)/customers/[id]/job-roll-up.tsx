@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight, Check, MapPin, Wrench, FileText, Trash2 } from "lucide-react";
 import { ConfirmButton } from "@/components/ui/confirm-button";
@@ -22,6 +23,7 @@ export function JobRollUp({
   stagePosition,
   stageTotal,
   ownerName,
+  actionSlots,
 }: {
   customerId: string;
   jobs: JobProgress[];
@@ -29,6 +31,9 @@ export function JobRollUp({
   stagePosition?: number | null;
   stageTotal?: number | null;
   ownerName?: string | null;
+  /** One-click actions the checklist hosts on the step they belong to — see
+   *  `JobChecklist`. Passed down from the page, which holds the server actions. */
+  actionSlots?: Record<string, ReactNode>;
 }) {
   if (!jobs.length) return null;
   const multiple = jobs.length > 1;
@@ -52,6 +57,7 @@ export function JobRollUp({
           stagePosition={stagePosition}
           stageTotal={stageTotal}
           ownerName={ownerName}
+          actionSlots={actionSlots}
         />
         {only.jobId ? (
           <Link
@@ -188,7 +194,7 @@ export function JobRollUp({
                   <span className="hidden group-open/steps:inline">Hide the steps</span>
                 </summary>
                 <div className="mt-2">
-                  <JobChecklist steps={j.steps} />
+                  <JobChecklist steps={j.steps} actionSlots={actionSlots} />
                 </div>
               </details>
             </li>

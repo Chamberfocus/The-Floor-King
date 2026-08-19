@@ -77,7 +77,10 @@ export function buildChecklist(i: ChecklistInput): ChecklistStep[] {
     {
       key: "measure",
       title: "Book the estimate visit",
-      href: `/customers/${i.customerId}#overview`,
+      // Opens the estimate scheduler itself, not just the tab it lives on —
+      // "#overview" scrolled you to the right screen and left you hunting for
+      // the button.
+      href: `/customers/${i.customerId}?schedule=estimate#overview`,
       linkLabel: "Schedule it",
       detail: null,
     },
@@ -190,6 +193,8 @@ export function buildChecklist(i: ChecklistInput): ChecklistStep[] {
   };
 
   const detail: Record<string, string | null> = {
+    contact: i.hasActivity ? null : "Nobody has logged a call or note yet",
+    measure: i.estimateBooked ? null : est ? null : "No visit booked yet",
     send: est?.status === "draft" ? "Still a draft" : null,
     deposit: i.depositPaid
       ? null

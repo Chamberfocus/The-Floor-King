@@ -113,6 +113,7 @@ import { CustomerInfoCard } from "./customer-info-card";
 import { CustomerChat } from "./customer-chat";
 import { OnTheWayButton } from "./on-the-way-button";
 import { JobRollUp } from "./job-roll-up";
+import { MarkContacted } from "./mark-contacted";
 import { getCustomerChecklists } from "@/lib/data/job-checklists";
 import { getCustomerEstimateAppointment } from "@/lib/data/scheduling";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -170,10 +171,16 @@ export default async function CustomerPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ new?: string }>;
+  searchParams: Promise<{ new?: string; schedule?: string }>;
 }) {
   const { id } = await params;
-  const justAdded = (await searchParams).new === "1";
+  const sp = await searchParams;
+  const justAdded = sp.new === "1";
+  // The checklist links straight AT the scheduler ("?schedule=estimate"), so
+  // step two opens the booking dialog instead of dropping you on the page that
+  // happens to contain it.
+  const openScheduler =
+    sp.schedule === "estimate" || sp.schedule === "install" ? sp.schedule : null;
   const profile = await requireProfile();
   const prefs = await getUserPreferences();
   const customer = await getCustomer(id);
@@ -370,6 +377,12 @@ export default async function CustomerPage({
    * Every step, and the tools to do it, now live on the job page.
    */
   const jobChecklists = await getCustomerChecklists(id);
+  /** Step one is an ACCOUNT fact — has anyone actually spoken to these people —
+   *  so it reads the same on every job's list. Once it's true the one-click
+   *  "Mark contacted" comes off; the Activity tab is the way to add more. */
+  const contactLogged = jobChecklists.some((j) =>
+    j.steps.some((s) => s.key === "contact" && s.state === "done"),
+  );
 
 
   // Install smart-scheduler for the active job — lives here on the customer file
@@ -748,6 +761,7 @@ export default async function CustomerPage({
                 installScheduler={
                   installScheduleProps ? <InstallSchedule {...installScheduleProps} /> : null
                 }
+                openOnLoad={openScheduler}
                 compact
                 showValues={false}
                 showSwitcher={false}
@@ -856,6 +870,7 @@ export default async function CustomerPage({
                     stagePosition={spinePos.index >= 0 ? spinePos.index + 1 : null}
                     stageTotal={spinePos.total || null}
                     ownerName={ownerName}
+                    actionSlots={contactLogged ? undefined : { contact: <MarkContacted customerId={id} /> }}
                   />
                 </div>
                 {/* The old GuidedFlow panel lived here: one step at a time,

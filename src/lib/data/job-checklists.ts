@@ -16,6 +16,16 @@ import type { Invoice } from "@/lib/types";
  * A job is the unit of work. The customer is the account it belongs to.
  */
 
+/**
+ * What counts as having ACTUALLY talked to them.
+ *
+ * `stage_change` and `system` rows are the app narrating itself — moving a lead
+ * along the pipeline wrote an activity, which ticked "Talk to the customer" for
+ * people nobody had rung. Step one is a claim about a conversation, so only the
+ * human channels prove it.
+ */
+const CONTACT_ACTIVITY_TYPES = ["note", "call", "text", "email"];
+
 export interface JobProgress {
   /** Null when the customer has no work order yet — the pre-job steps still
    *  need somewhere to live (talk to them, measure, build, send, approve). */
@@ -85,7 +95,8 @@ export async function getCustomerChecklists(
       supabase
         .from("activities")
         .select("id", { count: "exact", head: true })
-        .eq("customer_id", customerId),
+        .eq("customer_id", customerId)
+        .in("type", CONTACT_ACTIVITY_TYPES),
       supabase
         .from("appointments")
         .select("id", { count: "exact", head: true })
@@ -165,7 +176,11 @@ export async function getJobChecklist(jobId: string): Promise<JobProgress | null
     await Promise.all([
       supabase.from("estimates").select("id, status").eq("customer_id", customerId),
       supabase.from("service_addresses").select("id, label, street").eq("customer_id", customerId),
-      supabase.from("activities").select("id", { count: "exact", head: true }).eq("customer_id", customerId),
+      supabase
+        .from("activities")
+        .select("id", { count: "exact", head: true })
+        .eq("customer_id", customerId)
+        .in("type", CONTACT_ACTIVITY_TYPES),
       supabase.from("appointments").select("id", { count: "exact", head: true }).eq("customer_id", customerId),
     ]);
 

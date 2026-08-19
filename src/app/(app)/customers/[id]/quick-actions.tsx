@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useActionState, useEffect } from "react";
+import { useState, useActionState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -89,6 +89,7 @@ export function QuickActions({
   compact = false,
   redirectTo,
   installScheduler = null,
+  openOnLoad = null,
 }: {
   customerId: string;
   stages: { id: string; name: string }[];
@@ -126,6 +127,9 @@ export function QuickActions({
   /** The smart install scheduler (suggested crews + estimate), rendered server-
    *  side and shown inside the Install dialog. Null when there's no job yet. */
   installScheduler?: React.ReactNode;
+  /** Open one of these dialogs as soon as the page loads. The checklist links
+   *  here with "?schedule=estimate" so its step opens the scheduler itself. */
+  openOnLoad?: View | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -157,12 +161,34 @@ export function QuickActions({
     setOpen(true);
   };
 
+  /**
+   * Deep-link straight into a dialog. The checklist's "Schedule it" step links
+   * to "?schedule=estimate", which lands here and opens the scheduler — the
+   * step used to drop you on the page and leave you to find the button.
+   *
+   * The param is stripped once it has done its job so a refresh, or coming back
+   * with the back button, doesn't reopen a dialog you already dealt with.
+   */
+  const deepLinked = useRef(false);
+  useEffect(() => {
+    if (!openOnLoad || deepLinked.current) return;
+    deepLinked.current = true;
+    setView(openOnLoad);
+    setReason("");
+    setOpen(true);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("schedule");
+    router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false });
+  }, [openOnLoad, router]);
+
   const targetStage = stages.find((s) => s.id === toStage);
   const isLost = /lost|declin|dead|cancel/i.test(targetStage?.name ?? "");
 
   const installWindow = windowLabel(job?.window ?? null);
 
-  if (compact && actions.length === 0) return null;
+  // Hidden when the viewer has turned every quick action off — unless a deep
+  // link is asking for a dialog, which would otherwise open onto nothing.
+  if (compact && actions.length === 0 && !openOnLoad) return null;
 
   const actionButton = (a: QuickAction) => {
     if (a === "stage")
