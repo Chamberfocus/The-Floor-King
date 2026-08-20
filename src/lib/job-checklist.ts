@@ -13,6 +13,20 @@
 
 export type ChecklistState = "done" | "current" | "todo" | "skipped";
 
+/**
+ * Who may overrule the records. Kept beside the checklist model so the button
+ * and the server action that backs it can never drift apart — a button that
+ * throws on click is worse than no button.
+ */
+export const STEP_OVERRIDE_ROLES = ["admin", "office", "sales_manager"];
+
+/** A person deciding a step is handled when no record will ever prove it. */
+export interface StepOverride {
+  reason: string | null;
+  by: string | null;
+  at: string;
+}
+
 export interface ChecklistStep {
   key: string;
   /** What you actually do, in the imperative. */
@@ -23,6 +37,9 @@ export interface ChecklistStep {
   state: ChecklistState;
   /** Shown under the title when it matters — a date, an amount, a blocker. */
   detail: string | null;
+  /** Done because somebody said so, not because a record turned up. Kept
+   *  distinct from a proven `done` so the list never pretends otherwise. */
+  override: StepOverride | null;
   /** Everything else worth clicking from this step. The primary link opens the
    *  step; these are the neighbours you reach for while you're there. */
   extras: { label: string; href: string }[];
@@ -50,6 +67,8 @@ export interface ChecklistInput {
   /** Committed (issued) purchase orders exist for this job. */
   materialsOrdered: boolean;
   satisfactionSigned: boolean;
+  /** Steps a person has marked handled, by step key. See `step_overrides`. */
+  overrides?: Record<string, StepOverride>;
 }
 
 const money = (n: number) =>
@@ -66,7 +85,7 @@ export function buildChecklist(i: ChecklistInput): ChecklistStep[] {
   const est = i.estimate;
   const job = i.job;
 
-  const raw: Omit<ChecklistStep, "state" | "extras">[] = [
+  const raw: Omit<ChecklistStep, "state" | "extras" | "override">[] = [
     {
       key: "contact",
       title: "Talk to the customer",
@@ -175,7 +194,7 @@ export function buildChecklist(i: ChecklistInput): ChecklistStep[] {
   ];
 
   // What the records prove, step by step.
-  const done: Record<string, boolean> = {
+  const proven: Record<string, boolean> = {
     contact: i.hasActivity,
     measure: i.estimateBooked || !!est,
     build: !!est,
@@ -191,6 +210,15 @@ export function buildChecklist(i: ChecklistInput): ChecklistStep[] {
     balance: !!i.invoice && i.balanceOutstanding <= 0.005,
     closeout: !!job?.closedOutAt,
   };
+
+  /**
+   * An override counts as done — that is the whole point of it — but it never
+   * rewrites `proven`, so the row can still say which of the two it was.
+   */
+  const overrides = i.overrides ?? {};
+  const done: Record<string, boolean> = Object.fromEntries(
+    raw.map((s) => [s.key, proven[s.key] || !!overrides[s.key]]),
+  );
 
   const detail: Record<string, string | null> = {
     contact: i.hasActivity ? null : "Nobody has logged a call or note yet",
@@ -249,18 +277,25 @@ export function buildChecklist(i: ChecklistInput): ChecklistStep[] {
   const lastDone = raw.reduce((acc, s, idx) => (done[s.key] ? idx : acc), -1);
   const currentIdx = raw.findIndex((s, idx) => !done[s.key] && idx > lastDone);
 
-  return raw.map((s, idx) => ({
-    ...s,
-    detail: detail[s.key] ?? null,
-    extras: extras[s.key] ?? [],
-    state: done[s.key]
-      ? "done"
-      : idx === currentIdx
-        ? "current"
-        : idx < lastDone
-          ? "skipped"
-          : "todo",
-  }));
+  return raw.map((s, idx) => {
+    // Only an override that's actually carrying the step is worth saying out
+    // loud. Once the real record turns up — the payment lands, the PO is
+    // raised — the row goes back to reporting the record.
+    const override = !proven[s.key] ? (overrides[s.key] ?? null) : null;
+    return {
+      ...s,
+      detail: override ? null : (detail[s.key] ?? null),
+      extras: extras[s.key] ?? [],
+      override,
+      state: done[s.key]
+        ? "done"
+        : idx === currentIdx
+          ? "current"
+          : idx < lastDone
+            ? "skipped"
+            : "todo",
+    } satisfies ChecklistStep;
+  });
 }
 
 /** How far through, for the progress line. */

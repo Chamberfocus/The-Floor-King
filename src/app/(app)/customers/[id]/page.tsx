@@ -144,6 +144,7 @@ import { getUserPreferences } from "@/lib/data/preferences";
 import { pickCloseoutJob,
   spinePosition,
 } from "@/lib/job-flow";
+import { STEP_OVERRIDE_ROLES } from "@/lib/job-checklist";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
 
@@ -871,6 +872,7 @@ export default async function CustomerPage({
                     stageTotal={spinePos.total || null}
                     ownerName={ownerName}
                     actionSlots={contactLogged ? undefined : { contact: <MarkContacted customerId={id} /> }}
+                    canOverride={STEP_OVERRIDE_ROLES.includes(profile.role)}
                   />
                 </div>
                 {/* The old GuidedFlow panel lived here: one step at a time,

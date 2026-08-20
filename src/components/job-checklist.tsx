@@ -7,6 +7,7 @@ import {
   checklistProgress,
   type ChecklistStep,
 } from "@/lib/job-checklist";
+import { StepOverride } from "@/components/step-override";
 
 /**
  * The whole job on one screen, in order, with a way into every part of it.
@@ -23,6 +24,7 @@ export function JobChecklist({
   stageTotal,
   ownerName,
   actionSlots,
+  override,
 }: {
   steps: ChecklistStep[];
   /** The workflow stage the customer is parked on right now. */
@@ -34,6 +36,9 @@ export function JobChecklist({
    *  to the warehouse. Supplied by the page because they're server actions with
    *  the ids already in hand; the checklist model stays pure. */
   actionSlots?: Record<string, ReactNode>;
+  /** Turns on the per-step escape hatch: mark a step done when no record will
+   *  ever prove it, and undo that again. Omitted for read-only surfaces. */
+  override?: { customerId: string; jobId: string | null };
 }) {
   const { done, total, pct } = checklistProgress(steps);
   const current = steps.find((s) => s.state === "current") ?? null;
@@ -147,7 +152,12 @@ export function JobChecklist({
                 >
                   {s.title}
                 </span>
-                {isSkipped ? (
+                {s.override ? (
+                  <span className="mt-0.5 block text-xs font-medium text-amber-600">
+                    Marked done{s.override.by ? ` by ${s.override.by}` : ""} — no
+                    record{s.override.reason ? ` · ${s.override.reason}` : ""}
+                  </span>
+                ) : isSkipped ? (
                   <span className="mt-0.5 block text-xs font-medium text-amber-600">
                     Skipped — the job moved past this
                     {s.detail ? ` · ${s.detail}` : ""}
@@ -159,9 +169,16 @@ export function JobChecklist({
                 ) : null}
                 {/* Everything else this step can do. On the row, so you never
                     have to guess which page hides the staging sheet. */}
-                {actionSlots?.[s.key] || s.extras.length ? (
+                {actionSlots?.[s.key] || s.extras.length || override ? (
                   <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     {actionSlots?.[s.key] ?? null}
+                    {override ? (
+                      <StepOverride
+                        step={s}
+                        customerId={override.customerId}
+                        jobId={override.jobId}
+                      />
+                    ) : null}
                     {s.extras.map((x) => (
                       <Link
                         key={x.href + x.label}

@@ -24,6 +24,7 @@ export function JobRollUp({
   stageTotal,
   ownerName,
   actionSlots,
+  canOverride = false,
 }: {
   customerId: string;
   jobs: JobProgress[];
@@ -34,6 +35,8 @@ export function JobRollUp({
   /** One-click actions the checklist hosts on the step they belong to — see
    *  `JobChecklist`. Passed down from the page, which holds the server actions. */
   actionSlots?: Record<string, ReactNode>;
+  /** Whether this viewer may mark a step done without the record behind it. */
+  canOverride?: boolean;
 }) {
   if (!jobs.length) return null;
   const multiple = jobs.length > 1;
@@ -58,6 +61,7 @@ export function JobRollUp({
           stageTotal={stageTotal}
           ownerName={ownerName}
           actionSlots={actionSlots}
+          override={canOverride ? { customerId, jobId: only.jobId } : undefined}
         />
         {only.jobId ? (
           <Link
@@ -194,7 +198,11 @@ export function JobRollUp({
                   <span className="hidden group-open/steps:inline">Hide the steps</span>
                 </summary>
                 <div className="mt-2">
-                  <JobChecklist steps={j.steps} actionSlots={actionSlots} />
+                  <JobChecklist
+                    steps={j.steps}
+                    actionSlots={actionSlots}
+                    override={canOverride ? { customerId, jobId: j.jobId } : undefined}
+                  />
                 </div>
               </details>
             </li>

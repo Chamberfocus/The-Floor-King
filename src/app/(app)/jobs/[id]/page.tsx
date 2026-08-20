@@ -85,6 +85,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { JobTabs, JobTabPanel, type JobTab } from "./job-tabs";
 import { JobChecklist } from "@/components/job-checklist";
+import { STEP_OVERRIDE_ROLES } from "@/lib/job-checklist";
 import { MarkContacted } from "@/app/(app)/customers/[id]/mark-contacted";
 import { getJobChecklist } from "@/lib/data/job-checklists";
 import { setEstimateStatus } from "@/app/(app)/estimates/actions";
@@ -604,6 +605,11 @@ export default async function JobPage({
             stageName={stageName}
             ownerName={null}
             actionSlots={checklistSlots}
+            override={
+              job.customer_id && STEP_OVERRIDE_ROLES.includes(profile.role)
+                ? { customerId: job.customer_id, jobId: job.id }
+                : undefined
+            }
           />
         </div>
       ) : null}

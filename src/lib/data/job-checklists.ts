@@ -1,5 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
-import { buildChecklist, checklistProgress, type ChecklistStep } from "@/lib/job-checklist";
+import {
+  buildChecklist,
+  checklistProgress,
+  type ChecklistStep,
+  type StepOverride,
+} from "@/lib/job-checklist";
 import { invoiceTotals } from "@/lib/invoice-calc";
 import { amountPaid } from "@/lib/data/invoices";
 import type { Invoice } from "@/lib/types";
@@ -59,6 +64,61 @@ interface JobRow {
   created_at: string;
 }
 
+interface OverrideRow {
+  job_id: string | null;
+  step_key: string;
+  reason: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+/**
+ * The steps a person has decided are handled, ready to look up per job.
+ *
+ * Returns a lookup rather than a flat map because an account-level override
+ * (job_id null — talk to them, book the visit, build, send, approve) applies to
+ * every list the account has, while a job's own overrides apply only to it.
+ *
+ * Silent when `step_overrides` isn't there yet: before the migration is run
+ * nothing is overridden, which is exactly the behaviour that came before it.
+ */
+async function loadStepOverrides(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  customerId: string,
+): Promise<(jobId: string | null) => Record<string, StepOverride>> {
+  const { data } = await supabase
+    .from("step_overrides")
+    .select("job_id, step_key, reason, created_by, created_at")
+    .eq("customer_id", customerId);
+  const rows = (data ?? []) as OverrideRow[];
+  if (!rows.length) return () => ({});
+
+  // Who overrode it, by name — an unattributed override is just a fudge.
+  const ids = [...new Set(rows.map((r) => r.created_by).filter(Boolean))] as string[];
+  const names = new Map<string, string>();
+  if (ids.length) {
+    const { data: people } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", ids);
+    for (const p of people ?? [])
+      names.set(p.id as string, (p.full_name as string) || "");
+  }
+
+  return (jobId) => {
+    const out: Record<string, StepOverride> = {};
+    for (const r of rows) {
+      if (r.job_id !== null && r.job_id !== jobId) continue;
+      out[r.step_key] = {
+        reason: r.reason,
+        by: names.get(r.created_by ?? "") || null,
+        at: r.created_at,
+      };
+    }
+    return out;
+  };
+}
+
 /**
  * Every checklist for a customer — one per work order, newest first, plus a
  * pre-job one when there's an estimate but no work order yet.
@@ -115,6 +175,8 @@ export async function getCustomerChecklists(
   const claimedEstimates = new Set<string>();
   for (const job of jobRows) if (job.estimate_id) claimedEstimates.add(job.estimate_id);
 
+  const overridesFor = await loadStepOverrides(supabase, customerId);
+
   // Every job's checklist at once. Built one at a time in a loop this was N+1
   // — each job waiting on the one before it for queries that have nothing to do
   // with each other.
@@ -129,6 +191,7 @@ export async function getCustomerChecklists(
         addrLabel,
         hasActivity,
         estimateBooked,
+        overrides: overridesFor(job.id),
       }),
     ),
   );
@@ -151,6 +214,7 @@ export async function getCustomerChecklists(
         addrLabel,
         hasActivity,
         estimateBooked,
+        overrides: overridesFor(null),
       }),
     );
   }
@@ -195,6 +259,7 @@ export async function getJobChecklist(jobId: string): Promise<JobProgress | null
     ),
     hasActivity: (activityCount ?? 0) > 0,
     estimateBooked: (apptCount ?? 0) > 0,
+    overrides: (await loadStepOverrides(supabase, customerId))(jobId),
   });
 }
 
@@ -207,6 +272,7 @@ async function buildOne({
   addrLabel,
   hasActivity,
   estimateBooked,
+  overrides,
 }: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   customerId: string;
@@ -216,6 +282,7 @@ async function buildOne({
   addrLabel: Map<string, string>;
   hasActivity: boolean;
   estimateBooked: boolean;
+  overrides?: Record<string, StepOverride>;
 }): Promise<JobProgress> {
   // THIS job's estimate. Falling back to the account's newest live quote only
   // when the job has none — otherwise two jobs would report each other's.
@@ -299,6 +366,7 @@ async function buildOne({
     estimateBooked,
     materialsOrdered: issuedPos > 0,
     satisfactionSigned: satisfaction,
+    overrides,
   });
 
   const { done, total, pct } = checklistProgress(steps);
