@@ -82,13 +82,12 @@ import { buildJobScope, lineSpec, PAD_ROLL_SQYD } from "@/lib/job-scope";
 import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
 import { createClient } from "@/lib/supabase/server";
-import { SubmitButton } from "@/components/ui/submit-button";
 import { JobTabs, JobTabPanel, type JobTab } from "./job-tabs";
 import { JobChecklist } from "@/components/job-checklist";
+import { buildChecklistSlots } from "@/components/checklist-slots";
 import { STEP_OVERRIDE_ROLES } from "@/lib/job-checklist";
 import { MarkContacted } from "@/app/(app)/customers/[id]/mark-contacted";
 import { getJobChecklist } from "@/lib/data/job-checklists";
-import { setEstimateStatus } from "@/app/(app)/estimates/actions";
 import { JobNotesCard } from "./job-notes-card";
 import { listJobNotes } from "./note-actions";
 import { JobDocuments } from "./job-documents";
@@ -298,16 +297,7 @@ export default async function JobPage({
    */
   const checklist = await getJobChecklist(job.id);
   const stageName = flowStage?.name ?? null;
-  const checklistSlots: Record<string, React.ReactNode> = {};
-  // Step one, tickable here too — the work order shows the same list, and
-  // sending someone to the customer file to prove they made a call is the
-  // detour this replaces.
-  const contactStep = checklist?.steps.find((s) => s.key === "contact");
-  if (job.customer_id && contactStep && contactStep.state !== "done") {
-    checklistSlots.contact = <MarkContacted customerId={job.customer_id} />;
-  }
-  // The estimate this work order came from — approving it is the step the
-  // checklist can't do with a link.
+  // The estimate this work order came from — its send/approve buttons need it.
   const jobEstimate = job.estimate_id
     ? ((
         await (await createClient())
@@ -317,26 +307,29 @@ export default async function JobPage({
           .maybeSingle()
       ).data as { id: string; status: string } | null)
     : null;
-  if (jobEstimate && jobEstimate.status !== "approved") {
-    checklistSlots.approve = (
-      <form action={setEstimateStatus}>
-        <input type="hidden" name="id" value={jobEstimate.id} />
-        <input type="hidden" name="status" value="approved" />
-        <SubmitButton size="sm" pendingText="Approving…" confirm="Estimate approved">
-          Mark approved
-        </SubmitButton>
-      </form>
-    );
-  }
-  if (!job.warehouse_submitted_at) {
-    checklistSlots.staging = (
-      <form action={submitJobToWarehouse}>
-        <input type="hidden" name="job_id" value={job.id} />
-        <SubmitButton size="sm" pendingText="Sending…" confirm="Sent to the warehouse">
-          Send to the warehouse
-        </SubmitButton>
-      </form>
-    );
+
+  /**
+   * The one-click steps, built by the SHARED helper the customer file uses, so
+   * the same step never offers a different action depending on which screen you
+   * opened it from.
+   */
+  const checklistSlots: Record<string, React.ReactNode> = {
+    ...buildChecklistSlots({
+      estimate: jobEstimate,
+      job: {
+        id: job.id,
+        status: job.status ?? null,
+        warehouseSubmittedAt: job.warehouse_submitted_at ?? null,
+      },
+      backTo: `/jobs/${job.id}`,
+    }),
+  };
+  // Step one, tickable here too — the work order shows the same list, and
+  // sending someone to the customer file to prove they made a call is the
+  // detour this replaces.
+  const contactStep = checklist?.steps.find((s) => s.key === "contact");
+  if (job.customer_id && contactStep && contactStep.state !== "done") {
+    checklistSlots.contact = <MarkContacted customerId={job.customer_id} />;
   }
 
   return (

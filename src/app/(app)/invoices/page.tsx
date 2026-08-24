@@ -29,7 +29,10 @@ export default async function InvoicesPage() {
         title="Invoices"
         description="Bill customers and track who still owes you."
       >
-        <Link href="/invoices/quick" className={buttonVariants({ size: "lg" })}>
+        {/* This pointed at /invoices/quick — a SECOND page also titled "Counter
+            sale", with a cut-down form: no product picker, no catalog prices.
+            The real one is in the Sales nav and this button never reached it. */}
+        <Link href="/counter-sale" className={buttonVariants({ size: "lg" })}>
           <Zap className="size-4" /> Counter sale
         </Link>
       </PageHeader>

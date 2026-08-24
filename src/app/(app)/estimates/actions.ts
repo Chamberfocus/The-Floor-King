@@ -380,7 +380,12 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
 
   revalidatePath(`/estimates/${id}`);
   revalidatePath("/estimates");
-  redirect(`/estimates/${id}`);
+  // Called from a checklist row on the customer file or the work order, this
+  // posts "redirect_to" so you stay on the list you were reading. Without it
+  // every send or approval threw you onto the estimate page and you had to find
+  // your way back — which is most of what "bouncing between screens" was.
+  const back = str(formData.get("redirect_to"));
+  redirect(back || `/estimates/${id}`);
 }
 
 /** Build a complete estimate from the wizard: one line per room + add-on lines. */

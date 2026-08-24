@@ -113,6 +113,7 @@ import { CustomerChat } from "./customer-chat";
 import { OnTheWayButton } from "./on-the-way-button";
 import { JobRollUp } from "./job-roll-up";
 import { MarkContacted } from "./mark-contacted";
+import { buildChecklistSlots } from "@/components/checklist-slots";
 import { getCustomerChecklists } from "@/lib/data/job-checklists";
 import { getCustomerEstimateAppointment } from "@/lib/data/scheduling";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -383,6 +384,54 @@ export default async function CustomerPage({
   const contactLogged = jobChecklists.some((j) =>
     j.steps.some((s) => s.key === "contact" && s.state === "done"),
   );
+
+  /**
+   * The one-click steps, on the list you're already reading.
+   *
+   * Send the quote, mark it approved, hand it to the warehouse, say the install
+   * is done — each of those used to mean opening the estimate, the work order or
+   * the warehouse board, pressing one button, and finding your own way back.
+   * Same shared builder the work order uses, so a step can't offer one action
+   * here and a different one there.
+   */
+  /**
+   * Only when this account has ONE piece of work.
+   *
+   * The roll-up draws a checklist per job, but actionSlots is one set shared by
+   * all of them — so on an account with two jobs a "Send it" button built from
+   * "the account's newest estimate" would sit on the wrong job's row and act on
+   * the wrong record. Rare, silent, and the worst kind of wrong.
+   *
+   * With one job there's no ambiguity, which covers almost every account. With
+   * more, the buttons are left off and the steps keep their links — the work
+   * order carries the exact per-job buttons anyway, because it knows which job
+   * it is.
+   */
+  const singleWork = jobChecklists.length === 1;
+  const liveJob = jobs.find((j) => j.status !== "cancelled") ?? null;
+  const liveEstimate =
+    estimates.find((e) => e.status === "sent") ??
+    estimates.find((e) => e.status === "draft") ??
+    estimates.find((e) => e.status === "approved") ??
+    null;
+  const checklistSlots: Record<string, React.ReactNode> = {
+    ...(singleWork
+      ? buildChecklistSlots({
+          estimate: liveEstimate
+            ? { id: liveEstimate.id, status: liveEstimate.status }
+            : null,
+          job: liveJob
+            ? {
+                id: liveJob.id,
+                status: liveJob.status ?? null,
+                warehouseSubmittedAt: liveJob.warehouse_submitted_at ?? null,
+              }
+            : null,
+          backTo: `/customers/${id}`,
+        })
+      : {}),
+    ...(contactLogged ? {} : { contact: <MarkContacted customerId={id} /> }),
+  };
 
 
   // Install smart-scheduler for the active job — lives here on the customer file
@@ -860,7 +909,7 @@ export default async function CustomerPage({
                     stagePosition={spinePos.index >= 0 ? spinePos.index + 1 : null}
                     stageTotal={spinePos.total || null}
                     ownerName={ownerName}
-                    actionSlots={contactLogged ? undefined : { contact: <MarkContacted customerId={id} /> }}
+                    actionSlots={checklistSlots}
                     canOverride={STEP_OVERRIDE_ROLES.includes(profile.role)}
                   />
                 </div>
