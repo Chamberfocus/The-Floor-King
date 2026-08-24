@@ -4,7 +4,7 @@ import type {
   LineType,
   MeasureUnit,
 } from "@/lib/types";
-import { isAreaUnit } from "@/lib/units";
+import { isAreaUnit, normalizeUnit } from "@/lib/units";
 
 /** Signed square feet of one measured piece (subtract = a cutout). */
 export function measurementSqft(m: LineMeasurement): number {
@@ -88,7 +88,23 @@ export function lineAreaSqyd(line: CalcLine): number {
 export function lineQty(line: CalcLine): number {
   const countUnit = line.unit != null && line.unit !== "" && !isAreaUnit(line.unit);
   if (countUnit) return num(line.quantity);
-  const area = line.measure_unit === "sqyd" ? lineAreaSqyd(line) : lineAreaSqft(line);
+  /**
+   * The LABEL decides the number.
+   *
+   * `unit` is what every document prints beside the quantity; `measure_unit` is
+   * a second field holding the same fact, and nothing stopped the two from
+   * drifting apart. When they did, the maths used one and the paperwork printed
+   * the other — so a tear-out measured at 723 sq ft, saved with unit "sq ft" and
+   * measure_unit "sqyd", billed as "80.33 sq ft". A ninth of the job, on the
+   * estimate, the invoice, the work order and the installer's pay.
+   *
+   * So `unit` wins whenever it says something, and `measure_unit` is only the
+   * fallback for lines that carry no unit at all. The printed number and the
+   * printed unit now come from the same place and cannot disagree.
+   */
+  const labelled = normalizeUnit(line.unit);
+  const areaUnit = labelled || (line.measure_unit === "sqyd" ? "sqyd" : "sqft");
+  const area = areaUnit === "sqyd" ? lineAreaSqyd(line) : lineAreaSqft(line);
   if (area > 0) return area;
   return num(line.quantity);
 }
