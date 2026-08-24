@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, MapPin, HardHat, ArrowRight } from "lucide-react";
+import { Plus, MapPin, HardHat, ArrowRight, Wrench } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -154,9 +154,20 @@ export default async function JobsPage({
           {/* Scheduling lives in one place — the Install Scheduler (in the nav for
               scheduling roles). No separate read-only calendar to hunt for. */}
           {isStaff ? (
-            <Link href="/jobs/quick" className={buttonVariants({ size: "lg" })}>
-              <Plus className="size-4" /> Quick install
-            </Link>
+            <>
+              {/* Quick install is for work that's already sold with the material
+                  in hand. Starting the next room for a customer you already have
+                  is the ordinary case, and it had no button at all. */}
+              <Link
+                href="/jobs/quick"
+                className={buttonVariants({ variant: "outline", size: "lg" })}
+              >
+                <Plus className="size-4" /> Quick install
+              </Link>
+              <Link href="/jobs/new" className={buttonVariants({ size: "lg" })}>
+                <Wrench className="size-4" /> New job
+              </Link>
+            </>
           ) : null}
         </div>
       </PageHeader>

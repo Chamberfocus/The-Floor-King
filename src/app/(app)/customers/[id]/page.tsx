@@ -38,7 +38,6 @@ import {
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer } from "@/lib/data/jobs";
 import {
-  createJob,
   createJobFromEstimate,
   submitJobToWarehouse,
 } from "@/app/(app)/jobs/actions";
@@ -778,31 +777,18 @@ export default async function CustomerPage({
                 sourceOk={sourceOk}
                 sources={leadSources}
               />
-              <form action={createJob} className="flex items-center gap-1.5">
-                <input type="hidden" name="customer_id" value={customer.id} />
-                {serviceAddresses.length > 0 ? (
-                  <select
-                    name="service_address_id"
-                    className="h-8 max-w-[9rem] rounded-md border border-input bg-transparent px-2 text-xs"
-                    aria-label="Job site address"
-                  >
-                    <option value="">Primary address</option>
-                    {serviceAddresses.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.label || formatServiceAddress(a)}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                <SubmitButton
-                  size="sm"
-                  variant="outline"
-                  pendingText="Creating…"
-                  confirm="Job created"
-                >
-                  <Wrench className="size-3.5" /> New job
-                </SubmitButton>
-              </form>
+              {/* This used to post straight to `createJob`, which made a work
+                  order literally titled "Job" with nothing on it and dropped you
+                  on the work order to fill in the blanks — the roll-up then
+                  flagged the result as a stray click, safe to delete. It now
+                  opens the real form: what the work is, which site, and the
+                  option to hang it off an estimate that already exists. */}
+              <Link
+                href={`/jobs/new?customer=${customer.id}`}
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+              >
+                <Wrench className="size-3.5" /> New job
+              </Link>
             </>
           ) : null}
           <div className="ml-auto flex items-center gap-2">

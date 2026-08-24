@@ -14,7 +14,6 @@ import { releaseJobReservations } from "@/lib/po-stock";
 import {
   moveToAutoActionStage,
   advanceToNamedStage,
-  advanceFromAutoAction,
 } from "@/lib/workflow-engine";
 import { estimatedLaborCostForOption } from "@/lib/installer-bill";
 import { estimatedMaterialCostForOption } from "@/lib/job-costing";
@@ -797,71 +796,19 @@ export async function createJobFromEstimate(formData: FormData): Promise<void> {
   if (jobId) redirect(`/jobs/${jobId}?created=1`);
 }
 
-/** Create a blank job tied to a customer (optionally at a service address). */
-export async function createJob(formData: FormData): Promise<void> {
-  const customerId = str(formData.get("customer_id"));
-  if (!customerId) return;
-  const serviceAddressId = str(formData.get("service_address_id")) || null;
-
-  const supabase = await createClient();
-  const { data: cust } = await supabase
-    .from("customers")
-    .select("street, city, state, zip")
-    .eq("id", customerId)
-    .maybeSingle();
-
-  // Site address: chosen service address, else the account's primary.
-  let site = {
-    street: cust?.street ?? null,
-    city: cust?.city ?? null,
-    state: cust?.state ?? null,
-    zip: cust?.zip ?? null,
-  };
-  if (serviceAddressId) {
-    const { data: sa } = await supabase
-      .from("service_addresses")
-      .select("street, city, state, zip")
-      .eq("id", serviceAddressId)
-      .maybeSingle();
-    if (sa)
-      site = {
-        street: (sa.street as string) ?? null,
-        city: (sa.city as string) ?? null,
-        state: (sa.state as string) ?? null,
-        zip: (sa.zip as string) ?? null,
-      };
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: job, error } = await supabase
-    .from("jobs")
-    .insert({
-      customer_id: customerId,
-      title: "Job",
-      created_by: user?.id ?? null,
-      service_address_id: serviceAddressId,
-      site_street: site.street,
-      site_city: site.city,
-      site_state: site.state,
-      site_zip: site.zip,
-    })
-    .select("id")
-    .single();
-  if (error || !job) return;
-
-  // Close the coupling gap: a work order now EXISTS, so nudge the customer spine
-  // forward off the deposit stage (→ Ordering Materials), forward-only. This is
-  // the same kind of coupling booking/completing already do — so the dashboard
-  // reflects that the work order was created.
-  await advanceFromAutoAction(customerId, "collect_deposit");
-
-  revalidatePath("/jobs");
-  revalidatePath(`/customers/${customerId}`);
-  redirect(`/jobs/${job.id}?created=1`);
-}
+/**
+ * `createJob` lived here: it made a work order titled literally "Job" with
+ * nothing on it, then dropped you on the work order to fill in the blanks — and
+ * the roll-up flagged the result as a stray click, safe to delete. Worse, it
+ * nudged the pipeline off the deposit stage unconditionally, so starting a job
+ * for someone still on "New Lead" teleported them into Materials & Warehouse
+ * with no quote sent and no money taken.
+ *
+ * Starting work for an existing customer now goes through /jobs/new, which asks
+ * what the work is and where, can hang it off an estimate that already exists,
+ * and only advances the pipeline when the account is actually sold. See
+ * `createJobForCustomer` in src/app/(app)/jobs/new/actions.ts.
+ */
 
 /** Change which address a job is for — refills its site_* fields to match. */
 export async function setJobAddress(formData: FormData): Promise<void> {
