@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { lineQty } from "@/lib/estimate-calc";
+import { lineQty, lineOrderQty } from "@/lib/estimate-calc";
 import { isMaterialLine } from "@/lib/job-scope";
 import {
   buildSupplierLookup,
@@ -142,7 +142,9 @@ export async function getEstimateOrderPlan(
     l.room ||
     "Material";
   const toPlanLine = (l: EstimateLineItem): OrderPlanLine => {
-    const qty = Math.round(lineQty(l) * 100) / 100;
+    // Waste included: this is what gets BOUGHT, and it has to match what the
+    // customer is billed for or the crew turns up short.
+    const qty = Math.round(lineOrderQty(l) * 100) / 100;
     const unitCost = costOf(l);
     return {
       lineId: l.id,

@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { lineQty, type CalcLine } from "@/lib/estimate-calc";
+import { lineQty, lineOrderQty, type CalcLine } from "@/lib/estimate-calc";
 import { isMaterialLine } from "@/lib/job-scope";
 import type { LineMeasurement } from "@/lib/types";
 
@@ -183,7 +183,10 @@ export async function getJobMaterials(
   }
 
   const out: JobMaterialLine[] = lines.map((l) => {
-    const qty = Math.round(lineQty(l) * 100) / 100;
+    // What the JOB needs, waste included — this drives reservations and what
+    // the warehouse stages. Reserving the bare measurement put the crew on site
+    // with less material than the estimate had already sold.
+    const qty = Math.round(lineOrderQty(l) * 100) / 100;
     const p = l.product_id ? prodById.get(l.product_id) : undefined;
     const onHand = p?.on_hand ?? 0;
     const reservedGlobal = p?.reserved ?? 0;

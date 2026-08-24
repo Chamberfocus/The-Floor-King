@@ -114,6 +114,22 @@ function wasteMult(line: CalcLine): number {
   return 1 + num(line.waste_pct) / 100;
 }
 
+/**
+ * How much material to BUY for a line — the measured area plus its waste.
+ *
+ * `lineQty` is the measurement. `lineTotal` bills `lineQty × waste`, because
+ * waste is material you consume and charge for. The purchase order was built
+ * from `lineQty` alone, so on any line carrying waste the shop ordered less
+ * than it sold: 634.7 sq ft billed, 577 ordered — the crew arrives 57 sq ft
+ * short and somebody drives back to the branch.
+ *
+ * Same multiplier the price uses, so what you buy and what you charge for can
+ * never drift apart.
+ */
+export function lineOrderQty(line: CalcLine): number {
+  return lineQty(line) * wasteMult(line);
+}
+
 export function lineTotal(line: CalcLine): number {
   const qty = lineQty(line);
   switch (line.line_type) {
