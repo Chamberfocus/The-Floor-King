@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, MapPin, AlertTriangle, Plus } from "lucide-react";
+import { ArrowRight, AlertTriangle, Plus } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { buttonVariants } from "@/components/ui/button";
 import { requireProfile } from "@/lib/auth";
 import { listCustomers, getProfileNames } from "@/lib/data/customers";
+import { listOpenJobsForPipeline } from "@/lib/data/jobs";
+import { workUnitsFor, type WorkUnit } from "@/lib/work-stage";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -21,9 +23,15 @@ export const dynamic = "force-dynamic";
  * because it groups a long lifecycle into a handful of lanes that each say what
  * happens next, so this borrows that shape.
  *
- * It has to be CUSTOMERS, not jobs. 17 of 41 live customers have no job at all
- * — everyone with an estimate booked or a quote out — and a jobs-only board
- * makes the entire front half of the process invisible.
+ * It is neither purely customers nor purely jobs. 17 of 46 live accounts have
+ * no job at all — everyone with an estimate booked or a quote out — so a
+ * jobs-only board hides the whole front half of the process. But a
+ * customers-only board hid the back half of a repeat account: a contractor with
+ * three jobs running showed once, in the lane of whichever job happened to own
+ * the account's stage.
+ *
+ * So it lists WORK: one card per live job, or one for the account itself while
+ * it has no job. src/lib/work-stage.ts is the rule; this just renders it.
  */
 
 type LaneKey = "new" | "quoting" | "out" | "won" | "onsite" | "paying";
@@ -62,8 +70,8 @@ function laneFor(stageName: string, position: number): LaneKey | null {
 
 /** Past due = the next step's due date has already gone by. Shared so the
  *  "?overdue=1" filter and the "Stuck" badge can never disagree. */
-function isPastDue(c: { next_action_due?: string | null }): boolean {
-  return !!c.next_action_due && new Date(c.next_action_due).getTime() < Date.now();
+function isPastDue(u: { dueAt?: string | null }): boolean {
+  return !!u.dueAt && new Date(u.dueAt).getTime() < Date.now();
 }
 
 export default async function ClientStatusPage({
@@ -87,21 +95,38 @@ export default async function ClientStatusPage({
   const stages = await listWorkflowStages();
   const stageById = new Map(stages.map((s) => [s.id, s] as const));
   const all = (await listCustomers()).filter((c) => !c.cancelled_at);
-  const mineOnly = mine
-    ? all.filter((c) => c.assigned_to === profile.id || c.workflow_owner_id === profile.id)
-    : all;
-  const customers = overdueOnly ? mineOnly.filter(isPastDue) : mineOnly;
 
-  const ownerIds = [
-    ...new Set(customers.map((c) => c.workflow_owner_id ?? c.assigned_to).filter(Boolean)),
-  ] as string[];
+  /**
+   * One card per piece of WORK, not per account.
+   *
+   * This listed customers, so a contractor with three jobs running appeared
+   * once, in the lane of whichever job happened to own the account's stage —
+   * the other two invisible. Every job now carries its own stage, so the board
+   * shows each of them, and an account with no job yet still shows once for the
+   * lead itself. See src/lib/work-stage.ts.
+   */
+  const jobs = await listOpenJobsForPipeline();
+  const jobsByCustomer = new Map<string, typeof jobs>();
+  for (const j of jobs) {
+    const arr = jobsByCustomer.get(j.customer_id) ?? [];
+    arr.push(j);
+    jobsByCustomer.set(j.customer_id, arr);
+  }
+
+  const units = all.flatMap((c) => workUnitsFor(c, jobsByCustomer.get(c.id) ?? []));
+  const mineOnly = mine
+    ? units.filter((u) => u.ownerId === profile.id)
+    : units;
+  const work = overdueOnly ? mineOnly.filter(isPastDue) : mineOnly;
+
+  const ownerIds = [...new Set(work.map((u) => u.ownerId).filter(Boolean))] as string[];
   const owners = ownerIds.length ? await getProfileNames(ownerIds) : {};
 
-  const byLane = new Map<LaneKey, typeof customers>();
+  const byLane = new Map<LaneKey, typeof work>();
   let closed = 0;
   let unstaged = 0;
-  for (const c of customers) {
-    const st = c.workflow_stage_id ? stageById.get(c.workflow_stage_id) : null;
+  for (const u of work) {
+    const st = u.stageId ? stageById.get(u.stageId) : null;
     if (!st) {
       unstaged++;
       continue;
@@ -112,22 +137,29 @@ export default async function ClientStatusPage({
       continue;
     }
     const arr = byLane.get(lane) ?? [];
-    arr.push(c);
+    arr.push(u);
     byLane.set(lane, arr);
   }
 
-  const Card = ({ c, next }: { c: (typeof customers)[number]; next: string }) => {
-    const st = c.workflow_stage_id ? stageById.get(c.workflow_stage_id) : null;
-    const owner = owners[(c.workflow_owner_id ?? c.assigned_to) as string];
-    const overdue = isPastDue(c);
+  const Card = ({ u, next }: { u: WorkUnit; next: string }) => {
+    const st = u.stageId ? stageById.get(u.stageId) : null;
+    const owner = u.ownerId ? owners[u.ownerId] : null;
+    const overdue = isPastDue(u);
     return (
       <Link
-        href={`/customers/${c.id}`}
+        // A job card opens the work order; a pre-job lead opens their file.
+        href={u.kind === "job" ? `/jobs/${u.id}` : `/customers/${u.customerId}`}
         className="block rounded-xl border bg-card p-3.5 transition-colors hover:border-primary/40 active:bg-muted/40"
       >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="truncate text-base font-semibold">{c.full_name}</div>
+            <div className="truncate text-base font-semibold">{u.customerName}</div>
+            {/* Which job — the whole point of one card per piece of work. */}
+            {u.title ? (
+              <div className="truncate text-sm font-medium text-violet-700 dark:text-violet-300">
+                {u.title}
+              </div>
+            ) : null}
             {st ? (
               <div className="truncate text-sm text-muted-foreground">{st.name}</div>
             ) : null}
@@ -143,14 +175,9 @@ export default async function ClientStatusPage({
           ) : null}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {c.city ? (
-            <span className="inline-flex items-center gap-1">
-              <MapPin className="size-3" /> {[c.city, c.state].filter(Boolean).join(", ")}
-            </span>
-          ) : null}
-          {c.next_action_due ? (
+          {u.dueAt ? (
             <span className={cn(overdue && "font-medium text-destructive")}>
-              Due {formatDate(c.next_action_due)}
+              Due {formatDate(u.dueAt)}
             </span>
           ) : null}
         </div>
@@ -251,8 +278,8 @@ export default async function ClientStatusPage({
                   <span className="text-xs text-muted-foreground">{lane.hint}</span>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {items.map((c) => (
-                    <Card key={c.id} c={c} next={lane.next} />
+                  {items.map((u) => (
+                    <Card key={`${u.kind}-${u.id}`} u={u} next={lane.next} />
                   ))}
                 </div>
               </section>

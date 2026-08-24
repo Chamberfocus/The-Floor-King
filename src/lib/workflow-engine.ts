@@ -82,9 +82,44 @@ export function deriveLeadStage(
 }
 
 /** Apply a stage move: keep the owner (else stage default), set SLA due, log it. */
+/**
+ * Which row a stage move writes to.
+ *
+ * A JOB carries its own stage once it exists, so three jobs on one account move
+ * independently. The CUSTOMER carries it only for the phase before any job — a
+ * lead being chased for a quote, which is 17 of 46 live accounts. See
+ * src/lib/work-stage.ts for the rule; this is where it's written.
+ */
+export interface StageTarget {
+  table: "jobs" | "customers";
+  /** The job id, or the customer id for pre-job work. */
+  id: string;
+  /** Always the account, because handoffs and activities hang off it. */
+  customerId: string;
+}
+
+/** Job when we're given one, else the account — see src/lib/work-stage.ts. */
+function stageTarget(customerId: string, jobId?: string | null): StageTarget {
+  return jobId
+    ? { table: "jobs", id: jobId, customerId }
+    : { table: "customers", id: customerId, customerId };
+}
+
+async function loadTarget(
+  supabase: DB,
+  target: StageTarget,
+): Promise<CustRow | null> {
+  const { data } = await supabase
+    .from(target.table)
+    .select("workflow_stage_id, workflow_owner_id")
+    .eq("id", target.id)
+    .maybeSingle();
+  return (data as CustRow) ?? null;
+}
+
 async function applyMove(
   supabase: DB,
-  customerId: string,
+  target: StageTarget,
   cust: CustRow,
   stage: StageRow,
 ): Promise<void> {
@@ -100,27 +135,60 @@ async function applyMove(
     .select("position, auto_action, name");
   const leadStage = deriveLeadStage(stage, (anchors as AnchorRow[]) ?? []);
 
-  await supabase
-    .from("customers")
-    .update({
-      workflow_stage_id: stage.id,
-      workflow_owner_id: owner,
-      next_action_due: due,
-      stage: leadStage,
-    })
-    .eq("id", customerId);
+  const patch = {
+    workflow_stage_id: stage.id,
+    workflow_owner_id: owner,
+    next_action_due: due,
+  };
+
+  /**
+   * Write to the job, and fall back to the account if the job can't hold a
+   * stage yet.
+   *
+   * `jobs.workflow_stage_id` arrives in migration 0150, which is run by hand in
+   * the Supabase editor. Between this code deploying and that migration running,
+   * a job-targeted write would fail against a column that doesn't exist — and
+   * every auto-advance the shop relies on today would quietly stop. So a failed
+   * job write degrades to the old behaviour instead of doing nothing, and starts
+   * working properly the moment the migration lands. No deploy ordering to get
+   * right, and no window where the pipeline silently stalls.
+   */
+  let wroteTo: "jobs" | "customers" = target.table;
+  if (target.table === "jobs") {
+    const { error } = await supabase.from("jobs").update(patch).eq("id", target.id);
+    if (error) wroteTo = "customers";
+  }
+  if (wroteTo === "customers") {
+    await supabase
+      .from("customers")
+      // `stage` is the coarse lead_stage enum and only exists on customers.
+      .update({ ...patch, stage: leadStage })
+      .eq("id", target.customerId);
+  }
+
+  /**
+   * An account whose work has ALL moved past the lead phase shouldn't still
+   * read as a lead on the customer list. The coarse enum stays a roll-up of the
+   * account, so a job move refreshes it from the job that moved.
+   */
+  if (wroteTo === "jobs") {
+    await supabase
+      .from("customers")
+      .update({ stage: leadStage })
+      .eq("id", target.customerId);
+  }
 
   await supabase.from("handoffs").insert({
-    customer_id: customerId,
+    customer_id: target.customerId,
     from_stage_id: cust.workflow_stage_id ?? null,
     to_stage_id: stage.id,
     from_user: cust.workflow_owner_id ?? null,
     to_user: owner,
-    note: "Auto-advanced",
+    note: wroteTo === "jobs" ? "Auto-advanced (job)" : "Auto-advanced",
   });
 
   await supabase.from("activities").insert({
-    customer_id: customerId,
+    customer_id: target.customerId,
     type: "stage_change",
     body: `Auto-advanced to "${stage.name}"`,
   });
@@ -128,7 +196,7 @@ async function applyMove(
   // Landing on a terminal stage finishes the work too.
   await settleJobsForStage(
     supabase,
-    customerId,
+    target.customerId,
     stage,
     ((anchors as AnchorRow[]) ?? []).map((a) => ({
       name: a.name ?? "",
@@ -203,18 +271,6 @@ export async function settleJobsForStage(
   });
 }
 
-async function loadCustomer(
-  supabase: DB,
-  customerId: string,
-): Promise<CustRow | null> {
-  const { data } = await supabase
-    .from("customers")
-    .select("workflow_stage_id, workflow_owner_id")
-    .eq("id", customerId)
-    .maybeSingle();
-  return (data as CustRow) ?? null;
-}
-
 /**
  * Advance a customer to the lowest-position stage whose `auto_action` matches.
  * No-op if no stage uses that auto_action, or the customer is already there.
@@ -222,6 +278,7 @@ async function loadCustomer(
 export async function moveToAutoActionStage(
   customerId: string,
   autoAction: StageAutoAction,
+  jobId?: string | null,
 ): Promise<void> {
   // Auto-advance IS enabled (AUTO_ADVANCE_DISABLED = false): booking an install,
   // approving/sending an estimate, recording a deposit, and completing a job all
@@ -238,14 +295,15 @@ export async function moveToAutoActionStage(
   const list = (stages ?? []) as (StageRow & { auto_action: string })[];
   const target = list.find((s) => s.auto_action === autoAction);
   if (!target) return;
-  const cust = await loadCustomer(supabase, customerId);
+  const unit: StageTarget = stageTarget(customerId, jobId);
+  const cust = await loadTarget(supabase, unit);
   if (!cust || cust.workflow_stage_id === target.id) return;
   // Forward-only: never drag a customer back to an earlier stage.
   const current = cust.workflow_stage_id
     ? list.find((s) => s.id === cust.workflow_stage_id)
     : null;
   if (current && current.position >= target.position) return;
-  await applyMove(supabase, customerId, cust, target);
+  await applyMove(supabase, unit, cust, target);
 }
 
 /**
@@ -258,12 +316,14 @@ export async function moveToAutoActionStage(
 export async function advanceFromAutoAction(
   customerId: string,
   fromAutoAction: StageAutoAction,
+  jobId?: string | null,
 ): Promise<void> {
   if (AUTO_ADVANCE_DISABLED) return; // manual-only pipeline — see note above
   if (!customerId) return;
   const supabase = engineDb();
   if (!supabase) return;
-  const cust = await loadCustomer(supabase, customerId);
+  const unit: StageTarget = stageTarget(customerId, jobId);
+  const cust = await loadTarget(supabase, unit);
   if (!cust) return;
 
   const { data: stages } = await supabase
@@ -282,7 +342,7 @@ export async function advanceFromAutoAction(
     : null;
   const currentPos = current ? current.position : -Infinity;
   if (currentPos >= next.position) return; // already there or further along
-  await applyMove(supabase, customerId, cust, next);
+  await applyMove(supabase, unit, cust, next);
 }
 
 /**
@@ -296,12 +356,14 @@ export async function advanceFromAutoAction(
 export async function advanceToNamedStage(
   customerId: string,
   re: RegExp,
+  jobId?: string | null,
 ): Promise<void> {
   if (AUTO_ADVANCE_DISABLED) return;
   if (!customerId) return;
   const supabase = engineDb();
   if (!supabase) return;
-  const cust = await loadCustomer(supabase, customerId);
+  const unit: StageTarget = stageTarget(customerId, jobId);
+  const cust = await loadTarget(supabase, unit);
   if (!cust) return;
   const { data: stages } = await supabase
     .from("workflow_stages")
@@ -315,7 +377,7 @@ export async function advanceToNamedStage(
     : null;
   const currentPos = current ? current.position : -Infinity;
   if (currentPos >= target.position) return; // already there or further along
-  await applyMove(supabase, customerId, cust, target);
+  await applyMove(supabase, unit, cust, target);
 }
 
 /**
@@ -324,12 +386,14 @@ export async function advanceToNamedStage(
  */
 export async function advanceFromFirstStage(
   customerId: string,
+  jobId?: string | null,
 ): Promise<void> {
   if (AUTO_ADVANCE_DISABLED) return; // manual-only pipeline — see note above
   if (!customerId) return;
   const supabase = engineDb();
   if (!supabase) return;
-  const cust = await loadCustomer(supabase, customerId);
+  const unit: StageTarget = stageTarget(customerId, jobId);
+  const cust = await loadTarget(supabase, unit);
   if (!cust) return;
 
   const { data: stages } = await supabase
@@ -342,7 +406,7 @@ export async function advanceFromFirstStage(
   // Only nudge a lead that is explicitly sitting on stage one. An unstaged
   // customer (no workflow stage yet) is left alone — never auto-jumped.
   if (cust.workflow_stage_id !== first.id) return;
-  await applyMove(supabase, customerId, cust, list[1]);
+  await applyMove(supabase, unit, cust, list[1]);
 }
 
 /**
@@ -377,6 +441,7 @@ export async function advanceFromFirstStage(
 export async function restartFlowForNewWork(
   customerId: string,
   job: { hasEstimate: boolean; estimateApproved: boolean; booked: boolean },
+  jobId?: string | null,
 ): Promise<void> {
   if (AUTO_ADVANCE_DISABLED) return;
   if (!customerId || job.booked) return;
@@ -403,7 +468,8 @@ export async function restartFlowForNewWork(
       : (byAction("schedule_estimate") ?? mainline[0] ?? null);
   if (!target) return;
 
-  const cust = await loadCustomer(supabase, customerId);
+  const unit: StageTarget = stageTarget(customerId, jobId);
+  const cust = await loadTarget(supabase, unit);
   if (!cust || cust.workflow_stage_id === target.id) return;
-  await applyMove(supabase, customerId, cust, target);
+  await applyMove(supabase, unit, cust, target);
 }

@@ -354,7 +354,7 @@ export async function bookInstall(formData: FormData): Promise<void> {
   // Install booked → move the customer to the "Install Scheduled" stage so the
   // dashboard follows the job (forward-only; skips the mid "Waiting" stage).
   if (job?.customer_id)
-    await advanceToNamedStage(job.customer_id as string, STAGE_INSTALL_SCHEDULED);
+    await advanceToNamedStage(job.customer_id as string, STAGE_INSTALL_SCHEDULED, id);
 
   // Scheduled → auto-submit to the warehouse (notifies the assigned person).
   await ensureWarehouseSubmitted(id);
@@ -909,12 +909,12 @@ export async function updateJob(
   const newStatus = str(formData.get("status"));
   if (customerId) {
     if (newStatus === "completed")
-      await advanceToNamedStage(customerId, STAGE_INSTALLED);
+      await advanceToNamedStage(customerId, STAGE_INSTALLED, id);
     else if (newStatus === "in_progress")
       // Starting work now lands on its own stage. It used to advance only as far
       // as "Install Scheduled", so a job being worked on read the same as one
       // merely booked.
-      await advanceToNamedStage(customerId, STAGE_INSTALL_IN_PROGRESS);
+      await advanceToNamedStage(customerId, STAGE_INSTALL_IN_PROGRESS, id);
   }
   // Same unwind as the quick-status path — cancelling from the edit form must
   // free the reserved material too, or the two routes disagree.
@@ -946,9 +946,9 @@ export async function setJobStatus(formData: FormData): Promise<void> {
     // Finishing advances to "Installed – Follow-up"; starting advances to
     // "Install Scheduled" if it lagged (both forward-only).
     if (status === "completed")
-      await advanceToNamedStage(customerId, STAGE_INSTALLED);
+      await advanceToNamedStage(customerId, STAGE_INSTALLED, id);
     else if (status === "in_progress")
-      await advanceToNamedStage(customerId, STAGE_INSTALL_IN_PROGRESS);
+      await advanceToNamedStage(customerId, STAGE_INSTALL_IN_PROGRESS, id);
   }
   // Cancelling used to change the status and nothing else, so the material
   // stayed reserved against a job that will never happen — inventory read as
@@ -1280,7 +1280,7 @@ export async function assignInstaller(formData: FormData): Promise<void> {
   // Claiming a job off the board = it's scheduled: advance the pipeline stage and
   // auto-submit to the warehouse, same as the smart-scheduler (bookInstall) path.
   if (cur?.customer_id)
-    await advanceToNamedStage(cur.customer_id as string, STAGE_INSTALL_SCHEDULED);
+    await advanceToNamedStage(cur.customer_id as string, STAGE_INSTALL_SCHEDULED, jobId);
   await ensureWarehouseSubmitted(jobId);
   revalidateJobEverywhere(jobId, cur?.customer_id as string | null);
 }
@@ -1498,7 +1498,7 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
 
   // Materials ready → advance the lead to install scheduling (unchanged).
   if (job?.customer_id)
-    await moveToAutoActionStage(job.customer_id as string, "schedule_install");
+    await moveToAutoActionStage(job.customer_id as string, "schedule_install", id);
 
   const cust = job?.customer as unknown as {
     full_name: string | null;
@@ -1709,7 +1709,7 @@ export async function setWarehouseStatus(formData: FormData): Promise<void> {
 
   // Intelligent flow: materials received/staged → jump to the install-scheduling stage.
   if (status === "staged" && customerId) {
-    await moveToAutoActionStage(customerId, "schedule_install");
+    await moveToAutoActionStage(customerId, "schedule_install", id);
   }
 
   // Newly delivered → let the customer know their materials arrived on site (the

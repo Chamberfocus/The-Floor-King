@@ -536,3 +536,44 @@ export async function getActiveJobCount(): Promise<number> {
     .in("status", ["scheduled", "in_progress"]);
   return count ?? 0;
 }
+
+/**
+ * Every job that still occupies a place in the pipeline.
+ *
+ * Cancelled jobs are gone; completed ones stay, because "collect the balance"
+ * and "close it out" are real work sitting at real stages. Client status and
+ * anything else building work units reads this — see src/lib/work-stage.ts.
+ */
+export async function listOpenJobsForPipeline(): Promise<
+  {
+    id: string;
+    customer_id: string;
+    title: string | null;
+    status: string | null;
+    workflow_stage_id: string | null;
+    workflow_owner_id: string | null;
+    next_action_due: string | null;
+  }[]
+> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("jobs")
+    .select(
+      "id, customer_id, title, status, workflow_stage_id, workflow_owner_id, next_action_due",
+    )
+    .neq("status", "cancelled")
+    .order("created_at", { ascending: false });
+  // Before migration 0150 the stage columns don't exist and the select fails as
+  // a whole. Falling back to no jobs makes every account read as a single
+  // pre-job unit — exactly the behaviour that came before — instead of an error.
+  if (error) return [];
+  return (data ?? []) as {
+    id: string;
+    customer_id: string;
+    title: string | null;
+    status: string | null;
+    workflow_stage_id: string | null;
+    workflow_owner_id: string | null;
+    next_action_due: string | null;
+  }[];
+}

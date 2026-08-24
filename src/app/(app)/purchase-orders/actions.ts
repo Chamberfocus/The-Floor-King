@@ -864,6 +864,13 @@ export async function applyPoStatus(
     .eq("id", id)
     .maybeSingle();
   const prev = cur?.status as PoStatus | undefined;
+  /**
+   * Which job this PO is for, so the stage move lands on that job rather than
+   * the account. A PO raised straight off an estimate before the work order
+   * exists has no job_id — then it falls back to the account's stage, which is
+   * the right place for it at that point.
+   */
+  const poJobId = (cur?.job_id as string | null) ?? null;
 
   // Can't issue a numbered PO without a real vendor record. The stamp trigger
   // fires on this update, so the guard has to sit in front of it.
@@ -884,7 +891,7 @@ export async function applyPoStatus(
     // the pipeline with it instead of leaving it on "Ordering Materials", which
     // reads as though the order still hasn't been placed.
     if (cur?.customer_id) {
-      await advanceToNamedStage(cur.customer_id as string, STAGE_AWAITING_MATERIALS);
+      await advanceToNamedStage(cur.customer_id as string, STAGE_AWAITING_MATERIALS, poJobId);
       revalidatePath("/client-status");
       revalidatePath("/dashboard");
     }
@@ -895,7 +902,7 @@ export async function applyPoStatus(
   // getJobMaterials now reads the PO status → job material lines flip to
   // "arrived" and the warehouse/job page show it.
   if (prev !== "received" && status === "received" && cur?.customer_id) {
-    await advanceToNamedStage(cur.customer_id as string, STAGE_MATERIALS_RECEIVED);
+    await advanceToNamedStage(cur.customer_id as string, STAGE_MATERIALS_RECEIVED, poJobId);
     revalidatePath("/client-status");
     revalidatePath("/dashboard");
     revalidatePath("/installer");

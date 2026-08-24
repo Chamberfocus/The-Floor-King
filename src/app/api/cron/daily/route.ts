@@ -206,7 +206,7 @@ export async function GET(request: NextRequest) {
     }
     await admin.from("jobs").update({ status: "in_progress" }).eq("id", j.id as string);
     if (j.customer_id) {
-      await advanceToNamedStage(j.customer_id as string, /in progress|in-progress/);
+      await advanceToNamedStage(j.customer_id as string, /in progress|in-progress/, j.id as string);
     }
     started += 1;
   }
@@ -224,7 +224,7 @@ export async function GET(request: NextRequest) {
   for (const j of finished ?? []) {
     const owed = await outstandingBalance(admin, j.customer_id as string);
     if (owed > 0.005) {
-      await advanceToNamedStage(j.customer_id as string, /balance/);
+      await advanceToNamedStage(j.customer_id as string, /balance/, j.id as string);
       balanceChased += 1;
     }
   }
