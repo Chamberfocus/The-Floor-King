@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
-import { advanceFromAutoAction } from "@/lib/workflow-engine";
+import { restartFlowForNewWork } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { formatServiceAddress } from "@/lib/types";
 import type { UserRole, LeadSource, LeadStage } from "@/lib/types";
@@ -36,6 +36,10 @@ export interface JobEstimateOption {
 
 export interface CustomerJobContext {
   addresses: JobSiteOption[];
+  /** Work already running on this account. A new job restarts the account's
+   *  stage, and the account only holds one — so if there IS other live work,
+   *  the form has to say what that costs before you commit to it. */
+  liveJobs: { id: string; title: string; status: string }[];
   /** Estimates with no work order behind them yet — the ones worth starting
    *  from. An estimate that already has a job would only make a duplicate. */
   estimates: JobEstimateOption[];
@@ -46,7 +50,7 @@ export interface CustomerJobContext {
 export async function getCustomerJobContext(
   customerId: string,
 ): Promise<CustomerJobContext> {
-  if (!customerId) return { addresses: [], estimates: [] };
+  if (!customerId) return { addresses: [], estimates: [], liveJobs: [] };
   await assertRole(STAFF);
   const supabase = await createClient();
 
@@ -63,14 +67,23 @@ export async function getCustomerJobContext(
       .order("created_at", { ascending: false }),
     supabase
       .from("jobs")
-      .select("estimate_id")
-      .eq("customer_id", customerId)
-      .not("estimate_id", "is", null),
+      .select("id, title, status, estimate_id")
+      .eq("customer_id", customerId),
   ]);
 
-  const taken = new Set((jobs ?? []).map((j) => j.estimate_id as string));
+  const taken = new Set(
+    (jobs ?? []).map((j) => j.estimate_id as string | null).filter(Boolean) as string[],
+  );
+  const liveJobs = (jobs ?? [])
+    .filter((j) => j.status !== "completed" && j.status !== "cancelled")
+    .map((j) => ({
+      id: j.id as string,
+      title: (j.title as string) || "Job",
+      status: (j.status as string) || "",
+    }));
 
   return {
+    liveJobs,
     addresses: (addrs ?? []).map((a) => ({
       id: a.id as string,
       label:
@@ -216,8 +229,18 @@ export async function createJobForCustomer(
   const assignee = input.installerId ? { assigned_to: input.installerId } : {};
 
   let jobId: string | null = null;
+  /** Where the new work already stands, so the flow restarts at the right step
+   *  rather than sending an approved quote back to "book the measure". */
+  let approvedEstimate = false;
 
   if (input.estimateId) {
+    const { data: est } = await supabase
+      .from("estimates")
+      .select("status")
+      .eq("id", input.estimateId)
+      .maybeSingle();
+    approvedEstimate = est?.status === "approved";
+
     // Reuse the one path that knows how to build a job from an estimate —
     // accepted option, scope, and the costed material snapshot. It's idempotent,
     // so a double-click can't produce two work orders for the same quote.
@@ -264,17 +287,20 @@ export async function createJobForCustomer(
   }
 
   /**
-   * Nudge the pipeline only when the work is actually SOLD.
+   * A new job restarts the flow.
    *
-   * The old button called this unconditionally, which meant creating a job for
-   * someone still sitting on "New Lead" teleported them past the quote and the
-   * deposit into "Materials & Warehouse" — the account's stage said the money
-   * was in when nobody had even sent a price. A job existing is a fact about the
-   * work, not proof anyone paid.
+   * The stage lives on the customer, so a repeat customer's second room used to
+   * inherit wherever the first one finished — starting life reported as "Install
+   * In Progress" with nothing chasing it. Starting new work puts the account
+   * back at the beginning for that work, landing wherever the job actually is:
+   * no quote yet → book the measure; quote built → send it; quote approved →
+   * take the deposit; already booked onto the calendar → leave it be.
    */
-  if (cust.stage === "won") {
-    await advanceFromAutoAction(customerId, "collect_deposit");
-  }
+  await restartFlowForNewWork(customerId, {
+    hasEstimate: !!input.estimateId,
+    estimateApproved: approvedEstimate,
+    booked: !!input.scheduledDate,
+  });
 
   revalidatePath("/jobs");
   revalidatePath("/board");

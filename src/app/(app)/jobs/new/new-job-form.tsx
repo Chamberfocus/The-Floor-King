@@ -19,7 +19,7 @@ import {
 } from "./actions";
 
 const label = "text-xs font-medium text-muted-foreground";
-const EMPTY: CustomerJobContext = { addresses: [], estimates: [] };
+const EMPTY: CustomerJobContext = { addresses: [], estimates: [], liveJobs: [] };
 const emptyNc = { full_name: "", phone: "", street: "", city: "", state: "", zip: "" };
 
 /**
@@ -227,6 +227,32 @@ export function NewJobForm({
                 allowClear
                 options={ctx.addresses.map((a) => ({ value: a.id, label: a.label }))}
               />
+            </div>
+          ) : null}
+
+          {/* The account's stage restarts for this job, and an account holds
+              only one stage — so if there's other work still running, say what
+              that costs rather than letting it happen quietly. */}
+          {ctx.liveJobs.length ? (
+            <div className="rounded-md border border-amber-400/50 bg-amber-50 p-3 text-xs dark:bg-amber-950/30">
+              <p className="font-medium text-amber-800 dark:text-amber-300">
+                {ctx.liveJobs.length === 1
+                  ? "This customer already has a job running"
+                  : `This customer already has ${ctx.liveJobs.length} jobs running`}
+              </p>
+              <ul className="mt-1 list-disc pl-4 text-amber-800/90 dark:text-amber-300/90">
+                {ctx.liveJobs.map((j) => (
+                  <li key={j.id}>
+                    {j.title} <span className="opacity-70">· {j.status}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-amber-800/90 dark:text-amber-300/90">
+                Starting this one moves the account back to the beginning of the
+                flow for it. Each job keeps its own checklist, but the pipeline
+                stage on Client status will follow this new job, not the one
+                above.
+              </p>
             </div>
           ) : null}
 

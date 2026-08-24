@@ -344,3 +344,66 @@ export async function advanceFromFirstStage(
   if (cust.workflow_stage_id !== first.id) return;
   await applyMove(supabase, customerId, cust, list[1]);
 }
+
+/**
+ * A repeat customer has started a NEW piece of work — put the account back at
+ * the beginning of the flow for it.
+ *
+ * The workflow stage lives on the CUSTOMER, not the job, so an account carries
+ * exactly one position in the pipeline however much work it has. For a repeat
+ * customer that means a brand-new job inherits wherever the last one finished:
+ * JDP Home Improvements booked a second and third job while the account sat on
+ * "Install In Progress", so the new rooms were reported as being installed
+ * before anyone had measured them — wrong lane on Client status, no next-action
+ * date, and nothing chasing the work.
+ *
+ * This is the ONE deliberate exception to the engine's forward-only rule. Every
+ * other mover refuses to drag a customer back, because a real event never
+ * un-happens. Starting new work is different: it genuinely restarts the process,
+ * and the account's stage should describe the job that now needs doing rather
+ * than the one that's finished.
+ *
+ * Where it lands depends on what the job already has, so a job created from an
+ * approved quote doesn't get sent back to "book the measure":
+ *   • nothing yet          → the stage that schedules the estimate
+ *   • an unapproved quote  → the stage that builds/sends the quote
+ *   • an approved quote    → the deposit stage
+ *   • a date already booked → left alone; it's further along than any of these
+ *
+ * NOT a silent no-op when the customer still has other live work: the account
+ * can only hold one position, so the older job's place in the pipeline is given
+ * up. The caller decides whether that's acceptable and says so in the UI.
+ */
+export async function restartFlowForNewWork(
+  customerId: string,
+  job: { hasEstimate: boolean; estimateApproved: boolean; booked: boolean },
+): Promise<void> {
+  if (AUTO_ADVANCE_DISABLED) return;
+  if (!customerId || job.booked) return;
+  const supabase = engineDb();
+  if (!supabase) return;
+
+  const { data: stages } = await supabase
+    .from("workflow_stages")
+    .select("id, name, position, sla_hours, default_owner, auto_action")
+    .order("position", { ascending: true });
+  const list = (stages ?? []) as (StageRow & { auto_action: string | null })[];
+  if (!list.length) return;
+
+  const byAction = (a: string) => list.find((s) => s.auto_action === a) ?? null;
+  // Off-spine stages (Lost / on-hold) are never a starting point for live work.
+  const mainline = list.filter(
+    (s) => !/lost|declin|dead|cancel|waiting|on hold|hold|park/i.test(s.name ?? ""),
+  );
+
+  const target = job.estimateApproved
+    ? (byAction("collect_deposit") ?? byAction("build_quote"))
+    : job.hasEstimate
+      ? (byAction("build_quote") ?? byAction("schedule_estimate"))
+      : (byAction("schedule_estimate") ?? mainline[0] ?? null);
+  if (!target) return;
+
+  const cust = await loadCustomer(supabase, customerId);
+  if (!cust || cust.workflow_stage_id === target.id) return;
+  await applyMove(supabase, customerId, cust, target);
+}
