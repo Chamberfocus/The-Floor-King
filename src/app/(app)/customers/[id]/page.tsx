@@ -129,7 +129,7 @@ import {
 } from "./customer-tabs";
 import { CustomerSettingsMenu } from "./customer-settings-menu";
 import { listLeadSources } from "@/lib/data/lead-sources";
-import { EstimateSourceGate } from "./estimate-source-gate";
+import { NewEstimate } from "@/components/new-estimate";
 import { QualifyDialog } from "./qualify-dialog";
 import { QuickActions } from "./quick-actions";
 import { CustomerSwitcher } from "./customer-switcher";
@@ -772,7 +772,10 @@ export default async function CustomerPage({
                   last place you look when a repeat customer rings up about a
                   second room. Same controls, hoisted to where they're seen. */}
               <span className="mx-1 h-6 w-px bg-border" aria-hidden />
-              <EstimateSourceGate
+              {/* One button, all four ways in — including copying their last
+                  quote, which used to be offered only on /estimates/start and
+                  never here, on the file of the repeat customer it's for. */}
+              <NewEstimate
                 customerId={customer.id}
                 sourceOk={sourceOk}
                 sources={leadSources}

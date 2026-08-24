@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, FileText, Users, Zap} from "lucide-react";
+import { Plus, FileText } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -38,14 +38,11 @@ export default async function EstimatesPage() {
         title="Estimates"
         description="Every estimate across all customers."
       >
+        {/* "Quick estimate" used to sit here as its own button — the only place
+            in the app you could reach it. It's one of the four choices inside
+            New estimate now, offered wherever you start one. */}
         <div className="flex items-center gap-2">
           <ClearDraftsButton />
-          <Link
-            href="/estimates/quick"
-            className={buttonVariants({ size: "lg", variant: "outline" })}
-          >
-            <Zap className="size-4" /> Quick estimate
-          </Link>
           <Link href="/estimates/start" className={buttonVariants({ size: "lg" })}>
             <Plus className="size-4" /> New estimate
           </Link>
@@ -56,10 +53,10 @@ export default async function EstimatesPage() {
         <EmptyState
           icon={FileText}
           title="No estimates yet — let's build your first one"
-          description="Estimates start from a customer. Open one and hit New estimate, and it'll show up here."
+          description="Find the customer, then pick how to build it: the guided questionnaire, a quick few lines, or straight into the builder."
           action={
-            <Link href="/customers" className={buttonVariants({})}>
-              <Users className="size-4" /> Go to customers
+            <Link href="/estimates/start" className={buttonVariants({})}>
+              <Plus className="size-4" /> New estimate
             </Link>
           }
         />

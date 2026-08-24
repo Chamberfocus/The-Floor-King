@@ -1,21 +1,12 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { Search, FileText, Copy, UserPlus } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Search, UserPlus } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { EstimateStatusBadge } from "@/components/estimate-status-badge";
-import { formatDate } from "@/lib/format";
-import {
-  searchCustomersForCopy,
-  customerWorkContext,
-  duplicateEstimateToCustomer,
-} from "./actions";
-import { EstimateSourceGate } from "../customers/[id]/estimate-source-gate";
-import type { LeadSourceRow, EstimateStatus } from "@/lib/types";
+import { searchCustomersForCopy, customerWorkContext } from "./actions";
+import { NewEstimate } from "@/components/new-estimate";
+import type { LeadSourceRow } from "@/lib/types";
 
 /**
  * Start the next piece of work, without going to the customer list.
@@ -34,7 +25,6 @@ import type { LeadSourceRow, EstimateStatus } from "@/lib/types";
  * unit — copies what you already quoted instead of rebuilding it.
  */
 export function StartEstimate({ sources }: { sources: LeadSourceRow[] }) {
-  const router = useRouter();
   const [q, setQ] = useState("");
   const [results, setResults] = useState<
     { id: string; name: string; city: string | null }[]
@@ -43,7 +33,6 @@ export function StartEstimate({ sources }: { sources: LeadSourceRow[] }) {
   const [ctx, setCtx] = useState<Awaited<ReturnType<typeof customerWorkContext>> | null>(
     null,
   );
-  const [pending, start] = useTransition();
 
   useEffect(() => {
     let active = true;
@@ -62,18 +51,6 @@ export function StartEstimate({ sources }: { sources: LeadSourceRow[] }) {
     setCtx(null);
     customerWorkContext(c.id).then(setCtx);
   };
-
-  const copy = (estimateId: string) =>
-    start(async () => {
-      if (!chosen) return;
-      const res = await duplicateEstimateToCustomer(estimateId, chosen.id, {});
-      if (res.error || !res.estimateId) {
-        toast.error(res.error ?? "Couldn't copy that estimate.");
-        return;
-      }
-      toast.success("Copied — edit the new draft");
-      router.push(`/estimates/${res.estimateId}/edit`);
-    });
 
   if (!chosen) {
     return (
@@ -142,61 +119,21 @@ export function StartEstimate({ sources }: { sources: LeadSourceRow[] }) {
         {/* Same control the customer file uses: both ways in, and it captures a
             missing lead source inline instead of bouncing you elsewhere. */}
         {ctx ? (
-          <EstimateSourceGate
+          <NewEstimate
             customerId={chosen.id}
             sourceOk={ctx.sourceOk}
             sources={sources}
+            label="Start the estimate"
+            size="lg"
           />
         ) : (
           <p className="text-sm text-muted-foreground">Loading…</p>
         )}
       </div>
 
-      {/* Repeat work is the normal case. Copying what you already quoted beats
-          rebuilding it from nothing. */}
-      {ctx?.estimates.length ? (
-        <div>
-          <div className="mb-2 text-sm font-medium">
-            Or copy what you quoted before
-          </div>
-          <ul className="divide-y rounded-md border">
-            {ctx.estimates.map((e) => (
-              <li key={e.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                <span className="inline-flex min-w-0 items-center gap-2">
-                  <FileText className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0">
-                    <Link
-                      href={`/estimates/${e.id}`}
-                      className="block truncate text-sm font-medium hover:underline"
-                    >
-                      {e.title}
-                    </Link>
-                    <span className="text-xs text-muted-foreground">
-                      {formatDate(e.createdAt)}
-                    </span>
-                  </span>
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <EstimateStatusBadge status={e.status as EstimateStatus} />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={pending}
-                    onClick={() => copy(e.id)}
-                  >
-                    <Copy className="size-3.5" /> Copy
-                  </Button>
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs text-muted-foreground">
-            A copy brings every room, option and price across as a fresh draft —
-            and you can point it at a different address once it opens.
-          </p>
-        </div>
-      ) : null}
+      {/* The copy list used to live here, and ONLY here. It's inside the
+          chooser now, so it's offered on the customer's own file too — which is
+          where you are when a repeat customer rings about another room. */}
     </div>
   );
 }
