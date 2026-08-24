@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { productLabel } from "@/lib/product-label";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Trash2 } from "lucide-react";
@@ -42,7 +43,7 @@ export default async function StockPOPage({ params }: { params: Promise<{ id: st
     for (const p of prods ?? []) {
       prodName.set(
         p.id as string,
-        [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || (p.name as string),
+        productLabel(p) || (p.name as string),
       );
       prodKind.set(p.id as string, (p.stock_kind as string) || "discrete");
       prodUnit.set(p.id as string, (p.unit as string) || "each");

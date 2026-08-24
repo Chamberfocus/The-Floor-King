@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { productLabel } from "@/lib/product-label";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Trash2, Check, CalendarClock, Package } from "lucide-react";
@@ -84,7 +85,7 @@ export function SamplesCard({
 
   const addFromCatalog = (p: Product) => {
     const label =
-      [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name;
+      productLabel(p) || p.name;
     setItems((xs) => [...xs, { key: `d${dk++}`, label, productId: p.id, qty: "1" }]);
     setResetKey((k) => k + 1);
   };

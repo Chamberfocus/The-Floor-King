@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { productLabel } from "@/lib/product-label";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -111,6 +112,3 @@ export function AddToInventoryForm() {
   );
 }
 
-function productLabel(p: Product): string {
-  return [p.manufacturer, p.name].filter(Boolean).join(" ");
-}

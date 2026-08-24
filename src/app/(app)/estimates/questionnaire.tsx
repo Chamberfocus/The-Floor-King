@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { productLabel } from "@/lib/product-label";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -197,8 +198,6 @@ const newTrimRow = (t?: { label: string; unit: string; cost: number; sized?: boo
   product: null,
 });
 
-const productLabel = (p: Product) =>
-  [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name;
 /** Stable key for a measured room in the floor-map (survives resume — the row
  *  id is regenerated each session, so key by name, falling back to position). */
 const roomKey = (name: string, i: number): string =>

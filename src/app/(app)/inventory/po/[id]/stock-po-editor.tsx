@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { productLabel } from "@/lib/product-label";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, Boxes, AlertTriangle } from "lucide-react";
@@ -82,7 +83,7 @@ export function StockPoEditor({
       patch(i, { product_id: "", label: "" });
       return;
     }
-    const label = [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || p.name;
+    const label = productLabel(p) || p.name;
     patch(i, {
       product_id: p.id,
       label,

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { productLabel } from "@/lib/product-label";
 import type { StockRoll } from "@/lib/types";
 
 type Db = Awaited<ReturnType<typeof createClient>>;
@@ -82,7 +83,7 @@ async function withNames(db: Db, rolls: StockRoll[]): Promise<RemnantWithProduct
     for (const p of data ?? [])
       name.set(
         p.id as string,
-        [p.manufacturer, p.name, p.color].filter(Boolean).join(" ") || (p.name as string),
+        productLabel(p) || (p.name as string),
       );
   }
   return rolls.map((r) => ({ ...r, product_name: name.get(r.product_id) ?? null }));

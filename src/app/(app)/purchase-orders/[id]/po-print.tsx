@@ -1,4 +1,5 @@
 import { PrintLetterhead } from "@/components/print-letterhead";
+import { productSpec } from "@/lib/product-label";
 import { CarpetCutList } from "@/components/carpet-cut-list";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { CutSource } from "@/lib/job-scope";
@@ -15,7 +16,7 @@ import {
 } from "@/lib/types";
 
 function itemLabel(it: PoItem): string {
-  const spec = [it.manufacturer, it.style, it.color].filter(Boolean).join(" / ");
+  const spec = productSpec(it);
   const base = it.description || spec || "Item";
   const extra = [it.description && spec ? spec : "", it.item_no ? `#${it.item_no}` : ""]
     .filter(Boolean)

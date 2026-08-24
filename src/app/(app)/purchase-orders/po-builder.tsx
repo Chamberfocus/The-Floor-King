@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { productLabel } from "@/lib/product-label";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Trash2, Save, Printer, Upload, Sparkles, Bookmark } from "lucide-react";
@@ -283,7 +284,7 @@ export function PoBuilder({
       product_id: "",
       description:
         it.description ||
-        [it.manufacturer, it.style, it.color].filter(Boolean).join(" "),
+        productLabel(it),
       quantity: it.quantity != null ? String(it.quantity) : "",
       unit: it.unit || "sqft",
       unit_cost: it.unit_cost != null ? String(it.unit_cost) : "",

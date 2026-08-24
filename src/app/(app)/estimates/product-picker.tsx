@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { productLabel } from "@/lib/product-label";
 import { toast } from "sonner";
 import { Check, ChevronDown, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,10 +26,6 @@ import { UNIT_OPTIONS, defaultUnitForCategory, unitLabel, isAreaUnit } from "@/l
 
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
-function productLabel(p: Product): string {
-  return [p.manufacturer, p.name, p.color].filter(Boolean).join(" ");
-}
 
 /**
  * Searchable catalog picker for an estimate line. Searches the catalog

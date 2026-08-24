@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { productLabel } from "@/lib/product-label";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Search, Plus, Trash2, UserPlus, Receipt } from "lucide-react";
@@ -101,7 +102,7 @@ export function CounterSaleForm({
   const pick = (key: string, p: Product | null) => {
     if (!p) return;
     setRow(key, {
-      description: [p.manufacturer, p.name, p.color].filter(Boolean).join(" ").trim(),
+      description: productLabel(p).trim(),
       unit: p.unit || "each",
       // The catalog rate is OUR COST. Selling at it would hand the material
       // over at cost, so mark it up to the shop's target margin — the same
