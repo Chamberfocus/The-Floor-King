@@ -18,7 +18,6 @@ import {
   CalendarRange,
   UserCheck,
   Activity,
-  ArrowRightLeft,
   ShoppingBag,
   Bookmark,
   Hammer,
@@ -135,8 +134,16 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Jobs", href: "/jobs", icon: CalendarDays, roles: JOBS_ROLES },
       { label: "Job Board", href: "/board", icon: ClipboardList, roles: ["admin", "office", "scheduler", "crew"] },
-      { label: "Quick install", href: "/jobs/quick", icon: Hammer, roles: ["admin", "office", "scheduler"] },
-      { label: "Carry over work", href: "/carry-over", icon: ArrowRightLeft, roles: OFFICE_PLUS },
+      // "Quick install" was a second door to the same thing — everything it did
+      // now lives on /jobs/new, which is reached from the New job button on the
+      // Jobs page and on every customer's file.
+      //
+      // "Carry over work" is a go-live task, not a daily one: it exists to bring
+      // unfinished jobs across from the old system. A permanent sidebar entry
+      // for a one-time migration is clutter, so it's linked from /jobs/new —
+      // exactly where you'd be standing when you realise you need it — and the
+      // route still works for anyone who bookmarked it.
+      { label: "New job", href: "/jobs/new", icon: Hammer, roles: ["admin", "office", "sales_manager", "salesman", "scheduler"] },
     ],
   },
   {

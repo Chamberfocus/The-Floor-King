@@ -6,7 +6,7 @@ import { assertRole } from "@/lib/auth";
 import { advanceFromAutoAction } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { formatServiceAddress } from "@/lib/types";
-import type { UserRole } from "@/lib/types";
+import type { UserRole, LeadSource, LeadStage } from "@/lib/types";
 
 /**
  * Starting a second (or fifth) job for a client you already have.
@@ -92,13 +92,30 @@ export async function getCustomerJobContext(
   };
 }
 
+export interface NewCustomerInput {
+  full_name: string;
+  phone: string;
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+}
+
 export interface NewJobInput {
-  customerId: string;
+  /** An existing account. Null when `newCustomer` is supplied instead. */
+  customerId: string | null;
+  /** Someone not on the books yet — the case "Quick install" used to own. */
+  newCustomer: NewCustomerInput | null;
   title: string;
   serviceAddressId: string | null;
   /** Start the job from this estimate — scope, option and costed material come
    *  with it. Null for work that hasn't been quoted. */
   estimateId: string | null;
+  /** Put it straight on the calendar. All optional — a job with no date sits on
+   *  the board waiting to be scheduled, which is the normal case. */
+  scheduledDate: string | null;
+  arrivalWindow: string | null;
+  installerId: string | null;
   notes: string;
 }
 
@@ -110,13 +127,45 @@ export interface NewJobResult {
 export async function createJobForCustomer(
   input: NewJobInput,
 ): Promise<NewJobResult> {
-  const customerId = input.customerId?.trim();
   const title = input.title?.trim();
-  if (!customerId) return { error: "Pick the customer this job is for." };
   if (!title) return { error: "Say what the work is." };
+  if (!input.customerId && !input.newCustomer?.full_name?.trim())
+    return { error: "Pick the customer, or add their name." };
 
   const profile = await assertRole(STAFF);
   const supabase = await createClient();
+
+  let customerId = input.customerId?.trim() || null;
+
+  /**
+   * Someone new. A work order means the work is sold — you don't raise one for
+   * a lead — so they land qualified and won rather than at the top of the
+   * pipeline waiting to be chased for a quote that already happened.
+   */
+  if (!customerId) {
+    const nc = input.newCustomer!;
+    const { data: created, error: custErr } = await supabase
+      .from("customers")
+      .insert({
+        full_name: nc.full_name.trim(),
+        phone: nc.phone?.trim() || null,
+        street: nc.street?.trim() || null,
+        city: nc.city?.trim() || null,
+        state: nc.state?.trim() || null,
+        zip: nc.zip?.trim() || null,
+        source: "repeat" as LeadSource,
+        stage: "won" as LeadStage,
+        qualified: true,
+        workflow_owner_id: profile.id,
+        assigned_to: profile.id,
+        created_by: profile.id,
+      })
+      .select("id")
+      .single();
+    if (custErr || !created)
+      return { error: custErr?.message || "Couldn't add the customer." };
+    customerId = created.id as string;
+  }
 
   const { data: cust } = await supabase
     .from("customers")
@@ -148,6 +197,24 @@ export async function createJobForCustomer(
       };
   }
 
+  /**
+   * Optional booking, applied the same way whichever path made the job.
+   *
+   * NOTE: no `migrated` flag here. Quick install set `migrated: true` on every
+   * job it made — a marker meaning "this was billed in the old system" — which
+   * permanently excludes the job from Business Pulse profit analytics
+   * (src/lib/data/finance.ts). That's right for a go-live carry-over and wrong
+   * for work sold today. Carrying over old work is /carry-over's job.
+   */
+  const booking = input.scheduledDate
+    ? {
+        scheduled_date: input.scheduledDate,
+        arrival_window: input.arrivalWindow || null,
+        status: "scheduled",
+      }
+    : {};
+  const assignee = input.installerId ? { assigned_to: input.installerId } : {};
+
   let jobId: string | null = null;
 
   if (input.estimateId) {
@@ -170,6 +237,8 @@ export async function createJobForCustomer(
         site_city: site.city,
         site_state: site.state,
         site_zip: site.zip,
+        ...booking,
+        ...assignee,
       })
       .eq("id", jobId);
   } else {
@@ -185,6 +254,8 @@ export async function createJobForCustomer(
         site_state: site.state,
         site_zip: site.zip,
         created_by: profile.id,
+        ...booking,
+        ...assignee,
       })
       .select("id")
       .single();
@@ -211,5 +282,10 @@ export async function createJobForCustomer(
   revalidatePath("/dashboard");
   revalidatePath(`/customers/${customerId}`);
   revalidatePath("/customers");
+  // Booked or assigned on the way in — it belongs on the crew's list, the
+  // warehouse queue and the scheduler straight away, not after a refresh.
+  revalidatePath("/installer");
+  revalidatePath("/install-scheduler");
+  revalidatePath("/warehouse");
   return { error: null, jobId };
 }

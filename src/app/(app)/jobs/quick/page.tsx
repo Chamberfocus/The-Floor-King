@@ -1,52 +1,18 @@
-import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
+import { redirect } from "next/navigation";
 import { requireProfile } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
-import { getSchedulingSettings, listInstallers } from "@/lib/data/scheduling";
-import { parseArrivalWindows } from "@/lib/format";
-import { QuickInstallForm } from "./quick-install-form";
 
-export const metadata: Metadata = { title: "Quick install" };
-export const dynamic = "force-dynamic";
-
-export default async function QuickInstallPage() {
+/**
+ * "Quick install" was a third way to make a job, and you had to know which of
+ * the three you were meant to be in before you started typing. It could do two
+ * things /jobs/new couldn't — add the customer on the spot, and book the date —
+ * so both moved there rather than the page surviving beside it.
+ *
+ * It also stamped every job it made `migrated: true`, a marker meaning "billed
+ * in the old system", which permanently hides a job from Business Pulse profit
+ * (src/lib/data/finance.ts). Right for a go-live carry-over, wrong for work sold
+ * this morning. /jobs/new doesn't set it; /carry-over still does, correctly.
+ */
+export default async function QuickInstallRedirect() {
   await requireProfile();
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("customers")
-    .select("id, full_name")
-    .order("full_name", { ascending: true })
-    .limit(2000);
-  const customers = (data ?? []).map((c) => ({
-    id: c.id as string,
-    full_name: (c.full_name as string) ?? "Unnamed",
-  }));
-  const installers = (await listInstallers()).map((u) => ({ id: u.id, name: u.name }));
-  const sched = await getSchedulingSettings();
-  const windows = parseArrivalWindows(sched.arrival_windows).map((w) => ({
-    value: `${w.start}-${w.end}`,
-    label: w.label,
-  }));
-
-  return (
-    <div className="mx-auto max-w-2xl">
-      <Link
-        href="/jobs"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" /> Back to jobs
-      </Link>
-      <PageHeader
-        title="Quick install"
-        description="Already sold with materials in hand? Drop it straight onto the schedule and installer board — just the customer and the work. No estimate, no pricing, no invoicing."
-      />
-      <QuickInstallForm
-        customers={customers}
-        installers={installers}
-        windows={windows}
-      />
-    </div>
-  );
+  redirect("/jobs/new");
 }

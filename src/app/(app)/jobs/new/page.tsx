@@ -4,6 +4,8 @@ import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { getSchedulingSettings, listInstallers } from "@/lib/data/scheduling";
+import { parseArrivalWindows } from "@/lib/format";
 import { NewJobForm } from "./new-job-form";
 
 export const metadata: Metadata = { title: "New job" };
@@ -29,6 +31,14 @@ export default async function NewJobPage({
     full_name: (c.full_name as string) ?? "Unnamed",
   }));
 
+  // Booking on the way in was Quick install's job; it lives here now.
+  const installers = (await listInstallers()).map((u) => ({ id: u.id, name: u.name }));
+  const sched = await getSchedulingSettings();
+  const windows = parseArrivalWindows(sched.arrival_windows).map((w) => ({
+    value: `${w.start}-${w.end}`,
+    label: w.label,
+  }));
+
   return (
     <div className="mx-auto max-w-2xl">
       <Link
@@ -40,9 +50,14 @@ export default async function NewJobPage({
       </Link>
       <PageHeader
         title="New job"
-        description="Another room, another property, a callback — start the next piece of work for a customer you already have. Hang it off an estimate you've already built, or start it empty and price it later."
+        description="Every new job starts here — a repeat customer's next room, or someone you've never worked for. Hang it off an estimate you've already built, or start it empty and price it later. Book the date now if you already know it."
       />
-      <NewJobForm customers={customers} preselected={preselected} />
+      <NewJobForm
+        customers={customers}
+        installers={installers}
+        windows={windows}
+        preselected={preselected}
+      />
     </div>
   );
 }

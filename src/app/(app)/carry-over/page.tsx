@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -56,11 +57,15 @@ export default async function CarryOverPage() {
         </ul>
       </div>
       <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
-        Already sold and just need it installed?{" "}
-        <a href="/jobs/quick" className="font-medium text-primary underline-offset-2 hover:underline">
-          Use Quick install
-        </a>{" "}
-        — no pricing or invoicing, straight to the schedule.
+        Work you sold <em>here</em>, that just needs installing?{" "}
+        <Link
+          href="/jobs/new"
+          className="font-medium text-primary underline-offset-2 hover:underline"
+        >
+          Start a new job
+        </Link>{" "}
+        — book the date on the way in. This page is only for work that came from
+        the old system, where the money was already collected somewhere else.
       </div>
       <CarryOverForm
         customers={customers}
