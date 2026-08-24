@@ -54,11 +54,13 @@ export default async function DayRoutePage({
 
   return (
     <div className="mx-auto max-w-3xl">
+      {/* Straight back to the list this was opened from — the calendar's Agenda
+          view — rather than through the /schedule redirect. */}
       <Link
-        href="/schedule"
+        href="/calendar?view=agenda"
         className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="size-4" /> Back to schedule
+        <ArrowLeft className="size-4" /> Back to the agenda
       </Link>
       <PageHeader
         title={`${route.repName} — ${formatDate(date)}`}

@@ -88,8 +88,9 @@ export function CalendarBoard({
   staff,
   pending,
   settings,
+  agenda,
 }: {
-  view: "week" | "day" | "month";
+  view: "week" | "day" | "month" | "agenda";
   anchor: string;
   today: string;
   days: string[];
@@ -99,6 +100,9 @@ export function CalendarBoard({
   staff: BookingStaff[];
   pending: CalendarAppointment[];
   settings: Settings;
+  /** The "Agenda" view's list, rendered on the server (it needs rep names).
+   *  Only read when `view === "agenda"`. */
+  agenda?: React.ReactNode;
 }) {
   const router = useRouter();
   const [newSlot, setNewSlot] = useState<{ date: string; time: string } | null>(
@@ -153,36 +157,41 @@ export function CalendarBoard({
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={() =>
-              view === "month" ? shiftMonth(-1) : shift(view === "day" ? -1 : -7)
-            }
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => go({ date: today })}>
-            Today
-          </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={() =>
-              view === "month" ? shiftMonth(1) : shift(view === "day" ? 1 : 7)
-            }
-          >
-            <ChevronRight className="size-4" />
-          </Button>
-        </div>
+        {/* Agenda runs from today forward, so there is no date to step through. */}
+        {view !== "agenda" ? (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() =>
+                view === "month" ? shiftMonth(-1) : shift(view === "day" ? -1 : -7)
+              }
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => go({ date: today })}>
+              Today
+            </Button>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() =>
+                view === "month" ? shiftMonth(1) : shift(view === "day" ? 1 : 7)
+              }
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        ) : null}
 
         <span className="text-sm font-medium">
-          {view === "day"
-            ? `${prettyDay(anchor).wd} ${prettyDay(anchor).md}`
-            : view === "month"
-              ? monthLabel
-              : `${prettyDay(days[0]).md} – ${prettyDay(days[6]).md}`}
+          {view === "agenda"
+            ? "Everything coming up"
+            : view === "day"
+              ? `${prettyDay(anchor).wd} ${prettyDay(anchor).md}`
+              : view === "month"
+                ? monthLabel
+                : `${prettyDay(days[0]).md} – ${prettyDay(days[6]).md}`}
         </span>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -194,6 +203,10 @@ export function CalendarBoard({
               { value: "month", label: "Month" },
               { value: "week", label: "Week" },
               { value: "day", label: "Day" },
+              // Was its own nav destination ("Estimate Schedule") reading the
+              // same appointments as the grid beside it. One home, four ways to
+              // look at it.
+              { value: "agenda", label: "Agenda" },
             ]}
           />
           <div className="w-44">
@@ -245,7 +258,9 @@ export function CalendarBoard({
       ) : null}
 
       {/* Grid */}
-      {view === "month" ? (
+      {view === "agenda" ? (
+        agenda
+      ) : view === "month" ? (
         <MonthGrid
           days={days}
           visible={visible}

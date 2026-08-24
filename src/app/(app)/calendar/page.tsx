@@ -9,7 +9,10 @@ import {
   listPendingRequests,
   getShowroomSettings,
 } from "@/lib/data/booking";
+import { listUpcomingAppointments } from "@/lib/data/scheduling";
+import { getProfileNames } from "@/lib/data/customers";
 import { CalendarClient } from "./calendar-client";
+import { CalendarAgenda } from "./agenda";
 
 export const metadata: Metadata = { title: "Booking Calendar" };
 
@@ -69,13 +72,19 @@ export default async function CalendarPage({
 
     const sp = await searchParams;
     const view =
-      sp.view === "day" ? "day" : sp.view === "month" ? "month" : "week";
+      sp.view === "day"
+        ? "day"
+        : sp.view === "month"
+          ? "month"
+          : sp.view === "agenda"
+            ? "agenda"
+            : "week";
     const today = ymd(new Date());
     const anchor = sp.date || today;
     const repFilter = sp.rep || "";
 
     const days =
-      view === "day"
+      view === "day" || view === "agenda"
         ? [anchor]
         : view === "month"
           ? monthGridDays(anchor)
@@ -83,6 +92,17 @@ export default async function CalendarPage({
 
     const rangeStart = `${days[0]}T00:00:00+00`;
     const rangeEnd = `${addDays(days[days.length - 1], 1)}T00:00:00+00`;
+
+    // The Agenda view runs from today forward rather than over the visible
+    // range, so it fetches its own rows (and the rep names it prints).
+    const upcoming =
+      view === "agenda" ? await listUpcomingAppointments() : [];
+    const agendaRepNames =
+      view === "agenda"
+        ? await getProfileNames(
+            upcoming.map((a) => a.salespersonId ?? "").filter(Boolean),
+          )
+        : {};
 
     const [appointments, types, staff, pending, settings] = await Promise.all([
       listAppointmentsRange(rangeStart, rangeEnd),
@@ -115,6 +135,11 @@ export default async function CalendarPage({
             capacity: settings.capacity,
             openDays: settings.open_days,
           }}
+          agenda={
+            view === "agenda" ? (
+              <CalendarAgenda appointments={upcoming} repNames={agendaRepNames} />
+            ) : null
+          }
         />
       </div>
     );

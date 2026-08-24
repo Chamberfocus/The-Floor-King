@@ -14,7 +14,6 @@ import {
   Layers,
   BarChart3,
   Route,
-  CalendarClock,
   CalendarCheck,
   CalendarRange,
   UserCheck,
@@ -119,10 +118,14 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Schedule",
     icon: CalendarRange,
     items: [
-      { label: "Booking Calendar", href: "/calendar", icon: CalendarRange, roles: SALES_VIEW },
-      { label: "Estimate Schedule", href: "/schedule", icon: CalendarClock, roles: SALES_VIEW },
+      // Two entries, two questions: WHEN are we seeing customers (the calendar,
+      // which now carries the old "Estimate Schedule" list as its Agenda view),
+      // and WHICH JOBS still need a crew and a date (the install scheduler).
+      // "Team Schedule" is neither — it's who's working and who's off — so it
+      // sits under Settings-ish territory, not beside two customer calendars.
+      { label: "Calendar", href: "/calendar", icon: CalendarRange, roles: SALES_VIEW },
       { label: "Install Scheduler", href: "/install-scheduler", icon: CalendarCheck, roles: ["admin", "office", "scheduler"] },
-      { label: "Team Schedule", href: "/team", icon: UserCheck, roles: SCHEDULE_ROLES },
+      { label: "Who's working", href: "/team", icon: UserCheck, roles: SCHEDULE_ROLES },
     ],
   },
   {

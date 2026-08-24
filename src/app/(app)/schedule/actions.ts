@@ -35,5 +35,6 @@ export async function moveAppointment(formData: FormData): Promise<void> {
     await supabase.from("appointments").update({ seq: i }).eq("id", order[i]);
   }
   revalidatePath("/schedule/route");
-  revalidatePath("/schedule");
+  // The agenda that lists these stops now lives on the calendar.
+  revalidatePath("/calendar");
 }
