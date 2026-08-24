@@ -347,7 +347,7 @@ export async function GET(request: NextRequest) {
         "Clients waiting on you",
         `<p>These clients are past their target time for the next step:</p>
          <ul>${leads.map(rowHtml).join("")}</ul>`,
-        { label: "Open the pipeline", url: `${siteUrl()}/pipeline?mine=1&overdue=1` },
+        { label: "See what's past due", url: `${siteUrl()}/client-status?who=mine&overdue=1` },
       ),
     });
     nudges += 1;
@@ -364,7 +364,7 @@ export async function GET(request: NextRequest) {
           "Clients stuck too long — full view",
           `<p>These clients are past their stage's time limit across the whole team, so nothing falls through the cracks:</p>
            <ul>${allStuck.map(rowHtml).join("")}</ul>`,
-          { label: "Open the pipeline", url: `${siteUrl()}/pipeline?overdue=1` },
+          { label: "See what's past due", url: `${siteUrl()}/client-status?overdue=1` },
         ),
       });
       nudges += 1;

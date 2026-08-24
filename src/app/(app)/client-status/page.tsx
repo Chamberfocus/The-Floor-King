@@ -60,20 +60,37 @@ function laneFor(stageName: string, position: number): LaneKey | null {
   return "paying";
 }
 
+/** Past due = the next step's due date has already gone by. Shared so the
+ *  "?overdue=1" filter and the "Stuck" badge can never disagree. */
+function isPastDue(c: { next_action_due?: string | null }): boolean {
+  return !!c.next_action_due && new Date(c.next_action_due).getTime() < Date.now();
+}
+
 export default async function ClientStatusPage({
   searchParams,
 }: {
-  searchParams: Promise<{ who?: string }>;
+  searchParams: Promise<{ who?: string; overdue?: string }>;
 }) {
   const profile = await requireProfile();
-  const mine = (await searchParams).who === "mine";
+  const sp = await searchParams;
+  const mine = sp.who === "mine";
+  /**
+   * "?overdue=1" — the filter the daily email and the dashboard badge have been
+   * asking for all along. Both linked to /pipeline?mine=1&overdue=1; /pipeline
+   * redirects here and dropped the query string, so clicking "3 overdue" (or the
+   * link in your morning email) landed you on the entire book with no filter and
+   * no explanation. The page already worked out which rows were overdue — it
+   * just had no way to show only those.
+   */
+  const overdueOnly = sp.overdue === "1";
 
   const stages = await listWorkflowStages();
   const stageById = new Map(stages.map((s) => [s.id, s] as const));
   const all = (await listCustomers()).filter((c) => !c.cancelled_at);
-  const customers = mine
+  const mineOnly = mine
     ? all.filter((c) => c.assigned_to === profile.id || c.workflow_owner_id === profile.id)
     : all;
+  const customers = overdueOnly ? mineOnly.filter(isPastDue) : mineOnly;
 
   const ownerIds = [
     ...new Set(customers.map((c) => c.workflow_owner_id ?? c.assigned_to).filter(Boolean)),
@@ -102,8 +119,7 @@ export default async function ClientStatusPage({
   const Card = ({ c, next }: { c: (typeof customers)[number]; next: string }) => {
     const st = c.workflow_stage_id ? stageById.get(c.workflow_stage_id) : null;
     const owner = owners[(c.workflow_owner_id ?? c.assigned_to) as string];
-    const overdue =
-      !!c.next_action_due && new Date(c.next_action_due).getTime() < Date.now();
+    const overdue = isPastDue(c);
     return (
       <Link
         href={`/customers/${c.id}`}
@@ -151,17 +167,46 @@ export default async function ClientStatusPage({
     <div>
       <PageHeader
         title="Client status"
-        description="Every live client by where they stand — the whole book on one screen, newest work first."
+        description={
+          overdueOnly
+            ? "Only clients whose next step is past due."
+            : "Every live client by where they stand — the whole book on one screen, newest work first."
+        }
       >
         <Link href="/customers/new" className={buttonVariants({ size: "lg" })}>
           <Plus className="size-4" /> New customer
         </Link>
       </PageHeader>
 
+      {/* Arriving from the overdue badge or the morning email: say so, and give
+          a way back to the full book rather than leaving the filter invisible. */}
+      {overdueOnly ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm">
+          <AlertTriangle className="size-4 shrink-0 text-destructive" />
+          <span className="font-medium text-destructive">
+            Showing past-due only
+          </span>
+          <Link
+            href={mine ? "/client-status?who=mine" : "/client-status"}
+            className="ml-auto text-xs font-medium text-primary hover:underline"
+          >
+            Show everything →
+          </Link>
+        </div>
+      ) : null}
+
       <div className="mb-4 inline-flex rounded-lg border p-0.5">
         {[
-          { key: "mine", label: "Mine", href: "/client-status?who=mine" },
-          { key: "all", label: "Everyone", href: "/client-status" },
+          {
+            key: "mine",
+            label: "Mine",
+            href: `/client-status?who=mine${overdueOnly ? "&overdue=1" : ""}`,
+          },
+          {
+            key: "all",
+            label: "Everyone",
+            href: overdueOnly ? "/client-status?overdue=1" : "/client-status",
+          },
         ].map((t) => {
           const active = (t.key === "mine") === mine;
           return (
@@ -184,7 +229,11 @@ export default async function ClientStatusPage({
         <EmptyState
           title="Nothing live"
           description={
-            mine ? "Nothing assigned to you right now." : "Add a customer to get started."
+            overdueOnly
+              ? "Nothing is past due — you're caught up."
+              : mine
+                ? "Nothing assigned to you right now."
+                : "Add a customer to get started."
           }
         />
       ) : (

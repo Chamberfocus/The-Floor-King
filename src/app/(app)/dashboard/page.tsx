@@ -212,7 +212,7 @@ export default async function DashboardPage() {
           <CardTitle className="text-base">Your queue</CardTitle>
           {overdueCount > 0 ? (
             <Link
-              href="/pipeline?mine=1&overdue=1"
+              href="/client-status?who=mine&overdue=1"
               className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/20"
             >
               <AlertTriangle className="size-3.5" />
