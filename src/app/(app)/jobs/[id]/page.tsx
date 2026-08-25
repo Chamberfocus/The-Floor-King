@@ -31,6 +31,7 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { JobStage } from "./job-stage";
+import { CopyJob } from "./copy-job";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import {
   getJob,
@@ -386,6 +387,19 @@ export default async function JobPage({
             </h1>
             <JobStatusBadge status={job.status} />
             <FlowPositionBadge stage={flowStage} stages={flowStages} />
+            {/* Same scope, next unit — the shape of every property-manager
+                account. Copies the quote and raises the work order in one go. */}
+            {isStaff ? (
+              <CopyJob
+                jobId={job.id}
+                jobTitle={job.title}
+                addresses={serviceAddresses.map((a) => ({
+                  id: a.id,
+                  label: a.label || formatServiceAddress(a) || "Job site",
+                }))}
+                hasEstimate={!!job.estimate_id}
+              />
+            ) : null}
             {canSchedule ? (
               <JobStage
                 jobId={job.id}
