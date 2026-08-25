@@ -6,6 +6,7 @@ import { assertRole } from "@/lib/auth";
 import { restartFlowForNewWork } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { formatServiceAddress } from "@/lib/types";
+import { defaultJobTitle } from "@/lib/job-label";
 import type { UserRole, LeadSource, LeadStage } from "@/lib/types";
 
 /**
@@ -140,8 +141,7 @@ export interface NewJobResult {
 export async function createJobForCustomer(
   input: NewJobInput,
 ): Promise<NewJobResult> {
-  const title = input.title?.trim();
-  if (!title) return { error: "Say what the work is." };
+  const typedTitle = input.title?.trim();
   if (!input.customerId && !input.newCustomer?.full_name?.trim())
     return { error: "Pick the customer, or add their name." };
 
@@ -209,6 +209,33 @@ export async function createJobForCustomer(
         zip: (sa.zip as string) ?? null,
       };
   }
+
+  /**
+   * A job is named for WHERE it is.
+   *
+   * "Flooring for Abington Arms C/O The Finch Group" is indistinguishable from
+   * the eleven others on that account; "Unit 814" isn't. A typed title always
+   * wins — sometimes the work needs saying ("Home Addition") — but the fallback
+   * is the site rather than the customer's name.
+   */
+  const siteAddrLabel = input.serviceAddressId
+    ? ((
+        await supabase
+          .from("service_addresses")
+          .select("label")
+          .eq("id", input.serviceAddressId)
+          .maybeSingle()
+      ).data?.label as string | null) ?? null
+    : null;
+  const title = defaultJobTitle(
+    {
+      site_label: siteAddrLabel,
+      site_street: site.street,
+      site_city: site.city,
+    },
+    typedTitle || null,
+  );
+  if (!title) return { error: "Say what the work is, or pick a job site." };
 
   /**
    * Optional booking, applied the same way whichever path made the job.

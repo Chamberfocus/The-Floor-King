@@ -22,6 +22,8 @@
  */
 
 /** A row carrying the stage columns — customers and jobs both do. */
+import { jobSiteLine } from "@/lib/job-label";
+
 export interface StageBearing {
   workflow_stage_id?: string | null;
   workflow_owner_id?: string | null;
@@ -39,6 +41,9 @@ export interface JobLike extends StageBearing {
   customer_id?: string | null;
   title?: string | null;
   status?: string | null;
+  site_street?: string | null;
+  site_city?: string | null;
+  site_label?: string | null;
 }
 
 /** One thing that can sit in a lane, be chased, and be handed to someone. */
@@ -50,6 +55,8 @@ export interface WorkUnit {
   customerName: string | null;
   /** The job's title; null for the pre-job phase. */
   title: string | null;
+  /** WHERE the work is — the headline on any board that lists work. */
+  site: string | null;
   stageId: string | null;
   ownerId: string | null;
   dueAt: string | null;
@@ -75,6 +82,7 @@ export function jobWorkUnit(job: JobLike, customer: CustomerLike): WorkUnit {
     customerId: customer.id,
     customerName: customer.full_name ?? null,
     title: job.title ?? null,
+    site: jobSiteLine(job),
     stageId: job.workflow_stage_id ?? customer.workflow_stage_id ?? null,
     ownerId:
       job.workflow_owner_id ?? customer.workflow_owner_id ?? customer.assigned_to ?? null,
@@ -91,6 +99,8 @@ export function customerWorkUnit(customer: CustomerLike): WorkUnit {
     customerId: customer.id,
     customerName: customer.full_name ?? null,
     title: null,
+    // A lead with no job has no site yet — the account IS the unit of work.
+    site: null,
     stageId: customer.workflow_stage_id ?? null,
     ownerId: customer.workflow_owner_id ?? customer.assigned_to ?? null,
     dueAt: customer.next_action_due ?? null,

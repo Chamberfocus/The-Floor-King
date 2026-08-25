@@ -32,6 +32,7 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { JobStage } from "./job-stage";
 import { CopyJob } from "./copy-job";
+import { jobHeading, jobSubtitle } from "@/lib/job-label";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import {
   getJob,
@@ -191,6 +192,10 @@ export default async function JobPage({
   const serviceAddresses = isStaff
     ? await listServiceAddresses(job.customer_id)
     : [];
+  /** The named unit, when the job points at one — "Unit 813" identifies work on
+   *  a building where every job shares a street. */
+  const siteLabel =
+    serviceAddresses.find((a) => a.id === job.service_address_id)?.label ?? null;
   const canAssignWarehouse = profile.role === "admin" || profile.role === "office";
   const warehouseUsers = canAssignWarehouse ? await listWarehouseUsers() : [];
 
@@ -382,8 +387,10 @@ export default async function JobPage({
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-3">
+            {/* Where the work is, not who it's for — the customer is named on
+                the line below and the crew needs the door. */}
             <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
-              {job.title || "Job"}
+              {jobHeading({ ...job, site_label: siteLabel })}
             </h1>
             <JobStatusBadge status={job.status} />
             <FlowPositionBadge stage={flowStage} stages={flowStages} />

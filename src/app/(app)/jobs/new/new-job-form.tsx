@@ -97,7 +97,12 @@ export function NewJobForm({
     setEstimateId("");
   };
 
-  const ready = title.trim() && (custMode === "existing" ? customerId : nc.full_name.trim());
+  // A title is optional now: left blank, the job is named for its site. Still
+  // need a customer, and something to identify the work by — one or the other.
+  const hasSite = !!addressId || (custMode === "new" && !!nc.street.trim());
+  const ready =
+    (custMode === "existing" ? !!customerId : !!nc.full_name.trim()) &&
+    (!!title.trim() || hasSite || custMode === "existing");
 
   const submit = () =>
     start(async () => {
@@ -208,13 +213,17 @@ export function NewJobForm({
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <label className={label}>What&apos;s the job? *</label>
+            <label className={label}>What&apos;s the job?</label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Master bedroom + closet carpet"
               className="mt-1"
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Leave it blank and the job is named for its address — which is what
+              you look for on the board and what the crew needs.
+            </p>
           </div>
 
           {ctx.addresses.length ? (

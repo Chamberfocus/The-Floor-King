@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { jobHeading, jobSubtitle } from "@/lib/job-label";
 import { redirect } from "next/navigation";
 import { MapPin, CalendarDays, HardHat, ChevronDown, Archive } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
@@ -153,10 +154,14 @@ export default async function WarehousePage() {
         <CardHeader className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
-              <CardTitle className="text-base">
+              {/* The door it's being staged for leads; the account is under it. */}
+              <CardTitle className="text-base">{jobHeading(j)}</CardTitle>
+              <div className="truncate text-sm text-muted-foreground">
                 {j.customer_name ?? "Customer"}
-                {j.title ? ` — ${j.title}` : ""}
-              </CardTitle>
+                {jobSubtitle(j, j.customer_name) ? (
+                  <span className="ml-1.5 opacity-80">· {jobSubtitle(j, j.customer_name)}</span>
+                ) : null}
+              </div>
               <div className="mt-1">
                 <FlowPositionBadge
                   stage={flowStages.find((s) => s.id === j.customer_stage_id) ?? null}

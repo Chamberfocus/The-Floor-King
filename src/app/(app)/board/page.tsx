@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { jobHeading } from "@/lib/job-label";
 import Link from "next/link";
 import { MapPin, CalendarDays, Check, Clock, ClipboardList } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -64,7 +65,7 @@ export default async function JobBoardPage() {
                         href={`/jobs/${j.id}`}
                         className="text-lg font-semibold hover:underline"
                       >
-                        {j.title || "Flooring job"}
+                        {jobHeading(j)}
                       </Link>
                       {j.materialType ? (
                         <span

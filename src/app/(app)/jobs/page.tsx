@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { jobHeading, jobSubtitle } from "@/lib/job-label";
 import Link from "next/link";
 import { Plus, MapPin, HardHat, ArrowRight, Wrench } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -112,9 +113,17 @@ export default async function JobsPage({
       className="block rounded-xl border bg-card p-3.5 transition-colors hover:border-primary/40 active:bg-muted/40"
     >
       <div className="flex items-start justify-between gap-2">
+        {/* The SITE is the headline. This led with the job's title, which for
+            34 of 36 live jobs was "Flooring for {customer}" — the customer's
+            name twice over, and nothing about where the crew is going. */}
         <div className="min-w-0">
-          <div className="truncate text-base font-semibold">{j.title || "Job"}</div>
-          <div className="truncate text-sm text-muted-foreground">{j.customer_name ?? "—"}</div>
+          <div className="truncate text-base font-semibold">{jobHeading(j)}</div>
+          <div className="truncate text-sm text-muted-foreground">
+            {j.customer_name ?? "—"}
+            {jobSubtitle(j, j.customer_name) ? (
+              <span className="ml-1.5 opacity-80">· {jobSubtitle(j, j.customer_name)}</span>
+            ) : null}
+          </div>
         </div>
         <StatusBadge j={j} />
       </div>
@@ -123,9 +132,10 @@ export default async function JobsPage({
           {j.scheduled_date ? formatDate(j.scheduled_date) : "Not scheduled"}
         </span>
         {j.arrival_window ? <span>{j.arrival_window}</span> : null}
-        {site(j) ? (
+        {/* The street already leads the card; only the city adds anything. */}
+        {j.site_city ? (
           <span className="inline-flex items-center gap-1">
-            <MapPin className="size-3" /> {site(j)}
+            <MapPin className="size-3" /> {j.site_city}
           </span>
         ) : null}
       </div>

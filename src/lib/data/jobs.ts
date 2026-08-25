@@ -578,13 +578,15 @@ export async function listOpenJobsForPipeline(): Promise<
     workflow_stage_id: string | null;
     workflow_owner_id: string | null;
     next_action_due: string | null;
+    site_street: string | null;
+    site_city: string | null;
   }[]
 > {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("jobs")
     .select(
-      "id, customer_id, title, status, workflow_stage_id, workflow_owner_id, next_action_due",
+      "id, customer_id, title, status, workflow_stage_id, workflow_owner_id, next_action_due, site_street, site_city",
     )
     .neq("status", "cancelled")
     // A pickup order isn't in the install pipeline — it's an order.
@@ -602,5 +604,7 @@ export async function listOpenJobsForPipeline(): Promise<
     workflow_stage_id: string | null;
     workflow_owner_id: string | null;
     next_action_due: string | null;
+    site_street: string | null;
+    site_city: string | null;
   }[];
 }

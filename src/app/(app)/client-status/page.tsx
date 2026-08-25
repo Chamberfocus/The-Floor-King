@@ -154,8 +154,13 @@ export default async function ClientStatusPage({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="truncate text-base font-semibold">{u.customerName}</div>
-            {/* Which job — the whole point of one card per piece of work. */}
-            {u.title ? (
+            {/* Which door — the whole point of one card per piece of work. The
+                title is only shown when it says something the address doesn't. */}
+            {u.site ? (
+              <div className="truncate text-sm font-medium text-violet-700 dark:text-violet-300">
+                {u.site}
+              </div>
+            ) : u.title ? (
               <div className="truncate text-sm font-medium text-violet-700 dark:text-violet-300">
                 {u.title}
               </div>
