@@ -21,6 +21,7 @@ import {
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
 import type { EstimateStatus } from "@/lib/types";
+import { formatServiceAddress } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -62,6 +63,18 @@ export async function createEstimate(formData: FormData): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
 
+  /**
+   * WHICH of the customer's addresses this quote is for.
+   *
+   * A customer can have many properties, and the estimate already has a column
+   * for it — the copy path has always set it. Creating one never asked, so a
+   * quote for Unit 814 was indistinguishable from a quote for Unit 813, and the
+   * job raised from it inherited the account's billing address instead of the
+   * property the work is at. Housecall Pro makes picking the address part of
+   * "+ Estimate" for the same reason.
+   */
+  const serviceAddressId = str(formData.get("service_address_id")) || null;
+
   const { data: estimate, error } = await supabase
     .from("estimates")
     .insert({
@@ -69,6 +82,7 @@ export async function createEstimate(formData: FormData): Promise<void> {
       created_by: user?.id ?? null,
       title: "New estimate",
       valid_until: await quoteValidUntil(supabase),
+      ...(serviceAddressId ? { service_address_id: serviceAddressId } : {}),
     })
     .select("id")
     .single();
@@ -1233,8 +1247,10 @@ export async function searchCustomersForCopy(
 export async function customerWorkContext(customerId: string): Promise<{
   sourceOk: boolean;
   estimates: { id: string; title: string; status: string; createdAt: string }[];
+  /** Which of this customer's properties the quote could be for. */
+  addresses: { id: string; label: string }[];
 }> {
-  if (!customerId) return { sourceOk: false, estimates: [] };
+  if (!customerId) return { sourceOk: false, estimates: [], addresses: [] };
   await requireProfile();
   const { ok } = await getCustomerSourceStatus(customerId);
   const supabase = await createClient();
@@ -1244,8 +1260,25 @@ export async function customerWorkContext(customerId: string): Promise<{
     .eq("customer_id", customerId)
     .order("created_at", { ascending: false })
     .limit(6);
+  const { data: addrRows } = await supabase
+    .from("service_addresses")
+    .select("id, label, street, city, state, zip")
+    .eq("customer_id", customerId);
+
   return {
     sourceOk: ok,
+    addresses: (addrRows ?? []).map((a) => ({
+      id: a.id as string,
+      label:
+        (a.label as string) ||
+        formatServiceAddress({
+          street: a.street as string | null,
+          city: a.city as string | null,
+          state: a.state as string | null,
+          zip: a.zip as string | null,
+        }) ||
+        "Job site",
+    })),
     estimates: (data ?? []).map((e) => ({
       id: e.id as string,
       title: (e.title as string) || "Estimate",

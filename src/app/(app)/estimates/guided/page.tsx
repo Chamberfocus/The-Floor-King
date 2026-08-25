@@ -19,10 +19,14 @@ export const dynamic = "force-dynamic";
 export default async function GuidedEstimatePage({
   searchParams,
 }: {
-  searchParams: Promise<{ customer?: string }>;
+  searchParams: Promise<{ customer?: string; site?: string }>;
 }) {
   await requireProfile();
-  const customerId = (await searchParams).customer;
+  const sp = await searchParams;
+  const customerId = sp.customer;
+  // Picked in the New estimate dialog — don't make them choose the property
+  // twice for the same quote.
+  const initialSite = sp.site ?? null;
   if (!customerId) redirect("/customers");
   const customer = await getCustomer(customerId);
   if (!customer) redirect("/customers");
@@ -48,6 +52,7 @@ export default async function GuidedEstimatePage({
         description="Walk the job step by step — carpet, hard surface, or both. Answer what applies, skip the rest. It builds a real itemized estimate you review in the builder, and it flows straight to the work order and PO."
       />
       <GuidedEstimate
+        initialServiceAddressId={initialSite}
         customerId={customer.id}
         customerName={customer.full_name}
         targetMargin={settings.target_gross_margin_pct || 40}

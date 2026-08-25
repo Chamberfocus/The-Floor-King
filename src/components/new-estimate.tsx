@@ -62,6 +62,8 @@ export function NewEstimate({
   const [open, setOpen] = useState(false);
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [askSource, setAskSource] = useState<null | (() => void)>(null);
+  /** Which of the customer's properties this quote is for. */
+  const [addrId, setAddrId] = useState("");
   const [pending, start] = useTransition();
 
   // Past quotes (and the real source status) are only needed once the dialog is
@@ -74,7 +76,7 @@ export function NewEstimate({
         if (live) setCtx(c);
       })
       .catch(() => {
-        if (live) setCtx({ sourceOk: knownSourceOk ?? true, estimates: [] });
+        if (live) setCtx({ sourceOk: knownSourceOk ?? true, estimates: [], addresses: [] });
       });
     return () => {
       live = false;
@@ -89,18 +91,23 @@ export function NewEstimate({
     else setAskSource(() => go);
   };
 
+  // The chosen property rides along, so the questionnaire and the quick form
+  // start out knowing which address they're quoting.
+  const site = addrId ? `&site=${addrId}` : "";
+
   const goGuided = gated(() => {
-    router.push(`/estimates/guided?customer=${customerId}`);
+    router.push(`/estimates/guided?customer=${customerId}${site}`);
   });
 
   const goQuick = gated(() => {
-    router.push(`/estimates/quick?customer=${customerId}`);
+    router.push(`/estimates/quick?customer=${customerId}${site}`);
   });
 
   const goBuilder = gated(() =>
     start(async () => {
       const fd = new FormData();
       fd.set("customer_id", customerId);
+      if (addrId) fd.set("service_address_id", addrId);
       await createEstimate(fd); // redirects into the builder on success
     }),
   );
@@ -170,6 +177,30 @@ export function NewEstimate({
               the job in front of you.
             </DialogDescription>
           </DialogHeader>
+
+          {/* WHICH property first — the way Housecall Pro does it, and for the
+              same reason: a quote for Unit 814 is not a quote for Unit 813, and
+              the job raised from it inherits this address. Only shown when the
+              customer actually has more than one place. */}
+          {ctx?.addresses.length ? (
+            <div className="mb-3">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Which property is this for?
+              </label>
+              <select
+                value={addrId}
+                onChange={(e) => setAddrId(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+              >
+                <option value="">Their main address</option>
+                {ctx.addresses.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           <div className="space-y-2">
             {option(

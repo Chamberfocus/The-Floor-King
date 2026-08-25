@@ -18,8 +18,12 @@ export function GuidedEstimate(props: {
   questions: EstimateQuestion[];
   savedAreas: CustomerArea[];
   draft?: EstimateDraft | null;
+  /** Chosen in the New estimate dialog, so it isn't asked twice. */
+  initialServiceAddressId?: string | null;
 }) {
-  const [serviceAddressId, setServiceAddressId] = useState("");
+  const [serviceAddressId, setServiceAddressId] = useState(
+    props.initialServiceAddressId ?? "",
+  );
 
   return (
     <div className="space-y-4">
