@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { formatDate } from "@/lib/format";
 import { sendJobToWarehouse } from "@/app/(app)/jobs/actions";
 import { buildInvoiceFromOrder } from "@/lib/data/order-invoice";
 import type { OrderItem, OrderStockStatus } from "@/lib/types";
@@ -93,6 +94,11 @@ export async function approveOrder(formData: FormData): Promise<void> {
     .single();
   const jobId = (job?.id as string) ?? null;
 
+  const readyDate = str(formData.get("ready_date")) || null;
+  const readyKindRaw = str(formData.get("ready_kind"));
+  const readyKind =
+    readyKindRaw === "on_order" || readyKindRaw === "from_stock" ? readyKindRaw : null;
+
   await supabase
     .from("orders")
     .update({
@@ -100,6 +106,10 @@ export async function approveOrder(formData: FormData): Promise<void> {
       job_id: jobId,
       approved_by: uid,
       approved_at: new Date().toISOString(),
+      // Columns arrive in 0151; a pre-migration database just ignores the
+      // promise rather than failing the whole approval.
+      ...(readyDate ? { ready_date: readyDate } : {}),
+      ...(readyKind ? { ready_kind: readyKind } : {}),
     })
     .eq("id", orderId);
 
@@ -107,16 +117,31 @@ export async function approveOrder(formData: FormData): Promise<void> {
   if (jobId) await sendJobToWarehouse(jobId);
 
   // Let the client know it's approved.
+  /**
+   * Tell them what they actually want to know: when they can collect it, and
+   * whether we're cutting what's on the shelf or waiting on the mill. This used
+   * to send the same sentence either way — "we'll let you know as soon as it's
+   * ready" — which is the shop knowing the answer and not saying it.
+   */
   const email = order.contact_email as string | null;
   if (email) {
+    const when = readyDate ? formatDate(readyDate) : null;
+    const onOrder = readyKind === "on_order";
+    const line = when
+      ? onOrder
+        ? `<p>We don't have all of this on the shelf, so we're ordering it in for you. It should be cut and ready to collect on <strong>${when}</strong>.</p>`
+        : `<p>We have your material in stock. It'll be cut and ready to collect on <strong>${when}</strong>.</p>`
+      : `<p>Your order is approved and headed to our warehouse to be cut. We'll let you know as soon as it's ready for pickup.</p>`;
     await sendEmail({
       to: email,
-      subject: "Your order is approved ✅",
+      subject: when
+        ? `Your order is approved — ready ${when}`
+        : "Your order is approved ✅",
       html: emailLayout(
         "Order approved",
         `<p>Hi ${custName.split(" ")[0]},</p>
-         <p>Your order is approved and headed to our warehouse to be cut. We'll
-         reach out with pricing and let you know as soon as it's ready for pickup.</p>`,
+         ${line}
+         <p>We'll be in touch with pricing. Reply to this email if you need to change anything.</p>`,
       ),
     });
   }

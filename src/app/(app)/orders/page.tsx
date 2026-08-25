@@ -9,6 +9,7 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listOrders, getProductStock, type ProductStock } from "@/lib/data/orders";
+import { ApproveOrder } from "./approve-order";
 import {
   ORDER_STATUS_BADGE,
   ORDER_STATUS_LABELS,
@@ -16,7 +17,7 @@ import {
   ORDER_STOCK_LABELS,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { formatDateTime, formatMoney } from "@/lib/format";
+import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import {
   approveOrder,
   declineOrder,
@@ -121,6 +122,22 @@ export default async function OrdersPage() {
             ))}
           </ul>
           {o.notes ? <p className="text-sm text-muted-foreground">Note: {o.notes}</p> : null}
+          {/* What we told them, so nobody has to go digging through sent mail
+              to find out what was promised. */}
+          {o.ready_date ? (
+            <div className="rounded-md border border-emerald-400/50 bg-emerald-50 px-3 py-2 text-sm dark:bg-emerald-950/30">
+              <span className="font-medium text-emerald-800 dark:text-emerald-300">
+                Promised {formatDate(o.ready_date)}
+              </span>
+              <span className="ml-1.5 text-emerald-800/80 dark:text-emerald-300/80">
+                ·{" "}
+                {o.ready_kind === "on_order"
+                  ? "material on order"
+                  : "cutting from stock"}
+              </span>
+            </div>
+          ) : null}
+
           {o.stock_note ? (
             <p className="text-sm">
               <span className="text-muted-foreground">Warehouse:</span> {o.stock_note}
@@ -152,17 +169,9 @@ export default async function OrdersPage() {
           {/* Approve / decline / invoice */}
           {o.status === "submitted" ? (
             <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-              <form action={approveOrder}>
-                <input type="hidden" name="order_id" value={o.id} />
-                <ConfirmButton
-                  size="sm"
-                  title={`Approve ${who}'s order?`}
-                  description="Creates a warehouse job to cut & stage the order and emails the customer that it's approved."
-                  confirmLabel="Approve order"
-                >
-                  Approve → send to warehouse
-                </ConfirmButton>
-              </form>
+              {/* Approving is a promise, so it asks what the promise is — the
+                  warehouse's stock answer pre-picks it. */}
+              <ApproveOrder orderId={o.id} who={who} stockStatus={o.stock_status} />
               <details>
                 <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">Decline</summary>
                 <form action={declineOrder} className="mt-2 flex flex-wrap gap-2">

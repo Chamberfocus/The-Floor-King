@@ -1202,6 +1202,9 @@ export interface OrderItem {
   requested_price: number | null; // unit price the customer asked to pay
 }
 
+/** What was promised to the customer at approval (migration 0151). */
+export type OrderReadyKind = "from_stock" | "on_order";
+
 export type OrderStockStatus =
   | "unknown"
   | "in_stock"
@@ -1236,6 +1239,10 @@ export interface Order {
   decline_reason: string | null;
   stock_status: OrderStockStatus;
   stock_note: string | null;
+  /** The pickup date promised at approval, and which promise it was. Optional
+   *  because they arrive in migration 0151. */
+  ready_date?: string | null;
+  ready_kind?: OrderReadyKind | null;
   stock_checked_at: string | null;
   customer_stock_notified_at: string | null;
   invoice_id: string | null;
