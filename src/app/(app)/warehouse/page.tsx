@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { jobHeading, jobSubtitle } from "@/lib/job-label";
+import { jobHeading, jobIdentityLine } from "@/lib/job-label";
 import { redirect } from "next/navigation";
 import { MapPin, CalendarDays, HardHat, ChevronDown, Archive } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
@@ -154,14 +154,16 @@ export default async function WarehousePage() {
         <CardHeader className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
-              {/* The door it's being staged for leads; the account is under it. */}
-              <CardTitle className="text-base">{jobHeading(j)}</CardTitle>
-              <div className="truncate text-sm text-muted-foreground">
-                {j.customer_name ?? "Customer"}
-                {jobSubtitle(j, j.customer_name) ? (
-                  <span className="ml-1.5 opacity-80">· {jobSubtitle(j, j.customer_name)}</span>
-                ) : null}
-              </div>
+              <CardTitle className="text-base">
+                {jobHeading(j, j.customer_name)}
+              </CardTitle>
+              {/* Which of their addresses this pull is for — the part that tells
+                  two jobs on one account apart on the staging bench. */}
+              {jobIdentityLine(j, j.customer_name) ? (
+                <div className="truncate text-sm font-medium text-violet-700 dark:text-violet-300">
+                  {jobIdentityLine(j, j.customer_name)}
+                </div>
+              ) : null}
               <div className="mt-1">
                 <FlowPositionBadge
                   stage={flowStages.find((s) => s.id === j.customer_stage_id) ?? null}

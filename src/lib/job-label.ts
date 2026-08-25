@@ -1,18 +1,18 @@
 /**
- * What a job is CALLED, and where it actually is.
+ * Which job this is — the CUSTOMER, and then which of their addresses.
  *
- * This shop runs on addresses. A crew is sent to a door, material is staged for
- * a door, and a property manager's building is one account with a job per unit.
- * The app named work after the customer instead: 34 of 36 live jobs are titled
- * "Flooring for {name}", which tells you nothing about where the work is and
- * nothing at all when one account has twelve units.
+ * You look work up by customer. What the app couldn't express is that one
+ * customer has several addresses: a property manager's building is one account
+ * with a job per unit, and every one of those jobs was called "Flooring for
+ * Abington Arms C/O The Finch Group". Identical names, twelve different doors,
+ * no way to tell them apart.
  *
- * The addresses were already there — 32 of those 36 jobs carry a site street.
- * Nothing led with them.
+ * So the name leads and the SITE is what distinguishes one job from another on
+ * the same account. One function for it, so the jobs list, the board, the
+ * warehouse and the work order all identify the same job the same way.
  *
- * So: the site is the headline, the customer is the subtitle. One function, so
- * the jobs list, the board, the scheduler, the warehouse and the work order all
- * call the same job the same thing.
+ * (An earlier pass put the address first and demoted the customer. That was the
+ * wrong read: the address is the discriminator, not the identity.)
  */
 
 export interface JobSiteLike {
@@ -49,14 +49,27 @@ export function jobSiteShort(job: JobSiteLike): string | null {
 }
 
 /**
- * The heading for a job: where it is, falling back to what it's called.
- *
- * Never invents "Flooring for {customer}" — that's the pattern being replaced.
- * A job with no address at all keeps its own title, because something is better
- * than an empty heading, and a pickup order genuinely has no site.
+ * The headline: the customer. Falls back to the job's own title only when there
+ * is no customer name to show.
  */
-export function jobHeading(job: JobSiteLike): string {
-  return jobSiteLine(job) ?? clean(job.title) ?? "Job";
+export function jobHeading(job: JobSiteLike, customerName?: string | null): string {
+  return clean(customerName) || clean(job.title) || "Job";
+}
+
+/**
+ * The line UNDER the headline — which of this customer's addresses, and what the
+ * work is when the title says something the address doesn't.
+ *
+ * This is the part that tells two jobs on one account apart, so it's built to be
+ * shown always, not tucked into small print.
+ */
+export function jobIdentityLine(
+  job: JobSiteLike,
+  customerName?: string | null,
+): string | null {
+  const site = jobSiteLine(job);
+  const what = jobSubtitle(job, customerName);
+  return [site, what].filter(Boolean).join(" · ") || null;
 }
 
 /**

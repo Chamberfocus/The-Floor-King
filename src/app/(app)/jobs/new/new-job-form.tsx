@@ -213,7 +213,7 @@ export function NewJobForm({
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <label className={label}>What&apos;s the job?</label>
+            <label className={label}>What&apos;s the job? *</label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -221,8 +221,8 @@ export function NewJobForm({
               className="mt-1"
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              Leave it blank and the job is named for its address — which is what
-              you look for on the board and what the crew needs.
+              Leave it blank and it takes the job site\u2019s name — useful when a
+              customer has several addresses and the unit IS the job.
             </p>
           </div>
 

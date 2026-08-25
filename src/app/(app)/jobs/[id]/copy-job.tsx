@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Copy } from "lucide-react";
+import { Copy, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchPicker } from "@/components/ui/search-picker";
@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { copyJob } from "@/app/(app)/jobs/copy-actions";
+import { copyJob, copyJobToEstimate } from "@/app/(app)/jobs/copy-actions";
 
 /**
  * "Same again, different unit."
@@ -50,9 +50,11 @@ export function CopyJob({
   const ready =
     mode === "saved" ? !!addrId : !!(addr.street.trim() || addr.label.trim());
 
-  const submit = () =>
+  /** What the copy produces: a quote to price the next unit, or the whole job. */
+  const submit = (what: "estimate" | "job") =>
     start(async () => {
-      const res = await copyJob({
+      const run = what === "job" ? copyJob : copyJobToEstimate;
+      const res = await run({
         jobId,
         serviceAddressId: mode === "saved" ? addrId || null : null,
         newAddress: mode === "new" ? addr : null,
@@ -62,14 +64,19 @@ export function CopyJob({
         toast.error(res.error);
         return;
       }
-      toast.success("Job copied");
-      router.push(`/jobs/${res.jobId}?created=1`);
+      if (what === "job") {
+        toast.success("Job copied");
+        router.push(`/jobs/${res.jobId}?created=1`);
+      } else {
+        toast.success("Estimate copied");
+        router.push(`/estimates/${res.estimateId}/edit`);
+      }
     });
 
   return (
     <>
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <Copy className="size-3.5" /> Copy to another unit
+        <Copy className="size-3.5" /> Copy to another address
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -78,7 +85,7 @@ export function CopyJob({
             <DialogTitle>Copy this job</DialogTitle>
             <DialogDescription>
               {hasEstimate
-                ? "Brings the whole quote across — every room, option and price — as a fresh draft, plus a new work order for the unit you pick."
+                ? "Same scope at another of this customer's addresses. Copy just the quote to price it first, or the whole job to start work."
                 : "This job has no estimate behind it, so the copy carries its title, notes and site across."}
             </DialogDescription>
           </DialogHeader>
@@ -176,17 +183,37 @@ export function CopyJob({
             </div>
 
             <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-              The copy isn&apos;t scheduled — the same work at another unit
-              happens on its own day, and inheriting this one&apos;s date would
-              put two crews in two places on one morning.
+              A copied job isn&apos;t scheduled — the same work at another
+              address happens on its own day, and inheriting this one&apos;s date
+              would put two crews in two places on one morning.
             </p>
 
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="button" size="sm" onClick={submit} disabled={saving || !ready}>
-                <Copy className="size-3.5" /> {saving ? "Copying…" : "Copy the job"}
+              {/* Two outcomes, because they're two different moments: pricing
+                  the next unit, and starting work on it. */}
+              {hasEstimate ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => submit("estimate")}
+                  disabled={saving || !ready}
+                >
+                  <FileText className="size-3.5" />
+                  {saving ? "Copying…" : "New estimate only"}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => submit("job")}
+                disabled={saving || !ready}
+              >
+                <Copy className="size-3.5" />
+                {saving ? "Copying…" : "New job"}
               </Button>
             </div>
           </div>

@@ -32,7 +32,7 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { JobStage } from "./job-stage";
 import { CopyJob } from "./copy-job";
-import { jobHeading, jobSubtitle } from "@/lib/job-label";
+import { jobHeading, jobIdentityLine } from "@/lib/job-label";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import {
   getJob,
@@ -387,10 +387,8 @@ export default async function JobPage({
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            {/* Where the work is, not who it's for — the customer is named on
-                the line below and the crew needs the door. */}
             <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
-              {jobHeading({ ...job, site_label: siteLabel })}
+              {jobHeading({ ...job, site_label: siteLabel }, job.customer?.full_name)}
             </h1>
             <JobStatusBadge status={job.status} />
             <FlowPositionBadge stage={flowStage} stages={flowStages} />
@@ -417,13 +415,20 @@ export default async function JobPage({
               />
             ) : null}
           </div>
+          {/* WHICH of this customer's addresses. The name is the heading above;
+              this is the part that tells their Unit 813 from their Unit 814. */}
+          {jobIdentityLine({ ...job, site_label: siteLabel }, job.customer?.full_name) ? (
+            <p className="text-sm font-medium text-violet-700 dark:text-violet-300">
+              {jobIdentityLine({ ...job, site_label: siteLabel }, job.customer?.full_name)}
+            </p>
+          ) : null}
           <p className="text-sm text-muted-foreground">
             {isStaff && job.customer ? (
               <Link
                 href={`/customers/${job.customer_id}`}
                 className="hover:underline"
               >
-                {job.customer.full_name}
+                Open {job.customer.full_name}&apos;s file
               </Link>
             ) : (
               job.customer?.full_name

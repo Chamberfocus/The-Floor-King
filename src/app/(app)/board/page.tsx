@@ -65,7 +65,7 @@ export default async function JobBoardPage() {
                         href={`/jobs/${j.id}`}
                         className="text-lg font-semibold hover:underline"
                       >
-                        {jobHeading(j)}
+                        {jobHeading(j, j.customer_name)}
                       </Link>
                       {j.materialType ? (
                         <span

@@ -47,6 +47,52 @@ export interface CopyJobInput {
 export interface CopyJobResult {
   error: string | null;
   jobId?: string;
+  estimateId?: string;
+}
+
+/**
+ * Copy just the QUOTE from this job to another address.
+ *
+ * Sometimes the next unit needs pricing before it needs a work order — the
+ * landlord wants a number for 814 before committing. This produces a fresh
+ * draft estimate at the chosen address and nothing else; raising the job from
+ * it later is one click on the estimate.
+ */
+export async function copyJobToEstimate(
+  input: CopyJobInput,
+): Promise<CopyJobResult> {
+  if (!input.jobId) return { error: "Missing the job to copy." };
+  await assertRole(STAFF);
+  const supabase = await createClient();
+
+  const { data: src } = await supabase
+    .from("jobs")
+    .select("customer_id, estimate_id")
+    .eq("id", input.jobId)
+    .maybeSingle();
+  if (!src) return { error: "That job no longer exists." };
+  if (!src.estimate_id)
+    return { error: "This job has no estimate behind it to copy." };
+
+  const res = await duplicateEstimateToCustomer(
+    src.estimate_id as string,
+    src.customer_id as string,
+    {
+      serviceAddressId: input.serviceAddressId ?? undefined,
+      newAddress: input.serviceAddressId ? null : input.newAddress,
+    },
+  );
+  if (res.error || !res.estimateId)
+    return { error: res.error ?? "Couldn't copy the estimate." };
+
+  const title = input.title.trim();
+  if (title) {
+    await supabase.from("estimates").update({ title }).eq("id", res.estimateId);
+  }
+
+  revalidatePath("/estimates");
+  revalidatePath(`/customers/${src.customer_id}`);
+  return { error: null, estimateId: res.estimateId };
 }
 
 export async function copyJob(input: CopyJobInput): Promise<CopyJobResult> {

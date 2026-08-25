@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { jobHeading, jobSubtitle } from "@/lib/job-label";
+import { jobHeading, jobIdentityLine } from "@/lib/job-label";
 import Link from "next/link";
 import { Plus, MapPin, HardHat, ArrowRight, Wrench } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -113,17 +113,18 @@ export default async function JobsPage({
       className="block rounded-xl border bg-card p-3.5 transition-colors hover:border-primary/40 active:bg-muted/40"
     >
       <div className="flex items-start justify-between gap-2">
-        {/* The SITE is the headline. This led with the job's title, which for
-            34 of 36 live jobs was "Flooring for {customer}" — the customer's
-            name twice over, and nothing about where the crew is going. */}
+        {/* The customer leads. The line under it is what tells two jobs on the
+            same account apart — which address, and what the work is when the
+            title says something the address doesn't. */}
         <div className="min-w-0">
-          <div className="truncate text-base font-semibold">{jobHeading(j)}</div>
-          <div className="truncate text-sm text-muted-foreground">
-            {j.customer_name ?? "—"}
-            {jobSubtitle(j, j.customer_name) ? (
-              <span className="ml-1.5 opacity-80">· {jobSubtitle(j, j.customer_name)}</span>
-            ) : null}
+          <div className="truncate text-base font-semibold">
+            {jobHeading(j, j.customer_name)}
           </div>
+          {jobIdentityLine(j, j.customer_name) ? (
+            <div className="truncate text-sm font-medium text-violet-700 dark:text-violet-300">
+              {jobIdentityLine(j, j.customer_name)}
+            </div>
+          ) : null}
         </div>
         <StatusBadge j={j} />
       </div>

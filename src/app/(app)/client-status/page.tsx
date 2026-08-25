@@ -154,15 +154,12 @@ export default async function ClientStatusPage({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="truncate text-base font-semibold">{u.customerName}</div>
-            {/* Which door — the whole point of one card per piece of work. The
-                title is only shown when it says something the address doesn't. */}
-            {u.site ? (
+            {/* The customer is the heading above; this says WHICH of their
+                addresses, which is what tells one card from another when an
+                account has several jobs running. */}
+            {u.site || u.title ? (
               <div className="truncate text-sm font-medium text-violet-700 dark:text-violet-300">
-                {u.site}
-              </div>
-            ) : u.title ? (
-              <div className="truncate text-sm font-medium text-violet-700 dark:text-violet-300">
-                {u.title}
+                {u.site ?? u.title}
               </div>
             ) : null}
             {st ? (
