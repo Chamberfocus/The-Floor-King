@@ -53,6 +53,11 @@ export default async function NewJobPage({
         description="Every new job starts here — a repeat customer's next room, or someone you've never worked for. Hang it off an estimate you've already built, or start it empty and price it later. Book the date now if you already know it."
       />
       <NewJobForm
+        preselectedName={
+          preselected
+            ? (customers.find((c) => c.id === preselected)?.full_name ?? null)
+            : null
+        }
         customers={customers}
         installers={installers}
         windows={windows}
