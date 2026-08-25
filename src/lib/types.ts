@@ -476,6 +476,10 @@ export const ROLL_GOOD_CATEGORIES: ProductCategory[] = ["carpet", "vinyl"];
 export function isRollGoodCategory(
   category: string | null | undefined,
 ): boolean {
+  // Carpet and sheet vinyl come off a roll and get a cut list. Pad also bills by
+  // the square yard (see SQYD_CATEGORIES in src/lib/units.ts) but isn't cut to a
+  // room's shape, so it is deliberately NOT a roll good here — the two lists
+  // answer different questions and only overlap on the billing unit.
   return category === "carpet" || category === "vinyl";
 }
 

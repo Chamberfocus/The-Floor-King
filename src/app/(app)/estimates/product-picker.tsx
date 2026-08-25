@@ -22,7 +22,13 @@ import {
 } from "@/lib/types";
 import { createProductInline, searchCatalogProducts } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
-import { UNIT_OPTIONS, defaultUnitForCategory, unitLabel, isAreaUnit } from "@/lib/units";
+import {
+  defaultUnitForCategory,
+  unitsForCategory,
+  billsBySquareYard,
+  unitLabel,
+  isAreaUnit,
+} from "@/lib/units";
 
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -554,6 +560,7 @@ function AddProductForm({
     onUseOnce?.(f);
   };
 
+  const allowedUnits = unitsForCategory(f.category);
   const rateLbl = `$ / ${unitLabel(f.unit) || "unit"}`;
 
   return (
@@ -621,23 +628,36 @@ function AddProductForm({
             — how this item is priced
           </span>
         </label>
+        {/* Only the units this category is actually sold in. Offering all twelve
+            for a carpet is how a roll ends up priced per "each" — see
+            unitsForCategory. "Other" still gets the full list. */}
         <div className="space-y-1.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="w-14 shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
-              Area
-            </span>
-            {UNIT_OPTIONS.filter((u) => u.kind === "area").map((u) => (
-              <UnitChip key={u.value} label={u.label} active={f.unit === u.value} onClick={() => pickUnit(u.value)} />
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="w-14 shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
-              By item
-            </span>
-            {UNIT_OPTIONS.filter((u) => u.kind === "count").map((u) => (
-              <UnitChip key={u.value} label={u.label} active={f.unit === u.value} onClick={() => pickUnit(u.value)} />
-            ))}
-          </div>
+          {(["area", "count"] as const).map((kind) => {
+            const opts = allowedUnits.filter((u) => u.kind === kind);
+            if (!opts.length) return null;
+            return (
+              <div key={kind} className="flex flex-wrap items-center gap-1.5">
+                <span className="w-14 shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {kind === "area" ? "Area" : "By item"}
+                </span>
+                {opts.map((u) => (
+                  <UnitChip
+                    key={u.value}
+                    label={u.label}
+                    active={f.unit === u.value}
+                    onClick={() => pickUnit(u.value)}
+                  />
+                ))}
+              </div>
+            );
+          })}
+          {billsBySquareYard(f.category) ? (
+            <p className="text-[11px] text-muted-foreground">
+              {f.category === "underlayment"
+                ? "Carpet pad is sold by the square yard; laminate underlayment usually by the square foot."
+                : "Carpet and sheet vinyl are sold by the square yard — enter the price you pay per yard."}
+            </p>
+          ) : null}
         </div>
       </div>
 

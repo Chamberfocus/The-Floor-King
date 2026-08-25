@@ -165,17 +165,35 @@ export function parseCoverage(
  * A sensible default unit for a product category, so the on-the-fly add form
  * starts on the right unit and a bag/each item isn't mis-saved as area.
  */
+/**
+ * Goods that come off a roll and are sold by the SQUARE YARD: carpet, sheet
+ * vinyl, and carpet pad.
+ *
+ * This one list is the rule. It was written out three times and one copy
+ * disagreed: the questionnaire billed sheet vinyl per square yard (correct — 149
+ * of the 151 sheet-vinyl products in the catalog are priced that way), while
+ * defaultUnitForCategory created new sheet-vinyl products as square FEET. So you
+ * typed a per-yard price into a box labelled "$ / sq ft" and the conversion
+ * multiplied it by nine on its way onto the estimate.
+ *
+ * Kept here, in the module that owns units, and read by everything that needs
+ * it — see isRollGoodCategory in types.ts, which is the same list by another
+ * name and must stay in step.
+ */
+export const SQYD_CATEGORIES = ["carpet", "vinyl", "underlayment"] as const;
+
+/** Sold by the square yard (roll goods) rather than the square foot. */
+export function billsBySquareYard(category: string | null | undefined): boolean {
+  return (SQYD_CATEGORIES as readonly string[]).includes(category ?? "");
+}
+
 export function defaultUnitForCategory(category: string | null | undefined): string {
+  if (billsBySquareYard(category)) return "sqyd";
   switch (category) {
-    case "carpet":
-      return "sqyd";
     case "lvp":
     case "hardwood":
     case "laminate":
     case "tile":
-    case "vinyl":
-      return "sqft";
-    case "underlayment":
       return "sqft";
     case "trim":
       return "lnft";
@@ -183,5 +201,42 @@ export function defaultUnitForCategory(category: string | null | undefined): str
       return "hour";
     default:
       return "sqft";
+  }
+}
+
+/**
+ * The units worth offering for a category — not all twelve.
+ *
+ * Adding a flooring product used to present every unit in the system: bag,
+ * gallon, hour, sheet, kit. None of them can be right for carpet, and offering
+ * them is how a product ends up priced per "each". Flooring gets the two area
+ * units with its own first; trim gets the two it's actually sold in; "other" is
+ * the catch-all and keeps everything, because that's what it's for.
+ */
+export function unitsForCategory(category: string | null | undefined): UnitOption[] {
+  const only = (...values: string[]) =>
+    values
+      .map((v) => UNIT_OPTIONS.find((u) => u.value === v))
+      .filter(Boolean) as UnitOption[];
+
+  if (billsBySquareYard(category)) {
+    // Pad is genuinely mixed in this catalog — sq yd for carpet pad, sq ft for
+    // laminate underlayment, and some sold by the roll — so it keeps the range.
+    return category === "underlayment"
+      ? only("sqyd", "sqft", "roll", "each")
+      : only("sqyd", "sqft");
+  }
+  switch (category) {
+    case "lvp":
+    case "hardwood":
+    case "laminate":
+    case "tile":
+      return only("sqft", "sqyd", "box");
+    case "trim":
+      return only("lnft", "each", "pc");
+    case "labor":
+      return only("hour", "sqft", "sqyd", "lnft", "each");
+    default:
+      return UNIT_OPTIONS;
   }
 }

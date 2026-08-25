@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { billsBySquareYard } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { toast } from "sonner";
 import {
@@ -51,11 +52,12 @@ const numv = (v: string) => {
 };
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-// Carpet & pad bill per sq yd; everything else per sq ft.
-// Roll goods bill by the square yard: carpet, sheet vinyl, and pad (underlayment).
-const YD_CATS = new Set(["carpet", "vinyl", "underlayment"]);
+// Which categories bill by the square yard is decided in ONE place now
+// (src/lib/units.ts). This file used to carry its own copy of the list, and the
+// copy in units.ts disagreed about sheet vinyl — so the questionnaire priced it
+// per square yard while the catalog created it per square foot.
 function billing(category: string) {
-  const wantYd = YD_CATS.has(category);
+  const wantYd = billsBySquareYard(category);
   return { wantYd, measureUnit: wantYd ? ("sqyd" as const) : ("sqft" as const), unitLabel: wantYd ? "sq yd" : "sq ft" };
 }
 /** Convert a catalog product's per-unit rate to the line's billing unit. */
