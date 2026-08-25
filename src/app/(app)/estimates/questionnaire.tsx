@@ -1662,6 +1662,10 @@ export function Questionnaire({
               setRoomOverride={setRoomOverride}
               jobAnswers={answers}
               floorRooms={allRooms}
+              goToAreas={() => {
+                const i = stepQuestions.findIndex((sq) => sq.kind === "areas");
+                if (i >= 0) goTo(i);
+              }}
             />
           </CardContent>
         </Card>
@@ -1826,6 +1830,7 @@ function QuestionBody({
   setRoomOverride,
   jobAnswers = {},
   floorRooms = [],
+  goToAreas,
 }: {
   q: EstimateQuestion;
   answer: Answer | undefined;
@@ -1840,6 +1845,9 @@ function QuestionBody({
   setRoomOverride?: (roomId: string, qid: string, a: Answer) => void;
   jobAnswers?: Record<string, Answer>;
   floorRooms?: { name: string; sqft: number; lenIn: number | null; widIn: number | null }[];
+  /** Jump to the areas step. The room-map step is useless without rooms, and
+   *  telling someone to "go back" without taking them there is a wall. */
+  goToAreas?: () => void;
 }) {
   // "How many stairs?" quick-fill for the trims step (one tread + one riser per
   // stair). Declared unconditionally so hook order is stable across kinds.
@@ -2054,11 +2062,35 @@ function QuestionBody({
       assignedProducts.length && assignedProducts.every((p) => p.wastePct === assignedProducts[0].wastePct)
         ? assignedProducts[0].wastePct
         : "";
+    /**
+     * No rooms yet.
+     *
+     * This step assigns a product to each room, so with no rooms there is
+     * nothing to assign to — and it used to say so and stop, which reads as
+     * "the guided estimate won't let me pick a floor". The step you actually
+     * need is earlier in the same questionnaire, so take them to it.
+     */
     if (!floorRooms.length) {
       return (
-        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          Add your rooms in the areas step first — then pick what goes in each one.
-        </p>
+        <div className="rounded-lg border border-dashed p-4 text-sm">
+          <p className="font-medium">No rooms yet</p>
+          <p className="mt-1 text-muted-foreground">
+            This step puts a product in each room, so it needs the rooms first —
+            they come from the &ldquo;Which areas are we doing?&rdquo; step. Add
+            them there and this fills in with a picker per room, plus one that
+            fills every empty room at once.
+          </p>
+          {goToAreas ? (
+            <Button
+              type="button"
+              size="sm"
+              className="mt-3"
+              onClick={goToAreas}
+            >
+              Go add the rooms
+            </Button>
+          ) : null}
+        </div>
       );
     }
     return (
