@@ -14,6 +14,24 @@ export interface JobListRow extends Job {
   customer_name: string | null;
 }
 
+/**
+ * Excludes pickup orders from the INSTALL views.
+ *
+ * Approving a customer order raises a job so the warehouse has something to cut
+ * and stage against — see approveOrder in orders/actions.ts. It's flagged
+ * `delivery_type: "cash_carry"` because nobody installs it: the customer drives
+ * over and collects the material. But nothing filtered on that flag, so those
+ * orders sat on the Jobs list, the claim board and the pipeline looking like
+ * installs that had never been scheduled.
+ *
+ * The Install Scheduler already excluded them; this brings the rest into line.
+ * The WAREHOUSE deliberately keeps them (listWarehouseJobs) — cutting and
+ * staging is the entire reason the job exists.
+ *
+ * Written as an `.or()` so rows with no delivery_type at all still match.
+ */
+const PICKUP_EXCLUDED = "delivery_type.is.null,delivery_type.neq.cash_carry";
+
 export async function listJobs(
   opts: {
     /** Installer scoping — crew see only what's assigned to them. */
@@ -33,6 +51,11 @@ export async function listJobs(
   let query = supabase
     .from("jobs")
     .select("*, customer:customers(full_name)")
+    // Cash-and-carry is a PICKUP, not an install: the customer collects the
+    // material and there is nothing to schedule, assign or send a crew to. The
+    // work order only exists so the warehouse can cut and stage it, and it was
+    // landing on the Jobs list beside real installs. It lives on Orders.
+    .or(PICKUP_EXCLUDED)
     .order("created_at", { ascending: false });
   if (opts.assignedTo) query = query.eq("assigned_to", opts.assignedTo);
 
@@ -218,6 +241,8 @@ export async function listOpenJobs(
     .from("jobs")
     .select("*, customer:customers(full_name)")
     .eq("open_for_claim", true)
+    // Nothing for a crew to claim on a pickup order.
+    .or(PICKUP_EXCLUDED)
     .order("created_at", { ascending: false });
   let rows = (data ?? []) as (Job & {
     customer?: { full_name: string | null } | null;
@@ -562,6 +587,8 @@ export async function listOpenJobsForPipeline(): Promise<
       "id, customer_id, title, status, workflow_stage_id, workflow_owner_id, next_action_due",
     )
     .neq("status", "cancelled")
+    // A pickup order isn't in the install pipeline — it's an order.
+    .or(PICKUP_EXCLUDED)
     .order("created_at", { ascending: false });
   // Before migration 0150 the stage columns don't exist and the select fails as
   // a whole. Falling back to no jobs makes every account read as a single
