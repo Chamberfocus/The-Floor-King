@@ -631,6 +631,21 @@ export default async function CustomerPage({
   const fallbackEstimateId = estimates[0]?.id ?? null;
   const fallbackInvoiceId = invoices[0]?.id ?? null;
 
+  /**
+   * Which job each record belongs to.
+   *
+   * The file listed estimates, jobs, invoices and POs as four flat piles for the
+   * whole account, so a customer with three units gave you three of each with
+   * nothing saying which went with which — you cross-referenced by hand. A job
+   * is its own piece of work: its quote, its work order, its invoice, its
+   * material. This groups them that way.
+   *
+   * Invoices and POs already carry a job_id. Estimates don't — the link runs the
+   * other way, jobs.estimate_id — so it's inverted here.
+   */
+  const jobOfEstimate = new Map<string, string>();
+  for (const j of jobs) if (j.estimate_id) jobOfEstimate.set(j.estimate_id, j.id);
+
   const invoiceRows: InvoiceRowData[] = invoices.map((inv) => {
     const t = invoiceTotals(inv.items ?? [], inv.tax_rate, amountPaid(inv));
     return {
@@ -1270,10 +1285,91 @@ export default async function CustomerPage({
                   or create one from an approved estimate.
                 </p>
               ) : (
-                <div className="space-y-2">
-                  {workOrderRows.map((j) => (
-                    <WorkOrderRow key={j.id} j={j} />
-                  ))}
+                <div className="space-y-4">
+                  {/* Each job with ITS OWN quote, invoices and material — not
+                      four separate piles for the whole account that you have to
+                      cross-reference to work out which belongs to which. */}
+                  {workOrderRows.map((j) => {
+                    const src = jobs.find((x) => x.id === j.id);
+                    const mine = {
+                      estimates: estimateRows.filter(
+                        (e) => jobOfEstimate.get(e.id) === j.id,
+                      ),
+                      invoices: invoiceRows.filter((row) => {
+                        const inv = invoices.find((i) => i.id === row.id);
+                        return inv?.job_id === j.id;
+                      }),
+                      pos: customerPOs.filter((po) => po.job_id === j.id),
+                    };
+                    const site =
+                      [src?.site_street, src?.site_city].filter(Boolean).join(", ") ||
+                      null;
+                    return (
+                      <div key={j.id} className="rounded-xl border p-3">
+                        <div className="mb-2">
+                          <div className="text-sm font-semibold">{j.title}</div>
+                          {site ? (
+                            <div className="text-xs font-medium text-violet-700 dark:text-violet-300">
+                              {site}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="space-y-2">
+                          <WorkOrderRow j={j} />
+                          {mine.estimates.map((e) => (
+                            <EstimateRow
+                              key={e.id}
+                              e={e}
+                              customerId={customer.id}
+                              customerName={customer.full_name}
+                            />
+                          ))}
+                          {mine.invoices.map((inv) => (
+                            <InvoiceRow key={inv.id} inv={inv} />
+                          ))}
+                          {mine.pos.length ? (
+                            <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs">
+                              <span className="font-medium">
+                                {mine.pos.length} purchase order
+                                {mine.pos.length === 1 ? "" : "s"}
+                              </span>
+                              {mine.pos.map((po) => (
+                                <Link
+                                  key={po.id}
+                                  href={`/purchase-orders/${po.id}`}
+                                  className="ml-2 text-primary hover:underline"
+                                >
+                                  {po.po_number ? `PO #${po.po_number}` : "PO"}
+                                </Link>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Quotes with no work order behind them yet — real work, but
+                      not yet a job, so they can't sit under one. */}
+                  {estimateRows.filter((e) => !jobOfEstimate.has(e.id)).length ? (
+                    <div className="rounded-xl border border-dashed p-3">
+                      <div className="mb-2 text-sm font-semibold text-muted-foreground">
+                        Quoted — no job yet
+                      </div>
+                      <div className="space-y-2">
+                        {estimateRows
+                          .filter((e) => !jobOfEstimate.has(e.id))
+                          .map((e) => (
+                            <EstimateRow
+                              key={e.id}
+                              e={e}
+                              customerId={customer.id}
+                              customerName={customer.full_name}
+                            />
+                          ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )}
               {/* Measurements belong with the work — moved here so it stops
