@@ -53,6 +53,8 @@ export function NewJobForm({
   const [nc, setNc] = useState(emptyNc);
   const [title, setTitle] = useState("");
   const [addressId, setAddressId] = useState("");
+  const [newSite, setNewSite] = useState({ label: "", street: "", city: "", state: "", zip: "" });
+  const [addingSite, setAddingSite] = useState(false);
   const [estimateId, setEstimateId] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
   const [arrivalWindow, setArrivalWindow] = useState("");
@@ -111,6 +113,7 @@ export function NewJobForm({
         newCustomer: custMode === "new" ? nc : null,
         title,
         serviceAddressId: addressId || null,
+        newSite: addingSite && newSite.street.trim() ? newSite : null,
         estimateId: estimateId || null,
         scheduledDate: scheduledDate || null,
         arrivalWindow: arrivalWindow || null,
@@ -226,16 +229,83 @@ export function NewJobForm({
             </p>
           </div>
 
-          {ctx.addresses.length ? (
+          {/* A customer can have many properties, and the one you want may not
+              be on file yet — so it can be added here instead of sending you to
+              their file and back. */}
+          {custMode === "existing" ? (
             <div>
               <label className={label}>Job site</label>
-              <SearchPicker
-                value={addressId}
-                onChange={setAddressId}
-                placeholder="Their main address"
-                allowClear
-                options={ctx.addresses.map((a) => ({ value: a.id, label: a.label }))}
-              />
+              {!addingSite ? (
+                <>
+                  {ctx.addresses.length ? (
+                    <SearchPicker
+                      value={addressId}
+                      onChange={setAddressId}
+                      placeholder="Their main address"
+                      allowClear
+                      options={ctx.addresses.map((a) => ({ value: a.id, label: a.label }))}
+                    />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No extra properties on file — the job uses their main
+                      address.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAddingSite(true)}
+                    className="mt-1.5 text-xs font-medium text-primary hover:underline"
+                  >
+                    + Add another property
+                  </button>
+                </>
+              ) : (
+                <div className="mt-1 space-y-2 rounded-md border p-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input
+                      placeholder="Unit / label — e.g. Unit 814"
+                      value={newSite.label}
+                      onChange={(e) => setNewSite({ ...newSite, label: e.target.value })}
+                      className="sm:col-span-2"
+                    />
+                    <Input
+                      placeholder="Street *"
+                      value={newSite.street}
+                      onChange={(e) => setNewSite({ ...newSite, street: e.target.value })}
+                      className="sm:col-span-2"
+                    />
+                    <Input
+                      placeholder="City"
+                      value={newSite.city}
+                      onChange={(e) => setNewSite({ ...newSite, city: e.target.value })}
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        placeholder="State"
+                        value={newSite.state}
+                        onChange={(e) => setNewSite({ ...newSite, state: e.target.value })}
+                      />
+                      <Input
+                        placeholder="ZIP"
+                        value={newSite.zip}
+                        onChange={(e) => setNewSite({ ...newSite, zip: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      Saved to this customer for next time.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setAddingSite(false)}
+                      className="text-xs font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
 

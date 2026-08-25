@@ -32,6 +32,7 @@ import { JobStatusBadge } from "@/components/job-status-badge";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { JobStage } from "./job-stage";
 import { CopyJob } from "./copy-job";
+import { JobSite } from "./job-site";
 import { jobHeading, jobIdentityLine } from "@/lib/job-label";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import {
@@ -1072,32 +1073,25 @@ export default async function JobPage({
             <CardTitle className="text-base">Site address</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="mb-2 text-sm">
-              {siteParts.length ? siteParts.join(" · ") : "No site address set."}
-            </p>
-            <form action={setJobAddress} className="flex flex-wrap items-end gap-2">
-              <input type="hidden" name="job_id" value={job.id} />
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">
-                  Which property?
-                </label>
-                <select
-                  name="service_address_id"
-                  defaultValue={job.service_address_id ?? ""}
-                  className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-                >
-                  <option value="">Primary address</option>
-                  {serviceAddresses.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.label || formatServiceAddress(a)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <Button type="submit" size="sm" variant="outline">
-                Update site
-              </Button>
-            </form>
+            <JobSite
+              jobId={job.id}
+              addresses={serviceAddresses.map((a) => ({
+                id: a.id,
+                label: a.label || formatServiceAddress(a) || "Job site",
+              }))}
+              currentId={job.service_address_id ?? null}
+              currentSite={siteParts.length ? siteParts.join(" · ") : null}
+              looseSite={
+                job.site_street && !job.service_address_id
+                  ? {
+                      street: job.site_street,
+                      city: job.site_city ?? "",
+                      state: job.site_state ?? "",
+                      zip: job.site_zip ?? "",
+                    }
+                  : null
+              }
+            />
           </CardContent>
         </Card>
       ) : null}

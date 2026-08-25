@@ -814,7 +814,7 @@ export async function createJobFromEstimate(formData: FormData): Promise<void> {
 export async function setJobAddress(formData: FormData): Promise<void> {
   const id = str(formData.get("job_id"));
   if (!id) return;
-  const serviceAddressId = str(formData.get("service_address_id")) || null;
+  let serviceAddressId = str(formData.get("service_address_id")) || null;
   const supabase = await createClient();
   const { data: job } = await supabase
     .from("jobs")
@@ -822,6 +822,36 @@ export async function setJobAddress(formData: FormData): Promise<void> {
     .eq("id", id)
     .maybeSingle();
   if (!job) return;
+
+  /**
+   * Add the address here, rather than sending you away to create it.
+   *
+   * A job could only be pointed at a site that ALREADY existed, so using a
+   * second address meant leaving the work order, adding it on the customer's
+   * file, and coming back. That's why 32 of 36 live jobs carry a loose street
+   * copied off the account instead of a real, reusable job site — the path of
+   * least resistance was to not use the feature.
+   *
+   * Anything typed here is saved against the CUSTOMER, so the next job at that
+   * property just picks it from the list.
+   */
+  const newStreet = str(formData.get("new_street"));
+  const newLabel = str(formData.get("new_label"));
+  if (!serviceAddressId && (newStreet || newLabel)) {
+    const { data: created } = await supabase
+      .from("service_addresses")
+      .insert({
+        customer_id: job.customer_id as string,
+        label: newLabel || null,
+        street: newStreet || null,
+        city: str(formData.get("new_city")) || null,
+        state: str(formData.get("new_state")) || null,
+        zip: str(formData.get("new_zip")) || null,
+      })
+      .select("id")
+      .single();
+    serviceAddressId = (created?.id as string) ?? null;
+  }
 
   let site = { street: null, city: null, state: null, zip: null } as {
     street: string | null;

@@ -162,6 +162,8 @@ export async function copyJob(input: CopyJobInput): Promise<CopyJobResult> {
     newCustomer: null,
     title,
     serviceAddressId,
+    // The copy resolved or created the address above.
+    newSite: null,
     estimateId,
     // Deliberately NOT scheduled: the same work at a different unit happens on
     // its own day, and inheriting the original's date would put two crews in

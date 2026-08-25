@@ -122,6 +122,14 @@ export interface NewJobInput {
   newCustomer: NewCustomerInput | null;
   title: string;
   serviceAddressId: string | null;
+  /** A property not on the account yet — saved so the next job can pick it. */
+  newSite: {
+    label: string;
+    street: string;
+    city: string;
+    state: string;
+    zip: string;
+  } | null;
   /** Start the job from this estimate — scope, option and costed material come
    *  with it. Null for work that hasn't been quoted. */
   estimateId: string | null;
@@ -186,6 +194,30 @@ export async function createJobForCustomer(
     .eq("id", customerId)
     .maybeSingle();
   if (!cust) return { error: "That customer no longer exists." };
+
+  /**
+   * A brand-new property, typed here rather than on the customer's file.
+   *
+   * Requiring the address to exist first is why 32 of 36 live jobs carry a
+   * street copied off the account instead of a real job site — the easy path
+   * was to skip it. Saved against the customer, so it's a pick next time.
+   */
+  if (!input.serviceAddressId && input.newSite?.street?.trim()) {
+    const { data: created } = await supabase
+      .from("service_addresses")
+      .insert({
+        customer_id: customerId,
+        label: input.newSite.label?.trim() || null,
+        street: input.newSite.street.trim(),
+        city: input.newSite.city?.trim() || null,
+        state: input.newSite.state?.trim() || null,
+        zip: input.newSite.zip?.trim() || null,
+        created_by: profile.id,
+      })
+      .select("id")
+      .single();
+    if (created?.id) input = { ...input, serviceAddressId: created.id as string };
+  }
 
   // The site: the chosen job site, else the account's own address.
   let site = {
