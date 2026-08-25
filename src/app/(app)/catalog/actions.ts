@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -141,6 +142,8 @@ export async function createProductInline(input: {
   color?: string;
   coverage_sqft?: number | string | null;
   coverage_thickness_in?: number | string | null;
+  /** unit='each': stick length in inches, so a measured run converts to pieces. */
+  piece_length_in?: number | string | null;
 }): Promise<{ error: string | null; product?: Product }> {
   const name = input.name?.trim();
   if (!name) return { error: "A product name is required." };
@@ -182,11 +185,17 @@ export async function createProductInline(input: {
     color: input.color?.trim() || null,
     coverage_sqft: numOrNull(input.coverage_sqft),
     coverage_thickness_in: numOrNull(input.coverage_thickness_in),
+    // Only meaningful for by-the-piece goods; defaulted so a trim added without
+    // one still converts linear feet to sticks instead of hiding the box.
+    piece_length_in:
+      input.unit === "each" || input.unit === "pc"
+        ? (numOrNull(input.piece_length_in) ?? DEFAULT_PIECE_LENGTH_IN)
+        : null,
   };
   let { data, error } = await supabase.from("products").insert(row).select("*").single();
   if (error) {
     // Fallback for before the prep-coverage migration (0106) is run.
-    const { coverage_sqft: _cs, coverage_thickness_in: _ct, ...legacy } = row;
+    const { coverage_sqft: _cs, coverage_thickness_in: _ct, piece_length_in: _pl, ...legacy } = row;
     ({ data, error } = await supabase.from("products").insert(legacy).select("*").single());
   }
   if (error) return { error: error.message };

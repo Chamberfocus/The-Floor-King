@@ -29,7 +29,11 @@ import {
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { priceFromMargin } from "@/lib/estimate-calc";
-import { linearFeetForPieces, piecesForLinearFeet } from "@/lib/accessories";
+import {
+  linearFeetForPieces,
+  piecesForLinearFeet,
+  DEFAULT_PIECE_LENGTH_IN,
+} from "@/lib/accessories";
 import { profileFor } from "@/lib/flooring-profiles";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets } from "@/lib/questionnaire-calc";
 import { bagsNeeded } from "@/lib/floor-prep";
@@ -130,10 +134,19 @@ const isStairnose = (type: string): boolean => /stair\s*nose/i.test(type);
  * price, so the run you measure has to be rounded UP into whole pieces — you
  * cannot buy 2.3 sticks, and the PO has to name a number the vendor can fill.
  */
-const pieceLenFor = (row: TrimRow): number | null =>
-  row.product && row.product.unit === "each" && row.product.pieceLengthIn
-    ? row.product.pieceLengthIn
-    : null;
+const pieceLenFor = (row: TrimRow): number | null => {
+  if (!row.product || row.product.unit !== "each") return null;
+  /**
+   * Fall back to the standard stick rather than giving up.
+   *
+   * 2,789 of the catalog's trim products carry no piece length, and without one
+   * this returned null — which hid the "Linear ft" box completely and left you
+   * typing a piece count worked out in your head. Every trim that DOES carry a
+   * length is 94", so that's the sane default; it's editable on the line, and
+   * new products now ask for it.
+   */
+  return row.product.pieceLengthIn || DEFAULT_PIECE_LENGTH_IN;
+};
 
 /** The trims you click to add — with sensible default material rates you can
  *  tweak per line. Sizes/colors are typed on the line. */
@@ -232,11 +245,10 @@ function customToProductAns(input: CustomProductInput): ProductAns {
     const n = parseFloat(v);
     return Number.isFinite(n) ? n : 0;
   };
-  const label =
-    [input.manufacturer, input.name, input.color]
-      .map((s) => (s || "").trim())
-      .filter(Boolean)
-      .join(" ") || input.name.trim();
+  // The shared namer — this used to join manufacturer + name + colour by hand,
+  // the exact formula that printed "CDC Everlasting XL Blackjack Oak Blackjack
+  // Oak" across every document.
+  const label = productLabel(input) || input.name.trim();
   return {
     productId: "",
     label,
@@ -252,7 +264,12 @@ function customToProductAns(input: CustomProductInput): ProductAns {
     vendor: "",
     wastePct: "",
     sqftPerBox: "",
-    pieceLengthIn: null,
+    // A one-off trim needs its stick length too, or the run you measure can't
+    // be turned into pieces.
+    pieceLengthIn:
+      input.unit === "each" || input.unit === "pc"
+        ? numOr0(input.piece_length_in) || DEFAULT_PIECE_LENGTH_IN
+        : null,
   };
 }
 let xpid = 0;

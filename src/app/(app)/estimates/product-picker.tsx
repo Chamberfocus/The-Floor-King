@@ -22,6 +22,7 @@ import {
 } from "@/lib/types";
 import { createProductInline, searchCatalogProducts } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
 import {
   defaultUnitForCategory,
   unitsForCategory,
@@ -50,6 +51,9 @@ export interface CustomProductInput {
   sku: string;
   coverage_sqft: string;
   coverage_thickness_in: string;
+  /** Sold by the piece: how long one stick is, in inches. Turns a measured run
+   *  in linear feet into whole pieces — you can't buy 2.3 sticks. */
+  piece_length_in: string;
 }
 
 export function ProductPicker({
@@ -522,6 +526,7 @@ function AddProductForm({
     labor_rate: "",
     coverage_sqft: "",
     coverage_thickness_in: "",
+    piece_length_in: "",
   });
   const set = (patch: Partial<typeof f>) => setF((p) => ({ ...p, ...patch }));
   // Changing the category re-suggests the unit — until the user picks one
@@ -651,6 +656,29 @@ function AddProductForm({
               </div>
             );
           })}
+          {/* Sold by the piece → we need the stick length, or a measured run in
+              linear feet can't be turned into a piece count. Without it the
+              trims step hides its "Linear ft" box entirely and you're left
+              working the number out yourself. */}
+          {f.unit === "each" || f.unit === "pc" ? (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="w-14 shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">
+                Length
+              </span>
+              <Input
+                type="number"
+                inputMode="decimal"
+                value={f.piece_length_in}
+                onChange={(e) => set({ piece_length_in: e.target.value })}
+                placeholder={String(DEFAULT_PIECE_LENGTH_IN)}
+                className={cn(inputSm, "h-9 w-24")}
+              />
+              <span className="text-xs text-muted-foreground">
+                inches per piece — blank uses {DEFAULT_PIECE_LENGTH_IN}&quot;
+              </span>
+            </div>
+          ) : null}
+
           {billsBySquareYard(f.category) ? (
             <p className="text-[11px] text-muted-foreground">
               {f.category === "underlayment"

@@ -196,7 +196,12 @@ export function defaultUnitForCategory(category: string | null | undefined): str
     case "tile":
       return "sqft";
     case "trim":
-      return "lnft";
+      // Vendors sell trim as pre-cut sticks at a per-piece price — 6,619 of the
+      // 6,994 trim products in this catalog are stored that way. The job is
+      // still MEASURED in linear feet; the stick length converts the run into
+      // whole pieces (you can't buy 2.3 sticks), which is why a by-the-piece
+      // trim needs piece_length_in set.
+      return "each";
     case "labor":
       return "hour";
     default:
@@ -233,7 +238,7 @@ export function unitsForCategory(category: string | null | undefined): UnitOptio
     case "tile":
       return only("sqft", "sqyd", "box");
     case "trim":
-      return only("lnft", "each", "pc");
+      return only("each", "lnft", "pc");
     case "labor":
       return only("hour", "sqft", "sqyd", "lnft", "each");
     default:
