@@ -30,6 +30,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
+import { JobStage } from "./job-stage";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import {
   getJob,
@@ -129,10 +130,29 @@ export default async function JobPage({
   const org = await getOrgSettings();
   // Same flow position the customer dashboard shows — from the ONE shared source.
   const flowStages = await listWorkflowStages();
-  const flowStage =
-    (job.customer?.workflow_stage_id
-      ? flowStages.find((s) => s.id === job.customer!.workflow_stage_id)
-      : null) ?? null;
+  /**
+   * THIS job's stage. It used to read the account's, so every job on a
+   * multi-job account showed the same position — the badge on an unmeasured
+   * basement said "Install In Progress" because the kitchen was. Falls back to
+   * the account only while a job has no stage of its own (pre-0150 rows, and
+   * jobs on accounts that were never staged).
+   */
+  const jobStageId =
+    (job.workflow_stage_id as string | null) ??
+    job.customer?.workflow_stage_id ??
+    null;
+  const flowStage = (jobStageId ? flowStages.find((s) => s.id === jobStageId) : null) ?? null;
+  // Other live work on the account — the stage dialog says what won't move.
+  const siblingCount = job.customer_id
+    ? (
+        await (await createClient())
+          .from("jobs")
+          .select("id", { count: "exact", head: true })
+          .eq("customer_id", job.customer_id)
+          .neq("status", "cancelled")
+          .neq("id", job.id)
+      ).count ?? 0
+    : 0;
   const users = isStaff ? await listAssignableUsers() : [];
   const names = job.assigned_to ? await getProfileNames([job.assigned_to]) : {};
   const assignedName = job.assigned_to ? names[job.assigned_to] : null;
@@ -366,6 +386,15 @@ export default async function JobPage({
             </h1>
             <JobStatusBadge status={job.status} />
             <FlowPositionBadge stage={flowStage} stages={flowStages} />
+            {canSchedule ? (
+              <JobStage
+                jobId={job.id}
+                jobTitle={job.title}
+                stages={flowStages.map((st) => ({ id: st.id, name: st.name }))}
+                currentStageId={jobStageId}
+                siblingCount={siblingCount}
+              />
+            ) : null}
           </div>
           <p className="text-sm text-muted-foreground">
             {isStaff && job.customer ? (

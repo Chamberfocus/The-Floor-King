@@ -25,6 +25,7 @@ export function JobRollUp({
   ownerName,
   actionSlots,
   canOverride = false,
+  jobStageNames,
 }: {
   customerId: string;
   jobs: JobProgress[];
@@ -37,6 +38,10 @@ export function JobRollUp({
   actionSlots?: Record<string, ReactNode>;
   /** Whether this viewer may mark a step done without the record behind it. */
   canOverride?: boolean;
+  /** Each job's OWN stage name, by job id. The account-level `stageName` above
+   *  is the pre-job position and is wrong for a multi-job account — a finished
+   *  kitchen and an unmeasured basement are not at the same stage. */
+  jobStageNames?: Record<string, string>;
 }) {
   if (!jobs.length) return null;
   const multiple = jobs.length > 1;
@@ -56,7 +61,7 @@ export function JobRollUp({
       <div className="space-y-3">
         <JobChecklist
           steps={only.steps}
-          stageName={stageName}
+          stageName={(only.jobId && jobStageNames?.[only.jobId]) || stageName}
           stagePosition={stagePosition}
           stageTotal={stageTotal}
           ownerName={ownerName}
@@ -81,19 +86,11 @@ export function JobRollUp({
         <span className="text-sm font-semibold">
           {multiple ? `${jobs.length} jobs on this account` : "The job"}
         </span>
-        {/* The stage belongs to the ACCOUNT — where these people sit in the
-            pipeline. Each job below tracks its own progress separately. */}
+        {/* Each job below carries its OWN stage — shown on its row. The account
+            badge is only meaningful before any job exists, so it's dropped here
+            rather than repeating one job's position over all of them. */}
         <span className="flex flex-wrap items-center gap-2">
-          {stageName ? (
-            <span className="inline-flex items-center rounded-full bg-primary px-2.5 py-0.5 text-xs font-bold text-primary-foreground">
-              {stageName}
-              {stagePosition != null && stageTotal ? (
-                <span className="ml-1.5 font-medium opacity-75">
-                  {stagePosition}/{stageTotal}
-                </span>
-              ) : null}
-            </span>
-          ) : null}
+          {ownerName ? null : null}
           {ownerName ? (
             <span className="text-xs text-muted-foreground">{ownerName}</span>
           ) : null}
@@ -126,8 +123,15 @@ export function JobRollUp({
                     </span>
                   ) : null}
                 </span>
-                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                <span className="flex shrink-0 items-center gap-2">
+                  {j.jobId && jobStageNames?.[j.jobId] ? (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                      {jobStageNames[j.jobId]}
+                    </span>
+                  ) : null}
+                  <span className="text-xs text-muted-foreground tabular-nums">
                   {j.done} of {j.total}
+                  </span>
                 </span>
               </div>
 

@@ -932,6 +932,13 @@ export interface Job {
   site_zip: string | null;
   notes: string | null;
   delivery_type: JobDeliveryType;
+  /** Where THIS job stands (migration 0150). The stage lives on the job so an
+   *  account with several running can hold several positions at once; the
+   *  customer keeps its own for the phase before any job exists. See
+   *  src/lib/work-stage.ts. */
+  workflow_stage_id?: string | null;
+  workflow_owner_id?: string | null;
+  next_action_due?: string | null;
   warehouse_status: WarehouseStatus;
   // Warehouse staging lifecycle (migration 0060)
   warehouse_submitted_at?: string | null;

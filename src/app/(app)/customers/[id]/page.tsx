@@ -378,6 +378,18 @@ export default async function CustomerPage({
    * Every step, and the tools to do it, now live on the job page.
    */
   const jobChecklists = await getCustomerChecklists(id);
+  /**
+   * Each job's OWN stage name. The account badge is the pre-job position and is
+   * simply wrong once there are two jobs — a finished kitchen and an unmeasured
+   * basement are not at the same stage. Falls back to the account's stage for a
+   * job that hasn't got one of its own yet.
+   */
+  const jobStageNames: Record<string, string> = {};
+  for (const j of jobs) {
+    const sid = j.workflow_stage_id ?? customer.workflow_stage_id ?? null;
+    const nm = sid ? stages.find((st) => st.id === sid)?.name : null;
+    if (nm) jobStageNames[j.id] = nm;
+  }
   /** Step one is an ACCOUNT fact — has anyone actually spoken to these people —
    *  so it reads the same on every job's list. Once it's true the one-click
    *  "Mark contacted" comes off; the Activity tab is the way to add more. */
@@ -911,6 +923,7 @@ export default async function CustomerPage({
                     ownerName={ownerName}
                     actionSlots={checklistSlots}
                     canOverride={STEP_OVERRIDE_ROLES.includes(profile.role)}
+                    jobStageNames={jobStageNames}
                   />
                 </div>
                 {/* The old GuidedFlow panel lived here: one step at a time,
