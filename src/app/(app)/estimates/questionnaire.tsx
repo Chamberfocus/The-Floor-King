@@ -1129,7 +1129,6 @@ export function Questionnaire({
         // Stairs → step LABOR + the CARPET the steps consume (waterfall vs
         // upholstered use different per-step allowances, from the option config).
         const opts = q.config.options ?? [];
-        const carpetCost = q.config.carpet_cost_per_yd ?? 0;
         for (const g of a.groups) {
           const n = Math.ceil(numv(g.count));
           if (n <= 0 || !g.type) continue;
@@ -1156,29 +1155,18 @@ export function Questionnaire({
             color: null,
             from_stock: false,
           });
-          const sc = stairsCarpet(n, g.type, opt?.carpet_sqft ?? null);
-          if (sc.sqyd > 0)
-            out.push({
-              room: null,
-              description: `Stair carpet — ${n} ${g.type} step${n === 1 ? "" : "s"}`,
-              category: "carpet",
-              measure_unit: "sqyd",
-              sqft: sc.sqft,
-              quantity: Math.ceil(sc.sqyd),
-              length_in: null,
-              width_in: null,
-              unit: "sq yd",
-              material_rate: sellAt(carpetCost),
-              labor_rate: 0,
-              material_cost: carpetCost,
-              labor_cost: 0,
-              waste_pct: 0,
-              product_id: null,
-              manufacturer: null,
-              style: null,
-              color: null,
-              from_stock: false,
-            });
+          /**
+           * NO separate carpet line for the steps.
+           *
+           * This used to add "Stair carpet — n steps" at the per-yard rate on
+           * top of the step labour. The carpet a staircase consumes is already
+           * in the cuts measured on the "Carpet & cuts" screen — you measure the
+           * roll you're pulling from, stairs included — so the material was
+           * being charged twice on every job with steps.
+           *
+           * The step LABOUR above is still charged, per step: that's real work
+           * the measurement doesn't cover.
+           */
         }
       } else if (q.kind === "hs_stairs" && a.kind === "hs_stairs") {
         // Hard-surface stairs wrapped in plank: area = steps × sq ft/step
@@ -2902,7 +2890,13 @@ function QuestionBody({
               </div>
               {n > 0 ? (
                 <div className="text-sm text-muted-foreground">
-                  ≈ <span className="font-medium text-foreground tabular-nums">{sc.sqyd} sq yd</span> of stair carpet
+                  {/* Shown so you can check your cuts cover the stairs — it is
+                      NOT added to the estimate. The stair carpet comes out of
+                      the roll you measured on the cuts screen; charging it here
+                      as well billed the material twice. */}
+                  Needs ≈{" "}
+                  <span className="font-medium text-foreground tabular-nums">{sc.sqyd} sq yd</span>{" "}
+                  of carpet — include it in your cuts
                   {opt?.cost ? <> · labor <span className="tabular-nums">{formatMoney(sellAt(opt.cost) * n)}</span></> : null}
                 </div>
               ) : null}
