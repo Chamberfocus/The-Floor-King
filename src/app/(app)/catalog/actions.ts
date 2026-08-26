@@ -2,6 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
+
+/** Spec columns stored as numbers; the rest are graded text (AC3, PEI IV…). */
+const NUMERIC_SPECS = new Set([
+  "wear_layer_mil",
+  "thickness_mm",
+  "face_weight_oz",
+  "roll_width_ft",
+  "sqft_per_box",
+  "piece_length_in",
+]);
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -144,6 +154,9 @@ export async function createProductInline(input: {
   coverage_thickness_in?: number | string | null;
   /** unit='each': stick length in inches, so a measured run converts to pieces. */
   piece_length_in?: number | string | null;
+  /** The specs that pertain to this KIND of product, keyed by column — carpet
+   *  carries face weight and fibre, LVP a wear layer. See specFieldsFor(). */
+  specs?: Record<string, string> | null;
 }): Promise<{ error: string | null; product?: Product }> {
   const name = input.name?.trim();
   if (!name) return { error: "A product name is required." };
@@ -191,11 +204,33 @@ export async function createProductInline(input: {
       input.unit === "each" || input.unit === "pc"
         ? (numOrNull(input.piece_length_in) ?? DEFAULT_PIECE_LENGTH_IN)
         : null,
+    // Only the specs this category actually asked for, and only the ones filled
+    // in — a blank box shouldn't write an empty string over a real value.
+    ...Object.fromEntries(
+      Object.entries(input.specs ?? {})
+        .filter(([, v]) => String(v ?? "").trim() !== "")
+        .map(([k, v]) => [
+          k,
+          NUMERIC_SPECS.has(k) ? numOrNull(v) : String(v).trim(),
+        ]),
+    ),
   };
   let { data, error } = await supabase.from("products").insert(row).select("*").single();
   if (error) {
     // Fallback for before the prep-coverage migration (0106) is run.
-    const { coverage_sqft: _cs, coverage_thickness_in: _ct, piece_length_in: _pl, ...legacy } = row;
+    const {
+      coverage_sqft: _cs,
+      coverage_thickness_in: _ct,
+      piece_length_in: _pl,
+      // 0153 columns — a database without them shouldn't fail the whole insert.
+      wear_layer_mil: _wl,
+      thickness_mm: _tm,
+      face_weight_oz: _fw,
+      fiber: _fb,
+      wear_rating: _wr,
+      species: _sp,
+      ...legacy
+    } = row as Record<string, unknown>;
     ({ data, error } = await supabase.from("products").insert(legacy).select("*").single());
   }
   if (error) return { error: error.message };

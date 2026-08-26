@@ -23,6 +23,7 @@ import {
 import { createProductInline, searchCatalogProducts } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
+import { specFieldsFor } from "@/lib/product-fields";
 import {
   defaultUnitForCategory,
   unitsForCategory,
@@ -54,6 +55,10 @@ export interface CustomProductInput {
   /** Sold by the piece: how long one stick is, in inches. Turns a measured run
    *  in linear feet into whole pieces — you can't buy 2.3 sticks. */
   piece_length_in: string;
+  /** The specs that pertain to THIS kind of product, keyed by column — see
+   *  specFieldsFor(). A carpet carries face weight and fibre; an LVP carries a
+   *  wear layer and a box coverage; a bag of patch carries neither. */
+  specs: Record<string, string>;
 }
 
 export function ProductPicker({
@@ -527,6 +532,7 @@ function AddProductForm({
     coverage_sqft: "",
     coverage_thickness_in: "",
     piece_length_in: "",
+    specs: {} as Record<string, string>,
   });
   const set = (patch: Partial<typeof f>) => setF((p) => ({ ...p, ...patch }));
   // Changing the category re-suggests the unit — until the user picks one
@@ -536,6 +542,10 @@ function AddProductForm({
       ...p,
       category,
       unit: unitTouched ? p.unit : defaultUnitForCategory(category),
+      // Drop the previous kind's specs. Filling in a carpet's face weight and
+      // then switching to LVP would otherwise write "22 oz face weight" onto a
+      // plank — the fields disappear from the form but the values don't.
+      specs: {},
     }));
   const pickUnit = (unit: string) => {
     setUnitTouched(true);
@@ -566,6 +576,9 @@ function AddProductForm({
   };
 
   const allowedUnits = unitsForCategory(f.category);
+  const specFields = specFieldsFor(f.category);
+  const setSpec = (key: string, value: string) =>
+    setF((p) => ({ ...p, specs: { ...p.specs, [key]: value } }));
   const rateLbl = `$ / ${unitLabel(f.unit) || "unit"}`;
 
   return (
@@ -721,6 +734,57 @@ function AddProductForm({
           />
         </div>
       </div>
+
+      {/* ── What this KIND of product is described by ──────────────────────
+          Carpet gets face weight, fibre and a 12'/15' roll. Sheet vinyl gets a
+          wear layer and a 6'/12' roll. LVP gets wear layer, thickness and sq ft
+          per box. A bag of patch gets none of it. Everything used to be shown
+          to everything, which is why it read as noise. */}
+      {specFields.length ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-2.5">
+          <label className="mb-2 block text-xs font-semibold">
+            {PRODUCT_CATEGORY_LABELS[f.category as keyof typeof PRODUCT_CATEGORY_LABELS] ??
+              "Product"}{" "}
+            specs
+          </label>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {specFields.map((sf) => (
+              <div key={sf.key} className={sf.kind === "text" ? "sm:col-span-2" : undefined}>
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  {sf.label}
+                </label>
+                {sf.kind === "choice" ? (
+                  <select
+                    value={f.specs[sf.key] ?? ""}
+                    onChange={(e) => setSpec(sf.key, e.target.value)}
+                    className={cn(inputSm, "h-10 w-full")}
+                  >
+                    <option value="">—</option>
+                    {(sf.options ?? []).map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    type={sf.kind === "number" ? "number" : "text"}
+                    inputMode={sf.kind === "number" ? "decimal" : undefined}
+                    step="0.01"
+                    min="0"
+                    value={f.specs[sf.key] ?? ""}
+                    onChange={(e) => setSpec(sf.key, e.target.value)}
+                    className="h-10"
+                  />
+                )}
+                {sf.hint ? (
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{sf.hint}</p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* Coverage — prep goods (self-leveler / patch) sold by the bag. Powers the
           estimate bag calculator. Shown for count units only. */}
