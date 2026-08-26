@@ -124,6 +124,24 @@ export async function getJob(id: string): Promise<JobDetail | null> {
   let option_name: string | null = null;
   let estimate_title: string | null = null;
 
+  /**
+   * THE WORK ORDER'S OWN SCOPE.
+   *
+   * A job used to read the estimate's lines directly, so the work order was
+   * read-only: correcting a measurement meant editing the customer's approved
+   * quote. It now owns a copy (migration 0152) that can diverge from it.
+   *
+   * Falls back to the estimate's lines when a job has no copy — jobs created
+   * before 0152 ran, and any created from an estimate before the copy is made —
+   * so the work order never comes up empty.
+   */
+  const { data: ownLines } = await supabase
+    .from("job_line_items")
+    .select("*")
+    .eq("job_id", job.id)
+    .order("position", { ascending: true });
+  line_items = (ownLines ?? []) as EstimateLineItem[];
+
   if (job.option_id) {
     const { data: opt } = await supabase
       .from("estimate_options")
@@ -131,12 +149,14 @@ export async function getJob(id: string): Promise<JobDetail | null> {
       .eq("id", job.option_id)
       .maybeSingle();
     option_name = (opt?.name as string) ?? null;
-    const { data: lines } = await supabase
-      .from("estimate_line_items")
-      .select("*")
-      .eq("option_id", job.option_id)
-      .order("position", { ascending: true });
-    line_items = (lines ?? []) as EstimateLineItem[];
+    if (!line_items.length) {
+      const { data: lines } = await supabase
+        .from("estimate_line_items")
+        .select("*")
+        .eq("option_id", job.option_id)
+        .order("position", { ascending: true });
+      line_items = (lines ?? []) as EstimateLineItem[];
+    }
   }
   if (job.estimate_id) {
     const { data: est } = await supabase

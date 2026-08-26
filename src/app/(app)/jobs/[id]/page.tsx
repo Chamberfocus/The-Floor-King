@@ -35,6 +35,7 @@ import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { JobStage } from "./job-stage";
 import { CopyJob } from "./copy-job";
 import { JobSite } from "./job-site";
+import { EditScope } from "./edit-scope";
 import { jobHeading, jobIdentityLine } from "@/lib/job-label";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import {
@@ -716,6 +717,32 @@ export default async function JobPage({
         </form>
       ) : null}
 
+      </JobTabPanel>
+
+      <JobTabPanel tab="work_order">
+        {/* Edit what the crew is actually doing. Changes the work order only —
+            the signed estimate is untouched. */}
+        {isStaff ? (
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="text-base">Scope</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <EditScope
+                jobId={job.id}
+                lines={job.line_items.map((l) => ({
+                  id: l.id,
+                  description: l.description ?? null,
+                  room: l.room ?? null,
+                  sqft: l.sqft ?? null,
+                  quantity: l.quantity ?? null,
+                  unit: l.unit ?? null,
+                  note: (l as { note?: string | null }).note ?? null,
+                }))}
+              />
+            </CardContent>
+          </Card>
+        ) : null}
       </JobTabPanel>
 
       <JobTabPanel tab="work_order">
