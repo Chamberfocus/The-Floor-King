@@ -82,26 +82,32 @@
 }
 
 :root {
-  /* Warm ivory ground, warm near-black ink — neutrals biased toward wood, not
-     cold grey. Cobalt is the single action accent; bronze is a brand touch. */
-  --background: oklch(0.94 0.006 83);
-  --foreground: oklch(0.24 0.008 60);
-  --card: oklch(0.995 0.004 83);
-  --card-foreground: oklch(0.24 0.008 60);
-  --popover: oklch(0.995 0.004 83);
-  --popover-foreground: oklch(0.24 0.008 60);
-  --primary: oklch(0.54 0.18 264);
+  /* ── 2026-08 VISUAL REFRESH ────────────────────────────────────────────────
+     Was a warm ivory ground (L 0.94, yellow-leaning) with 1rem corners. That
+     reads soft and consumer-ish; a tool people run a business on wants calm and
+     crisp. So: a near-white ground with genuinely white cards for real
+     separation, lighter hairline borders, a slightly deeper and more assured
+     blue, and much tighter corners. The warmth is kept — chroma is reduced, not
+     removed — so it still doesn't feel like cold hospital grey.
+     Revert = `git revert` this one commit. Nothing else was touched. */
+  --background: oklch(0.976 0.0025 83);
+  --foreground: oklch(0.21 0.008 60);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.008 60);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.008 60);
+  --primary: oklch(0.5 0.185 264);
   --primary-foreground: oklch(0.99 0.005 264);
-  --secondary: oklch(0.925 0.008 82);
-  --secondary-foreground: oklch(0.3 0.01 60);
-  --muted: oklch(0.925 0.008 82);
-  --muted-foreground: oklch(0.52 0.012 65);
-  --accent: oklch(0.95 0.03 264);
-  --accent-foreground: oklch(0.45 0.15 264);
-  --destructive: oklch(0.58 0.22 25);
-  --border: oklch(0.88 0.008 80);
-  --input: oklch(0.88 0.008 80);
-  --ring: oklch(0.54 0.16 264);
+  --secondary: oklch(0.962 0.004 82);
+  --secondary-foreground: oklch(0.28 0.01 60);
+  --muted: oklch(0.962 0.004 82);
+  --muted-foreground: oklch(0.505 0.012 65);
+  --accent: oklch(0.955 0.025 264);
+  --accent-foreground: oklch(0.42 0.16 264);
+  --destructive: oklch(0.55 0.22 25);
+  --border: oklch(0.918 0.004 80);
+  --input: oklch(0.9 0.005 80);
+  --ring: oklch(0.5 0.17 264);
   --chart-1: oklch(0.54 0.18 264);
   --chart-2: oklch(0.66 0.11 75);
   --chart-3: oklch(0.62 0.13 160);
@@ -116,39 +122,44 @@
   --success-foreground: oklch(0.99 0.01 155);
   --warning: oklch(0.72 0.13 72);
   --warning-foreground: oklch(0.3 0.05 60);
-  /* Softer, friendlier corners — one knob drives cards, buttons, inputs. */
-  --radius: 1rem;
+  /* Corners. 1rem read soft and consumer-ish on dense screens full of rows;
+     0.625rem is the modern-tool default and makes tables and cards look
+     deliberate rather than bubbly. One knob drives cards, buttons, inputs. */
+  --radius: 0.625rem;
   /* Premium warm-espresso sidebar (kept dark in light mode by design), with a
      honey-tinted active chip. */
-  --sidebar: oklch(0.25 0.012 62);
-  --sidebar-foreground: oklch(0.95 0.006 82);
+  --sidebar: oklch(0.225 0.008 62);
+  --sidebar-foreground: oklch(0.955 0.004 82);
   --sidebar-primary: oklch(0.6 0.17 264);
   --sidebar-primary-foreground: oklch(0.99 0 0);
   --sidebar-accent: oklch(0.33 0.035 72);
   --sidebar-accent-foreground: oklch(0.85 0.11 80);
-  --sidebar-border: oklch(0.34 0.01 62);
+  --sidebar-border: oklch(0.31 0.008 62);
   --sidebar-ring: oklch(0.6 0.17 264);
 }
 
 .dark {
-  /* Warm mid-charcoal "dim" — softer than near-black, still comfortably dark. */
-  --background: oklch(0.155 0.006 66);
+  /* Matched to the light refresh: a touch cooler and a touch deeper, with more
+     separation between the ground and the cards sitting on it. Dark mode is
+     where a warm cast most reads as "muddy", so chroma comes down further here
+     than it does in light. */
+  --background: oklch(0.145 0.004 66);
   --foreground: oklch(0.97 0.004 82);
-  --card: oklch(0.195 0.007 66);
+  --card: oklch(0.196 0.005 66);
   --card-foreground: oklch(0.97 0.004 82);
-  --popover: oklch(0.195 0.007 66);
+  --popover: oklch(0.196 0.005 66);
   --popover-foreground: oklch(0.97 0.004 82);
-  --primary: oklch(0.6 0.17 264);
+  --primary: oklch(0.63 0.175 264);
   --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.245 0.008 66);
+  --secondary: oklch(0.245 0.006 66);
   --secondary-foreground: oklch(0.97 0.004 82);
-  --muted: oklch(0.235 0.008 66);
-  --muted-foreground: oklch(0.76 0.01 78);
-  --accent: oklch(0.34 0.02 264);
-  --accent-foreground: oklch(0.85 0.08 264);
+  --muted: oklch(0.235 0.006 66);
+  --muted-foreground: oklch(0.755 0.008 78);
+  --accent: oklch(0.33 0.02 264);
+  --accent-foreground: oklch(0.86 0.08 264);
   --destructive: oklch(0.7 0.19 25);
-  --border: oklch(0.3 0.01 66);
-  --input: oklch(0.32 0.012 66);
+  --border: oklch(0.278 0.006 66);
+  --input: oklch(0.3 0.008 66);
   --ring: oklch(0.6 0.14 264);
   --chart-1: oklch(0.66 0.16 264);
   --chart-2: oklch(0.72 0.11 75);
@@ -181,6 +192,25 @@
   body {
     @apply bg-background text-foreground;
     font-weight: 450;
+    /* Tighter letter-spacing on headings is most of what separates a considered
+        interface from a default one. Applied at the root so every heading in
+        the app picks it up without touching a single component. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1,
+  h2,
+  h3,
+  [data-slot="card-title"],
+  [data-slot="dialog-title"] {
+    letter-spacing: -0.015em;
+  }
+  /* Border AND shadow on every card reads heavy. The border does the work of
+     separating; the shadow just needs to lift it a little. */
+  [data-slot="card"] {
+    box-shadow:
+      0 1px 2px 0 color-mix(in oklch, var(--foreground) 4%, transparent),
+      0 1px 3px -1px color-mix(in oklch, var(--foreground) 3%, transparent);
   }
   html {
     @apply font-sans;
