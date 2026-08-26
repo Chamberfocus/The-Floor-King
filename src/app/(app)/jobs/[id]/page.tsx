@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft,
+  Phone,
+  Mail,
   MapPin,
   Calendar,
   CalendarClock,
@@ -423,18 +425,38 @@ export default async function JobPage({
               {jobIdentityLine({ ...job, site_label: siteLabel }, job.customer?.full_name)}
             </p>
           ) : null}
-          <p className="text-sm text-muted-foreground">
+          {/* The customer, reachable FROM the work order.
+              This was a name and a link to their file — so calling the person
+              whose floor you're standing on meant leaving the job, landing on
+              their overview, and finding the details card. On a phone, that's
+              three screens to dial a number that was already on the record. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <span className="font-medium">{job.customer?.full_name}</span>
+            {job.customer?.phone ? (
+              <a
+                href={`tel:${job.customer.phone}`}
+                className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+              >
+                <Phone className="size-3.5" /> {job.customer.phone}
+              </a>
+            ) : null}
+            {job.customer?.email ? (
+              <a
+                href={`mailto:${job.customer.email}`}
+                className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+              >
+                <Mail className="size-3.5" /> {job.customer.email}
+              </a>
+            ) : null}
             {isStaff && job.customer ? (
               <Link
                 href={`/customers/${job.customer_id}`}
-                className="hover:underline"
+                className="text-xs text-muted-foreground hover:text-foreground hover:underline"
               >
-                Open {job.customer.full_name}&apos;s file
+                Open their file →
               </Link>
-            ) : (
-              job.customer?.full_name
-            )}
-          </p>
+            ) : null}
+          </div>
         </div>
         {/* Quick actions — the assigned installer or staff. On phones the two
             on-site actions go big and full-width; Print tucks to the side. */}

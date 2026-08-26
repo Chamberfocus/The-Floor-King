@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { jobHeading, jobIdentityLine } from "@/lib/job-label";
 import Link from "next/link";
-import { Plus, MapPin, HardHat, ArrowRight, Wrench } from "lucide-react";
+import { Plus, MapPin, HardHat, ArrowRight, Phone } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -107,7 +107,13 @@ export default async function JobsPage({
     );
   };
 
-  const Card = ({ j, next }: { j: Job & { customer_name?: string | null }; next: string }) => (
+  const Card = ({
+    j,
+    next,
+  }: {
+    j: Job & { customer_name?: string | null; customer_phone?: string | null };
+    next: string;
+  }) => (
     <Link
       href={`/jobs/${j.id}`}
       className="block rounded-xl border bg-card p-3.5 transition-colors hover:border-primary/40 active:bg-muted/40"
@@ -132,6 +138,17 @@ export default async function JobsPage({
         <span className="font-medium text-foreground">
           {j.scheduled_date ? formatDate(j.scheduled_date) : "Not scheduled"}
         </span>
+        {/* Dial from the row. Ringing a customer used to mean opening the job,
+            then their file, then finding the details card. */}
+        {j.customer_phone ? (
+          <a
+            href={`tel:${j.customer_phone}`}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+          >
+            <Phone className="size-3" /> {j.customer_phone}
+          </a>
+        ) : null}
         {j.arrival_window ? <span>{j.arrival_window}</span> : null}
         {/* The street already leads the card; only the city adds anything. */}
         {j.site_city ? (

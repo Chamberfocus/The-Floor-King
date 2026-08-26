@@ -12,6 +12,9 @@ import type {
 
 export interface JobListRow extends Job {
   customer_name: string | null;
+  /** So a row can be dialled without opening the job first. Optional because
+   *  not every list that reuses this shape loads it. */
+  customer_phone?: string | null;
 }
 
 /**
@@ -50,7 +53,7 @@ export async function listJobs(
   const supabase = await createClient();
   let query = supabase
     .from("jobs")
-    .select("*, customer:customers(full_name)")
+    .select("*, customer:customers(full_name, phone)")
     // Cash-and-carry is a PICKUP, not an install: the customer collects the
     // material and there is nothing to schedule, assign or send a crew to. The
     // work order only exists so the warehouse can cut and stage it, and it was
@@ -73,9 +76,13 @@ export async function listJobs(
 
   const { data } = await query;
   const rows = (data ?? []) as (Job & {
-    customer?: { full_name: string | null } | null;
+    customer?: { full_name: string | null; phone: string | null } | null;
   })[];
-  return rows.map((r) => ({ ...r, customer_name: r.customer?.full_name ?? null }));
+  return rows.map((r) => ({
+    ...r,
+    customer_name: r.customer?.full_name ?? null,
+    customer_phone: r.customer?.phone ?? null,
+  }));
 }
 
 export async function listJobsForCustomer(
@@ -239,13 +246,13 @@ export async function listOpenJobs(
   const supabase = await createClient();
   const { data } = await supabase
     .from("jobs")
-    .select("*, customer:customers(full_name)")
+    .select("*, customer:customers(full_name, phone)")
     .eq("open_for_claim", true)
     // Nothing for a crew to claim on a pickup order.
     .or(PICKUP_EXCLUDED)
     .order("created_at", { ascending: false });
   let rows = (data ?? []) as (Job & {
-    customer?: { full_name: string | null } | null;
+    customer?: { full_name: string | null; phone: string | null } | null;
     board_installer_ids?: string[] | null;
   })[];
 
@@ -302,6 +309,7 @@ export async function listOpenJobs(
   return rows.map((r) => ({
     ...r,
     customer_name: r.customer?.full_name ?? null,
+    customer_phone: r.customer?.phone ?? null,
     materialType: jobType(r),
   }));
 }
