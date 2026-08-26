@@ -138,16 +138,19 @@ export default async function JobsPage({
         <span className="font-medium text-foreground">
           {j.scheduled_date ? formatDate(j.scheduled_date) : "Not scheduled"}
         </span>
-        {/* Dial from the row. Ringing a customer used to mean opening the job,
-            then their file, then finding the details card. */}
+        {/* The number on the row, so you can see who to ring without opening
+            the job.
+
+            Deliberately NOT a tel: link: this whole card is a <Link>, so an
+            anchor inside it is a nested anchor, and stopping the click needed an
+            onClick — which a Server Component cannot pass to a DOM element. That
+            combination is what threw "An error occurred in the Server Components
+            render" on this page. Tap-to-call lives on the work order, where it
+            isn't inside a link. */}
         {j.customer_phone ? (
-          <a
-            href={`tel:${j.customer_phone}`}
-            onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
-          >
+          <span className="inline-flex items-center gap-1 font-medium text-foreground">
             <Phone className="size-3" /> {j.customer_phone}
-          </a>
+          </span>
         ) : null}
         {j.arrival_window ? <span>{j.arrival_window}</span> : null}
         {/* The street already leads the card; only the city adds anything. */}
