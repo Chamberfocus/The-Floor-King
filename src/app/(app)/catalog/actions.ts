@@ -61,7 +61,26 @@ function readFields(formData: FormData) {
     // is stated at (blank = flat coverage that doesn't scale with thickness).
     coverage_sqft: (() => { const n = parseFloat(str(formData.get("coverage_sqft"))); return Number.isFinite(n) && n > 0 ? n : null; })(),
     coverage_thickness_in: (() => { const n = parseFloat(str(formData.get("coverage_thickness_in"))); return Number.isFinite(n) && n > 0 ? n : null; })(),
+    /**
+     * The category's own specs (0153). Read unconditionally: a field the form
+     * didn't render simply isn't in the FormData and lands as null, which is
+     * exactly right — switching a product from carpet to LVP should clear the
+     * face weight rather than leave it attached to a plank.
+     */
+    wear_layer_mil: numOrNullOf(formData.get("wear_layer_mil")),
+    thickness_mm: numOrNullOf(formData.get("thickness_mm")),
+    face_weight_oz: numOrNullOf(formData.get("face_weight_oz")),
+    piece_length_in: numOrNullOf(formData.get("piece_length_in")),
+    fiber: str(formData.get("fiber")) || null,
+    wear_rating: str(formData.get("wear_rating")) || null,
+    species: str(formData.get("species")) || null,
   };
+}
+
+/** A positive number, or null for blank / unparseable. */
+function numOrNullOf(v: FormDataEntryValue | null): number | null {
+  const n = parseFloat(str(v));
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 type SupabaseServer = Awaited<ReturnType<typeof createClient>>;

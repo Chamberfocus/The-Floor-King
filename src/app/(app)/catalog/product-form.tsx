@@ -12,6 +12,7 @@ import {
   type Product,
 } from "@/lib/types";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import { specFieldsFor } from "@/lib/product-fields";
 import {
   createProduct,
   updateProduct,
@@ -46,6 +47,10 @@ export function ProductForm({
    */
   const [category, setCategory] = useState<string>(product?.category ?? "lvp");
   const isLabor = category === "labor";
+  /** What this KIND of product is described by — src/lib/product-fields.ts. */
+  const specFields = specFieldsFor(category);
+  /** Bagged goods sized from area and thickness: patch, self-leveller, primer. */
+  const isPrepGood = category === "other";
   const [state, formAction, pending] = useActionState(
     isEdit ? updateProduct : createProduct,
     initialState,
@@ -143,67 +148,102 @@ export function ProductForm({
             price feed that matches on exactly that. */}
         {!isLabor ? (
           <>
-        <div className="space-y-2">
-          <Label htmlFor="sqft_per_box">Sq ft / box (hard surface)</Label>
-          <Input
-            id="sqft_per_box"
-            name="sqft_per_box"
-            type="number"
-            step="0.01"
-            min="0"
-            defaultValue={product?.sqft_per_box ?? ""}
-            placeholder="e.g. 23.8"
-          />
-          <p className="text-xs text-muted-foreground">
-            Carton coverage — auto-fills cartons on a purchase order.
-          </p>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="roll_width_ft">Roll width ft (carpet)</Label>
-          <Input
-            id="roll_width_ft"
-            name="roll_width_ft"
-            type="number"
-            step="0.01"
-            min="0"
-            defaultValue={product?.roll_width_ft ?? ""}
-            placeholder="12 or 15"
-          />
-          <p className="text-xs text-muted-foreground">Broadloom width.</p>
-        </div>
+        {/* ── The specs that pertain to THIS kind of product ─────────────────
+            Every product was asked all of these at once, so choosing Carpet
+            still showed "Sq ft / box (hard surface)" and "Coverage — SF / bag
+            (prep goods)". All the information on screen, most of it about
+            something else.
 
-        <div className="space-y-2">
-          <Label htmlFor="coverage_sqft">Coverage — SF / bag (prep goods)</Label>
-          <Input
-            id="coverage_sqft"
-            name="coverage_sqft"
-            type="number"
-            step="0.01"
-            min="0"
-            defaultValue={product?.coverage_sqft ?? ""}
-            placeholder="e.g. 28"
-          />
-          <p className="text-xs text-muted-foreground">
-            Self-leveler / patch: SF a bag covers — the estimate calculator sizes
-            bags from area &amp; thickness.
-          </p>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="coverage_thickness_in">…at thickness (in)</Label>
-          <Input
-            id="coverage_thickness_in"
-            name="coverage_thickness_in"
-            type="number"
-            step="0.0001"
-            min="0"
-            defaultValue={product?.coverage_thickness_in ?? ""}
-            placeholder='e.g. 0.25 for 1/4"'
-          />
-          <p className="text-xs text-muted-foreground">
-            The thickness that coverage is stated at. Leave blank for flat coverage
-            (primers / adhesives) that doesn&apos;t scale with thickness.
-          </p>
-        </div>
+            specFieldsFor() decides, and it's the same function the estimate
+            builder's inline "Add to catalog" uses — so the two add-product
+            forms can't drift into asking different things about one product. */}
+        {specFields.length ? (
+          <div className="space-y-2 sm:col-span-2">
+            <Label>
+              {PRODUCT_CATEGORY_LABELS[category as keyof typeof PRODUCT_CATEGORY_LABELS] ??
+                "Product"}{" "}
+              specs
+            </Label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {specFields.map((sf) => {
+                const existing = (product as Record<string, unknown> | undefined)?.[sf.key];
+                const initial = existing != null ? String(existing) : "";
+                return (
+                  <div key={sf.key} className="space-y-2">
+                    <Label htmlFor={sf.key}>{sf.label}</Label>
+                    {sf.kind === "choice" ? (
+                      <select
+                        id={sf.key}
+                        name={sf.key}
+                        defaultValue={initial}
+                        className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                      >
+                        <option value="">—</option>
+                        {(sf.options ?? []).map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        id={sf.key}
+                        name={sf.key}
+                        type={sf.kind === "number" ? "number" : "text"}
+                        step="0.01"
+                        min="0"
+                        defaultValue={initial}
+                      />
+                    )}
+                    {sf.hint ? (
+                      <p className="text-xs text-muted-foreground">{sf.hint}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Bagged goods only — patch, self-leveller, primer. A carpet has no
+            coverage per bag, so it isn't asked for one. */}
+        {isPrepGood ? (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="coverage_sqft">Coverage — SF / bag</Label>
+              <Input
+                id="coverage_sqft"
+                name="coverage_sqft"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={product?.coverage_sqft ?? ""}
+                placeholder="e.g. 28"
+              />
+              <p className="text-xs text-muted-foreground">
+                Self-leveler / patch: SF a bag covers — the estimate calculator
+                sizes bags from area &amp; thickness.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="coverage_thickness_in">…at thickness (in)</Label>
+              <Input
+                id="coverage_thickness_in"
+                name="coverage_thickness_in"
+                type="number"
+                step="0.0001"
+                min="0"
+                defaultValue={product?.coverage_thickness_in ?? ""}
+                placeholder='e.g. 0.25 for 1/4"'
+              />
+              <p className="text-xs text-muted-foreground">
+                The thickness that coverage is stated at. Leave blank for flat
+                coverage (primers / adhesives) that doesn&apos;t scale with
+                thickness.
+              </p>
+            </div>
+          </>
+        ) : null}
 
         <div className="space-y-2">
           <Label htmlFor="sku">SKU / item # (optional)</Label>
