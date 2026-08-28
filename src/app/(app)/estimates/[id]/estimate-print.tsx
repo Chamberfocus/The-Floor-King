@@ -394,6 +394,18 @@ export function EstimatePrintDoc({
           <div className="mt-7 text-[17px] tracking-wide">ESTIMATE</div>
           <div className="text-xl font-bold">{chosen?.name || "Option #1"}</div>
 
+          {/* The job description, in words, before the line items.
+              This was rendered ONLY inside the multi-option comparison above, so
+              a single-option estimate — which is nearly all of them — printed
+              without it. You'd type "Provide and install Momentum or equivalent
+              throughout the 1st and 2nd floor", and the customer would receive a
+              table of quantities with no sentence explaining the job. */}
+          {estimate.job_description ? (
+            <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed">
+              {estimate.job_description}
+            </p>
+          ) : null}
+
           {/* Materials / scope table */}
           <table className="mt-4 w-full border-collapse">
             <thead>

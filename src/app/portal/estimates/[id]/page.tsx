@@ -59,9 +59,18 @@ export default async function PortalEstimatePage({
   const chosenTotals = chosen ? totalsFor(chosen) : null;
   const total = chosenTotals?.total ?? 0;
   const itemized = estimate.presentation !== "summary";
-  const projectDetails = estimate.show_project_details
-    ? parseProjectDetails(estimate.job_description).details
-    : [];
+  /**
+   * The scope, in words, on the customer's own copy.
+   *
+   * `show_project_details` is an opt-OUT (migration 0109 defaults it true), but
+   * a database where 0109 hasn't run returns undefined — which is falsy, so the
+   * description silently vanished from every customer copy. Only an explicit
+   * `false` hides it now.
+   */
+  const projectDetails =
+    estimate.show_project_details === false
+      ? []
+      : parseProjectDetails(estimate.job_description).details;
   // Itemized rows (customer): each priced line by room, line totals only.
   const itemGroups: { room: string; items: { label: string; note: string; amount: number }[] }[] = [];
   if (itemized) {
