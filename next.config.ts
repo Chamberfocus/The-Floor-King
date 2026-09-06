@@ -6,7 +6,17 @@ const nextConfig: NextConfig = {
   // ssh2 (under ssh2-sftp-client, used to collect supplier 832 price catalogs)
   // ships a native crypto binding that can't go in an ESM chunk at all — it
   // must be loaded at runtime by Node, not bundled.
-  serverExternalPackages: ["unpdf", "ssh2", "ssh2-sftp-client"],
+  // google-auth-library + @vercel/oidc are used only by the backup cron.
+  serverExternalPackages: [
+    "unpdf",
+    "ssh2",
+    "ssh2-sftp-client",
+    "google-auth-library",
+    "@vercel/oidc",
+  ],
+  outputFileTracingIncludes: {
+    "/src/app/api/cron/backup/**": ["./vendor/pg_dump/**/*"],
+  },
   // Allow larger uploads through Server Actions (price-list / client PDFs,
   // order confirmations, vendor bills, logos). Default is 1 MB.
   experimental: {

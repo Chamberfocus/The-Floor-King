@@ -30,6 +30,7 @@ import {
   reopenAccountingPeriodAction,
 } from "./actions";
 import { BackupPitrAttestationForm } from "./backup-pitr-form";
+import { BackupHealthCard } from "./backup-health-card";
 import { listFinancialAuditEvents } from "@/lib/data/financial-audit";
 import { FINANCIAL_AUDIT_ACTION_LABELS } from "@/lib/accounting/audit-log";
 import { getLatestOpeningBalanceBatch } from "@/lib/data/opening-balances";
@@ -254,6 +255,10 @@ export default async function AccountingControlCenterPage() {
           Open bank reconciliation workspace
         </Link>
       </div>
+
+      {profile?.role === "admin" ? (
+        <BackupHealthCard role={profile.role} />
+      ) : null}
 
       <div className="rounded-lg border p-4 text-sm space-y-2">
         <h2 className="font-medium">Backup / PITR attestation</h2>
