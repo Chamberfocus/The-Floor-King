@@ -1,3 +1,6 @@
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + service-role (or equivalent). Do not default to production.
+//
 /**
  * Verifies MANUFACTURER (who makes it) vs VENDOR (who we buy from):
  * multi-vendor products, per-vendor cost, and spend by vendor AND by manufacturer.

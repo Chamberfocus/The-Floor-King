@@ -1,11 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAll } from "@/lib/supabase/paginate";
-import { invoiceTotals } from "@/lib/invoice-calc";
+import { computeJobOpenBalance } from "@/lib/invoice-calc";
 import { buildCustomerScope, type CustomerScope } from "@/lib/customer-scope";
 import { getEstimate } from "@/lib/data/estimates";
 import { getJob } from "@/lib/data/jobs";
-import type { Invoice, InvoiceItem, Payment } from "@/lib/types";
+import type { Invoice, InvoiceItem, Payment, CreditApplication } from "@/lib/types";
+import {
+  listCreditApplicationsForInvoices,
+  loadCreditApplicationsAdmin,
+  appliedCreditsForInvoice,
+} from "@/lib/data/credits";
+import { effectiveInvoiceBalance } from "@/lib/credit-ar";
 
 export interface InvoiceScope {
   scope: CustomerScope;
@@ -69,6 +75,12 @@ async function attach(
       .order("created_at", { ascending: true })
       .range(from, to),
   );
+  let apps: CreditApplication[] = [];
+  try {
+    apps = await listCreditApplicationsForInvoices(ids, supabase);
+  } catch {
+    apps = [];
+  }
 
   const itemsBy = new Map<string, InvoiceItem[]>();
   for (const it of items) {
@@ -82,28 +94,68 @@ async function attach(
     a.push(p);
     paysBy.set(p.invoice_id, a);
   }
+  const appsBy = new Map<string, CreditApplication[]>();
+  for (const a of apps) {
+    const list = appsBy.get(a.invoice_id) ?? [];
+    list.push(a);
+    appsBy.set(a.invoice_id, list);
+  }
   for (const inv of invoices) {
     inv.items = itemsBy.get(inv.id) ?? [];
     inv.payments = paysBy.get(inv.id) ?? [];
+    inv.creditApplications = appsBy.get(inv.id) ?? [];
   }
   return invoices;
 }
 
 export function amountPaid(inv: Invoice): number {
-  return (inv.payments ?? []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  // Void payments are audit history only — they do not reduce balance.
+  return (inv.payments ?? [])
+    .filter((p) => (p.status ?? "active") !== "void")
+    .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+}
+
+/** Active credit applications on an invoice. */
+export function amountCredited(inv: Invoice): number {
+  return appliedCreditsForInvoice(inv.creditApplications ?? [], inv.id);
+}
+
+/** Canonical amount still due (payments + credits). */
+export function invoiceAmountDue(inv: Invoice): number {
+  return effectiveInvoiceBalance({
+    items: inv.items ?? [],
+    taxRate: inv.tax_rate,
+    amountPaid: amountPaid(inv),
+    appliedCredits: amountCredited(inv),
+  }).amountDue;
 }
 
 export interface JobCollectible {
   hasInvoice: boolean;
-  invoiceId: string | null; // the oldest open invoice with a balance
+  /** Oldest active invoice with a remaining balance (for links / primary target). */
+  invoiceId: string | null;
+  /** Sum of remaining balances across ALL active (non-void) job invoices. */
   balance: number;
+  /** Each active invoice that still has a remaining balance (oldest first). */
+  openInvoices: { invoiceId: string; balance: number }[];
 }
 
 /**
- * The job's oldest open invoice and its balance, read ELEVATED — crews can't
+ * Pure job open-balance from already-loaded invoices (items + payments attached).
+ * Delegates to computeJobOpenBalance (canonical invoiceTotals.balance).
+ */
+export function computeJobCollectible(invoices: Invoice[]): JobCollectible {
+  return computeJobOpenBalance(invoices);
+}
+
+/**
+ * The job's open AR across all linked invoices, read ELEVATED — crews can't
  * read invoices/payments under RLS, so the installer collect prompt reads this
  * with the admin client. Returns balance 0 (and invoiceId null) when nothing is
  * owed, and hasInvoice=false when the office hasn't invoiced yet.
+ *
+ * With original + supplemental invoices, `balance` is the sum of each remaining
+ * balance (void excluded). `invoiceId` stays the oldest open invoice for links.
  */
 export async function getJobOpenBalance(jobId: string): Promise<JobCollectible> {
   const admin = createAdminClient();
@@ -111,9 +163,12 @@ export async function getJobOpenBalance(jobId: string): Promise<JobCollectible> 
     .from("invoices")
     .select("*")
     .eq("job_id", jobId)
-    .order("issue_date", { ascending: true });
+    .order("issue_date", { ascending: true })
+    .order("created_at", { ascending: true });
   const invoices = (invData ?? []) as Invoice[];
-  if (!invoices.length) return { hasInvoice: false, invoiceId: null, balance: 0 };
+  if (!invoices.length) {
+    return { hasInvoice: false, invoiceId: null, balance: 0, openInvoices: [] };
+  }
 
   const ids = invoices.map((i) => i.id);
   const { data: items } = await admin
@@ -124,6 +179,12 @@ export async function getJobOpenBalance(jobId: string): Promise<JobCollectible> 
     .from("payments")
     .select("*")
     .in("invoice_id", ids);
+  let apps: CreditApplication[] = [];
+  try {
+    apps = await loadCreditApplicationsAdmin(ids);
+  } catch {
+    apps = [];
+  }
   const itemsBy = new Map<string, InvoiceItem[]>();
   for (const it of (items ?? []) as InvoiceItem[]) {
     const a = itemsBy.get(it.invoice_id) ?? [];
@@ -136,22 +197,19 @@ export async function getJobOpenBalance(jobId: string): Promise<JobCollectible> 
     a.push(p);
     paysBy.set(p.invoice_id, a);
   }
+  const appsBy = new Map<string, CreditApplication[]>();
+  for (const a of apps) {
+    const list = appsBy.get(a.invoice_id) ?? [];
+    list.push(a);
+    appsBy.set(a.invoice_id, list);
+  }
   for (const inv of invoices) {
     inv.items = itemsBy.get(inv.id) ?? [];
     inv.payments = paysBy.get(inv.id) ?? [];
+    inv.creditApplications = appsBy.get(inv.id) ?? [];
   }
 
-  for (const inv of invoices) {
-    if (inv.status === "void") continue;
-    const bal = invoiceTotals(inv.items ?? [], inv.tax_rate, amountPaid(inv)).balance;
-    if (bal > 0.005)
-      return {
-        hasInvoice: true,
-        invoiceId: inv.id,
-        balance: Math.round(bal * 100) / 100,
-      };
-  }
-  return { hasInvoice: true, invoiceId: null, balance: 0 };
+  return computeJobCollectible(invoices);
 }
 
 export async function getInvoice(id: string): Promise<Invoice | null> {

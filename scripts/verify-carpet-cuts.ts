@@ -1,10 +1,12 @@
-// Verifies carpet CUTS + FILL pieces flow onto all three documents against the
-// LIVE db, using the exact shared source each doc renders from:
-//   • Work order   → carpetCutList(job.line_items)
-//   • Staging sheet→ carpetCutList(getJobMaterials lines)  [isFill = !!is_fill]
-//   • Purchase order→ carpetCutList(getEstimateCutSources)  [same estimate lines]
-// Creates a throwaway carpet job (2 rooms, each with a main cut + a fill piece)
-// plus a hard-surface line, then reads it back through those paths. Cleaned up.
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + SUPABASE_SERVICE_ROLE_KEY. Do not default to production.
+//
+// Verifies carpet CUTS + FILL pieces on WO / staging / PO cut lists against a
+// live DB. After the job exists, operational sources are job_line_items
+// (Step 3) — not live estimate lines.
+//
+// Creates throwaway carpet job (2 rooms, each with a main cut + a fill piece)
+// plus a hard-surface line, seeds job_line_items, then reads cut lists back.
 import { readFileSync } from "node:fs";
 for (const line of readFileSync(".env.local", "utf8").split("\n")) {
   const t = line.trim();
@@ -56,23 +58,44 @@ async function setup() {
 
   const { data: j } = await db.from("jobs").insert({ customer_id: custId, estimate_id: estId, option_id: optId, title: `${TAG} job`, status: "scheduled" }).select("id").single();
   jobId = j!.id;
+
+  // Step 3: operational WO/staging read job_line_items (seed like ensureJobForEstimate).
+  const { data: estLines, error: elErr } = await db
+    .from("estimate_line_items")
+    .select("*")
+    .eq("option_id", optId);
+  if (elErr) throw new Error("estimate lines read failed: " + elErr.message);
+  const jobRows = (estLines ?? []).map((l) => {
+    const { option_id: _o, id: _id, ...rest } = l as Record<string, unknown>;
+    return { ...rest, job_id: jobId, option_id: optId };
+  });
+  const { error: jlErr } = await db.from("job_line_items").insert(jobRows);
+  if (jlErr) {
+    throw new Error(
+      "job_line_items insert failed — is migration 0152_job_line_items.sql applied? " + jlErr.message,
+    );
+  }
 }
 
-/** The estimate carpet lines — the source the work order & PO both read. */
-async function estimateLines(): Promise<CutSource[]> {
-  const { data } = await db.from("estimate_line_items")
+/** Operational cut sources after job exists: job_line_items (Step 3). */
+async function jobCutSources(): Promise<CutSource[]> {
+  const { data } = await db
+    .from("job_line_items")
     .select("room, description, category, length_in, width_in, is_fill, roll_width_ft, manufacturer, color")
-    .eq("option_id", optId).order("position", { ascending: true });
+    .eq("job_id", jobId)
+    .order("position", { ascending: true });
   return (data ?? []) as CutSource[];
 }
-/** The staging-sheet source: job material lines, mapped exactly as job-materials.ts does. */
+
+/** Staging: non-labor operational job lines. */
 async function stagingSources(): Promise<CutSource[]> {
-  const { data } = await db.from("estimate_line_items").select("*").eq("option_id", optId).neq("category", "labor").order("position", { ascending: true });
-  return (data ?? []).map((l: any): CutSource => ({
-    room: l.room, description: l.description, category: l.category,
-    length_in: l.length_in, width_in: l.width_in, is_fill: !!l.is_fill,
-    roll_width_ft: l.roll_width_ft, manufacturer: l.manufacturer, color: l.color,
-  }));
+  const { data } = await db
+    .from("job_line_items")
+    .select("room, description, category, length_in, width_in, is_fill, roll_width_ft, manufacturer, color")
+    .eq("job_id", jobId)
+    .neq("category", "labor")
+    .order("position", { ascending: true });
+  return (data ?? []) as CutSource[];
 }
 
 function show(label: string, list: ReturnType<typeof carpetCutList>) {
@@ -83,11 +106,13 @@ function show(label: string, list: ReturnType<typeof carpetCutList>) {
 
 async function run() {
   console.log("CARPET CUT / FILL FLOW — staging sheet · work order · purchase order\n");
+  console.log("  (operational source = job_line_items after job exists)\n");
   await setup();
 
-  const wo = carpetCutList(await estimateLines());          // work order
-  const st = carpetCutList(await stagingSources());          // staging sheet
-  const po = carpetCutList(await estimateLines());           // purchase order (same estimate lines)
+  const ops = await jobCutSources();
+  const wo = carpetCutList(ops); // work order
+  const st = carpetCutList(await stagingSources()); // staging sheet
+  const po = carpetCutList(ops); // PO cut list from same operational lines
 
   show("WORK ORDER cut list", wo);
   show("STAGING SHEET cut plan", st);
@@ -106,11 +131,14 @@ async function run() {
   const total = 180 / 9 + 18 / 9 + 138 / 9 + 10 / 9; // 12×15 + 3×6 + 12×11.5 + 2.5×4 sqft → sqyd = 38.44
   ok(Math.abs(po.totalSqyd - total) < 0.2, "PO yardage totals all cuts incl. fill", `${po.totalSqyd} sq yd`);
   ok(po.rolls.length === 1 && po.rolls[0].linft != null && po.rolls[0].linft > 0, "PO roll → linear feet computed @ 12 ft wide", `${po.rolls[0]?.linft} lin ft`);
-  ok(wo.totalSqyd === st.totalSqyd && st.totalSqyd === po.totalSqyd, "all three docs agree on total yardage (one source)");
+  ok(wo.totalSqyd === st.totalSqyd && st.totalSqyd === po.totalSqyd, "all three docs agree on total yardage (one operational source)");
 }
 
 async function cleanup() {
-  if (jobId) await db.from("jobs").delete().eq("id", jobId);
+  if (jobId) {
+    await db.from("job_line_items").delete().eq("job_id", jobId);
+    await db.from("jobs").delete().eq("id", jobId);
+  }
   if (optId) await db.from("estimate_line_items").delete().eq("option_id", optId);
   if (estId) await db.from("estimates").delete().eq("id", estId);
   if (custId) await db.from("customers").delete().eq("id", custId);

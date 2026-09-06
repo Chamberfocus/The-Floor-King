@@ -36,6 +36,23 @@ A cloud CRM for Cleveland Floor King. Audiences: office staff, field crew (mobil
 ## Local dev
 `npm run dev` (Turbopack). Env in `.env.local` (placeholders are committed-safe and let the app build before Supabase is connected; `isSupabaseConfigured()` gates real auth).
 
+## Verification (before merge / deploy)
+
+Run the deterministic suite locally (same as GitHub Actions CI):
+
+```bash
+npm run verify
+```
+
+That runs, in order: golden tests → TypeScript → static migration file check → scoped ESLint (errors only on estimate-critical libs + golden tests) → production build.
+
+**Automated (PR / push to `main`):** goldens, TypeScript, migration *repository intent*, lint errors on the scoped paths above, production build. No production database. No secrets.
+
+**Manual / environmental (not in default CI):**
+- Applying SQL migrations in the Supabase SQL Editor (`SETUP.md`)
+- `scripts/smoke-step6-approval.ts` — Step 6 approval smoke against an explicitly chosen **staging/dev** project after schema changes
+- Live `scripts/verify-*.ts` that need `.env.local` + service role (headers mark them as not part of PR CI)
+
 ## Whole-App Integrity — applies to EVERY change
 Any change, update, or new feature must flow through the ENTIRE app. Before finishing any task:
 1. TRACE every dependent: what other pages, components, links, queries, or processes reference what I just changed? Update ALL of them.

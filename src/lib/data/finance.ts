@@ -1,16 +1,20 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/supabase/paginate";
-import { listInvoices, amountPaid } from "@/lib/data/invoices";
+import { listInvoices, amountPaid, invoiceAmountDue } from "@/lib/data/invoices";
 import { invoiceTotals } from "@/lib/invoice-calc";
 import { listPurchaseOrders } from "@/lib/data/purchase-orders";
 import { poTotal, isCommittedPoStatus } from "@/lib/po-calc";
 import { listJobs } from "@/lib/data/jobs";
 import { getProfileNames } from "@/lib/data/customers";
-import { laborCostByJob } from "@/lib/data/job-labor";
+import { installerLaborActualByJob } from "@/lib/data/job-labor";
 import { optionTotals, optionCostTotals, marginPct, discountAmount } from "@/lib/estimate-calc";
+import { allInProfit } from "@/lib/job-profit";
 import { getOrgSettings } from "@/lib/data/org";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { freightMultiplier } from "@/lib/freight";
+import { estimatedDirectCostFromScope } from "@/lib/job-costing";
+import { loadOperationalJobLines } from "@/lib/data/job-operational-lines";
+import { sumCommittedPoSpendExcludingBilled } from "@/lib/finance-cost";
 import type { CalcLine } from "@/lib/estimate-calc";
 import type { Expense, LineType } from "@/lib/types";
 
@@ -65,10 +69,10 @@ export async function getPeriodSummary(
     amount: number;
     invoice_id: string;
     migrated?: boolean | null;
+    status?: string | null;
   }>((from, to) =>
     // select("*") (not a named column) so this degrades gracefully if the
-    // `migrated` column isn't there yet — before the flag exists nothing is
-    // migrated, so everything counts, exactly as before.
+    // `migrated` / `status` columns aren't there yet.
     supabase
       .from("payments")
       .select("*")
@@ -78,36 +82,63 @@ export async function getPeriodSummary(
   );
   const collectedPays = pays.filter(
     // Carry-over deposits (pre-go-live money) don't count as new collections.
-    (p) => !p.migrated && !cancelledInvoiceIds.has(p.invoice_id),
+    // Void payments are audit history only — not cash collected.
+    (p) =>
+      !p.migrated &&
+      !cancelledInvoiceIds.has(p.invoice_id) &&
+      ((p.status as string | null | undefined) ?? "active") !== "void",
   );
   const collected = collectedPays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-  const exps = await fetchAll<{ amount: number; job_id: string | null }>(
+  const exps = await fetchAll<{ amount: number; job_id: string | null; bill_id?: string | null }>(
     (from, to) =>
       supabase
         .from("expenses")
-        .select("amount, date, job_id")
+        .select("amount, date, job_id, bill_id")
         .gte("date", start)
         .lte("date", end)
         .range(from, to),
   );
-  const expenses = exps
-    .filter((e) => !cancelledJobIds.has(e.job_id as string))
+  const cashExpenses = exps
+    .filter((e) => !cancelledJobIds.has(e.job_id as string) && !e.bill_id)
     .reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
-  // Subcontractor payouts marked paid in the period (the real labor cost).
-  const lab = await fetchAll<{ amount: number; job_id: string }>((from, to) =>
+  const { data: periodAp } = await supabase
+    .from("bills")
+    .select("id, installer_labor_bill_id, ap_lifecycle, bill_date, job_id")
+    .eq("ap_lifecycle", "open")
+    .gte("bill_date", start)
+    .lte("bill_date", end);
+  const periodApIds = (periodAp ?? [])
+    .filter((b) => !b.installer_labor_bill_id && !cancelledJobIds.has(b.job_id as string))
+    .map((b) => b.id as string);
+  let apSpend = 0;
+  if (periodApIds.length) {
+    const { data: apItems } = await supabase
+      .from("bill_items")
+      .select("quantity, unit_cost")
+      .in("bill_id", periodApIds);
+    apSpend = (apItems ?? []).reduce(
+      (s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_cost) || 0),
+      0,
+    );
+  }
+  const expenses = cashExpenses + apSpend;
+
+  // Canonical labor cost: approved installer bills marked paid in the period.
+  // job_labor is legacy/display-only (F6-P3A) and must not feed financials.
+  const lab = await fetchAll<{ total: number; job_id: string }>((from, to) =>
     supabase
-      .from("job_labor")
-      .select("amount, paid, paid_on, job_id")
-      .eq("paid", true)
-      .gte("paid_on", start)
-      .lte("paid_on", end)
+      .from("installer_bills")
+      .select("total, paid_at, job_id, status")
+      .eq("status", "paid")
+      .gte("paid_at", start)
+      .lte("paid_at", end)
       .range(from, to),
   );
   const subLabor = lab
     .filter((r) => !cancelledJobIds.has(r.job_id))
-    .reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    .reduce((s, r) => s + (Number(r.total) || 0), 0);
 
   const billed = liveInvoices
     .filter(
@@ -126,23 +157,32 @@ export async function getPeriodSummary(
   const pos = await listPurchaseOrders();
   // Bare supplier prices — NOT freight-marked-up. The supplier bills freight as
   // a separate line on their invoice, which is entered as an EXPENSE and
-  // subtracted from net in its own right. Marking up actual PO spend on top of
-  // that charged the same freight twice — roughly $4,000 of phantom cost per
-  // $50k of material. The markup stays on the ESTIMATE side, where it projects
-  // landed cost before any freight invoice exists.
-  const poSpend =
+  // subtracted from net in its own right.
+  //
+  // F0 canonical rule: when a vendor bill already exists for a PO (`bills.po_id`),
+  // that economic cost is represented by bill-linked materials expenses — do NOT
+  // also subtract the PO total (double-count). Unbilled committed POs still count.
+  const { data: billedPoRows } = await supabase
+    .from("bills")
+    .select("po_id, ap_lifecycle")
+    .not("po_id", "is", null);
+  const billedPoIds = new Set(
+    (billedPoRows ?? [])
+      .filter((b) => ((b.ap_lifecycle as string | null) ?? "open") === "open")
+      .map((b) => b.po_id as string | null)
+      .filter((id): id is string => !!id),
+  );
+  const poSpend = sumCommittedPoSpendExcludingBilled(
     pos
       .filter((p) => {
-        // Only real spend: a PO that's actually been ordered, received, or
-        // closed. Drafts (incl. the ones auto-generated when an estimate is
-        // approved) and cancelled/void POs are NOT money out.
         if (!isCommittedPoStatus(p.status)) return false;
-        // Skip POs for cancelled customers (same as collected / expenses / labor).
         if (p.customer_id && cancelled.has(p.customer_id)) return false;
         const d = p.created_at.slice(0, 10);
         return d >= start && d <= end;
       })
-      .reduce((s, p) => s + poTotal(p.items ?? []), 0);
+      .map((p) => ({ id: p.id, total: poTotal(p.items ?? []) })),
+    billedPoIds,
+  );
 
   // Per-job internal overheads for the period (hidden from customers):
   //  • commission = % of what was collected this period
@@ -216,11 +256,7 @@ export async function getOutstandingAR(): Promise<ARBuckets> {
   for (const inv of invoices) {
     if (inv.status === "paid" || inv.status === "void") continue;
     if (cancelled.has(inv.customer_id)) continue;
-    const bal = invoiceTotals(
-      inv.items ?? [],
-      inv.tax_rate,
-      amountPaid(inv),
-    ).balance;
+    const bal = invoiceAmountDue(inv);
     if (bal <= 0.005) continue;
     b.total += bal;
     b.count += 1;
@@ -255,9 +291,9 @@ export interface JobProfit {
   profit: number;
   margin: number; // gross margin % of revenue
   completedAt: string | null; // when the job was marked complete (for by-job profit)
-  // Estimated (quoted) side — for estimated-vs-actual scorecards.
+  // Estimated (quoted) side — all-in, same overhead basis as actual.
   estimateId: string | null;
-  estCost: number; // cost the estimate priced in (material + labor at quote time)
+  estCost: number; // freighted mat+labor + gas + car + commission
   estProfit: number; // quotedRevenue − estCost
   estMargin: number;
   salesmanId: string | null; // who authored the estimate
@@ -353,11 +389,21 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   );
 
   const pos = await listPurchaseOrders();
+  const { data: allBilledPos } = await supabase
+    .from("bills")
+    .select("po_id, ap_lifecycle")
+    .not("po_id", "is", null);
+  const billedPoIdsGlobal = new Set(
+    (allBilledPos ?? [])
+      .filter((b) => ((b.ap_lifecycle as string | null) ?? "open") === "open")
+      .map((b) => b.po_id as string | null)
+      .filter((id): id is string => !!id),
+  );
   const poByEstimate = new Map<string, number>();
   for (const p of pos) {
-    // Only count committed POs (ordered/received/closed) as real material cost
-    // — not drafts auto-generated on approval, and not cancelled/void ones.
+    // Only count committed unbilled POs — billed POs are in job expenses.
     if (!isCommittedPoStatus(p.status)) continue;
+    if (billedPoIdsGlobal.has(p.id)) continue;
     if (p.estimate_id) {
       poByEstimate.set(
         p.estimate_id,
@@ -394,7 +440,7 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   }
 
   // Real labor cost: subcontractor payouts recorded against each job.
-  const laborByJob = await laborCostByJob(jobs.map((j) => j.id));
+  const laborByJob = await installerLaborActualByJob(jobs.map((j) => j.id));
 
   // Material pulled from our own stock — cost it to the job (was $0 before).
   const pullData = await fetchAll<{
@@ -491,7 +537,15 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     const commissionCost = hasRevenue ? (jobCommPct / 100) * revenue : 0;
     const cost = materialCost + laborCost + otherCost + fuelCost + carCost + commissionCost;
     const profit = revenue - cost;
-    const estCost = j.option_id ? (estCostByOption.get(j.option_id) ?? 0) : 0;
+    // Estimated side is ALL-IN: freighted direct cost + same gas/car/commission
+    // as actual. Otherwise the scorecard shows an optimistic "estimated" margin
+    // while actual deducts overhead — even when direct costs match.
+    const estDirect = j.option_id ? (estCostByOption.get(j.option_id) ?? 0) : 0;
+    const estHasRev = quotedRevenue > 0;
+    const estFuel = estHasRev ? jobFuel : 0;
+    const estCar = estHasRev ? jobCar : 0;
+    const estCommission = estHasRev ? (jobCommPct / 100) * quotedRevenue : 0;
+    const estCost = estDirect + estFuel + estCar + estCommission;
     const estProfit = quotedRevenue - estCost;
     const salesmanId = j.estimate_id
       ? (authorByEstimate.get(j.estimate_id) ?? null)
@@ -631,25 +685,32 @@ export async function getJobCostAnalysis(
   const supabase = await createClient();
   const { data: job } = await supabase
     .from("jobs")
-    .select("option_id, estimate_id")
+    .select("option_id, estimate_id, actual_labor_cost")
     .eq("id", jobId)
     .maybeSingle();
   if (!job) return null;
 
-  const { data: lineData } = job.option_id
+  const org = await getOrgSettings();
+
+  // Commercial revenue stays on the approved estimate (discount applies to sell).
+  const { data: commercialLineData } = job.option_id
     ? await supabase
         .from("estimate_line_items")
         .select("*")
         .eq("option_id", job.option_id)
     : { data: [] };
-  const lines = (lineData ?? []) as CalcLine[];
+  const commercialLines = (commercialLineData ?? []) as CalcLine[];
 
-  // Freight & fees markup lands on material cost only (never labor).
-  const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
+  // Operational estimated COST follows job_line_items once the job exists.
+  const operationalLines = await loadOperationalJobLines(supabase, jobId, {
+    optionId: (job.option_id as string | null) ?? null,
+  });
+  const costLines =
+    operationalLines.length > 0
+      ? (operationalLines as CalcLine[])
+      : commercialLines;
 
-  // Quoted revenue = the DISCOUNTED price the customer approved, not the raw
-  // line subtotal.
-  const rawSub = optionTotals(lines, 0).subtotal;
+  const rawSub = optionTotals(commercialLines, 0).subtotal;
   let estRevenue = rawSub;
   if (job.estimate_id) {
     const { data: est } = await supabase
@@ -666,19 +727,38 @@ export async function getJobCostAnalysis(
           (est.discount_value as number | null) ?? null,
         );
   }
-  const ct = optionCostTotals(lines);
-  const estMaterial = ct.material * freightMult;
-  const estCost = estMaterial + ct.labor;
+  const directCost = estimatedDirectCostFromScope(
+    costLines as Parameters<typeof estimatedDirectCostFromScope>[0],
+    org.freight_markup_pct,
+  );
+  const estMaterial = directCost.material;
+  const estLabor = directCost.labor;
+  const estCost = directCost.total;
   const estProfit = estRevenue - estCost;
 
   const pos = await listPurchaseOrders();
   const jobPos = pos.filter(
     (p) => p.estimate_id && p.estimate_id === job.estimate_id,
   );
+  const { data: billedPoRows } =
+    jobPos.length === 0
+      ? { data: [] as { po_id: string | null }[] }
+      : await supabase
+          .from("bills")
+          .select("po_id, ap_lifecycle")
+          .in(
+            "po_id",
+            jobPos.map((p) => p.id),
+          );
+  const billedPoIds = new Set(
+    (billedPoRows ?? [])
+      .filter((b) => ((b as { ap_lifecycle?: string }).ap_lifecycle ?? "open") === "open")
+      .map((b) => b.po_id as string | null)
+      .filter((id): id is string => !!id),
+  );
+  // Unbilled committed POs only — open AP is actual cost, not a second PO actual.
   const poMaterial = jobPos
-    // Same committed-only rule as the profit dashboard: a draft or
-    // cancelled/void PO is not a real cost yet, so the two views agree.
-    .filter((p) => isCommittedPoStatus(p.status))
+    .filter((p) => isCommittedPoStatus(p.status) && !billedPoIds.has(p.id))
     .reduce((s, p) => s + poTotal(p.items ?? []), 0);
   // Material sitting in DRAFT POs isn't counted yet — surfaced so the job page
   // can nudge "mark these Ordered to count them" instead of silently showing $0.
@@ -695,28 +775,55 @@ export async function getJobCostAnalysis(
     (s, m) => s + Math.abs(Number(m.qty) || 0) * (Number(m.unit_cost) || 0),
     0,
   );
-  // Actual spend is what the supplier actually charged. Freight arrives on its
-  // own invoice and is picked up from expenses, so no markup here.
-  const actualMaterial = poMaterial + stockMaterial;
+  const { data: jobApBills } = await supabase
+    .from("bills")
+    .select("id, installer_labor_bill_id, ap_lifecycle, job_id, po_id")
+    .eq("ap_lifecycle", "open");
+  const apBillIds = (jobApBills ?? [])
+    .filter((b) => {
+      if (b.installer_labor_bill_id) return false;
+      if (b.job_id === jobId) return true;
+      return !!(b.po_id && billedPoIds.has(b.po_id as string));
+    })
+    .map((b) => b.id as string);
+  let apMaterial = 0;
+  if (apBillIds.length) {
+    const { data: apItems } = await supabase
+      .from("bill_items")
+      .select("bill_id, quantity, unit_cost")
+      .in("bill_id", apBillIds);
+    apMaterial = (apItems ?? []).reduce(
+      (s, i) => s + (Number(i.quantity) || 0) * (Number(i.unit_cost) || 0),
+      0,
+    );
+  }
+  const actualMaterial = poMaterial + stockMaterial + apMaterial;
 
   const { data: expData } = await supabase
     .from("expenses")
-    .select("amount")
+    .select("amount, bill_id")
     .eq("job_id", jobId);
-  const actualExpense = (expData ?? []).reduce(
-    (s, e) => s + (Number(e.amount) || 0),
-    0,
-  );
+  const actualExpense = (expData ?? [])
+    .filter((e) => !(e as { bill_id?: string | null }).bill_id)
+    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
-  // Real labor cost: subcontractor payouts recorded against the job.
-  const { data: labData } = await supabase
-    .from("job_labor")
-    .select("amount")
-    .eq("job_id", jobId);
-  const actualLabor = (labData ?? []).reduce(
-    (s, r) => s + (Number(r.amount) || 0),
-    0,
-  );
+  // Canonical actual labor: approved/paid installer_bills (F6-P3A).
+  // Prefer bill-derived totals; fall back to jobs.actual_labor_cost cache only
+  // when no bill rows exist. Never use job_labor for financial actuals.
+  const laborByBill = await installerLaborActualByJob([jobId]);
+  const billLabor = laborByBill.get(jobId) ?? 0;
+  const { data: billRows } = await supabase
+    .from("installer_bills")
+    .select("id")
+    .eq("job_id", jobId)
+    .in("status", ["approved", "paid"])
+    .limit(1);
+  const actualLabor =
+    (billRows?.length ?? 0) > 0
+      ? billLabor
+      : job?.actual_labor_cost != null
+        ? Number(job.actual_labor_cost)
+        : billLabor;
 
   // Actual revenue = what we've actually BILLED this job (pre-tax). Until an
   // invoice exists we fall back to the quoted price so margins stay meaningful.
@@ -760,7 +867,7 @@ export async function getJobCostAnalysis(
   return {
     estRevenue,
     estMaterial,
-    estLabor: ct.labor,
+    estLabor,
     estCost: estCostAllIn,
     estProfit: estRevenue - estCostAllIn,
     estMargin: marginPct(estRevenue, estCostAllIn),
@@ -797,11 +904,12 @@ export interface InvoiceProfit {
 }
 
 /**
- * The OWNER-only profit on one invoice, using the SAME internal structure as
- * the estimate builder: revenue (pre-tax, discounted) minus our estimated
- * material/labor cost and the internal fuel + car + commission overheads. This
- * is the estimate's profit view carried onto the invoice — never shown to the
- * customer. Cost comes from the linked estimate's costed lines.
+ * The OWNER-only ESTIMATED profit on one invoice: invoice revenue (pre-tax)
+ * versus estimate-basis material/labor cost + gas/car/commission — the same
+ * all-in structure as jobProfit / the estimate builder.
+ *
+ * This is NOT realized job profitability (no PO / bill / expense actuals).
+ * Actuals live on job costing and financial reporting.
  */
 export async function getInvoiceProfit(invoice: {
   estimate_id?: string | null;
@@ -812,8 +920,8 @@ export async function getInvoiceProfit(invoice: {
   const revenue = invoiceTotals(invoice.items ?? [], 0, 0).subtotal;
 
   // Our cost = the estimate's costed material + labor (matches the estimate's
-  // own internal profit block). Material carries the freight markup.
-  let material = 0;
+  // own internal profit block). Material carries the freight markup once.
+  let materialBare = 0;
   let labor = 0;
   if (invoice.estimate_id) {
     const { data: est } = await supabase
@@ -838,39 +946,38 @@ export async function getInvoiceProfit(invoice: {
         .select("*")
         .eq("option_id", optionId);
       const ct = optionCostTotals((lines ?? []) as unknown as CalcLine[]);
-      material = ct.material;
+      materialBare = ct.material;
       labor = ct.labor;
     }
   }
-  const freightMult = freightMultiplier((await getOrgSettings()).freight_markup_pct);
-  const materialCost = material * freightMult;
-  const laborCost = labor;
-  const cost = materialCost + laborCost;
-
+  const org = await getOrgSettings();
   const biz = await getBusinessSettings();
+  const p = allInProfit({
+    revenue,
+    materialBare,
+    labor,
+    freightMarkupPct: org.freight_markup_pct,
+    fuelFee: biz.job_fuel_fee,
+    carAllowance: biz.job_car_allowance,
+    commissionPct: biz.job_commission_pct,
+  });
   const hasRev = revenue > 0;
   // Fuel charge is part of the price the customer already pays (a memo, not an
-  // addition) — so profit isn't overstated. Gas + fleet + commission are costs.
+  // addition) — so profit isn't overstated.
   const fuelCharge = hasRev ? Number(biz.job_fuel_charge) || 0 : 0;
-  const salesGas = hasRev ? Number(biz.job_fuel_fee) || 0 : 0;
-  const fleetUpkeep = hasRev ? Number(biz.job_car_allowance) || 0 : 0;
-  const commissionPct = Number(biz.job_commission_pct) || 0;
-  const commission = hasRev ? (commissionPct / 100) * revenue : 0;
-  const totalCost = cost + salesGas + fleetUpkeep + commission;
-  const profit = revenue - totalCost;
   return {
-    revenue,
+    revenue: p.revenue,
     fuelCharge,
-    materialCost,
-    laborCost,
-    cost,
-    salesGas,
-    fleetUpkeep,
-    commissionPct,
-    commission,
-    totalCost,
-    profit,
-    margin: revenue > 0 ? (profit / revenue) * 100 : 0,
+    materialCost: p.material,
+    laborCost: p.labor,
+    cost: p.cost,
+    salesGas: p.fuelFee,
+    fleetUpkeep: p.carAllowance,
+    commissionPct: p.commissionPct,
+    commission: p.commission,
+    totalCost: p.cost + p.fuelFee + p.carAllowance + p.commission,
+    profit: p.profit,
+    margin: p.margin,
   };
 }
 

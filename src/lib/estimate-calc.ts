@@ -270,6 +270,8 @@ export function optionTotalsWithDiscount(
 // --- Save payload shapes (shared by the client builder and the save action) --
 
 export interface SaveLineInput {
+  /** Stable `estimate_line_items.id` when editing an existing line; omit for new lines. */
+  id?: string | null;
   room: string;
   description: string;
   note?: string | null;

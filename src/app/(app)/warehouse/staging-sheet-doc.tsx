@@ -225,7 +225,9 @@ export function StagingSheetDoc({
                     ? "Pull from stock"
                     : g.status === "arrived"
                       ? "Ordered ✓ arrived"
-                      : `⏳ Order${supplier ? ` · ${supplier}` : ""} — not yet in`;
+                      : g.status === "partial"
+                        ? "Ordered · partial arrival"
+                        : `⏳ Order${supplier ? ` · ${supplier}` : ""} — not yet in`;
                 return (
                   <tr key={g.key} className="border-b align-top">
                     <td className="py-1.5 pr-2">

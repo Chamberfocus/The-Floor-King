@@ -17,6 +17,9 @@ import {
 } from "@/lib/workflow-engine";
 import { estimatedLaborCostForOption } from "@/lib/installer-bill";
 import { estimatedMaterialCostForOption } from "@/lib/job-costing";
+import { assessJobStatusTransition, jobStatusUpdatePatch } from "@/lib/job-status";
+import { findInstallerScheduleConflict } from "@/lib/scheduling-conflicts";
+import { warehouseJobIdFromForm } from "@/lib/job-warehouse";
 
 // Back-half pipeline stages carry no auto_action marker, so job-lifecycle events
 // map to them by name (forward-only, best-effort).
@@ -29,6 +32,7 @@ const STAGE_INSTALLED = /installed|follow/;
 /** The crew is on site — its own stage, between scheduled and installed. */
 const STAGE_INSTALL_IN_PROGRESS = /in progress|in-progress/;
 import { prepareJobMaterialsFor } from "./material-actions";
+import { seedJobScopeIfEmpty } from "@/lib/data/job-operational-lines";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getJobOpenBalance } from "@/lib/data/invoices";
 import { buildInvoiceFromOrder } from "@/lib/data/order-invoice";
@@ -305,6 +309,52 @@ async function notifyInstallerAssigned(o: {
     ).catch(() => {});
 }
 
+import { isMaterialLine } from "@/lib/job-scope";
+import {
+  assessScheduleMaterialsGate,
+  MATERIALS_NOT_READY_MESSAGE,
+} from "@/lib/materials-ready";
+import { loadOperationalJobLines } from "@/lib/data/job-operational-lines";
+
+async function enforceMaterialsReadyForSchedule(args: {
+  jobId: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: { from: (t: string) => any };
+  userId: string | null;
+  overrideReason: string | null;
+  scheduledDate: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: job } = await args.db
+    .from("jobs")
+    .select("warehouse_ready_at")
+    .eq("id", args.jobId)
+    .maybeSingle();
+  const lines = await loadOperationalJobLines(args.db, args.jobId);
+  const hasMaterialNeed = lines.some((l) => isMaterialLine(l));
+  const gate = assessScheduleMaterialsGate({
+    warehouseReadyAt: (job?.warehouse_ready_at as string | null) ?? null,
+    hasMaterialNeed,
+    overrideReason: args.overrideReason,
+  });
+  if (!gate.ok) {
+    return {
+      ok: false,
+      error: `${MATERIALS_NOT_READY_MESSAGE} ${gate.error}`,
+    };
+  }
+  if (gate.override) {
+    await args.db.from("job_schedule_overrides").insert({
+      job_id: args.jobId,
+      overridden_by: args.userId,
+      reason: (args.overrideReason ?? "").trim(),
+      materials_ready: false,
+      warehouse_ready_at: (job?.warehouse_ready_at as string | null) ?? null,
+      scheduled_date: args.scheduledDate,
+    });
+  }
+  return { ok: true };
+}
+
 export async function bookInstall(formData: FormData): Promise<void> {
   const id = str(formData.get("job_id"));
   // One picker, one assignment. The value is either a login installer's profile
@@ -323,26 +373,115 @@ export async function bookInstall(formData: FormData): Promise<void> {
   // the assigned installer (notify_assignee). Absent = notify (back-compat).
   const skipClientEmail = str(formData.get("send_email")) === "no";
   const notifyAssignee = str(formData.get("notify_assignee")) !== "no";
+  const overrideReason = str(formData.get("materials_override_reason")) || null;
+  const afterBookRedirect = str(formData.get("redirect_to"));
   if (!id || !start) return;
   const supabase = await createClient();
-  await supabase
-    .from("jobs")
-    .update({
-      assigned_to: installer || null,
-      ...(crewDirect ? { assigned_crew_id: crewDirect } : {}),
-      scheduled_date: start,
-      scheduled_end: end,
-      status: "scheduled",
-      open_for_claim: false,
-    })
-    .eq("id", id);
-  // Arrival window — separate update so a pre-migration DB (no column yet)
-  // can't break booking the install.
-  if (arrivalWindow) {
-    await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const mat = await enforceMaterialsReadyForSchedule({
+    jobId: id,
+    db: supabase,
+    userId: user?.id ?? null,
+    overrideReason,
+    scheduledDate: start,
+  });
+  if (!mat.ok) {
+    redirect(
+      (afterBookRedirect || `/jobs/${id}`) +
+        `?schedule_error=${encodeURIComponent(mat.error)}`,
+    );
+  }
+
+  // Authoritative schedule write: schedule_job_install_safe (0178) + GiST EXCLUDE.
+  // Preflight SELECT is UX only — concurrency is enforced in the database.
+  if (installer || crewDirect) {
+    const { data: booked } = await supabase
       .from("jobs")
-      .update({ arrival_window: arrivalWindow })
-      .eq("id", id);
+      .select("id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end")
+      .not("scheduled_date", "is", null)
+      .neq("status", "cancelled")
+      .limit(500);
+    const conflict = findInstallerScheduleConflict({
+      jobId: id,
+      installerProfileId: installer || null,
+      crewId: crewDirect,
+      start,
+      end,
+      existing: (booked ?? []).map((j) => ({
+        jobId: j.id as string,
+        assignedTo: (j.assigned_to as string | null) ?? null,
+        assignedCrewId: (j.assigned_crew_id as string | null) ?? null,
+        start: j.scheduled_date as string,
+        end: ((j.scheduled_end as string | null) ||
+          (j.scheduled_date as string)) as string,
+      })),
+    });
+    if (conflict) {
+      redirect(
+        (afterBookRedirect || `/jobs/${id}`) +
+          `?schedule_error=${encodeURIComponent(
+            "That installer is already booked on overlapping dates. Pick another date or installer.",
+          )}`,
+      );
+    }
+  }
+
+  const { data: schedRes, error: schedErr } = await supabase.rpc(
+    "schedule_job_install_safe",
+    {
+      p_job_id: id,
+      p_scheduled_date: start,
+      p_scheduled_end: end,
+      p_assigned_to: installer || null,
+      p_assigned_crew_id: crewDirect,
+      p_arrival_window: arrivalWindow || null,
+      p_set_arrival_window: Boolean(arrivalWindow),
+      p_open_for_claim: false,
+    },
+  );
+  if (schedErr) {
+    // Pre-0178 fallback: direct update (EXCLUDE not yet present).
+    if (
+      /schedule_job_install_safe/i.test(schedErr.message) ||
+      schedErr.message.includes("does not exist") ||
+      schedErr.code === "PGRST202"
+    ) {
+      await supabase
+        .from("jobs")
+        .update({
+          assigned_to: installer || null,
+          assigned_crew_id: crewDirect,
+          scheduled_date: start,
+          scheduled_end: end,
+          status: "scheduled",
+          open_for_claim: false,
+        })
+        .eq("id", id);
+      if (arrivalWindow) {
+        await supabase
+          .from("jobs")
+          .update({ arrival_window: arrivalWindow })
+          .eq("id", id);
+      }
+    } else {
+      redirect(
+        (afterBookRedirect || `/jobs/${id}`) +
+          `?schedule_error=${encodeURIComponent(schedErr.message)}`,
+      );
+    }
+  } else {
+    const body = schedRes as { ok?: boolean; error?: string; code?: string } | null;
+    if (body && body.ok === false) {
+      redirect(
+        (afterBookRedirect || `/jobs/${id}`) +
+          `?schedule_error=${encodeURIComponent(
+            body.error || "Could not schedule this install.",
+          )}`,
+      );
+    }
   }
 
   // Install booked → advance out of the "schedule install" stage.
@@ -524,6 +663,8 @@ export async function rescheduleInstall(
   /** New arrival window "HH:MM-HH:MM" (or "" to clear). Omit to keep the
    *  existing window. */
   arrivalWindow?: string,
+  /** Required when materials are not warehouse-ready. */
+  materialsOverrideReason?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!jobId || !/^\d{4}-\d{2}-\d{2}$/.test(newDate))
     return { ok: false, error: "Missing job or a valid date." };
@@ -543,7 +684,7 @@ export async function rescheduleInstall(
   const { data: job } = await admin
     .from("jobs")
     .select(
-      "id, title, customer_id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end, arrival_window",
+      "id, title, customer_id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end, arrival_window, warehouse_ready_at",
     )
     .eq("id", jobId)
     .maybeSingle();
@@ -553,6 +694,15 @@ export async function rescheduleInstall(
   const isAssigned = !!job.assigned_to && job.assigned_to === user.id;
   if (!isStaff && !isAssigned)
     return { ok: false, error: "You can only move installs assigned to you." };
+
+  const mat = await enforceMaterialsReadyForSchedule({
+    jobId,
+    db: admin,
+    userId: user.id,
+    overrideReason: materialsOverrideReason ?? null,
+    scheduledDate: newDate,
+  });
+  if (!mat.ok) return { ok: false, error: mat.error };
 
   // Reassignment (installer grid): only staff may change WHO the job is on.
   let newInstaller = (job.assigned_to as string | null) ?? null;
@@ -589,27 +739,94 @@ export async function rescheduleInstall(
     );
     newEnd = addDaysYmd(newDate, span);
   }
-  await admin
-    .from("jobs")
-    .update({
-      scheduled_date: newDate,
-      scheduled_end: newEnd,
-      status: "scheduled",
-      ...(arrivalWindow !== undefined ? { arrival_window: nextWindow } : {}),
-      ...(reassigned
-        ? {
-            assigned_to: newInstaller,
-            assigned_crew_id: newCrew,
-            // Unassigning must also pull the job OFF the claim board, so an
-            // unassigned job is never left visible to installers. (Re-posting is
-            // a deliberate, separate action.)
-            ...(newInstaller === null && newCrew === null
-              ? { open_for_claim: false }
-              : {}),
-          }
-        : {}),
-    })
-    .eq("id", jobId);
+
+  if (newInstaller || newCrew) {
+    const { data: booked } = await admin
+      .from("jobs")
+      .select("id, assigned_to, assigned_crew_id, scheduled_date, scheduled_end")
+      .not("scheduled_date", "is", null)
+      .neq("status", "cancelled")
+      .limit(500);
+    const conflict = findInstallerScheduleConflict({
+      jobId,
+      installerProfileId: newInstaller,
+      crewId: newCrew,
+      start: newDate,
+      end: newEnd,
+      existing: (booked ?? []).map((j) => ({
+        jobId: j.id as string,
+        assignedTo: (j.assigned_to as string | null) ?? null,
+        assignedCrewId: (j.assigned_crew_id as string | null) ?? null,
+        start: j.scheduled_date as string,
+        end: ((j.scheduled_end as string | null) ||
+          (j.scheduled_date as string)) as string,
+      })),
+    });
+    if (conflict) {
+      return {
+        ok: false,
+        error:
+          "That installer is already booked on overlapping dates. Pick another date or installer.",
+      };
+    }
+  }
+
+  const nextInstaller = reassigned
+    ? newInstaller
+    : ((job.assigned_to as string | null) ?? null);
+  const nextCrew = reassigned
+    ? newCrew
+    : ((job.assigned_crew_id as string | null) ?? null);
+
+  const { data: schedRes, error: schedErr } = await admin.rpc(
+    "schedule_job_install_safe",
+    {
+      p_job_id: jobId,
+      p_scheduled_date: newDate,
+      p_scheduled_end: newEnd,
+      p_assigned_to: nextInstaller,
+      p_assigned_crew_id: nextCrew,
+      p_arrival_window: nextWindow,
+      p_set_arrival_window: arrivalWindow !== undefined,
+      p_open_for_claim: false,
+    },
+  );
+  if (schedErr) {
+    if (
+      /schedule_job_install_safe/i.test(schedErr.message) ||
+      schedErr.message.includes("does not exist") ||
+      schedErr.code === "PGRST202"
+    ) {
+      await admin
+        .from("jobs")
+        .update({
+          scheduled_date: newDate,
+          scheduled_end: newEnd,
+          status: "scheduled",
+          ...(arrivalWindow !== undefined ? { arrival_window: nextWindow } : {}),
+          ...(reassigned
+            ? {
+                assigned_to: newInstaller,
+                assigned_crew_id: newCrew,
+                ...(newInstaller === null && newCrew === null
+                  ? { open_for_claim: false }
+                  : {}),
+              }
+            : {}),
+        })
+        .eq("id", jobId);
+    } else {
+      return { ok: false, error: schedErr.message };
+    }
+  } else {
+    const body = schedRes as { ok?: boolean; error?: string } | null;
+    if (body && body.ok === false) {
+      return {
+        ok: false,
+        error: body.error || "Could not reschedule this install.",
+      };
+    }
+  }
 
   after(async () => {
     try {
@@ -667,21 +884,31 @@ export async function ensureJobForEstimate(
     const { data: est } = await admin
       .from("estimates")
       .select(
-        "id, customer_id, title, accepted_option_id, job_description, service_address_id",
+        "id, customer_id, title, accepted_option_id, job_description, service_address_id, status, approval_stale, current_approval_snapshot_id",
       )
       .eq("id", estimateId)
       .maybeSingle();
     if (!est) return null;
 
-    // Idempotent: one job per estimate (covers double-clicks AND a staff click
-    // racing the portal approval).
+    // F7: only create ops jobs from a non-stale approved commercial snapshot.
+    // Existing job (idempotent) may still be returned even if estimate later drifts.
     const { data: existing } = await admin
       .from("jobs")
       .select("id")
       .eq("estimate_id", estimateId)
       .limit(1)
       .maybeSingle();
-    if (existing) return existing.id as string;
+    if (existing) {
+      await seedJobScopeIfEmpty(admin, existing.id as string);
+      return existing.id as string;
+    }
+
+    if ((est.status as string) !== "approved") return null;
+    if (est.approval_stale === true) return null;
+    if (!est.current_approval_snapshot_id) return null;
+
+    // Idempotent: one job per estimate (covers double-clicks AND a staff click
+    // racing the portal approval). Existing jobs handled above.
 
     let optionId = (est.accepted_option_id as string | null) ?? null;
     if (!optionId) {
@@ -763,6 +990,19 @@ export async function ensureJobForEstimate(
       .select("id")
       .single();
     if (error) {
+      // Concurrent approval race: another writer won the unique estimate_id slot.
+      if (error.code === "23505") {
+        const { data: raced } = await admin
+          .from("jobs")
+          .select("id")
+          .eq("estimate_id", estimateId)
+          .limit(1)
+          .maybeSingle();
+        if (raced?.id) {
+          await seedJobScopeIfEmpty(admin, raced.id as string);
+          return raced.id as string;
+        }
+      }
       // Pre-migration fallback (0123 / 0124 not run yet): create the job without
       // the cost snapshots rather than blocking the win.
       ({ data: job, error } = await admin
@@ -772,6 +1012,11 @@ export async function ensureJobForEstimate(
         .single());
     }
     if (error || !job) return null;
+
+    // Operational scope: copy estimate lines into job_line_items immediately so
+    // WO / staging / stock / PO / installer all share one job-owned source.
+    // Idempotent — skips if lines already exist (race / retry).
+    await seedJobScopeIfEmpty(admin, job.id as string);
 
     // Reserve stock + build POs for special-order items right after the win.
     // Elevated, since the trigger may be a customer's portal session.
@@ -912,31 +1157,39 @@ export async function updateJob(
   // this form can't produce a half-booked state (dated but still "unscheduled",
   // still on the claim board, no arrival window). See job-form.tsx.
   const supabase = await createClient();
-  const { error } = await supabase
+  const newStatus = (str(formData.get("status")) || "unscheduled") as JobStatus;
+  const { data: prior } = await supabase
     .from("jobs")
-    .update({
-      title: nullable(formData.get("title")),
-      status: (str(formData.get("status")) || "unscheduled") as JobStatus,
-      site_street: nullable(formData.get("site_street")),
-      site_city: nullable(formData.get("site_city")),
-      site_state: nullable(formData.get("site_state")),
-      site_zip: nullable(formData.get("site_zip")),
-      notes: nullable(formData.get("notes")),
-      delivery_type: (str(formData.get("delivery_type")) ||
-        "deliver") as JobDeliveryType,
-    })
-    .eq("id", id);
-  if (error) return { error: error.message };
-
-  const { data: job } = await supabase
-    .from("jobs")
-    .select("customer_id")
+    .select("status, completed_at, customer_id")
     .eq("id", id)
     .maybeSingle();
-  const customerId = (job?.customer_id as string | null) ?? null;
+  if (!prior) return { error: "Job not found." };
+  const gate = assessJobStatusTransition(
+    (prior.status as JobStatus) ?? "unscheduled",
+    newStatus,
+  );
+  if (!gate.ok) return { error: gate.error };
+
+  const patch = {
+    title: nullable(formData.get("title")),
+    ...jobStatusUpdatePatch(
+      newStatus,
+      (prior.completed_at as string | null) ?? null,
+    ),
+    site_street: nullable(formData.get("site_street")),
+    site_city: nullable(formData.get("site_city")),
+    site_state: nullable(formData.get("site_state")),
+    site_zip: nullable(formData.get("site_zip")),
+    notes: nullable(formData.get("notes")),
+    delivery_type: (str(formData.get("delivery_type")) ||
+      "deliver") as JobDeliveryType,
+  };
+  const { error } = await supabase.from("jobs").update(patch).eq("id", id);
+  if (error) return { error: error.message };
+
+  const customerId = (prior.customer_id as string | null) ?? null;
   // Completing / starting a job here advances the pipeline stage too, matching
   // the quick-status path (otherwise the dashboard/pipeline stay behind).
-  const newStatus = str(formData.get("status"));
   if (customerId) {
     if (newStatus === "completed")
       await advanceToNamedStage(customerId, STAGE_INSTALLED, id);
@@ -964,7 +1217,22 @@ export async function setJobStatus(formData: FormData): Promise<void> {
   if (!id || !status) return;
 
   const supabase = await createClient();
-  await supabase.from("jobs").update({ status }).eq("id", id);
+  const { data: prior } = await supabase
+    .from("jobs")
+    .select("status, completed_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (!prior) return;
+  const gate = assessJobStatusTransition(
+    (prior.status as JobStatus) ?? "unscheduled",
+    status,
+  );
+  if (!gate.ok) return;
+  const patch = jobStatusUpdatePatch(
+    status,
+    (prior?.completed_at as string | null) ?? null,
+  );
+  await supabase.from("jobs").update(patch).eq("id", id);
 
   const { data: job } = await supabase
     .from("jobs")
@@ -1278,14 +1546,43 @@ export async function assignInstaller(formData: FormData): Promise<void> {
   const installerId = str(formData.get("installer_id"));
   if (!jobId || !installerId) return;
   const supabase = await createClient();
-  await supabase
+  const { data: job } = await supabase
     .from("jobs")
-    .update({
-      assigned_to: installerId,
-      open_for_claim: false,
-      status: "scheduled",
-    })
-    .eq("id", jobId);
+    .select("scheduled_date, scheduled_end, arrival_window")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job) return;
+
+  if (job.scheduled_date) {
+    const { data: schedRes, error: schedErr } = await supabase.rpc(
+      "schedule_job_install_safe",
+      {
+        p_job_id: jobId,
+        p_scheduled_date: job.scheduled_date as string,
+        p_scheduled_end: (job.scheduled_end as string | null) ?? null,
+        p_assigned_to: installerId,
+        p_assigned_crew_id: null,
+        p_arrival_window: (job.arrival_window as string | null) ?? null,
+        p_set_arrival_window: false,
+        p_open_for_claim: false,
+      },
+    );
+    if (schedErr) throw new Error(schedErr.message);
+    const body = schedRes as { ok?: boolean; error?: string } | null;
+    if (body && body.ok === false) {
+      throw new Error(body.error || "Could not assign installer (schedule conflict).");
+    }
+  } else {
+    // Undated board assign — mutation guard allows assignee-only without dates.
+    await supabase
+      .from("jobs")
+      .update({
+        assigned_to: installerId,
+        open_for_claim: false,
+        status: "scheduled",
+      })
+      .eq("id", jobId);
+  }
   await supabase
     .from("job_applications")
     .update({ status: "accepted" })
@@ -1411,7 +1708,7 @@ export async function sendJobToWarehouse(jobId: string): Promise<void> {
 }
 
 export async function submitJobToWarehouse(formData: FormData): Promise<void> {
-  const id = str(formData.get("job_id"));
+  const id = warehouseJobIdFromForm(formData);
   if (!id) return;
   await sendJobToWarehouse(id);
 }
@@ -1622,16 +1919,20 @@ export async function collectJobBalance(formData: FormData): Promise<void> {
   const jobId = str(formData.get("job_id"));
   const method = str(formData.get("method")); // 'cash' | 'check' | 'link'
   const reference = str(formData.get("reference")) || null;
-  if (!jobId || !["cash", "check", "link"].includes(method)) return;
+  if (!jobId || !["cash", "check", "link"].includes(method)) {
+    throw new Error("Missing job or payment method.");
+  }
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return;
+  if (!user) throw new Error("You must be signed in to collect payment.");
 
   const settings = await getBusinessSettings();
-  if (!settings.installer_collects_balance) return;
+  if (!settings.installer_collects_balance) {
+    throw new Error("On-site collection is turned off in business settings.");
+  }
 
   const { data: me } = await supabase
     .from("profiles")
@@ -1649,12 +1950,16 @@ export async function collectJobBalance(formData: FormData): Promise<void> {
     )
     .eq("id", jobId)
     .maybeSingle();
-  if (!job) return;
+  if (!job) throw new Error("Job not found.");
   // Guard: only the assigned installer (or staff) may collect.
-  if (!isStaff && job.assigned_to !== user.id) return;
+  if (!isStaff && job.assigned_to !== user.id) {
+    throw new Error("Only the assigned installer or office staff may collect.");
+  }
 
   const coll = await getJobOpenBalance(jobId);
-  if (!coll.invoiceId || coll.balance <= 0) return;
+  if (!coll.openInvoices.length || coll.balance <= 0) {
+    throw new Error("Nothing left to collect on this job.");
+  }
 
   const installerName = (me?.full_name as string) || "Installer";
   const cust = job.customer as unknown as {
@@ -1700,23 +2005,42 @@ export async function collectJobBalance(formData: FormData): Promise<void> {
     return;
   }
 
-  // cash / check → record the full balance and mark the invoice paid.
-  await admin.from("payments").insert({
-    invoice_id: coll.invoiceId,
-    amount: coll.balance,
-    method,
-    reference,
-    paid_at: new Date().toISOString().slice(0, 10),
-    notes: `Collected on site by ${installerName}`,
-    created_by: user.id,
-  });
-  await admin.from("invoices").update({ status: "paid" }).eq("id", coll.invoiceId);
+  // Re-read open balances immediately before paying (race soften), then record
+  // each remaining amount via the safe RPC (locks + overpay block).
+  const fresh = await getJobOpenBalance(jobId);
+  if (!fresh.openInvoices.length || fresh.balance <= 0) {
+    throw new Error("Balance was already collected (or is zero). Refresh and try again.");
+  }
+
+  const paidAt = new Date().toISOString().slice(0, 10);
+  for (const open of fresh.openInvoices) {
+    const { data, error } = await admin.rpc("record_invoice_payment_safe", {
+      p_invoice_id: open.invoiceId,
+      p_amount: open.balance,
+      p_method: method,
+      p_reference: reference,
+      p_paid_at: paidAt,
+      p_notes: `Collected on site by ${installerName}`,
+      p_created_by: user.id,
+      p_idempotency_key: `collect:${jobId}:${open.invoiceId}:${paidAt}:${user.id}:${open.balance}`,
+      p_allow_deposit_on_zero_total: false,
+    });
+    const result = data as { ok?: boolean; error?: string; duplicate?: boolean } | null;
+    if (error) {
+      throw new Error(error.message || "Payment could not be saved.");
+    }
+    if (!result?.ok) {
+      throw new Error(result?.error || "Payment could not be saved.");
+    }
+    // Idempotent replay is success; still ensure invoice paid status.
+    await admin.from("invoices").update({ status: "paid" }).eq("id", open.invoiceId);
+  }
 
   await notifyOffice(
     `💵 Balance collected — ${custName}`,
-    `<p>${installerName} collected <strong>$${amt}</strong> by <strong>${method}</strong> on site for <strong>${custName}</strong>${
+    `<p>${installerName} collected <strong>$${fresh.balance.toFixed(2)}</strong> by <strong>${method}</strong> on site for <strong>${custName}</strong>${
       reference ? ` · ref ${reference}` : ""
-    }. The invoice is marked paid.</p>`,
+    }. ${fresh.openInvoices.length > 1 ? `${fresh.openInvoices.length} invoices marked paid.` : "The invoice is marked paid."}</p>`,
   );
 
   revalidatePath(`/jobs/${jobId}`);

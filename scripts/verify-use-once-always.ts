@@ -1,3 +1,6 @@
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + service-role (or equivalent). Do not default to production.
+//
 // Verifies "use once vs use always" for estimate-line prices against the LIVE
 // DB, using the SAME unit-conversion the server action + builder use
 // (isAreaUnit / normalizeUnit). Confirms: use-once never touches the saved

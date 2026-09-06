@@ -291,17 +291,41 @@ export async function runAssistantAction(
     case "reschedule_job": {
       const { data: job } = await supabase
         .from("jobs")
-        .select("id, status, customer:customers(full_name)")
+        .select("id, status, assigned_to, assigned_crew_id, customer:customers(full_name)")
         .eq("id", safe.jobId)
         .maybeSingle();
       if (!job) return { ok: false, message: "I couldn't find that job (or you don't have access)." };
-      const patch: Record<string, unknown> = {
-        scheduled_date: safe.date,
-        scheduled_end: safe.date,
-      };
-      if (job.status === "unscheduled") patch.status = "scheduled";
-      const { error } = await supabase.from("jobs").update(patch).eq("id", safe.jobId);
-      if (error) return { ok: false, message: error.message };
+      const { data: schedRes, error: schedErr } = await supabase.rpc(
+        "schedule_job_install_safe",
+        {
+          p_job_id: safe.jobId,
+          p_scheduled_date: safe.date,
+          p_scheduled_end: safe.date,
+          p_assigned_to: (job.assigned_to as string | null) ?? null,
+          p_assigned_crew_id: (job.assigned_crew_id as string | null) ?? null,
+          p_set_arrival_window: false,
+          p_open_for_claim: false,
+        },
+      );
+      if (schedErr) {
+        return {
+          ok: false,
+          message:
+            /schedule_job_install_safe|does not exist|PGRST202/i.test(schedErr.message)
+              ? "Scheduling is locked until the office schedule function is available."
+              : "That date could not be booked. Pick another date.",
+        };
+      }
+      const body = schedRes as { ok?: boolean; error?: string; code?: string } | null;
+      if (body && body.ok === false) {
+        return {
+          ok: false,
+          message:
+            body.code === "SCHEDULE_CONFLICT"
+              ? "That installer or crew is already booked on overlapping dates."
+              : body.error || "That date could not be booked.",
+        };
+      }
       revalidatePath(`/jobs/${safe.jobId}`);
       revalidatePath("/jobs");
       revalidatePath("/calendar");

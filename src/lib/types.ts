@@ -564,6 +564,8 @@ export interface Product {
   bin_location: string | null;
   stock_kind?: StockKind; // discrete (counted) | rolled (measured)
   reserved?: number;
+  /** Moving weighted average unit cost (F6-P4). Null until first valued receive. */
+  avg_unit_cost?: number | null;
   clearance: boolean;
   clearance_price: number | null;
   sqft_per_box?: number | null; // hard surface: coverage per carton (vendor unit)
@@ -771,6 +773,14 @@ export interface Estimate {
   viewed_at: string | null;
   accepted_option_id: string | null;
   recommended_option_id: string | null; // owner-flagged option to highlight to the customer
+  /** When the current commercial approval was recorded (Step 6). Null on legacy. */
+  approved_at?: string | null;
+  approval_source?: "staff" | "portal" | null;
+  approved_by_user_id?: string | null;
+  approved_by_customer_id?: string | null;
+  current_approval_snapshot_id?: string | null;
+  /** Live commercial content changed after latest approval — needs reapproval. */
+  approval_stale?: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -1087,6 +1097,13 @@ export interface PoItem {
   for_job_id: string | null;
   for_customer_id: string | null;
   note: string | null;
+  // Operational job material line this item covers (Step 4 / P8). Null on
+  // legacy/manual rows — those do not auto-satisfy per-line coverage.
+  job_line_id: string | null;
+  received_qty: number | null;
+  received_at: string | null;
+  received_by: string | null;
+  receiving_note: string | null;
   // Vendor-unit helpers: product category (for carpet-vs-hard rendering), hard
   // surface → carton count = ceil(qty / sqft_per_box); carpet → broadloom roll
   // width. Null when not applicable.
@@ -1263,6 +1280,12 @@ export interface Order {
 
 export type InvoiceStatus = "draft" | "sent" | "partial" | "paid" | "void";
 
+/** How an estimate-derived invoice relates to approved commercial history. */
+export type InvoiceCommercialKind =
+  | "original"
+  | "replacement"
+  | "supplemental";
+
 export type PaymentMethod =
   | "card"
   | "cash"
@@ -1282,6 +1305,8 @@ export interface InvoiceItem {
   rate: number | null;
 }
 
+export type PaymentRecordStatus = "active" | "void";
+
 export interface Payment {
   id: string;
   invoice_id: string;
@@ -1292,6 +1317,71 @@ export interface Payment {
   notes: string | null;
   created_by: string | null;
   created_at: string;
+  /** active | void — void payments do not reduce balance. Legacy null = active. */
+  status?: PaymentRecordStatus | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
+  idempotency_key?: string | null;
+}
+
+export type CreditMemoKind = "commercial" | "manual";
+export type CreditMemoStatus = "issued" | "void";
+export type CreditApplicationStatus = "active" | "void";
+export type RefundRecordStatus = "active" | "void";
+
+export interface CreditMemo {
+  id: string;
+  customer_id: string;
+  estimate_id: string | null;
+  job_id: string | null;
+  approval_snapshot_id: string | null;
+  amount: number;
+  reason: string;
+  notes: string | null;
+  kind: CreditMemoKind;
+  status: CreditMemoStatus;
+  issued_at: string;
+  created_at: string;
+  created_by: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
+  idempotency_key?: string | null;
+  applications?: CreditApplication[];
+  refunds?: CustomerRefund[];
+}
+
+export interface CreditApplication {
+  id: string;
+  credit_memo_id: string;
+  invoice_id: string;
+  amount: number;
+  status: CreditApplicationStatus;
+  created_at: string;
+  created_by: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
+  idempotency_key?: string | null;
+}
+
+export interface CustomerRefund {
+  id: string;
+  customer_id: string;
+  credit_memo_id: string;
+  amount: number;
+  method: PaymentMethod;
+  reference: string | null;
+  refunded_at: string | null;
+  notes: string | null;
+  status: RefundRecordStatus;
+  created_at: string;
+  created_by: string | null;
+  voided_at?: string | null;
+  voided_by?: string | null;
+  void_reason?: string | null;
+  idempotency_key?: string | null;
 }
 
 export interface Invoice {
@@ -1299,6 +1389,10 @@ export interface Invoice {
   customer_id: string;
   job_id: string | null;
   estimate_id: string | null;
+  /** Approval snapshot this estimate-derived invoice billed; null = legacy/unlinked. */
+  approval_snapshot_id?: string | null;
+  /** original | replacement | supplemental — null for blank/non-estimate invoices. */
+  commercial_kind?: InvoiceCommercialKind | null;
   number: string | null;
   migrated?: boolean; // carried over from prior system at go-live
   status: InvoiceStatus;
@@ -1313,7 +1407,17 @@ export interface Invoice {
   updated_at: string;
   items?: InvoiceItem[];
   payments?: Payment[];
+  creditApplications?: CreditApplication[];
 }
+
+export const INVOICE_COMMERCIAL_KIND_LABELS: Record<
+  InvoiceCommercialKind,
+  string
+> = {
+  original: "Original",
+  replacement: "Replacement",
+  supplemental: "Change order",
+};
 
 export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
   draft: "Draft",
@@ -1692,27 +1796,39 @@ export interface CancelReason {
 }
 
 // ── Installer bills (subcontractor labor billing) ──────────────────────────
-export type InstallerBillStatus = "draft" | "approved" | "paid";
+export type InstallerBillStatus = "draft" | "approved" | "paid" | "void" | "cancelled";
 export type BillLineSource = "from_work_order" | "manually_added";
+export type InstallerWorkerKind = "employee" | "subcontractor" | "unknown";
 
 export const INSTALLER_BILL_STATUS_LABELS: Record<InstallerBillStatus, string> = {
-  draft: "Draft",
-  approved: "Approved for payment",
-  paid: "Paid",
+  draft: "Draft (committed, not actual)",
+  approved: "Approved — owed",
+  paid: "AP paid (subcontractor)",
+  void: "Reversed",
+  cancelled: "Cancelled",
 };
 
 export interface InstallerBill {
   id: string;
   job_id: string;
   installer_id: string | null;
+  crew_id?: string | null;
+  worker_kind?: InstallerWorkerKind | null;
   status: InstallerBillStatus;
   subtotal: number;
   adjustments: number;
   total: number;
   notes: string | null;
+  service_date?: string | null;
   created_at: string;
   approved_at: string | null;
+  approved_by?: string | null;
   paid_at: string | null;
+  ap_bill_id?: string | null;
+  ap_sync_status?: string | null;
+  reversal_of_bill_id?: string | null;
+  void_reason?: string | null;
+  payroll_ops_status?: "none" | "recorded" | null;
 }
 
 export interface InstallerBillLine {
@@ -1727,4 +1843,5 @@ export interface InstallerBillLine {
   is_modified: boolean;
   change_reason: string | null;
   position: number;
+  job_line_id?: string | null;
 }

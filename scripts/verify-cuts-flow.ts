@@ -1,17 +1,23 @@
 /**
- * Verifies carpet CUTS flow to every document from ONE source (estimate lines):
- *  - WO / staging / PO cut list read the same carpetCutList() (full detail),
- *  - PO ordered yardage = the cuts (buildPoItemRows),
- *  - customer estimate/invoice show words only (buildCustomerScope, no sizes),
- *  - editing a cut auto-re-derives the PO's ordered yardage (real sync fn).
+ * MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+ * Requires .env.local + SUPABASE_SERVICE_ROLE_KEY. Do not default to production.
+ *
+ * Verifies carpet CUTS algorithm + PO ordered yardage from estimate lines
+ * (commercial cut sync / buildPoItemRows). Customer labels stay firewall-safe.
+ *
+ * After a job exists, operational WO/staging prefer job_line_items (Step 3) —
+ * see verify-carpet-cuts.ts for that path. This script focuses on cut-list
+ * math + PO recompute from the same line shape (estimate or job lines).
+ *
+ * PO quantities come from buildPoItemRows (order semantics / lineOrderQty path).
  * Run:  node --import ./scripts/alias-hook.mjs scripts/verify-cuts-flow.ts
- * Creates throwaway data, asserts, then deletes it.
  */
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { carpetCutList } from "@/lib/job-scope";
 import { buildPoItemRows, carpetSignature } from "@/lib/po-build";
 import { customerLineLabel } from "@/lib/customer-scope";
+import { lineOrderQty } from "@/lib/estimate-calc";
 import { isRollGoodCategory, type EstimateLineItem } from "@/lib/types";
 
 for (const line of readFileSync(".env.local", "utf8").split("\n")) {
@@ -84,10 +90,15 @@ async function main() {
   ok("Cut-list total yardage = 38.0 sq yd", cl.totalSqyd === 38, `${cl.totalSqyd}`);
   ok("Consolidates to ONE 12' roll", cl.rolls.length === 1 && cl.rolls[0].width === 12);
 
-  // ---- What the PO orders (same source) ----
+  // ---- What the PO orders (buildPoItemRows — order qty semantics) ----
   const poRows = buildPoItemRows(lines, { costOf: () => 20, nameOf: (l) => l.description || "Carpet" });
   const rollRow = poRows.find((r) => r.unit === "sqyd");
   ok("PO ordered yardage matches the cuts (38.0 sq yd @ 12')", rollRow?.quantity === 38 && rollRow?.roll_width_ft === 12, `${rollRow?.quantity}`);
+  // Sanity: order need uses lineOrderQty (waste-in); these cuts have waste_pct unset → same as measured.
+  ok(
+    lines.every((l) => lineOrderQty(l) >= 0),
+    "lineOrderQty defined for all cut lines (purchasing need)",
+  );
 
   // ---- Customer estimate / invoice: words only, no measurements ----
   const firewallOk = lines.every((l) => {

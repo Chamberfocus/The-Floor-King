@@ -4,7 +4,7 @@ import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import { advanceToNamedStage } from "@/lib/workflow-engine";
-import { invoiceTotals } from "@/lib/invoice-calc";
+import { dayTaskCollectAmountDue } from "@/lib/payment-safety";
 import {
   collectCatalogsOverSftp,
   feedsDue,
@@ -24,8 +24,7 @@ export const maxDuration = 300;
 
 /**
  * What a customer still owes across their open invoices. Uses the same
- * invoiceTotals the invoice screen does, so the cron can't disagree with what
- * the office is looking at.
+ * active-payment / effective-AR rules as Day Briefing collect (voids excluded).
  */
 async function outstandingBalance(
   admin: ReturnType<typeof createAdminClient>,
@@ -33,22 +32,25 @@ async function outstandingBalance(
 ): Promise<number> {
   const { data: invoices } = await admin
     .from("invoices")
-    .select("id, tax_rate, status, items:invoice_items(quantity, rate), payments(amount)")
+    .select(
+      "id, tax_rate, status, items:invoice_items(quantity, rate), payments(amount, status), credit_applications(amount, status)",
+    )
     .eq("customer_id", customerId)
     .neq("status", "void");
 
   let owed = 0;
   for (const inv of invoices ?? []) {
-    const paid = ((inv.payments ?? []) as { amount: number }[]).reduce(
-      (sum, p) => sum + (Number(p.amount) || 0),
-      0,
-    );
-    const t = invoiceTotals(
-      (inv.items ?? []) as Parameters<typeof invoiceTotals>[0],
-      inv.tax_rate as number,
-      paid,
-    );
-    if (t.balance > 0) owed += t.balance;
+    const due = dayTaskCollectAmountDue({
+      items: (inv.items ?? []) as Parameters<typeof dayTaskCollectAmountDue>[0]["items"],
+      taxRate: inv.tax_rate as number,
+      payments: (inv.payments ?? []) as { amount: number; status?: string | null }[],
+      creditApplications:
+        (inv.credit_applications ?? []) as {
+          amount: number;
+          status?: string | null;
+        }[],
+    });
+    if (due > 0) owed += due;
   }
   return Math.round(owed * 100) / 100;
 }

@@ -152,7 +152,8 @@ export async function getBusinessPulse(): Promise<BusinessPulse> {
     jobProfitThisMonth,
     jobProfitDelta: jobProfitThisMonth - jobProfitLastMonth,
     completedJobsThisMonth: completedThis.length,
-    // Margin on PRE-TAX income (tax isn't revenue), matching the net figure.
+    // Margin on PRE-TAX cash income (collected − tax − spend), NOT job gross
+    // margin. Different business concept from jobProfit / allInProfit.
     marginThisMonth: marginPct(thisMonth.revenue, thisMonth.revenue - thisMonth.net),
     goalProgressPct:
       settings.monthly_revenue_goal > 0

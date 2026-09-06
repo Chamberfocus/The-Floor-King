@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { authorizeJobMeasurementUpload } from "@/lib/job-warehouse";
 
 export interface UploadState {
   error: string | null;
@@ -14,10 +15,10 @@ function str(v: FormDataEntryValue | null): string {
 }
 
 /**
- * Field upload of a measurement photo/diagram, attached to the job's customer
- * as a measurement document. Runs through the service-role client because crew
- * (the field techs) are blocked from the documents table by RLS — but we verify
- * the caller is a signed-in internal user first, so it's not open.
+ * Field upload of a measurement photo/diagram attached to the job's customer.
+ * Admin/office/sales JWT write the documents bucket directly. Crew (assigned)
+ * and warehouse (job visible under RLS) use the server-only service_role client
+ * after authorization — never returned to the browser.
  */
 export async function uploadJobMeasurement(
   _prev: UploadState,
@@ -33,7 +34,8 @@ export async function uploadJobMeasurement(
     return { error: "File is too large (max 20 MB)." };
   }
 
-  // Only signed-in internal users (not portal customers) may attach.
+  // Authenticate first; authorize from the caller's JWT session (RLS), then
+  // elevate to service_role only for crew/warehouse after that check.
   const supabase = await createClient();
   const {
     data: { user },
@@ -46,22 +48,28 @@ export async function uploadJobMeasurement(
     .maybeSingle();
   if (!prof || prof.role === "customer") return { error: "Not allowed." };
 
-  // Staff write directly — same proven path as the customer file's uploader.
-  // Only crew (blocked from the documents table by RLS) need the service role.
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("customer_id, assigned_to")
+    .eq("id", jobId)
+    .maybeSingle();
+  const authz = authorizeJobMeasurementUpload({
+    role: prof.role as string,
+    userId: user.id,
+    jobAssignedTo: (job?.assigned_to as string | null) ?? null,
+    jobVisible: !!job,
+  });
+  if (!authz.ok) return { error: authz.error };
+
   let db = supabase;
-  if (prof.role === "crew") {
+  if (authz.useAdmin) {
     try {
       db = createAdminClient() as unknown as typeof supabase;
     } catch {
-      return { error: "Server isn't set up for crew uploads." };
+      return { error: "Server isn't set up for field uploads." };
     }
   }
 
-  const { data: job } = await db
-    .from("jobs")
-    .select("customer_id")
-    .eq("id", jobId)
-    .maybeSingle();
   const customerId = job?.customer_id as string | null;
   if (!customerId) return { error: "This job has no customer linked." };
 

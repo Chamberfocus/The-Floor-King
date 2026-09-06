@@ -8,7 +8,8 @@ import {
   type DateRange,
 } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS, mergeInstaller } from "@/lib/data/scheduling";
-import { INSTALL_ROLES, type EstimateLineItem, type SchedulingSettings } from "@/lib/types";
+import { loadSchedulingScopeLines } from "@/lib/scheduling-scope";
+import { INSTALL_ROLES, type SchedulingSettings } from "@/lib/types";
 
 export interface InstallAvailability {
   /** Expected install days for the job (headline shown to the client). */
@@ -24,6 +25,8 @@ export interface InstallAvailability {
  * scheduler uses (per-installer capacity, work days, and booked ranges via
  * nextFreeWindow). Runs with the service role and returns ONLY availability — no
  * other job's details ever reach the client. Null if the job can't be found.
+ *
+ * Scope: job_line_items (measured qty) once a job exists — matches office scheduling.
  */
 export async function getInstallAvailability(
   jobId: string,
@@ -37,10 +40,11 @@ export async function getInstallAvailability(
     .maybeSingle();
   if (!job) return null;
 
-  const lineRows = job.option_id
-    ? (await admin.from("estimate_line_items").select("*").eq("option_id", job.option_id)).data
-    : [];
-  const lines = (lineRows ?? []) as EstimateLineItem[];
+  const lines = await loadSchedulingScopeLines(
+    admin,
+    jobId,
+    (job.option_id as string | null) ?? null,
+  );
 
   const { data: sRow } = await admin
     .from("scheduling_settings")

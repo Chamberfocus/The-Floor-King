@@ -261,6 +261,7 @@ function UserCard({ profile }: { profile: Profile }) {
       {profile.role !== "customer" ? (
         <Button
           render={<Link href="/settings/preferences" />}
+          nativeButton={false}
           variant="ghost"
           size="sm"
           className="mt-1 w-full justify-start text-muted-foreground"
@@ -419,6 +420,7 @@ export function AppShell({
             variant="outline"
             size="icon"
             render={<Link href={homeHref} />}
+            nativeButton={false}
             aria-label="Home"
             title="Home"
             className="shrink-0"

@@ -246,6 +246,20 @@ export function jobMaterialType(lineItems: { category: string | null }[]): Mater
   return null;
 }
 
+/**
+ * Job Board skill-gate type: prefer operational job lines; fall back to estimate
+ * categories only when the job has no operational material rows yet (legacy).
+ */
+export function boardMaterialTypeFromScopes(args: {
+  jobLineCategories: { category: string | null }[];
+  estimateFallbackCategories?: { category: string | null }[];
+}): MaterialType {
+  if (args.jobLineCategories.length > 0) {
+    return jobMaterialType(args.jobLineCategories);
+  }
+  return jobMaterialType(args.estimateFallbackCategories ?? []);
+}
+
 /** Installer material skills, stored on the install crew. */
 export type InstallerSkill = "carpet" | "hard";
 

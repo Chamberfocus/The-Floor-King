@@ -1,3 +1,6 @@
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + service-role (or equivalent). Do not default to production.
+//
 // Verifies the unified "one named installer" assignment against live logic:
 //   - the unified installer list (login installers + login-less sub crews)
 //   - bookInstall's two branches (profile → assigned_to + crew synced; crew:<id>

@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { syncRolledOnHand, reorderAlertsFor, type ReorderAlert } from "@/lib/data/stock-rolls";
-import type { Product, StockMovementKind } from "@/lib/types";
+import type { Product } from "@/lib/types";
 
 const STOCK_ROLES: ("admin" | "office" | "warehouse")[] = ["admin", "office", "warehouse"];
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -49,59 +49,45 @@ function refresh(productId?: string) {
   revalidatePath("/catalog");
 }
 
-/** Record a stock movement and adjust the product's on-hand. */
-async function move(
-  productId: string,
-  delta: number,
-  kind: StockMovementKind,
-  opts: { note?: string; jobId?: string | null } = {},
-): Promise<void> {
-  if (!productId || !delta) return;
-  const { db, actorId } = await stockCtx();
-  const { data: prod } = await db
-    .from("products")
-    .select("on_hand")
-    .eq("id", productId)
-    .maybeSingle();
-  if (!prod) return;
-
-  const next = Math.round(((Number(prod.on_hand) || 0) + delta) * 100) / 100;
-  await db.from("stock_movements").insert({
-    product_id: productId,
-    qty: delta,
-    kind,
-    job_id: opts.jobId ?? null,
-    note: `${opts.note ?? ""}${opts.note ? " · " : ""}balance ${next}`.trim(),
-    created_by: actorId,
-  });
-  await db
-    .from("products")
-    .update({ on_hand: next, last_movement_at: new Date().toISOString() })
-    .eq("id", productId);
-  refreshStock(productId);
-}
-
 export async function receiveStock(formData: FormData): Promise<void> {
   const id = str(formData.get("product_id"));
   const qty = Math.abs(numv(formData.get("qty")));
   if (!id || !qty) return;
-  await move(id, qty, "receive", { note: str(formData.get("note")) || undefined });
+  const { db, actorId } = await stockCtx();
+  const { data: prod } = await db
+    .from("products")
+    .select("stock_kind")
+    .eq("id", id)
+    .maybeSingle();
+  if (prod?.stock_kind === "rolled") {
+    // Discrete receive UI must not value rolled stock without a physical roll.
+    return;
+  }
+  await db.rpc("receive_inventory_safe", {
+    p_product_id: id,
+    p_qty: qty,
+    p_note: str(formData.get("note")) || null,
+    p_created_by: actorId,
+  });
+  refreshStock(id);
 }
 
 export async function pullStock(formData: FormData): Promise<void> {
   const id = str(formData.get("product_id"));
   const qty = Math.abs(numv(formData.get("qty")));
-  if (!id || !qty) return;
-  // Guard: never pull more than is on hand (cap + note it).
-  const { db } = await stockCtx();
-  const { data: prod } = await db.from("products").select("on_hand").eq("id", id).maybeSingle();
-  const onHand = Number(prod?.on_hand) || 0;
-  const take = Math.min(qty, Math.max(0, onHand));
-  if (take <= 0) return;
-  await move(id, -take, "pull", {
-    note: `${str(formData.get("note")) || "Pulled for job"}${take < qty ? ` (requested ${qty}, only ${onHand} on hand)` : ""}`,
-    jobId: str(formData.get("job_id")) || null,
+  const jobId = str(formData.get("job_id"));
+  if (!id || !qty || !jobId) return;
+  // Fail-closed: consume_inventory_safe rejects over-pull (no silent negatives).
+  const { db, actorId } = await stockCtx();
+  await db.rpc("consume_inventory_safe", {
+    p_product_id: id,
+    p_qty: qty,
+    p_job_id: jobId,
+    p_note: str(formData.get("note")) || "Pulled for job",
+    p_created_by: actorId,
+    p_release_reserved: true,
   });
+  refreshStock(id);
 }
 
 /** Set on-hand to an exact counted value (records the difference as an adjust). */
@@ -109,18 +95,24 @@ export async function adjustStock(formData: FormData): Promise<void> {
   const id = str(formData.get("product_id"));
   const counted = numv(formData.get("counted"));
   if (!id) return;
-  const supabase = await createClient();
-  const { data: prod } = await supabase
+  const { db, actorId } = await stockCtx();
+  const { data: prod } = await db
     .from("products")
-    .select("on_hand")
+    .select("stock_kind")
     .eq("id", id)
     .maybeSingle();
-  if (!prod) return;
-  const delta = Math.round((counted - (prod.on_hand as number)) * 100) / 100;
-  if (delta === 0) return;
-  await move(id, delta, "adjust", {
-    note: str(formData.get("note")) || `Counted ${counted}`,
+  if (prod?.stock_kind === "rolled") {
+    // Use countRoll / adjust_roll_inventory_safe per physical roll.
+    return;
+  }
+  await db.rpc("adjust_inventory_safe", {
+    p_product_id: id,
+    p_counted_on_hand: counted,
+    p_reason: str(formData.get("note")) || `Counted ${counted}`,
+    p_note: str(formData.get("note")) || `Counted ${counted}`,
+    p_created_by: actorId,
   });
+  refreshStock(id);
 }
 
 /** Turn tracking on/off and set reorder point, bin, and "in stock since". */
@@ -182,32 +174,20 @@ export async function receiveRoll(formData: FormData): Promise<void> {
   const unit = str(formData.get("unit")) || "sqyd";
   const width = numv(formData.get("width_ft"));
   const poId = str(formData.get("po_id")) || null;
-  const { data: roll } = await db
-    .from("stock_rolls")
-    .insert({
-      product_id: productId,
-      kind: "roll",
-      unit,
-      width_ft: width > 0 ? width : null,
-      initial_qty: qty,
-      remaining_qty: qty,
-      location: str(formData.get("location")) || null,
-      status: "available",
-      source_po_id: poId,
-      note: str(formData.get("note")) || null,
-      created_by: actorId,
-    })
-    .select("id")
-    .single();
-  await db.from("stock_movements").insert({
-    product_id: productId,
-    roll_id: roll?.id ?? null,
-    qty,
-    kind: "receive",
-    note: `Received roll · ${qty} ${unit}${str(formData.get("location")) ? ` @ ${str(formData.get("location"))}` : ""}`,
-    created_by: actorId,
+  const location = str(formData.get("location")) || null;
+  // F6-P4: RPC atomically creates stock_rolls + valued receive (no split-brain).
+  await db.rpc("receive_inventory_safe", {
+    p_product_id: productId,
+    p_qty: qty,
+    p_note: `Received roll · ${qty} ${unit}${location ? ` @ ${location}` : ""}`,
+    p_po_id: poId,
+    p_created_by: actorId,
+    p_create_roll: true,
+    p_roll_kind: "roll",
+    p_roll_unit: unit,
+    p_roll_width_ft: width > 0 ? width : null,
+    p_roll_location: location,
   });
-  await syncRolledOnHand(productId, db);
   refreshStock(productId);
 }
 
@@ -227,50 +207,43 @@ export async function pullRoll(formData: FormData): Promise<void> {
   const remaining = Number(roll.remaining_qty) || 0;
   const take = Math.min(cut, remaining); // guard: never below zero
   const left = r2(remaining - take);
-  await db
-    .from("stock_rolls")
-    .update({ remaining_qty: left, status: left <= 0 ? "depleted" : "available" })
-    .eq("id", rollId);
-  await db.from("stock_movements").insert({
-    product_id: productId,
-    roll_id: rollId,
-    qty: -take,
-    kind: "pull",
-    job_id: str(formData.get("job_id")) || null,
-    note: `Cut ${take} ${roll.unit} → ${left} left${take < cut ? ` (requested ${cut}, capped to available)` : ""}`,
-    created_by: actorId,
-  });
-  // Optional offcut → a tracked remnant that needs shelving.
-  const offcut = Math.abs(numv(formData.get("offcut")));
-  if (offcut > 0) {
-    const { data: rem } = await db
-      .from("stock_rolls")
-      .insert({
-        product_id: productId,
-        kind: "remnant",
-        unit: roll.unit,
-        initial_qty: offcut,
-        remaining_qty: offcut,
-        status: "available",
-        usable: null,
-        needs_shelving: true,
-        source_roll_id: rollId,
-        job_id: str(formData.get("job_id")) || null,
-        note: str(formData.get("note")) || null,
-        created_by: actorId,
-      })
-      .select("id")
-      .single();
-    await db.from("stock_movements").insert({
-      product_id: productId,
-      roll_id: rem?.id ?? null,
-      qty: offcut,
-      kind: "adjust",
-      note: `Remnant created from cut · ${offcut} ${roll.unit} (needs shelving)`,
-      created_by: actorId,
+  const jobId = str(formData.get("job_id"));
+  const cutNote = `Cut ${take} ${roll.unit} → ${left} left${take < cut ? ` (requested ${cut}, capped to available)` : ""}`;
+  // F6-P4: consume_inventory_safe decrements the roll under lock when roll_id set.
+  if (jobId) {
+    await db.rpc("consume_inventory_safe", {
+      p_product_id: productId,
+      p_qty: take,
+      p_job_id: jobId,
+      p_note: cutNote,
+      p_created_by: actorId,
+      p_release_reserved: true,
+      p_roll_id: rollId,
+    });
+  } else {
+    // Non-job cut: roll-specific adjust (aggregate product adjust blocked for rolled).
+    await db.rpc("adjust_roll_inventory_safe", {
+      p_roll_id: rollId,
+      p_counted_remaining: left,
+      p_reason: cutNote,
+      p_created_by: actorId,
     });
   }
-  await syncRolledOnHand(productId, db);
+  // Optional offcut → remnant via atomic receive+create_roll.
+  const offcut = Math.abs(numv(formData.get("offcut")));
+  if (offcut > 0) {
+    await db.rpc("receive_inventory_safe", {
+      p_product_id: productId,
+      p_qty: offcut,
+      p_note: `Remnant created from cut · ${offcut} ${roll.unit} (needs shelving)`,
+      p_job_id: str(formData.get("job_id")) || null,
+      p_created_by: actorId,
+      p_create_roll: true,
+      p_roll_kind: "remnant",
+      p_roll_unit: roll.unit as string,
+      p_source_roll_id: rollId,
+    });
+  }
   refreshStock(productId);
 }
 
@@ -302,25 +275,23 @@ export async function setRemnantUsable(formData: FormData): Promise<void> {
   const productId = roll.product_id as string;
   if (call === "scrap") {
     const reason = str(formData.get("reason")) || "Scrapped";
+    // Zero remaining via roll workflow, then mark scrapped.
+    await db.rpc("adjust_roll_inventory_safe", {
+      p_roll_id: rollId,
+      p_counted_remaining: 0,
+      p_reason: `Remnant scrapped · ${reason}`,
+      p_created_by: actorId,
+    });
     await db
       .from("stock_rolls")
       .update({ status: "scrapped", usable: false, needs_shelving: false, scrap_reason: reason })
       .eq("id", rollId);
-    await db.from("stock_movements").insert({
-      product_id: productId,
-      roll_id: rollId,
-      qty: -(Number(roll.remaining_qty) || 0),
-      kind: "adjust",
-      note: `Remnant scrapped · ${reason}`,
-      created_by: actorId,
-    });
   } else {
     await db
       .from("stock_rolls")
       .update({ usable: call === "usable", needs_shelving: false })
       .eq("id", rollId);
   }
-  await syncRolledOnHand(productId, db);
   refreshStock(productId);
 }
 
@@ -339,19 +310,12 @@ export async function countRoll(formData: FormData): Promise<void> {
   const productId = roll.product_id as string;
   const delta = r2(counted - (Number(roll.remaining_qty) || 0));
   if (delta === 0) return;
-  await db
-    .from("stock_rolls")
-    .update({ remaining_qty: r2(counted), status: counted <= 0 ? "depleted" : "available" })
-    .eq("id", rollId);
-  await db.from("stock_movements").insert({
-    product_id: productId,
-    roll_id: rollId,
-    qty: delta,
-    kind: "adjust",
-    note: `Physical count · counted ${counted} ${roll.unit} (was ${roll.remaining_qty})`,
-    created_by: actorId,
+  await db.rpc("adjust_roll_inventory_safe", {
+    p_roll_id: rollId,
+    p_counted_remaining: r2(counted),
+    p_reason: `Physical count · counted ${counted} ${roll.unit} (was ${roll.remaining_qty})`,
+    p_created_by: actorId,
   });
-  await syncRolledOnHand(productId, db);
   refreshStock(productId);
 }
 
@@ -532,44 +496,28 @@ export async function receiveStockPOLine(formData: FormData): Promise<void> {
     .eq("id", productId);
 
   if (rolled) {
-    const { data: roll } = await db
-      .from("stock_rolls")
-      .insert({
-        product_id: productId,
-        kind: "roll",
-        unit: (it.unit as string) || "sqyd",
-        width_ft: numv(formData.get("width_ft")) || null,
-        initial_qty: recv,
-        remaining_qty: recv,
-        location: str(formData.get("location")) || null,
-        status: "available",
-        source_po_id: poId,
-        created_by: actorId,
-      })
-      .select("id")
-      .single();
-    await db.from("stock_movements").insert({
-      product_id: productId,
-      roll_id: roll?.id ?? null,
-      qty: recv,
-      kind: "receive",
-      note: `Received roll from stock PO · ${recv} ${it.unit}`,
-      created_by: actorId,
+    await db.rpc("receive_inventory_safe", {
+      p_product_id: productId,
+      p_qty: recv,
+      p_note: `Received roll from stock PO · ${recv} ${it.unit}`,
+      p_po_id: poId || null,
+      p_po_item_id: itemId,
+      p_created_by: actorId,
+      p_create_roll: true,
+      p_roll_kind: "roll",
+      p_roll_unit: (it.unit as string) || "sqyd",
+      p_roll_width_ft: numv(formData.get("width_ft")) || null,
+      p_roll_location: str(formData.get("location")) || null,
     });
-    await syncRolledOnHand(productId, db);
   } else {
-    const next = r2((Number(prod?.on_hand) || 0) + recv);
-    await db.from("stock_movements").insert({
-      product_id: productId,
-      qty: recv,
-      kind: "receive",
-      note: `Received from stock PO · balance ${next}`,
-      created_by: actorId,
+    await db.rpc("receive_inventory_safe", {
+      p_product_id: productId,
+      p_qty: recv,
+      p_note: `Received from stock PO`,
+      p_po_id: poId || null,
+      p_po_item_id: itemId,
+      p_created_by: actorId,
     });
-    await db
-      .from("products")
-      .update({ on_hand: next, last_movement_at: new Date().toISOString() })
-      .eq("id", productId);
   }
 
   const newReceived = r2((Number(it.received_qty) || 0) + recv);
@@ -628,17 +576,12 @@ export async function deleteStockPO(formData: FormData): Promise<void> {
     // deleting the rolls below + resyncing).
     if (received > 0 && prod.stock_kind !== "rolled") {
       const next = r2(Math.max(0, (Number(prod.on_hand) || 0) - received));
-      await db.from("stock_movements").insert({
-        product_id: productId,
-        qty: -received,
-        kind: "adjust",
-        note: `Stock PO deleted · reversed ${received} ${it.unit || ""}`.trim(),
-        created_by: actorId,
+      await db.rpc("adjust_inventory_safe", {
+        p_product_id: productId,
+        p_counted_on_hand: next,
+        p_reason: `Stock PO deleted · reversed ${received} ${it.unit || ""}`.trim(),
+        p_created_by: actorId,
       });
-      await db
-        .from("products")
-        .update({ on_hand: next, last_movement_at: new Date().toISOString() })
-        .eq("id", productId);
     }
   }
 
@@ -666,25 +609,24 @@ export async function startTracking(formData: FormData): Promise<void> {
     .update({
       track_stock: true,
       stock_kind: str(formData.get("stock_kind")) === "rolled" ? "rolled" : "discrete",
-      on_hand: numv(formData.get("on_hand")),
+      // on_hand/reserved protected — opening qty via receive_inventory_safe
       reorder_point: numv(formData.get("reorder_point")),
       bin_location: str(formData.get("bin_location")) || null,
-      // Backdate aging to when you actually got it (else now).
       last_movement_at: since
         ? new Date(since).toISOString()
         : new Date().toISOString(),
     })
     .eq("id", id);
-  if (numv(formData.get("on_hand")) > 0) {
+  const opening = numv(formData.get("on_hand"));
+  if (opening > 0) {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    await supabase.from("stock_movements").insert({
-      product_id: id,
-      qty: numv(formData.get("on_hand")),
-      kind: "receive",
-      note: "Opening count",
-      created_by: user?.id ?? null,
+    await supabase.rpc("receive_inventory_safe", {
+      p_product_id: id,
+      p_qty: opening,
+      p_note: "Opening count",
+      p_created_by: user?.id ?? null,
     });
   }
   refresh(id);

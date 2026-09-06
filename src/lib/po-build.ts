@@ -1,5 +1,5 @@
 import { stripRoomFromName } from "@/lib/job-scope";
-import { lineQty } from "@/lib/estimate-calc";
+import { lineOrderQty } from "@/lib/estimate-calc";
 import type { EstimateLineItem } from "@/lib/types";
 
 /** A PO line row derived from estimate lines — the shape (minus po_id/position)
@@ -29,6 +29,8 @@ export interface PoItemRow {
  *  - every other line (hard surface / carton goods / individual cuts) is summed
  *    into one line per product — the same product used across rooms becomes a
  *    single PO line with the total quantity.
+ * Quantities use lineOrderQty (measured qty × waste) so the PO matches what
+ * staging reserves and what the estimate sold — never the bare measurement.
  * Per-piece cut sizes are NOT on the PO order line; they live on the warehouse
  * cut list. Carpet identity (category / roll_width_ft) rides along so the
  * re-sync can find and replace exactly the roll-good rows.
@@ -58,7 +60,7 @@ export function buildPoItemRows(
       l.category ?? "",
       l.roll_width_ft != null ? Number(l.roll_width_ft) : "",
     ].join("|");
-    const qty = Math.round(lineQty(l) * 100) / 100;
+    const qty = Math.round(lineOrderQty(l) * 100) / 100;
     const existing = cutGroups.get(key);
     if (existing) {
       existing.quantity = Math.round((existing.quantity + qty) * 100) / 100;
@@ -90,7 +92,9 @@ export function buildPoItemRows(
     const key = `${l.product_id ?? nameOf(l)}|${width}`;
     const g = rollGroups.get(key) ?? { product_id: l.product_id ?? null, width, sqyd: 0, sample: l };
     // Roll math is in square yards regardless of the line's billing unit.
-    const sqyd = l.measure_unit === "sqyd" ? lineQty(l) : lineQty(l) / 9;
+    // Use order qty (waste in) so the roll covers what was sold/staged.
+    const orderQty = lineOrderQty(l);
+    const sqyd = l.measure_unit === "sqyd" ? orderQty : orderQty / 9;
     g.sqyd += sqyd;
     rollGroups.set(key, g);
   }

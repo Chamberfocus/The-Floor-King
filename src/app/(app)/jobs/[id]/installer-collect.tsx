@@ -42,15 +42,21 @@ export function InstallerCollect({
       fd.set("job_id", jobId);
       fd.set("method", method);
       if (method === "check") fd.set("reference", reference.trim());
-      await collectJobBalance(fd);
-      setOpen(false);
-      setReference("");
-      toast.success(
-        method === "link"
-          ? "Office notified to send a payment link"
-          : "Payment recorded — office notified",
-      );
-      router.refresh();
+      try {
+        await collectJobBalance(fd);
+        setOpen(false);
+        setReference("");
+        toast.success(
+          method === "link"
+            ? "Office notified to send a payment link"
+            : "Payment recorded — office notified",
+        );
+        router.refresh();
+      } catch (e) {
+        toast.error(
+          e instanceof Error ? e.message : "Could not record payment.",
+        );
+      }
     });
 
   return (

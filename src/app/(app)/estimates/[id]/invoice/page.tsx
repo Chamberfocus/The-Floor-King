@@ -5,7 +5,9 @@ import { ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { getEstimate } from "@/lib/data/estimates";
-import { lineTotal } from "@/lib/estimate-calc";
+import { getCurrentApprovalSnapshot } from "@/lib/data/estimate-approvals";
+import { assessInvoiceCommercialGate } from "@/lib/estimate-approval";
+import { snapshotLinesAsEstimateLines } from "@/lib/approval-snapshot-view";
 import { InvoiceLinePicker } from "./invoice-line-picker";
 
 export const metadata: Metadata = { title: "Build invoice" };
@@ -19,14 +21,45 @@ export default async function BuildInvoicePage({
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
 
-  const opts = estimate.options ?? [];
-  const opt =
-    (estimate.accepted_option_id &&
-      opts.find((o) => o.id === estimate.accepted_option_id)) ||
-    opts[0];
-  const lines = opt?.line_items ?? [];
+  const snap = await getCurrentApprovalSnapshot(id);
+  const gate = assessInvoiceCommercialGate({
+    status: estimate.status,
+    approvalStale: Boolean(estimate.approval_stale),
+    hasSnapshot: !!snap,
+  });
 
-  // Compartmentalize the lines by room (job-level items → "Whole job").
+  if (!gate.ok || !snap) {
+    const message = gate.ok
+      ? "This estimate does not have an approval snapshot on file. Review and reapprove it before creating an invoice."
+      : gate.message;
+    return (
+      <div className="mx-auto max-w-2xl">
+        <Link
+          href={`/estimates/${id}`}
+          className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" /> Back to estimate
+        </Link>
+        <PageHeader title="Build invoice" />
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-amber-800 dark:text-amber-200">{message}</p>
+            <Link
+              href={`/estimates/${id}`}
+              className="mt-4 inline-block text-sm font-medium text-primary hover:underline"
+            >
+              Return to estimate
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Picker shows APPROVED snapshot lines — not mutable live estimate lines.
+  const lines = snapshotLinesAsEstimateLines(snap.payload);
+  const byId = new Map(snap.payload.option.lines.map((l) => [l.id, l]));
+
   const groupMap = new Map<
     string,
     { id: string; label: string; amount: number }[]
@@ -37,7 +70,7 @@ export default async function BuildInvoicePage({
     arr.push({
       id: l.id,
       label: l.description || "Line item",
-      amount: lineTotal(l),
+      amount: Number(byId.get(l.id)?.line_total) || 0,
     });
     groupMap.set(room, arr);
   }
@@ -56,14 +89,14 @@ export default async function BuildInvoicePage({
       </Link>
       <PageHeader
         title="Build invoice"
-        description="Pick the items to put on this invoice (e.g. a deposit, or the full job)."
+        description={`Approved commercial charges (v${snap.version}). Pick items for this invoice (e.g. a deposit, or the full job).`}
       />
 
       {lines.length === 0 ? (
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">
-              This estimate has no line items to invoice.
+              This approval has no line items to invoice.
             </p>
           </CardContent>
         </Card>

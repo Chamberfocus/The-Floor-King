@@ -24,6 +24,8 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getDashboardCounts, listMyQueue } from "@/lib/data/customers";
 import { getTodayTasks } from "@/lib/data/day-tasks";
+import { listMyOfficeTasks } from "@/lib/data/ops-glue";
+import { MyOfficeTasksCard } from "./my-office-tasks";
 import { myStopsToday } from "@/lib/data/my-stops";
 import { TodaysStopsList } from "@/components/todays-stops-list";
 import { getActiveJobCount, listActiveInstallJobs, listAssignableUsers } from "@/lib/data/jobs";
@@ -46,6 +48,19 @@ export default async function DashboardPage() {
   const outstanding = await getOutstandingInvoiceCount();
   const queue = await listMyQueue(profile.id);
   const todayTasks = await getTodayTasks();
+  const officeTaskBuckets = await listMyOfficeTasks(profile.id).catch(() => ({
+    overdue: [],
+    dueToday: [],
+    upcoming: [],
+    completed: [],
+  }));
+  const taskAssignees = (await listAssignableUsers())
+    .filter((u) =>
+      ["admin", "office", "sales_manager", "salesman", "scheduler", "warehouse"].includes(
+        u.role,
+      ),
+    )
+    .map((u) => ({ id: u.id, name: u.name }));
   const myStops = await myStopsToday();
   const activeInstalls = await listActiveInstallJobs();
   const installerOptions = activeInstalls.length
@@ -125,6 +140,11 @@ export default async function DashboardPage() {
         </Card>
       ) : null}
 
+      <MyOfficeTasksCard
+        buckets={officeTaskBuckets}
+        canAssign={["admin", "office", "sales_manager"].includes(profile.role)}
+        assignees={taskAssignees}
+      />
       <DayBriefing firstName={firstName} tasks={todayTasks} />
 
       <AskBusiness />

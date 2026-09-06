@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { jobMaterialType, installerCanDoJob, type MaterialType } from "@/lib/job-scope";
+import { boardMaterialTypeFromScopes, installerCanDoJob, type MaterialType } from "@/lib/job-scope";
 import type {
   Customer,
   EstimateLineItem,
@@ -125,15 +125,13 @@ export async function getJob(id: string): Promise<JobDetail | null> {
   let estimate_title: string | null = null;
 
   /**
-   * THE WORK ORDER'S OWN SCOPE.
+   * THE WORK ORDER'S OWN SCOPE (`job_line_items`).
    *
-   * A job used to read the estimate's lines directly, so the work order was
-   * read-only: correcting a measurement meant editing the customer's approved
-   * quote. It now owns a copy (migration 0152) that can diverge from it.
+   * Seeded when the job is created from an approved estimate (Step 3). Staff
+   * edits diverge from the commercial estimate without rewriting it.
    *
-   * Falls back to the estimate's lines when a job has no copy — jobs created
-   * before 0152 ran, and any created from an estimate before the copy is made —
-   * so the work order never comes up empty.
+   * Falls back to the estimate's lines when a job has no copy yet (legacy jobs
+   * before seeding) so the work order never comes up empty.
    */
   const { data: ownLines } = await supabase
     .from("job_line_items")
@@ -251,7 +249,7 @@ export async function listJobFiles(
 }
 
 export interface OpenJobRow extends JobListRow {
-  /** carpet | hard | both | null — derived from the job's line items. */
+  /** carpet | hard | both | null — from job_line_items (operational WO). */
   materialType: MaterialType;
 }
 
@@ -276,31 +274,67 @@ export async function listOpenJobs(
     board_installer_ids?: string[] | null;
   })[];
 
-  // Material type from the line items (categories) — read with the service role
-  // so an installer, whose RLS can't reach estimate lines, still sees the type.
+  // Material type from OPERATIONAL job lines (categories) — what the installer
+  // is actually being sent to install. Service role so crew RLS can't block it.
   // Computed BEFORE filtering so the skill gate below can use it.
-  const optionIds = [...new Set(rows.map((r) => r.option_id).filter(Boolean) as string[])];
-  const typeByOption = new Map<string, MaterialType>();
-  if (optionIds.length) {
+  const typeByJob = new Map<string, MaterialType>();
+  const jobIds = rows.map((r) => r.id);
+  if (jobIds.length) {
     try {
       const admin = createAdminClient();
-      const { data: lines } = await admin
-        .from("estimate_line_items")
-        .select("option_id, category")
-        .in("option_id", optionIds);
-      const byOpt = new Map<string, { category: string | null }[]>();
-      for (const l of lines ?? []) {
-        const arr = byOpt.get(l.option_id as string) ?? [];
+      const { data: jobLines } = await admin
+        .from("job_line_items")
+        .select("job_id, category")
+        .in("job_id", jobIds);
+      const byJob = new Map<string, { category: string | null }[]>();
+      for (const l of jobLines ?? []) {
+        const jid = l.job_id as string;
+        const arr = byJob.get(jid) ?? [];
         arr.push({ category: (l.category as string) ?? null });
-        byOpt.set(l.option_id as string, arr);
+        byJob.set(jid, arr);
       }
-      for (const [oid, items] of byOpt) typeByOption.set(oid, jobMaterialType(items));
+      for (const [jid, items] of byJob) {
+        typeByJob.set(
+          jid,
+          boardMaterialTypeFromScopes({ jobLineCategories: items }),
+        );
+      }
+      // Legacy unseeded jobs: fall back to estimate option categories.
+      const missing = rows.filter((r) => !byJob.has(r.id) && r.option_id);
+      const optionIds = [
+        ...new Set(missing.map((r) => r.option_id).filter(Boolean) as string[]),
+      ];
+      if (optionIds.length) {
+        const { data: estLines } = await admin
+          .from("estimate_line_items")
+          .select("option_id, category")
+          .in("option_id", optionIds);
+        const byOpt = new Map<string, { category: string | null }[]>();
+        for (const l of estLines ?? []) {
+          const arr = byOpt.get(l.option_id as string) ?? [];
+          arr.push({ category: (l.category as string) ?? null });
+          byOpt.set(l.option_id as string, arr);
+        }
+        for (const r of missing) {
+          if (!r.option_id) continue;
+          const items = byOpt.get(r.option_id);
+          if (items) {
+            typeByJob.set(
+              r.id,
+              boardMaterialTypeFromScopes({
+                jobLineCategories: [],
+                estimateFallbackCategories: items,
+              }),
+            );
+          }
+        }
+      }
     } catch {
       /* leave material type null if unreadable */
     }
   }
   const jobType = (r: (typeof rows)[number]): MaterialType =>
-    r.option_id ? (typeByOption.get(r.option_id) ?? null) : null;
+    typeByJob.get(r.id) ?? null;
 
   // A crew viewer sees a posted job when it is TARGETED at them (an explicit
   // office choice always wins), or it is untargeted AND matches their material

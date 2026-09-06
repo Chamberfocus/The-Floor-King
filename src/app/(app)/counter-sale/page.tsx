@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getBusinessSettings } from "@/lib/data/business-settings";
+import { getOrgSettings } from "@/lib/data/org";
 import { createClient } from "@/lib/supabase/server";
 import { CounterSaleForm } from "./counter-sale-form";
 
@@ -21,7 +22,10 @@ export const dynamic = "force-dynamic";
  */
 export default async function CounterSalePage() {
   await requireProfile();
-  const biz = await getBusinessSettings();
+  const [biz, org] = await Promise.all([
+    getBusinessSettings(),
+    getOrgSettings(),
+  ]);
   // There's no org-wide default tax rate, so follow what the quick estimate
   // does: reuse the rate on the most recent estimate. It's the shop's usual
   // rate in practice, and it's still editable on the form.
@@ -42,6 +46,7 @@ export default async function CounterSalePage() {
       <CounterSaleForm
         defaultTaxRate={Number(lastEst?.tax_rate ?? 0) || 0}
         targetMarginPct={Number(biz?.target_gross_margin_pct ?? 40)}
+        freightMarkupPct={Number(org.freight_markup_pct ?? 0) || 0}
       />
     </div>
   );

@@ -22,22 +22,39 @@ export async function createExpense(
   if (!Number.isFinite(amount) || amount <= 0) {
     return { error: "Enter a valid amount." };
   }
+  if (str(formData.get("ack_unlinked")) !== "yes") {
+    return {
+      error:
+        "Confirm this is an already-paid cash/card expense — not a vendor bill you still owe.",
+    };
+  }
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  if (!user) return { error: "You must be signed in." };
 
-  const { error } = await supabase.from("expenses").insert({
-    date: str(formData.get("date")) || new Date().toISOString().slice(0, 10),
-    category: (str(formData.get("category")) || "other") as ExpenseCategory,
-    amount,
-    vendor: str(formData.get("vendor")) || null,
-    note: str(formData.get("note")) || null,
-    job_id: str(formData.get("job_id")) || null,
-    created_by: user?.id ?? null,
+  const { data, error } = await supabase.rpc("record_direct_expense_safe", {
+    p_date: str(formData.get("date")) || new Date().toISOString().slice(0, 10),
+    p_category: (str(formData.get("category")) || "other") as ExpenseCategory,
+    p_amount: amount,
+    p_vendor: str(formData.get("vendor")) || null,
+    p_note: str(formData.get("note")) || null,
+    p_job_id: str(formData.get("job_id")) || null,
+    p_bill_id: null,
+    p_created_by: user.id,
+    p_idempotency_key: `direct-exp:${crypto.randomUUID()}`,
+    p_supplier_id: null,
+    p_vendor_invoice_ref: str(formData.get("vendor_invoice")) || null,
+    p_ack_unlinked: true,
   });
   if (error) return { error: error.message };
+  const res = data as { ok?: boolean; error?: string; skipped?: boolean };
+  if (res?.ok === false) return { error: res.error || "Could not record expense." };
+  if (res?.skipped) {
+    return { error: "That cost belongs on a vendor bill, not a direct expense." };
+  }
 
   revalidatePath("/financials/expenses");
   revalidatePath("/financials");
@@ -99,11 +116,8 @@ export async function extractBillDocument(
   };
 }
 
-export async function deleteExpense(formData: FormData): Promise<void> {
-  const id = str(formData.get("id"));
-  if (!id) return;
-  const supabase = await createClient();
-  await supabase.from("expenses").delete().eq("id", id);
-  revalidatePath("/financials/expenses");
-  revalidatePath("/financials");
+export async function deleteExpense(_formData: FormData): Promise<void> {
+  // F6-P3B: authenticated DELETE on expenses is revoked. Expense reversal is
+  // deferred — financial history must not be hard-deleted from the UI.
+  return;
 }

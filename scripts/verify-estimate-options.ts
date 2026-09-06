@@ -1,8 +1,13 @@
-// Verifies multi-option estimates end to end against the LIVE db, using the REAL
-// shipping functions. Builds ONE estimate with two options — "Standard" and
-// "With Subfloor & Moisture" (the extra work flagged optional) — recommends one,
-// checks owner per-option cost/margin, the firewall-safe customer scope per
-// option, then approves one and confirms ONLY that option flows forward.
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + SUPABASE_SERVICE_ROLE_KEY. Do not default to production.
+//
+// Verifies multi-option estimates against a live DB: two options on one
+// estimate, recommend one, per-option totals, customer scope firewall, and
+// accepted_option_id → job scope flow.
+//
+// Does NOT verify Step 6 approval snapshots. Raw status='approved' is NOT used
+// as a stand-in for recordEstimateApproval / snapshot creation — use
+// scripts/smoke-step6-approval.ts for that.
 import { readFileSync } from "node:fs";
 for (const line of readFileSync(".env.local", "utf8").split("\n")) {
   const t = line.trim(); if (!t || t.startsWith("#") || !t.includes("=")) continue;
@@ -10,6 +15,7 @@ for (const line of readFileSync(".env.local", "utf8").split("\n")) {
 }
 import { createClient } from "@supabase/supabase-js";
 import { optionTotalsWithDiscount, lineCost, marginPct } from "@/lib/estimate-calc";
+import { jobProfit } from "@/lib/job-profit";
 import { buildCustomerScope } from "@/lib/customer-scope";
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -68,11 +74,17 @@ async function run() {
   ok(tB.total > tA.total, "each option carries its OWN total (B > A)");
 
   // 2) Owner per-option cost / margin.
+  // Direct line GM (bare cost) is labeled as such — all-in uses jobProfit.
   const costA = A.reduce((s: number, l: any) => s + lineCost(l), 0);
   const costB = B.reduce((s: number, l: any) => s + lineCost(l), 0);
-  console.log(`  Owner — A: cost ${money(costA)}, margin ${Math.round(marginPct(tA.subtotal, costA))}%  |  B: cost ${money(costB)}, margin ${Math.round(marginPct(tB.subtotal, costB))}%`);
+  const allInA = jobProfit(A as any[], { freightMarkupPct: 0, fuelFee: 0, carAllowance: 0, commissionPct: 0 });
+  const allInB = jobProfit(B as any[], { freightMarkupPct: 0, fuelFee: 0, carAllowance: 0, commissionPct: 0 });
+  console.log(
+    `  Owner — A: direct cost ${money(costA)}, direct GM ${Math.round(marginPct(tA.subtotal, costA))}% · all-in ${Math.round(allInA.margin)}%  |  B: direct ${money(costB)}, direct GM ${Math.round(marginPct(tB.subtotal, costB))}% · all-in ${Math.round(allInB.margin)}%`,
+  );
   ok(costA > 0 && costB > costA, "per-option cost computed (B costs more than A)");
-  ok(marginPct(tA.subtotal, costA) > 0 && marginPct(tB.subtotal, costB) > 0, "per-option margin computed for both");
+  ok(allInA.margin > 0 && allInB.margin > 0, "per-option all-in jobProfit margin computed for both");
+  ok(Math.abs(allInA.cost - costA) < 0.01, "all-in cost matches direct when freight/fees are 0 (A)");
 
   // 3) Customer scope differs per option — firewall-safe (words, no numbers).
   const scopeA = JSON.stringify(buildCustomerScope(A as any[], null)).toLowerCase();
@@ -91,18 +103,19 @@ async function run() {
   const bWithout = optionTotalsWithDiscount(B.filter((l: any) => !l.is_optional) as any[], 8, "amount", 0);
   ok(Math.abs(bWithout.subtotal - tA.subtotal) < 0.01, "B minus its optional lines equals Option A (the 'without add-ons' version)");
 
-  // 6) Approve Option B → ONLY B flows forward (accepted option drives job/PO/WO).
-  await db.from("estimates").update({ status: "approved", accepted_option_id: optBId }).eq("id", estId);
+  // 6) Accepted option B drives job/PO/WO scope (option selection flow only).
+  // NOT Step 6 approval — we do not create an approval snapshot here.
+  await db.from("estimates").update({ accepted_option_id: optBId }).eq("id", estId);
   const { data: est2 } = await db.from("estimates").select("accepted_option_id").eq("id", estId).maybeSingle();
-  // Mirror ensureJobForEstimate / createPOFromEstimate: use accepted_option_id.
   const flowingOptionId = (est2?.accepted_option_id as string) || optAId;
   const flowing = await linesFor(flowingOptionId);
   const flowingHasSubfloor = flowing.some((l: any) => /subfloor/i.test(l.description));
-  ok(flowingOptionId === optBId, "approved estimate → the flowing option is B (not A, not both)");
-  ok(flowingHasSubfloor, "the work order / PO scope is B's (includes subfloor)");
+  ok(flowingOptionId === optBId, "accepted_option_id → flowing option is B (not A, not both)");
+  ok(flowingHasSubfloor, "job/PO commercial scope candidate is B's (includes subfloor)");
   ok(!flowing.some((l: any) => A.length && flowing.length === A.length), "flowing scope is a SINGLE option, not all options combined", `${flowing.length} lines`);
 
-  // The job the portal auto-creates would carry option_id = B.
+  // Job points at option B. Operational lines would be seeded by the app on
+  // ensureJobForEstimate; this script only asserts option_id linkage.
   const { data: j } = await db.from("jobs").insert({ customer_id: custId, estimate_id: estId, option_id: flowingOptionId, title: `${TAG} job`, status: "scheduled" }).select("id, option_id").single();
   jobId = j!.id;
   ok(j!.option_id === optBId, "created job.option_id = Option B → WO/PO build from B only");

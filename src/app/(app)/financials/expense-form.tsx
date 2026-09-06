@@ -129,6 +129,17 @@ export function ExpenseForm({
         <Label htmlFor="note">Note</Label>
         <Input id="note" name="note" />
       </div>
+      <div className="space-y-1 sm:col-span-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+        <p className="font-medium">Already paid — not a vendor bill</p>
+        <p className="text-muted-foreground">
+          Use Bills when you still owe the vendor. This screen is only for cash/card/bank
+          costs that are already settled.
+        </p>
+        <label className="mt-2 flex items-start gap-2 text-sm">
+          <input type="checkbox" name="ack_unlinked" value="yes" className="mt-1" required />
+          <span>I confirm this is an already-paid expense, not an unpaid vendor invoice.</span>
+        </label>
+      </div>
       <div className="space-y-1 sm:col-span-2">
         <Label>Link to a job (optional)</Label>
         <SearchPicker

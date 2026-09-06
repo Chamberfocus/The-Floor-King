@@ -10,8 +10,23 @@ import { syncPosForEstimate } from "@/app/(app)/purchase-orders/actions";
 import {
   num,
   type SaveEstimateInput,
+  type SaveLineInput,
   type WizardSubmit,
 } from "@/lib/estimate-calc";
+import {
+  planEstimateLinePersist,
+  stripLineIdentityForCopy,
+} from "@/lib/estimate-line-persist";
+import {
+  ACCEPTED_OPTION_PROTECTED_MESSAGE,
+  isMaterialCommercialChange,
+  optionRemovalBlocked,
+  protectedOptionIds,
+} from "@/lib/estimate-approval";
+import {
+  lineRowToRpcJson,
+  recordEstimateApproval,
+} from "@/lib/data/estimate-approvals";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import {
   moveToAutoActionStage,
@@ -31,6 +46,82 @@ function toNumOrNull(v: string | number | null): number | null {
   if (v === null || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** DB columns for one estimate line (no id — inserts get a new UUID; updates set by .eq). */
+function estimateLineColumns(line: SaveLineInput, optionId: string, position: number) {
+  // A labor line charges labor only — never persist a material rate/cost on
+  // it (that's what was double-charging installation labor).
+  const isLabor = (line.category || null) === "labor";
+  return {
+    option_id: optionId,
+    position,
+    room: line.room || null,
+    description: line.description || "",
+    note: line.note?.trim() || null,
+    line_type: line.line_type,
+    category: line.category || null,
+    sqft: toNumOrNull(line.sqft),
+    length_in: toNumOrNull(line.length_in),
+    width_in: toNumOrNull(line.width_in),
+    measure_unit: line.measure_unit === "sqyd" ? "sqyd" : "sqft",
+    material_rate: isLabor ? null : toNumOrNull(line.material_rate),
+    labor_rate: toNumOrNull(line.labor_rate),
+    installed_rate: toNumOrNull(line.installed_rate),
+    flat_amount: toNumOrNull(line.flat_amount),
+    waste_pct: toNumOrNull(line.waste_pct ?? null) ?? 0,
+    product_id: line.product_id || null,
+    manufacturer: line.manufacturer || null,
+    style: line.style || null,
+    color: line.color || null,
+    item_no: line.item_no || null,
+    material_cost: isLabor ? null : toNumOrNull(line.material_cost ?? null),
+    labor_cost: toNumOrNull(line.labor_cost ?? null),
+    quantity: toNumOrNull(line.quantity ?? null),
+    unit: line.unit || null,
+    from_stock: !!line.from_stock,
+    margin_pct: toNumOrNull(line.margin_pct ?? null),
+    order_as_roll: !!line.order_as_roll,
+    roll_width_ft: toNumOrNull(line.roll_width_ft ?? null),
+    sqft_per_box: toNumOrNull(line.sqft_per_box ?? null),
+    is_fill: !!line.is_fill,
+    is_optional: !!line.is_optional,
+    coverage_sqft: toNumOrNull(line.coverage_sqft ?? null),
+    coverage_thickness_in: toNumOrNull(line.coverage_thickness_in ?? null),
+    prep_thickness_in: toNumOrNull(line.prep_thickness_in ?? null),
+    prep_key: line.prep_key || null,
+    // First-class measured pieces (areas / carpet cuts). Labor isn't measured.
+    measurements:
+      !isLabor && line.measurements && line.measurements.length
+        ? line.measurements
+        : null,
+  };
+}
+
+async function applyOptionLinesAtomic(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  optionId: string,
+  updates: Array<{ id: string; row: ReturnType<typeof estimateLineColumns> }>,
+  inserts: ReturnType<typeof estimateLineColumns>[],
+  deleteIds: string[],
+): Promise<string | null> {
+  const { error } = await supabase.rpc("apply_estimate_option_lines", {
+    p_option_id: optionId,
+    p_updates: updates.map((u) => ({
+      id: u.id,
+      row: lineRowToRpcJson(u.row as unknown as Record<string, unknown>),
+    })),
+    p_inserts: inserts.map((r) =>
+      lineRowToRpcJson(r as unknown as Record<string, unknown>),
+    ),
+    p_delete_ids: deleteIds,
+  });
+  if (!error) return null;
+  // Migration 0155 not applied yet — refuse rather than risk partial writes.
+  if (/could not find the function|schema cache|does not exist/i.test(error.message)) {
+    return "Estimate line save requires database migration 0155. Run it in the Supabase SQL editor, then try again.";
+  }
+  return error.message;
 }
 
 /** Quote expiration date = today + the org's quote_valid_days (default 30). */
@@ -100,8 +191,57 @@ export async function createEstimate(formData: FormData): Promise<void> {
 export async function saveEstimate(
   estimateId: string,
   input: SaveEstimateInput,
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; reapprovalRequired?: boolean }> {
   const supabase = await createClient();
+
+  const { data: beforeEst } = await supabase
+    .from("estimates")
+    .select(
+      "id, customer_id, status, tax_rate, discount_kind, discount_value, accepted_option_id, approval_stale, current_approval_snapshot_id",
+    )
+    .eq("id", estimateId)
+    .maybeSingle();
+  if (!beforeEst) return { error: "Estimate not found." };
+
+  const acceptedOptionId = (beforeEst.accepted_option_id as string | null) ?? null;
+
+  // Capture commercial fingerprint for the accepted option BEFORE writes.
+  let beforeAcceptedLines: Record<string, unknown>[] = [];
+  if (acceptedOptionId) {
+    const { data } = await supabase
+      .from("estimate_line_items")
+      .select("*")
+      .eq("option_id", acceptedOptionId)
+      .order("position", { ascending: true });
+    beforeAcceptedLines = (data ?? []) as Record<string, unknown>[];
+  }
+
+  const { data: jobOpts } = await supabase
+    .from("jobs")
+    .select("option_id")
+    .eq("estimate_id", estimateId)
+    .neq("status", "cancelled");
+  const jobOptionIds = (jobOpts ?? [])
+    .map((j) => j.option_id as string | null)
+    .filter((id): id is string => !!id);
+
+  const protectedIds = protectedOptionIds({
+    status: beforeEst.status as string,
+    acceptedOptionId,
+    jobOptionIds,
+  });
+
+  // Load existing options early so accepted/job-linked removal fails before any write.
+  const { data: existingOpts } = await supabase
+    .from("estimate_options")
+    .select("id")
+    .eq("estimate_id", estimateId)
+    .order("position", { ascending: true });
+  const existingIds = (existingOpts ?? []).map((o) => o.id as string);
+  const removedIds = existingIds.slice(input.options.length);
+  if (optionRemovalBlocked(removedIds, protectedIds)) {
+    return { error: ACCEPTED_OPTION_PROTECTED_MESSAGE };
+  }
 
   const { error: updateError } = await supabase
     .from("estimates")
@@ -111,34 +251,28 @@ export async function saveEstimate(
       presentation: input.presentation,
       notes: input.notes || null,
       job_description: input.job_description || null,
-      target_margin: input.target_margin != null && input.target_margin !== "" ? num(input.target_margin) : null,
+      target_margin:
+        input.target_margin != null && input.target_margin !== ""
+          ? num(input.target_margin)
+          : null,
       discount_kind: input.discount_kind === "percent" ? "percent" : "amount",
       discount_value: num(input.discount_value),
     })
     .eq("id", estimateId);
   if (updateError) return { error: updateError.message };
 
-  // Rebuild options + lines. CRITICAL: reuse existing option rows by position
-  // instead of delete-and-recreate. jobs.option_id and estimates.accepted_option_id
-  // reference an option; recreating options with new ids would cascade
-  // jobs.option_id to NULL and blank the job's scope / warehouse materials for an
-  // already-approved job. Reusing ids keeps those references intact.
-  const { data: existingOpts } = await supabase
-    .from("estimate_options")
-    .select("id")
-    .eq("estimate_id", estimateId)
-    .order("position", { ascending: true });
-  const existingIds = (existingOpts ?? []).map((o) => o.id as string);
+  // Rebuild options + lines. CRITICAL: reuse existing option rows by position.
+  // Line items: Step 5 stable ids via transactional RPC (Step 6). After a job
+  // exists, ops still read job_line_items — commercial save must not rewrite them.
 
-  // The persisted option id at each position — so the owner-recommended option
-  // (tracked by index in the builder) resolves to a stable id after the save.
   const savedOptionIds: string[] = [];
+  /** After-save lines for the accepted option (from payload when that option is saved). */
+  let afterAcceptedLines: SaveLineInput[] | null = null;
 
   for (let i = 0; i < input.options.length; i++) {
     const option = input.options[i];
     let optionId = existingIds[i];
     if (optionId) {
-      // Update the option in place (keeps its id + any job/accepted reference).
       const { error: optUpErr } = await supabase
         .from("estimate_options")
         .update({
@@ -148,8 +282,6 @@ export async function saveEstimate(
         })
         .eq("id", optionId);
       if (optUpErr) return { error: optUpErr.message };
-      // Replace this option's line items (lines reference option_id only).
-      await supabase.from("estimate_line_items").delete().eq("option_id", optionId);
     } else {
       const { data: optionRow, error: optionError } = await supabase
         .from("estimate_options")
@@ -167,70 +299,39 @@ export async function saveEstimate(
       optionId = optionRow.id as string;
     }
     savedOptionIds[i] = optionId;
-
-    if (option.lines.length) {
-      const lineRows = option.lines.map((line, j) => {
-        // A labor line charges labor only — never persist a material rate/cost on
-        // it (that's what was double-charging installation labor).
-        const isLabor = (line.category || null) === "labor";
-        return {
-        option_id: optionId,
-        position: j,
-        room: line.room || null,
-        description: line.description || "",
-        note: line.note?.trim() || null,
-        line_type: line.line_type,
-        category: line.category || null,
-        sqft: toNumOrNull(line.sqft),
-        length_in: toNumOrNull(line.length_in),
-        width_in: toNumOrNull(line.width_in),
-        measure_unit: line.measure_unit === "sqyd" ? "sqyd" : "sqft",
-        material_rate: isLabor ? null : toNumOrNull(line.material_rate),
-        labor_rate: toNumOrNull(line.labor_rate),
-        installed_rate: toNumOrNull(line.installed_rate),
-        flat_amount: toNumOrNull(line.flat_amount),
-        waste_pct: toNumOrNull(line.waste_pct ?? null) ?? 0,
-        product_id: line.product_id || null,
-        manufacturer: line.manufacturer || null,
-        style: line.style || null,
-        color: line.color || null,
-        item_no: line.item_no || null,
-        material_cost: isLabor ? null : toNumOrNull(line.material_cost ?? null),
-        labor_cost: toNumOrNull(line.labor_cost ?? null),
-        quantity: toNumOrNull(line.quantity ?? null),
-        unit: line.unit || null,
-        from_stock: !!line.from_stock,
-        margin_pct: toNumOrNull(line.margin_pct ?? null),
-        order_as_roll: !!line.order_as_roll,
-        roll_width_ft: toNumOrNull(line.roll_width_ft ?? null),
-        sqft_per_box: toNumOrNull(line.sqft_per_box ?? null),
-        is_fill: !!line.is_fill,
-        is_optional: !!line.is_optional,
-        coverage_sqft: toNumOrNull(line.coverage_sqft ?? null),
-        coverage_thickness_in: toNumOrNull(line.coverage_thickness_in ?? null),
-        prep_thickness_in: toNumOrNull(line.prep_thickness_in ?? null),
-        prep_key: line.prep_key || null,
-        // First-class measured pieces (areas / carpet cuts). Labor isn't measured.
-        measurements:
-          !isLabor && line.measurements && line.measurements.length
-            ? line.measurements
-            : null,
-        };
-      });
-      let { error: lineError } = await supabase
-        .from("estimate_line_items")
-        .insert(lineRows);
-      if (lineError) {
-        // Fallback for before the line-note (0110) / measurements (0128) columns
-        // are run — save the rest so the estimate still persists.
-        const legacy = lineRows.map(({ note: _n, measurements: _m, ...rest }) => rest);
-        ({ error: lineError } = await supabase.from("estimate_line_items").insert(legacy));
-      }
-      if (lineError) return { error: lineError.message };
+    if (acceptedOptionId && optionId === acceptedOptionId) {
+      afterAcceptedLines = option.lines;
     }
+
+    const { data: existingLineRows } = await supabase
+      .from("estimate_line_items")
+      .select("id")
+      .eq("option_id", optionId);
+    const existingLineIds = (existingLineRows ?? []).map((r) => r.id as string);
+
+    const plan = planEstimateLinePersist(
+      existingLineIds,
+      option.lines.map((l) => l.id),
+    );
+    if (!plan.ok) return { error: plan.error };
+
+    const updates = plan.toUpdate.map(({ index, id }) => ({
+      id,
+      row: estimateLineColumns(option.lines[index], optionId, index),
+    }));
+    const inserts = plan.toInsert.map((index) =>
+      estimateLineColumns(option.lines[index], optionId, index),
+    );
+    const applyErr = await applyOptionLinesAtomic(
+      supabase,
+      optionId,
+      updates,
+      inserts,
+      plan.toDelete,
+    );
+    if (applyErr) return { error: applyErr };
   }
 
-  // Resolve the owner-recommended option (tracked by index) to its saved id.
   const recIdx = input.recommended_index;
   const recommendedId =
     recIdx != null && recIdx >= 0 && recIdx < savedOptionIds.length
@@ -241,22 +342,70 @@ export async function saveEstimate(
     .update({ recommended_option_id: recommendedId })
     .eq("id", estimateId);
 
-  // Options removed in this edit (existing rows beyond the new count).
-  const removedIds = existingIds.slice(input.options.length);
   if (removedIds.length) {
+    if (optionRemovalBlocked(removedIds, protectedIds)) {
+      return { error: ACCEPTED_OPTION_PROTECTED_MESSAGE };
+    }
     await supabase.from("estimate_options").delete().in("id", removedIds);
   }
 
-  // Editing an approved estimate's scope changes the linked job's materials
-  // (getJobMaterials reads live by option_id), so refresh those surfaces too.
+  // Material commercial change after approval → require reapproval (R1/R6).
+  // Previous approval snapshots stay immutable. Job / invoice / PO untouched.
+  let reapprovalRequired = false;
+  const wasApproved = beforeEst.status === "approved";
+  const hasApprovalHistory =
+    !!beforeEst.current_approval_snapshot_id ||
+    wasApproved ||
+    !!beforeEst.approval_stale;
+
+  if (hasApprovalHistory && acceptedOptionId) {
+    let afterLines: SaveLineInput[] | Record<string, unknown>[] =
+      afterAcceptedLines ?? [];
+    if (!afterAcceptedLines) {
+      const { data } = await supabase
+        .from("estimate_line_items")
+        .select("*")
+        .eq("option_id", acceptedOptionId)
+        .order("position", { ascending: true });
+      afterLines = (data ?? []) as Record<string, unknown>[];
+    }
+
+    const material = isMaterialCommercialChange({
+      beforeHeader: {
+        tax_rate: beforeEst.tax_rate,
+        discount_kind: beforeEst.discount_kind,
+        discount_value: beforeEst.discount_value,
+        accepted_option_id: acceptedOptionId,
+      },
+      afterHeader: {
+        tax_rate: input.tax_rate,
+        discount_kind: input.discount_kind,
+        discount_value: input.discount_value,
+        accepted_option_id: acceptedOptionId,
+      },
+      beforeLines: beforeAcceptedLines,
+      afterLines: afterLines as Parameters<
+        typeof isMaterialCommercialChange
+      >[0]["afterLines"],
+    });
+
+    if (material) {
+      reapprovalRequired = true;
+      await supabase
+        .from("estimates")
+        .update({
+          status: "sent",
+          approval_stale: true,
+        })
+        .eq("id", estimateId);
+    }
+  }
+
   const { data: est } = await supabase
     .from("estimates")
     .select("customer_id")
     .eq("id", estimateId)
     .maybeSingle();
-  // Carpet cuts are the single source: re-derive any linked PO's ordered yardage
-  // so the PO's "Order qty" tracks the edited cuts automatically (no re-entry).
-  // Work order / staging read the cuts live, so they need no push.
   await syncPosForEstimate(estimateId);
 
   revalidatePath(`/estimates/${estimateId}`);
@@ -266,7 +415,8 @@ export async function saveEstimate(
   revalidatePath("/jobs");
   revalidatePath("/warehouse");
   revalidatePath("/purchase-orders");
-  return { error: null };
+  revalidatePath(`/portal/estimates/${estimateId}`);
+  return { error: null, reapprovalRequired };
 }
 
 /** Move an estimate through its status workflow. */
@@ -296,7 +446,31 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
   }
 
   const supabase = await createClient();
-  await supabase.from("estimates").update(patch).eq("id", id);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (status === "approved") {
+    // Immutable snapshot + audit (Step 6). Creates a NEW version; never overwrites.
+    // Must succeed as a unit — never leave status=approved without a snapshot.
+    const accepted = str(formData.get("accepted_option_id")) || null;
+    const snap = await recordEstimateApproval({
+      estimateId: id,
+      acceptedOptionId: accepted,
+      source: "staff",
+      approvedByUserId: user?.id ?? null,
+    });
+    if (!snap.snapshotId) {
+      redirect(
+        `/estimates/${id}?approval_error=${encodeURIComponent(
+          snap.error ||
+            "Approval could not be completed — the approval record could not be saved.",
+        )}`,
+      );
+    }
+  } else {
+    await supabase.from("estimates").update(patch).eq("id", id);
+  }
 
   if (status === "declined") await onEstimateDeclined(supabase, id);
 
@@ -773,7 +947,12 @@ export async function unapproveEstimate(
 
   await supabase
     .from("estimates")
-    .update({ status: "sent", accepted_option_id: null })
+    .update({
+      status: "sent",
+      accepted_option_id: null,
+      current_approval_snapshot_id: null,
+      approval_stale: false,
+    })
     .eq("id", id);
 
   // Put the customer back where they were: awaiting an answer, not Won. The
@@ -1171,11 +1350,7 @@ export async function sendEstimateById(
 
 /** Strip the per-row identity so a line item can be re-inserted under a new option. */
 function copyLineRow(line: Record<string, unknown>, optionId: string) {
-  const row: Record<string, unknown> = { ...line, option_id: optionId };
-  delete row.id;
-  delete row.created_at;
-  delete row.updated_at;
-  return row;
+  return stripLineIdentityForCopy(line, optionId);
 }
 
 /** Copy an option (good/better/best) into a new option on the SAME estimate. */

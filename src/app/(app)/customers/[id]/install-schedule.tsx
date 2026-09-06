@@ -63,6 +63,8 @@ export interface InstallScheduleProps {
   preferences?: string[];
   /** Crew-posted unavailability (redacted), to warn before double-booking. */
   availability?: BookingBlock[];
+  /** False when job has material need and warehouse has not marked ready. */
+  materialsReady?: boolean;
 }
 
 /**
@@ -81,6 +83,7 @@ export function InstallSchedule({
   arrivalWindows,
   preferences = [],
   availability = [],
+  materialsReady = true,
 }: InstallScheduleProps) {
   const redirectTo = `/customers/${customerId}#jobs`;
   const windowLabel = schedule.window
@@ -96,6 +99,12 @@ export function InstallSchedule({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {!materialsReady ? (
+          <div className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
+            Materials are not warehouse-ready. Booking requires an override reason
+            (server-enforced). Prefer waiting until the warehouse marks this job ready.
+          </div>
+        ) : null}
         {/* The customer's requested dates (a request — confirm one below). */}
         {!schedule.date && preferences.length ? (
           <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
@@ -187,6 +196,19 @@ export function InstallSchedule({
                   <input type="hidden" name="start" value={sug.start} />
                   <input type="hidden" name="end" value={sug.end} />
                   <input type="hidden" name="redirect_to" value={redirectTo} />
+                  {!materialsReady ? (
+                    <div className="w-full sm:w-64">
+                      <label className="mb-1 block text-xs text-muted-foreground">
+                        Materials override reason
+                      </label>
+                      <input
+                        name="materials_override_reason"
+                        required
+                        placeholder="Why schedule before materials are ready?"
+                        className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+                      />
+                    </div>
+                  ) : null}
                   <ArrivalWindowField
                     label="Arrival window"
                     combinedName="arrival_window"
@@ -221,6 +243,7 @@ export function InstallSchedule({
           installerUsers={installerUsers}
           arrivalWindows={arrivalWindows}
           availability={availability}
+          materialsReady={materialsReady}
         />
       </CardContent>
     </Card>

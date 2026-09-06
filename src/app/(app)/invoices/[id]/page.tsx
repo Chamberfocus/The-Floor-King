@@ -14,23 +14,27 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { SendToClient } from "@/components/send-to-client";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
-import { getInvoice, amountPaid, getInvoiceScope } from "@/lib/data/invoices";
+import { getInvoice, amountPaid, amountCredited, getInvoiceScope } from "@/lib/data/invoices";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { getInvoiceProfit } from "@/lib/data/finance";
 import { requireProfile } from "@/lib/auth";
 import { invoiceTotals } from "@/lib/invoice-calc";
+import { effectiveInvoiceBalance } from "@/lib/credit-ar";
 import { cn } from "@/lib/utils";
 import { formatDate, formatMoney } from "@/lib/format";
-import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@/lib/types";
+import { PAYMENT_METHOD_LABELS, INVOICE_COMMERCIAL_KIND_LABELS, type PaymentMethod } from "@/lib/types";
 import { InvoiceBuilder } from "../invoice-builder";
 import { AutoPrint } from "@/components/auto-print";
 import {
   recordPayment,
-  deletePayment,
+  voidPayment,
   deleteInvoice,
   emailInvoice,
 } from "../actions";
+import { PaymentIdempotencyField } from "../payment-idempotency-field";
+import { applyCreditToInvoice } from "@/app/(app)/credits/actions";
+import { getCustomerCreditSummary, memoAvailable } from "@/lib/data/credits";
 
 export const metadata: Metadata = { title: "Invoice" };
 
@@ -42,22 +46,36 @@ export default async function InvoicePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; preview?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string; payment_error?: string }>;
 }) {
   const { id } = await params;
-  const { print, preview: previewParam } = await searchParams;
+  const { print, preview: previewParam, payment_error: paymentError } = await searchParams;
   const preview = previewParam === "1";
   const invoice = await getInvoice(id);
   if (!invoice) notFound();
 
   const customer = await getCustomer(invoice.customer_id);
   const org = await getOrgSettings();
+  const profile = await requireProfile();
   const invoiceScope = await getInvoiceScope(invoice);
   const paid = amountPaid(invoice);
+  const credited = amountCredited(invoice);
   const totals = invoiceTotals(invoice.items ?? [], invoice.tax_rate, paid);
+  const effective = effectiveInvoiceBalance({
+    items: invoice.items ?? [],
+    taxRate: invoice.tax_rate,
+    amountPaid: paid,
+    appliedCredits: credited,
+  });
+  const creditSummary =
+    profile.role === "admin" || profile.role === "office"
+      ? await getCustomerCreditSummary(invoice.customer_id).catch(() => null)
+      : null;
+  const availableCredits = (creditSummary?.memos ?? []).filter(
+    (m) => m.status === "issued" && memoAvailable(m) > 0.005,
+  );
   // Owner-only profit view (fuel + car + commission), same structure as the
   // estimate. Never computed for non-owners; never shown on the printed invoice.
-  const profile = await requireProfile();
   const invProfit =
     profile.role === "admin" && !preview
       ? await getInvoiceProfit(invoice)
@@ -84,6 +102,11 @@ export default async function InvoicePage({
               {invoice.number || "Invoice"}
             </h1>
             <InvoiceStatusBadge status={invoice.status} />
+            {invoice.commercial_kind ? (
+              <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                {INVOICE_COMMERCIAL_KIND_LABELS[invoice.commercial_kind]}
+              </span>
+            ) : null}
           </div>
           <p className="text-sm text-muted-foreground">
             {customer ? (
@@ -129,9 +152,10 @@ export default async function InvoicePage({
         <Card className="mt-2 border-dashed print:hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">
-              Profit{" "}
+              Estimated profit{" "}
               <span className="text-xs font-normal text-muted-foreground">
-                (internal — never shown to the customer)
+                (estimate costs — not realized job P&amp;L; never shown to the
+                customer)
               </span>
             </CardTitle>
           </CardHeader>
@@ -177,7 +201,7 @@ export default async function InvoicePage({
                 </div>
               ) : null}
               <div className="mt-1 flex justify-between border-t pt-1 font-semibold">
-                <span>Profit</span>
+                <span>Estimated profit</span>
                 <span
                   className={cn(
                     "tabular-nums",
@@ -211,53 +235,118 @@ export default async function InvoicePage({
           <CardTitle className="text-base">Payments</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {paymentError ? (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {paymentError}
+            </p>
+          ) : null}
           <div className="rounded-md bg-muted p-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Total</span>
-              <span>{formatMoney(totals.total)}</span>
+              <span className="text-muted-foreground">Invoice total</span>
+              <span>{formatMoney(effective.total)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Paid</span>
-              <span>{formatMoney(totals.paid)}</span>
+              <span className="text-muted-foreground">Payments</span>
+              <span>{formatMoney(effective.paid)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Credits applied</span>
+              <span>{formatMoney(effective.credited)}</span>
             </div>
             <div className="mt-1 flex justify-between border-t pt-1 text-base font-semibold">
-              <span>Balance due</span>
-              <span>{formatMoney(totals.balance)}</span>
+              <span>Amount due</span>
+              <span>{formatMoney(effective.amountDue)}</span>
             </div>
           </div>
 
+          {(invoice.creditApplications ?? []).some(
+            (a) => (a.status ?? "active") !== "void",
+          ) ? (
+            <ul className="divide-y text-sm">
+              {(invoice.creditApplications ?? [])
+                .filter((a) => (a.status ?? "active") !== "void")
+                .map((a) => (
+                  <li key={a.id} className="py-2 text-muted-foreground">
+                    Credit applied · {formatMoney(a.amount)}
+                  </li>
+                ))}
+            </ul>
+          ) : null}
+
+          {availableCredits.length && effective.amountDue > 0.005 ? (
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="text-sm font-medium">Apply customer credit</p>
+              {availableCredits.map((m) => {
+                const avail = memoAvailable(m);
+                const applyMax = Math.min(avail, effective.amountDue);
+                return (
+                  <form
+                    key={m.id}
+                    action={applyCreditToInvoice}
+                    className="flex flex-wrap items-end gap-2"
+                  >
+                    <input type="hidden" name="credit_memo_id" value={m.id} />
+                    <input type="hidden" name="invoice_id" value={invoice.id} />
+                    <input
+                      type="hidden"
+                      name="customer_id"
+                      value={invoice.customer_id}
+                    />
+                    <input type="hidden" name="amount" value={applyMax.toFixed(2)} />
+                    <span className="text-xs text-muted-foreground">
+                      {formatMoney(avail)} available
+                      {m.reason ? ` · ${m.reason.slice(0, 60)}` : ""}
+                    </span>
+                    <Button type="submit" size="sm" variant="outline">
+                      Apply {formatMoney(applyMax)}
+                    </Button>
+                  </form>
+                );
+              })}
+            </div>
+          ) : null}
+
           {(invoice.payments ?? []).length ? (
             <ul className="divide-y text-sm">
-              {(invoice.payments ?? []).map((p) => (
+              {(invoice.payments ?? []).map((p) => {
+                const isVoid = (p.status ?? "active") === "void";
+                return (
                 <li
                   key={p.id}
                   className="flex items-center justify-between gap-3 py-2"
                 >
                   <div>
-                    <span className="font-medium">{formatMoney(p.amount)}</span>{" "}
+                    <span className={`font-medium${isVoid ? " line-through text-muted-foreground" : ""}`}>
+                      {formatMoney(p.amount)}
+                    </span>{" "}
                     <span className="text-muted-foreground">
                       · {PAYMENT_METHOD_LABELS[p.method]}
                       {p.paid_at ? ` · ${formatDate(p.paid_at)}` : ""}
                       {p.reference ? ` · ${p.reference}` : ""}
+                      {isVoid ? " · Voided" : ""}
                     </span>
                   </div>
-                  <form action={deletePayment}>
+                  {!isVoid ? (
+                  <form action={voidPayment}>
                     <input type="hidden" name="id" value={p.id} />
                     <input type="hidden" name="invoice_id" value={invoice.id} />
+                    <input type="hidden" name="void_reason" value="Voided by staff" />
                     <ConfirmButton
                       variant="ghost"
                       size="icon-sm"
-                      aria-label="Remove payment"
-                      title={`Remove this ${formatMoney(p.amount)} payment?`}
-                      description="Deletes the recorded payment and recomputes the invoice balance. This can't be undone."
-                      confirmLabel="Remove payment"
+                      aria-label="Void payment"
+                      title={`Void this ${formatMoney(p.amount)} payment?`}
+                      description="Voids the payment and restores the invoice balance. The payment stays on file for audit history."
+                      confirmLabel="Void payment"
                       destructive
                     >
                       <Trash2 className="size-3.5" />
                     </ConfirmButton>
                   </form>
+                  ) : null}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           ) : null}
 
@@ -268,6 +357,7 @@ export default async function InvoicePage({
             className="grid gap-2 border-t pt-4 sm:grid-cols-5"
           >
             <input type="hidden" name="invoice_id" value={invoice.id} />
+            <PaymentIdempotencyField />
             <div className="sm:col-span-1">
               <label className="mb-1 block text-xs text-muted-foreground">
                 Amount
@@ -276,9 +366,10 @@ export default async function InvoicePage({
                 name="amount"
                 type="number"
                 step="0.01"
-                min="0"
+                min="0.01"
+                max={effective.amountDue > 0 ? effective.amountDue.toFixed(2) : undefined}
                 required
-                defaultValue={totals.balance > 0 ? totals.balance.toFixed(2) : ""}
+                defaultValue={effective.amountDue > 0 ? effective.amountDue.toFixed(2) : ""}
                 className={fieldClass}
               />
             </div>

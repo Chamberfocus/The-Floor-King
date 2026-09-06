@@ -1,5 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
-import { invoiceTotals } from "@/lib/invoice-calc";
+import {
+  dayTaskCollectAmountDue,
+  type PaymentLike,
+} from "@/lib/payment-safety";
 
 export type DayTaskKind =
   | "followup"
@@ -16,6 +19,9 @@ export interface DayTask {
   urgent: boolean;
   amount: number | null;
 }
+
+/** Re-export for callers/tests that want the Day Briefing collect helper. */
+export { dayTaskCollectAmountDue } from "@/lib/payment-safety";
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -80,11 +86,11 @@ export async function getTodayTasks(): Promise<DayTask[]> {
     });
   }
 
-  // 3) Collect: open invoices with a balance.
+  // 3) Collect: open invoices with a balance (active payments + applied credits).
   const { data: invs } = await supabase
     .from("invoices")
     .select(
-      "id, number, tax_rate, status, customer_id, customer:customers(full_name, cancelled_at), items:invoice_items(quantity, rate), payments(amount)",
+      "id, number, tax_rate, status, customer_id, customer:customers(full_name, cancelled_at), items:invoice_items(quantity, rate), payments(amount, status), credit_applications(amount, status)",
     )
     .in("status", ["sent", "partial"]);
   for (const inv of invs ?? []) {
@@ -93,15 +99,15 @@ export async function getTodayTasks(): Promise<DayTask[]> {
       cancelled_at?: string | null;
     } | null;
     if (cust?.cancelled_at) continue;
-    const paid = ((inv.payments as { amount: number }[]) ?? []).reduce(
-      (s, p) => s + (Number(p.amount) || 0),
-      0,
-    );
-    const bal = invoiceTotals(
-      (inv.items as { quantity: number; rate: number }[]) ?? [],
-      inv.tax_rate as number,
-      paid,
-    ).balance;
+    const bal = dayTaskCollectAmountDue({
+      items: (inv.items as { quantity: number; rate: number }[]) ?? [],
+      taxRate: inv.tax_rate as number,
+      payments: (inv.payments as PaymentLike[] | null) ?? [],
+      creditApplications:
+        (inv.credit_applications as
+          | { amount: number; status?: string | null }[]
+          | null) ?? [],
+    });
     if (bal <= 0.5) continue;
     tasks.push({
       id: `inv-${inv.id}`,

@@ -54,7 +54,8 @@ export function laborBillLinesFromScope(
  * The estimate's TOTAL isolated labor cost — snapshotted onto the job as
  * `estimated_labor_cost` when the estimate is approved. Uses the shared
  * optionCostTotals so it is exactly the estimate's labor cost with material
- * excluded (waste never applies to labor).
+ * excluded. Waste raises labor for measured (non-flat) lines — same policy as
+ * estimate-calc / optionCostTotals.
  */
 export function estimatedLaborCostForOption(
   lines: EstimateLineItem[],

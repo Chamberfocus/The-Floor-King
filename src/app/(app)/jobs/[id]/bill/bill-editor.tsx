@@ -150,7 +150,9 @@ export function BillEditor({
       });
       if (res.error) toast.error(res.error);
       else {
-        toast.success("Bill approved for payment");
+        toast.success(
+          "Labor approved — actual cost locked. Use Reverse to correct.",
+        );
         router.refresh();
       }
     });
@@ -368,15 +370,24 @@ export function BillEditor({
             </Button>
             <Button
               type="button"
-              onClick={approve}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    "Approve this labor? Approval creates immutable financial history (actual job cost). Continue?",
+                  )
+                ) {
+                  return;
+                }
+                approve();
+              }}
               disabled={pending || anyMissingReason}
               title={
                 anyMissingReason
                   ? "Add a change reason to every modified or added line first"
-                  : undefined
+                  : "Approval creates immutable actual labor cost"
               }
             >
-              <CheckCircle2 className="size-4" /> Approve for payment
+              <CheckCircle2 className="size-4" /> Approve actual labor
             </Button>
           </div>
         ) : (

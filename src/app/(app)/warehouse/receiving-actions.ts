@@ -4,12 +4,13 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { applyPoStatus, notifyBackordered } from "@/app/(app)/purchase-orders/actions";
+import { applyPoLineReceiptDelta } from "@/lib/po-stock";
 
 const RECEIVERS = ["admin", "office", "warehouse"] as const;
 
 export interface ReceiveLine {
   itemId: string;
-  /** What was actually counted in. */
+  /** What was actually counted in (cumulative stamp for the line). */
   receivedQty: string | number;
   note: string;
 }
@@ -23,14 +24,10 @@ const n = (v: string | number | null | undefined): number => {
 /**
  * Check a delivery in against the order it was raised from.
  *
- * Receiving used to be one status flip on the whole PO, done from the office,
- * with nothing recorded about what actually turned up. A short shipment or the
- * wrong colour then surfaced when an installer opened the box on site. The
- * warehouse now counts each line and says what arrived.
- *
- * The PO is only marked received when every line has been checked AND nothing
- * is short — a partial delivery stays open and flags as backordered, because
- * calling it received would tell the rest of the app the material is in.
+ * F7: each partial stamp posts inventory delta via receive_inventory_safe
+ * (0176) immediately — inventory follows counted qty, not ordered qty.
+ * Full PO "received" status still runs reconcilePoStock, which only posts
+ * remaining ledger delta (idempotent with partials).
  */
 export async function receivePoLines(input: {
   poId: string;
@@ -38,8 +35,6 @@ export async function receivePoLines(input: {
   note: string;
 }): Promise<{ error: string | null; fullyReceived?: boolean; short?: number }> {
   const profile = await assertRole([...RECEIVERS]);
-  // The warehouse role's own RLS can't reach purchase orders; the role check
-  // above is what authorises this, exactly as the warehouse queue does.
   const db = createAdminClient();
 
   const { data: po } = await db
@@ -51,23 +46,76 @@ export async function receivePoLines(input: {
   if (po.status === "void" || po.status === "cancelled") {
     return { error: "That purchase order was voided." };
   }
+  if (po.status === "received") {
+    return {
+      error:
+        "This PO is already marked received. Reverse or adjust inventory formally instead of re-stamping lines.",
+    };
+  }
+
+  // Load ordered qty + product for validation before writing stamps.
+  const { data: existingItems } = await db
+    .from("po_items")
+    .select("id, quantity, product_id")
+    .eq("po_id", input.poId);
+  const byId = new Map(
+    (existingItems ?? []).map((i) => [i.id as string, i]),
+  );
+
+  for (const l of input.lines) {
+    const row = byId.get(l.itemId);
+    if (!row) {
+      return { error: "A receive line does not belong to this purchase order." };
+    }
+    const ordered = n(row.quantity);
+    const qty = n(l.receivedQty);
+    if (qty < 0) {
+      return { error: "Received quantity cannot be negative." };
+    }
+    if (qty > ordered + 0.00005) {
+      return {
+        error: `Cannot receive ${qty} — only ${ordered} was ordered on that line.`,
+      };
+    }
+  }
 
   const now = new Date().toISOString();
   for (const l of input.lines) {
+    const row = byId.get(l.itemId)!;
+    const qty = n(l.receivedQty);
     await db
       .from("po_items")
       .update({
-        received_qty: n(l.receivedQty),
+        received_qty: qty,
         received_at: now,
         received_by: profile.id,
         receiving_note: l.note.trim() || null,
       })
       .eq("id", l.itemId)
       .eq("po_id", input.poId);
+
+    // Post inventory for tracked products immediately (delta only).
+    if (row.product_id) {
+      try {
+        await applyPoLineReceiptDelta(db as never, {
+          poId: input.poId,
+          poItemId: l.itemId,
+          productId: row.product_id as string,
+          orderedQty: n(row.quantity),
+          targetReceivedQty: qty,
+          note: l.note.trim() || input.note.trim() || null,
+        });
+      } catch (e) {
+        return {
+          error:
+            e instanceof Error
+              ? e.message
+              : "Could not post inventory for this receipt.",
+        };
+      }
+    }
   }
 
-  // Re-read the whole order rather than trusting what was just submitted — a
-  // second person may have checked other lines in the meantime.
   const { data: items } = await db
     .from("po_items")
     .select("quantity, received_qty, received_at")
@@ -87,25 +135,24 @@ export async function receivePoLines(input: {
       received_at: fullyReceived ? now : null,
       received_by: fullyReceived ? profile.id : null,
       receiving_note: input.note.trim() || null,
-      // Something outstanding = still on order, and the office needs to chase it.
       backordered: everyLineChecked && short > 0.005,
     })
     .eq("id", input.poId);
 
   if (fullyReceived && po.status !== "received") {
-    // Same downstream path as the office's own status button — restock, the
-    // customer advancing to Materials Received, the job's material lines
-    // flipping to "arrived", the revalidations. Passed the ELEVATED client:
-    // this action authorised the caller by role above, and the warehouse role
-    // has no RLS reach into purchase_orders, so an RLS-scoped client here read
-    // nothing and bailed out silently.
-    await applyPoStatus(db, input.poId, "received");
+    try {
+      // reconcilePoStock → applyReceiptToStock posts only remaining deltas.
+      await applyPoStatus(db, input.poId, "received");
+    } catch (e) {
+      return {
+        error:
+          e instanceof Error
+            ? e.message.replace(/^PO_SUPPLIER_REQUIRED:\s*/, "")
+            : "Could not mark this PO received.",
+      };
+    }
   }
 
-  // A short delivery found on the dock is exactly the case that needs chasing,
-  // and it was the one path that told nobody — the PO builder had this alert,
-  // receiving didn't. Only on the transition INTO short, so re-checking the
-  // same delivery doesn't re-send.
   if (everyLineChecked && short > 0.005 && !po.backordered) {
     const { data: full } = await db
       .from("purchase_orders")
@@ -126,13 +173,37 @@ export async function receivePoLines(input: {
   return { error: null, fullyReceived, short };
 }
 
-/** Undo a check-in on one line — a miscount shouldn't need a manager. */
+/** Undo a check-in on one line — only when no inventory was posted for it. */
 export async function unreceivePoLine(input: {
   poId: string;
   itemId: string;
 }): Promise<{ error: string | null }> {
   await assertRole([...RECEIVERS]);
   const db = createAdminClient();
+
+  const { data: po } = await db
+    .from("purchase_orders")
+    .select("id, status")
+    .eq("id", input.poId)
+    .maybeSingle();
+  if (!po) return { error: "That purchase order no longer exists." };
+  if (po.status === "received") {
+    return {
+      error:
+        "This PO is already marked received in inventory. Ask office to move it out of Received (or reverse the receipt movement) instead of clearing the line stamp.",
+    };
+  }
+
+  const { data: ledgerQty, error: ledgerErr } = await db.rpc(
+    "inv_po_item_received_qty",
+    { p_po_item_id: input.itemId },
+  );
+  if (!ledgerErr && Number(ledgerQty) > 0.00005) {
+    return {
+      error:
+        "Inventory was already posted for this line. Reverse the receipt movement instead of clearing the stamp.",
+    };
+  }
 
   await db
     .from("po_items")
@@ -145,7 +216,6 @@ export async function unreceivePoLine(input: {
     .eq("id", input.itemId)
     .eq("po_id", input.poId);
 
-  // The order can no longer be complete, so take the receipt stamp back off.
   await db
     .from("purchase_orders")
     .update({ received_at: null, received_by: null })
@@ -186,6 +256,7 @@ export interface IncomingPoRow {
 }
 
 export async function listIncomingPos(): Promise<IncomingPoRow[]> {
+  await assertRole([...RECEIVERS]);
   const db = createAdminClient();
 
   const { data } = await db
@@ -199,7 +270,6 @@ export async function listIncomingPos(): Promise<IncomingPoRow[]> {
     .order("eta_date", { ascending: true, nullsFirst: false })
     .limit(200);
 
-  // PostgREST hands embedded relations back as arrays even when to-one.
   const one = <T,>(v: T | T[] | null | undefined): T | null =>
     v == null ? null : Array.isArray(v) ? (v[0] ?? null) : v;
 

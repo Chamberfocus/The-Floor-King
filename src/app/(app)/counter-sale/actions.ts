@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
+import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
 
 export interface CounterSaleLine {
   description: string;
@@ -111,7 +112,7 @@ export async function ringUpCounterSale(
     .insert({
       customer_id: customerId,
       number: `INV-${next}`,
-      status: "paid",
+      status: "draft",
       issue_date: today,
       due_date: today,
       tax_rate: input.taxRatePct || 0,
@@ -135,21 +136,41 @@ export async function ringUpCounterSale(
   );
   if (itemErr) return { error: itemErr.message };
 
-  // 3 · The money. A counter sale is paid by definition — if this fails the
-  //     receipt would claim paid with nothing behind it, so say so loudly.
+  // Canonical issue path (draft → finalize) so invoice accounting cannot be bypassed.
+  const fin = await finalizeInvoiceSafe(supabase, inv.id as string, user?.id ?? null);
+  if (!fin.ok) {
+    return { error: fin.error || "Couldn't finalize the counter-sale invoice." };
+  }
+
+  // 3 · The money — atomic overpay-safe insert (migration 0158).
   const amount = Number(input.payment?.amount) || 0;
   if (amount > 0) {
-    const { error: payErr } = await supabase.from("payments").insert({
-      invoice_id: inv.id,
-      amount,
-      method: input.payment.method || "cash",
-      reference: input.payment.reference?.trim() || null,
-      paid_at: new Date().toISOString(),
-      created_by: user?.id ?? null,
-    });
-    if (payErr) {
-      return { error: `Sale saved but the payment didn't record: ${payErr.message}` };
+    const paidAt = new Date().toISOString().slice(0, 10);
+    const { data: payRes, error: payErr } = await supabase.rpc(
+      "record_invoice_payment_safe",
+      {
+        p_invoice_id: inv.id,
+        p_amount: amount,
+        p_method: input.payment.method || "cash",
+        p_reference: input.payment.reference?.trim() || null,
+        p_paid_at: paidAt,
+        p_notes: null,
+        p_created_by: user?.id ?? null,
+        p_idempotency_key: `counter:${inv.id}:${amount}:${paidAt}`,
+        p_allow_deposit_on_zero_total: false,
+      },
+    );
+    if (payErr || !(payRes as { ok?: boolean })?.ok) {
+      return {
+        error: `Sale saved but the payment didn't record: ${
+          payErr?.message ||
+          (payRes as { error?: string })?.error ||
+          "unknown error"
+        }`,
+      };
     }
+    // sent → paid is allowed after finalize (already issued).
+    await supabase.from("invoices").update({ status: "paid" }).eq("id", inv.id);
   }
 
   revalidatePath("/invoices");

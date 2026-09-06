@@ -165,6 +165,13 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, roles: OFFICE_PLUS },
       { label: "Invoices", href: "/invoices", icon: Receipt, roles: SALES },
       { label: "Bills (A/P)", href: "/bills", icon: Wallet, roles: OFFICE_PLUS },
+      {
+        label: "Accounting",
+        href: "/accounting",
+        icon: FileText,
+        // OFFICE_PLUS = admin + office only — warehouse must never see financial reports.
+        roles: OFFICE_PLUS,
+      },
     ],
   },
   {

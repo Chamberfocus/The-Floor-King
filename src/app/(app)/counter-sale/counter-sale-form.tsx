@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { sellMaterialFromTargetMargin } from "@/lib/estimate-pricing";
 import { ringUpCounterSale, findWalkIn, type CounterSaleLine } from "./actions";
 import type { Product } from "@/lib/types";
 
@@ -42,15 +43,20 @@ const newRow = (): Row => ({
 export function CounterSaleForm({
   defaultTaxRate,
   targetMarginPct,
+  freightMarkupPct = 0,
 }: {
   defaultTaxRate: number;
   targetMarginPct: number;
+  freightMarkupPct?: number;
 }) {
-  /** Cost → shelf price at the shop's target margin. price = cost / (1 - m). */
+  /** Cost → shelf price at target margin on landed material (same as order form). */
   const retail = (cost: number) => {
-    const m = targetMarginPct / 100;
-    if (!(cost > 0) || !(m >= 0 && m < 1)) return cost;
-    return Math.round((cost / (1 - m)) * 100) / 100;
+    const sell = sellMaterialFromTargetMargin(
+      cost,
+      targetMarginPct,
+      freightMarkupPct,
+    );
+    return Math.round(sell * 100) / 100;
   };
   const router = useRouter();
   const [pending, start] = useTransition();

@@ -1,4 +1,5 @@
 import type { InvoiceStatus, EstimatePresentation } from "@/lib/types";
+import { effectiveInvoiceBalance } from "@/lib/credit-ar";
 
 function n(v: number | string | null | undefined): number {
   if (v === null || v === undefined || v === "") return 0;
@@ -33,6 +34,89 @@ export function invoiceTotals(
   const total = subtotal + tax;
   const paid = n(amountPaid);
   return { subtotal, tax, total, paid, balance: total - paid };
+}
+
+/** Minimal invoice shape for job-level open AR (no DB). */
+export interface JobBalanceInvoiceInput {
+  id: string;
+  status: string;
+  tax_rate: number | string;
+  items?: CalcInvoiceItem[] | null;
+  /** Sum of *active* payments already applied, or payment rows with amount. */
+  amountPaid?: number | string;
+  payments?: { amount: number | string; status?: string | null }[] | null;
+  /** Sum of *active* credit applications, or application rows. */
+  appliedCredits?: number | string;
+  creditApplications?: { amount: number | string; status?: string | null }[] | null;
+}
+
+export interface JobOpenBalanceResult {
+  hasInvoice: boolean;
+  invoiceId: string | null;
+  balance: number;
+  openInvoices: { invoiceId: string; balance: number }[];
+}
+
+function paidOnInvoice(inv: JobBalanceInvoiceInput): number {
+  if (inv.amountPaid !== undefined && inv.amountPaid !== null && inv.amountPaid !== "") {
+    return n(inv.amountPaid);
+  }
+  return (inv.payments ?? [])
+    .filter((p) => (p.status ?? "active") !== "void")
+    .reduce((s, p) => s + n(p.amount), 0);
+}
+
+function creditedOnInvoice(inv: JobBalanceInvoiceInput): number {
+  if (
+    inv.appliedCredits !== undefined &&
+    inv.appliedCredits !== null &&
+    inv.appliedCredits !== ""
+  ) {
+    return n(inv.appliedCredits);
+  }
+  return (inv.creditApplications ?? [])
+    .filter((a) => (a.status ?? "active") !== "void")
+    .reduce((s, a) => s + n(a.amount), 0);
+}
+
+/**
+ * Sum remaining *effective* balances across all active job invoices.
+ * Void → 0. Fully covered by payments+credits → 0.
+ * Uses effectiveInvoiceBalance.amountDue when credits provided; else
+ * invoiceTotals.balance (payments only) for back-compat.
+ */
+export function computeJobOpenBalance(
+  invoices: JobBalanceInvoiceInput[],
+): JobOpenBalanceResult {
+  if (!invoices.length) {
+    return { hasInvoice: false, invoiceId: null, balance: 0, openInvoices: [] };
+  }
+  const openInvoices: { invoiceId: string; balance: number }[] = [];
+  for (const inv of invoices) {
+    if (inv.status === "void") continue;
+    const paid = paidOnInvoice(inv);
+    const credited = creditedOnInvoice(inv);
+    const bal =
+      Math.round(
+        effectiveInvoiceBalance({
+          items: inv.items ?? [],
+          taxRate: inv.tax_rate,
+          amountPaid: paid,
+          appliedCredits: credited,
+        }).amountDue * 100,
+      ) / 100;
+    if (bal > 0.005) {
+      openInvoices.push({ invoiceId: inv.id, balance: bal });
+    }
+  }
+  const balance =
+    Math.round(openInvoices.reduce((s, r) => s + r.balance, 0) * 100) / 100;
+  return {
+    hasInvoice: true,
+    invoiceId: openInvoices[0]?.invoiceId ?? null,
+    balance,
+    openInvoices,
+  };
 }
 
 export interface SaveInvoiceItemInput {

@@ -151,9 +151,11 @@ export function CustomerForm({
         <div className="space-y-2 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/20">
           <div className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
             <AlertTriangle className="size-4" />
-            {state.duplicates.length === 1
-              ? "This might already be in your customers"
-              : "These might already be in your customers"}
+            {state.duplicates.some((d) => d.confidence === "high")
+              ? "Strong match — same phone or email"
+              : state.duplicates.length === 1
+                ? "This might already be in your customers"
+                : "These might already be in your customers"}
           </div>
           <ul className="space-y-1.5">
             {state.duplicates.map((d) => (
@@ -168,6 +170,7 @@ export function CustomerForm({
                   </div>
                   <div className="text-[11px] text-amber-700 dark:text-amber-400">
                     Same {d.reason === "name" ? "name" : d.reason}
+                    {d.confidence === "high" ? " · high confidence" : ""}
                   </div>
                 </div>
                 <Link
@@ -179,9 +182,23 @@ export function CustomerForm({
               </li>
             ))}
           </ul>
-          <p className="text-xs text-muted-foreground">
-            If this is a different person, add them anyway.
-          </p>
+          {state.duplicates.some((d) => d.confidence === "high") ? (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-amber-900 dark:text-amber-200">
+                Reason for creating a new customer (required)
+              </label>
+              <input
+                name="duplicate_override_reason"
+                required
+                placeholder="e.g. Same phone, different household / new tenant"
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              />
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              If this is a different person, add them anyway.
+            </p>
+          )}
         </div>
       ) : null}
 
@@ -194,7 +211,11 @@ export function CustomerForm({
             variant="outline"
             disabled={pending}
           >
-            {pending ? "Adding…" : "Add anyway"}
+            {pending
+              ? "Adding…"
+              : state.duplicates.some((d) => d.confidence === "high")
+                ? "Create with override"
+                : "Add anyway"}
           </Button>
         ) : (
           <Button type="submit" data-tour="customer-save" disabled={pending}>

@@ -1,3 +1,6 @@
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + service-role (or equivalent). Do not default to production.
+//
 // END-TO-END VERIFICATION against the live DB, driving the REAL shipping code:
 //   accessory-engine (generate) · data/products searchCatalogWith (PO+estimate
 //   picker search) · estimate-calc (line math) · types.materialClass (PO branch)

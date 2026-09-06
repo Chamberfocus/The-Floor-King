@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
 import type { LeadSource, LeadStage } from "@/lib/types";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -292,11 +293,8 @@ export async function carryOverDeal(
         estimate_id: est.id,
         option_id: opt.id,
         title: input.title?.trim() || "Carried-over job",
-        status: jobStatus,
-        scheduled_date: input.scheduledDate || null,
-        // Assign directly to the chosen installer → shows in their My Jobs.
-        // Left off the open-for-claim board on purpose.
-        assigned_to: input.installerId || null,
+        status: "unscheduled",
+        // Schedule via schedule_job_install_safe when dated (0178 guard).
         notes: jobNote,
         migrated: true,
         site_street: cust?.street ?? null,
@@ -304,12 +302,38 @@ export async function carryOverDeal(
         site_state: cust?.state ?? null,
         site_zip: cust?.zip ?? null,
         created_by: uid,
+        ...(input.installerId && !input.scheduledDate
+          ? { assigned_to: input.installerId }
+          : {}),
       })
       .select("id")
       .single();
     if (jobErr || !job)
       return { error: jobErr?.message || "Couldn't create the job." };
     jobId = job.id as string;
+
+    if (input.scheduledDate) {
+      const { data: schedRes, error: schedErr } = await supabase.rpc(
+        "schedule_job_install_safe",
+        {
+          p_job_id: jobId,
+          p_scheduled_date: input.scheduledDate,
+          p_scheduled_end: null,
+          p_assigned_to: input.installerId || null,
+          p_assigned_crew_id: null,
+          p_set_arrival_window: false,
+          p_open_for_claim: false,
+        },
+      );
+      if (schedErr) return { error: schedErr.message };
+      const body = schedRes as { ok?: boolean; error?: string } | null;
+      if (body && body.ok === false) {
+        return { error: body.error || "Could not schedule the carried-over install." };
+      }
+    } else if (jobStatus === "scheduled") {
+      // Status-only: already handled if dated; undated "scheduled" is unusual —
+      // leave unscheduled unless office books.
+    }
   }
 
   // 5) Invoice for the contract + record money already collected --------------
@@ -317,7 +341,7 @@ export async function carryOverDeal(
   // the deposit taken and the balance still owed.
   const collected = n(input.collected);
   const total = amount * (1 + n(input.taxRate) / 100);
-  const status =
+  const paidStatus =
     collected >= total - 0.005 ? "paid" : collected > 0 ? "partial" : "sent";
   const { data: inv } = await supabase
     .from("invoices")
@@ -325,7 +349,7 @@ export async function carryOverDeal(
       customer_id: customerId,
       job_id: jobId,
       issue_date: input.soldDate || today(),
-      status,
+      status: "draft",
       tax_rate: n(input.taxRate),
       notes: STAMP,
       migrated: true,
@@ -342,16 +366,49 @@ export async function carryOverDeal(
       unit: "each",
       rate: amount,
     });
+    const fin = await finalizeInvoiceSafe(
+      supabase,
+      inv.id as string,
+      uid ?? null,
+    );
+    if (!fin.ok) {
+      return { error: fin.error || "Couldn't finalize carry-over invoice." };
+    }
     if (collected > 0) {
-      await supabase.from("payments").insert({
-        invoice_id: inv.id,
-        amount: collected,
-        method: (input.method || "other") as PaymentMethod,
-        paid_at: input.collectedDate || input.soldDate || today(),
-        notes: STAMP,
-        migrated: true,
-        created_by: uid,
-      });
+      const paidAt = input.collectedDate || input.soldDate || today();
+      const { data: payRes, error: payErr } = await supabase.rpc(
+        "record_invoice_payment_safe",
+        {
+          p_invoice_id: inv.id,
+          p_amount: collected,
+          p_method: (input.method || "other") as PaymentMethod,
+          p_reference: STAMP,
+          p_paid_at: paidAt,
+          p_notes: STAMP,
+          p_created_by: uid,
+          p_idempotency_key: `carryover:${inv.id}:${collected}:${paidAt}`,
+          p_allow_deposit_on_zero_total: false,
+        },
+      );
+      if (payErr) {
+        return {
+          error:
+            payErr.message ||
+            "Couldn't record carry-over payment via safe RPC.",
+        };
+      }
+      const parsed = payRes as { ok?: boolean; error?: string };
+      if (!parsed?.ok) {
+        return {
+          error: parsed?.error || "Couldn't record carry-over payment.",
+        };
+      }
+    }
+    if (paidStatus !== "sent") {
+      await supabase
+        .from("invoices")
+        .update({ status: paidStatus })
+        .eq("id", inv.id);
     }
   }
 

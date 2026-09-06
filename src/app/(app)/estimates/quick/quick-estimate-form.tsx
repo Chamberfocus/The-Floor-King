@@ -18,23 +18,25 @@ import {
   type QuickProduct,
 } from "@/components/quick-lines";
 import { createQuickEstimate } from "./actions";
+import { marginPct, num as parseMoney } from "@/lib/estimate-calc";
+import { landedMaterialCost } from "@/lib/freight";
 
-const num = (v: string) => {
-  const n = parseFloat(String(v).replace(/[$,\s]/g, ""));
-  return Number.isFinite(n) ? n : 0;
-};
+const num = (v: string) => parseMoney(v);
 
 export function QuickEstimateForm({
   customers,
   products,
   defaultTaxRate,
   targetMargin,
+  freightMarkupPct = 0,
   presetCustomerId,
 }: {
   customers: { id: string; full_name: string }[];
   products: (QuickProduct & { cost?: number | null })[];
   defaultTaxRate: number;
   targetMargin: number;
+  /** Org freight & fees % — applied to catalog material cost for margin. */
+  freightMarkupPct?: number;
   presetCustomerId?: string;
 }) {
   const router = useRouter();
@@ -53,17 +55,18 @@ export function QuickEstimateForm({
   const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
   const tax = subtotal * (num(taxRate) / 100);
 
-  // Cost comes from the catalog where a product was picked, so the margin shown
-  // here is the real one — not the target we hoped for.
+  // Landed catalog material cost (freight included). No job gas/car/commission
+  // here — Quick Estimate is lighter than the full builder.
   const cost = lines.reduce((s, l) => {
     const p = l.productId ? products.find((x) => x.id === l.productId) : null;
-    return s + num(l.quantity) * Number(p?.cost ?? 0);
+    const bare = num(l.quantity) * Number(p?.cost ?? 0);
+    return s + landedMaterialCost(bare, freightMarkupPct);
   }, 0);
   const known = lines.some((l) => {
     const p = l.productId ? products.find((x) => x.id === l.productId) : null;
     return Number(p?.cost ?? 0) > 0;
   });
-  const margin = subtotal > 0 ? ((subtotal - cost) / subtotal) * 100 : 0;
+  const margin = marginPct(subtotal, cost);
 
   const submit = () =>
     start(async () => {
@@ -199,7 +202,7 @@ export function QuickEstimateForm({
           <div className="rounded-md border bg-muted/30 p-2 text-sm">
             {known ? (
               <>
-                Margin{" "}
+                Estimated margin before job overhead{" "}
                 <span
                   className={
                     margin >= targetMargin - 0.05
@@ -209,7 +212,12 @@ export function QuickEstimateForm({
                 >
                   {margin.toFixed(1)}%
                 </span>{" "}
-                — {formatMoney(subtotal)} less {formatMoney(cost)} cost.{" "}
+                — {formatMoney(subtotal)} less {formatMoney(cost)} landed
+                material cost
+                {freightMarkupPct > 0
+                  ? ` (incl. ${freightMarkupPct}% freight)`
+                  : ""}
+                .{" "}
                 {margin >= targetMargin - 0.05
                   ? `At or above your ${targetMargin}% target.`
                   : `Below your ${targetMargin}% target.`}

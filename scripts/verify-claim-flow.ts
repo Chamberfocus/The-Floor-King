@@ -1,3 +1,6 @@
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + service-role (or equivalent). Do not default to production.
+//
 // Verifies the three job states + claim/approve against the LIVE db, using the
 // real state model (the exact columns the board query, My Jobs, and the
 // assign/approve actions read & write). Throwaway data, cleaned up at the end.

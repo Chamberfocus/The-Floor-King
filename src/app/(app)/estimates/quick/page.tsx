@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getBusinessSettings } from "@/lib/data/business-settings";
+import { getOrgSettings } from "@/lib/data/org";
 import { QuickEstimateForm } from "./quick-estimate-form";
 import type { QuickProduct } from "@/components/quick-lines";
 
@@ -20,7 +21,7 @@ export default async function QuickEstimatePage({
   const { customer } = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: custData }, { data: prodData }, { data: lastEst }, biz] =
+  const [{ data: custData }, { data: prodData }, { data: lastEst }, biz, org] =
     await Promise.all([
       supabase
         .from("customers")
@@ -44,6 +45,7 @@ export default async function QuickEstimatePage({
         .limit(1)
         .maybeSingle(),
       getBusinessSettings(),
+      getOrgSettings(),
     ]);
 
   // Cost is read separately with the vendor join so the margin shown is real.
@@ -99,6 +101,7 @@ export default async function QuickEstimatePage({
         products={products}
         defaultTaxRate={Number(lastEst?.tax_rate ?? 0) || 0}
         targetMargin={Number(biz?.target_gross_margin_pct ?? 40) || 40}
+        freightMarkupPct={Number(org.freight_markup_pct ?? 0) || 0}
         presetCustomerId={customer}
       />
     </div>

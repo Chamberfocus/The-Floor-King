@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { DOCUMENTS_STORAGE_JWT_ROLES } from "@/lib/job-warehouse";
 
 export interface DocState {
   error: string | null;
@@ -10,6 +11,31 @@ export interface DocState {
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
+}
+
+async function requireDocumentsJwtRole(): Promise<
+  | { ok: true; supabase: Awaited<ReturnType<typeof createClient>>; userId: string }
+  | { ok: false; error: string }
+> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Please sign in again." };
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (
+    !prof ||
+    !(DOCUMENTS_STORAGE_JWT_ROLES as readonly string[]).includes(
+      prof.role as string,
+    )
+  ) {
+    return { ok: false, error: "Not allowed." };
+  }
+  return { ok: true, supabase, userId: user.id };
 }
 
 export async function uploadCustomerDocument(
@@ -29,8 +55,9 @@ export async function uploadCustomerDocument(
     return { error: "File is too large (max 20 MB)." };
   }
 
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
+  const gate = await requireDocumentsJwtRole();
+  if (!gate.ok) return { error: gate.error };
+  const { supabase, userId } = gate;
   const bytes = Buffer.from(await file.arrayBuffer());
   const path = `customer/${customerId}/${crypto.randomUUID()}-${file.name}`;
 
@@ -43,7 +70,7 @@ export async function uploadCustomerDocument(
 
   const { error } = await supabase.from("documents").insert({
     customer_id: customerId,
-    uploaded_by: auth.user?.id ?? null,
+    uploaded_by: userId,
     name: file.name,
     path,
     mime: file.type || null,
@@ -69,8 +96,9 @@ export async function saveMeasurementDiagram(
     .filter((f): f is File => f instanceof File && f.size > 0);
   if (!files.length) return { error: "Nothing to save." };
 
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
+  const gate = await requireDocumentsJwtRole();
+  if (!gate.ok) return { error: gate.error };
+  const { supabase, userId } = gate;
   for (const file of files) {
     if (file.size > 20 * 1024 * 1024) continue;
     const bytes = Buffer.from(await file.arrayBuffer());
@@ -81,7 +109,7 @@ export async function saveMeasurementDiagram(
     if (upErr) return { error: upErr.message };
     const { error } = await supabase.from("documents").insert({
       customer_id: customerId,
-      uploaded_by: auth.user?.id ?? null,
+      uploaded_by: userId,
       name: file.name,
       path,
       mime: file.type || "image/svg+xml",
@@ -98,7 +126,9 @@ export async function deleteCustomerDocument(formData: FormData): Promise<void> 
   const path = str(formData.get("path"));
   const customerId = str(formData.get("customer_id"));
   if (!id) return;
-  const supabase = await createClient();
+  const gate = await requireDocumentsJwtRole();
+  if (!gate.ok) return;
+  const { supabase } = gate;
   if (path) await supabase.storage.from("documents").remove([path]);
   await supabase.from("documents").delete().eq("id", id);
   revalidatePath(`/customers/${customerId}`);

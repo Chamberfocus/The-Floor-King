@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { requireProfile } from "@/lib/auth";
-import { listBills, getAPSummary, type BillStatus } from "@/lib/data/bills";
+import { listBills, getAPSummary, sourceBadge, type BillStatus } from "@/lib/data/bills";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -15,9 +15,11 @@ export const metadata: Metadata = { title: "Bills" };
 export const dynamic = "force-dynamic";
 
 const STATUS: Record<BillStatus, { label: string; cls: string }> = {
+  draft: { label: "Draft", cls: "bg-muted text-muted-foreground" },
   open: { label: "Open", cls: "bg-amber-500/10 text-amber-600" },
-  partial: { label: "Partial", cls: "bg-blue-500/10 text-blue-600" },
+  partial: { label: "Partially Paid", cls: "bg-blue-500/10 text-blue-600" },
   paid: { label: "Paid", cls: "bg-emerald-500/10 text-emerald-600" },
+  void: { label: "Void", cls: "bg-destructive/10 text-destructive" },
 };
 
 export default async function BillsPage() {
@@ -29,7 +31,7 @@ export default async function BillsPage() {
     <div className="mx-auto max-w-5xl">
       <PageHeader
         title="Bills"
-        description="What you owe your vendors — created from purchase orders, paid down over time."
+        description="Vendor bills you owe — drafts, purchase-order invoices, and installer labor payables."
       >
         <Link href="/bills/import" className={buttonVariants({ size: "lg" })}>
           <FileUp className="size-4" /> Import bill
@@ -80,10 +82,13 @@ export default async function BillsPage() {
             <thead className="bg-muted/60 text-xs text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 text-left">Vendor</th>
+                <th className="px-3 py-2 text-left">Invoice #</th>
+                <th className="px-3 py-2 text-left">Source</th>
                 <th className="px-3 py-2 text-left">Bill date</th>
                 <th className="px-3 py-2 text-left">Due</th>
-                <th className="px-3 py-2 text-right">Total</th>
-                <th className="px-3 py-2 text-right">Balance</th>
+                <th className="px-3 py-2 text-right">Original</th>
+                <th className="px-3 py-2 text-right">Paid</th>
+                <th className="px-3 py-2 text-right">Remaining</th>
                 <th className="px-3 py-2 text-left">Status</th>
               </tr>
             </thead>
@@ -94,10 +99,11 @@ export default async function BillsPage() {
                     <Link href={`/bills/${b.id}`} className="font-medium hover:underline">
                       {b.supplier || "Vendor"}
                     </Link>
-                    {b.bill_number ? (
-                      <span className="block text-xs text-muted-foreground">#{b.bill_number}</span>
-                    ) : null}
                   </td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {b.bill_number ? `#${b.bill_number}` : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-muted-foreground">{sourceBadge(b)}</td>
                   <td className="px-3 py-2 text-muted-foreground">{formatDate(b.bill_date)}</td>
                   <td className="px-3 py-2">
                     {b.due_date ? (
@@ -110,6 +116,9 @@ export default async function BillsPage() {
                     )}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatMoney(b.total)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                    {formatMoney(b.paid)}
+                  </td>
                   <td className="px-3 py-2 text-right font-medium tabular-nums">
                     {formatMoney(b.balance)}
                   </td>

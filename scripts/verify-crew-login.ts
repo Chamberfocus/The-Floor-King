@@ -1,3 +1,6 @@
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + service-role (or equivalent). Do not default to production.
+//
 // END-TO-END against LIVE Supabase auth, driving the REAL shared helper
 // (createLogin / resetLoginPin). Creates a throwaway crew + login, asserts the
 // account + profile + link are correct, then deletes everything.

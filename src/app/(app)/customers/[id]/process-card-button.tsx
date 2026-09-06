@@ -67,7 +67,11 @@ export function ProcessCardButton({
         toast.error(res.error);
         return;
       }
-      toast.success(`Recorded ${formatMoney(amt)} card payment.`);
+      toast.success(
+        balance > 0
+          ? `Recorded ${formatMoney(amt)} invoice payment.`
+          : `Recorded ${formatMoney(amt)} customer deposit.`,
+      );
       setOpen(false);
       setNote("");
       router.refresh();
@@ -92,11 +96,14 @@ export function ProcessCardButton({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              Card payment{clientName ? ` — ${clientName}` : ""}
+              {balance > 0 ? "Record invoice payment" : "Record customer deposit"}
+              {clientName ? ` — ${clientName}` : ""}
             </DialogTitle>
             <DialogDescription>
-              Run the card on your processor, then record the amount here so it
-              lands on the client&apos;s account.
+              Run the card on your processor, then record the amount here.
+              {balance > 0
+                ? " This applies to the customer's open invoice balance."
+                : " This holds money as a customer deposit until an invoice is ready."}
             </DialogDescription>
           </DialogHeader>
 
@@ -147,10 +154,16 @@ export function ProcessCardButton({
             </div>
 
             <Button type="button" className="w-full" disabled={pending} onClick={record}>
-              {pending ? "Recording…" : "Record card payment"}
+              {pending
+                ? "Recording…"
+                : balance > 0
+                  ? "Record invoice payment"
+                  : "Record customer deposit"}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
-              Records as a card payment on the client — no card details are stored.
+              {balance > 0
+                ? "Records as payment on the open invoice — no card details stored."
+                : "Records as an unapplied customer deposit — not revenue until applied."}
             </p>
           </div>
         </DialogContent>

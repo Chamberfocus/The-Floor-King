@@ -15,7 +15,6 @@ import {
   lineTotal,
   lineQty,
   optionTotalsWithDiscount,
-  priceFromMargin,
   marginPct,
   lineCost,
   optionCostTotals,
@@ -23,6 +22,7 @@ import {
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
 import { jobProfit, marginShortfall } from "@/lib/job-profit";
+import { ratesFromTargetMargin, landedMaterialForTarget } from "@/lib/estimate-pricing";
 import { parseCutsFromText } from "@/lib/job-scope";
 import {
   type Estimate,
@@ -74,7 +74,10 @@ import {
 } from "./line-measurements";
 
 interface LineState {
+  /** React list key — ephemeral, not the database id. */
   key: string;
+  /** Persisted `estimate_line_items.id` when loaded from DB; unset for new builder lines. */
+  id?: string;
   room: string;
   description: string;
   note: string; // plain-language "what we're doing" note — customer scope + WO
@@ -137,35 +140,31 @@ const round2s = (n: number) => String(Math.round(n * 100) / 100);
 function effMargin(l: LineState, overall: number): number {
   return l.margin_pct.trim() !== "" ? num(l.margin_pct) : overall;
 }
-/** Recompute sell rates from cost at margin m — only where a cost exists, so a
- *  legacy line with a hand-typed rate but no cost is never zeroed. */
-function ratesFromMargin(l: LineState, m: number): Partial<LineState> {
+/**
+ * Recompute sell rates from cost at margin m — material freight is in the cost
+ * basis (landed material), labor is not. `material_cost` stays bare so
+ * jobProfit still applies freight once on the cost side.
+ */
+function ratesFromMargin(
+  l: LineState,
+  m: number,
+  freightMarkupPct: number | string | null | undefined,
+): Partial<LineState> {
+  const rates = ratesFromTargetMargin({
+    lineType: l.line_type,
+    laborOnly: isLaborLine(l),
+    materialCost: l.material_cost,
+    laborCost: l.labor_cost,
+    targetMarginPct: m,
+    freightMarkupPct,
+  });
   const patch: Partial<LineState> = {};
-  // A gross margin is only meaningful in [0, 100). priceFromMargin returns the
-  // bare COST outside that range, so typing "100" into a line's margin box —
-  // meaning "100% markup" — silently sold that line at cost, with the field
-  // still reading 100. The estimate-wide slider already refused out-of-range
-  // values; the per-line box did not. Refuse here so both agree.
-  if (!(m >= 0 && m < 100)) return patch;
-
-  // A FLAT line is priced by its lump amount, not by rates — re-price that too,
-  // or the margin slider silently leaves flat-priced work at its old price.
-  if (l.line_type === "flat") {
-    const cost = num(l.material_cost) + num(l.labor_cost);
-    if (cost > 0) patch.flat_amount = round2s(priceFromMargin(cost, m));
-    return patch;
-  }
-  // An INSTALLED line prices off installed_rate alone (a blended material+labor
-  // rate). It was the one line type the margin never touched, so changing the
-  // estimate's margin left it at its old price and the option's real margin
-  // drifted away from the number on screen with nothing to show for it.
-  if (l.line_type === "installed") {
-    const cost = num(l.material_cost) + num(l.labor_cost);
-    if (cost > 0) patch.installed_rate = round2s(priceFromMargin(cost, m));
-    return patch;
-  }
-  if (num(l.material_cost) > 0) patch.material_rate = round2s(priceFromMargin(num(l.material_cost), m));
-  if (num(l.labor_cost) > 0) patch.labor_rate = round2s(priceFromMargin(num(l.labor_cost), m));
+  if (rates.flat_amount != null) patch.flat_amount = round2s(rates.flat_amount);
+  if (rates.installed_rate != null)
+    patch.installed_rate = round2s(rates.installed_rate);
+  if (rates.material_rate != null)
+    patch.material_rate = round2s(rates.material_rate);
+  if (rates.labor_rate != null) patch.labor_rate = round2s(rates.labor_rate);
   return patch;
 }
 /** Is this a LABOR line (its own section)? Labor category, or labor-only money. */
@@ -241,45 +240,6 @@ function lineOurCost(l: LineState): number {
     unit: l.unit,
     category: l.category,
   });
-}
-
-/** Our cost for a line, split into material vs labor (matches lineOurCost). */
-function lineCostSplit(l: LineState): { mat: number; labor: number } {
-  // A FLAT line has a real cost — lineCost/lineOurCost both count it. Returning
-  // zeros here made the "↳ Material X · Labor Y" breakdown disagree with the
-  // "Our cost" figure printed directly above it: a flat stair-wrap costed at
-  // $400 material and $300 labor showed as "Material $0.00 · Labor $0.00"
-  // under a cost line that included all $700.
-  if (l.line_type === "flat") {
-    return {
-      mat: isLaborLine(l) ? 0 : num(l.material_cost),
-      labor: num(l.labor_cost),
-    };
-  }
-  const qty = lineQty({
-    line_type: l.line_type,
-    sqft: l.sqft,
-    measure_unit: l.measure_unit,
-    material_rate: l.material_rate,
-    labor_rate: l.labor_rate,
-    installed_rate: l.installed_rate,
-    flat_amount: l.flat_amount,
-    waste_pct: l.waste_pct,
-    quantity: l.quantity,
-    unit: l.unit, // count units price by quantity, not area
-  });
-  const waste = 1 + (num(l.waste_pct) || 0) / 100;
-  // A labor line has no material cost, even if a stray rate is on it.
-  //
-  // Waste raises BOTH halves — you buy the extra material AND you pay the
-  // installer on the footage sold. lineCost has done it that way since the
-  // waste fix; this split didn't, so on any line with waste the
-  // "Material X · Labor Y" breakdown didn't add up to the "Our cost" printed
-  // directly above it.
-  return {
-    mat: l.category === "labor" ? 0 : qty * num(l.material_cost) * waste,
-    labor: qty * num(l.labor_cost) * waste,
-  };
 }
 
 interface OptionState {
@@ -398,6 +358,7 @@ export function EstimateBuilder({
 
   const emptyLine = (): LineState => ({
     key: newKey(),
+    // no id — new line until first successful save inserts it
     room: "",
     description: "",
     note: "",
@@ -462,11 +423,19 @@ export function EstimateBuilder({
 
   const [options, setOptions] = useState<OptionState[]>(() => {
     // Resume unsaved edits (fresh keys so nothing collides), else load the saved estimate.
+    // Preserve database line ids from the draft when present; otherwise recover by
+    // option/line position from the saved estimate so an old draft cannot strip ids.
     if (draft?.options?.length) {
-      return draft.options.map((o) => ({
+      return draft.options.map((o, oi) => ({
         ...o,
         key: newKey(),
-        lines: (o.lines ?? []).map((l) => ({ ...l, key: newKey() })),
+        lines: (o.lines ?? []).map((l, li) => ({
+          ...l,
+          key: newKey(),
+          id:
+            (typeof l.id === "string" && l.id.trim() ? l.id : undefined) ??
+            estimate.options?.[oi]?.line_items?.[li]?.id,
+        })),
       }));
     }
     const initial = (estimate.options ?? []).map((o) => ({
@@ -517,6 +486,7 @@ export function EstimateBuilder({
           : l.sqft?.toString() ?? "";
         return {
         key: newKey(),
+        id: l.id,
         room: l.room ?? "",
         description: desc,
         note: l.note ?? "",
@@ -629,7 +599,8 @@ export function EstimateBuilder({
         key: newKey(),
         name: `Copy of ${src.name}`,
         notes: src.notes,
-        lines: src.lines.map((l) => ({ ...l, key: newKey() })),
+        // New commercial lines — must not reuse source DB ids.
+        lines: src.lines.map((l) => ({ ...l, key: newKey(), id: undefined })),
       };
       const next = [...prev];
       next.splice(oi + 1, 0, copy);
@@ -671,6 +642,7 @@ export function EstimateBuilder({
         lines: (kept.length ? kept : src.lines).map((l) => ({
           ...l,
           key: newKey(),
+          id: undefined,
           is_optional: false,
         })),
       };
@@ -756,7 +728,7 @@ export function EstimateBuilder({
       prev.map((o, i) => {
         if (i !== oi) return o;
         const lines = [...o.lines];
-        lines.splice(li + 1, 0, { ...o.lines[li], key: newKey() });
+        lines.splice(li + 1, 0, { ...o.lines[li], key: newKey(), id: undefined });
         return { ...o, lines };
       }),
     );
@@ -955,7 +927,7 @@ export function EstimateBuilder({
           labor_cost: String(DEFAULT_LABOR_PER_BAG),
           prep_key: prepKey,
         };
-        const priced = { ...laborLine, ...ratesFromMargin(laborLine, num(overallMargin)) };
+        const priced = { ...laborLine, ...ratesFromMargin(laborLine, num(overallMargin), org?.freight_markup_pct ?? 0) };
         const lines = o.lines.map((l, j) => (j === li ? { ...l, prep_key: prepKey } : l));
         lines.splice(li + 1, 0, priced);
         return { ...o, lines };
@@ -973,7 +945,7 @@ export function EstimateBuilder({
     setOptions((prev) =>
       prev.map((o) => ({
         ...o,
-        lines: o.lines.map((l) => (l.margin_pct.trim() !== "" ? l : { ...l, ...ratesFromMargin(l, m) })),
+        lines: o.lines.map((l) => (l.margin_pct.trim() !== "" ? l : { ...l, ...ratesFromMargin(l, m, org?.freight_markup_pct ?? 0) })),
       })),
     );
   };
@@ -988,7 +960,7 @@ export function EstimateBuilder({
         lines: o.lines.map((l) =>
           l.margin_pct.trim() === ""
             ? l
-            : { ...l, margin_pct: "", ...ratesFromMargin(l, m) },
+            : { ...l, margin_pct: "", ...ratesFromMargin(l, m, org?.freight_markup_pct ?? 0) },
         ),
       })),
     );
@@ -1128,7 +1100,7 @@ export function EstimateBuilder({
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
                 const m = v.trim() === "" ? num(overallMargin) : num(v);
-                return { ...l, margin_pct: v, ...ratesFromMargin(l, m) };
+                return { ...l, margin_pct: v, ...ratesFromMargin(l, m, org?.freight_markup_pct ?? 0) };
               }),
             }
           : o,
@@ -1145,7 +1117,7 @@ export function EstimateBuilder({
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
                 const merged = { ...l, [field]: v };
-                return { ...merged, ...ratesFromMargin(merged, effMargin(merged, num(overallMargin))) };
+                return { ...merged, ...ratesFromMargin(merged, effMargin(merged, num(overallMargin)), org?.freight_markup_pct ?? 0) };
               }),
             }
           : o,
@@ -1162,7 +1134,13 @@ export function EstimateBuilder({
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
                 const merged = { ...l, [field]: v };
-                const cost = field === "material_rate" ? num(merged.material_cost) : num(merged.labor_cost);
+                const cost =
+                  field === "material_rate"
+                    ? landedMaterialForTarget(
+                        merged.material_cost,
+                        org?.freight_markup_pct ?? 0,
+                      )
+                    : num(merged.labor_cost);
                 const sell = num(v);
                 return cost > 0 && sell > 0
                   ? { ...merged, margin_pct: round2s(marginPct(sell, cost)) }
@@ -1301,7 +1279,7 @@ export function EstimateBuilder({
                     return sep > 0 ? `${prev.slice(0, sep)} — ${p.name}` : p.name;
                   })(),
                 };
-                return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin))) };
+                return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin)), org?.freight_markup_pct ?? 0) };
               }),
             }
           : o,
@@ -1350,7 +1328,7 @@ export function EstimateBuilder({
                   waste_pct: count ? "" : l.waste_pct,
                   description: input.name || l.description,
                 };
-                return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin))) };
+                return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin)), org?.freight_markup_pct ?? 0) };
               }),
             }
           : o,
@@ -1383,6 +1361,7 @@ export function EstimateBuilder({
       name: o.name,
       notes: o.notes,
       lines: o.lines.map((l) => ({
+        id: l.id || null,
         room: l.room,
         description: l.description,
         note: l.note,
@@ -1500,7 +1479,13 @@ export function EstimateBuilder({
       await flushDefaultRates();
       // Committed for real — the in-progress draft is no longer needed.
       void clearEstimateBuilderDraft(estimate.id);
-      toast.success("Estimate saved");
+      if (res.reapprovalRequired) {
+        toast.success(
+          "Saved. Commercial changes need customer reapproval — previous approval kept. Job / POs / invoices were not changed.",
+        );
+      } else {
+        toast.success("Estimate saved");
+      }
       // "Save & view" opens the estimate; a plain "Save" returns to the
       // customer's dashboard (the job's spine) — only ever on a successful save.
       if (thenView) router.push(`/estimates/${estimate.id}`);
@@ -1525,6 +1510,11 @@ export function EstimateBuilder({
       }
       await flushDefaultRates();
       void clearEstimateBuilderDraft(estimate.id);
+      if (res.reapprovalRequired) {
+        toast.success(
+          "Saved for reapproval. Previous customer approval kept. Job / POs / invoices unchanged.",
+        );
+      }
       window.print();
     });
 
@@ -1543,9 +1533,13 @@ export function EstimateBuilder({
       void clearEstimateBuilderDraft(estimate.id);
       await sendEstimateById(estimate.id, sendEmail);
       toast.success(
-        sendEmail
-          ? `Estimate sent to ${customer?.full_name || "the customer"}`
-          : "Estimate saved & marked sent (no email)",
+        res.reapprovalRequired
+          ? sendEmail
+            ? `Revised estimate sent for reapproval to ${customer?.full_name || "the customer"}`
+            : "Revised estimate saved & marked sent (needs reapproval; no email)"
+          : sendEmail
+            ? `Estimate sent to ${customer?.full_name || "the customer"}`
+            : "Estimate saved & marked sent (no email)",
       );
       router.push(`/estimates/${estimate.id}`);
     });
@@ -1649,7 +1643,7 @@ export function EstimateBuilder({
   // shape the customer scope + option cards read, so Preview matches the sent
   // estimate exactly (scope in words + lump sum, no numbers). Reuses the engine.
   const toEstimateLine = (l: LineState, i: number): EstimateLineItem => ({
-    id: `${l.key}`,
+    id: l.id ?? `${l.key}`,
     option_id: "",
     position: i,
     room: l.room || null,
@@ -2026,30 +2020,25 @@ export function EstimateBuilder({
             discountKind,
             discountValue,
           );
-          // Revenue after the discount (pre-tax) drives the true profit + margin.
-          const netRevenue = totals.subtotal - totals.discount;
-          // Our cost & margin for this option (internal confirmation).
-          const optionCost = option.lines.reduce(
-            (s, l) => s + lineOurCost(l),
-            0,
-          );
-          // Material vs labor split — so you can see (and decide) where the cost is.
-          const costSplit = option.lines.reduce(
-            (a, l) => {
-              const s = lineCostSplit(l);
-              return { mat: a.mat + s.mat, labor: a.labor + s.labor };
-            },
-            { mat: 0, labor: 0 },
-          );
-          // Internal per-job costs the customer never sees: flat fuel + car
-          // allowance + commission % of the sale. Folded into TRUE profit.
-          const fuel = netRevenue > 0 ? num(fuelFee) : 0;
-          const car = netRevenue > 0 ? num(carAllowance) : 0;
-          const commission = (num(commissionPct) / 100) * netRevenue;
-          const optionCostAll = optionCost + fuel + car + commission;
-          const optionProfit = netRevenue - optionCostAll;
-          const optionMargin =
-            netRevenue > 0 ? (optionProfit / netRevenue) * 100 : 0;
+          // Same all-in definition as the builder header (jobProfit): freight on
+          // material, then gas / car / commission. Never omit freight here.
+          const optionProfit = jobProfit(option.lines.map(toCalc), {
+            discountKind,
+            discountValue,
+            freightMarkupPct: org?.freight_markup_pct ?? 0,
+            fuelFee,
+            carAllowance,
+            commissionPct,
+          });
+          const optionCost = optionProfit.cost;
+          const costSplit = {
+            mat: optionProfit.material,
+            labor: optionProfit.labor,
+          };
+          const fuel = optionProfit.fuelFee;
+          const car = optionProfit.carAllowance;
+          const commission = optionProfit.commission;
+          const optionMargin = optionProfit.margin;
 
           const isRecommended = option.key === recommendedKey;
           const hasOptional = option.lines.some((l) => l.is_optional);
@@ -3210,7 +3199,7 @@ export function EstimateBuilder({
                       <div className="flex justify-between font-medium text-foreground">
                         <span>Profit</span>
                         <span className="tabular-nums">
-                          {formatMoney(optionProfit)}
+                          {formatMoney(optionProfit.profit)}
                         </span>
                       </div>
                       <div

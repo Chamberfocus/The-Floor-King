@@ -2,12 +2,14 @@
 // read-only per-customer costing view. Cost-side only; isolates material from
 // labor via the shared optionCostTotals.
 import { optionCostTotals } from "@/lib/estimate-calc";
+import { freightMultiplier } from "@/lib/freight";
 import type { EstimateLineItem } from "@/lib/types";
 
 export const round2 = (n: number): number => Math.round((Number(n) || 0) * 100) / 100;
 
-/** The estimate's isolated MATERIAL cost (waste raises material, never labor) —
- *  snapshotted onto the job as estimated_material_cost at approval. */
+/** The estimate's isolated MATERIAL cost (waste already applied via
+ *  optionCostTotals — waste raises material AND labor for measured lines).
+ *  Snapshotted onto the job as estimated_material_cost at approval. */
 export function estimatedMaterialCostForOption(lines: EstimateLineItem[]): number {
   return round2(
     optionCostTotals(lines as Parameters<typeof optionCostTotals>[0]).material,
@@ -51,6 +53,22 @@ export function costTotalsForLines(
 ): { material: number; labor: number } {
   const t = optionCostTotals(lines as Parameters<typeof optionCostTotals>[0]);
   return { material: round2(t.material), labor: round2(t.labor) };
+}
+
+/**
+ * Estimated direct cost for job profitability from operational scope lines.
+ * Material carries freight once; labor is never freighted.
+ */
+export function estimatedDirectCostFromScope(
+  lines: EstimateLineItem[],
+  freightMarkupPct: number | string | null | undefined,
+): { material: number; labor: number; total: number } {
+  const ct = optionCostTotals(lines as Parameters<typeof optionCostTotals>[0]);
+  const material = round2(
+    ct.material * freightMultiplier(Number(freightMarkupPct) || 0),
+  );
+  const labor = round2(ct.labor);
+  return { material, labor, total: round2(material + labor) };
 }
 
 /**

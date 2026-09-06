@@ -55,7 +55,7 @@ export function JobLaborCard({
     <Card className="mb-6">
       <CardHeader>
         <CardTitle className="text-base">
-          Crew pay (subcontractor cost) — {formatMoney(total)}
+          Crew pay notes (legacy — not actual job cost) — {formatMoney(total)}
           {unpaid > 0 ? (
             <span className="ml-2 text-sm font-normal text-amber-600">
               {formatMoney(unpaid)} unpaid
@@ -64,6 +64,13 @@ export function JobLaborCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
+          Actual installation labor cost is managed on the{" "}
+          <a className="font-medium text-foreground underline" href={`/jobs/${jobId}/bill`}>
+            installer bill
+          </a>
+          . These crew-pay notes do not feed job profitability or AP.
+        </p>
         {rows.length > 0 ? (
           <div className="divide-y rounded-md border">
             {rows.map((r) => (
@@ -125,8 +132,7 @@ export function JobLaborCard({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            No crew pay recorded yet. Add what you pay the installer so this
-            job&apos;s profit is real.
+            No crew pay notes yet. Prefer the installer bill for actual labor cost.
           </p>
         )}
 

@@ -1,6 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
-import { lineQty, lineOrderQty, type CalcLine } from "@/lib/estimate-calc";
+import { type CalcLine } from "@/lib/estimate-calc";
 import { isMaterialLine } from "@/lib/job-scope";
+import { materialNeedQty } from "@/lib/job-operational-scope";
+import {
+  loadOperationalJobLines,
+  seedJobScopeIfEmpty,
+} from "@/lib/data/job-operational-lines";
+import { loadJobCoverageItems } from "@/lib/data/job-purchasing";
+import { computeLineCoverage, isNonCoveringPoStatus, buildLegacyCoverageContext } from "@/lib/po-coverage";
 import type { LineMeasurement } from "@/lib/types";
 
 export type MaterialSource = "stock" | "order";
@@ -33,9 +40,16 @@ export interface JobMaterialLine {
   resolvedSource: MaterialSource; // what we'll actually do
   reservedQty: number; // reserved for THIS line
   pulledQty: number; // already pulled for THIS line
+  /** Purchasing gap vs linked PO coverage (order lines). */
+  purchasingGap: number;
+  /** Excess on ordered/received/closed vs current need. */
+  excessIssued: number;
+  /** Physically arrived qty against this job line. */
+  arrivedQty: number;
   status:
-    | "order" // special-order → PO, not yet received
-    | "arrived" // special-order whose PO has been received (material is in)
+    | "order" // special-order → still outstanding for arrival
+    | "partial" // some received, need not fully covered
+    | "arrived" // received coverage ≥ need
     | "short" // from stock but not enough on hand
     | "to_reserve" // from stock, nothing reserved yet
     | "reserved" // reserved, waiting to pull
@@ -48,10 +62,16 @@ export interface JobMaterials {
   lines: JobMaterialLine[];
   hasStock: boolean;
   hasOrder: boolean;
+  /** True when any non-void PO covers this job (linked items or job_id). */
   hasPO: boolean;
-  /** All ordered lines have arrived (their POs are received). Drives the
-   *  job/warehouse "Materials arrived" state + the pipeline stage advance. */
+  /** Any order line still has a purchasing gap. */
+  hasPurchasingGap: boolean;
+  /** Any order line has excess on issued POs. */
+  hasExcessIssued: boolean;
+  /** All ordered lines have arrived against operational need. */
   materialsArrived: boolean;
+  /** Legacy estimate PO items need manual review before auto-ordering. */
+  legacyPoReviewRequired: boolean;
 }
 
 type RawLine = CalcLine & {
@@ -93,39 +113,30 @@ export async function getJobMaterials(
     hasStock: false,
     hasOrder: false,
     hasPO: false,
+    hasPurchasingGap: false,
+    hasExcessIssued: false,
     materialsArrived: false,
+    legacyPoReviewRequired: false,
   };
-  if (!job?.option_id) return empty;
+  if (!job) return empty;
 
-  const { data: lineData } = await supabase
-    .from("estimate_line_items")
-    .select("*")
-    .eq("option_id", job.option_id as string)
-    .neq("line_type", "flat")
-    .neq("category", "labor") // labor (install, tear-out, prep) isn't material
-    .order("position", { ascending: true });
-  // Materials only — drop labor + service "other" lines (they're work-order
-  // items, not things the warehouse stages/orders).
-  const lines = ((lineData ?? []) as RawLine[]).filter(isMaterialLine);
+  // Operational material scope = job_line_items (seeded on create). Legacy jobs
+  // without a copy fall back to the estimate option until seeded.
+  await seedJobScopeIfEmpty(supabase, jobId);
+  const scopeLines = await loadOperationalJobLines(supabase, jobId, {
+    optionId: (job.option_id as string | null) ?? null,
+  });
+
+  const lines = (scopeLines as unknown as RawLine[])
+    .filter((l) => l.line_type !== "flat" && l.category !== "labor")
+    .filter(isMaterialLine);
   if (!lines.length) return empty;
 
-  // Which ordered lines have their PO received (the material is physically in)?
-  // po_items.line_id links back to this job's estimate line.
-  const lineIds = lines.map((l) => l.id);
-  const arrivedLineIds = new Set<string>();
-  if (lineIds.length) {
-    const { data: poRows } = await supabase
-      .from("po_items")
-      .select("line_id, po:purchase_orders(status)")
-      .in("line_id", lineIds);
-    for (const r of (poRows ?? []) as {
-      line_id: string | null;
-      po?: { status: string } | { status: string }[] | null;
-    }[]) {
-      const po = Array.isArray(r.po) ? r.po[0] : r.po;
-      if (r.line_id && po?.status === "received") arrivedLineIds.add(r.line_id);
-    }
-  }
+  const coverageItems = await loadJobCoverageItems(
+    supabase,
+    jobId,
+    (job.estimate_id as string | null) ?? null,
+  );
 
   const productIds = [
     ...new Set(lines.map((l) => l.product_id).filter(Boolean)),
@@ -166,51 +177,62 @@ export async function getJobMaterials(
     if (m.kind === "reserve") {
       reservedByLine.set(lid, (reservedByLine.get(lid) ?? 0) + q);
     } else if (m.kind === "release") {
-      reservedByLine.set(lid, (reservedByLine.get(lid) ?? 0) + q); // release qty is negative
+      reservedByLine.set(lid, (reservedByLine.get(lid) ?? 0) + q);
     } else if (m.kind === "pull") {
       pulledByLine.set(lid, (pulledByLine.get(lid) ?? 0) + Math.abs(q));
     }
   }
 
-  // Is there already a PO for this estimate?
-  let hasPO = false;
-  if (job.estimate_id) {
-    const { count } = await supabase
-      .from("purchase_orders")
-      .select("id", { count: "exact", head: true })
-      .eq("estimate_id", job.estimate_id as string);
-    hasPO = (count ?? 0) > 0;
-  }
+  const hasPO = coverageItems.some(
+    (i) => i.jobLineId && !isNonCoveringPoStatus(i.poStatus),
+  );
+
+  const legacyCtx = buildLegacyCoverageContext(
+    lines.map((l) => ({
+      id: l.id,
+      productId: (l.product_id as string | null) ?? null,
+    })),
+    coverageItems,
+  );
 
   const out: JobMaterialLine[] = lines.map((l) => {
-    // What the JOB needs, waste included — this drives reservations and what
-    // the warehouse stages. Reserving the bare measurement put the crew on site
-    // with less material than the estimate had already sold.
-    const qty = Math.round(lineOrderQty(l) * 100) / 100;
+    const qty = materialNeedQty(l);
     const p = l.product_id ? prodById.get(l.product_id) : undefined;
     const onHand = p?.on_hand ?? 0;
     const reservedGlobal = p?.reserved ?? 0;
     const available = Math.round((onHand - reservedGlobal) * 100) / 100;
-    const reservedQty = Math.max(0, pulledByLine.has(l.id) || reservedByLine.has(l.id)
-      ? (reservedByLine.get(l.id) ?? 0) - (pulledByLine.get(l.id) ?? 0)
-      : 0);
+    const reservedQty = Math.max(
+      0,
+      pulledByLine.has(l.id) || reservedByLine.has(l.id)
+        ? (reservedByLine.get(l.id) ?? 0) - (pulledByLine.get(l.id) ?? 0)
+        : 0,
+    );
     const pulledQty = pulledByLine.get(l.id) ?? 0;
 
     const explicit = (l.source === "stock" || l.source === "order"
       ? l.source
       : null) as MaterialSource | null;
-    // Auto: if it's a stock-tracked product with enough on hand, sell from stock.
     const canStock = Boolean(p?.track_stock);
-    // "Pull from stock" on the estimate is authoritative — it's off the PO, so
-    // the warehouse view must treat it as stock too (keeps sourcing consistent).
     const resolvedSource: MaterialSource = l.from_stock
       ? "stock"
       : explicit ?? (canStock ? "stock" : "order");
 
+    const cov =
+      resolvedSource === "order"
+        ? computeLineCoverage(
+            l.id,
+            qty,
+            coverageItems,
+            legacyCtx.legacyByLine.get(l.id) ?? [],
+          )
+        : null;
+
     let status: JobMaterialLine["status"];
-    if (resolvedSource === "order")
-      status = arrivedLineIds.has(l.id) ? "arrived" : "order";
-    else if (pulledQty >= qty - 0.001 && qty > 0) status = "pulled";
+    if (resolvedSource === "order") {
+      if (cov?.arrival === "arrived") status = "arrived";
+      else if (cov?.arrival === "partial") status = "partial";
+      else status = "order";
+    } else if (pulledQty >= qty - 0.001 && qty > 0) status = "pulled";
     else if (reservedQty >= qty - 0.001 && qty > 0) status = "reserved";
     else if (available + reservedQty + pulledQty < qty) status = "short";
     else status = "to_reserve";
@@ -228,9 +250,6 @@ export async function getJobMaterials(
       rollWidthFt: l.roll_width_ft ?? null,
       orderAsRoll: !!l.order_as_roll,
       isFill: !!l.is_fill,
-      // Prefer the product's LIVE category so re-categorizing a product (e.g.
-      // roll-good ↔ hard-surface) corrects the cut logic on existing jobs;
-      // fall back to the line's snapshot for one-off/manual lines.
       category: p?.category ?? l.category ?? null,
       lengthIn: l.length_in ?? null,
       widthIn: l.width_in ?? null,
@@ -246,6 +265,9 @@ export async function getJobMaterials(
       resolvedSource,
       reservedQty,
       pulledQty,
+      purchasingGap: cov?.gap ?? 0,
+      excessIssued: cov?.excessIssued ?? 0,
+      arrivedQty: cov?.arrivedQty ?? 0,
       status,
     };
   });
@@ -258,8 +280,12 @@ export async function getJobMaterials(
     hasStock: out.some((l) => l.resolvedSource === "stock"),
     hasOrder: orderLines.length > 0,
     hasPO,
-    // Every special-order line has arrived (nothing left on order).
+    hasPurchasingGap:
+      !legacyCtx.reviewRequired &&
+      orderLines.some((l) => l.purchasingGap > 0.001),
+    hasExcessIssued: orderLines.some((l) => l.excessIssued > 0.001),
     materialsArrived:
       orderLines.length > 0 && orderLines.every((l) => l.status === "arrived"),
+    legacyPoReviewRequired: legacyCtx.reviewRequired,
   };
 }

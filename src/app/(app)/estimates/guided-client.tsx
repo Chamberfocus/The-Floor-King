@@ -14,6 +14,7 @@ export function GuidedEstimate(props: {
   customerId: string;
   customerName: string;
   targetMargin: number;
+  freightMarkupPct?: number;
   serviceAddresses: { id: string; label: string }[];
   questions: EstimateQuestion[];
   savedAreas: CustomerArea[];
@@ -51,6 +52,7 @@ export function GuidedEstimate(props: {
         customerId={props.customerId}
         customerName={props.customerName}
         targetMargin={props.targetMargin}
+        freightMarkupPct={props.freightMarkupPct ?? 0}
         serviceAddressId={serviceAddressId}
         questions={props.questions}
         savedAreas={props.savedAreas}

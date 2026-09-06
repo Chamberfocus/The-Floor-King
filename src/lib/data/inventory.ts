@@ -49,12 +49,23 @@ export interface InventorySummary {
   totalValue: number; // on_hand × cost(material_rate)
 }
 
-/** Products that are stock-tracked, with their levels. */
+/** Products that are stock-tracked, with their levels (no financial valuation columns). */
+/** Ops surface: no avg/carrying; no material_rate/labor_rate/clearance_price (OUR COST). */
+const PRODUCT_OPS_COLS =
+  "id, name, category, unit, sku, manufacturer, style, color, supplier, supplier_id, notes, active, track_stock, on_hand, on_order, reorder_point, bin_location, stock_kind, reserved, clearance, last_movement_at, created_at, updated_at";
+
 export async function listInventory(search = ""): Promise<Product[]> {
   const supabase = await createClient();
+  // Prefer ops RPC (warehouse-safe, no avg_unit_cost / carrying_value).
+  const { data: viaRpc, error } = await supabase.rpc(
+    "inv_list_inventory_products_ops",
+    { p_search: search.trim() || null, p_limit: 2000 },
+  );
+  if (!error && viaRpc) return viaRpc as Product[];
+
   let q = supabase
     .from("products")
-    .select("*")
+    .select(PRODUCT_OPS_COLS)
     .eq("track_stock", true)
     .order("name", { ascending: true });
   if (search.trim()) {
@@ -74,7 +85,7 @@ export async function listUntracked(search = ""): Promise<Product[]> {
   const supabase = await createClient();
   let q = supabase
     .from("products")
-    .select("*")
+    .select(PRODUCT_OPS_COLS)
     .eq("track_stock", false)
     .order("name", { ascending: true })
     .limit(50);
@@ -110,7 +121,7 @@ export async function listAgedStock(): Promise<Product[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("products")
-    .select("*")
+    .select(PRODUCT_OPS_COLS)
     .eq("track_stock", true)
     .gt("on_hand", 0)
     .or(`last_movement_at.lte.${cutoff},last_movement_at.is.null`)
@@ -123,14 +134,55 @@ export async function getProduct(id: string): Promise<Product | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("products")
-    .select("*")
+    .select(PRODUCT_OPS_COLS)
     .eq("id", id)
     .maybeSingle();
-  return (data as Product) ?? null;
+  if (!data) return null;
+  const product = data as Product;
+  // Financial valuation: admin/office only via SECURITY DEFINER RPC (DB-enforced).
+  const { data: val } = await supabase.rpc("inv_get_product_valuation", {
+    p_product_id: id,
+  });
+  if (val && typeof val === "object" && (val as { ok?: boolean }).ok) {
+    const v = val as {
+      avg_unit_cost?: number | null;
+      inventory_carrying_value?: number;
+    };
+    product.avg_unit_cost = v.avg_unit_cost ?? null;
+    (product as Product & { inventory_carrying_value?: number }).inventory_carrying_value =
+      v.inventory_carrying_value;
+  }
+  return product;
 }
 
 export async function listMovements(productId: string): Promise<StockMovement[]> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  let role: string | null = null;
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+    role = (profile?.role as string) ?? null;
+  }
+  // Warehouse: quantity-safe RPC (no unit_cost / extended_cost).
+  if (role === "warehouse") {
+    const { data } = await supabase.rpc("inv_list_movements_ops", {
+      p_product_id: productId,
+      p_limit: 100,
+    });
+    return (data ?? []) as StockMovement[];
+  }
+  // Admin/office: prefer financial RPC when 0176 applied; else table select.
+  const { data: fin, error } = await supabase.rpc("inv_list_movements_financial", {
+    p_product_id: productId,
+    p_limit: 100,
+  });
+  if (!error && fin) return fin as StockMovement[];
   const { data } = await supabase
     .from("stock_movements")
     .select("*")

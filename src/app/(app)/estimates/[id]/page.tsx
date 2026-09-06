@@ -29,17 +29,18 @@ import { EstimateDeliveryCard } from "@/components/estimate-delivery-card";
 import { getEstimateDelivery } from "@/lib/data/estimate-delivery";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { getEstimate, getEstimatorName } from "@/lib/data/estimates";
+import { getCurrentApprovalSnapshot } from "@/lib/data/estimate-approvals";
+import { legacyApprovalSnapshotUnavailable } from "@/lib/estimate-approval";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { requireProfile } from "@/lib/auth";
-import { freightMultiplier } from "@/lib/freight";
 import {
   optionTotalsWithDiscount,
-  optionCostTotals,
   lineTotal,
   lineQty,
 } from "@/lib/estimate-calc";
+import { jobProfit } from "@/lib/job-profit";
 import { parseProjectDetails } from "@/lib/customer-scope";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -86,13 +87,14 @@ export default async function EstimatePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; preview?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string; approval_error?: string; invoice_error?: string }>;
 }) {
   const { id } = await params;
-  const { print, preview: previewParam } = await searchParams;
+  const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError } = await searchParams;
   const preview = previewParam === "1";
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
+  const approvalSnap = await getCurrentApprovalSnapshot(id);
 
   const customer = await getCustomer(estimate.customer_id);
   // Which property this estimate is for. Only meaningful on accounts that have
@@ -126,37 +128,34 @@ export default async function EstimatePage({
       estimate.discount_value,
     );
 
-  // Owner-only internal profit: same fuel/car/commission structure as the
-  // builder and the invoice. Never shown to the customer (this whole page is
-  // staff-facing; the customer's copy is EstimatePrintDoc above).
+  // Owner-only internal profit: canonical jobProfit (same as builder / invoice).
+  // Never shown to the customer (this whole page is staff-facing; the customer's
+  // copy is EstimatePrintDoc above).
   const profile = await requireProfile();
   const biz = profile.role === "admin" ? await getBusinessSettings() : null;
-  const freightMult = freightMultiplier(org.freight_markup_pct);
   const profitFor = (o: EstimateOption) => {
     if (!biz) return null;
-    const t = totalsFor(o);
-    const revenue = t.subtotal - t.discount; // pre-tax, discounted
-    const ct = optionCostTotals(o.line_items ?? []);
-    const cost = ct.material * freightMult + ct.labor;
-    const hasRev = revenue > 0;
-    const fuelCharge = hasRev ? Number(biz.job_fuel_charge) || 0 : 0;
-    const salesGas = hasRev ? Number(biz.job_fuel_fee) || 0 : 0;
-    const carAllowance = hasRev ? Number(biz.job_car_allowance) || 0 : 0;
-    const commissionPct = Number(biz.job_commission_pct) || 0;
-    const commission = hasRev ? (commissionPct / 100) * revenue : 0;
-    const profit = revenue - cost - salesGas - carAllowance - commission;
+    const p = jobProfit(o.line_items ?? [], {
+      discountKind: estimate.discount_kind,
+      discountValue: estimate.discount_value,
+      freightMarkupPct: org.freight_markup_pct,
+      fuelFee: biz.job_fuel_fee,
+      carAllowance: biz.job_car_allowance,
+      commissionPct: biz.job_commission_pct,
+    });
+    const hasRev = p.revenue > 0;
     return {
-      revenue,
-      fuelCharge,
-      material: ct.material * freightMult,
-      labor: ct.labor,
-      cost,
-      salesGas,
-      carAllowance,
-      commissionPct,
-      commission,
-      profit,
-      margin: revenue > 0 ? (profit / revenue) * 100 : 0,
+      revenue: p.revenue,
+      fuelCharge: hasRev ? Number(biz.job_fuel_charge) || 0 : 0,
+      material: p.material,
+      labor: p.labor,
+      cost: p.cost,
+      salesGas: p.fuelFee,
+      carAllowance: p.carAllowance,
+      commissionPct: p.commissionPct,
+      commission: p.commission,
+      profit: p.profit,
+      margin: p.margin,
     };
   };
 
@@ -240,6 +239,49 @@ export default async function EstimatePage({
         />
       </div>
 
+      {/* Step 6 — commercial vs ops / approval history */}
+      <div className="mb-4 space-y-2 print:hidden">
+        {approvalError ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {approvalError}
+          </p>
+        ) : null}
+        {invoiceError ? (
+          <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+            {invoiceError}
+          </p>
+        ) : null}
+        {estimate.status === "approved" && approvalSnap ? (
+          <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+            Customer approval on file (v{approvalSnap.version}
+            {estimate.approved_at
+              ? ` · ${formatDate(estimate.approved_at)}`
+              : ""}
+            ). Editing the live estimate does not change that snapshot, the job,
+            POs, or invoices. Material price/qty changes will require reapproval.
+          </p>
+        ) : null}
+        {legacyApprovalSnapshotUnavailable(estimate.status, !!approvalSnap) ? (
+          <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+            Historical approval snapshot unavailable — this was approved before
+            approval history was recorded. Do not treat the live estimate as a
+            verified original acceptance.
+          </p>
+        ) : null}
+        {estimate.approval_stale ||
+        (estimate.status === "sent" && approvalSnap) ? (
+          <p className="rounded-md border border-sky-300 bg-sky-50 p-3 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+            Revised commercial proposal awaiting customer reapproval. Previous
+            approval (v{approvalSnap?.version ?? "?"}) is preserved. Job scope,
+            POs, and invoices were not updated automatically
+            {approvalSnap
+              ? ` — approved total was ${formatMoney(approvalSnap.payload.total)}`
+              : ""}
+            .
+          </p>
+        ) : null}
+      </div>
+
       {/* Next steps — the obvious "what now", tuned to where the estimate is */}
       <Card className="mb-6 border-primary/40 print:hidden">
         <CardContent className="pt-6">
@@ -247,9 +289,10 @@ export default async function EstimatePage({
             <>
               <div className="mb-1 font-semibold">Next steps</div>
               <p className="mb-4 text-sm text-muted-foreground">
-                Everything below is pre-filled from this estimate — no re-typing.
-                Materials become the PO, labor &amp; scope become the work order,
-                and billing becomes the invoice.
+                Job materials and work order use the job&apos;s operational scope
+                after the job exists — editing this estimate later does not
+                rewrite them. Create a job, order materials, or raise an invoice
+                from the current commercial record when ready.
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <form action={createJobFromEstimate}>

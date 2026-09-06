@@ -7,6 +7,8 @@ import { parseArrivalWindows } from "@/lib/format";
 import { listInstallPreferences } from "@/lib/data/install-availability";
 import { listCrewAvailabilityForOffice } from "@/lib/data/crew-availability";
 import { INSTALL_ROLES } from "@/lib/types";
+import { isMaterialLine } from "@/lib/job-scope";
+import { assessMaterialsReadyForSchedule } from "@/lib/materials-ready";
 import type { InstallScheduleProps } from "@/app/(app)/customers/[id]/install-schedule";
 
 /** Compact phone label for disambiguating installers, e.g. 3304286866 → 330-428-6866. */
@@ -40,6 +42,11 @@ export async function buildInstallScheduleProps(
   if (!job) return null;
 
   const lineItems = job.line_items ?? [];
+  const materialsReady = assessMaterialsReadyForSchedule({
+    warehouseReadyAt: job.warehouse_ready_at ?? null,
+    hasMaterialNeed: lineItems.some((l) => isMaterialLine(l)),
+  }).ready;
+
   const est = lineItems.length ? installDaysForJob(lineItems, settings) : null;
   const suggestions =
     est && est.days > 0 ? await getInstallerSuggestions(lineItems, settings) : [];
@@ -100,5 +107,6 @@ export async function buildInstallScheduleProps(
       is_private: b.is_private,
       label: b.label,
     })),
+    materialsReady,
   };
 }

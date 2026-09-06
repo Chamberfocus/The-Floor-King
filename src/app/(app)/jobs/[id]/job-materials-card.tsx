@@ -28,6 +28,7 @@ function ftIn(inches: number): string {
 function StatusBadge({ line }: { line: JobMaterialLine }) {
   const map: Record<JobMaterialLine["status"], { label: string; cls: string }> = {
     order: { label: "Special order", cls: "bg-sky-500/10 text-sky-600" },
+    partial: { label: "Partially arrived", cls: "bg-amber-500/10 text-amber-700" },
     arrived: { label: "Arrived ✓", cls: "bg-emerald-500/10 text-emerald-600" },
     short: { label: "Not enough stock", cls: "bg-destructive/10 text-destructive" },
     to_reserve: { label: "From stock", cls: "bg-violet-500/10 text-violet-600" },
@@ -85,6 +86,14 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
           special-order items. Pull stock when you stage the job — its cost lands
           on this job&apos;s profit.
         </p>
+        {data.legacyPoReviewRequired ? (
+          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+            <span className="font-semibold">Review required:</span> legacy purchase
+            orders from before job-line linking may cover this material, but the
+            link is ambiguous. Auto-ordering is paused until staff confirms PO
+            coverage on the Purchasing tab.
+          </p>
+        ) : null}
         <div className="divide-y rounded-md border">
           {data.lines.map((l) => (
             <div
@@ -110,6 +119,22 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                 {l.resolvedSource === "order" && l.supplier ? (
                   <div className="text-xs font-medium text-sky-600">
                     Order from {l.supplier}
+                  </div>
+                ) : null}
+                {l.resolvedSource === "order" && l.purchasingGap > 0.001 ? (
+                  <div className="text-xs text-amber-700">
+                    Purchasing gap: {l.purchasingGap} {l.unit} still uncovered
+                  </div>
+                ) : null}
+                {l.resolvedSource === "order" && l.excessIssued > 0.001 ? (
+                  <div className="flex items-center gap-1 text-xs text-amber-700">
+                    <AlertTriangle className="size-3" />
+                    Excess on issued PO: {l.excessIssued} {l.unit} (not auto-reduced)
+                  </div>
+                ) : null}
+                {l.resolvedSource === "order" && l.arrivedQty > 0 && l.status !== "arrived" ? (
+                  <div className="text-xs text-muted-foreground">
+                    Arrived {l.arrivedQty} of {l.qty} {l.unit}
                   </div>
                 ) : null}
               </div>

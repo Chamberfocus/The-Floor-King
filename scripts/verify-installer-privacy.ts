@@ -1,3 +1,6 @@
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + service-role (or equivalent). Do not default to production.
+//
 // Proves an installer can NEVER read another installer's assigned job — at the
 // DATABASE level (real RLS), using genuine authenticated sessions. Plus the
 // explicit /jobs query scope. Throwaway data, cleaned up.

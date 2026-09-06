@@ -7,8 +7,12 @@ import { aiText } from "@/lib/ai";
 import { extractJobFromNotes, type NotesJob } from "@/lib/extract";
 import { searchCatalog } from "@/lib/data/products";
 import { getBusinessSettings } from "@/lib/data/business-settings";
+import { getOrgSettings } from "@/lib/data/org";
 import { getRoomDefaults, getAddonDefaults } from "@/lib/data/addon-defaults";
-import { priceFromMargin } from "@/lib/estimate-calc";
+import {
+  sellLaborFromTargetMargin,
+  sellMaterialFromTargetMargin,
+} from "@/lib/estimate-pricing";
 import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
@@ -52,9 +56,16 @@ function mapFloorType(t: string): string {
  * job-wide extras. Returns the same SmartLine[] the wizard produces.
  */
 async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
-  const settings = await getBusinessSettings();
+  const [settings, org] = await Promise.all([
+    getBusinessSettings(),
+    getOrgSettings(),
+  ]);
   const margin = settings.target_gross_margin_pct || 40;
-  const sellAt = (cost: number) => (cost > 0 ? round2(priceFromMargin(cost, margin)) : 0);
+  const freightPct = org.freight_markup_pct ?? 0;
+  const sellMat = (cost: number) =>
+    cost > 0 ? round2(sellMaterialFromTargetMargin(cost, margin, freightPct)) : 0;
+  const sellLab = (cost: number) =>
+    cost > 0 ? round2(sellLaborFromTargetMargin(cost, margin)) : 0;
 
   // Pull costs from the catalog & saved defaults so a bare "carpet" is priced.
   let roomDefaults: Awaited<ReturnType<typeof getRoomDefaults>> = {};
@@ -185,7 +196,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
       length_in: lenIn > 0 ? lenIn : null,
       width_in: widIn > 0 ? widIn : null,
       unit,
-      material_rate: sellAt(cost),
+      material_rate: sellMat(cost),
       labor_rate: 0,
       material_cost: cost,
       labor_cost: 0,
@@ -240,7 +251,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
       length_in: null,
       width_in: null,
       unit: "sq yd",
-      material_rate: sellAt(unitCost),
+      material_rate: sellMat(unitCost),
       labor_rate: 0,
       material_cost: unitCost,
       labor_cost: 0,
@@ -268,7 +279,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
       width_in: null,
       unit: e.unit,
       material_rate: 0,
-      labor_rate: sellAt(unitCost),
+      labor_rate: sellLab(unitCost),
       material_cost: 0,
       labor_cost: unitCost,
       waste_pct: 0,
@@ -300,8 +311,8 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
       length_in: null,
       width_in: null,
       unit: a.unit || "each",
-      material_rate: isLabor ? 0 : sellAt(cost),
-      labor_rate: isLabor ? sellAt(cost) : 0,
+      material_rate: isLabor ? 0 : sellMat(cost),
+      labor_rate: isLabor ? sellLab(cost) : 0,
       material_cost: isLabor ? 0 : cost,
       labor_cost: isLabor ? cost : 0,
       waste_pct: 0,

@@ -1,12 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { onEstimateDeclined } from "@/app/(app)/estimates/actions";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { moveToAutoActionStage } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
+import { recordEstimateApproval } from "@/lib/data/estimate-approvals";
+import { buildApprovalIdempotencyKey } from "@/lib/estimate-approval-idempotency";
 import { getInstallAvailability } from "@/lib/data/install-availability";
 import { formatDate } from "@/lib/format";
 
@@ -167,10 +170,65 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
   const optionId = str(formData.get("accepted_option_id")) || null;
   if (!id) return;
   const supabase = await createClient();
-  await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("customer_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  const portalCustomerId = (prof?.customer_id as string | null) ?? null;
+  if (!portalCustomerId) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        "Your account is not linked to a customer profile.",
+      )}`,
+    );
+  }
+
+  // Ownership gate — DB also enforces via my_customer_id() inside
+  // record_estimate_approval_safe (0178). Never elevate to service_role for portal.
+  const { data: estRow } = await supabase
     .from("estimates")
-    .update({ status: "approved", accepted_option_id: optionId })
-    .eq("id", id);
+    .select("customer_id, current_approval_snapshot_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!estRow?.customer_id || estRow.customer_id !== portalCustomerId) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        "That estimate is not available for approval.",
+      )}`,
+    );
+  }
+
+  // Snapshot + status atomically via SECURITY DEFINER RPC under the customer JWT.
+  const snap = await recordEstimateApproval({
+    estimateId: id,
+    acceptedOptionId: optionId,
+    source: "portal",
+    approvedByCustomerId: portalCustomerId,
+    admin: false,
+    idempotencyKey: buildApprovalIdempotencyKey({
+      estimateId: id,
+      source: "portal",
+      optionId,
+      snapshotId:
+        (estRow.current_approval_snapshot_id as string | null) ?? null,
+      portalCustomerId,
+    }),
+  });
+  if (!snap.snapshotId) {
+    // Do not create a job or advance workflow — estimate must remain unapproved.
+    revalidatePath(`/portal/estimates/${id}`);
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        snap.error ||
+          "We couldn’t finalize your approval. Please try again in a moment, or contact us.",
+      )}`,
+    );
+  }
 
   // Intelligent flow: approved → jump to the "collect deposit" stage.
   const { data: e } = await supabase

@@ -1,12 +1,23 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getJobMaterials } from "@/lib/data/job-materials";
-import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
-import { lineQty, type CalcLine } from "@/lib/estimate-calc";
-import type { EstimateLineItem, PoSourceType } from "@/lib/types";
+import { seedJobScopeIfEmpty } from "@/lib/data/job-operational-lines";
+import {
+  syncJobPurchasingCoverage,
+  type JobPurchasingSyncResult,
+} from "@/lib/data/job-purchasing";
+import { type CalcLine } from "@/lib/estimate-calc";
+import { stockPullNeedQty } from "@/lib/job-operational-scope";
+import {
+  excessReservation,
+  netReservedQty,
+  orphanedStockLineIds,
+} from "@/lib/job-stock-reserve";
+import type { EstimateLineItem } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -15,7 +26,49 @@ const round = (n: number) => Math.round(n * 100) / 100;
 
 type DB = Awaited<ReturnType<typeof createClient>>;
 
-/** Reserved/pulled so far for one estimate line on one job (from the ledger). */
+/** Load one operational line (job scope first, estimate fallback for legacy). */
+async function loadOpsLine(
+  db: DB,
+  jobId: string,
+  lineId: string,
+): Promise<(EstimateLineItem & CalcLine) | null> {
+  await seedJobScopeIfEmpty(db, jobId);
+  const { data: jobLine } = await db
+    .from("job_line_items")
+    .select("*")
+    .eq("job_id", jobId)
+    .eq("id", lineId)
+    .maybeSingle();
+  if (jobLine) return jobLine as EstimateLineItem & CalcLine;
+  const { data: estLine } = await db
+    .from("estimate_line_items")
+    .select("*")
+    .eq("id", lineId)
+    .maybeSingle();
+  return (estLine as EstimateLineItem & CalcLine) ?? null;
+}
+
+/** Persist sourcing on the operational job line — never the approved estimate. */
+async function updateOpsLineSource(
+  db: DB,
+  jobId: string,
+  lineId: string,
+  source: string,
+): Promise<void> {
+  await seedJobScopeIfEmpty(db, jobId);
+  const { data: updated } = await db
+    .from("job_line_items")
+    .update({ source })
+    .eq("job_id", jobId)
+    .eq("id", lineId)
+    .select("id");
+  // Legacy: job never got a copy and line only exists on the estimate.
+  if (!updated?.length) {
+    await db.from("estimate_line_items").update({ source }).eq("id", lineId);
+  }
+}
+
+/** Reserved/pulled so far for one line on one job (from the ledger). */
 async function lineLedger(
   db: DB,
   jobId: string,
@@ -36,21 +89,68 @@ async function lineLedger(
   return { reserved: Math.max(0, reserved - pulled), pulled };
 }
 
-async function adjustReserved(db: DB, productId: string, delta: number) {
-  const { data } = await db
-    .from("products")
-    .select("reserved")
-    .eq("id", productId)
-    .maybeSingle();
-  const next = Math.max(0, round((Number(data?.reserved) || 0) + delta));
-  await db.from("products").update({ reserved: next }).eq("id", productId);
-}
+/** Reserved is mutated only inside reserve/release/consume RPCs (F6-P4). */
 
 async function userId(db: DB): Promise<string | null> {
   const {
     data: { user },
   } = await db.auth.getUser();
   return user?.id ?? null;
+}
+
+/** Release reservations for removed lines and trim excess on surviving stock lines. */
+async function reconcileStaleReservations(
+  db: DB,
+  jobId: string,
+  mats: Awaited<ReturnType<typeof getJobMaterials>>,
+  uid: string | null,
+): Promise<void> {
+  const stockLines = mats.lines.filter((l) => l.resolvedSource === "stock");
+  const currentStockLineIds = stockLines.map((l) => l.lineId);
+
+  const { data: movements } = await db
+    .from("stock_movements")
+    .select("line_id, product_id, kind, qty")
+    .eq("job_id", jobId)
+    .in("kind", ["reserve", "release", "pull"]);
+
+  const byLine = new Map<string, { kind: string; qty: number }[]>();
+  const productByLine = new Map<string, string>();
+  for (const m of movements ?? []) {
+    const lid = m.line_id as string | null;
+    if (!lid) continue;
+    const arr = byLine.get(lid) ?? [];
+    arr.push({ kind: m.kind as string, qty: Number(m.qty) || 0 });
+    byLine.set(lid, arr);
+    if (m.product_id) productByLine.set(lid, m.product_id as string);
+  }
+
+  const releaseLine = async (lineId: string, amount: number) => {
+    if (amount <= 0.001) return;
+    const productId = productByLine.get(lineId);
+    if (!productId) return;
+    await db.rpc("release_inventory_safe", {
+      p_product_id: productId,
+      p_qty: amount,
+      p_job_id: jobId,
+      p_line_id: lineId,
+      p_created_by: uid,
+    });
+  };
+
+  for (const lineId of orphanedStockLineIds(
+    [...byLine.keys()],
+    currentStockLineIds,
+  )) {
+    const reserved = netReservedQty(byLine.get(lineId) ?? []);
+    await releaseLine(lineId, reserved);
+  }
+
+  for (const l of stockLines) {
+    if (!l.productId) continue;
+    const excess = excessReservation(l.reservedQty, l.qty, l.pulledQty);
+    await releaseLine(l.lineId, excess);
+  }
 }
 
 /**
@@ -60,7 +160,13 @@ async function userId(db: DB): Promise<string | null> {
  */
 export async function prepareJobMaterials(formData: FormData): Promise<void> {
   const jobId = str(formData.get("job_id"));
-  await prepareJobMaterialsFor(jobId);
+  if (!jobId) return;
+  const result = await prepareJobMaterialsFor(jobId);
+  if (result?.alreadyFullyCovered && result.message) {
+    redirect(
+      `/jobs/${jobId}?purchasing_message=${encodeURIComponent(result.message)}`,
+    );
+  }
 }
 
 /** Core prep, callable from other server code (e.g. on job creation). Pass
@@ -69,253 +175,42 @@ export async function prepareJobMaterials(formData: FormData): Promise<void> {
 export async function prepareJobMaterialsFor(
   jobId: string,
   opts?: { admin?: boolean },
-): Promise<void> {
-  if (!jobId) return;
+): Promise<JobPurchasingSyncResult | null> {
+  if (!jobId) return null;
   const db = (opts?.admin ? createAdminClient() : await createClient()) as DB;
+  await seedJobScopeIfEmpty(db, jobId);
   const mats = await getJobMaterials(jobId, db);
   const uid = await userId(db);
 
-  const orderLineIds: string[] = [];
+  await reconcileStaleReservations(db, jobId, mats, uid);
 
+  // Stock: reserve. Order: coverage-driven draft adjust / supplemental PO
+  // (never uses estimate-wide hasPO; never rewrites ordered/received/closed).
   for (const l of mats.lines) {
-    // Lock in the resolved source so it's stable.
     if (!l.source) {
-      await db
-        .from("estimate_line_items")
-        .update({ source: l.resolvedSource })
-        .eq("id", l.lineId);
+      await updateOpsLineSource(db, jobId, l.lineId, l.resolvedSource);
     }
-    if (l.resolvedSource === "order") {
-      orderLineIds.push(l.lineId);
-      continue;
-    }
-    // Stock: reserve whatever's still outstanding, up to what's available.
+    if (l.resolvedSource === "order") continue;
     if (!l.productId || !l.trackStock) continue;
     const outstanding = round(l.qty - l.reservedQty - l.pulledQty);
     if (outstanding <= 0) continue;
     const toReserve = Math.min(outstanding, Math.max(0, l.available));
     if (toReserve <= 0) continue;
-    await adjustReserved(db, l.productId, toReserve);
-    await db.from("stock_movements").insert({
-      product_id: l.productId,
-      qty: toReserve,
-      kind: "reserve",
-      job_id: jobId,
-      line_id: l.lineId,
-      created_by: uid,
+    await db.rpc("reserve_inventory_safe", {
+      p_product_id: l.productId,
+      p_qty: toReserve,
+      p_job_id: jobId,
+      p_line_id: l.lineId,
+      p_created_by: uid,
     });
   }
 
-  // Build one PO for the special-order lines (only if none exists yet).
-  if (orderLineIds.length && !mats.hasPO && mats.estimateId) {
-    await createPOForLines(db, jobId, mats.estimateId, orderLineIds, uid);
-  }
+  const purchasing = await syncJobPurchasingCoverage(db, jobId, { uid });
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/inventory");
   revalidatePath("/purchase-orders");
-}
-
-async function createPOForLines(
-  db: DB,
-  jobId: string,
-  estimateId: string,
-  lineIds: string[],
-  uid: string | null,
-) {
-  const { data: est } = await db
-    .from("estimates")
-    .select("customer_id")
-    .eq("id", estimateId)
-    .maybeSingle();
-  const { data: lineData } = await db
-    .from("estimate_line_items")
-    .select("*")
-    .in("id", lineIds);
-  const lines = (lineData ?? []) as (EstimateLineItem & CalcLine)[];
-  if (!lines.length) return;
-
-  const productIds = [
-    ...new Set(lines.map((l) => l.product_id).filter(Boolean) as string[]),
-  ];
-  const cost = new Map<string, number>();
-  // The unit that catalog cost is PER. Without it there's no way to tell that a
-  // $109.99 price is per pail, not per square foot.
-  const punit = new Map<string, string>();
-  const pname = new Map<string, string>();
-  const psupplier = new Map<string, string | null>();
-  const psupplierId = new Map<string, string | null>();
-  if (productIds.length) {
-    const { data: prods } = await db
-      .from("products")
-      .select("id, name, unit, material_rate, supplier, supplier_id")
-      .in("id", productIds);
-    for (const p of prods ?? []) {
-      cost.set(p.id as string, Number(p.material_rate) || 0);
-      punit.set(p.id as string, String(p.unit ?? "").toLowerCase());
-      pname.set(p.id as string, p.name as string);
-      psupplier.set(p.id as string, (p.supplier as string) || null);
-      psupplierId.set(p.id as string, (p.supplier_id as string) || null);
-    }
-  }
-
-  const lookup = await buildSupplierLookup(db);
-
-  // One PO per supplier so each shows the vendor we order from, with the right
-  // Manufacturer/Distributor source type.
-  const groups = new Map<
-    string,
-    {
-      name: string;
-      supplierId: string | null;
-      sourceType: PoSourceType;
-      lines: typeof lines;
-    }
-  >();
-  for (const l of lines) {
-    const resolved = resolveLineSupplier(lookup, {
-      productSupplierId: l.product_id ? psupplierId.get(l.product_id) : null,
-      supplierName:
-        (l.product_id ? psupplier.get(l.product_id) : null) ||
-        l.manufacturer ||
-        null,
-    });
-    const g = groups.get(resolved.key) ?? {
-      name: resolved.name,
-      supplierId: resolved.ref?.id ?? null,
-      sourceType: (resolved.ref?.kind ?? "distributor") as PoSourceType,
-      lines: [],
-    };
-    g.lines.push(l);
-    groups.set(resolved.key, g);
-  }
-
-  for (const [, group] of groups) {
-    const glines = group.lines;
-    const { data: po, error } = await db
-      .from("purchase_orders")
-      .insert({
-        customer_id: est?.customer_id ?? null,
-        estimate_id: estimateId,
-        job_id: jobId,
-        supplier: group.name,
-        supplier_id: group.supplierId,
-        source_type: group.sourceType,
-        created_by: uid,
-      })
-      .select("id")
-      .single();
-    if (error || !po) continue;
-
-    /**
-     * Nothing but MATERIAL goes on a purchase order.
-     *
-     * The category filter upstream drops anything marked labor, but it only
-     * catches what was marked correctly. Three lines — tear-out, stair install,
-     * appliance disconnect — were saved as "other" and sailed through, and one
-     * of them became a $220,428 purchase order: a tear-out priced per "each"
-     * with a square-footage quantity.
-     *
-     * Two belt-and-braces checks, on the way to the PO rather than after:
-     *  1. A line that reads as work, whatever its category, is not material.
-     *  2. A COUNT unit (each / piece / bag) carrying an area-sized quantity is
-     *     the signature of that exact fault — 803.75 "each" is not a count of
-     *     anything. Skipped rather than ordered.
-     */
-    const LOOKS_LIKE_WORK =
-      /tear-?out|install(ation)?\b|disconnect|haul|dispos|furniture|door shav|demo\b|labou?r/i;
-    const COUNT_UNITS = new Set([
-      "each", "ea", "pc", "piece", "bag", "box", "sheet", "roll", "gallon", "pail", "step", "flat",
-    ]);
-    const buyable = glines.filter((l) => {
-      if (l.category === "labor") return false;
-      if (!l.product_id && LOOKS_LIKE_WORK.test(l.description ?? "")) return false;
-      const unit = String(l.unit ?? "").toLowerCase().replace(/[^a-z]/g, "");
-      if (!l.product_id && COUNT_UNITS.has(unit) && lineQty(l) > 50) return false;
-      return true;
-    });
-    if (!buyable.length) {
-      // Every line in this group was work — don't leave an empty PO behind.
-      await db.from("purchase_orders").delete().eq("id", po.id);
-      continue;
-    }
-
-    const items = buyable.map((l, i) => {
-      const base =
-        l.description || (l.product_id ? pname.get(l.product_id) : "") || "Item";
-      // Carpet & any measured line: show the cut size to order, not just yards.
-      const dims =
-        l.length_in && l.width_in
-          ? ` — ${ftIn(Number(l.width_in))} × ${ftIn(Number(l.length_in))}`
-          : "";
-      return {
-        po_id: po.id,
-        product_id: l.product_id,
-        position: i,
-        description: `${base}${dims}`,
-        quantity: round(lineQty(l)),
-        unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
-        /**
-         * The catalog rate is only usable when it is PER THE SAME UNIT as the
-         * quantity we're ordering.
-         *
-         * This took the catalog price whenever the line had a product, with no
-         * check on units. Sika 5800 adhesive is priced per pail (unit "each",
-         * $109.99); the estimate line measures 639 SQ FT of floor to glue. The
-         * PO multiplied the two and ordered $70,283.61 of adhesive on a job
-         * that needs about $128 of it — sitting in a draft, one click from a
-         * supplier.
-         *
-         * When the units disagree, the line's own cost is the right one: it was
-         * priced against this very quantity, so the two always agree.
-         */
-        unit_cost: (() => {
-          const lineUnit = String(
-            l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
-          )
-            .toLowerCase()
-            .replace(/\s+/g, "");
-          const catUnit = (l.product_id ? punit.get(l.product_id) : "")?.replace(
-            /\s+/g,
-            "",
-          );
-          const catCost = l.product_id ? cost.get(l.product_id) : undefined;
-          const unitsAgree =
-            !!catUnit &&
-            (catUnit === lineUnit ||
-              // sqft/sq ft/sf all mean the same thing to a supplier.
-              (["sqft", "sf"].includes(catUnit) && ["sqft", "sf"].includes(lineUnit)) ||
-              (["sqyd", "sy"].includes(catUnit) && ["sqyd", "sy"].includes(lineUnit)));
-          const ownCost = Number(l.material_cost) || Number(l.material_rate) || 0;
-          return unitsAgree && catCost != null ? catCost : ownCost;
-        })(),
-        manufacturer: l.manufacturer ?? null,
-        style: l.style ?? null,
-        color: l.color ?? null,
-        item_no: l.item_no ?? null,
-        // Vendor units: hard surface orders in cartons, carpet by the roll.
-        category: l.category ?? null,
-        sqft_per_box: l.sqft_per_box ?? null,
-        roll_width_ft: l.roll_width_ft ?? null,
-      };
-    });
-    const { error: itemErr } = await db.from("po_items").insert(items);
-    if (itemErr) {
-      // Fallback for before migration 0098 (po_items units) is run.
-      const legacy = items.map(
-        ({ category: _c, sqft_per_box: _s, roll_width_ft: _r, ...rest }) => rest,
-      );
-      await db.from("po_items").insert(legacy);
-    }
-  }
-}
-
-/** Inches → feet'inches" (e.g. 150 → 12'6"). */
-function ftIn(inches: number): string {
-  if (!Number.isFinite(inches) || inches <= 0) return "";
-  const ft = Math.floor(inches / 12);
-  const inch = Math.round(inches % 12);
-  return inch > 0 ? `${ft}'${inch}"` : `${ft}'`;
+  return purchasing;
 }
 
 /** Flip a single line between sell-from-stock and special-order. */
@@ -328,27 +223,24 @@ export async function setLineSource(formData: FormData): Promise<void> {
 
   // Switching to order: release any reservation on this line.
   if (source === "order") {
-    const { data: line } = await db
-      .from("estimate_line_items")
-      .select("product_id")
-      .eq("id", lineId)
-      .maybeSingle();
+    const line = await loadOpsLine(db, jobId, lineId);
     const led = await lineLedger(db, jobId, lineId);
     if (line?.product_id && led.reserved > 0) {
-      await adjustReserved(db, line.product_id as string, -led.reserved);
-      await db.from("stock_movements").insert({
-        product_id: line.product_id,
-        qty: -led.reserved,
-        kind: "release",
-        job_id: jobId,
-        line_id: lineId,
-        created_by: await userId(db),
+      await db.rpc("release_inventory_safe", {
+        p_product_id: line.product_id,
+        p_qty: led.reserved,
+        p_job_id: jobId,
+        p_line_id: lineId,
+        p_created_by: await userId(db),
       });
     }
   }
-  await db.from("estimate_line_items").update({ source }).eq("id", lineId);
+  await updateOpsLineSource(db, jobId, lineId, source);
+  // Reconcile draft purchasing after stock↔order flips (job-only lines included).
+  await syncJobPurchasingCoverage(db, jobId, { uid: await userId(db) });
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/inventory");
+  revalidatePath("/purchase-orders");
 }
 
 /** Pull a stock line for the job: on-hand drops, cost lands on the job. */
@@ -358,47 +250,36 @@ export async function pullJobLine(formData: FormData): Promise<void> {
   if (!jobId || !lineId) return;
   const db = await createClient();
 
-  const { data: line } = await db
-    .from("estimate_line_items")
-    .select("*")
-    .eq("id", lineId)
-    .maybeSingle();
+  const line = await loadOpsLine(db, jobId, lineId);
   if (!line?.product_id) return;
   const productId = line.product_id as string;
 
   const { data: prod } = await db
     .from("products")
-    .select("on_hand, reserved, material_rate")
+    .select("on_hand, reserved, avg_unit_cost, material_rate")
     .eq("id", productId)
     .maybeSingle();
   if (!prod) return;
 
-  const need = round(lineQty(line as CalcLine));
+  // Step 3 D2: pull the same physical need as stage / reserve / PO (waste in).
+  const need = stockPullNeedQty(line);
   const led = await lineLedger(db, jobId, lineId);
   const outstanding = round(need - led.pulled);
   if (outstanding <= 0) return;
   const onHand = Number(prod.on_hand) || 0;
-  const pull = Math.min(outstanding, Math.max(0, onHand));
+  // Fail-closed: do not silently partial-pull past on-hand.
+  if (outstanding > onHand + 0.00005) return;
+  const pull = outstanding;
   if (pull <= 0) return;
 
-  const releaseFromReserved = Math.min(pull, led.reserved);
-  await db.from("stock_movements").insert({
-    product_id: productId,
-    qty: -pull,
-    kind: "pull",
-    job_id: jobId,
-    line_id: lineId,
-    unit_cost: Number(prod.material_rate) || 0,
-    created_by: await userId(db),
+  await db.rpc("consume_inventory_safe", {
+    p_product_id: productId,
+    p_qty: pull,
+    p_job_id: jobId,
+    p_line_id: lineId,
+    p_created_by: await userId(db),
+    p_release_reserved: true,
   });
-  await db
-    .from("products")
-    .update({
-      on_hand: round(onHand - pull),
-      reserved: Math.max(0, round((Number(prod.reserved) || 0) - releaseFromReserved)),
-      last_movement_at: new Date().toISOString(),
-    })
-    .eq("id", productId);
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/inventory");

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 import { getEstimateOrderPlan } from "@/lib/data/po-plan";
 import { OrderMaterials } from "./order-materials";
 
@@ -20,6 +21,17 @@ export default async function OrderMaterialsPage({
   const profile = await requireProfile();
   if (!ALLOWED.includes(profile.role)) redirect("/");
   const { id } = await params;
+
+  // P1: after a job exists, purchasing uses job operational scope — not this estimate UI.
+  const supabase = await createClient();
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("estimate_id", id)
+    .limit(1)
+    .maybeSingle();
+  if (job) redirect(`/jobs/${job.id}`);
+
   const plan = await getEstimateOrderPlan(id);
 
   return (

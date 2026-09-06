@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { loadOperationalJobLines } from "@/lib/data/job-operational-lines";
 import type {
   EstimateLineItem,
   InstallerBill,
@@ -44,14 +45,12 @@ export async function getBillJobContext(
           .maybeSingle()
       : Promise.resolve({ data: null }),
     (async () => {
-      if (!job.option_id) return [] as EstimateLineItem[];
-      const { data } = await supabase
-        .from("estimate_line_items")
-        .select("*")
-        .eq("option_id", job.option_id)
-        .eq("category", "labor")
-        .order("position", { ascending: true });
-      return (data ?? []) as EstimateLineItem[];
+      // Same operational job scope as staff WO / installer mobile (Step 3 D4).
+      const scope = await loadOperationalJobLines(supabase, jobId, {
+        seedIfEmpty: true,
+        optionId: (job.option_id as string | null) ?? null,
+      });
+      return scope.filter((l) => l.category === "labor");
     })(),
     (async () => {
       if (job.assigned_to) {

@@ -72,7 +72,7 @@ export default async function PulsePage() {
     <div>
       <PageHeader
         title="Business Pulse"
-        description={`How ${pulse.monthLabel} is going — real profit, what's owed, and what to do about it.`}
+        description={`How ${pulse.monthLabel} is going — operational CRM figures (not posted GL). External books remain official until cutover.`}
       >
         <div className="flex gap-2">
           <Link
@@ -103,7 +103,8 @@ export default async function PulsePage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Cash collected
+              Cash collected{" "}
+              <span className="font-normal text-muted-foreground/80">(Operational)</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -144,7 +145,8 @@ export default async function PulsePage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Owed to you (AR)
+              Owed to you (AR){" "}
+              <span className="font-normal text-muted-foreground/80">(Subledger)</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -167,7 +169,8 @@ export default async function PulsePage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              You owe (AP)
+              You owe (AP){" "}
+              <span className="font-normal text-muted-foreground/80">(Subledger)</span>
             </CardTitle>
           </CardHeader>
           <CardContent>

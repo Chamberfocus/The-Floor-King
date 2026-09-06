@@ -120,9 +120,19 @@ export async function getCustomerHistory(
         )
       : Promise.resolve([]),
     invoiceIds.length
-      ? fetchAll<{ id: string; invoice_id: string; amount: number | null; paid_at: string | null; method: string | null }>((from, to) =>
-          supabase.from("payments").select("id, invoice_id, amount, paid_at, method")
-            .in("invoice_id", invoiceIds).range(from, to),
+      ? fetchAll<{
+          id: string;
+          invoice_id: string;
+          amount: number | null;
+          paid_at: string | null;
+          method: string | null;
+          status: string | null;
+        }>((from, to) =>
+          supabase
+            .from("payments")
+            .select("id, invoice_id, amount, paid_at, method, status")
+            .in("invoice_id", invoiceIds)
+            .range(from, to),
         )
       : Promise.resolve([]),
   ]);
@@ -248,15 +258,17 @@ export async function getCustomerHistory(
 
   const invJob = new Map((invs ?? []).map((i) => [i.id as string, (i.job_id as string | null) ?? null]));
   for (const p of pays) {
+    const isVoid = ((p.status as string | null) ?? "active") === "void";
     const jid = invJob.get(p.invoice_id) ?? null;
     const sa = jid ? (jobAddr.get(jid) ?? null) : null;
     events.push({
       kind: "payment",
       id: p.id,
       at: p.paid_at || "",
-      title: "Payment received",
-      status: p.method ?? null,
-      amount: money(Number(p.amount ?? 0)),
+      title: isVoid ? "Payment voided" : "Payment received",
+      status: isVoid ? "void" : (p.method ?? null),
+      // Void payments are audit history only — never cash collected.
+      amount: isVoid ? 0 : money(Number(p.amount ?? 0)),
       href: `/invoices/${p.invoice_id}`,
       propertyId: sa,
       propertyLabel: sa ? (addrById.get(sa) ?? null) : null,
@@ -282,7 +294,11 @@ export async function getCustomerHistory(
       events: evs,
       quoted: money(evs.filter((e) => e.kind === "estimate").reduce((s, e) => s + (e.amount ?? 0), 0)),
       billed: money(evs.filter((e) => e.kind === "invoice").reduce((s, e) => s + (e.amount ?? 0), 0)),
-      paid: money(evs.filter((e) => e.kind === "payment").reduce((s, e) => s + (e.amount ?? 0), 0)),
+      paid: money(
+        evs
+          .filter((e) => e.kind === "payment" && e.status !== "void")
+          .reduce((s, e) => s + (e.amount ?? 0), 0),
+      ),
       wonJobs: evs.filter((e) => e.kind === "job" && e.status === "completed").length,
     }))
     // Named properties first, the unattributed bucket last.
@@ -294,7 +310,11 @@ export async function getCustomerHistory(
   const won = money(wonEsts.reduce((s, e) => s + (e.amount ?? 0), 0));
   const billed = money(events.filter((e) => e.kind === "invoice" && e.status !== "void")
     .reduce((s, e) => s + (e.amount ?? 0), 0));
-  const paid = money(events.filter((e) => e.kind === "payment").reduce((s, e) => s + (e.amount ?? 0), 0));
+  const paid = money(
+    events
+      .filter((e) => e.kind === "payment" && e.status !== "void")
+      .reduce((s, e) => s + (e.amount ?? 0), 0),
+  );
   // Only DECIDED quotes count toward a win rate — one still sitting in their
   // inbox is not a loss, and counting it as one flatters nothing and misleads.
   const decided = estEvents.filter((e) => e.status === "approved" || e.status === "declined").length;

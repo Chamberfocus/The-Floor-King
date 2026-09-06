@@ -3,16 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
+import { seedJobScopeIfEmpty } from "@/lib/data/job-operational-lines";
+import { prepareJobMaterialsFor } from "@/app/(app)/jobs/material-actions";
 import type { UserRole } from "@/lib/types";
 
 /**
  * Editing what the crew is actually doing.
  *
- * The work order's scope is its own now (migration 0152), so these change the
- * JOB and never the customer's approved estimate. That's the whole point: the
- * measurement is off by a closet, there's a second layer of subfloor, a room
- * gets dropped — the work order says what's really happening, and the signed
- * quote stays as signed.
+ * The work order's scope is its own (job_line_items). These change the JOB and
+ * never the customer's approved estimate. Quantity / material edits refresh
+ * operational prep (reserves) so staging and stock stay aligned with job scope;
+ * they do not rewrite commercial estimate totals or silently create duplicate POs.
  */
 
 const STAFF: UserRole[] = ["admin", "office", "sales_manager", "salesman", "scheduler"];
@@ -24,40 +25,17 @@ const numOrNull = (v: FormDataEntryValue | null): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-/**
- * Make sure the job has its OWN lines before editing one.
- *
- * A job created before 0152 still reads the estimate's lines as a fallback.
- * Editing must never write back to those, so the first edit takes the copy the
- * backfill would have taken.
- */
 async function ensureOwnLines(
   supabase: Awaited<ReturnType<typeof createClient>>,
   jobId: string,
 ): Promise<void> {
-  const { count } = await supabase
-    .from("job_line_items")
-    .select("id", { count: "exact", head: true })
-    .eq("job_id", jobId);
-  if ((count ?? 0) > 0) return;
+  await seedJobScopeIfEmpty(supabase, jobId);
+}
 
-  const { data: job } = await supabase
-    .from("jobs")
-    .select("option_id")
-    .eq("id", jobId)
-    .maybeSingle();
-  if (!job?.option_id) return;
-
-  const { data: lines } = await supabase
-    .from("estimate_line_items")
-    .select("*")
-    .eq("option_id", job.option_id)
-    .order("position", { ascending: true });
-  if (!lines?.length) return;
-
-  await supabase
-    .from("job_line_items")
-    .insert(lines.map((l) => ({ ...l, job_id: jobId })));
+async function refreshMaterialsAfterScopeEdit(jobId: string): Promise<void> {
+  // Sync stock reserves to the updated job need. Does not rewrite the estimate.
+  // Will not create a second PO when one already exists for the estimate.
+  await prepareJobMaterialsFor(jobId);
 }
 
 /** Change one line's scope — what it is, where, how much, and a note. */
@@ -82,6 +60,10 @@ export async function updateJobLine(formData: FormData): Promise<void> {
   if (qty !== null) patch.quantity = qty;
 
   await supabase.from("job_line_items").update(patch).eq("id", lineId).eq("job_id", jobId);
+
+  if (sqft !== null || qty !== null) {
+    await refreshMaterialsAfterScopeEdit(jobId);
+  }
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath(`/jobs/${jobId}/staging-sheet`);
@@ -118,6 +100,8 @@ export async function addJobLine(formData: FormData): Promise<void> {
     position: ((last?.position as number) ?? -1) + 1,
   });
 
+  await refreshMaterialsAfterScopeEdit(jobId);
+
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath(`/jobs/${jobId}/staging-sheet`);
   revalidatePath("/warehouse");
@@ -133,6 +117,8 @@ export async function removeJobLine(formData: FormData): Promise<void> {
   await ensureOwnLines(supabase, jobId);
 
   await supabase.from("job_line_items").delete().eq("id", lineId).eq("job_id", jobId);
+
+  await refreshMaterialsAfterScopeEdit(jobId);
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath(`/jobs/${jobId}/staging-sheet`);

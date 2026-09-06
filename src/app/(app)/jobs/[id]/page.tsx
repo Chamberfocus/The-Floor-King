@@ -94,6 +94,10 @@ import { JobChecklist } from "@/components/job-checklist";
 import { buildChecklistSlots } from "@/components/checklist-slots";
 import { STEP_OVERRIDE_ROLES } from "@/lib/job-checklist";
 import { MarkContacted } from "@/app/(app)/customers/[id]/mark-contacted";
+import { JobAttentionStrip } from "./job-attention-strip";
+import { getJobOperationalStateForJob } from "@/lib/data/job-ops-state";
+import { createServiceCallback } from "@/app/(app)/ops/actions";
+import { listOpenServiceCallbacksForJob } from "@/lib/data/ops-glue";
 import { getJobChecklist } from "@/lib/data/job-checklists";
 import { JobNotesCard } from "./job-notes-card";
 import { listJobNotes } from "./note-actions";
@@ -115,11 +119,19 @@ export default async function JobPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ created?: string; print?: string; preview?: string }>;
+  searchParams: Promise<{
+    created?: string;
+    print?: string;
+    preview?: string;
+    schedule_error?: string;
+    purchasing_message?: string;
+  }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
   const justCreated = sp.created === "1";
+  const scheduleError = sp.schedule_error?.trim() || null;
+  const purchasingMessage = sp.purchasing_message?.trim() || null;
   // Reached with ?print (from the customer file's one-click Work Order shortcut)
   // → open the print dialog on the existing work-order doc, unchanged.
   const autoPrint = sp.print === "1" || sp.print === "work_order";
@@ -362,6 +374,27 @@ export default async function JobPage({
     checklistSlots.contact = <MarkContacted customerId={job.customer_id} />;
   }
 
+  const { state: opsState, activeHoldId } = await getJobOperationalStateForJob({
+    id: job.id,
+    status: job.status ?? "unscheduled",
+    scheduled_date: job.scheduled_date,
+    warehouse_ready_at: job.warehouse_ready_at,
+    estimate_id: job.estimate_id,
+  }).catch(() => ({
+    state: null as Awaited<
+      ReturnType<typeof getJobOperationalStateForJob>
+    >["state"] | null,
+    activeHoldId: null as string | null,
+  }));
+  const openCallbacks = await listOpenServiceCallbacksForJob(job.id).catch(
+    () => [],
+  );
+  const canManageHold =
+    profile.role === "admin" ||
+    profile.role === "office" ||
+    profile.role === "sales_manager" ||
+    profile.role === "scheduler";
+
   return (
     <>
       {autoPrint ? <AutoPrint /> : null}
@@ -387,6 +420,67 @@ export default async function JobPage({
       >
         <ArrowLeft className="size-4" /> Back to jobs
       </Link>
+
+      {scheduleError ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {scheduleError}
+        </div>
+      ) : null}
+      {purchasingMessage ? (
+        <div
+          role="status"
+          className="mb-4 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm"
+        >
+          {purchasingMessage}
+        </div>
+      ) : null}
+
+      {opsState ? (
+        <JobAttentionStrip
+          state={opsState}
+          jobId={job.id}
+          activeHoldId={activeHoldId}
+          canManageHold={canManageHold && isStaff}
+        />
+      ) : null}
+
+      {isStaff && job.customer_id ? (
+        <div className="mb-4 rounded-lg border p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Service / callback
+          </div>
+          {openCallbacks.length ? (
+            <ul className="mb-2 space-y-1 text-sm">
+              {openCallbacks.map((c) => (
+                <li key={c.id}>
+                  Open · {c.category.replace(/_/g, " ")} · {c.status}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mb-2 text-sm text-muted-foreground">
+              No open service callbacks.
+            </p>
+          )}
+          <form action={createServiceCallback} className="flex flex-wrap gap-2">
+            <input type="hidden" name="customer_id" value={job.customer_id} />
+            <input type="hidden" name="job_id" value={job.id} />
+            <input type="hidden" name="category" value="installation" />
+            <input
+              name="description"
+              required
+              placeholder="Describe the issue…"
+              className="h-8 min-w-[12rem] flex-1 rounded-md border px-2 text-sm"
+            />
+            <Button type="submit" size="sm" variant="outline">
+              Log callback
+            </Button>
+          </form>
+        </div>
+      ) : null}
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -1192,7 +1286,7 @@ export default async function JobPage({
             </p>
             {!job.warehouse_submitted_at ? (
               <form action={submitJobToWarehouse}>
-                <input type="hidden" name="id" value={job.id} />
+                <input type="hidden" name="job_id" value={job.id} />
                 <ConfirmButton
                   size="sm"
                   title="Send this job to the warehouse now?"

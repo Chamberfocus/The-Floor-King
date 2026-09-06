@@ -52,6 +52,14 @@ export default async function InventoryItemPage({
   const rolls = rolled ? await listRolls(id) : [];
   const liveRolls = rolls.filter((r) => r.status === "available");
   const onOrder = product.on_order ?? 0;
+  const reserved = Number(product.reserved) || 0;
+  const available = Math.max(0, product.on_hand - reserved);
+  const showCost = profile.role === "admin" || profile.role === "office";
+  const avgCost = product.avg_unit_cost != null ? Number(product.avg_unit_cost) : null;
+  const inventoryValue =
+    avgCost != null
+      ? product.on_hand * avgCost
+      : product.on_hand * (product.material_rate || 0);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -78,6 +86,9 @@ export default async function InventoryItemPage({
             <div className={cn("text-2xl font-bold", low && "text-destructive")}>
               {product.on_hand} {product.unit}
             </div>
+            <div className="text-xs text-muted-foreground">
+              reserved {reserved} · available {available}
+            </div>
             {rolled ? (
               <div className="text-xs text-muted-foreground">
                 {liveRolls.filter((r) => r.kind === "roll").length} roll(s) · {liveRolls.filter((r) => r.kind === "remnant").length} remnant(s)
@@ -92,7 +103,12 @@ export default async function InventoryItemPage({
             <div className="text-2xl font-bold">
               {onOrder} {onOrder ? product.unit : ""}
             </div>
-            <div className="text-xs text-muted-foreground">value {formatMoney(product.on_hand * (product.material_rate || 0))}</div>
+            {showCost ? (
+              <div className="text-xs text-muted-foreground">
+                value {formatMoney(inventoryValue)}
+                {avgCost != null ? ` · avg ${formatMoney(avgCost)}` : ""}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
         <Card>

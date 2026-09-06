@@ -276,12 +276,24 @@ export async function reorderAlertsFor(
  * Mirror the sum of a rolled product's available rolls/remnants into
  * products.on_hand, so low-stock and quick displays keep working on one number.
  * (stock_rolls stays the source of truth for rolled goods.)
+ * F6-P4: products.on_hand is protected — sync via inv_sync_rolled_on_hand_safe.
  */
 export async function syncRolledOnHand(productId: string, db: Db): Promise<number> {
+  const { data, error } = await db.rpc("inv_sync_rolled_on_hand_safe", {
+    p_product_id: productId,
+  });
+  if (!error && data && typeof data === "object" && "on_hand" in (data as object)) {
+    return Number((data as { on_hand?: number }).on_hand) || 0;
+  }
+  // Pre-0176 fallback (migration not applied yet).
   const total = await availableRolled(productId, db);
-  await db
-    .from("products")
-    .update({ on_hand: total, last_movement_at: new Date().toISOString() })
-    .eq("id", productId);
+  try {
+    await db
+      .from("products")
+      .update({ on_hand: total, last_movement_at: new Date().toISOString() })
+      .eq("id", productId);
+  } catch {
+    /* protected column until 0176 applied with service path */
+  }
   return total;
 }

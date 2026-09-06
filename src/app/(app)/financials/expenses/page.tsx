@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, Trash2, Wallet } from "lucide-react";
+import { ArrowLeft, Wallet } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { redirect } from "next/navigation";
 import {
@@ -9,7 +9,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -25,7 +24,6 @@ import { listJobs } from "@/lib/data/jobs";
 import { EXPENSE_CATEGORY_LABELS } from "@/lib/types";
 import { formatDate, formatMoney } from "@/lib/format";
 import { ExpenseForm } from "../expense-form";
-import { deleteExpense } from "../actions";
 
 export const metadata: Metadata = { title: "Expenses" };
 export const dynamic = "force-dynamic";
@@ -51,7 +49,7 @@ export default async function ExpensesPage() {
       </Link>
       <PageHeader
         title="Expenses"
-        description="Record what you spend so your Profit & Loss is accurate."
+        description="Already-paid cash/card costs. Unpaid vendor invoices belong on Bills."
       />
 
       <Card className="mb-6">
@@ -67,31 +65,17 @@ export default async function ExpensesPage() {
         <EmptyState icon={Wallet} title="No expenses recorded yet" />
       ) : (
         <>
-          {/* Phone: stacked cards */}
           <div className="space-y-2 md:hidden">
             {expenses.map((e) => (
               <div key={e.id} className="rounded-lg border p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-medium">
-                      {EXPENSE_CATEGORY_LABELS[e.category]}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDate(e.date)}
-                      {e.vendor ? ` · ${e.vendor}` : ""}
-                    </div>
+                <div className="min-w-0">
+                  <div className="font-medium">
+                    {EXPENSE_CATEGORY_LABELS[e.category]}
                   </div>
-                  <form action={deleteExpense}>
-                    <input type="hidden" name="id" value={e.id} />
-                    <Button
-                      type="submit"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Delete expense"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </form>
+                  <div className="text-xs text-muted-foreground">
+                    {formatDate(e.date)}
+                    {e.vendor ? ` · ${e.vendor}` : ""}
+                  </div>
                 </div>
                 <div className="mt-1.5 grid grid-cols-2 gap-2 text-sm">
                   <div>
@@ -106,7 +90,6 @@ export default async function ExpensesPage() {
               </div>
             ))}
           </div>
-          {/* Larger screens: table */}
           <div className="hidden overflow-x-auto rounded-lg border md:block">
             <Table>
               <TableHeader>
@@ -115,7 +98,6 @@ export default async function ExpensesPage() {
                   <TableHead>Category</TableHead>
                   <TableHead>Vendor</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -129,24 +111,15 @@ export default async function ExpensesPage() {
                     <TableCell className="text-right font-medium">
                       {formatMoney(e.amount)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <form action={deleteExpense}>
-                        <input type="hidden" name="id" value={e.id} />
-                        <Button
-                          type="submit"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="Delete expense"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </form>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Expense history cannot be deleted. Reversal of recorded direct expenses is deferred
+            to a later accounting phase.
+          </p>
         </>
       )}
     </div>

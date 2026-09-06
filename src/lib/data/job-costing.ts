@@ -153,14 +153,17 @@ export async function getCustomerJobCosting(
       .in("status", [...COMMITTED]);
     for (const p of (data ?? []) as never[]) attributePo(p);
   }
-  // Materials pulled from our own stock — real cost to the job.
+  // Materials pulled from our own stock — real cost to the job (F6-P4 SoT).
   const { data: pulls } = await supabase
     .from("stock_movements")
-    .select("job_id, qty, unit_cost")
+    .select("job_id, qty, unit_cost, extended_cost")
     .eq("kind", "pull")
     .in("job_id", jobIds);
   for (const m of pulls ?? []) {
-    const cost = Math.abs(Number(m.qty) || 0) * (Number(m.unit_cost) || 0);
+    const cost =
+      m.extended_cost != null
+        ? Number(m.extended_cost) || 0
+        : Math.abs(Number(m.qty) || 0) * (Number(m.unit_cost) || 0);
     addMaterial(m.job_id as string, cost);
   }
 

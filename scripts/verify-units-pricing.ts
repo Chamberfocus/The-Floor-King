@@ -1,4 +1,7 @@
-// Verifies material entry + estimate pricing math against the LIVE db, using the
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + SUPABASE_SERVICE_ROLE_KEY. Do not default to production.
+//
+// Verifies material entry + estimate pricing math against a live DB, using the
 // REAL shipping functions (estimate-calc + units). Exercises an AREA material
 // (carpet, sq yd), a per-BAG material (self-leveler), a per-EACH material
 // (adhesive), and a per-LINEAR-FT material (trim) — each must price in its OWN
@@ -11,6 +14,7 @@ for (const line of readFileSync(".env.local", "utf8").split("\n")) {
 }
 import { createClient } from "@supabase/supabase-js";
 import { lineTotal, lineCost, optionTotalsWithDiscount, marginPct } from "@/lib/estimate-calc";
+import { jobProfit } from "@/lib/job-profit";
 import { isAreaUnit, unitKind, normalizeUnit, defaultUnitForCategory } from "@/lib/units";
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -94,13 +98,27 @@ async function run() {
   const dt = optionTotalsWithDiscount(lines as any[], 8, "percent", 10);
   const cost = (lines ?? []).reduce((s: number, l: any) => s + lineCost(l), 0);
   const net = dt.subtotal - dt.discount;
+  // Direct line gross (bare cost, no freight/fees) — NOT the all-in job margin.
+  const directMargin = marginPct(net, cost);
+  // Canonical all-in job profit (freight + gas/car/commission) — Step 7.
+  const allIn = jobProfit((lines ?? []) as any[], {
+    discountKind: "percent",
+    discountValue: 10,
+    freightMarkupPct: 0,
+    fuelFee: 0,
+    carAllowance: 0,
+    commissionPct: 0,
+  });
   console.log("\n  Estimate totals (owner):");
   console.log(`     Retail subtotal ${money(dt.subtotal)} · discount −${money(dt.discount)} · tax ${money(dt.tax)} · TOTAL ${money(dt.total)}`);
-  console.log(`     Our cost ${money(cost)} · profit ${money(net - cost)} · margin ${Math.round(marginPct(net, cost))}%`);
+  console.log(`     Direct line cost ${money(cost)} · direct GM ${Math.round(directMargin)}% (not all-in)`);
+  console.log(`     All-in (jobProfit, freight/fees 0 here) profit ${money(allIn.profit)} · margin ${Math.round(allIn.margin)}%`);
   ok(Math.abs(dt.subtotal - 1684) < 0.01, "retail subtotal = 1320+160+54+150", money(dt.subtotal));
   ok(Math.abs(dt.discount - 168.4) < 0.01, "10% discount computed on subtotal", money(dt.discount));
   ok(Math.abs(dt.total - (1684 - 168.4) * 1.08) < 0.01, "total = (subtotal − discount) × 1.08 tax", money(dt.total));
-  ok(cost > 0 && net - cost > 0, "owner cost + profit present (hidden from customer doc)");
+  ok(cost > 0 && net - cost > 0, "owner direct cost + profit present (hidden from customer doc)");
+  ok(Math.abs(allIn.revenue - net) < 0.01, "jobProfit revenue matches discounted pre-tax net");
+  ok(Math.abs(allIn.cost - cost) < 0.01, "jobProfit cost matches lineCost when freight/fees are 0");
 
   // 4) Brand-new item added on the fly round-trips with its unit intact.
   const { data: p } = await db.from("products").insert({

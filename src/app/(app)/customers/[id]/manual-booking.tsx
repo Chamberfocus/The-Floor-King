@@ -26,6 +26,7 @@ export function ManualBooking({
   installerUsers,
   arrivalWindows,
   availability,
+  materialsReady = true,
 }: {
   jobId: string;
   redirectTo: string;
@@ -38,6 +39,7 @@ export function ManualBooking({
   installerUsers: { value: string; label: string }[];
   arrivalWindows: ArrivalWindow[];
   availability: BookingBlock[];
+  materialsReady?: boolean;
 }) {
   const [installerId, setInstallerId] = useState(schedule.installerId ?? "");
   const [start, setStart] = useState(schedule.date ?? "");
@@ -121,6 +123,19 @@ export function ManualBooking({
           defaultValue={schedule.window ?? ""}
           presets={arrivalWindows}
         />
+        {!materialsReady ? (
+          <div className="w-full sm:w-72">
+            <label className="mb-1 block text-xs text-muted-foreground">
+              Materials override reason
+            </label>
+            <input
+              name="materials_override_reason"
+              required
+              placeholder="Why schedule before materials are ready?"
+              className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+            />
+          </div>
+        ) : null}
         <SchedulePush
           size="sm"
           assigneeRole="installer"
@@ -128,6 +143,9 @@ export function ManualBooking({
           description={
             (clashes.length
               ? `Heads up: ${installerLabel} marked themselves unavailable for this window. `
+              : "") +
+            (!materialsReady
+              ? "Materials are not warehouse-ready — an override reason is required. "
               : "") +
             "The install books and goes to the warehouse either way — choose who to notify."
           }

@@ -5,7 +5,12 @@
 //  • the estimate lines carry correct units/quantities (carpet sq yd, subfloor
 //    sheets, self-leveler bags with coverage), labor separate;
 //  • buildJobScope groups them per room (the WORK ORDER);
-//  • the PO filter selects the orderable materials (excludes labor / from-stock).
+//  • the PO filter selects the orderable materials (excludes labor / from-stock)
+//    using lineOrderQty (waste-in order need — Step 2/4), not bare lineQty.
+//
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + SUPABASE_SERVICE_ROLE_KEY. Do not run against production
+// as a default. Prefer a staging/dev project.
 import { readFileSync } from "node:fs";
 for (const line of readFileSync(new URL("../.env.local", import.meta.url), "utf8").split("\n")) {
   const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
@@ -15,7 +20,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets } from "@/lib/questionnaire-calc";
 import { bagsNeeded } from "@/lib/floor-prep";
 import { buildJobScope } from "@/lib/job-scope";
-import { lineQty } from "@/lib/estimate-calc";
+import { lineOrderQty } from "@/lib/estimate-calc";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string, d = "") => { c ? (pass++, console.log(`  ✓ ${m}${d ? "  " + d : ""}`)) : (fail++, console.log(`  ✗ FAIL ${m}${d ? "  " + d : ""}`)); };
@@ -69,8 +74,15 @@ async function main() {
     // WO: rooms group
     const cScope = buildJobScope(carpet.lines as any, "Bulk pickup day: Tuesday");
     ok(cScope.rooms.some((r) => r.name === "Living Room") && cScope.rooms.some((r) => r.name === "Bedroom"), "WORK ORDER groups Living Room + Bedroom");
-    // PO: orderable = material, not labor, not from-stock, qty>0
-    const cPO = carpet.lines.filter((l: any) => l.line_type !== "flat" && l.category !== "labor" && !l.from_stock && lineQty(l) > 0);
+    // PO: orderable = material, not labor, not from-stock, order qty > 0
+    // (lineOrderQty includes waste — purchasing need, not measured lineQty).
+    const cPO = carpet.lines.filter(
+      (l: any) =>
+        l.line_type !== "flat" &&
+        l.category !== "labor" &&
+        !l.from_stock &&
+        lineOrderQty(l) > 0,
+    );
     ok(cPO.length === 3 && cPO.every((l) => l.category === "carpet"), "PO pulls 3 carpet material lines (steps LABOR excluded)", `${cPO.length} lines`);
 
     // ===================== HARD SURFACE JOB =====================
@@ -100,7 +112,13 @@ async function main() {
     const bRoom = hScope.rooms.find((r) => r.name === "Bath");
     ok(!!kRoom && !!bRoom, "WORK ORDER groups Kitchen + Bath");
     ok(!!bRoom && bRoom.labor.some((l: any) => /mortar bed/i.test(l.description)), "Bath's ceramic-w/-mortar-bed demo lands under Bath on the WO");
-    const hPO = hs.lines.filter((l: any) => l.line_type !== "flat" && l.category !== "labor" && !l.from_stock && lineQty(l) > 0);
+    const hPO = hs.lines.filter(
+      (l: any) =>
+        l.line_type !== "flat" &&
+        l.category !== "labor" &&
+        !l.from_stock &&
+        lineOrderQty(l) > 0,
+    );
     ok(hPO.some((l) => l.unit === "sheet") && hPO.some((l) => l.unit === "bag") && hPO.some((l) => l.category === "lvp") && !hPO.some((l) => l.category === "labor"),
       "PO pulls LVP + subfloor sheets + self-leveler bags; tear-out LABOR excluded", `${hPO.length} lines`);
   } finally {

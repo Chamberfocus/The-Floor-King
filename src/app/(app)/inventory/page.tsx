@@ -44,14 +44,28 @@ export default async function InventoryPage({
   const q = (await searchParams).q?.trim() ?? "";
 
   const canStockPO = ["admin", "office", "warehouse"].includes(profile.role);
+  const canSeeCost = ["admin", "office", "sales_manager"].includes(profile.role);
   const [items, summary, aged, remnantsToShelve, locHits, stockPOs] = await Promise.all([
     listInventory(q),
-    inventorySummary(),
+    canSeeCost
+      ? inventorySummary()
+      : Promise.resolve({ trackedCount: 0, lowStockCount: 0, totalValue: 0 }),
     listAgedStock(),
     newRemnants(),
     q ? searchStock(q) : Promise.resolve([]),
     canStockPO ? listStockPOs(createAdminClient()) : Promise.resolve([]),
   ]);
+
+  // Warehouse sees qty ops only — never inventory $ value (F7 / 0176 cost firewall).
+  const opsSummary = canSeeCost
+    ? summary
+    : {
+        trackedCount: items.length,
+        lowStockCount: items.filter(
+          (p) => p.reorder_point > 0 && p.on_hand <= p.reorder_point,
+        ).length,
+        totalValue: 0,
+      };
 
   return (
     <div>
@@ -150,19 +164,28 @@ export default async function InventoryPage({
       ) : null}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <SummaryCard icon={Boxes} tint="bg-zinc-200 text-zinc-700" label="Tracked items" value={summary.trackedCount} />
+        <SummaryCard icon={Boxes} tint="bg-zinc-200 text-zinc-700" label="Tracked items" value={opsSummary.trackedCount} />
         <SummaryCard
           icon={AlertTriangle}
           tint="bg-red-100 text-red-600"
           label="Low / out of stock"
-          value={summary.lowStockCount}
+          value={opsSummary.lowStockCount}
         />
-        <SummaryCard
-          icon={DollarSign}
-          tint="bg-emerald-100 text-emerald-600"
-          label="Inventory value (at cost)"
-          value={formatMoney(summary.totalValue)}
-        />
+        {canSeeCost ? (
+          <SummaryCard
+            icon={DollarSign}
+            tint="bg-emerald-100 text-emerald-600"
+            label="Inventory value (at cost)"
+            value={formatMoney(opsSummary.totalValue)}
+          />
+        ) : (
+          <SummaryCard
+            icon={Boxes}
+            tint="bg-zinc-200 text-zinc-700"
+            label="On-hand focus"
+            value="Qty only"
+          />
+        )}
       </div>
 
       {aged.length > 0 ? (
@@ -302,7 +325,9 @@ export default async function InventoryPage({
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-muted-foreground">
                   <span>Reorder at {p.reorder_point || "—"}</span>
-                  <span>Value {formatMoney(p.on_hand * (p.material_rate || 0))}</span>
+                  {canSeeCost ? (
+                    <span>Value {formatMoney(p.on_hand * (p.material_rate || 0))}</span>
+                  ) : null}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <form action={receiveStock} className="flex items-center gap-1">
@@ -329,7 +354,9 @@ export default async function InventoryPage({
                 <th className="px-3 py-2 text-left">Bin</th>
                 <th className="px-3 py-2 text-right">On hand</th>
                 <th className="px-3 py-2 text-right">Reorder</th>
-                <th className="px-3 py-2 text-right">Value</th>
+                {canSeeCost ? (
+                  <th className="px-3 py-2 text-right">Value</th>
+                ) : null}
                 <th className="px-3 py-2 text-left">Receive</th>
                 <th className="px-3 py-2 text-left">Set count</th>
               </tr>
@@ -366,9 +393,11 @@ export default async function InventoryPage({
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                       {p.reorder_point || "—"}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                      {formatMoney(p.on_hand * (p.material_rate || 0))}
-                    </td>
+                    {canSeeCost ? (
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {formatMoney(p.on_hand * (p.material_rate || 0))}
+                      </td>
+                    ) : null}
                     <td className="px-3 py-2">
                       <form action={receiveStock} className="flex items-center gap-1">
                         <input type="hidden" name="product_id" value={p.id} />

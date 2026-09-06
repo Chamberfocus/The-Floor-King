@@ -41,9 +41,14 @@ import {
   createJobFromEstimate,
   submitJobToWarehouse,
 } from "@/app/(app)/jobs/actions";
-import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
+import { listInvoicesForCustomer, amountPaid, invoiceAmountDue, amountCredited } from "@/lib/data/invoices";
+import { getCustomerCreditSummary, memoAvailable } from "@/lib/data/credits";
+import { getCustomerDepositSummary } from "@/lib/data/customer-deposits";
+import { recordRefund, voidCreditMemo, voidRefund } from "@/app/(app)/credits/actions";
+import { PaymentIdempotencyField } from "@/app/(app)/invoices/payment-idempotency-field";
 import { listCustomerMessages } from "@/lib/data/messages";
 import { listCustomerDocuments } from "@/lib/data/documents";
+import { DOCUMENTS_STORAGE_JWT_ROLES } from "@/lib/job-warehouse";
 import { listCustomerCheckouts } from "@/lib/data/samples";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getOrgSettings } from "@/lib/data/org";
@@ -172,11 +177,20 @@ export default async function CustomerPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ new?: string; schedule?: string }>;
+  searchParams: Promise<{
+    new?: string;
+    schedule?: string;
+    schedule_error?: string;
+    credit_error?: string;
+    credit_ok?: string;
+  }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
   const justAdded = sp.new === "1";
+  const scheduleError = sp.schedule_error?.trim() || null;
+  const creditError = sp.credit_error?.trim() || null;
+  const creditOk = sp.credit_ok?.trim() || null;
   // The checklist links straight AT the scheduler ("?schedule=estimate"), so
   // step two opens the booking dialog instead of dropping you on the page that
   // happens to contain it.
@@ -204,7 +218,10 @@ export default async function CustomerPage({
   const invoices = await listInvoicesForCustomer(id);
   const portalUser = await getPortalUser(id);
   const messages = await listCustomerMessages(id);
-  const documents = await listCustomerDocuments(id);
+  const canCustomerFiles = (
+    DOCUMENTS_STORAGE_JWT_ROLES as readonly string[]
+  ).includes(profile.role);
+  const documents = canCustomerFiles ? await listCustomerDocuments(id) : [];
   const customerAreas = await listCustomerAreas(id);
   const [sampleCheckouts, bizSettings, customerPOs, stockPulls, serviceAddresses, attributedPoLines, orgSettings] =
     await Promise.all([
@@ -284,18 +301,30 @@ export default async function CustomerPage({
     (await getSchedulingSettings()).arrival_windows,
   );
 
-  // Money status for the command center.
+  // Money status for the command center (void invoices excluded; credits reduce due).
   const money = invoices.reduce(
     (acc, inv) => {
+      if (inv.status === "void") return acc;
       const paid = amountPaid(inv);
       const t = invoiceTotals(inv.items ?? [], inv.tax_rate, paid);
       acc.invoiced += t.total;
       acc.paid += paid;
-      acc.balance += t.balance;
+      acc.credited += amountCredited(inv);
+      acc.balance += invoiceAmountDue(inv);
       return acc;
     },
-    { invoiced: 0, paid: 0, balance: 0 },
+    { invoiced: 0, paid: 0, credited: 0, balance: 0 },
   );
+  const creditSummary = await getCustomerCreditSummary(id).catch(() => ({
+    available: 0,
+    memos: [],
+  }));
+  const depositSummary = await getCustomerDepositSummary(id).catch(() => ({
+    available: 0,
+    applied: 0,
+    voided: 0,
+    deposits: [],
+  }));
   // "Stage 6 of 12" — where they are on the linear spine, so the badge means
   // something without knowing the stage list by heart.
   const spinePos = spinePosition(currentStage, stages);
@@ -366,9 +395,10 @@ export default async function CustomerPage({
     jobs.find((j) => j.status !== "completed" && j.status !== "cancelled") ??
     jobs[0] ??
     null;
-  const guidedSatisfaction = guidedActiveJob
-    ? await getJobSatisfaction(guidedActiveJob.id)
-    : null;
+  const guidedSatisfaction =
+    guidedActiveJob && canCustomerFiles
+      ? await getJobSatisfaction(guidedActiveJob.id)
+      : null;
   /**
    * One checklist PER JOB.
    *
@@ -652,7 +682,7 @@ export default async function CustomerPage({
       id: inv.id,
       number: inv.number || "Invoice",
       status: inv.status,
-      balance: t.balance,
+      balance: invoiceAmountDue(inv),
       total: t.total,
       paid: amountPaid(inv),
       lines: (inv.items ?? []).map((it) => ({
@@ -675,6 +705,31 @@ export default async function CustomerPage({
       >
         <ArrowLeft className="size-4" /> Back to customers
       </Link>
+
+      {scheduleError ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {scheduleError}
+        </div>
+      ) : null}
+      {creditError ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {creditError}
+        </div>
+      ) : null}
+      {creditOk ? (
+        <div
+          role="status"
+          className="mb-4 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-300"
+        >
+          {creditOk}
+        </div>
+      ) : null}
 
       {/* Identity band — who they are, their stage, contact, owner & schedule,
           all in one place (replaces the plain header + its scattered bits). */}
@@ -1034,7 +1089,10 @@ export default async function CustomerPage({
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Money
                   </p>
-                  {money.invoiced > 0 || money.balance > 0 ? (
+                  {money.invoiced > 0 ||
+                  money.balance > 0 ||
+                  creditSummary.available > 0 ||
+                  depositSummary.available > 0 ? (
                     <div className="space-y-2.5 text-sm">
                       <div className="flex items-center justify-between">
                         <span className="text-muted-foreground">Invoiced</span>
@@ -1048,6 +1106,14 @@ export default async function CustomerPage({
                           {formatMoney(money.paid)}
                         </span>
                       </div>
+                      {money.credited > 0.005 ? (
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Credits applied</span>
+                          <span className="font-semibold tabular-nums">
+                            {formatMoney(money.credited)}
+                          </span>
+                        </div>
+                      ) : null}
                       <div className="h-2 overflow-hidden rounded-full bg-muted">
                         <div
                           className="h-full rounded-full bg-emerald-500"
@@ -1057,7 +1123,7 @@ export default async function CustomerPage({
                                 ? Math.min(
                                     100,
                                     Math.round(
-                                      (money.paid / money.invoiced) * 100,
+                                      ((money.paid + money.credited) / money.invoiced) * 100,
                                     ),
                                   )
                                 : 0
@@ -1066,7 +1132,7 @@ export default async function CustomerPage({
                         />
                       </div>
                       <div className="flex items-center justify-between border-t pt-2.5">
-                        <span className="text-muted-foreground">Balance</span>
+                        <span className="text-muted-foreground">Amount due</span>
                         <span
                           className={cn(
                             "font-bold tabular-nums",
@@ -1076,6 +1142,126 @@ export default async function CustomerPage({
                           {formatMoney(money.balance)}
                         </span>
                       </div>
+                      {depositSummary.available > 0.005 ? (
+                        <div className="flex items-center justify-between border-t pt-2.5">
+                          <span className="text-muted-foreground">
+                            Available deposit
+                          </span>
+                          <span className="font-semibold tabular-nums">
+                            {formatMoney(depositSummary.available)}
+                          </span>
+                        </div>
+                      ) : null}
+                      {depositSummary.applied > 0.005 ? (
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">
+                            Applied deposit
+                          </span>
+                          <span className="font-semibold tabular-nums">
+                            {formatMoney(depositSummary.applied)}
+                          </span>
+                        </div>
+                      ) : null}
+                      {creditSummary.available > 0.005 ? (
+                        <div className="flex items-center justify-between border-t pt-2.5">
+                          <span className="text-muted-foreground">
+                            Customer credit (refundable)
+                          </span>
+                          <span className="font-bold tabular-nums text-amber-700 dark:text-amber-400">
+                            {formatMoney(creditSummary.available)}
+                          </span>
+                        </div>
+                      ) : null}
+                      {canDelete && creditSummary.memos.some((m) => m.status === "issued") ? (
+                        <div className="space-y-3 border-t pt-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Credits &amp; refunds
+                          </p>
+                          {creditSummary.memos
+                            .filter((m) => m.status === "issued")
+                            .map((m) => {
+                              const avail = memoAvailable(m);
+                              return (
+                                <div key={m.id} className="rounded-md border p-2 text-xs">
+                                  <div className="flex justify-between gap-2 font-medium">
+                                    <span>Credit {formatMoney(m.amount)}</span>
+                                    <span className="text-muted-foreground">
+                                      Available {formatMoney(avail)}
+                                    </span>
+                                  </div>
+                                  {m.reason ? (
+                                    <p className="mt-1 text-muted-foreground">{m.reason}</p>
+                                  ) : null}
+                                  {avail > 0.005 ? (
+                                    <form
+                                      action={recordRefund}
+                                      className="mt-2 flex flex-wrap items-end gap-2"
+                                    >
+                                      <input type="hidden" name="credit_memo_id" value={m.id} />
+                                      <input type="hidden" name="customer_id" value={id} />
+                                      <PaymentIdempotencyField />
+                                      <div>
+                                        <label className="text-muted-foreground">Refund</label>
+                                        <input
+                                          name="amount"
+                                          type="number"
+                                          step="0.01"
+                                          min="0.01"
+                                          max={avail.toFixed(2)}
+                                          defaultValue={avail.toFixed(2)}
+                                          className="ml-1 h-8 w-24 rounded-md border px-2"
+                                          required
+                                        />
+                                      </div>
+                                      <input type="hidden" name="method" value="check" />
+                                      <Button type="submit" size="sm" variant="outline">
+                                        Record refund
+                                      </Button>
+                                    </form>
+                                  ) : null}
+                                  {Math.abs(avail - m.amount) < 0.005 ? (
+                                    <form action={voidCreditMemo} className="mt-2">
+                                      <input type="hidden" name="credit_memo_id" value={m.id} />
+                                      <input type="hidden" name="customer_id" value={id} />
+                                      <input
+                                        type="hidden"
+                                        name="void_reason"
+                                        value="Voided by staff"
+                                      />
+                                      <Button type="submit" size="sm" variant="ghost">
+                                        Void unused credit
+                                      </Button>
+                                    </form>
+                                  ) : null}
+                                  {(m.refunds ?? [])
+                                    .filter((r) => (r.status ?? "active") !== "void")
+                                    .map((r) => (
+                                      <form
+                                        key={r.id}
+                                        action={voidRefund}
+                                        className="mt-1 flex items-center justify-between gap-2"
+                                      >
+                                        <span>
+                                          Refund {formatMoney(r.amount)}
+                                          {r.refunded_at ? ` · ${r.refunded_at}` : ""}
+                                        </span>
+                                        <input type="hidden" name="refund_id" value={r.id} />
+                                        <input type="hidden" name="customer_id" value={id} />
+                                        <input
+                                          type="hidden"
+                                          name="void_reason"
+                                          value="Voided by staff"
+                                        />
+                                        <Button type="submit" size="sm" variant="ghost">
+                                          Void refund
+                                        </Button>
+                                      </form>
+                                    ))}
+                                </div>
+                              );
+                            })}
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
@@ -1415,7 +1601,9 @@ export default async function CustomerPage({
           </Card>
           </TabSection>
 
-          {/* Photos & files */}
+          {/* Photos & files — sales/office JWT storage roles only. Warehouse
+              uses job-page measurement upload (service_role after auth). */}
+          {canCustomerFiles ? (
           <TabCollapse
             tab="files"
             title={`Photos & files${documents.length ? ` (${documents.length})` : ""}`}
@@ -1423,6 +1611,7 @@ export default async function CustomerPage({
           >
             <CustomerDocuments customerId={customer.id} documents={documents} />
           </TabCollapse>
+          ) : null}
 
           {/* Activity */}
           <TabCollapse tab="activity" title="Activity history">

@@ -28,7 +28,10 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
-import { priceFromMargin } from "@/lib/estimate-calc";
+import {
+  sellLaborFromTargetMargin,
+  sellMaterialFromTargetMargin,
+} from "@/lib/estimate-pricing";
 import {
   linearFeetForPieces,
   piecesForLinearFeet,
@@ -398,6 +401,7 @@ export function Questionnaire({
   customerId,
   customerName,
   targetMargin,
+  freightMarkupPct = 0,
   serviceAddressId,
   questions,
   savedAreas = [],
@@ -406,6 +410,8 @@ export function Questionnaire({
   customerId: string;
   customerName: string;
   targetMargin: number;
+  /** Org freight % — material sell-from-margin uses landed cost. */
+  freightMarkupPct?: number;
   serviceAddressId: string;
   questions: EstimateQuestion[];
   savedAreas?: CustomerArea[];
@@ -413,7 +419,10 @@ export function Questionnaire({
 }) {
   const goalRaw = targetMargin;
   const goal = goalRaw > 0 && goalRaw < 100 ? goalRaw : 40;
-  const sellAt = (c: number) => (c > 0 ? r2(priceFromMargin(c, goal)) : 0);
+  const sellMat = (c: number) =>
+    c > 0 ? r2(sellMaterialFromTargetMargin(c, goal, freightMarkupPct)) : 0;
+  const sellLab = (c: number) =>
+    c > 0 ? r2(sellLaborFromTargetMargin(c, goal)) : 0;
 
   const buildDefaults = (): Record<string, Answer> => {
     const init: Record<string, Answer> = {};
@@ -664,8 +673,8 @@ export function Questionnaire({
       length_in: null,
       width_in: null,
       unit: unitLabel(emit.unit),
-      material_rate: isLabor ? 0 : sellAt(emit.cost),
-      labor_rate: isLabor ? sellAt(emit.cost) : 0,
+      material_rate: isLabor ? 0 : sellMat(emit.cost),
+      labor_rate: isLabor ? sellLab(emit.cost) : 0,
       material_cost: isLabor ? 0 : emit.cost,
       labor_cost: isLabor ? emit.cost : 0,
       waste_pct: 0,
@@ -767,7 +776,7 @@ export function Questionnaire({
               length_in: rm.lenIn,
               width_in: rm.widIn,
               unit: b.unitLabel,
-              material_rate: sellAt(rateFor(p.materialRate, p.unit, b.wantYd)),
+              material_rate: sellMat(rateFor(p.materialRate, p.unit, b.wantYd)),
               labor_rate: 0,
               material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
               labor_cost: 0,
@@ -801,7 +810,7 @@ export function Questionnaire({
             width_in: null,
             unit: wantYd ? "sq yd" : "sq ft",
             material_rate: 0,
-            labor_rate: sellAt(lr),
+            labor_rate: sellLab(lr),
             material_cost: 0,
             labor_cost: lr,
             waste_pct: 0,
@@ -873,7 +882,7 @@ export function Questionnaire({
           width_in: measurements?.[0]?.width_in ?? size?.widIn ?? null,
           measurements,
           unit: b.unitLabel,
-          material_rate: sellAt(rateFor(p.materialRate, p.unit, b.wantYd)),
+          material_rate: sellMat(rateFor(p.materialRate, p.unit, b.wantYd)),
           labor_rate: 0,
           material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
           labor_cost: 0,
@@ -938,7 +947,7 @@ export function Questionnaire({
               width_in: null,
               unit: b.unitLabel,
               material_rate: 0,
-              labor_rate: sellAt(lr),
+              labor_rate: sellLab(lr),
               material_cost: 0,
               labor_cost: lr,
               waste_pct: 0,
@@ -984,8 +993,8 @@ export function Questionnaire({
             length_in: null,
             width_in: null,
             unit: row.unit || p?.unit || "lnft",
-            material_rate: sellAt(matCost),
-            labor_rate: sellAt(laborCost),
+            material_rate: sellMat(matCost),
+            labor_rate: sellLab(laborCost),
             material_cost: matCost,
             labor_cost: laborCost,
             waste_pct: 0,
@@ -1050,7 +1059,7 @@ export function Questionnaire({
           roomLabel: string | null,
         ) => {
           if (!pieces.length) return;
-          const matSell = p ? sellAt(rateFor(p.materialRate, p.unit, true)) : 0;
+          const matSell = p ? sellMat(rateFor(p.materialRate, p.unit, true)) : 0;
           const matCost = p ? rateFor(p.materialRate, p.unit, true) : 0;
           const totalSqft = r2(pieces.reduce((s, x) => s + x.sqft, 0));
           const totalSqyd = r2(pieces.reduce((s, x) => s + x.sqyd, 0));
@@ -1105,7 +1114,7 @@ export function Questionnaire({
               width_in: null,
               unit: "sq yd",
               material_rate: 0,
-              labor_rate: sellAt(instYd),
+              labor_rate: sellLab(instYd),
               material_cost: 0,
               labor_cost: instYd,
               waste_pct: 0,
@@ -1145,7 +1154,7 @@ export function Questionnaire({
             width_in: null,
             unit: "step",
             material_rate: 0,
-            labor_rate: sellAt(laborCost),
+            labor_rate: sellLab(laborCost),
             material_cost: 0,
             labor_cost: laborCost,
             waste_pct: 0,
@@ -1191,7 +1200,7 @@ export function Questionnaire({
               length_in: null,
               width_in: null,
               unit: "sq ft",
-              material_rate: sellAt(matCost),
+              material_rate: sellMat(matCost),
               labor_rate: 0,
               material_cost: matCost,
               labor_cost: 0,
@@ -1215,7 +1224,7 @@ export function Questionnaire({
             width_in: null,
             unit: "sq ft",
             material_rate: 0,
-            labor_rate: sellAt(lr),
+            labor_rate: sellLab(lr),
             material_cost: 0,
             labor_cost: lr,
             waste_pct: 0,
@@ -1247,7 +1256,7 @@ export function Questionnaire({
             length_in: null,
             width_in: null,
             unit: "sheet",
-            material_rate: sellAt(perSheet),
+            material_rate: sellMat(perSheet),
             labor_rate: 0,
             material_cost: perSheet,
             labor_cost: 0,
@@ -1280,7 +1289,7 @@ export function Questionnaire({
               length_in: null,
               width_in: null,
               unit: "bag",
-              material_rate: sellAt(bagCost),
+              material_rate: sellMat(bagCost),
               labor_rate: 0,
               material_cost: bagCost,
               labor_cost: 0,
@@ -1662,7 +1671,8 @@ export function Questionnaire({
               answer={answers[q.id]}
               set={(a) => set(q.id, a)}
               update={(fn) => setAnswers((p) => ({ ...p, [q.id]: fn(p[q.id]) }))}
-              sellAt={sellAt}
+              sellMat={sellMat}
+              sellLab={sellLab}
               totalSqft={totalSqft}
               perRoom={prepByRoom ? perRoomQuestions : []}
               overrides={overrides}
@@ -1830,7 +1840,8 @@ function QuestionBody({
   answer,
   set,
   update,
-  sellAt,
+  sellMat,
+  sellLab,
   totalSqft,
   perRoom = [],
   overrides = {},
@@ -1845,7 +1856,8 @@ function QuestionBody({
   /** Functional update of THIS question's answer — reads the latest state, so a
    *  fast edit can never be overwritten by a stale render-closure snapshot. */
   update: (fn: (prev: Answer | undefined) => Answer) => void;
-  sellAt: (c: number) => number;
+  sellMat: (c: number) => number;
+  sellLab: (c: number) => number;
   totalSqft: number;
   perRoom?: EstimateQuestion[];
   overrides?: Record<string, Record<string, Answer>>;
@@ -1958,7 +1970,8 @@ function QuestionBody({
                           update={(fn) =>
                             setRoomOverride?.(r.id, pq.id, fn(overrides[r.id]?.[pq.id] ?? jobAnswers[pq.id]))
                           }
-                          sellAt={sellAt}
+                          sellMat={sellMat}
+                          sellLab={sellLab}
                           totalSqft={totalSqft}
                         />
                       </div>
@@ -2164,7 +2177,7 @@ function QuestionBody({
               {p ? (
                 <div className="mt-1.5 text-xs text-muted-foreground">
                   {p.label} · sells{" "}
-                  {formatMoney(sellAt(rateFor(p.materialRate, p.unit, b.wantYd)))}/{b.unitLabel}
+                  {formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/{b.unitLabel}
                   {q.config.ask_source ? (
                     <span className="mt-1.5 block">
                       <SourceToggle p={p} compact onChange={(np) => setRoom(key, np)} />
@@ -2487,7 +2500,7 @@ function QuestionBody({
             <div className="rounded-md border bg-muted/30 p-2.5 text-sm">
               <div className="font-medium">{p.label}</div>
               <div className="text-xs text-muted-foreground">
-                {formatMoney(p.materialRate)}/{p.unit} → sells {formatMoney(sellAt(rateFor(p.materialRate, p.unit, b.wantYd)))}/{b.unitLabel}
+                {formatMoney(p.materialRate)}/{p.unit} → sells {formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/{b.unitLabel}
                 {totalSqft > 0 ? ` · covers ${r2(b.wantYd ? totalSqft / 9 : totalSqft)} ${b.unitLabel}` : ""}
               </div>
             </div>
@@ -2897,7 +2910,7 @@ function QuestionBody({
                   Needs ≈{" "}
                   <span className="font-medium text-foreground tabular-nums">{sc.sqyd} sq yd</span>{" "}
                   of carpet — include it in your cuts
-                  {opt?.cost ? <> · labor <span className="tabular-nums">{formatMoney(sellAt(opt.cost) * n)}</span></> : null}
+                  {opt?.cost ? <> · labor <span className="tabular-nums">{formatMoney(sellLab(opt.cost) * n)}</span></> : null}
                 </div>
               ) : null}
             </div>
@@ -2918,7 +2931,7 @@ function QuestionBody({
     const area = steps * sfPerStep;
     const lr = numv(a.laborRate) || DEFAULT_STAIR_LABOR_PER_SQFT;
     const p = a.product;
-    const matRate = p ? sellAt(rateFor(p.materialRate, p.unit, false)) : 0;
+    const matRate = p ? sellMat(rateFor(p.materialRate, p.unit, false)) : 0;
     return (
       <div className="space-y-3">
         <div className="flex flex-wrap items-end gap-3">
@@ -2961,7 +2974,7 @@ function QuestionBody({
             <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"} ×{" "}
             {sfPerStep} sf = <span className="font-semibold tabular-nums text-primary">{area} sq ft</span>
             {p ? <> · material <span className="tabular-nums">{formatMoney(matRate * area)}</span></> : null}
-            {" "}· labor <span className="tabular-nums">{formatMoney(sellAt(lr) * area)}</span>
+            {" "}· labor <span className="tabular-nums">{formatMoney(sellLab(lr) * area)}</span>
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">Enter the number of steps (0 = no stairs).</p>

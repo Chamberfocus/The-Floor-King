@@ -14,15 +14,17 @@ import { INSTALLER_BILL_STATUS_LABELS } from "@/lib/types";
 import { AutoPrint } from "@/components/auto-print";
 import { BillEditor } from "./bill-editor";
 import { BillPrintDoc } from "./bill-print";
-import { createBillFromWorkOrder, markInstallerBillPaid } from "./actions";
+import { createBillFromWorkOrder, markInstallerBillPaid, reverseInstallerBillForm } from "./actions";
 
 export const metadata: Metadata = { title: "Installer bill" };
 export const dynamic = "force-dynamic";
 
 const STATUS_BADGE: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
-  approved: "bg-emerald-500/10 text-emerald-600",
-  paid: "bg-primary/10 text-primary",
+  approved: "bg-amber-500/10 text-amber-700",
+  paid: "bg-emerald-500/10 text-emerald-600",
+  void: "bg-destructive/10 text-destructive",
+  cancelled: "bg-muted text-muted-foreground",
 };
 
 export default async function InstallerBillPage({
@@ -142,9 +144,32 @@ export default async function InstallerBillPage({
           </div>
           <div className="text-right">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Bill total
+              {bill.status === "draft"
+                ? "Committed (not actual)"
+                : bill.status === "approved" || bill.status === "paid"
+                  ? "Actual labor"
+                  : "Bill total"}
             </div>
             <div className="text-2xl font-bold tabular-nums">{formatMoney(bill.total)}</div>
+            <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+              <div>Estimated: {formatMoney(ctx.estimatedLaborCost ?? 0)}</div>
+              {ctx.actualLaborCost != null && bill.status !== "draft" ? (
+                <div>Job actual cache: {formatMoney(ctx.actualLaborCost)}</div>
+              ) : null}
+              {bill.worker_kind ? (
+                <div>
+                  Worker:{" "}
+                  <span className="font-medium text-foreground">{bill.worker_kind}</span>
+                </div>
+              ) : null}
+              {bill.ap_bill_id ? (
+                <div>
+                  AP bill linked
+                </div>
+              ) : bill.worker_kind === "employee" ? (
+                <div>Payroll boundary (no vendor AP)</div>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -166,13 +191,50 @@ export default async function InstallerBillPage({
             <Printer className="size-4" /> Print for installer
           </Link>
           {bill.status === "approved" ? (
-            <form action={markInstallerBillPaid} className="ml-auto">
-              <input type="hidden" name="bill_id" value={bill.id} />
-              <input type="hidden" name="job_id" value={id} />
-              <SubmitButton size="sm" pendingText="Saving…" confirm="Marked paid">
-                Mark paid
-              </SubmitButton>
-            </form>
+            <>
+              {bill.worker_kind === "employee" ? (
+                <form action={markInstallerBillPaid} className="ml-auto">
+                  <input type="hidden" name="bill_id" value={bill.id} />
+                  <input type="hidden" name="job_id" value={id} />
+                  <SubmitButton
+                    size="sm"
+                    pendingText="Saving…"
+                    confirm="Record operational payroll status only (not AP/cash payment)?"
+                  >
+                    Record payroll ops
+                  </SubmitButton>
+                </form>
+              ) : bill.ap_bill_id ? (
+                <Link
+                  href={`/bills/${bill.ap_bill_id}`}
+                  className={cn(buttonVariants({ size: "sm" }), "ml-auto")}
+                >
+                  Pay via AP bill
+                </Link>
+              ) : (
+                <span className="ml-auto text-xs text-muted-foreground">
+                  Subcontractor pay is recorded on the linked AP bill.
+                </span>
+              )}
+              <form action={reverseInstallerBillForm} className="flex flex-wrap items-end gap-2">
+                <input type="hidden" name="bill_id" value={bill.id} />
+                <input type="hidden" name="job_id" value={id} />
+                <input
+                  name="reason"
+                  required
+                  placeholder="Reversal reason (required)"
+                  className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                />
+                <SubmitButton
+                  size="sm"
+                  variant="outline"
+                  pendingText="Reversing…"
+                  confirm="Reverse this approved labor? History is preserved."
+                >
+                  Reverse
+                </SubmitButton>
+              </form>
+            </>
           ) : null}
         </div>
       </div>

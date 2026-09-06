@@ -208,13 +208,27 @@ export async function syncPoCarpetFromEstimate(
 ): Promise<{ changed: number }> {
   const { data: po } = await supabase
     .from("purchase_orders")
-    .select("id, estimate_id, supplier_id, supplier, status")
+    .select("id, estimate_id, job_id, supplier_id, supplier, status")
     .eq("id", poId)
     .maybeSingle();
   if (!po?.estimate_id) return { changed: 0 };
-  if (po.status === "void" || po.status === "cancelled") return { changed: 0 };
+  if (
+    po.status === "void" ||
+    po.status === "cancelled" ||
+    po.status === "ordered" ||
+    po.status === "received" ||
+    po.status === "closed"
+  ) {
+    // P4–P6: never auto-rewrite issued / historical / terminal POs.
+    return { changed: 0 };
+  }
+  if (po.status !== "draft") return { changed: 0 };
 
-  // Single source: the estimate's accepted (else first) option line items.
+  // Once a job owns purchasing, carpet coverage is reconciled per job_line_id
+  // via syncJobPurchasingCoverage — do not consolidate-rewrite this PO.
+  if (po.job_id) return { changed: 0 };
+
+  // Pre-job: draft carpet still tracks the live estimate cuts.
   const { data: est } = await supabase
     .from("estimates")
     .select("accepted_option_id")
@@ -364,6 +378,18 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
   if (!estimateId) return;
 
   const supabase = await createClient();
+
+  // P1: once a job exists, purchasing must use job operational scope — not stale estimate qty.
+  const { data: existingJob } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("estimate_id", estimateId)
+    .limit(1)
+    .maybeSingle();
+  if (existingJob) {
+    revalidatePath(`/jobs/${existingJob.id}`);
+    redirect(`/jobs/${existingJob.id}`);
+  }
   const { data: est } = await supabase
     .from("estimates")
     .select("id, customer_id, accepted_option_id")
@@ -561,6 +587,17 @@ export async function createPOsFromEstimateSelection(
   }
 
   const supabase = await createClient();
+
+  // P1: job exists → do not order from estimate selection (stale / missing job-only lines).
+  const { data: existingJob } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("estimate_id", estimateId)
+    .limit(1)
+    .maybeSingle();
+  if (existingJob) {
+    redirect(`/jobs/${existingJob.id}`);
+  }
   const { data: est } = await supabase
     .from("estimates")
     .select("id, customer_id")
@@ -876,8 +913,9 @@ export async function applyPoStatus(
   // fires on this update, so the guard has to sit in front of it.
   const ISSUED: PoStatus[] = ["ordered", "received", "closed"];
   if (ISSUED.includes(status) && !cur?.supplier_id) {
-    revalidatePath(`/purchase-orders/${id}`);
-    return;
+    throw new Error(
+      "PO_SUPPLIER_REQUIRED: Assign a supplier before marking this PO ordered/received/closed.",
+    );
   }
 
   await supabase.from("purchase_orders").update({ status }).eq("id", id);

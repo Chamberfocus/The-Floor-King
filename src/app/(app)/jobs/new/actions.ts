@@ -270,23 +270,9 @@ export async function createJobForCustomer(
   if (!title) return { error: "Say what the work is, or pick a job site." };
 
   /**
-   * Optional booking, applied the same way whichever path made the job.
-   *
-   * NOTE: no `migrated` flag here. Quick install set `migrated: true` on every
-   * job it made — a marker meaning "this was billed in the old system" — which
-   * permanently excludes the job from Business Pulse profit analytics
-   * (src/lib/data/finance.ts). That's right for a go-live carry-over and wrong
-   * for work sold today. Carrying over old work is /carry-over's job.
+   * Optional booking — schedule fields must go through schedule_job_install_safe
+   * after the job row exists (0178 jobs_schedule_mutation_guard).
    */
-  const booking = input.scheduledDate
-    ? {
-        scheduled_date: input.scheduledDate,
-        arrival_window: input.arrivalWindow || null,
-        status: "scheduled",
-      }
-    : {};
-  const assignee = input.installerId ? { assigned_to: input.installerId } : {};
-
   let jobId: string | null = null;
   /** Where the new work already stands, so the flow restarts at the right step
    *  rather than sending an approved quote back to "book the measure". */
@@ -319,8 +305,10 @@ export async function createJobForCustomer(
         site_city: site.city,
         site_state: site.state,
         site_zip: site.zip,
-        ...booking,
-        ...assignee,
+        // Undated installer assign is allowed without RPC.
+        ...(input.installerId && !input.scheduledDate
+          ? { assigned_to: input.installerId }
+          : {}),
       })
       .eq("id", jobId);
   } else {
@@ -336,13 +324,37 @@ export async function createJobForCustomer(
         site_state: site.state,
         site_zip: site.zip,
         created_by: profile.id,
-        ...booking,
-        ...assignee,
+        ...(input.installerId && !input.scheduledDate
+          ? { assigned_to: input.installerId }
+          : {}),
       })
       .select("id")
       .single();
     if (error || !job) return { error: error?.message || "Couldn't create the job." };
     jobId = job.id as string;
+  }
+
+  if (input.scheduledDate && jobId) {
+    const { data: schedRes, error: schedErr } = await supabase.rpc(
+      "schedule_job_install_safe",
+      {
+        p_job_id: jobId,
+        p_scheduled_date: input.scheduledDate,
+        p_scheduled_end: null,
+        p_assigned_to: input.installerId || null,
+        p_assigned_crew_id: null,
+        p_arrival_window: input.arrivalWindow || null,
+        p_set_arrival_window: Boolean(input.arrivalWindow),
+        p_open_for_claim: false,
+      },
+    );
+    if (schedErr) {
+      return { error: schedErr.message };
+    }
+    const body = schedRes as { ok?: boolean; error?: string } | null;
+    if (body && body.ok === false) {
+      return { error: body.error || "Could not schedule the install." };
+    }
   }
 
   /**

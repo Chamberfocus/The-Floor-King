@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { getCustomer } from "@/lib/data/customers";
 import { getBusinessSettings } from "@/lib/data/business-settings";
+import { getOrgSettings } from "@/lib/data/org";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
 import { listEstimateQuestions } from "@/lib/data/estimate-questions";
 import { listCustomerAreas } from "@/lib/data/customer-areas";
@@ -31,6 +32,7 @@ export default async function GuidedEstimatePage({
   const customer = await getCustomer(customerId);
   if (!customer) redirect("/customers");
   const settings = await getBusinessSettings();
+  const org = await getOrgSettings();
   const serviceAddresses = (await listServiceAddresses(customer.id)).map((a) => ({
     id: a.id,
     label: a.label || formatServiceAddress(a),
@@ -56,6 +58,7 @@ export default async function GuidedEstimatePage({
         customerId={customer.id}
         customerName={customer.full_name}
         targetMargin={settings.target_gross_margin_pct || 40}
+        freightMarkupPct={Number(org.freight_markup_pct ?? 0) || 0}
         serviceAddresses={serviceAddresses}
         questions={questions}
         savedAreas={savedAreas}

@@ -1,3 +1,6 @@
+// MANUAL / STAGING-LIKE VERIFICATION — NOT PART OF DEFAULT PR CI.
+// Requires .env.local + service-role (or equivalent). Do not default to production.
+//
 /**
  * Verifies accounting-grade PO numbers + vendor records.
  * Run AFTER pasting migration 0113:

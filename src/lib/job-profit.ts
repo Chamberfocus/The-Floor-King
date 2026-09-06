@@ -52,6 +52,56 @@ export interface ProfitResult {
   margin: number;
 }
 
+/**
+ * All-in profit when revenue is already known (e.g. invoice subtotal) and cost
+ * is bare material + labor from the estimate. Freight is applied once here.
+ *
+ * Use this instead of reimplementing jobProfit's fee/freight math. Do not feed
+ * already-freighted material into `materialBare` or freight is double-counted.
+ */
+export function allInProfit(
+  args: {
+    revenue: number;
+    /** Optional bookkeeping; defaults keep the result shape filled. */
+    subtotal?: number;
+    discount?: number;
+    /** Material cost BEFORE freight markup. */
+    materialBare: number;
+    labor: number;
+  } & ProfitInputs,
+): ProfitResult {
+  const revenue = Number(args.revenue) || 0;
+  const freightMult = 1 + num(args.freightMarkupPct) / 100;
+  const material = (Number(args.materialBare) || 0) * freightMult;
+  const labor = Number(args.labor) || 0;
+  const cost = material + labor;
+
+  const hasRevenue = revenue > 0;
+  const fuelFee = hasRevenue ? num(args.fuelFee) : 0;
+  const carAllowance = hasRevenue ? num(args.carAllowance) : 0;
+  const commissionPct = num(args.commissionPct);
+  const commission = hasRevenue ? (commissionPct / 100) * revenue : 0;
+
+  const profit = revenue - cost - fuelFee - carAllowance - commission;
+  const subtotal = args.subtotal ?? revenue;
+  const discount = args.discount ?? 0;
+
+  return {
+    subtotal,
+    discount,
+    revenue,
+    material,
+    labor,
+    cost,
+    fuelFee,
+    carAllowance,
+    commission,
+    commissionPct,
+    profit,
+    margin: revenue > 0 ? (profit / revenue) * 100 : 0,
+  };
+}
+
 export function jobProfit(
   lines: CalcLine[],
   opts: {
@@ -68,33 +118,17 @@ export function jobProfit(
   // the labor-line rule. Reusing it is the whole point — a second split here is
   // how the two definitions diverged in the first place.
   const ct = optionCostTotals(lines);
-  const freightMult = 1 + num(opts.freightMarkupPct) / 100;
-  const material = ct.material * freightMult;
-  const cost = material + ct.labor;
-
-  // These only apply once there is a sale to take them out of.
-  const hasRevenue = revenue > 0;
-  const fuelFee = hasRevenue ? num(opts.fuelFee) : 0;
-  const carAllowance = hasRevenue ? num(opts.carAllowance) : 0;
-  const commissionPct = num(opts.commissionPct);
-  const commission = hasRevenue ? (commissionPct / 100) * revenue : 0;
-
-  const profit = revenue - cost - fuelFee - carAllowance - commission;
-
-  return {
+  return allInProfit({
+    revenue,
     subtotal,
     discount,
-    revenue,
-    material,
+    materialBare: ct.material,
     labor: ct.labor,
-    cost,
-    fuelFee,
-    carAllowance,
-    commission,
-    commissionPct,
-    profit,
-    margin: revenue > 0 ? (profit / revenue) * 100 : 0,
-  };
+    freightMarkupPct: opts.freightMarkupPct,
+    fuelFee: opts.fuelFee,
+    carAllowance: opts.carAllowance,
+    commissionPct: opts.commissionPct,
+  });
 }
 
 /**
