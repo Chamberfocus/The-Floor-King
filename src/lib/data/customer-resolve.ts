@@ -22,6 +22,8 @@ import {
 import { normalizeEmail, normalizePhoneDigits } from "@/lib/customer-duplicate";
 
 const MATCH_COLS =
+  "id, full_name, email, phone, city, street, state, zip, company, assigned_to, workflow_owner_id, merged_into_customer_id";
+const MATCH_COLS_LEGACY =
   "id, full_name, email, phone, city, street, state, zip, company, assigned_to, workflow_owner_id";
 
 type Q = {
@@ -29,12 +31,14 @@ type Q = {
   ilike: (col: string, val: string) => Q;
   in: (col: string, vals: string[]) => Q;
   eq: (col: string, val: string) => Q;
+  is: (col: string, val: null) => Q;
+  not: (col: string, op: string, val?: string | null) => Q;
   limit: (n: number) => Q;
   single: () => PromiseLike<{
     data: { id: string } | null;
     error: { message: string } | null;
   }>;
-} & PromiseLike<{ data: unknown }>;
+} & PromiseLike<{ data: unknown; error?: { message?: string } | null }>;
 
 type Loose = {
   from: (table: string) => {
@@ -71,6 +75,7 @@ async function loadPool(
   const byId = new Map<string, MatchableCustomer>();
   const add = (rows: unknown) => {
     for (const r of (rows as Record<string, unknown>[] | null) ?? []) {
+      if (r.merged_into_customer_id) continue;
       const row = asRow(r);
       if (row.id) byId.set(row.id, row);
     }
@@ -84,36 +89,57 @@ async function loadPool(
   if (email) {
     jobs.push(
       (async () => {
-        const { data } = await db
+        let res = await db
           .from("customers")
           .select(MATCH_COLS)
           .ilike("email", email)
           .limit(20);
-        add(data);
+        if (res.error) {
+          res = await db
+            .from("customers")
+            .select(MATCH_COLS_LEGACY)
+            .ilike("email", email)
+            .limit(20);
+        }
+        add(res.data);
       })(),
     );
   }
   if (name) {
     jobs.push(
       (async () => {
-        const { data } = await db
+        let res = await db
           .from("customers")
           .select(MATCH_COLS)
           .ilike("full_name", name)
           .limit(25);
-        add(data);
+        if (res.error) {
+          res = await db
+            .from("customers")
+            .select(MATCH_COLS_LEGACY)
+            .ilike("full_name", name)
+            .limit(25);
+        }
+        add(res.data);
       })(),
     );
   }
   if (phone.length >= 4) {
     jobs.push(
       (async () => {
-        const { data } = await db
+        let res = await db
           .from("customers")
           .select(MATCH_COLS)
           .ilike("phone", `%${phone.slice(-4)}`)
           .limit(50);
-        add(data);
+        if (res.error) {
+          res = await db
+            .from("customers")
+            .select(MATCH_COLS_LEGACY)
+            .ilike("phone", `%${phone.slice(-4)}`)
+            .limit(50);
+        }
+        add(res.data);
       })(),
     );
   }
@@ -166,13 +192,23 @@ export async function resolveOrCreateCustomer(args: {
 
   const existingId = (args.useExistingId ?? "").trim();
   if (existingId) {
-    const { data } = await supabase
+    const first = await supabase
       .from("customers")
-      .select("id")
+      .select("id, merged_into_customer_id")
       .eq("id", existingId);
-    const hit = (data as { id: string }[] | null)?.[0];
+    let hit = (first.data as { id: string; merged_into_customer_id?: string | null }[] | null)?.[0];
+    if (!hit) {
+      const retry = await supabase
+        .from("customers")
+        .select("id")
+        .eq("id", existingId);
+      hit = (retry.data as { id: string }[] | null)?.[0];
+    }
     if (!hit) return { action: "error", error: "That customer is not available." };
-    return { action: "use_existing", customerId: hit.id };
+    return {
+      action: "use_existing",
+      customerId: hit.merged_into_customer_id || hit.id,
+    };
   }
 
   const pool = await loadPool(supabase, args.input);

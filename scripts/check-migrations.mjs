@@ -47,6 +47,7 @@ const REQUIRED_FILES = [
   "0182_job_files_storage_least_privilege.sql",
   "0183_po_void_receipt_reversal.sql",
   "0184_inventory_ops_anon_and_documents.sql",
+  "0185_customer_duplicate_merge.sql",
 ];
 
 /**
@@ -669,6 +670,24 @@ const REQUIRED_MARKERS = [
       "documents_storage_select",
       "owner = auth.uid()",
       "revoke all on public.products_inventory_ops from public, anon",
+    ],
+  },
+  {
+    file: "0185_customer_duplicate_merge.sql",
+    markers: [
+      "P0_0185_PRECHECK",
+      "P0_0185_POSTCHECK",
+      "Do NOT set posting_enabled",
+      "customer_duplicate_exclusions",
+      "customer_merge_history",
+      "merged_into_customer_id",
+      "merge_customer_records",
+      "pg_advisory_xact_lock",
+      "idempotency_key",
+      "PORTAL_CONFLICT",
+      "security definer",
+      "set search_path = public",
+      "revoke all on function public.merge_customer_records(uuid, uuid, jsonb, text, text) from public, anon",
     ],
   },
 ];

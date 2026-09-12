@@ -28,6 +28,16 @@ function sanitize(term: string) {
   return term.replace(/[,()]/g, " ").trim();
 }
 
+function isMissingMergeSchema(error: { message?: string } | null): boolean {
+  const msg = (error?.message ?? "").toLowerCase();
+  return (
+    msg.includes("merged_into_customer_id") ||
+    msg.includes("customer_duplicate_exclusions") ||
+    msg.includes("customer_merge_history") ||
+    msg.includes("merge_customer_records")
+  );
+}
+
 function chunkIds(ids: string[], size = IN_CHUNK): string[][] {
   const out: string[][] = [];
   for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
@@ -345,6 +355,8 @@ type CustomerListOpts = {
   cancelledOnly?: boolean;
   /** Hide cancelled jobs (keeps the active/closed lists clean). */
   excludeCancelled?: boolean;
+  /** Include customers that were merged away. Default hides them. */
+  includeMerged?: boolean;
 };
 
 function applyCustomerListFilters(
@@ -374,6 +386,7 @@ function applyCustomerListFilters(
     q = q
       .not("next_action_due", "is", null)
       .lt("next_action_due", new Date().toISOString());
+  if (!opts.includeMerged) q = q.is("merged_into_customer_id", null);
   return q;
 }
 
@@ -415,6 +428,38 @@ async function customerIdsFromRelatedSearch(
   ]);
 }
 
+/** Merged-away rows that match a search: return their surviving customer ids. */
+async function survivorIdsFromMergedSearch(
+  search: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+): Promise<string[]> {
+  if (!search) return [];
+  const like = `%${search}%`;
+  const { data, error } = await supabase
+    .from("customers")
+    .select("merged_into_customer_id")
+    .not("merged_into_customer_id", "is", null)
+    .or(
+      [
+        `full_name.ilike.${like}`,
+        `company.ilike.${like}`,
+        `email.ilike.${like}`,
+        `phone.ilike.${like}`,
+        `street.ilike.${like}`,
+        `city.ilike.${like}`,
+        `zip.ilike.${like}`,
+      ].join(","),
+    )
+    .limit(100);
+  if (error) return [];
+  return uniqueIds(
+    ((data ?? []) as { merged_into_customer_id: string | null }[]).map(
+      (r) => r.merged_into_customer_id,
+    ),
+  );
+}
+
 export async function listCustomers(
   opts: CustomerListOpts = {},
 ): Promise<Customer[]> {
@@ -445,6 +490,30 @@ export async function listCustomers(
     }
 
     const { data, error } = await query;
+    if (error && isMissingMergeSchema(error) && !opts.includeMerged) {
+      let fallback = applyCustomerListFilters(
+        supabase.from("customers").select("*") as never,
+        { ...opts, includeMerged: true },
+      ).order("updated_at", { ascending: false });
+      if (extraIds?.length) fallback = fallback.in("id", extraIds);
+      else if (search) {
+        const like = `%${search}%`;
+        fallback = fallback.or(
+          [
+            `full_name.ilike.${like}`,
+            `company.ilike.${like}`,
+            `email.ilike.${like}`,
+            `phone.ilike.${like}`,
+            `street.ilike.${like}`,
+            `city.ilike.${like}`,
+            `zip.ilike.${like}`,
+          ].join(","),
+        );
+      }
+      const retry = await fallback;
+      if (retry.error) throw retry.error;
+      return (retry.data ?? []) as Customer[];
+    }
     if (error) throw error;
     return (data ?? []) as Customer[];
   };
@@ -458,7 +527,14 @@ export async function listCustomers(
   const already = new Set(identity.map((c) => c.id));
   const missing = relatedIds.filter((id) => !already.has(id));
   const related = missing.length ? await run(missing) : [];
-  return uniqueCustomersById([...identity, ...related]);
+
+  // Old phone/email/name on a merged-away row should surface the survivor.
+  const survivorIds = await survivorIdsFromMergedSearch(search, supabase);
+  const have = new Set([...already, ...related.map((c) => c.id)]);
+  const needSurvivors = survivorIds.filter((id) => !have.has(id));
+  const survivors = needSurvivors.length ? await run(needSurvivors) : [];
+
+  return uniqueCustomersById([...identity, ...related, ...survivors]);
 }
 
 export async function getCustomer(id: string): Promise<Customer | null> {
@@ -522,12 +598,21 @@ export async function getDashboardCounts(): Promise<DashboardCounts> {
   const supabase = await createClient();
 
   const countIn = async (stages: LeadStage[]) => {
-    const { count } = await supabase
+    const first = await supabase
       .from("customers")
       .select("id", { count: "exact", head: true })
       .is("cancelled_at", null)
+      .is("merged_into_customer_id", null)
       .in("stage", stages);
-    return count ?? 0;
+    if (first.error && isMissingMergeSchema(first.error)) {
+      const retry = await supabase
+        .from("customers")
+        .select("id", { count: "exact", head: true })
+        .is("cancelled_at", null)
+        .in("stage", stages);
+      return retry.count ?? 0;
+    }
+    return first.count ?? 0;
   };
 
   const [openLeads, quoted, wonCustomers] = await Promise.all([
@@ -552,19 +637,32 @@ export interface QueueItem {
 /** A user's active leads (assigned to them) with their stage + next action. */
 export async function listMyQueue(userId: string): Promise<QueueItem[]> {
   const supabase = await createClient();
-  const { data } = await supabase
+  const first = await supabase
     .from("customers")
     .select(
       "id, full_name, city, next_action_due, stage:workflow_stages(name, next_action, color)",
     )
-    // A rep's book = clients they permanently own (assigned_to) OR that are
-    // currently on their plate (workflow_owner_id) — so passed-down clients
-    // stay visible to their salesperson.
     .or(`assigned_to.eq.${userId},workflow_owner_id.eq.${userId}`)
     .not("workflow_stage_id", "is", null)
     .is("cancelled_at", null)
+    .is("merged_into_customer_id", null)
     .order("next_action_due", { ascending: true, nullsFirst: false })
     .limit(15);
+  const data =
+    first.error && isMissingMergeSchema(first.error)
+      ? (
+          await supabase
+            .from("customers")
+            .select(
+              "id, full_name, city, next_action_due, stage:workflow_stages(name, next_action, color)",
+            )
+            .or(`assigned_to.eq.${userId},workflow_owner_id.eq.${userId}`)
+            .not("workflow_stage_id", "is", null)
+            .is("cancelled_at", null)
+            .order("next_action_due", { ascending: true, nullsFirst: false })
+            .limit(15)
+        ).data
+      : first.data;
   return (data ?? []).map((c) => {
     const s = c.stage as unknown as {
       name: string | null;
