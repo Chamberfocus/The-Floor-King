@@ -10,6 +10,13 @@ import { lookup } from "node:dns/promises";
 import { PG_DUMP_LINUX_AMD64 } from "./constants";
 import { validatePostgresDump } from "./dump-validate";
 import { sha256Hex } from "./checksums";
+import {
+  dumpPoolerRegionCandidates,
+  isRetryablePoolerFailure,
+  sessionPoolerHost,
+  sessionPoolerUser,
+  supabaseProjectRefFromPublicUrl,
+} from "./dump-target";
 
 export type DumpResult = {
   fileName: string;
@@ -83,6 +90,7 @@ export function classifyPgDumpFailure(
     return "PG_DUMP:connection";
   }
   if (/timeout expired|canceling statement/.test(s)) return "PG_DUMP:timeout";
+  if (/tenant or user not found/.test(s)) return "PG_DUMP:pooler_tenant";
   if (/password authentication|authentication failed|no password supplied/.test(s)) {
     return "PG_DUMP:auth";
   }
@@ -244,23 +252,82 @@ export async function dumpPostgresSchema(args: {
   schema: "public" | "auth";
   binary?: string;
   timeoutMs?: number;
+  publicSupabaseUrl?: string;
+  env?: NodeJS.ProcessEnv;
 }): Promise<DumpResult> {
   const connection = assertDumpConnectionUrl(args.databaseUrl);
-  const hostAddr = await resolveDumpHostIpv4(connection.host);
-  const binary = args.binary ?? (await resolvePgDumpBinary());
-  const bytes = await runPgDump({
-    binary,
-    connection: { ...connection, hostAddr },
-    schema: args.schema,
-    timeoutMs: args.timeoutMs ?? 180_000,
-  });
+  const binary = args.binary ?? (await resolvePgDumpBinary({ env: args.env }));
+  const timeoutMs = args.timeoutMs ?? 180_000;
+  const env = args.env ?? process.env;
+
+  const tryDump = async (
+    conn: ReturnType<typeof parseDirectPostgresUrl> & { hostAddr: string },
+  ): Promise<Buffer> =>
+    runPgDump({
+      binary,
+      connection: conn,
+      schema: args.schema,
+      timeoutMs,
+    });
+
+  try {
+    const hostAddr = await resolveDumpHostIpv4(connection.host);
+    const bytes = await tryDump({ ...connection, hostAddr });
+    return finishDump(args.schema, bytes);
+  } catch (err) {
+    const code = err instanceof Error ? err.message : "PG_DUMP_FAILED";
+    if (code !== "PG_DUMP:ipv4_required") throw err;
+  }
+
+  const projectRef = supabaseProjectRefFromPublicUrl(
+    args.publicSupabaseUrl ?? env.NEXT_PUBLIC_SUPABASE_URL,
+  );
+  if (!projectRef) throw new Error("PG_DUMP:ipv4_required");
+
+  const user = sessionPoolerUser(connection.user, projectRef);
+  let last: unknown = new Error("PG_DUMP:ipv4_required");
+  for (const region of dumpPoolerRegionCandidates(env)) {
+    let host: string;
+    try {
+      host = sessionPoolerHost(region);
+    } catch (e) {
+      last = e;
+      continue;
+    }
+    let hostAddr: string;
+    try {
+      hostAddr = await resolveDumpHostIpv4(host);
+    } catch (e) {
+      last = e;
+      continue;
+    }
+    try {
+      const bytes = await tryDump({
+        ...connection,
+        host,
+        hostAddr,
+        user,
+        port: "5432",
+      });
+      return finishDump(args.schema, bytes);
+    } catch (e) {
+      last = e;
+      const msg = e instanceof Error ? e.message : "";
+      if (isRetryablePoolerFailure(msg)) continue;
+      throw e;
+    }
+  }
+  throw last instanceof Error ? last : new Error("PG_DUMP:ipv4_required");
+}
+
+function finishDump(schema: "public" | "auth", bytes: Buffer): DumpResult {
   const check = validatePostgresDump(bytes);
   if (!check.ok) throw new Error(check.code);
   return {
-    fileName: args.schema === "auth" ? "auth.sql.gz" : "public.sql.gz",
+    fileName: schema === "auth" ? "auth.sql.gz" : "public.sql.gz",
     bytes,
     sha256: sha256Hex(bytes),
     byteLength: bytes.length,
-    schema: args.schema,
+    schema,
   };
 }

@@ -46,6 +46,13 @@ import { GoogleDriveClient } from "@/lib/backup/google-drive";
 import { MemoryDrive } from "@/lib/backup/memory-drive";
 import { validatePostgresDump } from "@/lib/backup/dump-validate";
 import { assertDumpConnectionUrl, classifyPgDumpFailure } from "@/lib/backup/dump";
+import {
+  dumpPoolerRegionCandidates,
+  isRetryablePoolerFailure,
+  sessionPoolerHost,
+  sessionPoolerUser,
+  supabaseProjectRefFromPublicUrl,
+} from "@/lib/backup/dump-target";
 import { enumerateStorageObjects, storageBackupComplete } from "@/lib/backup/storage";
 import { formatChecksumFile, sha256Hex, verifyChecksums } from "@/lib/backup/checksums";
 import {
@@ -381,8 +388,16 @@ describe("database dump validation", () => {
       "PG_DUMP:ssl",
     );
     expect(classifyPgDumpFailure("password authentication failed for user")).toBe("PG_DUMP:auth");
+    expect(classifyPgDumpFailure("FATAL: Tenant or user not found")).toBe("PG_DUMP:pooler_tenant");
     expect(readFileSync(join(ROOT, "src/lib/backup/dump.ts"), "utf8")).toMatch(/ipv4first/);
     expect(readFileSync(join(ROOT, "src/lib/backup/dump.ts"), "utf8")).toMatch(/PGHOSTADDR/);
+    expect(supabaseProjectRefFromPublicUrl("https://abc123xyz789.supabase.co")).toBe("abc123xyz789");
+    expect(sessionPoolerUser("postgres", "abc123xyz789")).toBe("postgres.abc123xyz789");
+    expect(sessionPoolerUser("postgres.abc123xyz789", "abc123xyz789")).toBe("postgres.abc123xyz789");
+    expect(sessionPoolerHost("us-east-2")).toBe("aws-0-us-east-2.pooler.supabase.com");
+    expect(dumpPoolerRegionCandidates({})).toEqual(["us-east-2", "us-east-1"]);
+    expect(isRetryablePoolerFailure("PG_DUMP:pooler_tenant")).toBe(true);
+    expect(isRetryablePoolerFailure("PG_DUMP:auth")).toBe(false);
   });
 });
 
