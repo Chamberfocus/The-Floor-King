@@ -636,7 +636,7 @@ describe("backup production safety", () => {
     const route = readFileSync(join(ROOT, "src/app/api/cron/backup/route.ts"), "utf8");
     expect(route).toMatch(/runtime = "nodejs"/);
     expect(route).toMatch(/authorizeBackupCronRequest/);
-    expect(route).toMatch(/maxDuration = 300/);
+    expect(route).toMatch(/maxDuration = 800/);
     expect(route).toMatch(/Floor King backup SUCCESS/);
     const authz = readFileSync(join(ROOT, "src/lib/backup/authz.ts"), "utf8");
     expect(authz).toMatch(/CRON_SECRET_MISSING/);
