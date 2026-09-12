@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
       errorCode: result.errorCode,
       dumpBytes: result.dumpBytes ?? null,
       skippedReason: result.skippedReason ?? null,
+      runtime: { platform: process.platform, arch: process.arch },
     };
     if (driveTokenResponseHasSecrets(body)) {
       return NextResponse.json({ ok: false, error: "RESPONSE_SANITIZED" }, { status: 500 });

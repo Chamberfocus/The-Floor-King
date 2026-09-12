@@ -371,6 +371,7 @@ describe("database dump validation", () => {
       /DB_URL_TRANSACTION_POOLER/,
     );
     expect(classifyPgDumpFailure("", "ENOENT")).toBe("PG_DUMP:missing_binary");
+    expect(classifyPgDumpFailure("", "ENOEXEC")).toBe("PG_DUMP:ENOEXEC");
     expect(classifyPgDumpFailure("pg_dump: error: could not connect to server: Connection refused")).toBe(
       "PG_DUMP:connection",
     );

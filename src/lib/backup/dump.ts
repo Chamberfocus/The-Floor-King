@@ -60,13 +60,20 @@ const PG_DUMP_CANDIDATES = [
 
 export function classifyPgDumpFailure(stderr: string, spawnCode?: string): string {
   if (spawnCode === "ENOENT") return "PG_DUMP:missing_binary";
+  if (spawnCode && /^[A-Za-z0-9_]{2,40}$/.test(spawnCode)) {
+    return `PG_DUMP:${spawnCode}`;
+  }
   const s = stderr.toLowerCase();
-  if (/could not connect|connection refused|connection timed out|no route to host|name or service not known/.test(s)) {
+  if (/exec format/.test(s)) return "PG_DUMP:exec_format";
+  if (/could not connect|connection refused|connection timed out|no route to host|name or service not known|network is unreachable/.test(s)) {
     return "PG_DUMP:connection";
   }
   if (/timeout expired|canceling statement/.test(s)) return "PG_DUMP:timeout";
   if (/password authentication|authentication failed|no password supplied/.test(s)) {
     return "PG_DUMP:auth";
+  }
+  if (/server version mismatch|aborting because of server version/.test(s)) {
+    return "PG_DUMP:version_mismatch";
   }
   if (/\bssl\b|certificate/.test(s)) return "PG_DUMP:ssl";
   if (/too many connections/.test(s)) return "PG_DUMP:too_many_connections";
