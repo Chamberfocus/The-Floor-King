@@ -243,10 +243,18 @@ export async function resolvePublicBookingCustomer(input: {
     phone: input.phone || null,
     email: input.email || null,
   };
-  const pool = await loadPool(db, matchInput);
-  const matches = findPotentialCustomerMatches(matchInput, pool);
-  const decision = decidePublicBooking(matches);
+  const matchOnce = async () =>
+    findPotentialCustomerMatches(matchInput, await loadPool(db, matchInput));
 
+  let decision = decidePublicBooking(await matchOnce());
+  if (decision.action === "link_existing") {
+    return { customerId: decision.customerId, created: false, error: null };
+  }
+
+  // Concurrency: another request may have just inserted this person.
+  // Recheck immediately before insert — if a unique strong match now exists,
+  // link instead of creating a second UUID. No unique(phone/email/name).
+  decision = decidePublicBooking(await matchOnce());
   if (decision.action === "link_existing") {
     return { customerId: decision.customerId, created: false, error: null };
   }

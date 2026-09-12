@@ -47,10 +47,12 @@ export async function approveOrder(formData: FormData): Promise<{
     .order("position", { ascending: true });
   const items = (itemData ?? []) as OrderItem[];
 
-  let customerId =
-    ((order.customer_id as string | null) ?? str(formData.get("use_existing_id"))) ||
-    null;
-  if (!customerId) {
+  const alreadyLinked = (order.customer_id as string | null) || null;
+  let customerId = alreadyLinked;
+  // Do not re-resolve (or rewrite) an order that already has a customer.
+  // When customer_id is null, match contact against existing customers and
+  // require an explicit choice before inserting a new UUID.
+  if (!alreadyLinked) {
     const contactName = (order.contact_name as string) || "Order customer";
     const resolved = await resolveOrCreateCustomer({
       input: {
@@ -67,6 +69,7 @@ export async function approveOrder(formData: FormData): Promise<{
         created_by: uid,
         assigned_to: uid,
       },
+      useExistingId: str(formData.get("use_existing_id")) || null,
       forceCreate: str(formData.get("force_create")) === "1",
       overrideReason: str(formData.get("duplicate_override_reason")),
     });
@@ -75,10 +78,6 @@ export async function approveOrder(formData: FormData): Promise<{
     }
     if (resolved.action === "error") return { error: resolved.error };
     customerId = resolved.customerId;
-    await supabase
-      .from("orders")
-      .update({ customer_id: customerId })
-      .eq("id", orderId);
   }
   if (!customerId) return { error: "Couldn't attach a customer." };
 
@@ -120,6 +119,7 @@ export async function approveOrder(formData: FormData): Promise<{
     .update({
       status: "approved",
       job_id: jobId,
+      customer_id: customerId,
       approved_by: uid,
       approved_at: new Date().toISOString(),
       // Columns arrive in 0151; a pre-migration database just ignores the

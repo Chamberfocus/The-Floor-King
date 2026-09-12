@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Sparkles, Upload, Trash2, FileUp, X } from "lucide-react";
@@ -9,7 +9,13 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { pdfToText, spreadsheetToText, chunkText } from "@/lib/pdf-client";
 import type { ClientRow } from "@/lib/extract";
-import { parseClients, importClients } from "./import-actions";
+import { parseClients, importClients, previewImportClients } from "./import-actions";
+import type { ClassifiedImportRow } from "./import-actions";
+import {
+  ImportClassBadge,
+  ImportClassSummary,
+  classForIndex,
+} from "./import-class-summary";
 
 const inputSm =
   "h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -28,6 +34,13 @@ const COLS: { key: keyof ClientRow; label: string; w?: string }[] = [
 export function ClientImporter() {
   const router = useRouter();
   const [rows, setRows] = useState<ClientRow[] | null>(null);
+  const [classified, setClassified] = useState<ClassifiedImportRow[]>([]);
+  const [importSummary, setImportSummary] = useState<{
+    new: number;
+    matchedExisting: number;
+    possibleDuplicates: number;
+    invalid: number;
+  } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -35,6 +48,23 @@ export function ClientImporter() {
   const [importing, startImport] = useTransition();
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!rows?.length) {
+      setClassified([]);
+      setImportSummary(null);
+      return;
+    }
+    let live = true;
+    previewImportClients(rows).then((p) => {
+      if (!live) return;
+      setClassified(p.classified);
+      setImportSummary(p.summary);
+    });
+    return () => {
+      live = false;
+    };
+  }, [rows]);
 
   // Parse long text in chunks so big lists never hit server limits.
   const parseTextChunks = async (text: string): Promise<ClientRow[]> => {
@@ -261,18 +291,27 @@ export function ClientImporter() {
       {rows && rows.length > 0 ? (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 p-3">
-            <p className="text-sm font-medium">
-              Step 2 — review {rows.length} customer
-              {rows.length === 1 ? "" : "s"}, then click Import to save.
-            </p>
-            <Button type="button" onClick={doImport} disabled={importing}>
-              {importing ? "Importing…" : `Import ${rows.length} customers`}
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                Step 2 — review matches, then import new rows only.
+              </p>
+              {importSummary ? <ImportClassSummary summary={importSummary} /> : null}
+            </div>
+            <Button
+              type="button"
+              onClick={doImport}
+              disabled={importing || (importSummary != null && importSummary.new === 0)}
+            >
+              {importing
+                ? "Importing…"
+                : `Import ${importSummary?.new ?? 0} new`}
             </Button>
           </div>
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
               <thead className="bg-muted/60 text-xs text-muted-foreground">
                 <tr>
+                  <th className="px-2 py-2 text-left">Match</th>
                   {COLS.map((c) => (
                     <th key={c.key} className="px-2 py-2 text-left">
                       {c.label}
@@ -284,6 +323,9 @@ export function ClientImporter() {
               <tbody className="divide-y">
                 {rows.map((r, i) => (
                   <tr key={i}>
+                    <td className="px-2 py-1">
+                      <ImportClassBadge cls={classForIndex(classified, i)} />
+                    </td>
                     {COLS.map((c) => (
                       <td key={c.key} className="px-2 py-1">
                         <input
@@ -311,11 +353,17 @@ export function ClientImporter() {
           </div>
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              {rows.length} customer{rows.length === 1 ? "" : "s"} ready. This
-              only adds new records — nothing existing is changed.
+              Possible duplicates and already-on-file rows are skipped. Existing
+              records are never updated or merged.
             </p>
-            <Button type="button" onClick={doImport} disabled={importing}>
-              {importing ? "Importing…" : `Import ${rows.length} customers`}
+            <Button
+              type="button"
+              onClick={doImport}
+              disabled={importing || (importSummary != null && importSummary.new === 0)}
+            >
+              {importing
+                ? "Importing…"
+                : `Import ${importSummary?.new ?? 0} new`}
             </Button>
           </div>
         </div>

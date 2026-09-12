@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { FileUp, X, Zap } from "lucide-react";
@@ -17,7 +17,9 @@ import { SearchPicker } from "@/components/ui/search-picker";
 import { cn } from "@/lib/utils";
 import { fileToGrid } from "@/lib/pdf-client";
 import type { ClientRow } from "@/lib/extract";
-import { importClients } from "./import-actions";
+import { importClients, previewImportClients } from "./import-actions";
+import type { ClassifiedImportRow } from "./import-actions";
+import { ImportClassBadge, ImportClassSummary, classForIndex } from "./import-class-summary";
 
 const FIELDS: { key: keyof ClientRow; label: string; syn: string[] }[] = [
   { key: "full_name", label: "Name", syn: ["name", "fullname", "customer", "customername", "contact", "client"] },
@@ -42,6 +44,13 @@ export function CustomerMappingImporter() {
   const [parsing, startParse] = useTransition();
   const [importing, startImport] = useTransition();
   const [done, setDone] = useState<number | null>(null);
+  const [importSummary, setImportSummary] = useState<{
+    new: number;
+    matchedExisting: number;
+    possibleDuplicates: number;
+    invalid: number;
+  } | null>(null);
+  const [classified, setClassified] = useState<ClassifiedImportRow[]>([]);
 
   const load = (f: File) =>
     startParse(async () => {
@@ -79,6 +88,8 @@ export function CustomerMappingImporter() {
     setHeaders([]);
     setRows([]);
     setMap({});
+    setImportSummary(null);
+    setClassified([]);
   };
 
   const colOptions = [
@@ -111,6 +122,25 @@ export function CustomerMappingImporter() {
   };
 
   const preview = build();
+
+  useEffect(() => {
+    if (!preview.length) {
+      setImportSummary(null);
+      setClassified([]);
+      return;
+    }
+    let live = true;
+    previewImportClients(preview).then((p) => {
+      if (!live) return;
+      setClassified(p.classified);
+      setImportSummary(p.summary);
+    });
+    return () => {
+      live = false;
+    };
+    // preview is rebuilt from rows + map each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, map]);
 
   const doImport = () =>
     startImport(async () => {
@@ -215,12 +245,18 @@ export function CustomerMappingImporter() {
 
       <div>
         <p className="mb-1 text-xs text-muted-foreground">
-          Preview — {preview.length} customers will import
+          Preview — {preview.length} row{preview.length === 1 ? "" : "s"} classified
         </p>
+        {importSummary ? (
+          <div className="mb-2">
+            <ImportClassSummary summary={importSummary} />
+          </div>
+        ) : null}
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead className="bg-muted/60 text-xs text-muted-foreground">
               <tr>
+                <th className="px-2 py-1.5 text-left">Match</th>
                 <th className="px-2 py-1.5 text-left">Name</th>
                 <th className="px-2 py-1.5 text-left">Phone</th>
                 <th className="px-2 py-1.5 text-left">Email</th>
@@ -230,6 +266,9 @@ export function CustomerMappingImporter() {
             <tbody className="divide-y">
               {preview.slice(0, 6).map((c, i) => (
                 <tr key={i}>
+                  <td className="px-2 py-1">
+                    <ImportClassBadge cls={classForIndex(classified, i)} />
+                  </td>
                   <td className="px-2 py-1">{c.full_name}</td>
                   <td className="px-2 py-1 text-muted-foreground">{c.phone ?? "—"}</td>
                   <td className="px-2 py-1 text-muted-foreground">{c.email ?? "—"}</td>
@@ -242,8 +281,14 @@ export function CustomerMappingImporter() {
       </div>
 
       <div className="flex justify-end">
-        <Button type="button" onClick={doImport} disabled={importing || !preview.length}>
-          {importing ? "Importing…" : `Import ${preview.length} customers`}
+        <Button
+          type="button"
+          onClick={doImport}
+          disabled={importing || !preview.length || (importSummary != null && importSummary.new === 0)}
+        >
+          {importing
+            ? "Importing…"
+            : `Import ${importSummary?.new ?? 0} new`}
         </Button>
       </div>
 

@@ -319,7 +319,10 @@ export function decidePublicBooking(
   }
   return {
     action: "create_new",
-    needsStaffReview: strong.length > 1 || matches.some((m) => m.tier === "medium"),
+    // Any leftover match (multiple strong, medium, or weak name) is uncertain.
+    // Never auto-link; stamp the new lead for staff review. No match details
+    // are returned to the public caller.
+    needsStaffReview: matches.length > 0,
   };
 }
 

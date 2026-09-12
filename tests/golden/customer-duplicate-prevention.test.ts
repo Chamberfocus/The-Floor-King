@@ -280,7 +280,16 @@ describe("TEST 10 — Public booking privacy", () => {
       [john],
     );
     const d = decidePublicBooking(matches);
-    expect(d.action).toBe("create_new");
+    expect(d).toEqual({ action: "create_new", needsStaffReview: true });
+    const publicBody = publicBookingResponseSafe(true);
+    expect(JSON.stringify(publicBody)).not.toContain("John");
+  });
+
+  it("a truly new public booking is not flagged as a possible duplicate", () => {
+    expect(decidePublicBooking([])).toEqual({
+      action: "create_new",
+      needsStaffReview: false,
+    });
   });
 });
 
@@ -380,6 +389,36 @@ describe("workflows call the shared resolver", () => {
     expect(src).toContain("resolvePublicBookingCustomer");
     expect(src).not.toContain("matches");
     expect(src).not.toContain("full_name: name");
+  });
+
+  it("public booking rechecks immediately before insert", () => {
+    const src = readFileSync(
+      join(ROOT, "src/lib/data/customer-resolve.ts"),
+      "utf8",
+    );
+    expect(src).toContain("matchOnce");
+    expect(src).toContain("another request may have just inserted");
+  });
+
+  it("order approval stamps customer_id when attaching an existing match", () => {
+    const src = readFileSync(
+      join(ROOT, "src/app/(app)/orders/actions.ts"),
+      "utf8",
+    );
+    expect(src).toContain("alreadyLinked");
+    expect(src).toContain("useExistingId");
+    expect(src).toContain("customer_id: customerId");
+  });
+
+  it("import UIs preview classification before insert", () => {
+    for (const f of [
+      "src/app/(app)/customers/client-importer.tsx",
+      "src/app/(app)/customers/customer-mapping-importer.tsx",
+    ]) {
+      const src = readFileSync(join(ROOT, f), "utf8");
+      expect(src).toContain("previewImportClients");
+      expect(src).toContain("ImportClassSummary");
+    }
   });
 
   it("does not add unique(phone/email/name) constraints", () => {

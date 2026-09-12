@@ -7,7 +7,12 @@ import {
   previewCustomerImport,
   resolveOrCreateCustomer,
 } from "@/lib/data/customer-resolve";
-import type { MatchCandidateInput } from "@/lib/customer-resolve";
+import type {
+  ClassifiedImportRow,
+  MatchCandidateInput,
+} from "@/lib/customer-resolve";
+
+export type { ClassifiedImportRow };
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
