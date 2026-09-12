@@ -83,6 +83,7 @@ export function classifyPgDumpFailure(
   if (exitCode === 126) return "PG_DUMP:not_executable";
   if (exitCode === 127) return "PG_DUMP:missing_binary";
   const s = stderr.toLowerCase();
+  if (/unrecognized option|invalid option|unknown option/.test(s)) return "PG_DUMP:bad_option";
   if (/exec format/.test(s)) return "PG_DUMP:exec_format";
   if (
     /could not connect|connection refused|connection timed out|no route to host|name or service not known|network is unreachable|could not translate host name|is the server running/.test(
@@ -171,8 +172,6 @@ async function runPgDump(args: {
     [
       "--format=plain",
       "--no-owner",
-      "--no-acl",
-      "--no-comments",
       "--encoding=UTF8",
       `--schema=${args.schema}`,
       "--no-password",
