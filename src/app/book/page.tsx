@@ -8,6 +8,9 @@ export const metadata: Metadata = {
   title: "Book an appointment — Cleveland Floor King",
 };
 
+/** Live booking config comes from the database; never prerender. */
+export const dynamic = "force-dynamic";
+
 export default async function BookPage() {
   const { settings, types } = await getPublicBookingConfig();
   const today = todayLocalYmd();

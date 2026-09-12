@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { SearchPicker } from "@/components/ui/search-picker";
-import { listCustomers, getCustomerRowContexts } from "@/lib/data/customers";
+import { listCustomers, getCustomerRowContexts, getCustomerListActivity } from "@/lib/data/customers";
 import { listWorkflowStages, listHandoffMembers } from "@/lib/data/workflow";
 import { getSchedulingSettings } from "@/lib/data/scheduling";
 import { getUserPreferences } from "@/lib/data/preferences";
@@ -87,11 +87,12 @@ export default async function CustomersPage({
   });
 
   // Shared data for per-row quick actions — fetched once for the whole list.
-  const [members, schedSettings, prefs, contexts] = await Promise.all([
+  const [members, schedSettings, prefs, contexts, activity] = await Promise.all([
     listHandoffMembers(),
     getSchedulingSettings(),
     getUserPreferences(),
     getCustomerRowContexts(customers.map((c) => c.id)),
+    getCustomerListActivity(customers.map((c) => c.id)),
   ]);
   const shared: ListShared = {
     stages: stages.map((s) => ({
@@ -165,7 +166,11 @@ export default async function CustomersPage({
     <div>
       <PageHeader
         title="Customers"
-        description="Everyone in your pipeline — leads and customers alike."
+        description={
+          customers.length
+            ? `${customers.length} customer${customers.length === 1 ? "" : "s"} — one row per customer.`
+            : "Everyone in your pipeline — leads and customers alike."
+        }
       >
         <div className="flex gap-2">
           <Link
@@ -208,7 +213,7 @@ export default async function CustomersPage({
           <Input
             name="q"
             defaultValue={q}
-            placeholder="Search name, phone, email, city…"
+            placeholder="Search name, phone, email, address, job…"
             className="pl-8"
           />
         </div>
@@ -290,6 +295,7 @@ export default async function CustomersPage({
         <CustomerList
           customers={customers}
           contexts={contexts}
+          activity={activity}
           shared={shared}
           isAdmin={isAdmin}
         />

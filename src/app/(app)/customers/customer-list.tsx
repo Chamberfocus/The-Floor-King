@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { StageBadge } from "@/components/stage-badge";
 import { cn } from "@/lib/utils";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatMoney } from "@/lib/format";
 import type { ArrivalWindow } from "@/lib/format";
 import {
   LEAD_SOURCE_LABELS,
@@ -25,6 +25,11 @@ import {
 } from "@/lib/types";
 import type { QuickAction } from "@/lib/preferences";
 import type { CustomerRowContext } from "@/lib/data/customers";
+import {
+  EMPTY_CUSTOMER_LIST_ACTIVITY,
+  formatCustomerActivityLine,
+  type CustomerListActivity,
+} from "@/lib/customer-list";
 import { QuickActions } from "./[id]/quick-actions";
 
 /** Shared data fetched once by the page, reused by every row. */
@@ -138,6 +143,31 @@ function ExpandToggle({
   );
 }
 
+function contactLine(c: Customer): string {
+  return [c.street, c.city, c.phone].filter(Boolean).join(" · ");
+}
+
+function ActivitySummary({
+  activity,
+}: {
+  activity: CustomerListActivity;
+}) {
+  const line = formatCustomerActivityLine(activity);
+  const money: string[] = [];
+  if (activity.openBalance > 0.005) {
+    money.push(`${formatMoney(activity.openBalance)} open`);
+  }
+  if (activity.lifetimeSales > 0.005) {
+    money.push(`${formatMoney(activity.lifetimeSales)} lifetime`);
+  }
+  if (!line && !money.length) return null;
+  return (
+    <div className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
+      {line ? <div className="font-medium text-foreground/80">{line}</div> : null}
+      {money.length ? <div>{money.join(" · ")}</div> : null}
+    </div>
+  );
+}
 /** The salesperson a client is permanently assigned to (admin-only column). */
 function assignedName(c: Customer, shared: ListShared): string {
   if (!c.assigned_to) return "Unassigned";
@@ -177,12 +207,14 @@ function StuckBadge() {
 function DesktopRow({
   c,
   ctx,
+  activity,
   shared,
   isAdmin,
   overdue,
 }: {
   c: Customer;
   ctx: CustomerRowContext | undefined;
+  activity: CustomerListActivity;
   shared: ListShared;
   isAdmin: boolean;
   overdue: boolean;
@@ -208,6 +240,12 @@ function DesktopRow({
               {c.company}
             </span>
           ) : null}
+          {contactLine(c) ? (
+            <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+              {contactLine(c)}
+            </span>
+          ) : null}
+          <ActivitySummary activity={activity} />
         </TableCell>
         {isAdmin ? (
           <TableCell
@@ -247,12 +285,14 @@ function DesktopRow({
 function MobileCard({
   c,
   ctx,
+  activity,
   shared,
   isAdmin,
   overdue,
 }: {
   c: Customer;
   ctx: CustomerRowContext | undefined;
+  activity: CustomerListActivity;
   shared: ListShared;
   isAdmin: boolean;
   overdue: boolean;
@@ -269,6 +309,12 @@ function MobileCard({
               {c.company}
             </div>
           ) : null}
+          {contactLine(c) ? (
+            <div className="mt-0.5 truncate text-xs text-muted-foreground">
+              {contactLine(c)}
+            </div>
+          ) : null}
+          <ActivitySummary activity={activity} />
           {isAdmin ? (
             <div className="mt-0.5 truncate text-xs text-muted-foreground">
               Assigned to{" "}
@@ -355,11 +401,13 @@ function SortTh({
 export function CustomerList({
   customers,
   contexts,
+  activity,
   shared,
   isAdmin = false,
 }: {
   customers: Customer[];
   contexts: Record<string, CustomerRowContext>;
+  activity: Record<string, CustomerListActivity>;
   shared: ListShared;
   /** Show the "Assigned to" (salesperson) column — admin only. */
   isAdmin?: boolean;
@@ -447,6 +495,7 @@ export function CustomerList({
             key={c.id}
             c={c}
             ctx={contexts[c.id]}
+            activity={activity[c.id] ?? EMPTY_CUSTOMER_LIST_ACTIVITY}
             shared={shared}
             isAdmin={isAdmin}
             overdue={isOverdue(c)}
@@ -476,6 +525,7 @@ export function CustomerList({
                 key={c.id}
                 c={c}
                 ctx={contexts[c.id]}
+                activity={activity[c.id] ?? EMPTY_CUSTOMER_LIST_ACTIVITY}
                 shared={shared}
                 isAdmin={isAdmin}
                 overdue={isOverdue(c)}
