@@ -54,7 +54,7 @@ import {
   supabaseProjectRefFromPublicUrl,
 } from "@/lib/backup/dump-target";
 import { enumerateStorageObjects, storageBackupComplete } from "@/lib/backup/storage";
-import { formatChecksumFile, sha256Hex, verifyChecksums } from "@/lib/backup/checksums";
+import { formatChecksumFile, md5Hex, sha256Hex, verifyChecksums } from "@/lib/backup/checksums";
 import {
   assertManifestHasNoSecrets,
   createInProgressManifest,
@@ -66,6 +66,7 @@ import { runBackup, gzipSqlDump, type BackupDeps } from "@/lib/backup/run";
 import { validateRestorableBackup, RESTORE_ORDER } from "@/lib/backup/restore";
 import { sanitizeBackupError } from "@/lib/backup/sanitize";
 import { acquireBackupLock } from "@/lib/backup/lock";
+import { verifyDriveDumpMetadata } from "@/lib/backup/remote-verify";
 import type { UserRole } from "@/lib/types";
 
 const ROOT = process.cwd();
@@ -91,6 +92,7 @@ function dumpResult() {
     fileName: "public.sql.gz" as const,
     bytes,
     sha256: sha256Hex(bytes),
+    md5: md5Hex(bytes),
     byteLength: bytes.length,
     schema: "public" as const,
   };
@@ -398,6 +400,36 @@ describe("database dump validation", () => {
     expect(dumpPoolerRegionCandidates({})).toEqual(["us-east-1", "us-east-2"]);
     expect(isRetryablePoolerFailure("PG_DUMP:stall")).toBe(true);
     expect(isRetryablePoolerFailure("PG_DUMP:auth")).toBe(false);
+    expect(
+      verifyDriveDumpMetadata({
+        localBytes: 10,
+        localMd5: "abc",
+        remote: {
+          name: "public.sql.gz",
+          size: 10,
+          md5Checksum: "ABC",
+          trashed: false,
+          parents: ["parent"],
+        },
+        expectedParentId: "parent",
+      }).ok,
+    ).toBe(true);
+    expect(
+      verifyDriveDumpMetadata({
+        localBytes: 10,
+        localMd5: "abc",
+        remote: { name: "public.sql.gz", size: 9, md5Checksum: "abc", trashed: false, parents: ["parent"] },
+        expectedParentId: "parent",
+      }),
+    ).toEqual({ ok: false, code: "DUMP_SIZE_MISMATCH" });
+    expect(
+      verifyDriveDumpMetadata({
+        localBytes: 10,
+        localMd5: "abc",
+        remote: { name: "public.sql.gz", size: 10, md5Checksum: "abc", trashed: true, parents: ["parent"] },
+        expectedParentId: "parent",
+      }),
+    ).toEqual({ ok: false, code: "DUMP_REMOTE_TRASHED" });
   });
 });
 
@@ -520,17 +552,39 @@ describe("atomic backup run", () => {
     expect(daily.length).toBeGreaterThanOrEqual(7);
   });
 
-  it("never writes SUCCESS when Drive verification fails", async () => {
+  it("never writes SUCCESS when Drive dump metadata does not match", async () => {
     const drive = new MemoryDrive();
-    const orig = drive.readBytes.bind(drive);
-    drive.readBytes = async (id: string) => {
-      const node = await drive.getFile(id);
-      if (node.name === "public.sql.gz") return Buffer.from("tampered");
-      return orig(id);
+    const orig = drive.getFile.bind(drive);
+    drive.getFile = async (id: string) => {
+      const node = await orig(id);
+      if (node.name === "public.sql.gz") return { ...node, md5Checksum: "0".repeat(32) };
+      return node;
     };
     const out = await runBackup(makeDeps({ drive }).deps);
     expect(out.status).toBe("FAILED");
-    expect(out.errorCode).toBe("DUMP_READBACK_MISMATCH");
+    expect(out.errorCode).toBe("DUMP_MD5_MISMATCH");
+    expect(out.remoteMd5Match).toBe(false);
+  });
+
+  it("can complete a database-only backup without copying Storage objects", async () => {
+    let downloaded = 0;
+    const { deps, drive } = makeDeps({
+      skipStorageBackup: true,
+      skipRetention: true,
+      downloadObject: async () => {
+        downloaded += 1;
+        throw new Error("STORAGE_SHOULD_NOT_RUN");
+      },
+    });
+    const out = await runBackup(deps);
+    expect(out.status).toBe("SUCCESS");
+    expect(out.dumpBytes).toBeGreaterThan(0);
+    expect(out.remoteSize).toBe(out.dumpBytes);
+    expect(out.remoteMd5Match).toBe(true);
+    expect(out.remoteTrashed).toBe(false);
+    expect(downloaded).toBe(0);
+    const daily = (await drive.listChildren(BACKUP_ROOT_FOLDER_ID)).find((c) => c.name === "Daily");
+    expect(daily).toBeTruthy();
   });
 });
 
@@ -646,6 +700,10 @@ describe("backup production safety", () => {
     const nextCfg = readFileSync(join(ROOT, "next.config.ts"), "utf8");
     expect(nextCfg).toMatch(/"\/api\/cron\/backup"/);
     expect(nextCfg).not.toMatch(/\/src\/app\/api\/cron\/backup/);
+    const production = readFileSync(join(ROOT, "src/lib/backup/production.ts"), "utf8");
+    expect(production).toMatch(/skipStorageBackup: true/);
+    expect(production).toMatch(/skipRetention: true/);
+    expect(production).toMatch(/timeoutMs: 120_000/);
   });
 
   it("cron schedule is production-only in vercel.json + authz", () => {

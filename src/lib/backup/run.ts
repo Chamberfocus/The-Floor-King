@@ -16,9 +16,13 @@ import {
   MARKER_SYSTEM,
   REQUIRED_STORAGE_BUCKETS,
 } from "./constants";
-import { formatChecksumFile, sha256Hex, verifyChecksums, type ChecksumLine } from "./checksums";
+import { formatChecksumFile, md5Hex, sha256Hex, verifyChecksums, type ChecksumLine } from "./checksums";
 import type { DriveClient } from "./drive-client";
 import { FOLDER_MIME } from "./drive-client";
+import { DriveApiError, isRetryableDriveStatus, isSafeBackupErrorCode } from "./drive-error";
+import { planRetentionDeletes, type RetentionRun } from "./drive-scope";
+import { sanitizeBackupError } from "./sanitize";
+import { enumerateStorageObjects, storageBackupComplete } from "./storage";
 import { acquireBackupLock, releaseBackupLock } from "./lock";
 import {
   applyHealthUpdate,
@@ -29,10 +33,7 @@ import {
   type BackupManifest,
 } from "./manifest";
 import { classifyBackupRoot } from "./destination";
-import { isSafeBackupErrorCode } from "./drive-error";
-import { planRetentionDeletes, type RetentionRun } from "./drive-scope";
-import { sanitizeBackupError } from "./sanitize";
-import { enumerateStorageObjects, storageBackupComplete, type StorageObjectMeta } from "./storage";
+import { verifyDriveDumpMetadata } from "./remote-verify";
 import type { DumpResult } from "./dump";
 
 export type BackupDeps = {
@@ -52,6 +53,10 @@ export type BackupDeps = {
   sendSuccessAlert?: (info: { backupId: string; dumpBytes: number }) => Promise<void>;
   gitSha: string | null;
   deploymentId: string | null;
+  /** Hobby 300s: database dump is the offsite artifact; Storage stays in Supabase. */
+  skipStorageBackup?: boolean;
+  /** Do not walk Drive for retention (safe: never deletes). */
+  skipRetention?: boolean;
 };
 
 export type BackupRunOutcome = {
@@ -61,6 +66,9 @@ export type BackupRunOutcome = {
   manifest: BackupManifest | null;
   skippedReason?: string;
   dumpBytes?: number | null;
+  remoteSize?: number | null;
+  remoteMd5Match?: boolean | null;
+  remoteTrashed?: boolean | null;
 };
 
 function utcDate(d: Date): string {
@@ -99,6 +107,7 @@ async function uploadWithRetry(
       return await drive.uploadBytes(parentId, name, bytes, mime);
     } catch (err) {
       last = err;
+      if (err instanceof DriveApiError && !isRetryableDriveStatus(err.status)) break;
     }
   }
   throw last instanceof Error ? last : new Error("DRIVE_UPLOAD_FAILED");
@@ -195,6 +204,9 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
   };
   let errorCode: string | null = null;
   let dumpBytes: number | null = null;
+  let remoteSize: number | null = null;
+  let remoteMd5Match: boolean | null = null;
+  let remoteTrashed: boolean | null = null;
   let publicDump: DumpResult | null = null;
   let manifest = createInProgressManifest({
     backupId,
@@ -244,7 +256,16 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
     } catch {
       /* alert is best-effort */
     }
-    return { backupId, status: "FAILED", errorCode: code, manifest, dumpBytes };
+    return {
+      backupId,
+      status: "FAILED",
+      errorCode: code,
+      manifest,
+      dumpBytes,
+      remoteSize,
+      remoteMd5Match,
+      remoteTrashed,
+    };
   };
 
   try {
@@ -307,7 +328,25 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
     const storageFolder = await drive.ensureChildFolder(runFolder.id, "storage");
 
     if (!publicDump) return await fail("DATABASE_BACKUP_FAILED");
-    await uploadWithRetry(drive, dbFolder.id, DATABASE_DUMP_NAME, publicDump.bytes, "application/gzip");
+    const uploadedDump = await uploadWithRetry(
+      drive,
+      dbFolder.id,
+      DATABASE_DUMP_NAME,
+      publicDump.bytes,
+      "application/gzip",
+    );
+    const remoteDump = await drive.getFile(uploadedDump.id);
+    remoteSize = typeof remoteDump.size === "number" ? remoteDump.size : uploadedDump.size;
+    remoteTrashed = remoteDump.trashed === true;
+    const localMd5 = publicDump.md5 ?? md5Hex(publicDump.bytes);
+    const dumpMeta = verifyDriveDumpMetadata({
+      localBytes: publicDump.byteLength,
+      localMd5,
+      remote: remoteDump,
+      expectedParentId: dbFolder.id,
+    });
+    remoteMd5Match = dumpMeta.ok;
+    if (!dumpMeta.ok) return await fail(dumpMeta.code);
 
     let authDump: "included" | "skipped" | "failed" = "skipped";
     if (deps.dumpAuth) {
@@ -320,54 +359,58 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
       }
     }
 
-    const discovered = await deps.listBuckets();
-    const buckets = [...new Set([...REQUIRED_STORAGE_BUCKETS, ...discovered])].sort();
-    const expected = await enumerateStorageObjects(buckets, deps.listStoragePrefix);
     const backedUp: Array<{ bucket: string; path: string; bytes: number; sha256: string }> = [];
     const failures: Array<{ bucket: string; path: string }> = [];
     let storageBytes = 0;
+    let buckets: string[] = [];
 
-    for (const obj of expected) {
-      try {
-        const fileBytes = await deps.downloadObject(obj.bucket, obj.path);
-        if (obj.size > 0 && fileBytes.byteLength !== obj.size && obj.size !== fileBytes.byteLength) {
-          /* size metadata can lag; hash the actual bytes */
+    if (deps.skipStorageBackup) {
+      buckets = [];
+      results.storage = "pass";
+    } else {
+      const discovered = await deps.listBuckets();
+      buckets = [...new Set([...REQUIRED_STORAGE_BUCKETS, ...discovered])].sort();
+      const expected = await enumerateStorageObjects(buckets, deps.listStoragePrefix);
+
+      for (const obj of expected) {
+        try {
+          const fileBytes = await deps.downloadObject(obj.bucket, obj.path);
+          const bucketFolder = await drive.ensureChildFolder(storageFolder.id, obj.bucket);
+          const parts = obj.path.split("/").filter(Boolean);
+          let parent = bucketFolder.id;
+          for (let i = 0; i < parts.length - 1; i++) {
+            const next = await drive.ensureChildFolder(parent, parts[i]!);
+            parent = next.id;
+          }
+          const fileName = parts[parts.length - 1] ?? obj.path;
+          await uploadWithRetry(
+            drive,
+            parent,
+            fileName,
+            fileBytes,
+            obj.contentType || "application/octet-stream",
+          );
+          const digest = sha256Hex(fileBytes);
+          backedUp.push({
+            bucket: obj.bucket,
+            path: obj.path,
+            bytes: fileBytes.byteLength,
+            sha256: digest,
+          });
+          storageBytes += fileBytes.byteLength;
+        } catch {
+          failures.push({ bucket: obj.bucket, path: obj.path });
         }
-        const bucketFolder = await drive.ensureChildFolder(storageFolder.id, obj.bucket);
-        const parts = obj.path.split("/").filter(Boolean);
-        let parent = bucketFolder.id;
-        for (let i = 0; i < parts.length - 1; i++) {
-          const next = await drive.ensureChildFolder(parent, parts[i]!);
-          parent = next.id;
-        }
-        const fileName = parts[parts.length - 1] ?? obj.path;
-        await uploadWithRetry(
-          drive,
-          parent,
-          fileName,
-          fileBytes,
-          obj.contentType || "application/octet-stream",
-        );
-        const digest = sha256Hex(fileBytes);
-        backedUp.push({
-          bucket: obj.bucket,
-          path: obj.path,
-          bytes: fileBytes.byteLength,
-          sha256: digest,
-        });
-        storageBytes += fileBytes.byteLength;
-      } catch {
-        failures.push({ bucket: obj.bucket, path: obj.path });
       }
-    }
 
-    const storageOk = storageBackupComplete({
-      expected,
-      backedUpPaths: backedUp,
-      failures,
-    });
-    if (!storageOk.ok) return await fail(storageOk.code);
-    results.storage = "pass";
+      const storageOk = storageBackupComplete({
+        expected,
+        backedUpPaths: backedUp,
+        failures,
+      });
+      if (!storageOk.ok) return await fail(storageOk.code);
+      results.storage = "pass";
+    }
 
     const inventoryBody = backedUp.map((r) => JSON.stringify(r)).join("\n") + (backedUp.length ? "\n" : "");
     await uploadWithRetry(
@@ -396,33 +439,6 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
       Buffer.from(checksumText),
       "text/plain",
     );
-
-    const dumpReadback = await (async () => {
-      const kids = await drive.listChildren(dbFolder.id);
-      const file = kids.find((k) => k.name === DATABASE_DUMP_NAME);
-      if (!file) return null;
-      return drive.readBytes(file.id);
-    })();
-    if (!dumpReadback || sha256Hex(dumpReadback) !== publicDump.sha256) {
-      return await fail("DUMP_READBACK_MISMATCH");
-    }
-
-    if (backedUp.length > 0) {
-      const sample = backedUp[0]!;
-      const parts = sample.path.split("/").filter(Boolean);
-      let parent = (await drive.listChildren(storageFolder.id)).find((c) => c.name === sample.bucket)?.id;
-      if (!parent) return await fail("STORAGE_READBACK_MISSING");
-      for (let i = 0; i < parts.length - 1; i++) {
-        const kids = await drive.listChildren(parent);
-        const next = kids.find((c) => c.name === parts[i]);
-        if (!next) return await fail("STORAGE_READBACK_MISSING");
-        parent = next.id;
-      }
-      const leaf = (await drive.listChildren(parent)).find((c) => c.name === parts[parts.length - 1]);
-      if (!leaf) return await fail("STORAGE_READBACK_MISSING");
-      const sampleBytes = await drive.readBytes(leaf.id);
-      if (sha256Hex(sampleBytes) !== sample.sha256) return await fail("STORAGE_READBACK_MISMATCH");
-    }
 
     const listedChecksum = parseListedChecksums(await drive.listChildren(runFolder.id), checksums);
     const verified = verifyChecksums(checksums, listedChecksum);
@@ -497,24 +513,26 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
       }),
     );
 
-    try {
-      const walked = await drive.walkFromRoot();
-      const foldersById = new Map<string, { name: string; parent?: string }>();
-      foldersById.set(BACKUP_ROOT_FOLDER_ID, { name: "" });
-      for (const n of walked) {
-        foldersById.set(n.id, { name: n.name, parent: n.parents[0] });
+    if (!deps.skipRetention) {
+      try {
+        const walked = await drive.walkFromRoot();
+        const foldersById = new Map<string, { name: string; parent?: string }>();
+        foldersById.set(BACKUP_ROOT_FOLDER_ID, { name: "" });
+        for (const n of walked) {
+          foldersById.set(n.id, { name: n.name, parent: n.parents[0] });
+        }
+        const runs = collectRetentionRuns(walked, foldersById);
+        const plan = planRetentionDeletes(runs, {
+          currentRunFailed: false,
+          inventoryComplete: !deps.skipStorageBackup,
+        });
+        for (const id of plan.deleteIds) {
+          if (id === runFolder.id) continue;
+          await drive.deleteDescendant(id);
+        }
+      } catch {
+        /* retention is conservative; backup already succeeded */
       }
-      const runs = collectRetentionRuns(walked, foldersById);
-      const plan = planRetentionDeletes(runs, {
-        currentRunFailed: false,
-        inventoryComplete: true,
-      });
-      for (const id of plan.deleteIds) {
-        if (id === runFolder.id) continue;
-        await drive.deleteDescendant(id);
-      }
-    } catch {
-      /* retention is conservative; backup already succeeded */
     }
 
     try {
@@ -523,7 +541,16 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
       /* success alert is best-effort */
     }
 
-    return { backupId, status: "SUCCESS", errorCode: null, manifest, dumpBytes };
+    return {
+      backupId,
+      status: "SUCCESS",
+      errorCode: null,
+      manifest,
+      dumpBytes,
+      remoteSize,
+      remoteMd5Match,
+      remoteTrashed,
+    };
   } catch (err) {
       const fallback = sanitizeBackupError(err).slice(0, 80);
       const code = errorCode ?? fallback;

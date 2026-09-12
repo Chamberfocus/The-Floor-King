@@ -48,6 +48,10 @@ export async function acquireBackupLock(args: {
       break;
     } catch (err) {
       last = err;
+      const msg = err instanceof Error ? err.message : "";
+      if (/DRIVE_UPLOAD:\d+:/.test(msg) && !/DRIVE_UPLOAD:429:/.test(msg) && !/DRIVE_UPLOAD:5/.test(msg)) {
+        break;
+      }
     }
   }
   if (last) throw last instanceof Error ? last : new Error("DRIVE_UPLOAD_FAILED");

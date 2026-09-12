@@ -10,7 +10,7 @@ import { setDefaultResultOrder } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { PG_DUMP_LINUX_AMD64 } from "./constants";
 import { validatePostgresDump } from "./dump-validate";
-import { sha256Hex } from "./checksums";
+import { md5Hex, sha256Hex } from "./checksums";
 import {
   dumpPoolerRegionCandidates,
   isRetryablePoolerFailure,
@@ -23,6 +23,7 @@ export type DumpResult = {
   fileName: string;
   bytes: Buffer;
   sha256: string;
+  md5: string;
   byteLength: number;
   schema: "public" | "auth";
 };
@@ -170,6 +171,8 @@ async function runPgDump(args: {
     [
       "--format=plain",
       "--no-owner",
+      "--no-acl",
+      "--no-comments",
       "--encoding=UTF8",
       `--schema=${args.schema}`,
       "--no-password",
@@ -347,6 +350,7 @@ function finishDump(schema: "public" | "auth", bytes: Buffer): DumpResult {
     fileName: schema === "auth" ? "auth.sql.gz" : "public.sql.gz",
     bytes,
     sha256: sha256Hex(bytes),
+    md5: md5Hex(bytes),
     byteLength: bytes.length,
     schema,
   };

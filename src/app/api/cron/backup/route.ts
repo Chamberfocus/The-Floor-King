@@ -59,6 +59,9 @@ export async function GET(request: NextRequest) {
       backupId: result.backupId,
       errorCode: result.errorCode,
       dumpBytes: result.dumpBytes ?? null,
+      remoteSize: result.remoteSize ?? null,
+      remoteMd5Match: result.remoteMd5Match ?? null,
+      remoteTrashed: result.remoteTrashed ?? null,
       skippedReason: result.skippedReason ?? null,
       runtime: { platform: process.platform, arch: process.arch },
     };

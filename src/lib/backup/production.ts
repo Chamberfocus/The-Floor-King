@@ -49,8 +49,16 @@ export function buildProductionBackupDeps(
     getOidcToken: getProductionBackupOidcToken,
     getDriveAccessToken: getProductionDriveAccessToken,
     createDrive: (accessToken) => new GoogleDriveClient(accessToken),
-    dumpPublic: () => dumpPostgresSchema({ databaseUrl, schema: "public" }),
+    dumpPublic: () =>
+      dumpPostgresSchema({
+        databaseUrl,
+        schema: "public",
+        timeoutMs: 120_000,
+        publicSupabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      }),
     // Auth dump is best-effort in tests; skip on Vercel hobby (300s cap).
+    skipStorageBackup: true,
+    skipRetention: true,
     listBuckets: async () => {
       const admin = createAdminClient();
       const { data, error } = await admin.storage.listBuckets();
