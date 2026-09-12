@@ -113,7 +113,8 @@ export function isOpenInstallStatus(status: string | null | undefined): boolean 
   );
 }
 
-/** Keep the first occurrence of each customer.id. */
+/** Keep the first occurrence of each customer.id.
+ *  Distinct UUIDs are never collapsed — this is not a name/phone merge. */
 export function uniqueCustomersById<T extends { id: string }>(rows: T[]): T[] {
   const seen = new Set<string>();
   const out: T[] = [];

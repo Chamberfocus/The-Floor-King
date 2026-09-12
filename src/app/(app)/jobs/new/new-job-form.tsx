@@ -17,6 +17,8 @@ import {
   createJobForCustomer,
   type CustomerJobContext,
 } from "./actions";
+import { CustomerMatchPanel } from "@/components/customer-match-panel";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 
 const label = "text-xs font-medium text-muted-foreground";
 const EMPTY: CustomerJobContext = { addresses: [], estimates: [], liveJobs: [] };
@@ -68,6 +70,8 @@ export function NewJobForm({
     null,
   );
   const [saving, start] = useTransition();
+  const [matches, setMatches] = useState<ScoredCustomerMatch[]>([]);
+  const [overrideReason, setOverrideReason] = useState("");
 
   /**
    * Job sites and un-started estimates belong to the CUSTOMER, so they're
@@ -110,11 +114,16 @@ export function NewJobForm({
     (custMode === "existing" ? !!customerId : !!nc.full_name.trim()) &&
     (!!title.trim() || hasSite || custMode === "existing");
 
-  const submit = () =>
+  const submit = (opts?: { useExistingId?: string; forceCreate?: boolean }) =>
     start(async () => {
       const res = await createJobForCustomer({
-        customerId: custMode === "existing" ? customerId || null : null,
-        newCustomer: custMode === "new" ? nc : null,
+        customerId:
+          opts?.useExistingId ||
+          (custMode === "existing" ? customerId || null : null),
+        newCustomer: custMode === "new" && !opts?.useExistingId ? nc : null,
+        useExistingId: opts?.useExistingId ?? null,
+        forceCreate: opts?.forceCreate,
+        overrideReason: overrideReason || null,
         title,
         serviceAddressId: addressId || null,
         newSite: addingSite && newSite.street.trim() ? newSite : null,
@@ -124,6 +133,10 @@ export function NewJobForm({
         installerId: installerId || null,
         notes,
       });
+      if (res.matches?.length) {
+        setMatches(res.matches);
+        return;
+      }
       if (res.error) {
         toast.error(res.error);
         return;
@@ -222,6 +235,24 @@ export function NewJobForm({
                 </div>
               </div>
             )}
+            {matches.length ? (
+              <div className="space-y-2">
+                {matches.some((m) => m.tier === "strong") ? (
+                  <input
+                    value={overrideReason}
+                    onChange={(e) => setOverrideReason(e.target.value)}
+                    placeholder="Reason for creating a new customer (required for strong matches)"
+                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  />
+                ) : null}
+                <CustomerMatchPanel
+                  matches={matches}
+                  pending={saving}
+                  onUseExisting={(id) => submit({ useExistingId: id })}
+                  onCreateAnyway={() => submit({ forceCreate: true })}
+                />
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       )}
@@ -446,7 +477,7 @@ export function NewJobForm({
         <Button
           type="button"
           size="lg"
-          onClick={submit}
+          onClick={() => submit()}
           disabled={saving || !ready}
         >
           <Wrench className="size-4" /> {saving ? "Creating…" : "Create the job"}

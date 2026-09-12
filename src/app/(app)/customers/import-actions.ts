@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { extractClients, type ClientRow } from "@/lib/extract";
+import {
+  previewCustomerImport,
+  resolveOrCreateCustomer,
+} from "@/lib/data/customer-resolve";
+import type { MatchCandidateInput } from "@/lib/customer-resolve";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -122,39 +127,82 @@ export async function parseClients(
 export interface ImportClientsResult {
   error: string | null;
   count?: number;
+  summary?: {
+    new: number;
+    matchedExisting: number;
+    possibleDuplicates: number;
+    invalid: number;
+  };
 }
 
-/** Insert-only: never updates or deletes existing customers. */
+function rowToInput(r: ClientRow): MatchCandidateInput {
+  return {
+    fullName: (r.full_name || r.company || "").trim(),
+    company: r.company,
+    email: r.email,
+    phone: r.phone,
+    address: r.street,
+    city: r.city,
+    state: r.state,
+    zip: r.zip,
+  };
+}
+
+export async function previewImportClients(rows: ClientRow[]) {
+  const valid = (rows ?? []).filter(
+    (r) => r.full_name?.trim() || r.company?.trim(),
+  );
+  return previewCustomerImport(valid.map(rowToInput));
+}
+
+/** Insert NEW rows only. Matched existing and possible duplicates are skipped
+ *  unless `createPossible` is explicitly set. Never updates existing records. */
 export async function importClients(
   rows: ClientRow[],
+  opts: { createPossible?: boolean } = {},
 ): Promise<ImportClientsResult> {
   const valid = (rows ?? []).filter(
     (r) => r.full_name?.trim() || r.company?.trim(),
   );
   if (!valid.length) return { error: "Nothing to import." };
 
+  const preview = await previewCustomerImport(valid.map(rowToInput));
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const insertRows = valid.map((r) => ({
-    full_name: (r.full_name || r.company || "Customer").trim(),
-    company: r.company || null,
-    email: r.email || null,
-    phone: r.phone || null,
-    street: r.street || null,
-    city: r.city || null,
-    state: r.state || null,
-    zip: r.zip || null,
-    stage: "new",
-    created_by: user?.id ?? null,
-    assigned_to: user?.id ?? null,
-  }));
-
-  const { error } = await supabase.from("customers").insert(insertRows);
-  if (error) return { error: error.message };
+  let count = 0;
+  for (const row of preview.classified) {
+    if (row.class === "MATCHED_EXISTING" || row.class === "INVALID") continue;
+    if (row.class === "POSSIBLE_DUPLICATE" && !opts.createPossible) continue;
+    if (row.class !== "NEW" && !(row.class === "POSSIBLE_DUPLICATE" && opts.createPossible)) {
+      continue;
+    }
+    const src = valid[row.index];
+    if (!src) continue;
+    const resolved = await resolveOrCreateCustomer({
+      input: row.input,
+      insert: {
+        full_name: (src.full_name || src.company || "Customer").trim(),
+        company: src.company || null,
+        email: src.email || null,
+        phone: src.phone || null,
+        street: src.street || null,
+        city: src.city || null,
+        state: src.state || null,
+        zip: src.zip || null,
+        stage: "new",
+        created_by: user?.id ?? null,
+        assigned_to: user?.id ?? null,
+      },
+      forceCreate: row.class === "POSSIBLE_DUPLICATE",
+      overrideReason:
+        row.class === "POSSIBLE_DUPLICATE" ? "Import: staff accepted possible duplicate" : null,
+    });
+    if (resolved.action === "created") count += 1;
+  }
 
   revalidatePath("/customers");
-  return { error: null, count: insertRows.length };
+  return { error: null, count, summary: preview.summary };
 }

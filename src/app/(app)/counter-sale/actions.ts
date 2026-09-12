@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
 import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
+import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 
 export interface CounterSaleLine {
   description: string;
@@ -27,6 +29,9 @@ export interface CounterSaleInput {
     state?: string;
     zip?: string;
   } | null;
+  useExistingId?: string | null;
+  forceCreate?: boolean;
+  overrideReason?: string | null;
   marketingOptIn: boolean;
   lines: CounterSaleLine[];
   taxRatePct: number;
@@ -46,7 +51,7 @@ export interface CounterSaleInput {
  */
 export async function ringUpCounterSale(
   input: CounterSaleInput,
-): Promise<{ error: string | null; invoiceId?: string }> {
+): Promise<{ error: string | null; invoiceId?: string; matches?: ScoredCustomerMatch[] }> {
   await assertRole(["admin", "office", "sales_manager", "salesman"]);
 
   const lines = (input.lines ?? []).filter(
@@ -64,9 +69,17 @@ export async function ringUpCounterSale(
   if (!customerId) {
     const nc = input.newCustomer;
     if (!nc?.fullName?.trim()) return { error: "Enter the customer's name." };
-    const { data: created, error } = await supabase
-      .from("customers")
-      .insert({
+    const resolved = await resolveOrCreateCustomer({
+      input: {
+        fullName: nc.fullName.trim(),
+        phone: nc.phone?.trim() || null,
+        email: nc.email?.trim() || null,
+        address: nc.street?.trim() || null,
+        city: nc.city?.trim() || null,
+        state: nc.state?.trim() || null,
+        zip: nc.zip?.trim() || null,
+      },
+      insert: {
         full_name: nc.fullName.trim(),
         phone: nc.phone?.trim() || null,
         email: nc.email?.trim() || null,
@@ -78,13 +91,18 @@ export async function ringUpCounterSale(
         marketing_opt_in_at: input.marketingOptIn ? new Date().toISOString() : null,
         created_by: user?.id ?? null,
         assigned_to: user?.id ?? null,
-      })
-      .select("id")
-      .single();
-    if (error || !created) {
-      return { error: error?.message || "Couldn't save the customer." };
+      },
+      useExistingId: input.useExistingId,
+      forceCreate: input.forceCreate,
+      overrideReason: input.overrideReason,
+    });
+    if (resolved.action === "needs_choice") {
+      return { error: null, matches: resolved.matches };
     }
-    customerId = created.id as string;
+    if (resolved.action === "error") {
+      return { error: resolved.error };
+    }
+    customerId = resolved.customerId;
   } else if (input.marketingOptIn) {
     // Only ever turned ON here. Unticking it at the counter shouldn't silently
     // revoke a consent they gave somewhere else.

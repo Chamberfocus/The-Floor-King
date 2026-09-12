@@ -27,7 +27,7 @@ export default async function ImportClientsPage() {
       </Link>
       <PageHeader
         title="Import customers"
-        description="Paste your existing customer list (any format) or upload a file. Review everything, then import. This only adds new customers — it never changes or deletes what's already here."
+        description="Paste your existing customer list (any format) or upload a file. Review, then import. Matching rows are skipped — possible duplicates are not created until you review them."
       />
       <Card className="mb-4">
         <CardHeader>

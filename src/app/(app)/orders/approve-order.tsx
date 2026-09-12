@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Check, Package, Truck } from "lucide-react";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/ui/date-field";
-import { SubmitButton } from "@/components/ui/submit-button";
 import {
   Dialog,
   DialogContent,
@@ -14,17 +15,10 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { approveOrder } from "./actions";
+import { CustomerMatchPanel } from "@/components/customer-match-panel";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import type { OrderStockStatus } from "@/lib/types";
 
-/**
- * Approving an order is a promise, so it asks what the promise is.
- *
- * The warehouse has already answered the stock question by this point — that's
- * what `stockStatus` carries — so the choice is pre-made from their answer and
- * you only touch it when you disagree. What the customer gets depends on it:
- * "we have it, ready on the 3rd" or "we're ordering it in, ready on the 14th",
- * instead of the one vague sentence both used to get.
- */
 export function ApproveOrder({
   orderId,
   who,
@@ -34,13 +28,15 @@ export function ApproveOrder({
   who: string;
   stockStatus: OrderStockStatus;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
-  // The warehouse said it's here → we're cutting stock. Anything else means
-  // some of it has to come in.
   const [kind, setKind] = useState<"from_stock" | "on_order">(
     stockStatus === "in_stock" ? "from_stock" : "on_order",
   );
   const [date, setDate] = useState("");
+  const [matches, setMatches] = useState<ScoredCustomerMatch[]>([]);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [pending, start] = useTransition();
 
   const option = (
     value: "from_stock" | "on_order",
@@ -64,6 +60,29 @@ export function ApproveOrder({
     </button>
   );
 
+  const run = (opts?: { useExistingId?: string; forceCreate?: boolean }) =>
+    start(async () => {
+      const fd = new FormData();
+      fd.set("order_id", orderId);
+      fd.set("ready_kind", kind);
+      if (date) fd.set("ready_date", date);
+      if (opts?.useExistingId) fd.set("use_existing_id", opts.useExistingId);
+      if (opts?.forceCreate) fd.set("force_create", "1");
+      if (overrideReason) fd.set("duplicate_override_reason", overrideReason);
+      const res = await approveOrder(fd);
+      if (res.matches?.length) {
+        setMatches(res.matches);
+        return;
+      }
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Order approved");
+      setOpen(false);
+      router.refresh();
+    });
+
   return (
     <>
       <Button type="button" size="sm" onClick={() => setOpen(true)}>
@@ -80,10 +99,7 @@ export function ApproveOrder({
             </DialogDescription>
           </DialogHeader>
 
-          <form action={approveOrder} className="space-y-3">
-            <input type="hidden" name="order_id" value={orderId} />
-            <input type="hidden" name="ready_kind" value={kind} />
-
+          <div className="space-y-3">
             <div className="space-y-2">
               {option(
                 "from_stock",
@@ -108,24 +124,36 @@ export function ApproveOrder({
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
               />
-              <p className="mt-1 text-xs text-muted-foreground">
-                {date
-                  ? kind === "on_order"
-                    ? "They'll be told we're ordering it in and it's ready that day."
-                    : "They'll be told it's in stock and ready that day."
-                  : "Leave it empty and they just get “approved, we'll let you know” — which is what everyone used to get."}
-              </p>
             </div>
+
+            {matches.length ? (
+              <div className="space-y-2">
+                {matches.some((m) => m.tier === "strong") ? (
+                  <input
+                    value={overrideReason}
+                    onChange={(e) => setOverrideReason(e.target.value)}
+                    placeholder="Reason for creating a new customer (required for strong matches)"
+                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  />
+                ) : null}
+                <CustomerMatchPanel
+                  matches={matches}
+                  pending={pending}
+                  onUseExisting={(id) => run({ useExistingId: id })}
+                  onCreateAnyway={() => run({ forceCreate: true })}
+                />
+              </div>
+            ) : null}
 
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <SubmitButton size="sm" pendingText="Approving…" confirm="Order approved">
-                Approve &amp; tell them
-              </SubmitButton>
+              <Button type="button" size="sm" disabled={pending} onClick={() => run()}>
+                {pending ? "Approving…" : "Approve & tell them"}
+              </Button>
             </div>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
     </>

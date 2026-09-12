@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { LEAD_SOURCE_LABELS, type LeadSource } from "@/lib/types";
 import { carryOverDeal, type CarryKind, type CarryOverInput } from "./actions";
+import { CustomerMatchPanel } from "@/components/customer-match-panel";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 
 const num = (v: string) => {
   const x = parseFloat(v);
@@ -64,6 +66,8 @@ export function CarryOverForm({
   const [soldDate, setSoldDate] = useState("");
   const [installerId, setInstallerId] = useState("");
   const [stageNotes, setStageNotes] = useState("");
+  const [matches, setMatches] = useState<ScoredCustomerMatch[]>([]);
+  const [overrideReason, setOverrideReason] = useState("");
 
   const isAppt = kind === "estimate_appt";
   const isSold = kind === "awaiting_materials" || kind === "install_scheduled" || kind === "balance_due";
@@ -81,16 +85,19 @@ export function CarryOverForm({
     } else setCustomerId("");
   };
 
-  const submit = (another: boolean) =>
+  const submit = (another: boolean, opts?: { useExistingId?: string; forceCreate?: boolean }) =>
     start(async () => {
-      if (custMode === "existing" && !customerId) { toast.error("Pick a customer (or switch to Add new)."); return; }
-      if (custMode === "new" && !nc.full_name.trim()) { toast.error("Enter the customer's name."); return; }
+      if (!opts?.useExistingId && custMode === "existing" && !customerId) { toast.error("Pick a customer (or switch to Add new)."); return; }
+      if (!opts?.useExistingId && custMode === "new" && !nc.full_name.trim()) { toast.error("Enter the customer's name."); return; }
       if (isAppt && !apptAt) { toast.error("Pick the estimate appointment date & time."); return; }
       if (!isAppt && num(amount) <= 0) { toast.error("Enter the quote / contract amount."); return; }
 
       const input: CarryOverInput = {
-        customerId: custMode === "existing" ? customerId : null,
-        newCustomer: custMode === "new" ? nc : null,
+        customerId: opts?.useExistingId || (custMode === "existing" ? customerId : null),
+        newCustomer: custMode === "new" && !opts?.useExistingId ? nc : null,
+        useExistingId: opts?.useExistingId ?? null,
+        forceCreate: opts?.forceCreate,
+        overrideReason: overrideReason || null,
         salespersonId: salespersonId || null,
         kind,
         title,
@@ -107,6 +114,10 @@ export function CarryOverForm({
         stageNotes: isInstallJob ? stageNotes : "",
       };
       const res = await carryOverDeal(input);
+      if (res.matches?.length) {
+        setMatches(res.matches);
+        return;
+      }
       if (res.error) { toast.error(res.error); return; }
       setDone((d) => d + 1);
       toast.success(`Carried over${another ? " — add another" : ""}`);
@@ -173,6 +184,24 @@ export function CarryOverForm({
               </div>
             </div>
           )}
+          {matches.length ? (
+            <div className="space-y-2">
+              {matches.some((m) => m.tier === "strong") ? (
+                <input
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                  placeholder="Reason for creating a new customer (required for strong matches)"
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                />
+              ) : null}
+              <CustomerMatchPanel
+                matches={matches}
+                pending={pending}
+                onUseExisting={(id) => submit(false, { useExistingId: id })}
+                onCreateAnyway={() => submit(false, { forceCreate: true })}
+              />
+            </div>
+          ) : null}
 
           <div className="border-t pt-3">
             <label className={label}>Salesperson (owner)</label>

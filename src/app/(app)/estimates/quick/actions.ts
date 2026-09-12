@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
+import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 
 const OFFICE = ["admin", "office", "sales_manager", "salesman"] as const;
 
@@ -21,6 +23,9 @@ export interface QuickEstimateLine {
 export interface QuickEstimateInput {
   customerId: string | null;
   newCustomer: { full_name: string; phone: string; email: string } | null;
+  useExistingId?: string | null;
+  forceCreate?: boolean;
+  overrideReason?: string | null;
   title: string;
   lines: QuickEstimateLine[];
   taxRate: string | number;
@@ -46,6 +51,7 @@ const n = (v: string | number | null | undefined): number => {
 export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
   error: string | null;
   estimateId?: string;
+  matches?: ScoredCustomerMatch[];
 }> {
   await assertRole([...OFFICE]);
   const supabase = await createClient();
@@ -62,19 +68,28 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
   if (!customerId) {
     const name = input.newCustomer?.full_name.trim();
     if (!name) return { error: "Pick a customer, or type a name for a new one." };
-    const { data: created, error: custErr } = await supabase
-      .from("customers")
-      .insert({
+    const resolved = await resolveOrCreateCustomer({
+      input: {
+        fullName: name,
+        phone: input.newCustomer?.phone.trim() || null,
+        email: input.newCustomer?.email.trim() || null,
+      },
+      insert: {
         full_name: name,
         phone: input.newCustomer?.phone.trim() || null,
         email: input.newCustomer?.email.trim() || null,
         stage: "quoted",
         created_by: user?.id ?? null,
-      })
-      .select("id")
-      .single();
-    if (custErr || !created) return { error: "Couldn't save the customer." };
-    customerId = created.id as string;
+      },
+      useExistingId: input.useExistingId,
+      forceCreate: input.forceCreate,
+      overrideReason: input.overrideReason,
+    });
+    if (resolved.action === "needs_choice") {
+      return { error: null, matches: resolved.matches };
+    }
+    if (resolved.action === "error") return { error: resolved.error };
+    customerId = resolved.customerId;
   }
 
   const { data: estimate, error } = await supabase

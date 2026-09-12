@@ -166,11 +166,14 @@ export function CustomerForm({
                 <div className="min-w-0">
                   <div className="truncate font-medium">{d.full_name}</div>
                   <div className="truncate text-xs text-muted-foreground">
-                    {[d.phone, d.email, d.city].filter(Boolean).join(" · ") || "No contact details"}
+                    {[d.phone, d.email, d.street || d.city].filter(Boolean).join(" · ") || "No contact details"}
                   </div>
                   <div className="text-[11px] text-amber-700 dark:text-amber-400">
                     Same {d.reason === "name" ? "name" : d.reason}
                     {d.confidence === "high" ? " · high confidence" : ""}
+                    {typeof d.jobCount === "number"
+                      ? ` · ${d.jobCount} job${d.jobCount === 1 ? "" : "s"}`
+                      : ""}
                   </div>
                 </div>
                 <Link

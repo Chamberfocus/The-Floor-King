@@ -159,7 +159,12 @@ export function ClientImporter() {
           toast.error(res.error);
           return;
         }
-        toast.success(`Imported ${res.count} customers`);
+        toast.success(
+          `Imported ${res.count ?? 0} new customers` +
+            (res.summary
+              ? ` · ${res.summary.matchedExisting} already on file · ${res.summary.possibleDuplicates} possible duplicates skipped`
+              : ""),
+        );
         router.push("/customers");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Import failed.");

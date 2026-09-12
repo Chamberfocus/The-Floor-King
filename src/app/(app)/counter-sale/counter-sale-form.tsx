@@ -14,6 +14,8 @@ import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { sellMaterialFromTargetMargin } from "@/lib/estimate-pricing";
 import { ringUpCounterSale, findWalkIn, type CounterSaleLine } from "./actions";
+import { CustomerMatchPanel } from "@/components/customer-match-panel";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import type { Product } from "@/lib/types";
 
 const num = (v: string) => {
@@ -77,6 +79,8 @@ export function CounterSaleForm({
     zip: "",
   });
   const [optIn, setOptIn] = useState(true);
+  const [matches, setMatches] = useState<ScoredCustomerMatch[]>([]);
+  const [overrideReason, setOverrideReason] = useState("");
 
   // What
   const [rows, setRows] = useState<Row[]>([newRow()]);
@@ -123,11 +127,14 @@ export function CounterSaleForm({
   const tax = subtotal * (num(taxRate) / 100);
   const total = subtotal + tax;
 
-  const save = () =>
+  const save = (opts?: { useExistingId?: string; forceCreate?: boolean }) =>
     start(async () => {
       const res = await ringUpCounterSale({
-        customerId: existing?.id ?? null,
-        newCustomer: existing ? null : nc,
+        customerId: opts?.useExistingId ?? existing?.id ?? null,
+        newCustomer: existing || opts?.useExistingId ? null : nc,
+        useExistingId: opts?.useExistingId ?? null,
+        forceCreate: opts?.forceCreate,
+        overrideReason: overrideReason || null,
         marketingOptIn: optIn,
         lines: rows
           .filter((r) => r.description.trim() && r.quantity > 0)
@@ -135,6 +142,10 @@ export function CounterSaleForm({
         taxRatePct: num(taxRate),
         payment: { method, amount: total, reference },
       });
+      if (res.matches?.length) {
+        setMatches(res.matches);
+        return;
+      }
       if (res.error || !res.invoiceId) {
         toast.error(res.error ?? "Couldn't complete the sale.");
         return;
@@ -243,6 +254,24 @@ export function CounterSaleForm({
                     />
                   </div>
                 </div>
+                {matches.length ? (
+                  <div className="mt-3 space-y-2">
+                    {matches.some((m) => m.tier === "strong") ? (
+                      <input
+                        value={overrideReason}
+                        onChange={(e) => setOverrideReason(e.target.value)}
+                        placeholder="Reason for creating a new customer (required for strong matches)"
+                        className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                      />
+                    ) : null}
+                    <CustomerMatchPanel
+                      matches={matches}
+                      pending={pending}
+                      onUseExisting={(id) => save({ useExistingId: id })}
+                      onCreateAnyway={() => save({ forceCreate: true })}
+                    />
+                  </div>
+                ) : null}
               </div>
             </>
           )}
@@ -403,7 +432,7 @@ export function CounterSaleForm({
             size="lg"
             className="w-full"
             disabled={!canSave || pending}
-            onClick={save}
+            onClick={() => save()}
           >
             <Receipt className="size-4" />
             {pending ? "Recording…" : `Take ${formatMoney(total)} & print the receipt`}

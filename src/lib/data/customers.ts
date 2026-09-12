@@ -450,6 +450,8 @@ export async function listCustomers(
   };
 
   const identity = await run();
+  // ID-only collapse if PostgREST ever repeated a PK. This is NOT a
+  // name/phone/email merge — distinct customer UUIDs always remain separate rows.
   if (!search) return uniqueCustomersById(identity);
 
   const relatedIds = await customerIdsFromRelatedSearch(search);

@@ -8,6 +8,8 @@ import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { formatServiceAddress } from "@/lib/types";
 import { defaultJobTitle } from "@/lib/job-label";
 import type { UserRole, LeadSource, LeadStage } from "@/lib/types";
+import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 
 /**
  * Starting a second (or fifth) job for a client you already have.
@@ -120,6 +122,9 @@ export interface NewJobInput {
   customerId: string | null;
   /** Someone not on the books yet — the case "Quick install" used to own. */
   newCustomer: NewCustomerInput | null;
+  useExistingId?: string | null;
+  forceCreate?: boolean;
+  overrideReason?: string | null;
   title: string;
   serviceAddressId: string | null;
   /** A property not on the account yet — saved so the next job can pick it. */
@@ -144,6 +149,7 @@ export interface NewJobInput {
 export interface NewJobResult {
   error: string | null;
   jobId?: string;
+  matches?: ScoredCustomerMatch[];
 }
 
 export async function createJobForCustomer(
@@ -165,9 +171,16 @@ export async function createJobForCustomer(
    */
   if (!customerId) {
     const nc = input.newCustomer!;
-    const { data: created, error: custErr } = await supabase
-      .from("customers")
-      .insert({
+    const resolved = await resolveOrCreateCustomer({
+      input: {
+        fullName: nc.full_name.trim(),
+        phone: nc.phone?.trim() || null,
+        address: nc.street?.trim() || null,
+        city: nc.city?.trim() || null,
+        state: nc.state?.trim() || null,
+        zip: nc.zip?.trim() || null,
+      },
+      insert: {
         full_name: nc.full_name.trim(),
         phone: nc.phone?.trim() || null,
         street: nc.street?.trim() || null,
@@ -180,12 +193,18 @@ export async function createJobForCustomer(
         workflow_owner_id: profile.id,
         assigned_to: profile.id,
         created_by: profile.id,
-      })
-      .select("id")
-      .single();
-    if (custErr || !created)
-      return { error: custErr?.message || "Couldn't add the customer." };
-    customerId = created.id as string;
+      },
+      useExistingId: input.useExistingId,
+      forceCreate: input.forceCreate,
+      overrideReason: input.overrideReason,
+    });
+    if (resolved.action === "needs_choice") {
+      return { error: null, matches: resolved.matches };
+    }
+    if (resolved.action === "error") {
+      return { error: resolved.error };
+    }
+    customerId = resolved.customerId;
   }
 
   const { data: cust } = await supabase

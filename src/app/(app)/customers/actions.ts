@@ -16,15 +16,14 @@ import { advanceFromFirstStage, deriveLeadStage,
   settleJobsForStage,
 } from "@/lib/workflow-engine";
 import { requireProfile, assertRole } from "@/lib/auth";
-import { normalizePhone } from "@/lib/auth-admin";
 import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
 import { listCustomers } from "@/lib/data/customers";
+import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
 import {
-  assessDuplicateOverride,
-  classifyDuplicateMatches,
-  scoreCustomerDuplicate,
   type DuplicateConfidence,
+  type DuplicateReason,
 } from "@/lib/customer-duplicate";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import {
   type ActivityType,
   type LeadSource,
@@ -37,7 +36,9 @@ export interface DuplicateMatch {
   email: string | null;
   phone: string | null;
   city: string | null;
-  reason: "phone" | "email" | "name" | "name_address";
+  street?: string | null;
+  jobCount?: number;
+  reason: DuplicateReason;
   confidence: DuplicateConfidence;
 }
 
@@ -48,131 +49,18 @@ export interface CustomerFormState {
   duplicates?: DuplicateMatch[];
 }
 
-/**
- * Find customers that look like the one being added — same phone (digits),
- * same email, or the exact same name. A soft guard: it warns, it never blocks
- * (two different people can share a name), so the caller can still force-create.
- */
-async function findDuplicateCustomers(
-  fields: {
-    full_name: string;
-    email: string | null;
-    phone: string | null;
-    street?: string | null;
-    city?: string | null;
-    state?: string | null;
-    zip?: string | null;
-  },
-): Promise<DuplicateMatch[]> {
-  const name = (fields.full_name || "").trim();
-  const email = (fields.email || "").trim().toLowerCase();
-  const phone10 = normalizePhone(fields.phone || "");
-  const cols = "id, full_name, email, phone, city, street, state, zip";
-  // Service-role read so it catches EVERY existing customer, even ones a
-  // role-scoped user (e.g. a salesman) can't normally see — so the same client
-  // can't be added twice across reps.
-  const supabase = createAdminClient();
-  const rank = { phone: 4, email: 3, name_address: 2, name: 1 } as const;
-  const found = new Map<string, DuplicateMatch>();
-  const add = (
-    r: {
-      id: string;
-      full_name: string;
-      email: string | null;
-      phone: string | null;
-      city: string | null;
-      street?: string | null;
-      state?: string | null;
-      zip?: string | null;
-    },
-    reason: DuplicateMatch["reason"],
-  ) => {
-    const confidence: DuplicateConfidence =
-      reason === "phone" || reason === "email" ? "high" : "possible";
-    const existing = found.get(r.id);
-    if (!existing) {
-      found.set(r.id, {
-        id: r.id,
-        full_name: r.full_name,
-        email: r.email,
-        phone: r.phone,
-        city: r.city,
-        reason,
-        confidence,
-      });
-    } else if (rank[reason] > rank[existing.reason as keyof typeof rank]) {
-      existing.reason = reason;
-      existing.confidence = confidence;
-    }
-  };
-
-  const jobs: Promise<void>[] = [];
-  type Row = {
-    id: string;
-    full_name: string;
-    email: string | null;
-    phone: string | null;
-    city: string | null;
-    street?: string | null;
-    state?: string | null;
-    zip?: string | null;
-  };
-  if (email)
-    jobs.push(
-      (async () => {
-        const { data } = await supabase.from("customers").select(cols).ilike("email", email).limit(10);
-        (data as Row[] | null ?? []).forEach((r) => add(r, "email"));
-      })(),
-    );
-  if (name)
-    jobs.push(
-      (async () => {
-        const { data } = await supabase.from("customers").select(cols).ilike("full_name", name).limit(25);
-        for (const r of data as Row[] | null ?? []) {
-          const scored = scoreCustomerDuplicate(
-            {
-              fullName: fields.full_name,
-              email: fields.email,
-              phone: fields.phone,
-              address: fields.street,
-              city: fields.city,
-              state: fields.state,
-              zip: fields.zip,
-            },
-            {
-              id: r.id,
-              full_name: r.full_name,
-              email: r.email,
-              phone: r.phone,
-              address: r.street,
-              city: r.city,
-              state: r.state,
-              zip: r.zip,
-            },
-          );
-          if (scored) add(r, scored.reason);
-          else add(r, "name");
-        }
-      })(),
-    );
-  if (phone10.length === 10)
-    jobs.push(
-      (async () => {
-        // Narrow by the last 4 digits (bounded), then confirm the full number
-        // regardless of how it was formatted when it was saved.
-        const { data } = await supabase.from("customers").select(cols).ilike("phone", `%${phone10.slice(-4)}`).limit(50);
-        (data as Row[] | null ?? [])
-          .filter((r) => normalizePhone(r.phone || "") === phone10)
-          .forEach((r) => add(r, "phone"));
-      })(),
-    );
-  await Promise.all(jobs);
-  // Strongest signal first.
-  return [...found.values()].sort(
-    (a, b) =>
-      (rank[b.reason as keyof typeof rank] ?? 0) -
-      (rank[a.reason as keyof typeof rank] ?? 0),
-  );
+function toFormMatches(matches: ScoredCustomerMatch[]): DuplicateMatch[] {
+  return matches.map((m) => ({
+    id: m.id,
+    full_name: m.full_name,
+    email: m.email,
+    phone: m.phone,
+    city: m.city,
+    street: m.street,
+    jobCount: m.jobCount,
+    reason: m.legacyReason,
+    confidence: m.confidence,
+  }));
 }
 
 /**
@@ -283,28 +171,21 @@ export async function createCustomer(
 
   const supabase = await createClient();
   const profile = await requireProfile();
-  const duplicates = await findDuplicateCustomers(fields);
   const force = str(formData.get("force_create")) === "1";
   const overrideReason = str(formData.get("duplicate_override_reason"));
-
-  if (!force && duplicates.length) {
-    return { error: null, duplicates };
-  }
-
-  if (force && duplicates.length) {
-    const classified = classifyDuplicateMatches(duplicates);
-    const gate = assessDuplicateOverride({
-      hasHighConfidenceMatch: classified.hasHigh,
-      forceCreate: true,
-      overrideReason,
-      actorRole: profile.role,
-    });
-    if (!gate.ok) return { error: gate.error, duplicates };
-  }
 
   const stage = (str(formData.get("stage")) || "new") as LeadStage;
   const source = await legacyEnumFor(supabase, fields.source_id);
 
+  const matchInput = {
+    fullName: fields.full_name,
+    email: fields.email,
+    phone: fields.phone,
+    address: fields.street,
+    city: fields.city,
+    state: fields.state,
+    zip: fields.zip,
+  };
   const row = {
     ...fields,
     source,
@@ -312,45 +193,41 @@ export async function createCustomer(
     created_by: profile.id,
     assigned_to: profile.id,
   };
-  let { data, error } = await supabase.from("customers").insert(row).select("id").single();
-  if (error) {
-    // Fallback for before the lead-sources migration (0112): save with the
-    // legacy enum only so a customer can still be created.
-    const {
-      source_id: _si,
-      source_detail_id: _di,
-      source_detail_text: _dt,
-      referred_by_customer_id: _rb,
-      ...legacy
-    } = row;
-    ({ data, error } = await supabase
-      .from("customers")
-      .insert(legacy)
-      .select("id")
-      .single());
-  }
-  if (error || !data) return { error: error?.message ?? "Could not create the customer." };
 
-  if (force && duplicates.length) {
-    const top = duplicates[0];
-    await createAdminClient()
-      .from("customer_duplicate_overrides")
-      .insert({
-        created_customer_id: data.id,
-        matched_customer_id: top.id,
-        match_reason: top.reason,
-        override_reason: overrideReason || "Confirmed create despite similar match",
-        confidence: top.confidence,
-        created_by: profile.id,
-        candidate_name: fields.full_name,
-        candidate_email: fields.email,
-        candidate_phone: fields.phone,
-      });
+  const resolved = await resolveOrCreateCustomer({
+    input: matchInput,
+    insert: row,
+    forceCreate: force,
+    overrideReason,
+  });
+  if (resolved.action === "needs_choice") {
+    return { error: null, duplicates: toFormMatches(resolved.matches) };
+  }
+  if (resolved.action === "error") return { error: resolved.error };
+
+  const id = resolved.customerId;
+  if (force) {
+    try {
+      await createAdminClient()
+        .from("customer_duplicate_overrides")
+        .insert({
+          created_customer_id: id,
+          matched_customer_id: id,
+          match_reason: "override",
+          override_reason: overrideReason || "Confirmed create despite similar match",
+          confidence: "high",
+          created_by: profile.id,
+          candidate_name: fields.full_name,
+          candidate_email: fields.email,
+          candidate_phone: fields.phone,
+        });
+    } catch {
+      /* override audit is best-effort */
+    }
   }
 
   refreshCustomerViews();
-  // ?new=1 → the customer file offers the optional "qualify this customer?" pop-up.
-  redirect(`/customers/${data.id}?new=1`);
+  redirect(`/customers/${id}?new=1`);
 }
 
 export async function updateCustomer(

@@ -124,7 +124,13 @@ export function CustomerMappingImporter() {
         toast.error(res.error);
         return;
       }
-      setDone(res.count ?? built.length);
+      setDone(res.count ?? 0);
+      toast.success(
+        `Imported ${res.count ?? 0} new` +
+          (res.summary
+            ? ` · ${res.summary.matchedExisting} matched existing · ${res.summary.possibleDuplicates} possible duplicates skipped`
+            : ""),
+      );
       reset();
     });
 
