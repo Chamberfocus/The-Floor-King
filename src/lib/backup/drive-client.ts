@@ -7,6 +7,9 @@ export type DriveNode = {
   size?: number;
   md5Checksum?: string;
   appProperties?: Record<string, string>;
+  trashed?: boolean;
+  driveId?: string;
+  canAddChildren?: boolean;
 };
 
 export type UploadedFile = {

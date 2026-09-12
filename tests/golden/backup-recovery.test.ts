@@ -35,6 +35,14 @@ import {
   googleAuthUsesPermanentKey,
 } from "@/lib/backup/google-auth";
 import { planRetentionDeletes } from "@/lib/backup/drive-scope";
+import { classifyBackupRoot } from "@/lib/backup/destination";
+import {
+  DriveApiError,
+  extractGoogleErrorReason,
+  isRetryableDriveStatus,
+  isSafeBackupErrorCode,
+} from "@/lib/backup/drive-error";
+import { GoogleDriveClient } from "@/lib/backup/google-drive";
 import { MemoryDrive } from "@/lib/backup/memory-drive";
 import { validatePostgresDump } from "@/lib/backup/dump-validate";
 import { assertDumpConnectionUrl } from "@/lib/backup/dump";
@@ -598,8 +606,11 @@ describe("backup production safety", () => {
       expect(src).not.toMatch(/BEGIN PRIVATE KEY/);
     }
     const route = readFileSync(join(ROOT, "src/app/api/cron/backup/route.ts"), "utf8");
+    expect(route).toMatch(/runtime = "nodejs"/);
     expect(route).toMatch(/authorizeBackupCronRequest/);
     expect(route).toMatch(/maxDuration = 300/);
+    expect(route).toMatch(/runtime = "nodejs"/);
+    expect(route).toMatch(/Floor King backup SUCCESS/);
     const authz = readFileSync(join(ROOT, "src/lib/backup/authz.ts"), "utf8");
     expect(authz).toMatch(/CRON_SECRET_MISSING/);
     const vercel = readFileSync(join(ROOT, "vercel.json"), "utf8");
@@ -609,5 +620,116 @@ describe("backup production safety", () => {
 
   it("cron schedule is production-only in vercel.json + authz", () => {
     expect(readFileSync(join(ROOT, "src/lib/backup/authz.ts"), "utf8")).toMatch(/PRODUCTION_ONLY/);
+  });
+});
+
+describe("Drive destination and upload diagnostics", () => {
+  it("classifies My Drive, trashed, read-only, and shortcut roots", () => {
+    expect(classifyBackupRoot({ driveId: "0Axxx", canAddChildren: true }).ok).toBe(true);
+    const myDrive = classifyBackupRoot({ canAddChildren: true });
+    expect(myDrive.ok).toBe(false);
+    if (!myDrive.ok) expect(myDrive.code).toBe("DRIVE_SHARED_DRIVE_REQUIRED");
+    const readOnly = classifyBackupRoot({ driveId: "0Axxx", canAddChildren: false });
+    expect(readOnly.ok).toBe(false);
+    if (!readOnly.ok) expect(readOnly.code).toBe("DRIVE_FOLDER_NOT_WRITABLE");
+    const trashed = classifyBackupRoot({ driveId: "0Axxx", trashed: true });
+    expect(trashed.ok).toBe(false);
+    if (!trashed.ok) expect(trashed.code).toBe("DRIVE_ROOT_TRASHED");
+    const shortcut = classifyBackupRoot({
+      driveId: "0Axxx",
+      mimeType: "application/vnd.google-apps.shortcut",
+    });
+    expect(shortcut.ok).toBe(false);
+    if (!shortcut.ok) expect(shortcut.code).toBe("DRIVE_ROOT_IS_SHORTCUT");
+  });
+
+  it("formats Google 403/404 reasons without leaking tokens or keys", () => {
+    expect(
+      extractGoogleErrorReason(
+        JSON.stringify({
+          error: {
+            code: 403,
+            message: "The user's Drive storage quota has been exceeded.",
+            errors: [{ reason: "storageQuotaExceeded" }],
+            access_token: "ya29.should-not-be-used",
+          },
+        }),
+      ),
+    ).toBe("storageQuotaExceeded");
+    expect(
+      extractGoogleErrorReason(JSON.stringify({ error: { errors: [{ reason: "notFound" }] } })),
+    ).toBe("notFound");
+    expect(
+      extractGoogleErrorReason(JSON.stringify({ error: { status: "PERMISSION_DENIED" } })),
+    ).toBe("PERMISSION_DENIED");
+    const err = new DriveApiError("upload", 403, "insufficientFilePermissions");
+    expect(err.message).toBe("DRIVE_UPLOAD:403:insufficientFilePermissions");
+    expect(isSafeBackupErrorCode(err.message)).toBe(true);
+    expect(isRetryableDriveStatus(403)).toBe(false);
+    expect(isRetryableDriveStatus(429)).toBe(true);
+    expect(sanitizeBackupError(err)).not.toMatch(/ya29/);
+    expect(sanitizeBackupError(err)).not.toMatch(/BEGIN PRIVATE KEY/);
+  });
+
+  it("fails closed on a My Drive root before dump or retention", async () => {
+    const drive = new MemoryDrive();
+    drive.simulateMyDrive();
+    let dumped = false;
+    const { deps } = makeDeps({
+      drive,
+      dumpPublic: async () => {
+        dumped = true;
+        return dumpResult();
+      },
+    });
+    const out = await runBackup(deps);
+    expect(out.status).toBe("FAILED");
+    expect(out.errorCode).toBe("DRIVE_SHARED_DRIVE_REQUIRED");
+    expect(dumped).toBe(true);
+    expect(out.dumpBytes).toBeGreaterThan(0);
+    expect(drive.uploadsAttempted).toBe(0);
+  });
+
+  it("surfaces Drive upload 403 and does not retry non-retryable errors", async () => {
+    let resumableStarts = 0;
+    const client = new GoogleDriveClient("ya29.fake-token", async (url, init) => {
+      const target = String(url);
+      if (init?.method === "POST" && target.includes("uploadType=resumable")) {
+        resumableStarts += 1;
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 403,
+              errors: [{ reason: "storageQuotaExceeded" }],
+            },
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error("UNEXPECTED_DRIVE_CALL");
+    });
+    await expect(
+      client.uploadBytes(BACKUP_ROOT_FOLDER_ID, "lock.json", Buffer.from("{}"), "application/json"),
+    ).rejects.toThrow(/DRIVE_UPLOAD:403:storageQuotaExceeded/);
+    expect(resumableStarts).toBe(1);
+  });
+
+  it("does not delete prior backups when the current upload never starts", async () => {
+    const plan = planRetentionDeletes(
+      [
+        {
+          id: "keep-me",
+          lane: "daily",
+          period: "2026-01-01",
+          completedAt: "2026-01-01",
+          status: "SUCCESS",
+          systemMarker: MARKER_SYSTEM,
+          underRoot: true,
+        },
+      ],
+      { currentRunFailed: true, inventoryComplete: true },
+    );
+    expect(plan.deleteIds).toEqual([]);
+    expect(plan.skipped.every((s) => s.reason === "CURRENT_RUN_FAILED")).toBe(true);
   });
 });

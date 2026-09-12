@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { BACKUP_ROOT_FOLDER_ID, DRIVE_UPLOAD_ATTEMPTS, MARKER_SYSTEM } from "./constants";
 import type { DriveClient, DriveNode, UploadedFile } from "./drive-client";
 import { FOLDER_MIME } from "./drive-client";
+import { DriveApiError, isRetryableDriveStatus, throwDriveApiError } from "./drive-error";
 import { isIdUnderBackupRoot } from "./drive-scope";
 
 type FetchLike = typeof fetch;
@@ -9,6 +10,12 @@ type FetchLike = typeof fetch;
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+function isGoogleUploadHost(hostname: string): boolean {
+  return hostname === "www.googleapis.com" || hostname.endsWith(".googleapis.com");
+}
+
+const FILE_FIELDS = "id,name,mimeType,parents,size,md5Checksum,appProperties,trashed,driveId,capabilities(canAddChildren)";
 
 export class GoogleDriveClient implements DriveClient {
   readonly rootId = BACKUP_ROOT_FOLDER_ID;
@@ -39,24 +46,32 @@ export class GoogleDriveClient implements DriveClient {
     return res;
   }
 
-  async getFile(fileId: string): Promise<DriveNode> {
-    this.assertKnown(fileId);
-    const url = new URL(`https://www.googleapis.com/drive/v3/files/${fileId}`);
-    url.searchParams.set("supportsAllDrives", "true");
-    url.searchParams.set("fields", "id,name,mimeType,parents,size,md5Checksum,appProperties");
-    const res = await this.driveFetch(url.toString());
-    if (!res.ok) throw new Error("DRIVE_GET_FAILED");
-    const json = (await res.json()) as DriveNode & { size?: string };
-    if (json.parents?.length) {
-      const parentKnown = json.parents.some((p) => this.known.has(p) || p === this.rootId);
-      if (!parentKnown && fileId !== this.rootId) throw new Error("DRIVE_OUTSIDE_ROOT");
-    }
+  private mapNode(json: DriveNode & { size?: string; capabilities?: { canAddChildren?: boolean } }): DriveNode {
     this.known.add(json.id);
     return {
       ...json,
       size: json.size != null ? Number(json.size) : undefined,
       parents: json.parents ?? [],
+      canAddChildren: json.capabilities?.canAddChildren ?? json.canAddChildren,
     };
+  }
+
+  async getFile(fileId: string): Promise<DriveNode> {
+    this.assertKnown(fileId);
+    const url = new URL(`https://www.googleapis.com/drive/v3/files/${fileId}`);
+    url.searchParams.set("supportsAllDrives", "true");
+    url.searchParams.set("fields", FILE_FIELDS);
+    const res = await this.driveFetch(url.toString());
+    if (!res.ok) await throwDriveApiError("destination_folder", res);
+    const json = (await res.json()) as DriveNode & {
+      size?: string;
+      capabilities?: { canAddChildren?: boolean };
+    };
+    if (json.parents?.length) {
+      const parentKnown = json.parents.some((p) => this.known.has(p) || p === this.rootId);
+      if (!parentKnown && fileId !== this.rootId) throw new Error("DRIVE_OUTSIDE_ROOT");
+    }
+    return this.mapNode(json);
   }
 
   async listChildren(parentId: string): Promise<DriveNode[]> {
@@ -68,22 +83,20 @@ export class GoogleDriveClient implements DriveClient {
       url.searchParams.set("q", `'${parentId}' in parents and trashed = false`);
       url.searchParams.set("supportsAllDrives", "true");
       url.searchParams.set("includeItemsFromAllDrives", "true");
-      url.searchParams.set("fields", "nextPageToken,files(id,name,mimeType,parents,size,md5Checksum,appProperties)");
+      url.searchParams.set(
+        "fields",
+        "nextPageToken,files(id,name,mimeType,parents,size,md5Checksum,appProperties,trashed,driveId)",
+      );
       url.searchParams.set("pageSize", "100");
       if (pageToken) url.searchParams.set("pageToken", pageToken);
       const res = await this.driveFetch(url.toString());
-      if (!res.ok) throw new Error("DRIVE_LIST_FAILED");
+      if (!res.ok) await throwDriveApiError("list", res);
       const json = (await res.json()) as {
         nextPageToken?: string;
         files?: Array<DriveNode & { size?: string }>;
       };
       for (const f of json.files ?? []) {
-        this.known.add(f.id);
-        out.push({
-          ...f,
-          parents: f.parents ?? [parentId],
-          size: f.size != null ? Number(f.size) : undefined,
-        });
+        out.push(this.mapNode(f));
       }
       pageToken = json.nextPageToken;
     } while (pageToken);
@@ -105,7 +118,7 @@ export class GoogleDriveClient implements DriveClient {
         appProperties: { floorKingBackup: MARKER_SYSTEM },
       }),
     });
-    if (!res.ok) throw new Error("DRIVE_FOLDER_CREATE_FAILED");
+    if (!res.ok) await throwDriveApiError("folder_create", res);
     const json = (await res.json()) as { id: string; name: string };
     this.known.add(json.id);
     return json;
@@ -125,10 +138,12 @@ export class GoogleDriveClient implements DriveClient {
         return await this.uploadOnce(parentId, name, bytes, mime, appProperties);
       } catch (err) {
         lastErr = err;
-        if (attempt < DRIVE_UPLOAD_ATTEMPTS) await sleep(250 * attempt);
+        const status = err instanceof DriveApiError ? err.status : 0;
+        if (!isRetryableDriveStatus(status) || attempt >= DRIVE_UPLOAD_ATTEMPTS) break;
+        await sleep(250 * attempt);
       }
     }
-    throw lastErr instanceof Error ? lastErr : new Error("DRIVE_UPLOAD_FAILED");
+    throw lastErr instanceof Error ? lastErr : new DriveApiError("upload", 0, "unknown");
   }
 
   private async uploadOnce(
@@ -143,22 +158,40 @@ export class GoogleDriveClient implements DriveClient {
       parents: [parentId],
       appProperties: { floorKingBackup: MARKER_SYSTEM, ...appProperties },
     });
-    const boundary = "floorkingbackup";
-    const prefix = Buffer.from(
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`,
-    );
-    const suffix = Buffer.from(`\r\n--${boundary}--`);
-    const body = Buffer.concat([prefix, Buffer.from(bytes), suffix]);
-    const res = await this.driveFetch(
-      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true",
+    const init = await this.driveFetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,size,md5Checksum,parents,trashed",
       {
         method: "POST",
-        headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
-        body,
+        headers: {
+          "Content-Type": "application/json; charset=UTF-8",
+          "X-Upload-Content-Type": mime,
+          "X-Upload-Content-Length": String(bytes.byteLength),
+        },
+        body: metadata,
       },
     );
-    if (!res.ok) throw new Error("DRIVE_UPLOAD_FAILED");
-    const json = (await res.json()) as { id: string; name: string; size?: string; md5Checksum?: string };
+    if (!init.ok) await throwDriveApiError("upload", init);
+    const location = init.headers.get("location");
+    if (!location) throw new DriveApiError("upload", init.status || 500, "missing_upload_url");
+    let uploadUrl: URL;
+    try {
+      uploadUrl = new URL(location);
+    } catch {
+      throw new DriveApiError("upload", 500, "invalid_upload_url");
+    }
+    if (!isGoogleUploadHost(uploadUrl.hostname)) {
+      throw new DriveApiError("upload", 500, "invalid_upload_url");
+    }
+    const put = await this.driveFetch(uploadUrl.toString(), {
+      method: "PUT",
+      headers: {
+        "Content-Type": mime,
+        "Content-Length": String(bytes.byteLength),
+      },
+      body: Buffer.from(bytes),
+    });
+    if (!put.ok) await throwDriveApiError("upload", put);
+    const json = (await put.json()) as { id: string; name: string; size?: string; md5Checksum?: string };
     this.known.add(json.id);
     return {
       id: json.id,
@@ -174,7 +207,7 @@ export class GoogleDriveClient implements DriveClient {
     url.searchParams.set("alt", "media");
     url.searchParams.set("supportsAllDrives", "true");
     const res = await this.driveFetch(url.toString());
-    if (!res.ok) throw new Error("DRIVE_DOWNLOAD_FAILED");
+    if (!res.ok) await throwDriveApiError("download", res);
     return new Uint8Array(await res.arrayBuffer());
   }
 
@@ -189,7 +222,7 @@ export class GoogleDriveClient implements DriveClient {
       `https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`,
       { method: "DELETE" },
     );
-    if (!res.ok && res.status !== 404) throw new Error("DRIVE_DELETE_FAILED");
+    if (!res.ok && res.status !== 404) await throwDriveApiError("delete", res);
     this.known.delete(fileId);
   }
 
@@ -208,7 +241,7 @@ export class GoogleDriveClient implements DriveClient {
         }),
       },
     );
-    if (!res.ok) throw new Error("DRIVE_COPY_FAILED");
+    if (!res.ok) await throwDriveApiError("copy", res);
     const json = (await res.json()) as { id: string; name: string; size?: string };
     this.known.add(json.id);
     return { id: json.id, name: json.name, size: json.size != null ? Number(json.size) : 0 };

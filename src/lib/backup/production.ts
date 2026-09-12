@@ -37,7 +37,10 @@ async function listStoragePrefix(bucket: string, prefix: string) {
   return all;
 }
 
-export function buildProductionBackupDeps(alert?: (code: string) => Promise<void>): BackupDeps {
+export function buildProductionBackupDeps(
+  alert?: (code: string) => Promise<void>,
+  success?: (info: { backupId: string; dumpBytes: number }) => Promise<void>,
+): BackupDeps {
   const databaseUrl = process.env.SUPABASE_DB_URL;
   if (!databaseUrl) throw new Error("SUPABASE_DB_URL_MISSING");
   return {
@@ -63,6 +66,7 @@ export function buildProductionBackupDeps(alert?: (code: string) => Promise<void
       return new Uint8Array(await data.arrayBuffer());
     },
     sendFailureAlert: alert,
+    sendSuccessAlert: success,
     gitSha: gitSha(),
     deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
   };
@@ -70,6 +74,7 @@ export function buildProductionBackupDeps(alert?: (code: string) => Promise<void
 
 export async function runProductionBackup(
   alert?: (code: string) => Promise<void>,
+  success?: (info: { backupId: string; dumpBytes: number }) => Promise<void>,
 ): Promise<BackupRunOutcome> {
-  return runBackup(buildProductionBackupDeps(alert));
+  return runBackup(buildProductionBackupDeps(alert, success));
 }

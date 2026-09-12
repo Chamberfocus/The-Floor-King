@@ -21,7 +21,25 @@ export class MemoryDrive implements DriveClient {
       mimeType: FOLDER_MIME,
       parents: [],
       appProperties: { floorKingBackup: MARKER_SYSTEM },
+      driveId: "test-shared-drive",
+      trashed: false,
+      canAddChildren: true,
     });
+  }
+
+  /** Simulate a My Drive folder that can be listed but cannot store SA-created files. */
+  simulateMyDrive() {
+    const root = this.nodes.get(this.rootId);
+    if (root) {
+      delete root.driveId;
+      root.canAddChildren = true;
+      root.trashed = false;
+    }
+  }
+
+  simulateNotWritable() {
+    const root = this.nodes.get(this.rootId);
+    if (root) root.canAddChildren = false;
   }
 
   /** Simulate transient upload failures, then succeed. */

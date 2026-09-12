@@ -1,22 +1,46 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authorizeBackupCronRequest } from "@/lib/backup/authz";
+import { isSafeBackupErrorCode } from "@/lib/backup/drive-error";
 import { driveTokenResponseHasSecrets } from "@/lib/backup/google-auth";
 import { runProductionBackup } from "@/lib/backup/production";
 import { sanitizeBackupError } from "@/lib/backup/sanitize";
 import { ownerEmail, sendEmail, emailLayout } from "@/lib/notify";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+function safeCodeForEmail(code: string): string {
+  const trimmed = code.replace(/[<>&]/g, "").slice(0, 120);
+  return isSafeBackupErrorCode(trimmed) ? trimmed : "BACKUP_FAILED";
+}
+
 async function alertFailure(code: string) {
+  const safe = safeCodeForEmail(code);
   await sendEmail({
     to: ownerEmail(),
-    subject: `Floor King backup FAILED (${code})`,
+    subject: `Floor King backup FAILED (${safe})`,
     html: emailLayout(
       "Offsite backup failed",
       `<p>The automated Floor King CRM backup did not complete.</p>
-       <p>Error code: <strong>${code.replace(/[<>&]/g, "")}</strong></p>
+       <p>Error code: <strong>${safe}</strong></p>
        <p>No customer data is included in this message. Check Google Drive → Floor King CRM Backups → Logs/health.json and the latest Daily folder.</p>`,
+    ),
+  });
+}
+
+async function alertSuccess(info: { backupId: string; dumpBytes: number }) {
+  const id = /^[0-9a-f-]{36}$/i.test(info.backupId) ? info.backupId : "unknown";
+  const bytes = Number.isFinite(info.dumpBytes) ? String(Math.max(0, Math.floor(info.dumpBytes))) : "unknown";
+  await sendEmail({
+    to: ownerEmail(),
+    subject: "Floor King backup SUCCESS",
+    html: emailLayout(
+      "Offsite backup completed",
+      `<p>The automated Floor King CRM backup completed.</p>
+       <p>Backup id: <strong>${id}</strong></p>
+       <p>Database dump size: <strong>${bytes}</strong> bytes.</p>
+       <p>No customer data is included in this message.</p>`,
     ),
   });
 }
@@ -28,12 +52,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await runProductionBackup(alertFailure);
+    const result = await runProductionBackup(alertFailure, alertSuccess);
     const body: Record<string, unknown> = {
       ok: result.status === "SUCCESS" || result.status === "SKIPPED",
       status: result.status,
       backupId: result.backupId,
       errorCode: result.errorCode,
+      dumpBytes: result.dumpBytes ?? null,
       skippedReason: result.skippedReason ?? null,
     };
     if (driveTokenResponseHasSecrets(body)) {
@@ -43,7 +68,7 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     const code = sanitizeBackupError(err);
     try {
-      await alertFailure(/^[A-Z0-9_]+$/.test(code) ? code : "BACKUP_FAILED");
+      await alertFailure(isSafeBackupErrorCode(code) ? code : "BACKUP_FAILED");
     } catch {
       /* ignore */
     }

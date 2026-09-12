@@ -28,6 +28,8 @@ import {
   type BackupHealth,
   type BackupManifest,
 } from "./manifest";
+import { classifyBackupRoot } from "./destination";
+import { isSafeBackupErrorCode } from "./drive-error";
 import { planRetentionDeletes, type RetentionRun } from "./drive-scope";
 import { sanitizeBackupError } from "./sanitize";
 import { enumerateStorageObjects, storageBackupComplete, type StorageObjectMeta } from "./storage";
@@ -47,6 +49,7 @@ export type BackupDeps = {
   >;
   downloadObject: (bucket: string, path: string) => Promise<Uint8Array>;
   sendFailureAlert?: (code: string) => Promise<void>;
+  sendSuccessAlert?: (info: { backupId: string; dumpBytes: number }) => Promise<void>;
   gitSha: string | null;
   deploymentId: string | null;
 };
@@ -57,6 +60,7 @@ export type BackupRunOutcome = {
   errorCode: string | null;
   manifest: BackupManifest | null;
   skippedReason?: string;
+  dumpBytes?: number | null;
 };
 
 function utcDate(d: Date): string {
@@ -190,6 +194,8 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
     verification: "fail",
   };
   let errorCode: string | null = null;
+  let dumpBytes: number | null = null;
+  let publicDump: DumpResult | null = null;
   let manifest = createInProgressManifest({
     backupId,
     startedAtUtc,
@@ -238,43 +244,61 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
     } catch {
       /* alert is best-effort */
     }
-    return { backupId, status: "FAILED", errorCode: code, manifest };
+    return { backupId, status: "FAILED", errorCode: code, manifest, dumpBytes };
   };
 
   try {
     const oidc = await deps.getOidcToken();
     const access = await deps.getDriveAccessToken(oidc);
     drive = deps.createDrive(access);
-    await drive.getFile(BACKUP_ROOT_FOLDER_ID);
+    const root = await drive.getFile(BACKUP_ROOT_FOLDER_ID);
+    const dest = classifyBackupRoot(root);
 
-    const dailyRoot = await drive.ensureChildFolder(BACKUP_ROOT_FOLDER_ID, FOLDER_DAILY);
-    const weeklyRoot = await drive.ensureChildFolder(BACKUP_ROOT_FOLDER_ID, FOLDER_WEEKLY);
-    const logs = await drive.ensureChildFolder(BACKUP_ROOT_FOLDER_ID, FOLDER_LOGS);
-    logsId = logs.id;
-
-    const today = utcDate(now);
-    const already = await findTodaysSuccess(drive, dailyRoot.id, today);
-    if (already) {
-      return {
-        backupId: already.backupId,
-        status: "SKIPPED",
-        errorCode: null,
-        manifest: null,
-        skippedReason: "already_succeeded_today",
-      };
+    let dailyRoot: { id: string; name: string } | null = null;
+    let weeklyRoot: { id: string; name: string } | null = null;
+    if (dest.ok) {
+      dailyRoot = await drive.ensureChildFolder(BACKUP_ROOT_FOLDER_ID, FOLDER_DAILY);
+      weeklyRoot = await drive.ensureChildFolder(BACKUP_ROOT_FOLDER_ID, FOLDER_WEEKLY);
+      const logs = await drive.ensureChildFolder(BACKUP_ROOT_FOLDER_ID, FOLDER_LOGS);
+      logsId = logs.id;
+      const today = utcDate(now);
+      const already = await findTodaysSuccess(drive, dailyRoot.id, today);
+      if (already) {
+        return {
+          backupId: already.backupId,
+          status: "SKIPPED",
+          errorCode: null,
+          manifest: null,
+          skippedReason: "already_succeeded_today",
+          dumpBytes: null,
+        };
+      }
     }
+
+    try {
+      publicDump = await deps.dumpPublic();
+      dumpBytes = publicDump.byteLength;
+      results.database = "pass";
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "DATABASE_BACKUP_FAILED";
+      return await fail(isSafeBackupErrorCode(msg) ? msg : "DATABASE_BACKUP_FAILED");
+    }
+
+    if (!dest.ok) return await fail(dest.code);
+    if (!dailyRoot || !weeklyRoot || !logsId) return await fail("DRIVE_FOLDER_CREATE_FAILED");
 
     const locked = await acquireBackupLock({
       drive,
-      logsFolderId: logs.id,
+      logsFolderId: logsId,
       backupId,
       now,
     });
     if (!locked.ok) {
-      return { backupId, status: "SKIPPED", errorCode: "BACKUP_IN_PROGRESS", manifest: null, skippedReason: "concurrent" };
+      return { backupId, status: "SKIPPED", errorCode: "BACKUP_IN_PROGRESS", manifest: null, skippedReason: "concurrent", dumpBytes };
     }
     lockHeld = true;
 
+    const today = utcDate(now);
     const dayFolder = await drive.ensureChildFolder(dailyRoot.id, today);
     const runFolder = await drive.ensureChildFolder(dayFolder.id, backupId);
     runFolderId = runFolder.id;
@@ -282,14 +306,7 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
     const dbFolder = await drive.ensureChildFolder(runFolder.id, "database");
     const storageFolder = await drive.ensureChildFolder(runFolder.id, "storage");
 
-    let publicDump: DumpResult;
-    try {
-      publicDump = await deps.dumpPublic();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "DATABASE_BACKUP_FAILED";
-      return await fail(/^[A-Z][A-Z0-9_]{2,}$/.test(msg) ? msg : "DATABASE_BACKUP_FAILED");
-    }
-    results.database = "pass";
+    if (!publicDump) return await fail("DATABASE_BACKUP_FAILED");
     await uploadWithRetry(drive, dbFolder.id, DATABASE_DUMP_NAME, publicDump.bytes, "application/gzip");
 
     let authDump: "included" | "skipped" | "failed" = "skipped";
@@ -467,10 +484,10 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
       await writeMarker(drive, weekRun.id, MARKER_SUCCESS);
     }
 
-    const prevHealth = await loadHealth(drive, logs.id);
+    const prevHealth = await loadHealth(drive, logsId);
     await saveHealth(
       drive,
-      logs.id,
+      logsId,
       applyHealthUpdate(prevHealth, {
         nowUtc: deps.now().toISOString(),
         backupId,
@@ -500,10 +517,17 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
       /* retention is conservative; backup already succeeded */
     }
 
-    return { backupId, status: "SUCCESS", errorCode: null, manifest };
+    try {
+      await deps.sendSuccessAlert?.({ backupId, dumpBytes: publicDump.byteLength });
+    } catch {
+      /* success alert is best-effort */
+    }
+
+    return { backupId, status: "SUCCESS", errorCode: null, manifest, dumpBytes };
   } catch (err) {
       const fallback = sanitizeBackupError(err).slice(0, 80);
-      return await fail(errorCode ?? (fallback || "BACKUP_FAILED"));
+      const code = errorCode ?? fallback;
+      return await fail(isSafeBackupErrorCode(code) ? code : "BACKUP_FAILED");
   } finally {
     if (lockHeld && drive && logsId) {
       try {
