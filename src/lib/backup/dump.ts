@@ -153,7 +153,7 @@ async function runPgDump(args: {
   timeoutMs: number;
 }): Promise<Buffer> {
   const tmp = join(tmpdir(), `fk-dump-${args.schema}-${Date.now()}.sql.gz`);
-  const gzip = createGzip({ level: 9 });
+  const gzip = createGzip({ level: 1 });
   const out = createWriteStream(tmp);
 
   const child = spawn(

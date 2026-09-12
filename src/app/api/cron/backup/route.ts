@@ -8,7 +8,7 @@ import { ownerEmail, sendEmail, emailLayout } from "@/lib/notify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 800;
+export const maxDuration = 300;
 
 function safeCodeForEmail(code: string): string {
   const trimmed = code.replace(/[<>&]/g, "").slice(0, 120);

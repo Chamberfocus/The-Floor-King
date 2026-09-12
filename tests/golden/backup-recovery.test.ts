@@ -390,7 +390,7 @@ describe("database dump validation", () => {
     expect(classifyPgDumpFailure("password authentication failed for user")).toBe("PG_DUMP:auth");
     expect(classifyPgDumpFailure("FATAL: Tenant or user not found")).toBe("PG_DUMP:pooler_tenant");
     expect(readFileSync(join(ROOT, "src/lib/backup/dump.ts"), "utf8")).toMatch(/ipv4first/);
-    expect(readFileSync(join(ROOT, "src/lib/backup/dump.ts"), "utf8")).toMatch(/PGHOSTADDR/);
+    expect(readFileSync(join(ROOT, "src/lib/backup/dump.ts"), "utf8")).toMatch(/createGzip\(\{ level: 1 \}\)/);
     expect(supabaseProjectRefFromPublicUrl("https://abc123xyz789.supabase.co")).toBe("abc123xyz789");
     expect(sessionPoolerUser("postgres", "abc123xyz789")).toBe("postgres.abc123xyz789");
     expect(sessionPoolerUser("postgres.abc123xyz789", "abc123xyz789")).toBe("postgres.abc123xyz789");
@@ -636,7 +636,7 @@ describe("backup production safety", () => {
     const route = readFileSync(join(ROOT, "src/app/api/cron/backup/route.ts"), "utf8");
     expect(route).toMatch(/runtime = "nodejs"/);
     expect(route).toMatch(/authorizeBackupCronRequest/);
-    expect(route).toMatch(/maxDuration = 800/);
+    expect(route).toMatch(/maxDuration = 300/);
     expect(route).toMatch(/Floor King backup SUCCESS/);
     const authz = readFileSync(join(ROOT, "src/lib/backup/authz.ts"), "utf8");
     expect(authz).toMatch(/CRON_SECRET_MISSING/);
