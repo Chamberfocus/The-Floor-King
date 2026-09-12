@@ -45,7 +45,7 @@ import {
 import { GoogleDriveClient } from "@/lib/backup/google-drive";
 import { MemoryDrive } from "@/lib/backup/memory-drive";
 import { validatePostgresDump } from "@/lib/backup/dump-validate";
-import { assertDumpConnectionUrl } from "@/lib/backup/dump";
+import { assertDumpConnectionUrl, classifyPgDumpFailure } from "@/lib/backup/dump";
 import { enumerateStorageObjects, storageBackupComplete } from "@/lib/backup/storage";
 import { formatChecksumFile, sha256Hex, verifyChecksums } from "@/lib/backup/checksums";
 import {
@@ -370,6 +370,15 @@ describe("database dump validation", () => {
     expect(() => assertDumpConnectionUrl("postgresql://u:p@db.example.com:6543/postgres")).toThrow(
       /DB_URL_TRANSACTION_POOLER/,
     );
+    expect(classifyPgDumpFailure("", "ENOENT")).toBe("PG_DUMP:missing_binary");
+    expect(classifyPgDumpFailure("pg_dump: error: could not connect to server: Connection refused")).toBe(
+      "PG_DUMP:connection",
+    );
+    expect(classifyPgDumpFailure("pg_dump: error: SSL connection has been closed unexpectedly")).toBe(
+      "PG_DUMP:ssl",
+    );
+    expect(classifyPgDumpFailure("password authentication failed for user")).toBe("PG_DUMP:auth");
+    expect(isSafeBackupErrorCode("PG_DUMP:connection")).toBe(true);
   });
 });
 
@@ -609,13 +618,15 @@ describe("backup production safety", () => {
     expect(route).toMatch(/runtime = "nodejs"/);
     expect(route).toMatch(/authorizeBackupCronRequest/);
     expect(route).toMatch(/maxDuration = 300/);
-    expect(route).toMatch(/runtime = "nodejs"/);
     expect(route).toMatch(/Floor King backup SUCCESS/);
     const authz = readFileSync(join(ROOT, "src/lib/backup/authz.ts"), "utf8");
     expect(authz).toMatch(/CRON_SECRET_MISSING/);
     const vercel = readFileSync(join(ROOT, "vercel.json"), "utf8");
     expect(vercel).toMatch(/\/api\/cron\/backup/);
     expect(vercel).toMatch(/15 8 \* \* \*/);
+    const nextCfg = readFileSync(join(ROOT, "next.config.ts"), "utf8");
+    expect(nextCfg).toMatch(/"\/api\/cron\/backup"/);
+    expect(nextCfg).not.toMatch(/\/src\/app\/api\/cron\/backup/);
   });
 
   it("cron schedule is production-only in vercel.json + authz", () => {

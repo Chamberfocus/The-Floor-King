@@ -53,6 +53,27 @@ export function assertDumpConnectionUrl(url: string): ReturnType<typeof parseDir
   return parseDirectPostgresUrl(url);
 }
 
+const PG_DUMP_CANDIDATES = [
+  join(process.cwd(), "vendor/pg_dump/linux-amd64/pg_dump"),
+  join("/var/task", "vendor/pg_dump/linux-amd64/pg_dump"),
+];
+
+export function classifyPgDumpFailure(stderr: string, spawnCode?: string): string {
+  if (spawnCode === "ENOENT") return "PG_DUMP:missing_binary";
+  const s = stderr.toLowerCase();
+  if (/could not connect|connection refused|connection timed out|no route to host|name or service not known/.test(s)) {
+    return "PG_DUMP:connection";
+  }
+  if (/timeout expired|canceling statement/.test(s)) return "PG_DUMP:timeout";
+  if (/password authentication|authentication failed|no password supplied/.test(s)) {
+    return "PG_DUMP:auth";
+  }
+  if (/\bssl\b|certificate/.test(s)) return "PG_DUMP:ssl";
+  if (/too many connections/.test(s)) return "PG_DUMP:too_many_connections";
+  if (/database ["'].*["'] does not exist/.test(s)) return "PG_DUMP:database_missing";
+  return "PG_DUMP_FAILED";
+}
+
 export async function resolvePgDumpBinary(opts?: {
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
@@ -62,13 +83,14 @@ export async function resolvePgDumpBinary(opts?: {
   const env = opts?.env ?? process.env;
   if (env.BACKUP_PG_DUMP_PATH) return env.BACKUP_PG_DUMP_PATH;
   const platform = opts?.platform ?? process.platform;
-  const localVendor = join(process.cwd(), "vendor/pg_dump/linux-amd64/pg_dump");
   const { access } = await import("node:fs/promises");
-  try {
-    await access(localVendor);
-    return localVendor;
-  } catch {
-    /* continue */
+  for (const localVendor of PG_DUMP_CANDIDATES) {
+    try {
+      await access(localVendor);
+      return localVendor;
+    } catch {
+      /* continue */
+    }
   }
   if (platform !== "linux") {
     return "pg_dump";
@@ -128,8 +150,12 @@ async function runPgDump(args: {
   );
 
   let stderr = "";
+  let spawnCode: string | undefined;
   child.stderr?.on("data", (c: Buffer) => {
     stderr += c.toString("utf8").slice(0, 2000);
+  });
+  child.on("error", (err: NodeJS.ErrnoException) => {
+    spawnCode = err.code;
   });
 
   const timeout = setTimeout(() => {
@@ -141,7 +167,6 @@ async function runPgDump(args: {
     await pipeline(child.stdout, gzip, out);
   } catch {
     child.kill("SIGTERM");
-    throw new Error("PG_DUMP_FAILED");
   } finally {
     clearTimeout(timeout);
   }
@@ -149,14 +174,14 @@ async function runPgDump(args: {
   const exit = await new Promise<number>((resolve) => {
     child.on("close", (code) => resolve(code ?? 1));
   });
-  if (exit !== 0) {
-    void stderr;
+  if (exit !== 0 || spawnCode) {
     try {
       await unlink(tmp);
     } catch {
       /* ignore */
     }
-    throw new Error(args.schema === "auth" ? "AUTH_DUMP_FAILED" : "PG_DUMP_FAILED");
+    if (args.schema === "auth") throw new Error("AUTH_DUMP_FAILED");
+    throw new Error(classifyPgDumpFailure(stderr, spawnCode));
   }
   const bytes = await readFile(tmp);
   try {
