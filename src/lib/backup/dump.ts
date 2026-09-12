@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createGzip } from "node:zlib";
 import { pipeline } from "node:stream/promises";
+import { Transform } from "node:stream";
 import { setDefaultResultOrder } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { PG_DUMP_LINUX_AMD64 } from "./constants";
@@ -151,10 +152,18 @@ async function runPgDump(args: {
   connection: ReturnType<typeof parseDirectPostgresUrl> & { hostAddr: string };
   schema: "public" | "auth";
   timeoutMs: number;
+  stallMs?: number;
 }): Promise<Buffer> {
   const tmp = join(tmpdir(), `fk-dump-${args.schema}-${Date.now()}.sql.gz`);
   const gzip = createGzip({ level: 1 });
   const out = createWriteStream(tmp);
+  let rawBytes = 0;
+  const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      rawBytes += (chunk as Buffer).length;
+      cb(null, chunk);
+    },
+  });
 
   const child = spawn(
     args.binary,
@@ -175,6 +184,7 @@ async function runPgDump(args: {
         PGPASSWORD: args.connection.password,
         PGDATABASE: args.connection.database,
         PGSSLMODE: args.connection.sslmode,
+        PGCONNECT_TIMEOUT: "10",
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -183,6 +193,7 @@ async function runPgDump(args: {
   let stderr = "";
   let spawnCode: string | undefined;
   let weKilled = false;
+  let stalled = false;
   child.stderr?.on("data", (c: Buffer) => {
     stderr += c.toString("utf8").slice(0, 2000);
   });
@@ -194,10 +205,17 @@ async function runPgDump(args: {
     weKilled = true;
     child.kill("SIGTERM");
   }, args.timeoutMs);
+  const stall = setTimeout(() => {
+    if (rawBytes === 0) {
+      stalled = true;
+      weKilled = true;
+      child.kill("SIGTERM");
+    }
+  }, args.stallMs ?? 20_000);
 
   try {
     if (!child.stdout) throw new Error("PG_DUMP_FAILED");
-    await pipeline(child.stdout, gzip, out);
+    await pipeline(child.stdout, counter, gzip, out);
   } catch {
     if (child.exitCode == null && child.signalCode == null) {
       weKilled = true;
@@ -205,18 +223,20 @@ async function runPgDump(args: {
     }
   } finally {
     clearTimeout(timeout);
+    clearTimeout(stall);
   }
 
   const closed = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
     child.on("close", (code, signal) => resolve({ code, signal: signal ?? null }));
   });
-  if (closed.code !== 0 || spawnCode) {
+  if (closed.code !== 0 || spawnCode || stalled) {
     try {
       await unlink(tmp);
     } catch {
       /* ignore */
     }
     if (args.schema === "auth") throw new Error("AUTH_DUMP_FAILED");
+    if (stalled) throw new Error("PG_DUMP:stall");
     throw new Error(
       classifyPgDumpFailure(
         stderr,

@@ -30,14 +30,14 @@ export function sessionPoolerHost(region: string): string {
   return `aws-0-${region}.pooler.supabase.com`;
 }
 
-/** Cleveland shop: Ohio (us-east-2) then East US (us-east-1). Optional override. */
+/** Cleveland shop: East US (us-east-1) then Ohio (us-east-2). Optional override. */
 export function dumpPoolerRegionCandidates(
   env: Record<string, string | undefined> = process.env,
 ): string[] {
   const out: string[] = [];
   const fromEnv = env.SUPABASE_POOLER_REGION?.trim();
   if (fromEnv && REGION.test(fromEnv)) out.push(fromEnv);
-  for (const region of ["us-east-2", "us-east-1"]) {
+  for (const region of ["us-east-1", "us-east-2"]) {
     if (!out.includes(region)) out.push(region);
   }
   return out;
@@ -48,6 +48,7 @@ export function isRetryablePoolerFailure(code: string): boolean {
     code === "PG_DUMP:pooler_tenant" ||
     code === "PG_DUMP:connection" ||
     code === "PG_DUMP:ipv4_required" ||
+    code === "PG_DUMP:stall" ||
     code.startsWith("PG_DUMP:exit_")
   );
 }

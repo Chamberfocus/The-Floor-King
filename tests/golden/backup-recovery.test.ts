@@ -395,8 +395,8 @@ describe("database dump validation", () => {
     expect(sessionPoolerUser("postgres", "abc123xyz789")).toBe("postgres.abc123xyz789");
     expect(sessionPoolerUser("postgres.abc123xyz789", "abc123xyz789")).toBe("postgres.abc123xyz789");
     expect(sessionPoolerHost("us-east-2")).toBe("aws-0-us-east-2.pooler.supabase.com");
-    expect(dumpPoolerRegionCandidates({})).toEqual(["us-east-2", "us-east-1"]);
-    expect(isRetryablePoolerFailure("PG_DUMP:pooler_tenant")).toBe(true);
+    expect(dumpPoolerRegionCandidates({})).toEqual(["us-east-1", "us-east-2"]);
+    expect(isRetryablePoolerFailure("PG_DUMP:stall")).toBe(true);
     expect(isRetryablePoolerFailure("PG_DUMP:auth")).toBe(false);
   });
 });
