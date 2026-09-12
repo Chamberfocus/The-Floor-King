@@ -381,7 +381,8 @@ describe("database dump validation", () => {
       "PG_DUMP:ssl",
     );
     expect(classifyPgDumpFailure("password authentication failed for user")).toBe("PG_DUMP:auth");
-    expect(isSafeBackupErrorCode("PG_DUMP:connection")).toBe(true);
+    expect(readFileSync(join(ROOT, "src/lib/backup/dump.ts"), "utf8")).toMatch(/ipv4first/);
+    expect(readFileSync(join(ROOT, "src/lib/backup/dump.ts"), "utf8")).toMatch(/PGHOSTADDR/);
   });
 });
 

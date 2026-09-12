@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createGzip } from "node:zlib";
 import { pipeline } from "node:stream/promises";
+import { setDefaultResultOrder } from "node:dns";
+import { lookup } from "node:dns/promises";
 import { PG_DUMP_LINUX_AMD64 } from "./constants";
 import { validatePostgresDump } from "./dump-validate";
 import { sha256Hex } from "./checksums";
@@ -138,7 +140,7 @@ export async function resolvePgDumpBinary(opts?: {
 
 async function runPgDump(args: {
   binary: string;
-  connection: ReturnType<typeof parseDirectPostgresUrl>;
+  connection: ReturnType<typeof parseDirectPostgresUrl> & { hostAddr: string };
   schema: "public" | "auth";
   timeoutMs: number;
 }): Promise<Buffer> {
@@ -159,6 +161,7 @@ async function runPgDump(args: {
       env: {
         ...process.env,
         PGHOST: args.connection.host,
+        PGHOSTADDR: args.connection.hostAddr,
         PGPORT: args.connection.port,
         PGUSER: args.connection.user,
         PGPASSWORD: args.connection.password,
@@ -224,6 +227,18 @@ async function runPgDump(args: {
   return bytes;
 }
 
+export async function resolveDumpHostIpv4(host: string): Promise<string> {
+  setDefaultResultOrder("ipv4first");
+  try {
+    const result = await lookup(host, { family: 4, all: false });
+    if (!result?.address) throw new Error("PG_DUMP:ipv4_required");
+    return result.address;
+  } catch (err) {
+    if (err instanceof Error && err.message === "PG_DUMP:ipv4_required") throw err;
+    throw new Error("PG_DUMP:ipv4_required");
+  }
+}
+
 export async function dumpPostgresSchema(args: {
   databaseUrl: string;
   schema: "public" | "auth";
@@ -231,10 +246,11 @@ export async function dumpPostgresSchema(args: {
   timeoutMs?: number;
 }): Promise<DumpResult> {
   const connection = assertDumpConnectionUrl(args.databaseUrl);
+  const hostAddr = await resolveDumpHostIpv4(connection.host);
   const binary = args.binary ?? (await resolvePgDumpBinary());
   const bytes = await runPgDump({
     binary,
-    connection,
+    connection: { ...connection, hostAddr },
     schema: args.schema,
     timeoutMs: args.timeoutMs ?? 180_000,
   });
