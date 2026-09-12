@@ -372,6 +372,8 @@ describe("database dump validation", () => {
     );
     expect(classifyPgDumpFailure("", "ENOENT")).toBe("PG_DUMP:missing_binary");
     expect(classifyPgDumpFailure("", "ENOEXEC")).toBe("PG_DUMP:ENOEXEC");
+    expect(classifyPgDumpFailure("", undefined, "SIGSYS")).toBe("PG_DUMP:SIGSYS");
+    expect(classifyPgDumpFailure("", undefined, null, 1)).toBe("PG_DUMP:exit_1:e0");
     expect(classifyPgDumpFailure("pg_dump: error: could not connect to server: Connection refused")).toBe(
       "PG_DUMP:connection",
     );

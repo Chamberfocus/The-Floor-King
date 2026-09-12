@@ -58,14 +58,26 @@ const PG_DUMP_CANDIDATES = [
   join("/var/task", "vendor/pg_dump/linux-amd64/pg_dump"),
 ];
 
-export function classifyPgDumpFailure(stderr: string, spawnCode?: string): string {
+export function classifyPgDumpFailure(
+  stderr: string,
+  spawnCode?: string,
+  signal?: string | null,
+  exitCode?: number | null,
+): string {
   if (spawnCode === "ENOENT") return "PG_DUMP:missing_binary";
+  if (signal && /^[A-Z][A-Z0-9_]{1,20}$/.test(signal)) return `PG_DUMP:${signal}`;
   if (spawnCode && /^[A-Za-z0-9_]{2,40}$/.test(spawnCode)) {
     return `PG_DUMP:${spawnCode}`;
   }
+  if (exitCode === 126) return "PG_DUMP:not_executable";
+  if (exitCode === 127) return "PG_DUMP:missing_binary";
   const s = stderr.toLowerCase();
   if (/exec format/.test(s)) return "PG_DUMP:exec_format";
-  if (/could not connect|connection refused|connection timed out|no route to host|name or service not known|network is unreachable/.test(s)) {
+  if (
+    /could not connect|connection refused|connection timed out|no route to host|name or service not known|network is unreachable|could not translate host name|is the server running/.test(
+      s,
+    )
+  ) {
     return "PG_DUMP:connection";
   }
   if (/timeout expired|canceling statement/.test(s)) return "PG_DUMP:timeout";
@@ -76,8 +88,9 @@ export function classifyPgDumpFailure(stderr: string, spawnCode?: string): strin
     return "PG_DUMP:version_mismatch";
   }
   if (/\bssl\b|certificate/.test(s)) return "PG_DUMP:ssl";
-  if (/too many connections/.test(s)) return "PG_DUMP:too_many_connections";
+  if (/too many connections|remaining connection slots/.test(s)) return "PG_DUMP:too_many_connections";
   if (/database ["'].*["'] does not exist/.test(s)) return "PG_DUMP:database_missing";
+  if (typeof exitCode === "number" && exitCode !== 0) return `PG_DUMP:exit_${exitCode}:e${Math.min(stderr.length, 999)}`;
   return "PG_DUMP_FAILED";
 }
 
@@ -158,6 +171,7 @@ async function runPgDump(args: {
 
   let stderr = "";
   let spawnCode: string | undefined;
+  let weKilled = false;
   child.stderr?.on("data", (c: Buffer) => {
     stderr += c.toString("utf8").slice(0, 2000);
   });
@@ -166,6 +180,7 @@ async function runPgDump(args: {
   });
 
   const timeout = setTimeout(() => {
+    weKilled = true;
     child.kill("SIGTERM");
   }, args.timeoutMs);
 
@@ -173,22 +188,32 @@ async function runPgDump(args: {
     if (!child.stdout) throw new Error("PG_DUMP_FAILED");
     await pipeline(child.stdout, gzip, out);
   } catch {
-    child.kill("SIGTERM");
+    if (child.exitCode == null && child.signalCode == null) {
+      weKilled = true;
+      child.kill("SIGTERM");
+    }
   } finally {
     clearTimeout(timeout);
   }
 
-  const exit = await new Promise<number>((resolve) => {
-    child.on("close", (code) => resolve(code ?? 1));
+  const closed = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+    child.on("close", (code, signal) => resolve({ code, signal: signal ?? null }));
   });
-  if (exit !== 0 || spawnCode) {
+  if (closed.code !== 0 || spawnCode) {
     try {
       await unlink(tmp);
     } catch {
       /* ignore */
     }
     if (args.schema === "auth") throw new Error("AUTH_DUMP_FAILED");
-    throw new Error(classifyPgDumpFailure(stderr, spawnCode));
+    throw new Error(
+      classifyPgDumpFailure(
+        stderr,
+        spawnCode,
+        weKilled ? null : closed.signal,
+        closed.code,
+      ),
+    );
   }
   const bytes = await readFile(tmp);
   try {
