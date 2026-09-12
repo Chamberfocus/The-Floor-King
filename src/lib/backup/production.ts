@@ -53,7 +53,7 @@ export function buildProductionBackupDeps(
       dumpPostgresSchema({
         databaseUrl,
         schema: "public",
-        timeoutMs: 120_000,
+        timeoutMs: 180_000,
         publicSupabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
       }),
     // Auth dump is best-effort in tests; skip on Vercel hobby (300s cap).

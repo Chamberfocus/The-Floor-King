@@ -399,6 +399,7 @@ describe("database dump validation", () => {
     expect(sessionPoolerHost("us-east-2")).toBe("aws-0-us-east-2.pooler.supabase.com");
     expect(dumpPoolerRegionCandidates({})).toEqual(["us-east-1", "us-east-2"]);
     expect(isRetryablePoolerFailure("PG_DUMP:stall")).toBe(true);
+    expect(isRetryablePoolerFailure("PG_DUMP:timeout")).toBe(false);
     expect(isRetryablePoolerFailure("PG_DUMP:auth")).toBe(false);
     expect(
       verifyDriveDumpMetadata({
@@ -703,7 +704,7 @@ describe("backup production safety", () => {
     const production = readFileSync(join(ROOT, "src/lib/backup/production.ts"), "utf8");
     expect(production).toMatch(/skipStorageBackup: true/);
     expect(production).toMatch(/skipRetention: true/);
-    expect(production).toMatch(/timeoutMs: 120_000/);
+    expect(production).toMatch(/timeoutMs: 180_000/);
   });
 
   it("cron schedule is production-only in vercel.json + authz", () => {

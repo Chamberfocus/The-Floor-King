@@ -204,15 +204,42 @@ async function runPgDump(args: {
     spawnCode = err.code;
   });
 
-  const timeout = setTimeout(() => {
+  const forceStop = () => {
     weKilled = true;
-    child.kill("SIGTERM");
-  }, args.timeoutMs);
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      /* ignore */
+    }
+    try {
+      child.stdout?.destroy();
+    } catch {
+      /* ignore */
+    }
+    try {
+      gzip.destroy();
+    } catch {
+      /* ignore */
+    }
+    try {
+      out.destroy();
+    } catch {
+      /* ignore */
+    }
+    setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* ignore */
+      }
+    }, 1000);
+  };
+
+  const timeout = setTimeout(forceStop, args.timeoutMs);
   const stall = setTimeout(() => {
     if (rawBytes === 0) {
       stalled = true;
-      weKilled = true;
-      child.kill("SIGTERM");
+      forceStop();
     }
   }, args.stallMs ?? 20_000);
 
@@ -220,19 +247,27 @@ async function runPgDump(args: {
     if (!child.stdout) throw new Error("PG_DUMP_FAILED");
     await pipeline(child.stdout, counter, gzip, out);
   } catch {
-    if (child.exitCode == null && child.signalCode == null) {
-      weKilled = true;
-      child.kill("SIGTERM");
-    }
+    if (child.exitCode == null && child.signalCode == null) forceStop();
   } finally {
     clearTimeout(timeout);
     clearTimeout(stall);
   }
 
   const closed = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-    child.on("close", (code, signal) => resolve({ code, signal: signal ?? null }));
+    if (child.exitCode != null || child.signalCode != null) {
+      resolve({ code: child.exitCode, signal: child.signalCode ?? null });
+      return;
+    }
+    const wait = setTimeout(() => {
+      forceStop();
+      resolve({ code: null, signal: "SIGKILL" });
+    }, 4000);
+    child.once("close", (code, signal) => {
+      clearTimeout(wait);
+      resolve({ code, signal: signal ?? null });
+    });
   });
-  if (closed.code !== 0 || spawnCode || stalled) {
+  if (closed.code !== 0 || spawnCode || stalled || weKilled) {
     try {
       await unlink(tmp);
     } catch {
@@ -240,11 +275,12 @@ async function runPgDump(args: {
     }
     if (args.schema === "auth") throw new Error("AUTH_DUMP_FAILED");
     if (stalled) throw new Error("PG_DUMP:stall");
+    if (weKilled) throw new Error("PG_DUMP:timeout");
     throw new Error(
       classifyPgDumpFailure(
         stderr,
         spawnCode,
-        weKilled ? null : closed.signal,
+        closed.signal,
         closed.code,
       ),
     );
