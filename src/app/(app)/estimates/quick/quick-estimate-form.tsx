@@ -18,6 +18,8 @@ import {
   type QuickProduct,
 } from "@/components/quick-lines";
 import { createQuickEstimate } from "./actions";
+import { CustomerMatchPanel } from "@/components/customer-match-panel";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import { marginPct, num as parseMoney } from "@/lib/estimate-calc";
 import { landedMaterialCost } from "@/lib/freight";
 
@@ -51,6 +53,8 @@ export function QuickEstimateForm({
   const [notes, setNotes] = useState("");
   const [markSent, setMarkSent] = useState(false);
   const [saving, start] = useTransition();
+  const [matches, setMatches] = useState<ScoredCustomerMatch[]>([]);
+  const [overrideReason, setOverrideReason] = useState("");
 
   const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
   const tax = subtotal * (num(taxRate) / 100);
@@ -68,11 +72,16 @@ export function QuickEstimateForm({
   });
   const margin = marginPct(subtotal, cost);
 
-  const submit = () =>
+  const submit = (opts?: { useExistingId?: string; forceCreate?: boolean }) =>
     start(async () => {
       const res = await createQuickEstimate({
-        customerId: mode === "existing" ? customerId || null : null,
-        newCustomer: mode === "new" ? nc : null,
+        customerId:
+          opts?.useExistingId ||
+          (mode === "existing" ? customerId || null : null),
+        newCustomer: mode === "new" && !opts?.useExistingId ? nc : null,
+        useExistingId: opts?.useExistingId ?? null,
+        forceCreate: opts?.forceCreate,
+        overrideReason: overrideReason || null,
         title,
         lines: lines.map((l) => {
           const p = l.productId ? products.find((x) => x.id === l.productId) : null;
@@ -89,6 +98,10 @@ export function QuickEstimateForm({
         notes,
         markSent,
       });
+      if (res.matches?.length) {
+        setMatches(res.matches);
+        return;
+      }
       if (res.error) {
         toast.error(res.error);
         return;
@@ -154,6 +167,24 @@ export function QuickEstimateForm({
               />
             </div>
           )}
+          {matches.length ? (
+            <div className="space-y-2">
+              {matches.some((m) => m.tier === "strong") ? (
+                <input
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                  placeholder="Reason for creating a new customer (required for strong matches)"
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                />
+              ) : null}
+              <CustomerMatchPanel
+                matches={matches}
+                pending={saving}
+                onUseExisting={(id) => submit({ useExistingId: id })}
+                onCreateAnyway={() => submit({ forceCreate: true })}
+              />
+            </div>
+          ) : null}
 
           <Input
             value={title}
@@ -252,7 +283,7 @@ export function QuickEstimateForm({
       </Card>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={submit} disabled={saving} size="lg">
+        <Button onClick={() => submit()} disabled={saving} size="lg">
           <FileText className="size-4" />
           {saving ? "Saving…" : "Create estimate"}
         </Button>

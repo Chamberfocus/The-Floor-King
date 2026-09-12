@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
+import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import type { LeadSource, LeadStage } from "@/lib/types";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -43,6 +45,9 @@ export interface CarryOverInput {
     zip: string;
     source: string;
   } | null;
+  useExistingId?: string | null;
+  forceCreate?: boolean;
+  overrideReason?: string | null;
   salespersonId: string | null; // the client's owner + estimate rep
   kind: CarryKind;
   title: string;
@@ -66,6 +71,7 @@ export interface CarryOverResult {
   error: string | null;
   ok?: boolean;
   customerId?: string;
+  matches?: ScoredCustomerMatch[];
 }
 
 const stageFor = (kind: CarryKind): LeadStage => {
@@ -109,9 +115,17 @@ export async function carryOverDeal(
     const nc = input.newCustomer;
     if (!nc?.full_name?.trim()) return { error: "Add the customer's name." };
     custName = nc.full_name.trim();
-    const { data: created, error: custErr } = await supabase
-      .from("customers")
-      .insert({
+    const resolved = await resolveOrCreateCustomer({
+      input: {
+        fullName: custName,
+        phone: nc.phone?.trim() || null,
+        email: nc.email?.trim() || null,
+        address: nc.street?.trim() || null,
+        city: nc.city?.trim() || null,
+        state: nc.state?.trim() || null,
+        zip: nc.zip?.trim() || null,
+      },
+      insert: {
         full_name: custName,
         phone: nc.phone?.trim() || null,
         email: nc.email?.trim() || null,
@@ -122,18 +136,20 @@ export async function carryOverDeal(
         source: (nc.source || "repeat") as LeadSource,
         stage: targetStage,
         notes: STAMP,
-        // Carry-overs are past qualification — don't make the guided flow nag to
-        // "qualify & assign" an existing deal.
         qualified: true,
         workflow_owner_id: ownerId,
         created_by: uid,
         assigned_to: ownerId,
-      })
-      .select("id")
-      .single();
-    if (custErr || !created)
-      return { error: custErr?.message || "Couldn't add the customer." };
-    customerId = created.id as string;
+      },
+      useExistingId: input.useExistingId,
+      forceCreate: input.forceCreate,
+      overrideReason: input.overrideReason,
+    });
+    if (resolved.action === "needs_choice") {
+      return { error: null, matches: resolved.matches };
+    }
+    if (resolved.action === "error") return { error: resolved.error };
+    customerId = resolved.customerId;
   } else {
     const { data: c } = await supabase
       .from("customers")

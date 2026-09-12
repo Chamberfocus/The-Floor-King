@@ -37,6 +37,8 @@ import {
 } from "@/lib/data/customers";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
+import { listOrdersForCustomer } from "@/lib/data/orders";
+import { isCashCarryJob } from "@/lib/customer-list";
 import {
   createJobFromEstimate,
   submitJobToWarehouse,
@@ -56,6 +58,7 @@ import { ProcessCardButton } from "./process-card-button";
 import { SamplesCard } from "./samples-card";
 import { PropertyCard } from "./property-card";
 import { CustomerOrdersCard } from "./customer-orders-card";
+import { CashCarryCard } from "./cash-carry-card";
 import { ServiceAddressesCard } from "./service-addresses-card";
 import { listServiceAddresses } from "@/lib/data/service-addresses";
 import { listCustomerAreas } from "@/lib/data/customer-areas";
@@ -221,6 +224,10 @@ export default async function CustomerPage({
   const estimates = await listEstimatesForCustomer(id);
   const jobs = await listJobsForCustomer(id);
   const invoices = await listInvoicesForCustomer(id);
+  const pickupOrders = await listOrdersForCustomer(id).catch(() => []);
+  const installJobs = jobs.filter((j) => !isCashCarryJob(j));
+  const cashCarryJobs = jobs.filter((j) => isCashCarryJob(j));
+  const cashCarryJobIds = new Set(cashCarryJobs.map((j) => j.id));
   const portalUser = await getPortalUser(id);
   const messages = await listCustomerMessages(id);
   const canCustomerFiles = (
@@ -371,7 +378,7 @@ export default async function CustomerPage({
   // Which job the close-out action opens — the SAME rule the customer list
   // uses, so the two surfaces never point at different jobs.
   const closeoutTarget = pickCloseoutJob(
-    jobs.map((j) => ({
+    installJobs.map((j) => ({
       id: j.id,
       status: j.status ?? null,
       scheduled_date: j.scheduled_date ?? null,
@@ -384,8 +391,8 @@ export default async function CustomerPage({
   // The job the guided spine acts on (its satisfaction sign-off feeds the
   // follow-up stage). Mirrors GuidedFlow's own active-job pick.
   const guidedActiveJob =
-    jobs.find((j) => j.status !== "completed" && j.status !== "cancelled") ??
-    jobs[0] ??
+    installJobs.find((j) => j.status !== "completed" && j.status !== "cancelled") ??
+    installJobs[0] ??
     null;
   const guidedSatisfaction =
     guidedActiveJob && canCustomerFiles
@@ -399,7 +406,9 @@ export default async function CustomerPage({
    * tracks the wrong one. The account is the account; the work is the job.
    * Every step, and the tools to do it, now live on the job page.
    */
-  const jobChecklists = await getCustomerChecklists(id);
+  const jobChecklists = (await getCustomerChecklists(id)).filter(
+    (j) => !j.jobId || !cashCarryJobIds.has(j.jobId),
+  );
   /**
    * Each job's OWN stage name. The account badge is the pre-job position and is
    * simply wrong once there are two jobs — a finished kitchen and an unmeasured
@@ -799,6 +808,38 @@ export default async function CustomerPage({
             ) : null}
           </div>
         ) : null}
+        {(() => {
+          const openInstall = installJobs.filter(
+            (j) => j.status !== "completed" && j.status !== "cancelled",
+          ).length;
+          const cc =
+            cashCarryJobs.length +
+            pickupOrders.filter(
+              (o) =>
+                o.status !== "cancelled" &&
+                o.status !== "declined" &&
+                !(o.job_id && cashCarryJobIds.has(o.job_id)),
+            ).length +
+            invoices.filter(
+              (inv) =>
+                !!inv.counter_sale &&
+                inv.status !== "void" &&
+                !(inv.job_id && cashCarryJobIds.has(inv.job_id)),
+            ).length;
+          const bits = [
+            installJobs.length
+              ? `${installJobs.length} job${installJobs.length === 1 ? "" : "s"}`
+              : null,
+            openInstall ? `${openInstall} open` : null,
+            cc ? `${cc} cash & carry` : null,
+          ].filter(Boolean);
+          if (!bits.length) return null;
+          return (
+            <div className="mt-3 text-sm font-medium text-muted-foreground">
+              {bits.join(" · ")}
+            </div>
+          );
+        })()}
 
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4">
           <CustomerSettingsMenu
@@ -921,8 +962,8 @@ export default async function CustomerPage({
             </span>
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            This job is out of your active pipeline. Reopen it (top right) to pick
-            back up where it left off.
+            This customer is out of your active pipeline. Reopen them (top right) to pick
+            back up where they left off.
           </p>
         </div>
       ) : null}
@@ -939,7 +980,7 @@ export default async function CustomerPage({
         defaultTab={prefs.defaultTab}
         counts={{
           estimates: estimates.length,
-          jobs: jobs.length,
+          jobs: installJobs.length,
           invoices: invoices.length,
           materials: customerPOs.length + stockPulls.length,
           files: documents.length,
@@ -1468,9 +1509,9 @@ export default async function CustomerPage({
               <CardTitle className="text-base">Jobs</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {workOrderRows.length === 0 ? (
+              {workOrderRows.filter((j) => !cashCarryJobIds.has(j.id)).length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No jobs yet — use &ldquo;New job&rdquo; at the top of this page,
+                  No install jobs yet — use &ldquo;New job&rdquo; at the top of this page,
                   or create one from an approved estimate.
                 </p>
               ) : (
@@ -1478,7 +1519,9 @@ export default async function CustomerPage({
                   {/* Each job with ITS OWN quote, invoices and material — not
                       four separate piles for the whole account that you have to
                       cross-reference to work out which belongs to which. */}
-                  {workOrderRows.map((j) => {
+                  {workOrderRows
+                    .filter((j) => !cashCarryJobIds.has(j.id))
+                    .map((j) => {
                     const src = jobs.find((x) => x.id === j.id);
                     const mine = {
                       estimates: estimateRows.filter(
@@ -1566,6 +1609,46 @@ export default async function CustomerPage({
               <CustomerAreasCard customerId={customer.id} areas={customerAreas} />
             </CardContent>
           </Card>
+          <div className="mt-4">
+            <CashCarryCard
+              jobs={cashCarryJobs.map((j) => ({
+                id: j.id,
+                title: j.title || "Cash & carry",
+                status: j.status,
+                warehouseStatus: j.warehouse_status,
+              }))}
+              invoices={invoices
+                .filter(
+                  (inv) =>
+                    !!inv.counter_sale &&
+                    inv.status !== "void" &&
+                    !(inv.job_id && cashCarryJobIds.has(inv.job_id)),
+                )
+                .map((inv) => {
+                  const t = invoiceTotals(inv.items ?? [], inv.tax_rate, amountPaid(inv));
+                  return {
+                    id: inv.id,
+                    number: inv.number || "Counter sale",
+                    status: inv.status,
+                    total: t.total,
+                    paid: inv.status === "paid",
+                  };
+                })}
+              orders={pickupOrders
+                .filter(
+                  (o) =>
+                    o.status !== "cancelled" &&
+                    o.status !== "declined" &&
+                    !(o.job_id && cashCarryJobIds.has(o.job_id)),
+                )
+                .map((o) => ({
+                  id: o.id,
+                  status: o.status,
+                  createdAt: o.created_at,
+                  jobId: o.job_id,
+                }))}
+            />
+          </div>
           </TabSection>
 
           {/* Materials & Orders — POs + stock for this customer */}

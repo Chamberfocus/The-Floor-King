@@ -1405,6 +1405,8 @@ export interface Invoice {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Walk-in / counter sale paid at the register (migration 0144). */
+  counter_sale?: boolean;
   items?: InvoiceItem[];
   payments?: Payment[];
   creditApplications?: CreditApplication[];

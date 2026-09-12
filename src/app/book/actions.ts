@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getPublicDaySlots, getPublicBookingConfig } from "@/lib/data/booking";
 import { localNowIso } from "@/lib/booking";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { resolvePublicBookingCustomer } from "@/lib/data/customer-resolve";
 
 export interface PublicSlot {
   hm: string;
@@ -79,23 +80,18 @@ export async function submitBookingRequest(input: {
 
   const admin = createAdminClient();
 
-  // Create a lead so staff can work the request like any other.
-  const { data: cust, error: custErr } = await admin
-    .from("customers")
-    .insert({
-      full_name: name,
-      phone: phone || null,
-      email: email || null,
-      stage: "new",
-      source: "website",
-    })
-    .select("id")
-    .single();
-  if (custErr || !cust)
-    return { error: custErr?.message || "Couldn't submit your request." };
+  // Privacy-safe: exact phone/email may attach to an existing customer.
+  // Match details are never returned to the public caller.
+  const linked = await resolvePublicBookingCustomer({
+    name,
+    phone: phone || "",
+    email: email || "",
+  });
+  if (linked.error || !linked.customerId)
+    return { error: linked.error || "Couldn't submit your request." };
 
   const { error: apptErr } = await admin.from("appointments").insert({
-    customer_id: cust.id,
+    customer_id: linked.customerId,
     type_id: type.id,
     kind: type.kind,
     starts_at: input.startIso,

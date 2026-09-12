@@ -9,6 +9,8 @@ import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { formatDate } from "@/lib/format";
 import { sendJobToWarehouse } from "@/app/(app)/jobs/actions";
 import { buildInvoiceFromOrder } from "@/lib/data/order-invoice";
+import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
+import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import type { OrderItem, OrderStockStatus } from "@/lib/types";
 
 function str(v: FormDataEntryValue | null): string {
@@ -17,10 +19,14 @@ function str(v: FormDataEntryValue | null): string {
 
 /** Owner/office approves an order → creates a cash-and-carry job and sends it to
  *  the warehouse to be cut & staged for pickup. */
-export async function approveOrder(formData: FormData): Promise<void> {
+export async function approveOrder(formData: FormData): Promise<{
+  error: string | null;
+  ok?: boolean;
+  matches?: ScoredCustomerMatch[];
+}> {
   await assertRole(["admin", "office"]);
   const orderId = str(formData.get("order_id"));
-  if (!orderId) return;
+  if (!orderId) return { error: "Missing order." };
 
   const supabase = await createClient();
   const {
@@ -33,7 +39,7 @@ export async function approveOrder(formData: FormData): Promise<void> {
     .select("*")
     .eq("id", orderId)
     .maybeSingle();
-  if (!order || order.status !== "submitted") return;
+  if (!order || order.status !== "submitted") return { error: "That order is not waiting on approval." };
   const { data: itemData } = await supabase
     .from("order_items")
     .select("*")
@@ -41,30 +47,39 @@ export async function approveOrder(formData: FormData): Promise<void> {
     .order("position", { ascending: true });
   const items = (itemData ?? []) as OrderItem[];
 
-  // Resolve or create the customer (public orders have none yet).
-  let customerId = (order.customer_id as string | null) ?? null;
-  if (!customerId) {
-    const { data: c } = await supabase
-      .from("customers")
-      .insert({
-        full_name: (order.contact_name as string) || "Order customer",
+  const alreadyLinked = (order.customer_id as string | null) || null;
+  let customerId = alreadyLinked;
+  // Do not re-resolve (or rewrite) an order that already has a customer.
+  // When customer_id is null, match contact against existing customers and
+  // require an explicit choice before inserting a new UUID.
+  if (!alreadyLinked) {
+    const contactName = (order.contact_name as string) || "Order customer";
+    const resolved = await resolveOrCreateCustomer({
+      input: {
+        fullName: contactName,
+        phone: (order.contact_phone as string) || null,
+        email: (order.contact_email as string) || null,
+      },
+      insert: {
+        full_name: contactName,
         phone: (order.contact_phone as string) || null,
         email: (order.contact_email as string) || null,
         source: "walk_in",
         stage: "won",
         created_by: uid,
         assigned_to: uid,
-      })
-      .select("id")
-      .single();
-    customerId = (c?.id as string) ?? null;
-    if (customerId)
-      await supabase
-        .from("orders")
-        .update({ customer_id: customerId })
-        .eq("id", orderId);
+      },
+      useExistingId: str(formData.get("use_existing_id")) || null,
+      forceCreate: str(formData.get("force_create")) === "1",
+      overrideReason: str(formData.get("duplicate_override_reason")),
+    });
+    if (resolved.action === "needs_choice") {
+      return { error: null, matches: resolved.matches };
+    }
+    if (resolved.action === "error") return { error: resolved.error };
+    customerId = resolved.customerId;
   }
-  if (!customerId) return;
+  if (!customerId) return { error: "Couldn't attach a customer." };
 
   // Build the warehouse cut list from the order items.
   const cutList = items
@@ -104,6 +119,7 @@ export async function approveOrder(formData: FormData): Promise<void> {
     .update({
       status: "approved",
       job_id: jobId,
+      customer_id: customerId,
       approved_by: uid,
       approved_at: new Date().toISOString(),
       // Columns arrive in 0151; a pre-migration database just ignores the
@@ -152,6 +168,7 @@ export async function approveOrder(formData: FormData): Promise<void> {
   revalidatePath("/board");
   revalidatePath("/dashboard");
   revalidatePath(`/customers/${customerId}`);
+  return { error: null, ok: true };
 }
 
 /** Warehouse (or staff) flags whether an order is in stock → pings the owner.
