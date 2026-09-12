@@ -46,6 +46,8 @@ export function invoiceRemainingBalance(
   taxRate: number | string | null | undefined,
   payments: PaymentLike[] | null | undefined,
   appliedCredits: number = 0,
+  appliedDeposits: number = 0,
+  appliedWriteOffs: number = 0,
 ): number {
   const paid = activePaymentsTotal(payments);
   return effectiveInvoiceBalance({
@@ -53,25 +55,31 @@ export function invoiceRemainingBalance(
     taxRate,
     amountPaid: paid,
     appliedCredits,
+    appliedDeposits,
+    appliedWriteOffs,
   }).amountDue;
 }
 
 /**
- * Day Briefing / collect-task amount due — same as invoiceRemainingBalance,
- * with applied credits summed from application rows (F1).
- * Void payments never reduce this amount.
+ * Day Briefing / collect-task amount due — same as invoiceRemainingBalance
+ * (payments + credits + applied deposits + write-offs).
+ * Void payments never reduce this amount. Unapplied deposits are not netted.
  */
 export function dayTaskCollectAmountDue(args: {
   items: CalcInvoiceItem[];
   taxRate: number | string | null | undefined;
   payments?: PaymentLike[] | null;
   creditApplications?: { amount: number | string; status?: string | null }[] | null;
+  appliedDeposits?: number;
+  appliedWriteOffs?: number;
 }): number {
   return invoiceRemainingBalance(
     args.items,
     args.taxRate,
     args.payments,
     activeApplicationsTotal(args.creditApplications),
+    args.appliedDeposits ?? 0,
+    args.appliedWriteOffs ?? 0,
   );
 }
 

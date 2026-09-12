@@ -95,7 +95,7 @@ export async function getCrewPayoutTotals(): Promise<Record<string, CrewPayout>>
 
 export type JobCrew = Pick<
   InstallCrew,
-  "id" | "name" | "kind" | "phone" | "pay_basis" | "pay_rate"
+  "id" | "name" | "kind" | "phone" | "pay_basis" | "pay_rate" | "profile_id"
 >;
 
 export async function getJobCrew(jobId: string): Promise<JobCrew | null> {
@@ -109,7 +109,7 @@ export async function getJobCrew(jobId: string): Promise<JobCrew | null> {
     if (error || !job?.assigned_crew_id) return null;
     const { data: crew } = await supabase
       .from("install_crews")
-      .select("id, name, kind, phone, pay_basis, pay_rate")
+      .select("id, name, kind, phone, pay_basis, pay_rate, profile_id")
       .eq("id", job.assigned_crew_id as string)
       .maybeSingle();
     return (crew as JobCrew | null) ?? null;

@@ -5,8 +5,8 @@ import {
   type ChecklistStep,
   type StepOverride,
 } from "@/lib/job-checklist";
-import { invoiceTotals } from "@/lib/invoice-calc";
-import { amountPaid } from "@/lib/data/invoices";
+import { amountPaid, invoiceAmountDue } from "@/lib/data/invoices";
+import { listCreditApplicationsForInvoices } from "@/lib/data/credits";
 import type { Invoice } from "@/lib/types";
 
 /**
@@ -323,6 +323,21 @@ async function buildOne({
     ]);
     const estPoCount = estPo ?? 0;
     invoices = (inv ?? []) as unknown as Invoice[];
+    if (invoices.length) {
+      const apps = await listCreditApplicationsForInvoices(
+        invoices.map((i) => i.id),
+        supabase,
+      );
+      const appsBy = new Map<string, typeof apps>();
+      for (const a of apps) {
+        const list = appsBy.get(a.invoice_id) ?? [];
+        list.push(a);
+        appsBy.set(a.invoice_id, list);
+      }
+      for (const row of invoices) {
+        row.creditApplications = appsBy.get(row.id) ?? [];
+      }
+    }
     issuedPos = poCount ?? 0;
     satisfaction = !!sat;
     issuedPos = issuedPos || estPoCount;
@@ -337,7 +352,7 @@ async function buildOne({
 
   const live = invoices
     .filter((i) => i.status !== "void")
-    .map((i) => ({ inv: i, bal: invoiceTotals(i.items ?? [], i.tax_rate, amountPaid(i)).balance }));
+    .map((i) => ({ inv: i, bal: invoiceAmountDue(i) }));
   const outstanding = live.reduce((s, x) => s + Math.max(0, x.bal), 0);
 
   const steps = buildChecklist({

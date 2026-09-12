@@ -170,6 +170,8 @@ export async function receivePoLines(input: {
   revalidatePath("/warehouse");
   revalidatePath("/purchase-orders");
   revalidatePath(`/purchase-orders/${input.poId}`);
+  revalidatePath("/inventory");
+  revalidatePath("/jobs");
   return { error: null, fullyReceived, short };
 }
 
@@ -223,6 +225,7 @@ export async function unreceivePoLine(input: {
 
   revalidatePath("/warehouse");
   revalidatePath(`/purchase-orders/${input.poId}`);
+  revalidatePath("/inventory");
   return { error: null };
 }
 

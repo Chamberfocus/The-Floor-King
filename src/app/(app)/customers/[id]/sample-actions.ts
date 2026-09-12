@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import { sendSms } from "@/lib/sms";
+import type { MessageSendResult } from "@/lib/message-send";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 
-type Result = { error: string | null };
+type Result = { error: string | null; notify?: MessageSendResult };
 
 function revalidateCustomer(customerId: string | null | undefined) {
   if (customerId) revalidatePath(`/customers/${customerId}`);
@@ -111,8 +112,12 @@ export async function checkoutSamples(input: {
     "en-US",
     { weekday: "short", month: "short", day: "numeric" },
   );
+  let notify: MessageSendResult = {
+    status: "not_attempted",
+    reason: "No email or phone on file.",
+  };
   if (cust?.email) {
-    await sendEmail({
+    notify = await sendEmail({
       to: cust.email as string,
       subject: "Your flooring samples — please return by " + dueNice,
       html: emailLayout(
@@ -124,8 +129,13 @@ export async function checkoutSamples(input: {
         { label: "View my project", url: `${siteUrl()}/portal` },
       ),
     });
+  } else if (cust?.phone) {
+    notify = await sendSms(
+      cust.phone as string,
+      `Cleveland Floor King: you checked out samples (${list}). Please return by ${dueNice}. Thanks!`,
+    );
   }
-  if (cust?.phone) {
+  if (cust?.phone && cust?.email) {
     await sendSms(
       cust.phone as string,
       `Cleveland Floor King: you checked out samples (${list}). Please return by ${dueNice}. Thanks!`,
@@ -139,7 +149,7 @@ export async function checkoutSamples(input: {
   });
 
   revalidateCustomer(input.customerId);
-  return { error: null };
+  return { error: null, notify };
 }
 
 export async function returnCheckout(checkoutId: string): Promise<Result> {

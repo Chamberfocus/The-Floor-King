@@ -6,10 +6,9 @@ import { aiText } from "@/lib/ai";
 import { getCustomer, listActivities } from "@/lib/data/customers";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer } from "@/lib/data/jobs";
-import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
+import { listInvoicesForCustomer, invoiceAmountDue } from "@/lib/data/invoices";
 import { getOrgSettings } from "@/lib/data/org";
 import { optionTotals } from "@/lib/estimate-calc";
-import { invoiceTotals } from "@/lib/invoice-calc";
 import { formatMoney } from "@/lib/format";
 
 export type MessageIntent =
@@ -110,13 +109,7 @@ export async function draftMessage(
     const invoices = await listInvoicesForCustomer(customerId);
     const balance = invoices
       .filter((i) => i.status !== "void")
-      .reduce(
-        // Floor each invoice at 0 — an overpaid (credit) invoice must not cancel
-        // out real debt owed on another invoice.
-        (s, i) =>
-          s + Math.max(0, invoiceTotals(i.items ?? [], i.tax_rate, amountPaid(i)).balance),
-        0,
-      );
+      .reduce((s, i) => s + invoiceAmountDue(i), 0);
     if (balance > 0.5)
       ctx.push(`Outstanding balance owed: ${formatMoney(balance)}`);
   }

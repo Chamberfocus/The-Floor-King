@@ -28,6 +28,8 @@ import {
   recordEstimateApproval,
 } from "@/lib/data/estimate-approvals";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
+import { describeMessageSend, type MessageSendResult } from "@/lib/message-send";
+import { APPROVE_OPTION_REQUIRED_MESSAGE } from "@/lib/estimate-approve-ui";
 import {
   moveToAutoActionStage,
   advanceFromAutoAction,
@@ -450,10 +452,17 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
 
+  let notify: MessageSendResult | null = null;
+
   if (status === "approved") {
     // Immutable snapshot + audit (Step 6). Creates a NEW version; never overwrites.
     // Must succeed as a unit — never leave status=approved without a snapshot.
     const accepted = str(formData.get("accepted_option_id")) || null;
+    if (!accepted) {
+      redirect(
+        `/estimates/${id}?approval_error=${encodeURIComponent(APPROVE_OPTION_REQUIRED_MESSAGE)}`,
+      );
+    }
     const snap = await recordEstimateApproval({
       estimateId: id,
       acceptedOptionId: accepted,
@@ -511,7 +520,7 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
       email: string | null;
     } | null;
     if (cust?.email) {
-      await sendEmail({
+      notify = await sendEmail({
         to: cust.email,
         subject: "Your estimate from Cleveland Floor King 🎉",
         html: emailLayout(
@@ -528,7 +537,17 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
           { name: "estimate_id", value: id },
         ],
       });
+    } else {
+      notify = {
+        status: "not_attempted",
+        reason: "No email address on file.",
+      };
     }
+  } else if (status === "sent" && skipClientEmail) {
+    notify = {
+      status: "not_attempted",
+      reason: "Marked sent without emailing the customer.",
+    };
   }
 
   if (status === "approved") {
@@ -573,7 +592,12 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
   // every send or approval threw you onto the estimate page and you had to find
   // your way back — which is most of what "bouncing between screens" was.
   const back = str(formData.get("redirect_to"));
-  redirect(back || `/estimates/${id}`);
+  const dest = back || `/estimates/${id}`;
+  if (!notify) redirect(dest);
+  const sep = dest.includes("?") ? "&" : "?";
+  redirect(
+    `${dest}${sep}notify=${notify.status}&notify_detail=${encodeURIComponent(describeMessageSend(notify))}`,
+  );
 }
 
 /** Build a complete estimate from the wizard: one line per room + add-on lines. */
@@ -835,16 +859,35 @@ export async function onEstimateDeclined(
     .select("customer_id")
     .eq("id", estimateId)
     .maybeSingle();
-  const customerId = (est?.customer_id as string | null) ?? null;
+  let customerId = (est?.customer_id as string | null) ?? null;
+  let others: { id: string; status: string }[] = [];
+  if (est) {
+    const { data: staffOthers } = await supabase
+      .from("estimates")
+      .select("id, status")
+      .eq("customer_id", est.customer_id)
+      .neq("id", estimateId);
+    others = (staffOthers ?? []) as { id: string; status: string }[];
+    customerId = (est.customer_id as string | null) ?? null;
+  } else {
+    const { data: portalEst } = await supabase
+      .from("estimates_customer")
+      .select("customer_id")
+      .eq("id", estimateId)
+      .maybeSingle();
+    customerId = (portalEst?.customer_id as string | null) ?? null;
+    if (customerId) {
+      const { data: portalOthers } = await supabase
+        .from("estimates_customer")
+        .select("id, status")
+        .eq("customer_id", customerId)
+        .neq("id", estimateId);
+      others = (portalOthers ?? []) as { id: string; status: string }[];
+    }
+  }
   if (!customerId) return;
-
-  const { data: others } = await supabase
-    .from("estimates")
-    .select("id, status")
-    .eq("customer_id", customerId)
-    .neq("id", estimateId);
   const LIVE = ["draft", "sent", "changes_requested", "approved"];
-  if ((others ?? []).some((o) => LIVE.includes(o.status as string))) return;
+  if (others.some((o) => LIVE.includes(o.status))) return;
 
   await advanceToNamedStage(customerId, /lost|declin/i);
   // Stop the daily nudge chasing a dead lead, and let the coarse stage agree
@@ -1295,16 +1338,16 @@ export async function setEstimateProjectDetails(id: string, show: boolean): Prom
 export async function sendEstimateById(
   id: string,
   notifyClient = true,
-): Promise<void> {
-  if (!id) return;
+): Promise<{ notify: MessageSendResult }> {
+  if (!id) {
+    return { notify: { status: "not_attempted", reason: "Missing estimate." } };
+  }
   const supabase = await createClient();
   await supabase
     .from("estimates")
     .update({
       status: "sent",
       sent_at: new Date().toISOString(),
-      // Same rule as setEstimateStatus: not emailing the client must also mean
-      // not emailing them two hours later from the cron.
       thankyou_sent_at: notifyClient ? null : new Date().toISOString(),
     })
     .eq("id", id);
@@ -1322,8 +1365,12 @@ export async function sendEstimateById(
     full_name: string | null;
     email: string | null;
   } | null;
+  let notify: MessageSendResult = {
+    status: "not_attempted",
+    reason: notifyClient ? "No email address on file." : "Marked sent without emailing.",
+  };
   if (notifyClient && cust?.email) {
-    await sendEmail({
+    notify = await sendEmail({
       to: cust.email,
       subject: "Your estimate from Cleveland Floor King 🎉",
       html: emailLayout(
@@ -1346,6 +1393,7 @@ export async function sendEstimateById(
   revalidatePath("/estimates");
   revalidatePath("/client-status");
   revalidatePath("/dashboard");
+  return { notify };
 }
 
 /** Strip the per-row identity so a line item can be re-inserted under a new option. */

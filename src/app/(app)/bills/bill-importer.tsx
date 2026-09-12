@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { FileUp, Trash2, Plus, Sparkles, RotateCcw } from "lucide-react";
@@ -12,6 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { extractBillFromUpload, createBillFromImport } from "./actions";
+import { createConfirmLock } from "@/lib/confirm-lock";
 
 interface Item {
   description: string;
@@ -48,11 +49,15 @@ const num = (v: unknown) => (typeof v === "number" ? v : Number(v) || 0);
 
 export function BillImporter() {
   const router = useRouter();
+  const importReactId = useId();
+  const importSeq = useRef(0);
   const [reading, startReading] = useTransition();
   const [saving, startSaving] = useTransition();
   const [status, setStatus] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [extractedTotal, setExtractedTotal] = useState<number | null>(null);
+  const [importToken, setImportToken] = useState<string | null>(null);
+  const saveLockRef = useRef(createConfirmLock());
 
   const onFile = (file: File | null) => {
     if (!file) return;
@@ -95,6 +100,11 @@ export function BillImporter() {
           memo: "",
           items: items.length ? items : [{ description: "", quantity: null, unit: "ea", unit_cost: null }],
         });
+        setImportToken(
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `ap-import-op-${importReactId}-${++importSeq.current}`,
+        );
         setExtractedTotal(b.total);
         setStatus(null);
         toast.success("Read the bill — review the details, then create it.");
@@ -123,13 +133,25 @@ export function BillImporter() {
 
   const save = () => {
     if (!draft) return;
+    if (!saveLockRef.current.tryBegin()) return;
     startSaving(async () => {
-      const res = await createBillFromImport(draft);
-      if (res.ok && res.billId) {
-        toast.success("Bill created.");
-        router.push(`/bills/${res.billId}`);
-      } else {
-        toast.error(res.error || "Couldn't create the bill.");
+      try {
+        if (!importToken) {
+          toast.error("Missing bill import operation token. Refresh and try again.");
+          return;
+        }
+        const res = await createBillFromImport({
+          ...draft,
+          idempotencyKey: importToken,
+        });
+        if (res.ok && res.billId) {
+          toast.success("Bill created.");
+          router.push(`/bills/${res.billId}`);
+        } else {
+          toast.error(res.error || "Couldn't create the bill.");
+        }
+      } finally {
+        saveLockRef.current.settle();
       }
     });
   };
@@ -177,6 +199,7 @@ export function BillImporter() {
           onClick={() => {
             setDraft(null);
             setExtractedTotal(null);
+            setImportToken(null);
           }}
         >
           <RotateCcw className="size-3.5" /> Start over

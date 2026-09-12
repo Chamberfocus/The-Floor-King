@@ -7,9 +7,18 @@ import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, CalendarDays, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { to12 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { rescheduleInstall } from "@/app/(app)/jobs/actions";
+import { isMaterialsNotReadyError } from "@/lib/materials-ready";
 
 export interface CalEvent {
   id: string;
@@ -106,6 +115,12 @@ export function InstallerCalendar({
   const [anchor, setAnchor] = useState<Date>(() => new Date());
   const [filter, setFilter] = useState<string>("all");
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [override, setOverride] = useState<{
+    jobId: string;
+    ymd: string;
+    error: string;
+  } | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
 
   const shown = useMemo(
     () => (filter === "all" ? events : events.filter((e) => e.resourceId === filter)),
@@ -113,12 +128,22 @@ export function InstallerCalendar({
   );
 
   // Drag-to-reschedule: drop a job on a day → move it there + alert everyone.
-  const moveJob = (jobId: string, ymdTarget: string) =>
+  const moveJob = (jobId: string, ymdTarget: string, reason?: string) =>
     startTransition(async () => {
-      const res = await rescheduleInstall(jobId, ymdTarget);
+      const res = await rescheduleInstall(
+        jobId,
+        ymdTarget,
+        undefined,
+        undefined,
+        reason ?? null,
+      );
       if (res.ok) {
-        toast.success("Install moved — customer & installer notified.");
+        toast.success("Install moved.");
+        setOverride(null);
+        setOverrideReason("");
         router.refresh();
+      } else if (isMaterialsNotReadyError(res.error)) {
+        setOverride({ jobId, ymd: ymdTarget, error: res.error || "" });
       } else {
         toast.error(res.error || "Couldn't move that install.");
       }
@@ -161,6 +186,7 @@ export function InstallerCalendar({
           });
 
   return (
+    <>
     <Card>
       <CardContent className="p-3 sm:p-4">
         {/* Toolbar */}
@@ -225,8 +251,7 @@ export function InstallerCalendar({
         )}
         {canEdit ? (
           <p className="mt-2 text-xs text-muted-foreground">
-            Tip: drag an install to another day to reschedule it — the customer
-            and installer are notified automatically.
+            Tip: drag an install to another day to reschedule it.
           </p>
         ) : null}
 
@@ -237,6 +262,39 @@ export function InstallerCalendar({
         ) : null}
       </CardContent>
     </Card>
+    <Dialog open={!!override} onOpenChange={(o) => !o && setOverride(null)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Materials are not ready</DialogTitle>
+          <DialogDescription>
+            {override?.error ||
+              "Enter an override reason to move this install before the warehouse marks materials ready."}
+          </DialogDescription>
+        </DialogHeader>
+        <textarea
+          className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+          rows={3}
+          placeholder="Override reason"
+          value={overrideReason}
+          onChange={(e) => setOverrideReason(e.target.value)}
+        />
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setOverride(null)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!overrideReason.trim()}
+            onClick={() => {
+              if (override) moveJob(override.jobId, override.ymd, overrideReason.trim());
+            }}
+          >
+            Move with override
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

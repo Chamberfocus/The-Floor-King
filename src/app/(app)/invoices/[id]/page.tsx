@@ -14,12 +14,11 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { SendToClient } from "@/components/send-to-client";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
-import { getInvoice, amountPaid, amountCredited, getInvoiceScope } from "@/lib/data/invoices";
+import { getInvoice, amountPaid, amountCredited, amountDeposited, amountWrittenOff, getInvoiceScope } from "@/lib/data/invoices";
 import { getCustomer } from "@/lib/data/customers";
 import { getOrgSettings } from "@/lib/data/org";
 import { getInvoiceProfit } from "@/lib/data/finance";
 import { requireProfile } from "@/lib/auth";
-import { invoiceTotals } from "@/lib/invoice-calc";
 import { effectiveInvoiceBalance } from "@/lib/credit-ar";
 import { cn } from "@/lib/utils";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -33,7 +32,7 @@ import {
   emailInvoice,
 } from "../actions";
 import { PaymentIdempotencyField } from "../payment-idempotency-field";
-import { applyCreditToInvoice } from "@/app/(app)/credits/actions";
+import { applyCreditToInvoice, issueGoodwillCredit, writeOffInvoiceBalance } from "@/app/(app)/credits/actions";
 import { getCustomerCreditSummary, memoAvailable } from "@/lib/data/credits";
 
 export const metadata: Metadata = { title: "Invoice" };
@@ -46,10 +45,10 @@ export default async function InvoicePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; preview?: string; payment_error?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string; payment_error?: string; credit_error?: string; notify?: string; notify_detail?: string }>;
 }) {
   const { id } = await params;
-  const { print, preview: previewParam, payment_error: paymentError } = await searchParams;
+  const { print, preview: previewParam, payment_error: paymentError, credit_error: creditError, notify, notify_detail: notifyDetail } = await searchParams;
   const preview = previewParam === "1";
   const invoice = await getInvoice(id);
   if (!invoice) notFound();
@@ -60,12 +59,15 @@ export default async function InvoicePage({
   const invoiceScope = await getInvoiceScope(invoice);
   const paid = amountPaid(invoice);
   const credited = amountCredited(invoice);
-  const totals = invoiceTotals(invoice.items ?? [], invoice.tax_rate, paid);
+  const deposited = amountDeposited(invoice);
+  const writtenOff = amountWrittenOff(invoice);
   const effective = effectiveInvoiceBalance({
     items: invoice.items ?? [],
     taxRate: invoice.tax_rate,
     amountPaid: paid,
     appliedCredits: credited,
+    appliedDeposits: deposited,
+    appliedWriteOffs: writtenOff,
   });
   const creditSummary =
     profile.role === "admin" || profile.role === "office"
@@ -139,6 +141,9 @@ export default async function InvoicePage({
       <InvoiceBuilder
         invoice={invoice}
         amountPaid={paid}
+        amountCredited={credited}
+        amountDeposited={deposited}
+        amountWrittenOff={writtenOff}
         customer={customer}
         org={org}
         scope={invoiceScope?.scope ?? null}
@@ -240,6 +245,22 @@ export default async function InvoicePage({
               {paymentError}
             </p>
           ) : null}
+          {creditError ? (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {creditError}
+            </p>
+          ) : null}
+          {notify === "success" ? (
+            <p className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+              Invoice email sent.
+            </p>
+          ) : null}
+          {notify === "failed" || notify === "not_attempted" ? (
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+              {notify === "failed" ? "Email failed" : "Email was not sent"}
+              {notifyDetail ? `: ${notifyDetail}` : "."}
+            </p>
+          ) : null}
           <div className="rounded-md bg-muted p-3 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Invoice total</span>
@@ -253,6 +274,18 @@ export default async function InvoicePage({
               <span className="text-muted-foreground">Credits applied</span>
               <span>{formatMoney(effective.credited)}</span>
             </div>
+            {effective.deposited > 0.005 ? (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Deposits applied</span>
+                <span>{formatMoney(effective.deposited)}</span>
+              </div>
+            ) : null}
+            {effective.writtenOff > 0.005 ? (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Write-offs</span>
+                <span>{formatMoney(effective.writtenOff)}</span>
+              </div>
+            ) : null}
             <div className="mt-1 flex justify-between border-t pt-1 text-base font-semibold">
               <span>Amount due</span>
               <span>{formatMoney(effective.amountDue)}</span>
@@ -293,6 +326,7 @@ export default async function InvoicePage({
                       value={invoice.customer_id}
                     />
                     <input type="hidden" name="amount" value={applyMax.toFixed(2)} />
+                    <PaymentIdempotencyField />
                     <span className="text-xs text-muted-foreground">
                       {formatMoney(avail)} available
                       {m.reason ? ` · ${m.reason.slice(0, 60)}` : ""}
@@ -303,6 +337,65 @@ export default async function InvoicePage({
                   </form>
                 );
               })}
+            </div>
+          ) : null}
+
+          {(profile.role === "admin" || profile.role === "office") &&
+          invoice.status !== "void" &&
+          effective.amountDue > 0.005 ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <form action={issueGoodwillCredit} className="space-y-2 rounded-md border p-3">
+                <p className="text-sm font-medium">Issue goodwill credit</p>
+                <PaymentIdempotencyField />
+                <input type="hidden" name="customer_id" value={invoice.customer_id} />
+                <input type="hidden" name="invoice_id" value={invoice.id} />
+                {invoice.job_id ? (
+                  <input type="hidden" name="job_id" value={invoice.job_id} />
+                ) : null}
+                <input
+                  name="amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max={effective.amountDue.toFixed(2)}
+                  defaultValue={effective.amountDue.toFixed(2)}
+                  className={fieldClass}
+                  required
+                />
+                <input
+                  name="reason"
+                  placeholder="Reason (required)"
+                  className={fieldClass}
+                  required
+                />
+                <Button type="submit" size="sm" variant="outline">
+                  Issue &amp; apply credit
+                </Button>
+              </form>
+              <form action={writeOffInvoiceBalance} className="space-y-2 rounded-md border p-3">
+                <p className="text-sm font-medium">Write off remaining</p>
+                <input type="hidden" name="invoice_id" value={invoice.id} />
+                <input
+                  name="amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max={effective.amountDue.toFixed(2)}
+                  defaultValue={effective.amountDue.toFixed(2)}
+                  className={fieldClass}
+                  required
+                />
+                <input
+                  name="reason"
+                  placeholder="Write-off reason (required)"
+                  className={fieldClass}
+                  required
+                />
+                <PaymentIdempotencyField />
+                <Button type="submit" size="sm" variant="outline">
+                  Write off
+                </Button>
+              </form>
             </div>
           ) : null}
 

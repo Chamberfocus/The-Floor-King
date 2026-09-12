@@ -7,7 +7,9 @@ import type { SavePoInput } from "@/lib/po-calc";
 import { lineQty } from "@/lib/estimate-calc";
 import { sendEmail, emailLayout, siteUrl, ownerEmail } from "@/lib/notify";
 import { extractOrderDocument, type ExtractedDoc } from "@/lib/extract";
-import { reconcilePoStock, reverseReceivedPOs } from "@/lib/po-stock";
+import { reconcilePoStock } from "@/lib/po-stock";
+import { poVoidIdempotencyKey } from "@/lib/po-void";
+import { assertRole } from "@/lib/auth";
 import { advanceToNamedStage } from "@/lib/workflow-engine";
 
 // "Materials Received" pipeline stage — receiving a PO advances the customer here
@@ -963,19 +965,31 @@ export async function applyPoStatus(
 export async function deletePurchaseOrder(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   if (!id) return;
+  await assertRole(["admin", "office"]);
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const { data: po } = await supabase
     .from("purchase_orders")
     .select("po_number, customer_id")
     .eq("id", id)
     .maybeSingle();
-  // Undo any stock this PO added before removing/voiding it.
-  await reverseReceivedPOs(supabase, [id]);
-  if (po?.po_number != null) {
-    // Issued → keep the number, mark VOID (audit trail preserved).
-    await supabase.from("purchase_orders").update({ status: "void" }).eq("id", id);
-  } else {
-    // Draft with no number → safe to delete; leaves no gap.
+  const { data, error } = await supabase.rpc("void_purchase_order_safe", {
+    p_po_id: id,
+    p_created_by: user?.id ?? null,
+    p_idempotency_key: poVoidIdempotencyKey(id),
+  });
+  if (error) {
+    throw new Error(
+      error.message.includes("does not exist")
+        ? "PO void RPC missing — apply migration 0183."
+        : error.message,
+    );
+  }
+  const res = data as { ok?: boolean; error?: string };
+  if (!res?.ok) throw new Error(res?.error ?? "Could not void this purchase order.");
+  if (po?.po_number == null) {
     await supabase.from("purchase_orders").delete().eq("id", id);
   }
   revalidatePath("/purchase-orders");
@@ -993,14 +1007,30 @@ export async function deletePurchaseOrder(formData: FormData): Promise<void> {
 export async function voidPurchaseOrder(formData: FormData): Promise<void> {
   const id = str(formData.get("id"));
   if (!id) return;
+  await assertRole(["admin", "office"]);
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const { data: cur } = await supabase
     .from("purchase_orders")
     .select("customer_id")
     .eq("id", id)
     .maybeSingle();
-  await reverseReceivedPOs(supabase, [id]);
-  await supabase.from("purchase_orders").update({ status: "void" }).eq("id", id);
+  const { data, error } = await supabase.rpc("void_purchase_order_safe", {
+    p_po_id: id,
+    p_created_by: user?.id ?? null,
+    p_idempotency_key: poVoidIdempotencyKey(id),
+  });
+  if (error) {
+    throw new Error(
+      error.message.includes("does not exist")
+        ? "PO void RPC missing — apply migration 0183."
+        : error.message,
+    );
+  }
+  const res = data as { ok?: boolean; error?: string };
+  if (!res?.ok) throw new Error(res?.error ?? "Could not void this purchase order.");
   revalidatePath(`/purchase-orders/${id}`);
   revalidatePath("/purchase-orders");
   revalidatePath("/inventory");

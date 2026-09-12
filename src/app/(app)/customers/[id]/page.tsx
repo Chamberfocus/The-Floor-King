@@ -36,7 +36,7 @@ import {
   getPortalUser,
 } from "@/lib/data/customers";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
-import { listJobsForCustomer } from "@/lib/data/jobs";
+import { listJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
 import {
   createJobFromEstimate,
   submitJobToWarehouse,
@@ -65,15 +65,13 @@ import {
   listAttributedPoItemsForCustomer,
   getCustomerStockPulls,
 } from "@/lib/data/purchase-orders";
-import { getJob, listAssignableUsers, getJobSatisfaction } from "@/lib/data/jobs";
-import {
-  getSchedulingSettings,
-  getInstallerSuggestions,
-} from "@/lib/data/scheduling";
-import { installDaysForJob } from "@/lib/scheduling";
-import { listInstallCrews, getJobCrew } from "@/lib/data/install-crews";
+import { getSchedulingSettings } from "@/lib/data/scheduling";
 import { InstallSchedule } from "./install-schedule";
-import { listInstallPreferences } from "@/lib/data/install-availability";
+import { buildInstallScheduleProps } from "@/lib/data/install-schedule";
+import {
+  activeInstallJobs,
+  resolveCustomerInstallScheduleTarget,
+} from "@/lib/install-schedule-target";
 import { CustomerDocuments } from "./customer-documents";
 import {
   listWorkflowStages,
@@ -81,6 +79,7 @@ import {
 } from "@/lib/data/workflow";
 import { listQualifyingQuestions } from "@/lib/data/qualifying";
 import { createInvoice } from "@/app/(app)/invoices/actions";
+import { defaultInvoiceJobId } from "@/lib/invoice-job-link";
 import { optionTotals, lineTotal } from "@/lib/estimate-calc";
 import { buildJobScope } from "@/lib/job-scope";
 import {
@@ -183,6 +182,9 @@ export default async function CustomerPage({
     schedule_error?: string;
     credit_error?: string;
     credit_ok?: string;
+    stage_error?: string;
+    notify?: string;
+    notify_detail?: string;
   }>;
 }) {
   const { id } = await params;
@@ -191,6 +193,9 @@ export default async function CustomerPage({
   const scheduleError = sp.schedule_error?.trim() || null;
   const creditError = sp.credit_error?.trim() || null;
   const creditOk = sp.credit_ok?.trim() || null;
+  const stageError = sp.stage_error?.trim() || null;
+  const notify = sp.notify?.trim() || null;
+  const notifyDetail = sp.notify_detail?.trim() || null;
   // The checklist links straight AT the scheduler ("?schedule=estimate"), so
   // step two opens the booking dialog instead of dropping you on the page that
   // happens to contain it.
@@ -268,23 +273,10 @@ export default async function CustomerPage({
   // Manageable cancellation reasons for the Cancel dialog.
   const cancelReasons = await listCancelReasons({ activeOnly: true });
   const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
-  // Soonest scheduled install (for the at-a-glance schedule strip under the stage).
-  const installJob =
-    jobs.find(
-      (j) =>
-        j.scheduled_date &&
-        j.status !== "cancelled" &&
-        j.status !== "completed",
-    ) ??
-    jobs.find((j) => j.scheduled_date) ??
-    null;
-  // The job the install quick-action targets — the active one (schedulable even
-  // if not yet dated), else whatever's on the books.
-  const schedulableJob =
-    jobs.find((j) => j.status !== "cancelled" && j.status !== "completed") ??
-    installJob ??
-    jobs[0] ??
-    null;
+  // Canonical install target — strip, quick-action, and hidden job_id must agree.
+  const installJob = resolveCustomerInstallScheduleTarget(jobs);
+  const schedulableJob = installJob;
+  const siblingInstallJobs = activeInstallJobs(jobs);
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     ...jobs.map((j) => j.assigned_to ?? ""),
@@ -460,7 +452,11 @@ export default async function CustomerPage({
     ...(singleWork
       ? buildChecklistSlots({
           estimate: liveEstimate
-            ? { id: liveEstimate.id, status: liveEstimate.status }
+            ? {
+                id: liveEstimate.id,
+                status: liveEstimate.status,
+                optionIds: (liveEstimate.options ?? []).map((o) => o.id),
+              }
             : null,
           job: liveJob
             ? {
@@ -476,63 +472,13 @@ export default async function CustomerPage({
   };
 
 
-  // Install smart-scheduler for the active job — lives here on the customer file
-  // (its home). Computed only for the schedulable job to keep the page light.
+  // Install smart-scheduler for the SAME job shown in the schedule strip.
   let installScheduleProps: Parameters<typeof InstallSchedule>[0] | null = null;
   if (schedulableJob) {
-    const [jobDetail, settings, installCrews, jobCrew, assignable] =
-      await Promise.all([
-        getJob(schedulableJob.id),
-        getSchedulingSettings(),
-        listInstallCrews({ activeOnly: true }),
-        getJobCrew(schedulableJob.id),
-        listAssignableUsers(),
-      ]);
-    const lineItems = jobDetail?.line_items ?? [];
-    const est = lineItems.length ? installDaysForJob(lineItems, settings) : null;
-    const suggestions =
-      est && est.days > 0
-        ? await getInstallerSuggestions(lineItems, settings)
-        : [];
-    // Installers = the canonical INSTALL_ROLES set (matches the smart
-    // suggestions, the calendar, and the capacity settings screen).
-    const crewUsers = assignable.filter((u) =>
-      (INSTALL_ROLES as string[]).includes(u.role),
+    installScheduleProps = await buildInstallScheduleProps(
+      schedulableJob.id,
+      id,
     );
-    // ONE unified installer list — login installers (→ assigned_to) + login-less
-    // subcontractor crews (value "crew:<id>" → assigned_crew_id). Matches the
-    // shared buildInstallScheduleProps.
-    const installerUsers = [
-      ...crewUsers.map((u) => ({ value: u.id, label: u.name })),
-      ...installCrews
-        .filter((c) => !c.profile_id)
-        .map((c) => ({ value: `crew:${c.id}`, label: `${c.name} (sub)` })),
-    ];
-    installScheduleProps = {
-      jobId: schedulableJob.id,
-      customerId: id,
-      jobTitle: schedulableJob.title ?? null,
-      schedule: {
-        date: schedulableJob.scheduled_date ?? null,
-        endDate: schedulableJob.scheduled_end ?? null,
-        window: schedulableJob.arrival_window ?? null,
-        installerId: schedulableJob.assigned_to
-          ? schedulableJob.assigned_to
-          : schedulableJob.assigned_crew_id
-            ? `crew:${schedulableJob.assigned_crew_id}`
-            : null,
-        installerName: schedulableJob.assigned_to
-          ? (names[schedulableJob.assigned_to] ?? null)
-          : (jobCrew?.name ?? null),
-      },
-      installEst: est,
-      suggestions,
-      installerUsers,
-      arrivalWindows,
-      preferences: (await listInstallPreferences(schedulableJob.id)).map(
-        (p) => p.preferred_date,
-      ),
-    };
   }
 
   // Identity-band bits: address for the maps chip, owner initials, sub line.
@@ -720,6 +666,31 @@ export default async function CustomerPage({
           className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           {creditError}
+        </div>
+      ) : null}
+      {stageError ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {stageError}
+        </div>
+      ) : null}
+      {notify === "success" ? (
+        <div
+          role="status"
+          className="mb-4 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-300"
+        >
+          Email sent to the customer.
+        </div>
+      ) : null}
+      {notify === "failed" || notify === "not_attempted" ? (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+        >
+          {notify === "failed" ? "Email failed" : "Email was not sent"}
+          {notifyDetail ? `: ${notifyDetail}` : "."}
         </div>
       ) : null}
       {creditOk ? (
@@ -1305,6 +1276,7 @@ export default async function CustomerPage({
                           <div className="min-w-0">
                             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                               Install
+                              {installJob.title ? ` · ${installJob.title}` : ""}
                             </div>
                             <div className="text-sm font-semibold">
                               {formatDate(installJob.scheduled_date)}
@@ -1320,6 +1292,37 @@ export default async function CustomerPage({
                         </div>
                       ) : null}
                     </div>
+                  </div>
+                ) : null}
+
+                {siblingInstallJobs.length > 1 ? (
+                  <div className="rounded-lg border bg-card p-5 shadow-sm">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Active jobs
+                    </p>
+                    <ul className="space-y-2 text-sm">
+                      {siblingInstallJobs.map((j) => (
+                        <li
+                          key={j.id}
+                          className="flex items-center justify-between gap-2"
+                        >
+                          <span className="min-w-0 truncate">
+                            {j.title || "Job"}
+                            {schedulableJob?.id === j.id ? (
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                (scheduling)
+                              </span>
+                            ) : null}
+                          </span>
+                          <Link
+                            href={`/jobs/${j.id}`}
+                            className="shrink-0 text-xs font-medium text-primary hover:underline"
+                          >
+                            Schedule this job
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 ) : null}
 
@@ -1580,8 +1583,39 @@ export default async function CustomerPage({
           <Card id="invoices" className="scroll-mt-24">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">Invoices</CardTitle>
-              <form action={createInvoice} data-tour="create-invoice">
+              <form action={createInvoice} data-tour="create-invoice" className="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="customer_id" value={customer.id} />
+                {(() => {
+                  const activeIds = jobs
+                    .filter((j) => j.status !== "cancelled")
+                    .map((j) => j.id);
+                  const linked = defaultInvoiceJobId(activeIds);
+                  if (linked) {
+                    return <input type="hidden" name="job_id" value={linked} />;
+                  }
+                  if (activeIds.length > 1) {
+                    return (
+                      <select
+                        name="job_id"
+                        required
+                        className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                        defaultValue=""
+                      >
+                        <option value="" disabled>
+                          Link to which job?
+                        </option>
+                        {jobs
+                          .filter((j) => j.status !== "cancelled")
+                          .map((j) => (
+                            <option key={j.id} value={j.id}>
+                              {j.title || j.id.slice(0, 8)}
+                            </option>
+                          ))}
+                      </select>
+                    );
+                  }
+                  return null;
+                })()}
                 <SubmitButton size="sm" pendingText="Creating…" confirm="Invoice created">
                   <Receipt className="size-3.5" /> New invoice
                 </SubmitButton>

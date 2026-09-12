@@ -29,6 +29,7 @@ import { AddToInventoryForm } from "./add-to-inventory";
 import { Trash2, FileText } from "lucide-react";
 
 export const metadata: Metadata = { title: "Inventory" };
+export const dynamic = "force-dynamic";
 
 const cell =
   "h-8 w-20 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";

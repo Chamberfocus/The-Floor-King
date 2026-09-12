@@ -1408,6 +1408,10 @@ export interface Invoice {
   items?: InvoiceItem[];
   payments?: Payment[];
   creditApplications?: CreditApplication[];
+  /** Active deposit applications (sum attached in data loaders). */
+  appliedDeposits?: number;
+  /** Active write-offs (sum attached in data loaders). */
+  appliedWriteOffs?: number;
 }
 
 export const INVOICE_COMMERCIAL_KIND_LABELS: Record<

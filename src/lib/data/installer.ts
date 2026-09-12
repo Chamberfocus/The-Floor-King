@@ -4,6 +4,11 @@ import { getJobOpenBalance } from "./invoices";
 import { getJobPhotos } from "./documents";
 import { buildJobScope, type JobScope } from "@/lib/job-scope";
 import { resolveOperationalLines } from "@/lib/job-operational-scope";
+import {
+  installerAssignmentOrFilter,
+  installerSeesJob,
+  dedupeJobsById,
+} from "@/lib/installer-assignment";
 import type { JobSatisfaction } from "./jobs";
 import type { Job, CustomerDocument, EstimateLineItem } from "@/lib/types";
 
@@ -32,21 +37,37 @@ export interface InstallerHome {
 
 /** Everything an installer needs about their OWN jobs — their world in one place.
  *  Uses the service-role client because crew are blocked from job_labor/invoices
- *  by RLS; we only ever read rows for jobs assigned to this installer. */
+ *  by RLS; we only ever read rows for jobs assigned to this installer directly
+ *  OR via an active install_crews.profile_id crew assignment. */
 export async function getInstallerHome(
   userId: string,
   globalCollects: boolean,
 ): Promise<InstallerHome> {
   const admin = createAdminClient();
+  const { data: crewRows } = await admin
+    .from("install_crews")
+    .select("id")
+    .eq("profile_id", userId)
+    .eq("active", true);
+  const memberCrewIds = (crewRows ?? []).map((c) => c.id as string);
   const { data } = await admin
     .from("jobs")
     .select("*, customer:customers(full_name, workflow_stage_id)")
-    .eq("assigned_to", userId)
+    .or(installerAssignmentOrFilter(userId, memberCrewIds))
     .in("status", ["unscheduled", "scheduled", "in_progress", "completed"])
     .order("scheduled_date", { ascending: true });
-  const jobsRaw = (data ?? []) as (Job & {
-    customer?: { full_name: string | null; workflow_stage_id: string | null } | null;
-  })[];
+  const jobsRaw = dedupeJobsById(
+    ((data ?? []) as (Job & {
+      customer?: { full_name: string | null; workflow_stage_id: string | null } | null;
+    })[]).filter((j) =>
+      installerSeesJob({
+        assignedTo: j.assigned_to,
+        assignedCrewId: j.assigned_crew_id,
+        userId,
+        memberCrewIds,
+      }),
+    ),
+  );
   const jobIds = jobsRaw.map((j) => j.id);
 
   // Operational scope: same job_line_items the staff WO uses (Step 3 D4).

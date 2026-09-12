@@ -13,8 +13,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
-import { listInvoices, amountPaid } from "@/lib/data/invoices";
-import { invoiceTotals } from "@/lib/invoice-calc";
+import { listInvoices, invoiceDisplayTotals } from "@/lib/data/invoices";
 import { formatDate, formatMoney } from "@/lib/format";
 import { DeleteInvoiceButton } from "./delete-invoice-button";
 
@@ -48,7 +47,7 @@ export default async function InvoicesPage() {
         {/* Phone: tappable cards */}
         <div className="space-y-2 md:hidden">
           {invoices.map((inv) => {
-            const t = invoiceTotals(inv.items ?? [], inv.tax_rate, amountPaid(inv));
+            const t = invoiceDisplayTotals(inv);
             return (
               <div
                 key={inv.id}
@@ -101,11 +100,7 @@ export default async function InvoicesPage() {
             </TableHeader>
             <TableBody>
               {invoices.map((inv) => {
-                const t = invoiceTotals(
-                  inv.items ?? [],
-                  inv.tax_rate,
-                  amountPaid(inv),
-                );
+                const t = invoiceDisplayTotals(inv);
                 return (
                   <TableRow key={inv.id}>
                     <TableCell className="font-medium">

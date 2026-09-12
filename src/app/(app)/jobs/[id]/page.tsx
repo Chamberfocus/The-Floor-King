@@ -125,6 +125,7 @@ export default async function JobPage({
     preview?: string;
     schedule_error?: string;
     purchasing_message?: string;
+    tab?: string;
   }>;
 }) {
   const { id } = await params;
@@ -140,6 +141,7 @@ export default async function JobPage({
   const preview = sp.preview === "1";
   const profile = await requireProfile();
   const isStaff = profile.role === "admin" || profile.role === "office";
+  const canManageMaterials = isStaff || profile.role === "sales_manager";
 
   const job = await getJob(id);
   if (!job) notFound();
@@ -179,7 +181,11 @@ export default async function JobPage({
   const photos = files.filter((f) => f.kind === "photo");
   const signatures = files.filter((f) => f.kind === "signature");
 
-  const isAssignedToMe = job.assigned_to === profile.id;
+  const jobCrewForViewer = await getJobCrew(job.id);
+  const isDirectAssignee = job.assigned_to === profile.id;
+  const isCrewLinked =
+    !!jobCrewForViewer?.profile_id && jobCrewForViewer.profile_id === profile.id;
+  const isAssignedToMe = isDirectAssignee || isCrewLinked;
   const applicants = isStaff ? await getJobApplications(id) : [];
 
   // Profit/cost analysis is owner & admin only.
@@ -188,11 +194,11 @@ export default async function JobPage({
   // Crew pay capture (real labor cost) — staff only.
   const jobLabor = isStaff ? await listJobLabor(id) : [];
   // Materials & sourcing (stock vs special-order) — staff only.
-  const jobMaterials = isStaff ? await getJobMaterials(id) : null;
+  const jobMaterials = canManageMaterials ? await getJobMaterials(id) : null;
   // Measurement diagrams (uploaded sketch + saved carpet plan) — everyone on
   // the job, crew included, so installers can read them without digging.
   const measureDocs = job.customer_id
-    ? await getMeasurementDocuments(job.customer_id)
+    ? await getMeasurementDocuments(job.customer_id, id)
     : [];
 
   // Scheduling & crew assignment now live on the customer file (their home);
@@ -221,7 +227,7 @@ export default async function JobPage({
   const bizSettings = await getBusinessSettings();
   const collectsBalance =
     job.installer_collects_balance ?? bizSettings.installer_collects_balance;
-  const jobCrew = isStaff ? await getJobCrew(job.id) : null;
+  const jobCrew = isStaff ? jobCrewForViewer : null;
 
   // Completion (photos, sign-off, balance) is captured by the crew on their My
   // Work page; the job page shows it read-only.
@@ -275,6 +281,7 @@ export default async function JobPage({
     );
   };
   const canInstallerTools = isStaff || isAssignedToMe;
+  const canDirectFieldActions = isStaff || isDirectAssignee;
   const jobPhotos = canInstallerTools ? await getJobPhotos(id) : [];
   // The running note log — separate from jobs.notes, which is the structured
   // scope the questionnaire writes.
@@ -322,13 +329,14 @@ export default async function JobPage({
     ...(jobDocsFull ? (["documents"] as JobTab[]) : []),
     "work_order",
     ...(canInstallerTools ? (["completion"] as JobTab[]) : []),
-    ...(isStaff ? (["warehouse", "money", "manage"] as JobTab[]) : []),
+    ...(canManageMaterials ? (["warehouse"] as JobTab[]) : []),
+    ...(isStaff ? (["money", "manage"] as JobTab[]) : []),
   ];
 
   // Smart install scheduler for this job — opened from the "Schedule install"
   // icon in the header (staff or the assigned installer).
   const installProps =
-    canInstallerTools && job.customer_id
+    canDirectFieldActions && job.customer_id
       ? await buildInstallScheduleProps(job.id, job.customer_id)
       : null;
 
@@ -341,13 +349,24 @@ export default async function JobPage({
   const stageName = flowStage?.name ?? null;
   // The estimate this work order came from — its send/approve buttons need it.
   const jobEstimate = job.estimate_id
-    ? ((
-        await (await createClient())
+    ? await (async () => {
+        const db = await createClient();
+        const { data: est } = await db
           .from("estimates")
           .select("id, status")
-          .eq("id", job.estimate_id)
-          .maybeSingle()
-      ).data as { id: string; status: string } | null)
+          .eq("id", job.estimate_id!)
+          .maybeSingle();
+        if (!est) return null;
+        const { data: opts } = await db
+          .from("estimate_options")
+          .select("id")
+          .eq("estimate_id", est.id);
+        return {
+          id: est.id as string,
+          status: est.status as string,
+          optionIds: (opts ?? []).map((o) => o.id as string),
+        };
+      })()
     : null;
 
   /**
@@ -585,7 +604,9 @@ export default async function JobPage({
                 />
               </div>
             ) : null}
-            {job.status !== "in_progress" && job.status !== "completed" ? (
+            {canDirectFieldActions &&
+            job.status !== "in_progress" &&
+            job.status !== "completed" ? (
               <form action={setJobStatus} className="w-full sm:w-auto">
                 <input type="hidden" name="id" value={job.id} />
                 <input type="hidden" name="status" value="in_progress" />
@@ -594,7 +615,7 @@ export default async function JobPage({
                 </Button>
               </form>
             ) : null}
-            {job.status !== "completed" ? (
+            {canDirectFieldActions && job.status !== "completed" ? (
               <form action={setJobStatus} className="w-full sm:w-auto">
                 <input type="hidden" name="id" value={job.id} />
                 <input type="hidden" name="status" value="completed" />
@@ -780,7 +801,14 @@ export default async function JobPage({
         </div>
       ) : null}
 
-      <JobTabs show={tabsToShow}>
+      <JobTabs
+        show={tabsToShow}
+        initial={
+          sp.tab && tabsToShow.includes(sp.tab as JobTab)
+            ? (sp.tab as JobTab)
+            : undefined
+        }
+      >
 
       {jobDocsFull ? (
         <JobTabPanel tab="documents">

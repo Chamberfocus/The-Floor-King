@@ -11,6 +11,8 @@
  * Derived entirely from real records — no new status to keep in step.
  */
 
+import { jobMaterialsHref } from "@/lib/job-materials-href";
+
 export type ChecklistState = "done" | "current" | "todo" | "skipped";
 
 /**
@@ -138,8 +140,12 @@ export function buildChecklist(i: ChecklistInput): ChecklistStep[] {
     {
       key: "order",
       title: "Order the materials",
-      href: i.approvedEstimateId ? `/estimates/${i.approvedEstimateId}/order` : null,
-      linkLabel: "Review & raise POs",
+      href: job
+        ? jobMaterialsHref(job.id)
+        : i.approvedEstimateId
+          ? `/estimates/${i.approvedEstimateId}/order`
+          : null,
+      linkLabel: job ? "Review materials & POs" : "Review & raise POs",
       detail: null,
     },
     {

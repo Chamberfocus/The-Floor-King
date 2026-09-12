@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { extractBill, getLastExtractError, type ExtractedBill } from "@/lib/extract";
+import {
+  AP_IMPORT_IDEMPOTENCY_REQUIRED_MESSAGE,
+  resolveApDraftSaveIdempotencyKey,
+  resolveApImportIdempotencyKey,
+} from "@/lib/financial-idempotency";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -95,6 +100,7 @@ export interface ImportBillInput {
   due_date: string;
   terms: string;
   memo: string;
+  idempotencyKey: string;
   items: {
     description: string;
     quantity: number | null;
@@ -106,6 +112,9 @@ export interface ImportBillInput {
 export async function createBillFromImport(
   input: ImportBillInput,
 ): Promise<{ ok: boolean; billId?: string; error?: string }> {
+  const idem = resolveApImportIdempotencyKey(input.idempotencyKey);
+  if (!idem) return { ok: false, error: AP_IMPORT_IDEMPOTENCY_REQUIRED_MESSAGE };
+
   const ctx = await staffClient();
   if (!ctx) return { ok: false, error: "You must be signed in as office staff." };
   const { supabase } = ctx;
@@ -159,7 +168,7 @@ export async function createBillFromImport(
     p_po_id: null,
     p_accounting_category: "review_required",
     p_source_type: "manual",
-    p_idempotency_key: `ap-import:${crypto.randomUUID()}`,
+    p_idempotency_key: idem,
   });
   const fail = rpcError(error, data);
   if (fail) return { ok: false, error: fail };
@@ -315,18 +324,29 @@ export async function updateBillMeta(formData: FormData): Promise<void> {
 
   const billDate = str(formData.get("bill_date"));
   const terms = str(formData.get("terms"));
+  const dueDate = str(formData.get("due_date"));
+  const billNumber = str(formData.get("bill_number"));
+  const memo = str(formData.get("memo"));
+  const idem = resolveApDraftSaveIdempotencyKey({
+    billId,
+    billDate,
+    dueDate,
+    billNumber,
+    terms,
+    memo,
+  });
   await ctx.supabase.rpc("save_vendor_bill_draft_safe", {
     p_bill_id: billId,
     p_supplier_id: bill.supplier_id,
     p_lines: lines,
     p_bill_date: billDate || null,
-    p_due_date: str(formData.get("due_date")) || null,
-    p_bill_number: str(formData.get("bill_number")) || null,
+    p_due_date: dueDate || null,
+    p_bill_number: billNumber || null,
     p_terms: terms || null,
-    p_memo: str(formData.get("memo")) || null,
+    p_memo: memo || null,
     p_job_id: bill.job_id,
     p_accounting_category: bill.accounting_category,
-    p_idempotency_key: `ap-draft-save:${billId}:${crypto.randomUUID()}`,
+    p_idempotency_key: idem,
   });
   refreshAP();
   revalidatePath(`/bills/${billId}`);

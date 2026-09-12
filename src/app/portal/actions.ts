@@ -27,13 +27,19 @@ async function notifyOwner(
   detailHtml: string,
 ) {
   const { data: est } = await supabase
-    .from("estimates")
-    .select("title, customer:customers(full_name)")
+    .from("estimates_customer")
+    .select("title, customer_id")
     .eq("id", estimateId)
     .maybeSingle();
-  const name =
-    (est?.customer as unknown as { full_name: string | null } | null)
-      ?.full_name ?? "A customer";
+  let name = "A customer";
+  if (est?.customer_id) {
+    const { data: cust } = await supabase
+      .from("customers")
+      .select("full_name")
+      .eq("id", est.customer_id)
+      .maybeSingle();
+    name = (cust?.full_name as string | null) ?? name;
+  }
   await sendEmail({
     to: ownerEmail(),
     subject: heading,
@@ -154,7 +160,7 @@ async function revalidateEstimateStaffViews(
   estimateId: string,
 ) {
   const { data: e } = await supabase
-    .from("estimates")
+    .from("estimates_customer")
     .select("customer_id")
     .eq("id", estimateId)
     .maybeSingle();
@@ -191,7 +197,7 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
   // Ownership gate — DB also enforces via my_customer_id() inside
   // record_estimate_approval_safe (0178). Never elevate to service_role for portal.
   const { data: estRow } = await supabase
-    .from("estimates")
+    .from("estimates_customer")
     .select("customer_id, current_approval_snapshot_id")
     .eq("id", id)
     .maybeSingle();
@@ -232,7 +238,7 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
 
   // Intelligent flow: approved → jump to the "collect deposit" stage.
   const { data: e } = await supabase
-    .from("estimates")
+    .from("estimates_customer")
     .select("customer_id")
     .eq("id", id)
     .maybeSingle();
@@ -250,16 +256,11 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
     "<p>They approved — time to collect the deposit and order materials.</p>",
   );
   // Also notify the assigned salesperson.
-  const { data: est } = await supabase
-    .from("estimates")
-    .select("customer:customers(assigned_to, workflow_owner_id, full_name)")
-    .eq("id", id)
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("assigned_to, workflow_owner_id, full_name")
+    .eq("id", portalCustomerId)
     .maybeSingle();
-  const cust = est?.customer as unknown as {
-    assigned_to: string | null;
-    workflow_owner_id: string | null;
-    full_name: string | null;
-  } | null;
   const repId = cust?.assigned_to ?? cust?.workflow_owner_id ?? null;
   if (repId) {
     const { data: rep } = await supabase

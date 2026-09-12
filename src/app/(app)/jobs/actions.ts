@@ -20,6 +20,7 @@ import { estimatedMaterialCostForOption } from "@/lib/job-costing";
 import { assessJobStatusTransition, jobStatusUpdatePatch } from "@/lib/job-status";
 import { findInstallerScheduleConflict } from "@/lib/scheduling-conflicts";
 import { warehouseJobIdFromForm } from "@/lib/job-warehouse";
+import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 
 // Back-half pipeline stages carry no auto_action marker, so job-lifecycle events
 // map to them by name (forward-only, best-effort).
@@ -316,7 +317,7 @@ import {
 } from "@/lib/materials-ready";
 import { loadOperationalJobLines } from "@/lib/data/job-operational-lines";
 
-async function enforceMaterialsReadyForSchedule(args: {
+export async function enforceMaterialsReadyForSchedule(args: {
   jobId: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: { from: (t: string) => any };
@@ -1554,6 +1555,14 @@ export async function assignInstaller(formData: FormData): Promise<void> {
   if (!job) return;
 
   if (job.scheduled_date) {
+    const mat = await enforceMaterialsReadyForSchedule({
+      jobId,
+      db: supabase,
+      userId: (await supabase.auth.getUser()).data.user?.id ?? null,
+      overrideReason: str(formData.get("materials_override_reason")) || null,
+      scheduledDate: job.scheduled_date as string,
+    });
+    if (!mat.ok) throw new Error(mat.error);
     const { data: schedRes, error: schedErr } = await supabase.rpc(
       "schedule_job_install_safe",
       {
@@ -1573,13 +1582,13 @@ export async function assignInstaller(formData: FormData): Promise<void> {
       throw new Error(body.error || "Could not assign installer (schedule conflict).");
     }
   } else {
-    // Undated board assign — mutation guard allows assignee-only without dates.
+    // Undated board assign — keep unscheduled. Never invent a scheduled
+    // status without a date, and do not skip the materials-ready gate.
     await supabase
       .from("jobs")
       .update({
         assigned_to: installerId,
         open_for_claim: false,
-        status: "scheduled",
       })
       .eq("id", jobId);
   }
@@ -1604,11 +1613,10 @@ export async function assignInstaller(formData: FormData): Promise<void> {
     if (crewId)
       await supabase.from("jobs").update({ assigned_crew_id: crewId }).eq("id", jobId);
   }
-  // Claiming a job off the board = it's scheduled: advance the pipeline stage and
-  // auto-submit to the warehouse, same as the smart-scheduler (bookInstall) path.
-  if (cur?.customer_id)
+  // Dated claim = scheduled. Undated claim only assigns the installer.
+  if (job.scheduled_date && cur?.customer_id)
     await advanceToNamedStage(cur.customer_id as string, STAGE_INSTALL_SCHEDULED, jobId);
-  await ensureWarehouseSubmitted(jobId);
+  if (job.scheduled_date) await ensureWarehouseSubmitted(jobId);
   revalidateJobEverywhere(jobId, cur?.customer_id as string | null);
 }
 
@@ -1961,6 +1969,15 @@ export async function collectJobBalance(formData: FormData): Promise<void> {
     throw new Error("Nothing left to collect on this job.");
   }
 
+  const paidAt = new Date().toISOString().slice(0, 10);
+  for (const open of coll.openInvoices) {
+    await applyEligibleDepositsToInvoice(admin, {
+      invoiceId: open.invoiceId,
+      createdBy: user.id,
+      appliedOn: paidAt,
+    });
+  }
+
   const installerName = (me?.full_name as string) || "Installer";
   const cust = job.customer as unknown as {
     full_name: string | null;
@@ -1968,7 +1985,8 @@ export async function collectJobBalance(formData: FormData): Promise<void> {
     workflow_owner_id: string | null;
   } | null;
   const custName = cust?.full_name ?? "Customer";
-  const amt = coll.balance.toFixed(2);
+  const afterDeposits = await getJobOpenBalance(jobId);
+  const amt = afterDeposits.balance.toFixed(2);
 
   // Notify the office (owner + the customer's rep).
   const notifyOffice = async (subject: string, bodyHtml: string) => {
@@ -2012,7 +2030,6 @@ export async function collectJobBalance(formData: FormData): Promise<void> {
     throw new Error("Balance was already collected (or is zero). Refresh and try again.");
   }
 
-  const paidAt = new Date().toISOString().slice(0, 10);
   for (const open of fresh.openInvoices) {
     const { data, error } = await admin.rpc("record_invoice_payment_safe", {
       p_invoice_id: open.invoiceId,

@@ -19,6 +19,7 @@ import { ArrivalWindowField } from "@/components/ui/arrival-window-field";
 import { to12, parseLocalDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { rescheduleInstall } from "@/app/(app)/jobs/actions";
+import { isMaterialsNotReadyError } from "@/lib/materials-ready";
 import type { CalEvent, CalResource } from "./installer-calendar";
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -84,12 +85,29 @@ export function InstallerGrid({
 
   const rows = filter === "all" ? resources : resources.filter((r) => r.id === filter);
 
-  const doMove = (jobId: string, day: Date, resId: string, window: string) =>
+  const doMove = (
+    jobId: string,
+    day: Date,
+    resId: string,
+    window: string,
+    materialsOverride?: string,
+  ) =>
     startTransition(async () => {
-      const res = await rescheduleInstall(jobId, ymd(day), resId, window);
+      const res = await rescheduleInstall(
+        jobId,
+        ymd(day),
+        resId,
+        window,
+        materialsOverride || null,
+      );
       if (res.ok) {
-        toast.success("Moved — customer & installer notified.");
+        toast.success("Install moved.");
+        setPendingMove(null);
+        setGateError(null);
+        setOverrideReason("");
         router.refresh();
+      } else if (isMaterialsNotReadyError(res.error)) {
+        setGateError(res.error || "Materials are not warehouse-ready.");
       } else {
         toast.error(res.error || "Couldn't move that install.");
       }
@@ -107,10 +125,14 @@ export function InstallerGrid({
     window: string;
   } | null>(null);
   const [moveWindow, setMoveWindow] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [gateError, setGateError] = useState<string | null>(null);
   const move: Move = (jobId, day, resId) => {
     const ev = events.find((e) => e.id === jobId);
     const res = resources.find((r) => r.id === resId);
     setMoveWindow(ev?.window ?? "");
+    setOverrideReason("");
+    setGateError(null);
     setPendingMove({
       jobId,
       day,
@@ -265,7 +287,7 @@ export function InstallerGrid({
         {canEdit ? (
           <p className="mt-2 text-xs text-muted-foreground">
             Drag a job to another cell to change its date or move it to a
-            different installer — the customer and installer are notified.
+            different installer.
           </p>
         ) : null}
       </CardContent>
@@ -289,19 +311,32 @@ export function InstallerGrid({
                       day: "numeric",
                     })}
                   </strong>
-                  ? This reschedules the install and notifies the customer and
-                  installer.
+                  ? This reschedules the install.
                 </>
               ) : null}
             </DialogDescription>
           </DialogHeader>
           {pendingMove ? (
-            <ArrivalWindowField
-              key={pendingMove.jobId}
-              label="Arrival window (edit if it changed)"
-              defaultValue={pendingMove.window}
-              onChange={setMoveWindow}
-            />
+            <>
+              <ArrivalWindowField
+                key={pendingMove.jobId}
+                label="Arrival window (edit if it changed)"
+                defaultValue={pendingMove.window}
+                onChange={setMoveWindow}
+              />
+              {gateError ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-destructive">{gateError}</p>
+                  <textarea
+                    className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                    rows={2}
+                    placeholder="Override reason (required to schedule before materials are ready)"
+                    value={overrideReason}
+                    onChange={(e) => setOverrideReason(e.target.value)}
+                  />
+                </div>
+              ) : null}
+            </>
           ) : null}
           <DialogFooter>
             <Button
@@ -315,8 +350,13 @@ export function InstallerGrid({
               type="button"
               onClick={() => {
                 if (pendingMove)
-                  doMove(pendingMove.jobId, pendingMove.day, pendingMove.resId, moveWindow);
-                setPendingMove(null);
+                  doMove(
+                    pendingMove.jobId,
+                    pendingMove.day,
+                    pendingMove.resId,
+                    moveWindow,
+                    overrideReason,
+                  );
               }}
             >
               Move install

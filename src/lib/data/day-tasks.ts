@@ -3,6 +3,7 @@ import {
   dayTaskCollectAmountDue,
   type PaymentLike,
 } from "@/lib/payment-safety";
+import { loadInvoiceArReductions } from "@/lib/data/invoices";
 
 export type DayTaskKind =
   | "followup"
@@ -93,12 +94,16 @@ export async function getTodayTasks(): Promise<DayTask[]> {
       "id, number, tax_rate, status, customer_id, customer:customers(full_name, cancelled_at), items:invoice_items(quantity, rate), payments(amount, status), credit_applications(amount, status)",
     )
     .in("status", ["sent", "partial"]);
+  const collectReductions = await loadInvoiceArReductions(
+    (invs ?? []).map((i) => i.id as string),
+  );
   for (const inv of invs ?? []) {
     const cust = inv.customer as unknown as {
       full_name?: string;
       cancelled_at?: string | null;
     } | null;
     if (cust?.cancelled_at) continue;
+    const red = collectReductions.get(inv.id as string);
     const bal = dayTaskCollectAmountDue({
       items: (inv.items as { quantity: number; rate: number }[]) ?? [],
       taxRate: inv.tax_rate as number,
@@ -107,6 +112,8 @@ export async function getTodayTasks(): Promise<DayTask[]> {
         (inv.credit_applications as
           | { amount: number; status?: string | null }[]
           | null) ?? [],
+      appliedDeposits: red?.deposited ?? 0,
+      appliedWriteOffs: red?.writtenOff ?? 0,
     });
     if (bal <= 0.5) continue;
     tasks.push({

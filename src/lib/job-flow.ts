@@ -283,3 +283,17 @@ export function stepGate(step: FlowStep, f: FlowFacts): StepGate {
       return OK; // waiting (park), complete (terminal), generic
   }
 }
+
+/**
+ * Quick Actions / stage picker: leaving the CURRENT step is gated.
+ * Off-spine targets (lost / on hold) and moving backward are always allowed.
+ */
+export function workflowAdvanceGate(args: {
+  currentStep: FlowStep;
+  facts: FlowFacts;
+  targetOffSpine: boolean;
+  movingForward: boolean;
+}): StepGate {
+  if (args.targetOffSpine || !args.movingForward) return OK;
+  return stepGate(args.currentStep, args.facts);
+}

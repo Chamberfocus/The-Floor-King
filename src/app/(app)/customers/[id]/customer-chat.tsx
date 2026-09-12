@@ -31,6 +31,13 @@ export function CustomerChat({
   useEffect(() => {
     if (state.ok) formRef.current?.reset();
     if (state.error) toast.error(state.error);
+    else if (state.ok && state.notify?.status === "success") {
+      toast.success("Message posted and emailed.");
+    } else if (state.ok && state.notify?.status === "failed") {
+      toast.error(`Message posted, but email failed: ${state.notify.error}`);
+    } else if (state.ok && state.notify?.status === "not_attempted") {
+      toast.success(`Message posted. Email was not sent: ${state.notify.reason}`);
+    }
   }, [state]);
 
   const list = messages.filter((m) => m.channel === channel);

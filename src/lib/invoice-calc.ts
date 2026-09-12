@@ -48,6 +48,8 @@ export interface JobBalanceInvoiceInput {
   /** Sum of *active* credit applications, or application rows. */
   appliedCredits?: number | string;
   creditApplications?: { amount: number | string; status?: string | null }[] | null;
+  appliedDeposits?: number | string;
+  appliedWriteOffs?: number | string;
 }
 
 export interface JobOpenBalanceResult {
@@ -79,11 +81,18 @@ function creditedOnInvoice(inv: JobBalanceInvoiceInput): number {
     .reduce((s, a) => s + n(a.amount), 0);
 }
 
+function depositedOnInvoice(inv: JobBalanceInvoiceInput): number {
+  return n(inv.appliedDeposits);
+}
+
+function writtenOffOnInvoice(inv: JobBalanceInvoiceInput): number {
+  return n(inv.appliedWriteOffs);
+}
+
 /**
  * Sum remaining *effective* balances across all active job invoices.
- * Void → 0. Fully covered by payments+credits → 0.
- * Uses effectiveInvoiceBalance.amountDue when credits provided; else
- * invoiceTotals.balance (payments only) for back-compat.
+ * Void → 0. Uses effectiveInvoiceBalance.amountDue (payments + credits +
+ * applied deposits + write-offs). Unapplied deposits are not netted here.
  */
 export function computeJobOpenBalance(
   invoices: JobBalanceInvoiceInput[],
@@ -103,6 +112,8 @@ export function computeJobOpenBalance(
           taxRate: inv.tax_rate,
           amountPaid: paid,
           appliedCredits: credited,
+          appliedDeposits: depositedOnInvoice(inv),
+          appliedWriteOffs: writtenOffOnInvoice(inv),
         }).amountDue * 100,
       ) / 100;
     if (bal > 0.005) {

@@ -13,12 +13,12 @@ import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { CustomerScopeView } from "@/components/customer-scope-view";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import { EstimateViewBeacon } from "@/components/estimate-view-beacon";
-import { getEstimate } from "@/lib/data/estimates";
 import {
-  getCurrentApprovalSnapshot,
-  listApprovalSnapshots,
-} from "@/lib/data/estimate-approvals";
-import { getOrgSettings } from "@/lib/data/org";
+  getPortalApprovalSnapshot,
+  getPortalEstimate,
+  getPortalOrgSettings,
+  listPortalApprovalSnapshots,
+} from "@/lib/data/portal-commercial";
 import { buildCustomerScope, parseProjectDetails, customerLineLabel } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { snapshotItemGroups } from "@/lib/approval-snapshot-view";
@@ -162,11 +162,11 @@ export default async function PortalEstimatePage({
 }) {
   const { id } = await params;
   const { approval_error: approvalError } = await searchParams;
-  const estimate = await getEstimate(id);
+  const estimate = await getPortalEstimate(id);
   if (!estimate) notFound();
-  const org = await getOrgSettings();
-  const currentSnap = await getCurrentApprovalSnapshot(id);
-  const allSnaps = await listApprovalSnapshots(id);
+  const org = await getPortalOrgSettings();
+  const currentSnap = await getPortalApprovalSnapshot(id);
+  const allSnaps = await listPortalApprovalSnapshots(id);
 
   const options = estimate.options ?? [];
   const canRespond =
@@ -188,7 +188,7 @@ export default async function PortalEstimatePage({
   const chosen =
     options.find((o) => o.id === estimate.accepted_option_id) ?? options[0] ?? null;
   const chosenLines = chosen?.line_items ?? [];
-  const scope = buildCustomerScope(chosenLines, estimate.notes);
+  const scope = buildCustomerScope(chosenLines, estimate.job_description);
   const chosenTotals = chosen ? totalsFor(chosen) : null;
   const itemized = estimate.presentation !== "summary";
   const projectDetails =
@@ -302,7 +302,7 @@ export default async function PortalEstimatePage({
                 : undefined
           }
           {...snapshotItemGroups(currentSnap.payload)}
-          narrative={currentSnap.payload.notes}
+          narrative={currentSnap.payload.job_description}
         />
       ) : null}
 
@@ -360,7 +360,7 @@ export default async function PortalEstimatePage({
             itemized={itemized}
             itemGroups={itemGroups}
             scope={scope}
-            narrative={estimate.notes}
+            narrative={estimate.job_description}
             projectDetails={projectDetails}
             totals={{
               subtotal: chosenTotals.subtotal,

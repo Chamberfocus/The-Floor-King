@@ -24,6 +24,10 @@ export const MATERIALS_NOT_READY_MESSAGE =
 export const MATERIALS_OVERRIDE_REASON_REQUIRED =
   "An override reason is required to schedule before materials are ready.";
 
+export function isMaterialsNotReadyError(msg: string | null | undefined): boolean {
+  return (msg ?? "").includes("Materials are not marked warehouse-ready");
+}
+
 export function assessMaterialsReadyForSchedule(
   input: MaterialsReadyInput,
 ): MaterialsReadyResult {

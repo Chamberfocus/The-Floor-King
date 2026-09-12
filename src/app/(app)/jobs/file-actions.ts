@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { jobFilesObjectPathError } from "@/lib/job-files-path";
 import type { JobFileKind } from "@/lib/types";
 
 export async function recordJobFile(args: {
@@ -12,11 +13,21 @@ export async function recordJobFile(args: {
   signerName?: string;
 }): Promise<{ error: string | null }> {
   if (!args.jobId || !args.path) return { error: "Missing file info." };
+  const pathErr = jobFilesObjectPathError(args.jobId, args.path);
+  if (pathErr) return { error: pathErr };
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  if (!user) return { error: "Please sign in again." };
+
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!prof || prof.role === "customer") return { error: "Not allowed." };
 
   const { error } = await supabase.from("job_files").insert({
     job_id: args.jobId,
@@ -24,7 +35,7 @@ export async function recordJobFile(args: {
     kind: args.kind,
     caption: args.caption || null,
     signer_name: args.signerName || null,
-    uploaded_by: user?.id ?? null,
+    uploaded_by: user.id,
   });
   if (error) return { error: error.message };
 
@@ -45,6 +56,18 @@ export async function deleteJobFile(formData: FormData): Promise<void> {
   if (!id) return;
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (prof?.role !== "admin" && prof?.role !== "office") return;
+  if (path && jobId && jobFilesObjectPathError(jobId, path)) return;
+
   if (path) await supabase.storage.from("job-files").remove([path]);
   await supabase.from("job_files").delete().eq("id", id);
 

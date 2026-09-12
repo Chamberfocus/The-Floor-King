@@ -16,6 +16,7 @@ import {
   extractBillDocument,
   type ExpenseFormState,
 } from "./actions";
+import { OperationIdempotencyField } from "@/app/(app)/invoices/payment-idempotency-field";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { SearchPicker } from "@/components/ui/search-picker";
 
@@ -33,11 +34,13 @@ export function ExpenseForm({
   const formRef = useRef<HTMLFormElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [reading, setReading] = useState(false);
+  const [opEpoch, setOpEpoch] = useState(0);
 
   useEffect(() => {
     if (state.ok) {
       toast.success("Expense recorded");
       formRef.current?.reset();
+      setOpEpoch((n) => n + 1);
     }
   }, [state]);
 
@@ -95,6 +98,7 @@ export function ExpenseForm({
         action={formAction}
         className="grid gap-3 sm:grid-cols-3"
       >
+      <OperationIdempotencyField key={opEpoch} />
       <div className="space-y-1">
         <Label htmlFor="date">Date</Label>
         <DateField id="date" name="date" />

@@ -130,7 +130,7 @@ export default async function PurchaseOrdersPage({
           <EmptyState
             icon={ShoppingCart}
             title="No purchase orders yet"
-            description="Open an approved estimate and click Create PO."
+            description="Open a job’s Materials & prep tab to review requirements and raise purchase orders."
           />
         ) : (
           <EmptyState title="No purchase orders match this filter" />

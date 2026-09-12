@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -39,7 +39,9 @@ export function ProcessCardButton({
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(balance > 0 ? String(balance) : "");
   const [note, setNote] = useState("");
+  const [opKey, setOpKey] = useState("");
   const [pending, start] = useTransition();
+  const reactId = useId();
   const router = useRouter();
 
   // No processor link configured yet.
@@ -62,7 +64,7 @@ export function ProcessCardButton({
       return;
     }
     start(async () => {
-      const res = await recordCardPayment(customerId, amt, note || null);
+      const res = await recordCardPayment(customerId, amt, note || null, opKey);
       if (res.error) {
         toast.error(res.error);
         return;
@@ -86,6 +88,11 @@ export function ProcessCardButton({
         size="lg"
         onClick={() => {
           setAmount(balance > 0 ? String(balance) : "");
+          setOpKey(
+            typeof crypto !== "undefined" && "randomUUID" in crypto
+              ? crypto.randomUUID()
+              : `card-${reactId}`,
+          );
           setOpen(true);
         }}
       >

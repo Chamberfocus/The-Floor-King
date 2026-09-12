@@ -1,5 +1,6 @@
 import type { createClient } from "@/lib/supabase/server";
 import type { OrderItem } from "@/lib/types";
+import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 
 // Accepts either the RLS server client or the admin client.
 type DB = Awaited<ReturnType<typeof createClient>>;
@@ -59,5 +60,10 @@ export async function buildInvoiceFromOrder(
   if (rows.length) await db.from("invoice_items").insert(rows);
 
   await db.from("orders").update({ invoice_id: inv.id }).eq("id", orderId);
+  await applyEligibleDepositsToInvoice(db, {
+    invoiceId: inv.id as string,
+    createdBy,
+    appliedOn: new Date().toISOString().slice(0, 10),
+  });
   return inv.id as string;
 }

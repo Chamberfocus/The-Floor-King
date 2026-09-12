@@ -10,6 +10,17 @@ import {
   memoAvailable,
 } from "@/lib/data/credits";
 import { ensureInvoiceIssued } from "@/lib/invoice-issue";
+import {
+  APPLY_CREDIT_IDEMPOTENCY_REQUIRED_MESSAGE,
+  GOODWILL_IDEMPOTENCY_REQUIRED_MESSAGE,
+  REFUND_IDEMPOTENCY_REQUIRED_MESSAGE,
+  WRITE_OFF_IDEMPOTENCY_REQUIRED_MESSAGE,
+  goodwillApplyIdempotencyKey,
+  resolveApplyCreditIdempotencyKey,
+  resolveGoodwillIdempotencyKey,
+  resolveRefundIdempotencyKey,
+  resolveWriteOffIdempotencyKey,
+} from "@/lib/financial-idempotency";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -63,9 +74,10 @@ export async function applyCreditToInvoice(formData: FormData): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const idem =
-    str(formData.get("idempotency_key")) ||
-    `apply:${memoId}:${invoiceId}:${amount}:${user?.id ?? ""}`;
+  const idem = resolveApplyCreditIdempotencyKey(
+    str(formData.get("idempotency_key")),
+  );
+  if (!idem) fail(APPLY_CREDIT_IDEMPOTENCY_REQUIRED_MESSAGE);
 
   const { data, error } = await supabase.rpc("apply_credit_to_invoice_safe", {
     p_credit_memo_id: memoId,
@@ -105,22 +117,43 @@ export async function applyCreditToInvoice(formData: FormData): Promise<void> {
         .select("amount, status")
         .eq("invoice_id", invoiceId),
     ]);
-    const paid = (pays ?? [])
-      .filter((p) => ((p.status as string) ?? "active") !== "void")
-      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    const credited = (apps ?? [])
-      .filter((a) => ((a.status as string) ?? "active") !== "void")
-      .reduce((s, a) => s + (Number(a.amount) || 0), 0);
-    const { invoiceTotals } = await import("@/lib/invoice-calc");
-    const { total } = invoiceTotals(
+    const { data: openAr, error: arErr } = await supabase.rpc(
+      "invoice_open_ar_balance",
+      { p_invoice_id: invoiceId },
+    );
+    let due: number;
+    if (!arErr && openAr != null && Number.isFinite(Number(openAr))) {
+      due = Number(openAr);
+    } else {
+      const paid = (pays ?? [])
+        .filter((p) => ((p.status as string) ?? "active") !== "void")
+        .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const credited = (apps ?? [])
+        .filter((a) => ((a.status as string) ?? "active") !== "void")
+        .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+      const { loadInvoiceArReductions } = await import("@/lib/data/invoices");
+      const red = (await loadInvoiceArReductions([invoiceId])).get(invoiceId);
+      const { invoiceTotals } = await import("@/lib/invoice-calc");
+      const { total } = invoiceTotals(
+        (items ?? []) as { quantity: number | null; rate: number | null }[],
+        invRow.tax_rate as number,
+        0,
+      );
+      due = Math.max(
+        0,
+        total - paid - credited - (red?.deposited ?? 0) - (red?.writtenOff ?? 0),
+      );
+    }
+    const { invoiceTotals: totalsFn } = await import("@/lib/invoice-calc");
+    const { total } = totalsFn(
       (items ?? []) as { quantity: number | null; rate: number | null }[],
       invRow.tax_rate as number,
       0,
     );
-    const covered = paid + credited;
+    const covered = Math.max(0, total - due);
     let status = invRow.status as string;
-    if (total > 0 && covered >= total - 0.005) status = "paid";
-    else if (paid > 0 || credited > 0) status = "partial";
+    if (total > 0 && due <= 0.005) status = "paid";
+    else if (covered > 0.005) status = "partial";
     else if (status === "paid" || status === "partial") status = "sent";
     if (status !== invRow.status) {
       const {
@@ -175,9 +208,10 @@ export async function recordRefund(formData: FormData): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const idem =
-    str(formData.get("idempotency_key")) ||
-    `refund:${memoId}:${amount}:${today()}:${user?.id ?? ""}`;
+  const idem = resolveRefundIdempotencyKey(
+    str(formData.get("idempotency_key")),
+  );
+  if (!idem) fail(REFUND_IDEMPOTENCY_REQUIRED_MESSAGE);
 
   const { data, error } = await supabase.rpc("record_refund_safe", {
     p_credit_memo_id: memoId,
@@ -339,4 +373,111 @@ export async function voidRefund(formData: FormData): Promise<void> {
 /** @deprecated Hard-delete is not part of production workflow. */
 export async function deleteCreditMemo(formData: FormData): Promise<void> {
   await voidCreditMemo(formData);
+}
+
+/** Office goodwill / courtesy credit (kind=manual). Not a commercial reapproval. */
+export async function issueGoodwillCredit(formData: FormData): Promise<void> {
+  const customerId = str(formData.get("customer_id"));
+  const invoiceId = str(formData.get("invoice_id")) || null;
+  const jobId = str(formData.get("job_id")) || null;
+  const amount = toNumOrNull(str(formData.get("amount")));
+  const reason = str(formData.get("reason"));
+  const fail = (msg: string): never => {
+    redirect(
+      invoiceId
+        ? `/invoices/${invoiceId}?credit_error=${encodeURIComponent(msg)}`
+        : `/customers/${customerId}?credit_error=${encodeURIComponent(msg)}`,
+    );
+  };
+  if (!customerId) fail("Missing customer.");
+  if (amount === null || amount <= 0) fail("Enter a credit amount greater than zero.");
+  if (!reason) fail("Enter a reason for this credit.");
+
+  await assertRole(CREDIT_MUTATE_ROLES);
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const idem = resolveGoodwillIdempotencyKey(str(formData.get("idempotency_key")));
+  if (!idem) fail(GOODWILL_IDEMPOTENCY_REQUIRED_MESSAGE);
+
+  const { data, error } = await supabase.rpc("issue_credit_memo_safe", {
+    p_customer_id: customerId,
+    p_amount: amount,
+    p_kind: "manual",
+    p_reason: reason,
+    p_issued_at: today(),
+    p_job_id: jobId,
+    p_estimate_id: null,
+    p_approval_snapshot_id: null,
+    p_created_by: user?.id ?? null,
+    p_idempotency_key: idem,
+    p_invoice_id_for_tax: invoiceId,
+  });
+  if (error) fail(error.message);
+  const res = data as { ok?: boolean; error?: string; credit_memo_id?: string };
+  if (!res?.ok) fail(res?.error ?? "Could not issue credit.");
+
+  if (invoiceId && res.credit_memo_id) {
+    const applyFd = new FormData();
+    applyFd.set("credit_memo_id", res.credit_memo_id);
+    applyFd.set("invoice_id", invoiceId);
+    applyFd.set("amount", String(amount));
+    applyFd.set("customer_id", customerId);
+    applyFd.set(
+      "idempotency_key",
+      goodwillApplyIdempotencyKey(res.credit_memo_id, invoiceId),
+    );
+    await applyCreditToInvoice(applyFd);
+    return;
+  }
+
+  refreshCreditViews(customerId, invoiceId);
+}
+
+/** Write off remaining AR on an issued invoice. */
+export async function writeOffInvoiceBalance(formData: FormData): Promise<void> {
+  const invoiceId = str(formData.get("invoice_id"));
+  const amount = toNumOrNull(str(formData.get("amount")));
+  const reason = str(formData.get("reason"));
+  const fail = (msg: string): never => {
+    redirect(
+      invoiceId
+        ? `/invoices/${invoiceId}?credit_error=${encodeURIComponent(msg)}`
+        : "/invoices",
+    );
+  };
+  if (!invoiceId) fail("Missing invoice.");
+  if (amount === null || amount <= 0) fail("Enter a write-off amount greater than zero.");
+  if (!reason) fail("Enter a write-off reason.");
+
+  await assertRole(CREDIT_MUTATE_ROLES);
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const idem = resolveWriteOffIdempotencyKey(
+    str(formData.get("idempotency_key")),
+  );
+  if (!idem) fail(WRITE_OFF_IDEMPOTENCY_REQUIRED_MESSAGE);
+
+  const { data, error } = await supabase.rpc("write_off_invoice_safe", {
+    p_invoice_id: invoiceId,
+    p_amount: amount,
+    p_reason: reason,
+    p_written_off_at: today(),
+    p_created_by: user?.id ?? null,
+    p_idempotency_key: idem,
+  });
+  if (error) fail(error.message);
+  const res = data as { ok?: boolean; error?: string };
+  if (!res?.ok) fail(res?.error ?? "Could not write off this invoice.");
+
+  const { data: inv } = await supabase
+    .from("invoices")
+    .select("customer_id, job_id")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  refreshCreditViews((inv?.customer_id as string) ?? "", invoiceId);
+  if (inv?.job_id) revalidatePath(`/jobs/${inv.job_id}`);
 }

@@ -63,7 +63,7 @@ export function WarehouseJobActions({
       fd.set("staging_location", location.trim());
       await completeWarehouseJob(fd);
       setCompleteOpen(false);
-      toast.success("Staged — installer, sales & admin notified");
+      toast.success("Staged and marked ready");
       router.refresh();
     });
 

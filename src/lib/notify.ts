@@ -1,9 +1,9 @@
 /**
  * Email notifications via Resend. SERVER ONLY.
- * No-ops gracefully until RESEND_API_KEY is configured, so the app keeps
- * working without email set up.
+ * Missing keys or gated-off customer notify are NOT ATTEMPTED, not success.
  */
 import { COMPANY_NAME } from "@/lib/nav";
+import type { MessageSendResult } from "@/lib/message-send";
 
 export function siteUrl(): string {
   return (
@@ -105,15 +105,28 @@ export async function sendEmail(opts: {
   subject: string;
   html: string;
   tags?: { name: string; value: string }[];
-}): Promise<boolean> {
+}): Promise<MessageSendResult> {
   const key = process.env.RESEND_API_KEY;
   const from =
     process.env.NOTIFY_FROM_EMAIL ||
     `${COMPANY_NAME} <onboarding@resend.dev>`;
-  if (!key || !opts.to) return false;
+  if (!opts.to?.trim()) {
+    return { status: "not_attempted", reason: "No email address." };
+  }
+  if (!key) {
+    return {
+      status: "not_attempted",
+      reason: "Email is not configured (missing API key).",
+    };
+  }
   // Master switches: never email a customer while customer notifications are off.
   const { notifyAllowed } = await import("@/lib/notify-gate");
-  if (!(await notifyAllowed({ email: opts.to }))) return false;
+  if (!(await notifyAllowed({ email: opts.to }))) {
+    return {
+      status: "not_attempted",
+      reason: "Customer email notifications are turned off.",
+    };
+  }
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -132,8 +145,16 @@ export async function sendEmail(opts: {
         ...(opts.tags ? { tags: opts.tags } : {}),
       }),
     });
-    return res.ok;
-  } catch {
-    return false;
+    if (res.ok) return { status: "success" };
+    const body = await res.text().catch(() => "");
+    return {
+      status: "failed",
+      error: body.trim().slice(0, 180) || `Email provider rejected the send (${res.status}).`,
+    };
+  } catch (e) {
+    return {
+      status: "failed",
+      error: e instanceof Error ? e.message : "Email send failed.",
+    };
   }
 }

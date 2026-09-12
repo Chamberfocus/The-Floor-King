@@ -194,6 +194,26 @@ export async function applyReceiptToStock(
   const userId = await uid(db);
   const touchedRolled = new Set<string>();
 
+  if (sign < 0) {
+    const { data: rev, error: revErr } = await db.rpc("reverse_po_receipts_safe", {
+      p_po_id: poId,
+      p_created_by: userId,
+      p_idempotency_key: `po-recv-rev-all:${poId}`,
+    });
+    if (revErr) {
+      throw new Error(
+        revErr.message.includes("does not exist")
+          ? "PO receipt reversal RPC missing — apply migration 0183."
+          : revErr.message,
+      );
+    }
+    const revRes = rpcOk(rev);
+    if (!revRes.ok) {
+      throw new Error(revRes.error || revRes.code || "Could not reverse PO receipts.");
+    }
+    return;
+  }
+
   for (const it of rows) {
     const pid = it.product_id as string;
     const p = prodMap.get(pid);
@@ -215,30 +235,7 @@ export async function applyReceiptToStock(
         note: p.stock_kind === "rolled" ? "Received from PO (rolled)" : "Received from PO",
       });
       if (p.stock_kind === "rolled") touchedRolled.add(pid);
-      continue;
     }
-
-    // Reverse path (leaving received): unwind by ledger qty for this PO line.
-    const already = await ledgerReceivedQty(db, poItemId);
-    if (already <= EPS) continue;
-    if (p.stock_kind === "rolled") {
-      throw new Error(
-        "INV_ROLL_RECEIPT_REVERSE: rolled PO un-receive requires formal movement reversal.",
-      );
-    }
-    const { data: live } = await db
-      .from("products")
-      .select("on_hand")
-      .eq("id", pid)
-      .maybeSingle();
-    const onHand = Number(live?.on_hand) || 0;
-    await db.rpc("adjust_inventory_safe", {
-      p_product_id: pid,
-      p_counted_on_hand: round(Math.max(0, onHand - already)),
-      p_reason: "PO no longer received",
-      p_note: "PO no longer received",
-      p_created_by: userId,
-    });
   }
 
   for (const pid of touchedRolled) {
@@ -264,21 +261,36 @@ export async function reconcilePoStock(
 }
 
 /**
- * About to delete these POs — undo any stock a received PO added, so deleting
- * a received PO doesn't leave phantom on-hand behind.
+ * Undo stock posted from these POs — including partial receipts while status
+ * is still ordered. Uses reverse_po_receipts_safe (0183). Does not mark void.
  */
 export async function reverseReceivedPOs(
   db: DB,
   poIds: string[],
 ): Promise<void> {
   if (!poIds.length) return;
+  const userId = await uid(db);
   const { data } = await db
     .from("purchase_orders")
     .select("id, status")
     .in("id", poIds);
   for (const po of data ?? []) {
-    if ((po.status as PoStatus) === "received") {
-      await applyReceiptToStock(db, po.id as string, -1);
+    if ((po.status as PoStatus) === "void") continue;
+    const { data: rev, error } = await db.rpc("reverse_po_receipts_safe", {
+      p_po_id: po.id as string,
+      p_created_by: userId,
+      p_idempotency_key: `po-recv-rev-all:${po.id}`,
+    });
+    if (error) {
+      throw new Error(
+        error.message.includes("does not exist")
+          ? "PO receipt reversal RPC missing — apply migration 0183."
+          : error.message,
+      );
+    }
+    const res = rpcOk(rev);
+    if (!res.ok) {
+      throw new Error(res.error || res.code || "Could not reverse PO receipts.");
     }
   }
 }

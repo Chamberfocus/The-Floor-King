@@ -9,7 +9,7 @@ export function IdempotencyField({ name = "idempotency_key" }: { name?: string }
     () =>
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
-        : `acct-${reactId}-${Date.now()}`,
+        : `acct-${reactId}`,
   );
   return <input type="hidden" name={name} value={key} />;
 }

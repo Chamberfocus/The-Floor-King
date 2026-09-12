@@ -1,3 +1,5 @@
+import { installerSeesJob } from "@/lib/installer-assignment";
+
 /** Form contract for warehouse submit — must read `job_id` (not `id`). */
 export function warehouseJobIdFromForm(formData: FormData): string | null {
   const id = formData.get("job_id");
@@ -48,4 +50,41 @@ export function authorizeJobMeasurementUpload(args: {
     return { ok: true, useAdmin: true };
   }
   return { ok: false, error: "Not allowed." };
+}
+
+/**
+ * Caller must be authorized before any service-role signed URL is minted for
+ * job photos / measurements. Page-only trust is not enough.
+ * Crew: assigned (or linked crew) only — not merely board-visible.
+ */
+export function authorizeServiceRoleDocumentSign(args: {
+  role: string | null | undefined;
+  userId: string;
+  jobVisible: boolean;
+  jobAssignedTo: string | null;
+  jobAssignedCrewId: string | null;
+  memberCrewIds: readonly string[];
+}): boolean {
+  const role = args.role ?? "";
+  if (!args.userId || !args.jobVisible) return false;
+  if (role === "customer") return false;
+  if (
+    role === "admin" ||
+    role === "office" ||
+    role === "sales_manager" ||
+    role === "scheduler" ||
+    role === "salesman"
+  ) {
+    return true;
+  }
+  if (role === "warehouse") return true;
+  if (role === "crew") {
+    return installerSeesJob({
+      assignedTo: args.jobAssignedTo,
+      assignedCrewId: args.jobAssignedCrewId,
+      userId: args.userId,
+      memberCrewIds: args.memberCrewIds,
+    });
+  }
+  return false;
 }

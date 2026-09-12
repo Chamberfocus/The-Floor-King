@@ -81,6 +81,82 @@ export interface ApprovalSnapshotLine {
   line_total: number;
 }
 
+/** Keys that must never appear on a customer-facing approval payload. */
+export const CUSTOMER_HIDDEN_SNAPSHOT_LINE_KEYS = [
+  "material_cost",
+  "labor_cost",
+  "margin_pct",
+  "from_stock",
+  "target_margin",
+  "markup",
+  "gross_profit",
+  "product_id",
+  "measurements",
+] as const;
+
+/** Explicit customer-visible line keys (allowlist — unknown keys fail closed). */
+export const CUSTOMER_SAFE_SNAPSHOT_LINE_KEYS = [
+  "id",
+  "position",
+  "room",
+  "description",
+  "note",
+  "line_type",
+  "category",
+  "sqft",
+  "length_in",
+  "width_in",
+  "measure_unit",
+  "material_rate",
+  "labor_rate",
+  "installed_rate",
+  "flat_amount",
+  "waste_pct",
+  "manufacturer",
+  "style",
+  "color",
+  "item_no",
+  "quantity",
+  "unit",
+  "line_total",
+] as const;
+
+export function sanitizeApprovalPayloadForCustomer(
+  payload: ApprovalSnapshotPayload,
+): ApprovalSnapshotPayload {
+  return {
+    schema_version: 1,
+    estimate_id: payload.estimate_id,
+    customer_id: payload.customer_id,
+    title: payload.title,
+    presentation: payload.presentation,
+    show_project_details: payload.show_project_details,
+    job_description: payload.job_description,
+    notes: null,
+    accepted_option_id: payload.accepted_option_id,
+    option: {
+      id: payload.option.id,
+      name: payload.option.name,
+      notes: null,
+      lines: payload.option.lines.map((line) => {
+        const src = line as unknown as Record<string, unknown>;
+        const next: Record<string, unknown> = {};
+        for (const k of CUSTOMER_SAFE_SNAPSHOT_LINE_KEYS) {
+          next[k] = src[k] ?? null;
+        }
+        return next as unknown as ApprovalSnapshotLine;
+      }),
+    },
+    tax_rate: payload.tax_rate,
+    discount_kind: payload.discount_kind,
+    discount_value: payload.discount_value,
+    discount_amount: payload.discount_amount,
+    subtotal: payload.subtotal,
+    tax_amount: payload.tax_amount,
+    total: payload.total,
+  };
+}
+
 export interface EstimateApprovalSnapshot {
   id: string;
   estimate_id: string;

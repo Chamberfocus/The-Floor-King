@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { extractOrderDocument } from "@/lib/extract";
 import type { ExpenseCategory } from "@/lib/types";
+import {
+  DIRECT_EXPENSE_IDEMPOTENCY_REQUIRED_MESSAGE,
+  resolveDirectExpenseIdempotencyKey,
+} from "@/lib/financial-idempotency";
 
 export interface ExpenseFormState {
   error: string | null;
@@ -29,6 +33,11 @@ export async function createExpense(
     };
   }
 
+  const idem = resolveDirectExpenseIdempotencyKey(
+    str(formData.get("idempotency_key")),
+  );
+  if (!idem) return { error: DIRECT_EXPENSE_IDEMPOTENCY_REQUIRED_MESSAGE };
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -44,7 +53,7 @@ export async function createExpense(
     p_job_id: str(formData.get("job_id")) || null,
     p_bill_id: null,
     p_created_by: user.id,
-    p_idempotency_key: `direct-exp:${crypto.randomUUID()}`,
+    p_idempotency_key: idem,
     p_supplier_id: null,
     p_vendor_invoice_ref: str(formData.get("vendor_invoice")) || null,
     p_ack_unlinked: true,

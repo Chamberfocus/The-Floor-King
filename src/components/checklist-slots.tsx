@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { Check, Send, Warehouse, Hammer } from "lucide-react";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { ConfirmButton } from "@/components/ui/confirm-button";
 import { setEstimateStatus } from "@/app/(app)/estimates/actions";
 import { setJobStatus, submitJobToWarehouse } from "@/app/(app)/jobs/actions";
+import { checklistCanOneTapApprove } from "@/lib/estimate-approve-ui";
 
 /**
  * The checklist steps that are a DECISION, not a tool.
@@ -27,7 +30,11 @@ export function buildChecklistSlots({
   backTo,
 }: {
   /** The estimate this checklist is about, if there is one. */
-  estimate: { id: string; status: string } | null;
+  estimate: {
+    id: string;
+    status: string;
+    optionIds?: readonly string[];
+  } | null;
   /** The work order, once it exists. */
   job: { id: string; status: string | null; warehouseSubmittedAt: string | null } | null;
   /** Where to land afterwards — the page hosting the checklist, so the action
@@ -36,11 +43,12 @@ export function buildChecklistSlots({
 }): Record<string, ReactNode> {
   const slots: Record<string, ReactNode> = {};
 
-  const estimateForm = (status: string, children: ReactNode, confirm: string) => (
+  const estimateForm = (status: string, children: ReactNode, confirm: string, extra?: ReactNode) => (
     <form action={setEstimateStatus}>
       <input type="hidden" name="id" value={estimate!.id} />
       <input type="hidden" name="status" value={status} />
       <input type="hidden" name="redirect_to" value={backTo} />
+      {extra}
       <SubmitButton size="sm" confirm={confirm} pendingText="Saving…">
         {children}
       </SubmitButton>
@@ -53,20 +61,41 @@ export function buildChecklistSlots({
       <>
         <Send className="size-3.5" /> Send it
       </>,
-      "Estimate sent",
+      "Send this estimate? This marks it sent. Email only goes out if sending is configured and customer notifications are on.",
     );
   }
 
   // Approved on the phone is the normal case — the customer says yes while
   // you're stood in their kitchen, not by clicking a link.
   if (estimate && (estimate.status === "sent" || estimate.status === "draft")) {
-    slots.approve = estimateForm(
-      "approved",
-      <>
-        <Check className="size-3.5" /> Mark approved
-      </>,
-      "Estimate approved",
-    );
+    const optionIds = estimate.optionIds ?? [];
+    if (checklistCanOneTapApprove(optionIds)) {
+      slots.approve = (
+        <form action={setEstimateStatus}>
+          <input type="hidden" name="id" value={estimate.id} />
+          <input type="hidden" name="status" value="approved" />
+          <input type="hidden" name="accepted_option_id" value={optionIds[0]} />
+          <input type="hidden" name="redirect_to" value={backTo} />
+          <ConfirmButton
+            size="sm"
+            title="Approve this estimate?"
+            description="Approves the only priced option. Use the estimate page if you need a different package."
+            confirmLabel="Approve"
+          >
+            <Check className="size-3.5" /> Mark approved
+          </ConfirmButton>
+        </form>
+      );
+    } else {
+      slots.approve = (
+        <Link
+          href={`/estimates/${estimate.id}#workflow`}
+          className="inline-flex h-8 items-center rounded-md border border-input px-2.5 text-xs font-medium hover:bg-muted"
+        >
+          Pick option &amp; approve
+        </Link>
+      );
+    }
   }
 
   if (job && !job.warehouseSubmittedAt) {

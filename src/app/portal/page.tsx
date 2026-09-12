@@ -12,21 +12,22 @@ import { EstimateStatusBadge } from "@/components/estimate-status-badge";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { requireProfile } from "@/lib/auth";
-import { listEstimatesForCustomer } from "@/lib/data/estimates";
-import { listJobsForCustomer } from "@/lib/data/jobs";
-import { listInvoicesForCustomer, amountPaid } from "@/lib/data/invoices";
+import {
+  listPortalEstimates,
+  listPortalJobs,
+  listPortalInstallerNames,
+} from "@/lib/data/portal-commercial";
+import { listInvoicesForCustomer, invoiceDisplayTotals } from "@/lib/data/invoices";
 import { listCustomerCheckouts } from "@/lib/data/samples";
 import { listClientThread } from "@/lib/data/messages";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { portalSendMessage } from "./actions";
 import { optionTotals } from "@/lib/estimate-calc";
-import { invoiceTotals } from "@/lib/invoice-calc";
 import { formatDate, formatDateTime, formatMoney, to12 } from "@/lib/format";
 import {
   getInstallAvailability,
   listInstallPreferences,
 } from "@/lib/data/install-availability";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { InstallPreferencePicker } from "./install-preference-picker";
 
 export const metadata: Metadata = { title: "My account" };
@@ -47,8 +48,8 @@ export default async function PortalHome() {
   }
 
   const [estimates, jobs, invoices, thread, sampleCheckouts] = await Promise.all([
-    listEstimatesForCustomer(profile.customer_id),
-    listJobsForCustomer(profile.customer_id),
+    listPortalEstimates(profile.customer_id),
+    listPortalJobs(profile.customer_id),
     listInvoicesForCustomer(profile.customer_id),
     listClientThread(profile.customer_id),
     listCustomerCheckouts(profile.customer_id),
@@ -75,22 +76,9 @@ export default async function PortalHome() {
       existing,
     });
   }
-  const installerNameById = new Map<string, string>();
-  const confirmedInstallerIds = [
-    ...new Set(
-      activeJobs
-        .filter((j) => j.scheduled_date && j.assigned_to)
-        .map((j) => j.assigned_to as string),
-    ),
-  ];
-  if (confirmedInstallerIds.length) {
-    const { data: profs } = await createAdminClient()
-      .from("profiles")
-      .select("id, full_name")
-      .in("id", confirmedInstallerIds);
-    for (const p of profs ?? [])
-      installerNameById.set(p.id as string, (p.full_name as string) ?? "Your installer");
-  }
+  const installerNameByJobId = profile.customer_id
+    ? await listPortalInstallerNames(profile.customer_id, activeJobs)
+    : new Map<string, string>();
 
   return (
     <div className="space-y-6">
@@ -258,9 +246,7 @@ export default async function PortalHome() {
                       .map((t) => to12(t.trim()))
                       .join("–")
                   : null;
-                const installer = j.assigned_to
-                  ? installerNameById.get(j.assigned_to)
-                  : null;
+                const installer = installerNameByJobId.get(j.id) ?? null;
                 return (
                   <li key={j.id} className="space-y-3 py-4">
                     <div className="flex items-center justify-between gap-3">
@@ -310,11 +296,7 @@ export default async function PortalHome() {
           ) : (
             <ul className="divide-y text-sm">
               {invoices.map((inv) => {
-                const t = invoiceTotals(
-                  inv.items ?? [],
-                  inv.tax_rate,
-                  amountPaid(inv),
-                );
+                const t = invoiceDisplayTotals(inv);
                 return (
                   <li
                     key={inv.id}

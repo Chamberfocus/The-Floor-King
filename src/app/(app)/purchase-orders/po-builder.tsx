@@ -318,41 +318,47 @@ export function PoBuilder({
   };
 
   const save = (opts: { stash?: boolean } = {}) =>
-    startTransition(async () => {
-      const input: SavePoInput = {
-        supplier,
-        supplier_id: supplierId || null,
-        source_type: sourceType,
-        status,
-        notes,
-        eta_date: etaDate || null,
-        backordered,
-        items: items.map((it) => ({
-          product_id: it.product_id || null,
-          description: it.description,
-          quantity: it.quantity || null,
-          unit: it.unit,
-          unit_cost: it.unit_cost || null,
-          manufacturer: it.manufacturer || null,
-          style: it.style || null,
-          color: it.color || null,
-          item_no: it.item_no || null,
-          for_job_id: it.for_job_id || null,
-          for_customer_id: it.for_customer_id || null,
-          note: it.note || null,
-          category: it.category || null,
-          sqft_per_box: it.sqft_per_box || null,
-          roll_width_ft: it.roll_width_ft || null,
-        })),
-      };
-      const res = await savePurchaseOrder(po.id, input);
-      if (res.error) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(opts.stash ? "Saved for later" : "Purchase order saved");
-      if (opts.stash) router.push("/saved");
-      else router.refresh();
+    new Promise<void>((resolve) => {
+      startTransition(async () => {
+        try {
+          const input: SavePoInput = {
+            supplier,
+            supplier_id: supplierId || null,
+            source_type: sourceType,
+            status,
+            notes,
+            eta_date: etaDate || null,
+            backordered,
+            items: items.map((it) => ({
+              product_id: it.product_id || null,
+              description: it.description,
+              quantity: it.quantity || null,
+              unit: it.unit,
+              unit_cost: it.unit_cost || null,
+              manufacturer: it.manufacturer || null,
+              style: it.style || null,
+              color: it.color || null,
+              item_no: it.item_no || null,
+              for_job_id: it.for_job_id || null,
+              for_customer_id: it.for_customer_id || null,
+              note: it.note || null,
+              category: it.category || null,
+              sqft_per_box: it.sqft_per_box || null,
+              roll_width_ft: it.roll_width_ft || null,
+            })),
+          };
+          const res = await savePurchaseOrder(po.id, input);
+          if (res.error) {
+            toast.error(res.error);
+            return;
+          }
+          toast.success(opts.stash ? "Saved for later" : "Purchase order saved");
+          if (opts.stash) router.push("/saved");
+          else router.refresh();
+        } finally {
+          resolve();
+        }
+      });
     });
 
   return (

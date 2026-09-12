@@ -105,16 +105,27 @@ export async function recordEstimateApproval(
 
   let idempotencyKey = args.idempotencyKey ?? null;
   if (!idempotencyKey) {
+    let snapshotId: string | null = null;
     const { data: est } = await db
       .from("estimates")
       .select("current_approval_snapshot_id")
       .eq("id", args.estimateId)
       .maybeSingle();
+    snapshotId = (est?.current_approval_snapshot_id as string | null) ?? null;
+    if (!snapshotId) {
+      const { data: portalEst } = await db
+        .from("estimates_customer")
+        .select("current_approval_snapshot_id")
+        .eq("id", args.estimateId)
+        .maybeSingle();
+      snapshotId =
+        (portalEst?.current_approval_snapshot_id as string | null) ?? null;
+    }
     idempotencyKey = buildApprovalIdempotencyKey({
       estimateId: args.estimateId,
       source: args.source,
       optionId: args.acceptedOptionId,
-      snapshotId: (est?.current_approval_snapshot_id as string | null) ?? null,
+      snapshotId,
     });
   }
 

@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
 import type { MessageChannel } from "@/lib/types";
+import type { MessageSendResult } from "@/lib/message-send";
 
 export interface MessageFormState {
   error: string | null;
   ok?: boolean;
+  notify?: MessageSendResult | null;
 }
 
 function str(v: FormDataEntryValue | null): string {
@@ -39,9 +41,7 @@ export async function postMessage(
   });
   if (error) return { error: error.message };
 
-  // A CLIENT message can also email the customer — gated by the "send to client"
-  // popup. Internal team notes never email. Skipped → the message still shows in
-  // the customer's portal, just with no email nudge.
+  let notify: MessageSendResult | null = null;
   if (channel === "client" && str(formData.get("send_email")) !== "no") {
     const { data: cust } = await supabase
       .from("customers")
@@ -49,9 +49,11 @@ export async function postMessage(
       .eq("id", customerId)
       .maybeSingle();
     const email = (cust?.email as string | null) ?? null;
-    if (email) {
+    if (!email) {
+      notify = { status: "not_attempted", reason: "No email address on file." };
+    } else {
       const first = (cust?.full_name as string | null)?.split(" ")[0] ?? "there";
-      await sendEmail({
+      notify = await sendEmail({
         to: email,
         subject: "A new message from Cleveland Floor King",
         html: emailLayout(
@@ -63,10 +65,10 @@ export async function postMessage(
           { label: "Open your project", url: `${siteUrl()}/portal` },
           { preheader: body.slice(0, 120) },
         ),
-      }).catch(() => {});
+      });
     }
   }
 
   revalidatePath(`/customers/${customerId}`);
-  return { error: null, ok: true };
+  return { error: null, ok: true, notify };
 }

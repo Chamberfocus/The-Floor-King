@@ -26,7 +26,7 @@ export function ManualBooking({
   installerUsers,
   arrivalWindows,
   availability,
-  materialsReady = true,
+  materialsReady,
 }: {
   jobId: string;
   redirectTo: string;
@@ -39,7 +39,7 @@ export function ManualBooking({
   installerUsers: { value: string; label: string }[];
   arrivalWindows: ArrivalWindow[];
   availability: BookingBlock[];
-  materialsReady?: boolean;
+  materialsReady: boolean;
 }) {
   const [installerId, setInstallerId] = useState(schedule.installerId ?? "");
   const [start, setStart] = useState(schedule.date ?? "");

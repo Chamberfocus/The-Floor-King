@@ -21,12 +21,22 @@ export function OnTheWayButton({
       const r = await notifyOnTheWay(customerId, sendEmail);
       if (r.error) {
         toast.error(r.error);
-      } else if (sendEmail && r.eta && r.eta !== "sent") {
-        toast.success(`Customer notified — ETA ~${r.eta}`);
-      } else if (sendEmail) {
-        toast.success("Customer notified you're on the way");
-      } else {
+      } else if (!sendEmail) {
         toast.success("Posted to their portal (no email/text)");
+      } else if (r.notify.status === "success") {
+        toast.success(
+          r.eta
+            ? `Customer notified — ETA ~${r.eta}`
+            : "Customer notified you're on the way",
+        );
+      } else if (r.notify.status === "failed") {
+        toast.error(
+          `On-the-way posted, but notify failed: ${r.notify.error}`,
+        );
+      } else {
+        toast.success(
+          `Posted to their portal. Email/text was not sent: ${r.notify.reason}`,
+        );
       }
     });
   return (

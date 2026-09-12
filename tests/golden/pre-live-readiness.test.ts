@@ -381,6 +381,113 @@ describe("portal direct UPDATE behavioral allowlist", () => {
       }).ok,
     ).toBe(false);
   });
+
+  it("privileged commercial columns are rejected on direct portal PATCH", () => {
+    const old = baseEst({
+      notes: "internal",
+      job_description: "scope",
+      presentation: "detailed",
+      target_margin: 35,
+      discount_kind: "amount",
+      recommended_option_id: "opt-1",
+      created_by: "staff-1",
+      approval_source: null,
+      approved_by_user_id: null,
+      approval_stale: false,
+      valid_until: "2026-12-01",
+      show_project_details: true,
+    });
+    const privileged: Record<string, unknown> = {
+      customer_id: "cust-b",
+      tax_rate: 0,
+      discount_value: 999,
+      discount_kind: "percent",
+      target_margin: 1,
+      subtotal: 1,
+      total: 1,
+      notes: "cleared internal",
+      job_description: "rewritten scope",
+      presentation: "summary",
+      accepted_option_id: "opt-evil",
+      recommended_option_id: "opt-evil",
+      created_by: "hijack",
+      approved_at: "2099-01-01",
+      approval_source: "portal",
+      approved_by_user_id: "staff-x",
+      approved_by_customer_id: "cust-b",
+      current_approval_snapshot_id: "snap-fake",
+      approval_stale: true,
+      valid_until: "1999-01-01",
+      show_project_details: false,
+      sent_at: "2099-01-01",
+      title: "free job",
+    };
+    for (const [field, value] of Object.entries(privileged)) {
+      const result = portalDirect({ old, next: { ...old, [field]: value } });
+      expect(result.ok, field).toBe(false);
+      if (!result.ok) expect(result.code).toBe("PORTAL_ESTIMATE_FORBIDDEN");
+    }
+  });
+
+  it("staff roles still pass the portal column lock (office, salesman, warehouse)", () => {
+    const old = baseEst();
+    for (const role of ["admin", "office", "sales_manager", "salesman", "warehouse", "crew"]) {
+      expect(
+        portalDirect({
+          actorRole: role,
+          old,
+          next: { ...old, tax_rate: 0, notes: "staff edit", status: "draft" },
+        }).ok,
+      ).toBe(true);
+    }
+  });
+
+  it("0179 does not drop customer row RLS or grant trigger execute to authenticated", () => {
+    const sql0009 = readFileSync(
+      join(ROOT, "supabase/migrations/0009_portal.sql"),
+      "utf8",
+    );
+    expect(sql0009).toContain("estimates_customer_update");
+    expect(sql0009).toContain("customer_id = public.my_customer_id()");
+    expect(sql0179).not.toContain("drop policy if exists estimates_customer_update");
+    expect(sql0009).toContain("estimate_options_customer_read");
+    expect(sql0009).not.toMatch(/estimate_options_customer_update/);
+    expect(sql0009).not.toMatch(/estimate_line_items_customer_update/);
+    expect(sql0179).not.toMatch(
+      /grant execute on function public\.set_config/i,
+    );
+  });
+
+  it("portal decline/request-changes only PATCH status + customer_response_note", () => {
+    const decline = portalActions.slice(
+      portalActions.indexOf("export async function portalDeclineEstimate"),
+      portalActions.indexOf("export async function portalRequestChanges"),
+    );
+    expect(decline).toContain('status: "declined"');
+    expect(decline).toContain("customer_response_note");
+    expect(decline).not.toContain("tax_rate");
+    expect(decline).not.toContain("createAdminClient");
+    const changes = portalActions.slice(
+      portalActions.indexOf("export async function portalRequestChanges"),
+    );
+    expect(changes).toContain('status: "changes_requested"');
+    expect(changes).toContain("customer_response_note");
+    expect(changes).not.toContain("tax_rate");
+  });
+
+  it("portal approve uses JWT RPC, never service_role, and checks ownership first", () => {
+    const fn = portalActions.slice(
+      portalActions.indexOf("export async function portalApproveEstimate"),
+      portalActions.indexOf("export async function portalDeclineEstimate"),
+    );
+    expect(fn).toContain("recordEstimateApproval");
+    expect(fn).toContain('source: "portal"');
+    expect(fn).toContain("estRow.customer_id !== portalCustomerId");
+    expect(fn).toContain("admin: false");
+    expect(fn).not.toContain("createAdminClient");
+    expect(estimateApprovals).toContain("APPROVAL_PORTAL_SERVICE_ROLE");
+    expect(estimateApprovals).toContain("p_approval_source: args.source");
+  });
 });
 
 describe("job_satisfaction read policy (behavioral + SQL)", () => {

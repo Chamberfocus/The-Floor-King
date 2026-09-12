@@ -5,6 +5,7 @@ import { sendSms } from "@/lib/sms";
 import { triggerImportProcessing } from "@/lib/import-worker";
 import { advanceToNamedStage } from "@/lib/workflow-engine";
 import { dayTaskCollectAmountDue } from "@/lib/payment-safety";
+import { loadInvoiceArReductions } from "@/lib/data/invoices";
 import {
   collectCatalogsOverSftp,
   feedsDue,
@@ -38,8 +39,12 @@ async function outstandingBalance(
     .eq("customer_id", customerId)
     .neq("status", "void");
 
+  const reductions = await loadInvoiceArReductions(
+    (invoices ?? []).map((i) => i.id as string),
+  );
   let owed = 0;
   for (const inv of invoices ?? []) {
+    const red = reductions.get(inv.id as string);
     const due = dayTaskCollectAmountDue({
       items: (inv.items ?? []) as Parameters<typeof dayTaskCollectAmountDue>[0]["items"],
       taxRate: inv.tax_rate as number,
@@ -49,6 +54,8 @@ async function outstandingBalance(
           amount: number;
           status?: string | null;
         }[],
+      appliedDeposits: red?.deposited ?? 0,
+      appliedWriteOffs: red?.writtenOff ?? 0,
     });
     if (due > 0) owed += due;
   }

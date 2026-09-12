@@ -14,8 +14,9 @@ function str(v: FormDataEntryValue | null): string {
 }
 
 /** The caller's profile + a DB client that can write this job's rows: staff use
- *  their own (RLS-guarded) client; the assigned installer (crew) uses the
- *  service-role client after we verify they own the job. */
+ *  their own (RLS-guarded) client; the assigned installer or active crew-linked
+ *  login uses the service-role client after we verify assignment. Crew-linked
+ *  users do not get generic jobs UPDATE via RLS. */
 async function jobWriter(jobId: string) {
   const supabase = await createClient();
   const {
@@ -26,9 +27,30 @@ async function jobWriter(jobId: string) {
   if (!prof || prof.role === "customer") return { error: "Not allowed." as string };
   const isStaff = prof.role === "admin" || prof.role === "office";
   if (!isStaff) {
-    // Non-staff must be the installer assigned to this job.
-    const { data: job } = await supabase.from("jobs").select("assigned_to").eq("id", jobId).maybeSingle();
-    if (!job || job.assigned_to !== user.id) return { error: "Not your job." as string };
+    // Direct assignee OR active crew whose profile_id is this login.
+    const { data: job } = await supabase
+      .from("jobs")
+      .select("assigned_to, assigned_crew_id")
+      .eq("id", jobId)
+      .maybeSingle();
+    if (!job) return { error: "Not your job." as string };
+    let allowed = job.assigned_to === user.id;
+    if (!allowed && job.assigned_crew_id) {
+      try {
+        const admin = createAdminClient();
+        const { data: crew } = await admin
+          .from("install_crews")
+          .select("id")
+          .eq("id", job.assigned_crew_id as string)
+          .eq("profile_id", user.id)
+          .eq("active", true)
+          .maybeSingle();
+        allowed = !!crew;
+      } catch {
+        allowed = false;
+      }
+    }
+    if (!allowed) return { error: "Not your job." as string };
   }
   let db = supabase;
   if (!isStaff) {

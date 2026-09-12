@@ -64,7 +64,7 @@ export interface InstallScheduleProps {
   /** Crew-posted unavailability (redacted), to warn before double-booking. */
   availability?: BookingBlock[];
   /** False when job has material need and warehouse has not marked ready. */
-  materialsReady?: boolean;
+  materialsReady: boolean;
 }
 
 /**
@@ -83,7 +83,7 @@ export function InstallSchedule({
   arrivalWindows,
   preferences = [],
   availability = [],
-  materialsReady = true,
+  materialsReady,
 }: InstallScheduleProps) {
   const redirectTo = `/customers/${customerId}#jobs`;
   const windowLabel = schedule.window

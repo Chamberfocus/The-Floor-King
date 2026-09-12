@@ -77,14 +77,12 @@ export async function updateAccountingSettingsAction(formData: FormData) {
   revalidatePath("/accounting");
 }
 
-function periodActionIdempotencyKey(
-  formData: FormData,
-  prefix: string,
-  periodId: string,
-): string {
+function periodActionIdempotencyKey(formData: FormData): string {
   const fromForm = String(formData.get("idempotency_key") || "").trim();
-  if (fromForm) return fromForm;
-  return `${prefix}:${periodId}:${crypto.randomUUID()}`;
+  if (!fromForm) {
+    throw new Error("Missing operation token. Refresh the page and try again.");
+  }
+  return fromForm;
 }
 
 function periodRpcErrorMessage(
@@ -117,7 +115,7 @@ export async function closeAccountingPeriodAction(formData: FormData) {
   if (!id) throw new Error("Period is required.");
   if (!reason) throw new Error("Close reason is required.");
   const supabase = await createClient();
-  const key = periodActionIdempotencyKey(formData, "period_close", id);
+  const key = periodActionIdempotencyKey(formData);
   const { data, error } = await supabase.rpc("acct_period_close_safe", {
     p_period_id: id,
     p_reason: reason,
@@ -137,7 +135,7 @@ export async function reopenAccountingPeriodAction(formData: FormData) {
   if (!id) throw new Error("Period is required.");
   if (!reason) throw new Error("Reopen reason is required.");
   const supabase = await createClient();
-  const key = periodActionIdempotencyKey(formData, "period_reopen", id);
+  const key = periodActionIdempotencyKey(formData);
   const { data, error } = await supabase.rpc("acct_period_reopen_safe", {
     p_period_id: id,
     p_reason: reason,
@@ -156,7 +154,7 @@ export async function lockAccountingPeriodAction(formData: FormData) {
   const reason = String(formData.get("reason") || "").trim() || "Period lock";
   if (!id) throw new Error("Period is required.");
   const supabase = await createClient();
-  const key = periodActionIdempotencyKey(formData, "period_lock", id);
+  const key = periodActionIdempotencyKey(formData);
   const { data, error } = await supabase.rpc("acct_period_lock_safe", {
     p_period_id: id,
     p_reason: reason,
@@ -176,9 +174,10 @@ export async function deactivateGlAccountAction(formData: FormData) {
   if (!accountId) throw new Error("Account is required.");
   if (!reason) throw new Error("Deactivate reason is required.");
   const supabase = await createClient();
-  const key =
-    String(formData.get("idempotency_key") || "").trim() ||
-    `gl_deactivate:${accountId}:${crypto.randomUUID()}`;
+  const key = String(formData.get("idempotency_key") || "").trim();
+  if (!key) {
+    throw new Error("Missing operation token. Refresh the page and try again.");
+  }
   const { data, error } = await supabase.rpc("gl_account_deactivate_safe", {
     p_account_id: accountId,
     p_reason: reason,

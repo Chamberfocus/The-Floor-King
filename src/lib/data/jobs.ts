@@ -1,6 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { boardMaterialTypeFromScopes, installerCanDoJob, type MaterialType } from "@/lib/job-scope";
+import {
+  installerAssignmentOrFilter,
+  installerSeesJob,
+  dedupeJobsById,
+} from "@/lib/installer-assignment";
 import type {
   Customer,
   EstimateLineItem,
@@ -60,7 +65,38 @@ export async function listJobs(
     // landing on the Jobs list beside real installs. It lives on Orders.
     .or(PICKUP_EXCLUDED)
     .order("created_at", { ascending: false });
-  if (opts.assignedTo) query = query.eq("assigned_to", opts.assignedTo);
+  if (opts.assignedTo) {
+    const admin = createAdminClient();
+    const { data: crewRows } = await admin
+      .from("install_crews")
+      .select("id")
+      .eq("profile_id", opts.assignedTo)
+      .eq("active", true);
+    const memberCrewIds = (crewRows ?? []).map((c) => c.id as string);
+    const { data } = await admin
+      .from("jobs")
+      .select("*, customer:customers(full_name, phone)")
+      .or(PICKUP_EXCLUDED)
+      .or(installerAssignmentOrFilter(opts.assignedTo, memberCrewIds))
+      .order("created_at", { ascending: false });
+    const rows = dedupeJobsById(
+      ((data ?? []) as (Job & {
+        customer?: { full_name: string | null; phone: string | null } | null;
+      })[]).filter((r) =>
+        installerSeesJob({
+          assignedTo: r.assigned_to,
+          assignedCrewId: r.assigned_crew_id,
+          userId: opts.assignedTo!,
+          memberCrewIds,
+        }),
+      ),
+    );
+    return rows.map((r) => ({
+      ...r,
+      customer_name: r.customer?.full_name ?? null,
+      customer_phone: r.customer?.phone ?? null,
+    }));
+  }
 
   if (opts.mineFor) {
     const { data: mine } = await supabase

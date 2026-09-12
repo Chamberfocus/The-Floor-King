@@ -1,13 +1,9 @@
 /**
- * Canonical invoice open AR — mirrors public.invoice_open_ar_balance (0171).
- *
- * commercial total
- * − active payments
- * − active credit applications
- * − active deposit applications
- * − active write-offs
+ * Canonical invoice open AR — mirrors public.invoice_open_ar_balance (0171)
+ * and effectiveInvoiceBalance.amountDue.
  */
-import { invoiceTotals, type CalcInvoiceItem } from "@/lib/invoice-calc";
+import { type CalcInvoiceItem } from "@/lib/invoice-calc";
+import { effectiveInvoiceBalance } from "@/lib/credit-ar";
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -19,13 +15,14 @@ export function invoiceOpenArBalance(args: {
   activeDeposits?: number;
   activeWriteOffs?: number;
 }): number {
-  const total = invoiceTotals(args.items, args.taxRate ?? 0).total;
-  const reductions =
-    round2(args.activePayments ?? 0) +
-    round2(args.activeCredits ?? 0) +
-    round2(args.activeDeposits ?? 0) +
-    round2(args.activeWriteOffs ?? 0);
-  return round2(Math.max(0, total - reductions));
+  return effectiveInvoiceBalance({
+    items: args.items,
+    taxRate: args.taxRate,
+    amountPaid: args.activePayments ?? 0,
+    appliedCredits: args.activeCredits ?? 0,
+    appliedDeposits: args.activeDeposits ?? 0,
+    appliedWriteOffs: args.activeWriteOffs ?? 0,
+  }).amountDue;
 }
 
 export function assessOpenArConsumption(args: {

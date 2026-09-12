@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAll } from "@/lib/supabase/paginate";
-import { computeJobOpenBalance } from "@/lib/invoice-calc";
+import { computeJobOpenBalance, invoiceTotals } from "@/lib/invoice-calc";
 import { buildCustomerScope, type CustomerScope } from "@/lib/customer-scope";
 import { getEstimate } from "@/lib/data/estimates";
 import { getJob } from "@/lib/data/jobs";
@@ -33,7 +33,7 @@ export async function getInvoiceScope(inv: Invoice): Promise<InvoiceScope | null
       opts.find((o) => o.id === est?.accepted_option_id) ?? opts[0] ?? null;
     if (est && chosen) {
       return {
-        scope: buildCustomerScope(chosen.line_items ?? [], est.notes),
+        scope: buildCustomerScope(chosen.line_items ?? [], est.job_description),
         narrative: est.job_description,
       };
     }
@@ -100,12 +100,55 @@ async function attach(
     list.push(a);
     appsBy.set(a.invoice_id, list);
   }
+  const reductions = await loadInvoiceArReductions(ids);
   for (const inv of invoices) {
     inv.items = itemsBy.get(inv.id) ?? [];
     inv.payments = paysBy.get(inv.id) ?? [];
     inv.creditApplications = appsBy.get(inv.id) ?? [];
+    const red = reductions.get(inv.id);
+    inv.appliedDeposits = red?.deposited ?? 0;
+    inv.appliedWriteOffs = red?.writtenOff ?? 0;
   }
   return invoices;
+}
+
+/** Active deposit applications + write-offs per invoice (DEFINER-safe via admin). */
+export async function loadInvoiceArReductions(
+  invoiceIds: string[],
+): Promise<Map<string, { deposited: number; writtenOff: number }>> {
+  const out = new Map<string, { deposited: number; writtenOff: number }>();
+  for (const id of invoiceIds) out.set(id, { deposited: 0, writtenOff: 0 });
+  if (!invoiceIds.length) return out;
+  try {
+    const admin = createAdminClient();
+    const [{ data: deps }, { data: wos }] = await Promise.all([
+      admin
+        .from("customer_deposit_applications")
+        .select("invoice_id, amount, status")
+        .in("invoice_id", invoiceIds),
+      admin
+        .from("invoice_write_offs")
+        .select("invoice_id, amount, status")
+        .in("invoice_id", invoiceIds),
+    ]);
+    for (const a of deps ?? []) {
+      if (((a.status as string) ?? "active") === "void") continue;
+      const id = a.invoice_id as string;
+      const cur = out.get(id) ?? { deposited: 0, writtenOff: 0 };
+      cur.deposited += Number(a.amount) || 0;
+      out.set(id, cur);
+    }
+    for (const w of wos ?? []) {
+      if (((w.status as string) ?? "active") === "void") continue;
+      const id = w.invoice_id as string;
+      const cur = out.get(id) ?? { deposited: 0, writtenOff: 0 };
+      cur.writtenOff += Number(w.amount) || 0;
+      out.set(id, cur);
+    }
+  } catch {
+    /* admin missing — leave zeros */
+  }
+  return out;
 }
 
 export function amountPaid(inv: Invoice): number {
@@ -120,14 +163,53 @@ export function amountCredited(inv: Invoice): number {
   return appliedCreditsForInvoice(inv.creditApplications ?? [], inv.id);
 }
 
-/** Canonical amount still due (payments + credits). */
+export function amountDeposited(inv: Invoice): number {
+  return Math.round((Number(inv.appliedDeposits) || 0) * 100) / 100;
+}
+
+export function amountWrittenOff(inv: Invoice): number {
+  return Math.round((Number(inv.appliedWriteOffs) || 0) * 100) / 100;
+}
+
+/** Canonical amount still due. Void invoices are $0. */
 export function invoiceAmountDue(inv: Invoice): number {
+  if (inv.status === "void") return 0;
   return effectiveInvoiceBalance({
     items: inv.items ?? [],
     taxRate: inv.tax_rate,
     amountPaid: amountPaid(inv),
     appliedCredits: amountCredited(inv),
+    appliedDeposits: amountDeposited(inv),
+    appliedWriteOffs: amountWrittenOff(inv),
   }).amountDue;
+}
+
+/**
+ * Display totals for lists/portal/print. Line engine stays invoiceTotals;
+ * remaining balance is always invoiceAmountDue (payments + credits +
+ * applied deposits + write-offs).
+ */
+export function invoiceDisplayTotals(inv: Invoice): {
+  subtotal: number;
+  tax: number;
+  total: number;
+  paid: number;
+  credited: number;
+  deposited: number;
+  writtenOff: number;
+  balance: number;
+} {
+  const line = invoiceTotals(inv.items ?? [], inv.tax_rate, 0);
+  return {
+    subtotal: line.subtotal,
+    tax: line.tax,
+    total: line.total,
+    paid: amountPaid(inv),
+    credited: amountCredited(inv),
+    deposited: amountDeposited(inv),
+    writtenOff: amountWrittenOff(inv),
+    balance: invoiceAmountDue(inv),
+  };
 }
 
 export interface JobCollectible {
@@ -142,7 +224,7 @@ export interface JobCollectible {
 
 /**
  * Pure job open-balance from already-loaded invoices (items + payments attached).
- * Delegates to computeJobOpenBalance (canonical invoiceTotals.balance).
+ * Delegates to computeJobOpenBalance (canonical effectiveInvoiceBalance.amountDue).
  */
 export function computeJobCollectible(invoices: Invoice[]): JobCollectible {
   return computeJobOpenBalance(invoices);
@@ -207,6 +289,12 @@ export async function getJobOpenBalance(jobId: string): Promise<JobCollectible> 
     inv.items = itemsBy.get(inv.id) ?? [];
     inv.payments = paysBy.get(inv.id) ?? [];
     inv.creditApplications = appsBy.get(inv.id) ?? [];
+  }
+  const reductions = await loadInvoiceArReductions(ids);
+  for (const inv of invoices) {
+    const red = reductions.get(inv.id);
+    inv.appliedDeposits = red?.deposited ?? 0;
+    inv.appliedWriteOffs = red?.writtenOff ?? 0;
   }
 
   return computeJobCollectible(invoices);

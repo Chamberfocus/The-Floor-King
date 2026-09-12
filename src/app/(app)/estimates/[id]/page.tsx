@@ -49,6 +49,7 @@ import { setEstimateStatus, duplicateOption, unapproveEstimate } from "../action
 import { DeleteEstimateButton } from "../estimate-list-actions";
 import { createJobFromEstimate } from "@/app/(app)/jobs/actions";
 import { createClient } from "@/lib/supabase/server";
+import { jobMaterialsHref } from "@/lib/job-materials-href";
 import { CopyEstimate } from "./copy-estimate";
 import { EstimateAddress } from "./estimate-address";
 import { AddFromNotes } from "./add-from-notes";
@@ -87,16 +88,22 @@ export default async function EstimatePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ print?: string; preview?: string; approval_error?: string; invoice_error?: string }>;
+  searchParams: Promise<{ print?: string; preview?: string; approval_error?: string; invoice_error?: string; notify?: string; notify_detail?: string }>;
 }) {
   const { id } = await params;
-  const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError } = await searchParams;
+  const { print, preview: previewParam, approval_error: approvalError, invoice_error: invoiceError, notify, notify_detail: notifyDetail } = await searchParams;
   const preview = previewParam === "1";
   const estimate = await getEstimate(id);
   if (!estimate) notFound();
   const approvalSnap = await getCurrentApprovalSnapshot(id);
 
   const customer = await getCustomer(estimate.customer_id);
+  const supabase = await createClient();
+  const { data: linkedJob } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("estimate_id", id)
+    .maybeSingle();
   // Which property this estimate is for. Only meaningful on accounts that have
   // more than one — but it has to be READABLE on all of them, or a wrong one
   // stays invisible until a crew turns up at the wrong door.
@@ -104,7 +111,7 @@ export default async function EstimatePage({
     .service_address_id ?? null;
   const siteAddress = svcAddrId
     ? ((
-        await (await createClient())
+        await supabase
           .from("service_addresses")
           .select("id, label, street, city, state, zip")
           .eq("id", svcAddrId)
@@ -251,6 +258,21 @@ export default async function EstimatePage({
             {invoiceError}
           </p>
         ) : null}
+        {notify === "success" ? (
+          <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+            Email sent to the customer.
+          </p>
+        ) : null}
+        {notify === "failed" ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            Estimate was updated, but the email failed: {notifyDetail || "send failed."}
+          </p>
+        ) : null}
+        {notify === "not_attempted" ? (
+          <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+            Estimate was updated. Email was not sent: {notifyDetail || "not attempted."}
+          </p>
+        ) : null}
         {estimate.status === "approved" && approvalSnap ? (
           <p className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
             Customer approval on file (v{approvalSnap.version}
@@ -311,7 +333,15 @@ export default async function EstimatePage({
                   variant="outline"
                   size="lg"
                   className="w-full"
-                  render={<Link href={`/estimates/${estimate.id}/order`} />}
+                  render={
+                    <Link
+                      href={
+                        linkedJob?.id
+                          ? jobMaterialsHref(linkedJob.id as string)
+                          : `/estimates/${estimate.id}/order`
+                      }
+                    />
+                  }
                 >
                   <ShoppingCart className="size-4" /> Order materials
                 </Button>
@@ -391,7 +421,8 @@ export default async function EstimatePage({
               </div>
             )
           ) : estimate.status === "sent" || estimate.status === "changes_requested" ? (
-            // Sent → waiting on the customer; approving lives in the workflow card.
+            // Sent → waiting on the customer; approving lives in the workflow card
+            // (option picker). Do not duplicate Approve here — that locked option 1.
             <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -403,26 +434,9 @@ export default async function EstimatePage({
                 <p className="text-sm text-muted-foreground">
                   {estimate.status === "changes_requested"
                     ? "The customer asked for changes. Update the estimate, then re-send."
-                    : "When they approve (or you approve it for them below), the job, PO & invoice unlock."}
+                    : "When they approve (or you approve the chosen option in Status & workflow below), the job, PO & invoice unlock."}
                 </p>
               </div>
-              <form action={setEstimateStatus} className="flex items-end gap-2">
-                <input type="hidden" name="id" value={estimate.id} />
-                <input type="hidden" name="status" value="approved" />
-                <input
-                  type="hidden"
-                  name="accepted_option_id"
-                  value={estimate.accepted_option_id || options[0].id}
-                />
-                <ConfirmButton
-                  size="lg"
-                  title="Approve this estimate?"
-                  description="This accepts the estimate, creates the job, moves the customer to Collect Deposit, and notifies the office. Only approve once the customer has agreed."
-                  confirmLabel="Approve"
-                >
-                  <Check className="size-4" /> Approve &amp; continue
-                </ConfirmButton>
-              </form>
             </div>
             {/* Did it land, and have they read it? */}
             <EstimateDeliveryCard d={delivery} />
@@ -432,26 +446,9 @@ export default async function EstimatePage({
               <div>
                 <div className="font-semibold">Ready to go?</div>
                 <p className="text-sm text-muted-foreground">
-                  Approve this estimate to unlock the work order, PO &amp; invoice.
+                  Approve the chosen option in Status &amp; workflow below to unlock the work order, PO &amp; invoice.
                 </p>
               </div>
-              <form action={setEstimateStatus} className="flex items-end gap-2">
-                <input type="hidden" name="id" value={estimate.id} />
-                <input type="hidden" name="status" value="approved" />
-                <input
-                  type="hidden"
-                  name="accepted_option_id"
-                  value={estimate.accepted_option_id || options[0].id}
-                />
-                <ConfirmButton
-                  size="lg"
-                  title="Approve this estimate?"
-                  description="This accepts the estimate, creates the job, moves the customer to Collect Deposit, and notifies the office. Only approve once the customer has agreed."
-                  confirmLabel="Approve"
-                >
-                  <Check className="size-4" /> Approve &amp; continue
-                </ConfirmButton>
-              </form>
             </div>
           )}
         </CardContent>
@@ -692,7 +689,7 @@ export default async function EstimatePage({
       </div>
 
       {/* Status workflow */}
-      <Card className="mt-6">
+      <Card id="workflow" className="mt-6">
         <CardHeader>
           <CardTitle className="text-base">Status &amp; workflow</CardTitle>
         </CardHeader>

@@ -119,7 +119,15 @@ export function SamplesCard({
         toast.error(res.error);
         return;
       }
-      toast.success("Samples checked out — customer notified");
+      if (res.notify?.status === "success") {
+        toast.success("Samples checked out and customer notified");
+      } else if (res.notify?.status === "failed") {
+        toast.error(`Samples checked out. Notify failed: ${res.notify.error}`);
+      } else {
+        toast.success(
+          `Samples checked out. Customer was not notified${res.notify?.reason ? `: ${res.notify.reason}` : "."}`,
+        );
+      }
       setItems([]);
       setDue(todayPlus(loanDays));
       setDeposit(defaultDeposit ? String(defaultDeposit) : "");

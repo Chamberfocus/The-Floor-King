@@ -39,15 +39,14 @@ export function invoiceArRemainingAfterWriteOffs(args: {
   appliedWriteOffs: number;
   appliedDeposits?: number;
 }): number {
-  const base = effectiveInvoiceBalance({
+  return effectiveInvoiceBalance({
     items: args.items,
     taxRate: args.taxRate,
     amountPaid: args.amountPaid,
     appliedCredits: args.appliedCredits,
-  }).rawBalance;
-  return round2(
-    Math.max(0, base - (args.appliedDeposits ?? 0) - args.appliedWriteOffs),
-  );
+    appliedDeposits: args.appliedDeposits ?? 0,
+    appliedWriteOffs: args.appliedWriteOffs,
+  }).amountDue;
 }
 
 export function assessWriteOffAmount(args: {

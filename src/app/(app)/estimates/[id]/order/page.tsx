@@ -6,12 +6,13 @@ import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getEstimateOrderPlan } from "@/lib/data/po-plan";
+import { jobMaterialsHref } from "@/lib/job-materials-href";
 import { OrderMaterials } from "./order-materials";
 
 export const metadata: Metadata = { title: "Order materials" };
 export const dynamic = "force-dynamic";
 
-const ALLOWED = ["admin", "office", "sales_manager", "warehouse"];
+  const ALLOWED = ["admin", "office", "sales_manager", "salesman", "warehouse"];
 
 export default async function OrderMaterialsPage({
   params,
@@ -30,7 +31,7 @@ export default async function OrderMaterialsPage({
     .eq("estimate_id", id)
     .limit(1)
     .maybeSingle();
-  if (job) redirect(`/jobs/${job.id}`);
+  if (job) redirect(jobMaterialsHref(job.id));
 
   const plan = await getEstimateOrderPlan(id);
 

@@ -48,8 +48,8 @@ export function InstallerCollect({
         setReference("");
         toast.success(
           method === "link"
-            ? "Office notified to send a payment link"
-            : "Payment recorded — office notified",
+            ? "Payment link requested from the office"
+            : "Payment recorded",
         );
         router.refresh();
       } catch (e) {

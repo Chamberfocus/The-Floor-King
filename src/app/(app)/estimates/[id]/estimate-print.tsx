@@ -214,10 +214,10 @@ export function EstimatePrintDoc({
   const itemized = estimate.presentation !== "summary";
   const number = docRef("EST", estimate.id);
 
-  // Body content (customer-facing): the AREAS being done and a free-text
-  // DESCRIPTION of the job (the estimate notes). No cuts, quantities, or costs.
+  // Body content (customer-facing): the AREAS being done and the customer-facing
+  // job_description. Never internal estimate.notes (cost/margin commentary).
   const areas = [...new Set(lines.map((l) => (l.room ?? "").trim()).filter(Boolean))];
-  const description = (estimate.notes ?? "").trim();
+  const description = (estimate.job_description ?? "").trim();
   /**
    * The headline on a lump-sum quote.
    *

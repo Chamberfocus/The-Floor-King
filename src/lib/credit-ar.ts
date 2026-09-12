@@ -8,8 +8,11 @@
  * - Credit application = credit applied to a specific invoice
  * - Refund = money out against available (unapplied) credit
  *
- * effective balance = total − active payments − active applied credits
- * amount due (display) = max(0, effective balance)
+ * Canonical remaining (matches public.invoice_open_ar_balance / 0171):
+ *   amountDue = max(0, total − active payments − active credits
+ *                         − active deposit applications − active write-offs)
+ * Invoice *total* is commercial lines + tax and is never reduced to hide deposits.
+ * Unapplied customer deposits are NOT netted here — they must be applied first.
  * available credit on memo = issued − applied − refunded (voids excluded)
  */
 import { invoiceTotals, type CalcInvoiceItem } from "@/lib/invoice-calc";
@@ -137,30 +140,39 @@ export interface EffectiveInvoiceBalance {
   total: number;
   paid: number;
   credited: number;
-  /** total − paid − credited (may be negative if over-applied; display clamps). */
+  deposited: number;
+  writtenOff: number;
+  /** total − reductions (may be negative if over-applied; display clamps). */
   rawBalance: number;
   /** Amount still due from customer — never unexplained negative. */
   amountDue: number;
 }
 
 /**
- * Canonical effective invoice balance.
- * `amountPaid` = active payments only. `appliedCredits` = active applications.
+ * Canonical collectible invoice balance. Same arithmetic as
+ * public.invoice_open_ar_balance. Payments are invoice-linked rows (the
+ * allocation). Deposits reduce due only after an active application row.
  */
 export function effectiveInvoiceBalance(args: {
   items: CalcInvoiceItem[];
   taxRate: number | string | null | undefined;
   amountPaid: number;
   appliedCredits: number;
+  appliedDeposits?: number;
+  appliedWriteOffs?: number;
 }): EffectiveInvoiceBalance {
   const { total } = invoiceTotals(args.items, args.taxRate ?? 0, 0);
   const paid = round2(Math.max(0, Number(args.amountPaid) || 0));
   const credited = round2(Math.max(0, Number(args.appliedCredits) || 0));
-  const rawBalance = round2(total - paid - credited);
+  const deposited = round2(Math.max(0, Number(args.appliedDeposits) || 0));
+  const writtenOff = round2(Math.max(0, Number(args.appliedWriteOffs) || 0));
+  const rawBalance = round2(total - paid - credited - deposited - writtenOff);
   return {
     total: round2(total),
     paid,
     credited,
+    deposited,
+    writtenOff,
     rawBalance,
     amountDue: Math.max(0, rawBalance),
   };

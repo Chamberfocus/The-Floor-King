@@ -72,28 +72,36 @@ async function main() {
   results.scoreboard.TASK_PROTECT = "office_tasks_protect_columns (trigger; not an OpenAPI RPC)";
   results.scoreboard.SCHEDULE_GUARD = "jobs_schedule_mutation_guard (trigger; not an OpenAPI RPC)";
 
-  // 0179 trigger is SECURITY DEFINER and revoked from authenticated — PostgREST
-  // may still expose it to service_role. PGRST202 = not applied.
+  // 0179 trigger fn RETURNS trigger and is revoked from authenticated, so it is
+  // not a PostgREST RPC (PGRST202 is expected even when applied). Presence is
+  // proven by the 0179 COMMENT on record_estimate_approval_safe.
   const { error: t179Err } = await svc.rpc("estimates_protect_portal_columns");
   const t179Msg = t179Err?.message ?? "";
-  const t179Missing =
-    !!t179Err &&
-    (t179Err.code === "PGRST202" ||
-      /does not exist|could not find the function/i.test(t179Msg));
+  const approvalIdx = openBody.indexOf("record_estimate_approval_safe");
+  const approvalWindow =
+    approvalIdx >= 0
+      ? openBody.slice(Math.max(0, approvalIdx - 80), approvalIdx + 700)
+      : "";
   const t179Present =
-    !t179Missing &&
-    (openBody.includes("estimates_protect_portal_columns") ||
-      /trigger|tuple|record|before|without|schema cache/i.test(t179Msg) ||
-      !t179Err);
+    openBody.includes("F7/0178+0179") ||
+    approvalWindow.includes("app.allow_portal_approval_mutation") ||
+    openBody.includes("allow_portal_approval_mutation");
   if (t179Present) {
-    pass("0179 estimates_protect_portal_columns reachable (trigger/function present)");
+    pass(
+      "0179 present (record_estimate_approval_safe comment/GUC; trigger fn is not a PostgREST RPC)",
+    );
     results.scoreboard.MIGRATION_0179 = "PRESENT";
   } else {
-    console.log("PENDING: 0179 estimates_protect_portal_columns not in API (unapplied or not exposed)");
+    console.log("PENDING: 0179 comment/GUC not in OpenAPI (unapplied or cache stale)");
     results.scoreboard.MIGRATION_0179 = "NOT_APPLIED";
   }
+  if (t179Err) {
+    console.log(
+      `NOTE: estimates_protect_portal_columns RPC probe (expected PGRST202 if trigger-only): ${t179Err.code ?? ""} ${t179Msg.slice(0, 160)}`,
+    );
+  }
   if (process.env.REQUIRE_0179 === "1" && !t179Present) {
-    fail("0179 required but estimates_protect_portal_columns is not present");
+    fail("0179 required but 0179 approval comment/GUC is not present in OpenAPI");
   }
 
   if (f7178Present) {

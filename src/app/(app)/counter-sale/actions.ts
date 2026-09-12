@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
 import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
+import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 
 export interface CounterSaleLine {
   description: string;
@@ -141,6 +142,12 @@ export async function ringUpCounterSale(
   if (!fin.ok) {
     return { error: fin.error || "Couldn't finalize the counter-sale invoice." };
   }
+
+  await applyEligibleDepositsToInvoice(supabase, {
+    invoiceId: inv.id as string,
+    createdBy: user?.id ?? null,
+    appliedOn: today,
+  });
 
   // 3 · The money — atomic overpay-safe insert (migration 0158).
   const amount = Number(input.payment?.amount) || 0;

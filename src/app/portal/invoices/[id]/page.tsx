@@ -10,9 +10,8 @@ import {
 } from "@/components/ui/card";
 import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { CustomerScopeView } from "@/components/customer-scope-view";
-import { getInvoice, amountPaid, getInvoiceScope } from "@/lib/data/invoices";
-import { getOrgSettings } from "@/lib/data/org";
-import { invoiceTotals } from "@/lib/invoice-calc";
+import { getInvoice, invoiceDisplayTotals } from "@/lib/data/invoices";
+import { getPortalInvoiceScope, getPortalOrgSettings } from "@/lib/data/portal-commercial";
 import { formatDate, formatMoney } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Invoice" };
@@ -27,14 +26,10 @@ export default async function PortalInvoicePage({
   if (!invoice) notFound();
 
   const [invoiceScope, org] = await Promise.all([
-    getInvoiceScope(invoice),
-    getOrgSettings(),
+    getPortalInvoiceScope(invoice),
+    getPortalOrgSettings(),
   ]);
-  const totals = invoiceTotals(
-    invoice.items ?? [],
-    invoice.tax_rate,
-    amountPaid(invoice),
-  );
+  const totals = invoiceDisplayTotals(invoice);
   const fallbackLines = (invoice.items ?? [])
     .map((it) => (it.description ?? "").trim())
     .filter(Boolean);
@@ -96,6 +91,18 @@ export default async function PortalInvoicePage({
               <div className="flex justify-between text-muted-foreground">
                 <span>Paid to date</span>
                 <span>{formatMoney(totals.paid)}</span>
+              </div>
+            ) : null}
+            {totals.credited > 0 ? (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Credits applied</span>
+                <span>{formatMoney(totals.credited)}</span>
+              </div>
+            ) : null}
+            {totals.deposited > 0 ? (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Deposits applied</span>
+                <span>{formatMoney(totals.deposited)}</span>
               </div>
             ) : null}
             <div className="flex justify-between border-t pt-1 text-base font-semibold">

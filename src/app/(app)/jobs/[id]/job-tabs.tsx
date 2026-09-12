@@ -48,17 +48,28 @@ export function useJobTab(): TabState {
 
 export function JobTabs({
   show,
+  initial,
   children,
 }: {
   show: JobTab[];
+  initial?: JobTab;
   children: React.ReactNode;
 }) {
-  const [active, setActive] = useState<JobTab>(show[0] ?? "work_order");
-  // Deep-link / guided-tour support: a #tab in the URL focuses that tab.
+  const start =
+    initial && show.includes(initial) ? initial : (show[0] ?? "work_order");
+  const [active, setActive] = useState<JobTab>(start);
+  // Deep-link / guided-tour support: ?tab= or #tab in the URL focuses that tab.
   useEffect(() => {
     const applyHash = () => {
-      const h = window.location.hash.replace("#", "") as JobTab;
-      if (h && show.includes(h)) setActive(h);
+      const fromQuery = new URLSearchParams(window.location.search).get("tab") as JobTab | null;
+      const fromHash = window.location.hash.replace("#", "") as JobTab;
+      const h =
+        fromQuery && show.includes(fromQuery)
+          ? fromQuery
+          : fromHash && show.includes(fromHash)
+            ? fromHash
+            : null;
+      if (h) setActive(h);
     };
     applyHash();
     window.addEventListener("hashchange", applyHash);

@@ -1,12 +1,11 @@
 import { getEstimate } from "./estimates";
-import { listInvoicesForJob, getJobOpenBalance, amountPaid } from "./invoices";
+import { listInvoicesForJob, getJobOpenBalance, invoiceAmountDue, invoiceDisplayTotals } from "./invoices";
 import { listPurchaseOrdersForJob } from "./purchase-orders";
 import { getJobSatisfaction } from "./jobs";
 import { getMeasurementDocuments } from "./documents";
 import { getProfileNames } from "./customers";
 import { buildJobScope } from "@/lib/job-scope";
 import { optionTotals } from "@/lib/estimate-calc";
-import { invoiceTotals } from "@/lib/invoice-calc";
 import { poTotal } from "@/lib/po-calc";
 import { formatMoney } from "@/lib/format";
 import type { JobDetail } from "./jobs";
@@ -75,7 +74,7 @@ export async function listJobDocuments(job: JobDetail): Promise<JobDocsResult> {
       listPurchaseOrdersForJob(job.id),
       getJobSatisfaction(job.id),
       job.customer_id
-        ? getMeasurementDocuments(job.customer_id)
+        ? getMeasurementDocuments(job.customer_id, job.id)
         : Promise.resolve([]),
       getJobOpenBalance(job.id),
     ]);
@@ -130,13 +129,13 @@ export async function listJobDocuments(job: JobDetail): Promise<JobDocsResult> {
 
   // --- Invoices ---
   const invoiceDocs: JobDocument[] = invoices.map((inv) => {
-    const paid = amountPaid(inv);
-    const t = invoiceTotals(inv.items ?? [], inv.tax_rate ?? 0, paid);
+    const t = invoiceDisplayTotals(inv);
+    const due = invoiceAmountDue(inv);
     const st =
-      t.balance <= 0.005
+      due <= 0.005
         ? { s: "Paid ✓", tone: "good" as DocTone }
-        : paid > 0
-          ? { s: `${formatMoney(t.balance)} due`, tone: "warn" as DocTone }
+        : t.paid > 0 || t.credited > 0
+          ? { s: `${formatMoney(due)} due`, tone: "warn" as DocTone }
           : { s: "Unpaid", tone: "info" as DocTone };
     return {
       key: `inv-${inv.id}`,

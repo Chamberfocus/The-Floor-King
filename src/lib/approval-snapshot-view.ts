@@ -63,7 +63,7 @@ export function snapshotItemGroups(payload: ApprovalSnapshotPayload) {
       });
     }
   }
-  const scope = buildCustomerScope(lines, payload.notes);
+  const scope = buildCustomerScope(lines, payload.job_description);
   const projectDetails =
     payload.show_project_details === false
       ? []

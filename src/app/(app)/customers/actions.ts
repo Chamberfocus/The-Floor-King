@@ -5,6 +5,13 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
+import {
+  isOffSpine,
+  resolveFlowStep,
+  workflowAdvanceGate,
+  type StageLike,
+} from "@/lib/job-flow";
+import { loadCustomerFlowFacts } from "@/lib/data/flow-facts";
 import { advanceFromFirstStage, deriveLeadStage,
   settleJobsForStage,
 } from "@/lib/workflow-engine";
@@ -527,12 +534,37 @@ export async function advanceWorkflow(formData: FormData): Promise<void> {
   // lead_stage in lock-step with the workflow stage (one source of truth).
   const { data: allStages } = await supabase
     .from("workflow_stages")
-    .select("position, auto_action, name");
+    .select("id, position, auto_action, name");
   const { data: stage } = await supabase
     .from("workflow_stages")
-    .select("name, position, sla_hours, next_action")
+    .select("id, name, position, sla_hours, next_action, auto_action")
     .eq("id", toStageId)
     .maybeSingle();
+
+  const currentStage = (allStages ?? []).find(
+    (s: { id: string }) => s.id === (cust?.workflow_stage_id as string | null),
+  ) as StageLike | undefined;
+  const stagesLike = (allStages ?? []) as StageLike[];
+  const currentStep = resolveFlowStep(currentStage ?? null, stagesLike);
+  const targetOff = stage ? isOffSpine(stage as StageLike) : false;
+  const movingForward =
+    !!stage &&
+    !!currentStage &&
+    (stage.position as number) > (currentStage.position as number);
+  if (movingForward && !targetOff) {
+    const facts = await loadCustomerFlowFacts(supabase, id);
+    const gate = workflowAdvanceGate({
+      currentStep,
+      facts,
+      targetOffSpine: targetOff,
+      movingForward: true,
+    });
+    if (!gate.done) {
+      redirect(
+        `/customers/${id}?stage_error=${encodeURIComponent(gate.reason ?? "Complete the current step before advancing.")}`,
+      );
+    }
+  }
 
   const due =
     stage?.sla_hours && stage.sla_hours > 0

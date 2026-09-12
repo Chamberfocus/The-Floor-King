@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
+import { jobFilesObjectPathError } from "@/lib/job-files-path";
 import { recordJobFile } from "./file-actions";
 
 type CanvasEvent =
@@ -66,9 +67,15 @@ export function SignaturePad({ jobId }: { jobId: string }) {
       }
       const supabase = createClient();
       const path = `${jobId}/signature-${Date.now()}.png`;
+      const pathErr = jobFilesObjectPathError(jobId, path);
+      if (pathErr) {
+        toast.error(pathErr);
+        setBusy(false);
+        return;
+      }
       const { error } = await supabase.storage
         .from("job-files")
-        .upload(path, blob, { contentType: "image/png" });
+        .upload(path, blob, { contentType: "image/png", upsert: false });
       if (error) {
         toast.error(error.message);
         setBusy(false);

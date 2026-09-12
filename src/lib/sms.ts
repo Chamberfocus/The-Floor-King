@@ -1,10 +1,8 @@
 /**
  * Text messaging. SERVER ONLY.
- * Primary provider is Telnyx (API v2): set TELNYX_API_KEY + TELNYX_FROM (and
- * optionally TELNYX_MESSAGING_PROFILE_ID). Falls back to Twilio if only the
- * Twilio vars are set. No-ops (returns false) until one provider is configured,
- * so it's safe to call anywhere.
+ * Missing provider config or gated-off notify is NOT ATTEMPTED, not success.
  */
+import type { MessageSendResult } from "@/lib/message-send";
 
 /** Normalize a US number to E.164 (+1XXXXXXXXXX). Returns null if unusable. */
 function toE164(to: string): string | null {
@@ -15,8 +13,10 @@ function toE164(to: string): string | null {
   return null;
 }
 
-export async function sendSms(to: string, body: string): Promise<boolean> {
-  if (!to) return false;
+export async function sendSms(to: string, body: string): Promise<MessageSendResult> {
+  if (!to) {
+    return { status: "not_attempted", reason: "No phone number." };
+  }
 
   const telnyxKey = process.env.TELNYX_API_KEY;
   const telnyxFrom = process.env.TELNYX_FROM;
@@ -25,14 +25,25 @@ export async function sendSms(to: string, body: string): Promise<boolean> {
 
   const useTelnyx = !!(telnyxKey && telnyxFrom);
   const useTwilio = !useTelnyx && !!(twilioSid && twilioFrom);
-  if (!useTelnyx && !useTwilio) return false;
+  if (!useTelnyx && !useTwilio) {
+    return {
+      status: "not_attempted",
+      reason: "Text messaging is not configured.",
+    };
+  }
 
-  // Master switches: never text a customer while customer notifications are off.
   const { notifyAllowed } = await import("@/lib/notify-gate");
-  if (!(await notifyAllowed({ phone: to }))) return false;
+  if (!(await notifyAllowed({ phone: to }))) {
+    return {
+      status: "not_attempted",
+      reason: "Customer text notifications are turned off.",
+    };
+  }
 
   const dest = toE164(to);
-  if (!dest) return false;
+  if (!dest) {
+    return { status: "not_attempted", reason: "Phone number is not a usable US number." };
+  }
 
   try {
     if (useTelnyx) {
@@ -50,14 +61,22 @@ export async function sendSms(to: string, body: string): Promise<boolean> {
           ...(profileId ? { messaging_profile_id: profileId } : {}),
         }),
       });
-      return res.ok;
+      if (res.ok) return { status: "success" };
+      return {
+        status: "failed",
+        error: `Text provider rejected the send (${res.status}).`,
+      };
     }
 
-    // Twilio fallback (API Key auth if present, else Account Auth Token).
     const authUser = process.env.TWILIO_API_KEY_SID || twilioSid;
     const authPass =
       process.env.TWILIO_API_KEY_SECRET || process.env.TWILIO_AUTH_TOKEN;
-    if (!authUser || !authPass) return false;
+    if (!authUser || !authPass) {
+      return {
+        status: "not_attempted",
+        reason: "Text messaging is not configured.",
+      };
+    }
     const res = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`,
       {
@@ -74,8 +93,15 @@ export async function sendSms(to: string, body: string): Promise<boolean> {
         }).toString(),
       },
     );
-    return res.ok;
-  } catch {
-    return false;
+    if (res.ok) return { status: "success" };
+    return {
+      status: "failed",
+      error: `Text provider rejected the send (${res.status}).`,
+    };
+  } catch (e) {
+    return {
+      status: "failed",
+      error: e instanceof Error ? e.message : "Text send failed.",
+    };
   }
 }

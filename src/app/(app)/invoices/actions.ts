@@ -22,7 +22,17 @@ import {
   type InvoiceCommercialKind,
 } from "@/lib/change-order-invoice";
 import { commercialCreditsTotalForEstimate } from "@/lib/data/credits";
+import { invoiceRemainingBalance } from "@/lib/payment-safety";
+import { activeApplicationsTotal } from "@/lib/credit-ar";
+import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
+import { loadInvoiceArReductions } from "@/lib/data/invoices";
 import { assertRole } from "@/lib/auth";
+import {
+  CARD_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE,
+  INVOICE_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE,
+  resolveCardPaymentIdempotencyKey,
+  resolveInvoicePaymentIdempotencyKey,
+} from "@/lib/financial-idempotency";
 import {
   ensureInvoiceIssued,
   finalizeInvoiceSafe,
@@ -126,7 +136,7 @@ async function nextInvoiceNumber(supabase: SupabaseServerClient): Promise<string
   return `INV-${max + 1}`;
 }
 
-/** Recompute paid/partial status from items + *active* payments + *active* credits. */
+/** Recompute paid/partial from canonical open AR (payments + credits + deposits + write-offs). */
 async function recomputeStatus(
   supabase: SupabaseServerClient,
   invoiceId: string,
@@ -142,36 +152,51 @@ async function recomputeStatus(
     .from("invoice_items")
     .select("quantity, rate")
     .eq("invoice_id", invoiceId);
-  const { data: pays } = await supabase
-    .from("payments")
-    .select("amount, status")
-    .eq("invoice_id", invoiceId);
-  let credited = 0;
-  try {
-    const { data: apps } = await supabase
-      .from("credit_applications")
-      .select("amount, status")
-      .eq("invoice_id", invoiceId);
-    credited = (apps ?? [])
-      .filter((a) => ((a.status as string) ?? "active") !== "void")
-      .reduce((s, a) => s + (Number(a.amount) || 0), 0);
-  } catch {
-    credited = 0;
-  }
-
-  const paid = (pays ?? [])
-    .filter((p) => ((p.status as string) ?? "active") !== "void")
-    .reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const { total } = invoiceTotals(
     (items ?? []) as { quantity: number | null; rate: number | null }[],
     inv.tax_rate as number,
     0,
   );
 
-  const covered = paid + credited;
+  let due = total;
+  const { data: openAr, error: arErr } = await supabase.rpc(
+    "invoice_open_ar_balance",
+    { p_invoice_id: invoiceId },
+  );
+  if (!arErr && openAr != null && Number.isFinite(Number(openAr))) {
+    due = Number(openAr);
+  } else {
+    const { data: pays } = await supabase
+      .from("payments")
+      .select("amount, status")
+      .eq("invoice_id", invoiceId);
+    let credited = 0;
+    try {
+      const { data: apps } = await supabase
+        .from("credit_applications")
+        .select("amount, status")
+        .eq("invoice_id", invoiceId);
+      credited = (apps ?? [])
+        .filter((a) => ((a.status as string) ?? "active") !== "void")
+        .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+    } catch {
+      credited = 0;
+    }
+    const red = (await loadInvoiceArReductions([invoiceId])).get(invoiceId);
+    due = invoiceRemainingBalance(
+      (items ?? []) as { quantity: number | null; rate: number | null }[],
+      inv.tax_rate as number,
+      pays ?? [],
+      credited,
+      red?.deposited ?? 0,
+      red?.writtenOff ?? 0,
+    );
+  }
+
+  const covered = Math.max(0, total - due);
   let status = inv.status as InvoiceStatus;
-  if (total > 0 && covered >= total - 0.005) status = "paid";
-  else if (paid > 0 || credited > 0) status = "partial";
+  if (total > 0 && due <= 0.005) status = "paid";
+  else if (covered > 0.005) status = "partial";
   else if (status === "paid" || status === "partial") status = "sent";
 
   if (status === inv.status) return;
@@ -187,7 +212,6 @@ async function recomputeStatus(
   });
   if (!ensured.ok) return;
 
-  // After finalize, draft→sent already applied; still move to partial/paid if needed.
   const { data: after } = await supabase
     .from("invoices")
     .select("status")
@@ -195,6 +219,19 @@ async function recomputeStatus(
     .maybeSingle();
   if ((after?.status as string) === status) return;
   await supabase.from("invoices").update({ status }).eq("id", invoiceId);
+}
+
+async function applyDepositsThenRecompute(
+  supabase: SupabaseServerClient,
+  invoiceId: string,
+  createdBy: string | null,
+) {
+  await applyEligibleDepositsToInvoice(supabase, {
+    invoiceId,
+    createdBy,
+    appliedOn: today(),
+  });
+  await recomputeStatus(supabase, invoiceId);
 }
 
 type RpcPaymentResult = {
@@ -659,6 +696,8 @@ async function createEstimateDerivedInvoice(args: {
 
   if (items.length) await supabase.from("invoice_items").insert(items);
 
+  await applyDepositsThenRecompute(supabase, invoice.id, user?.id ?? null);
+
   revalidatePath("/invoices");
   if (jobId) revalidatePath(`/jobs/${jobId}`);
   redirect(`/invoices/${invoice.id}`);
@@ -688,6 +727,7 @@ export async function createInvoiceFromSelection(
 export async function createInvoice(formData: FormData): Promise<void> {
   const customerId = str(formData.get("customer_id"));
   if (!customerId) return;
+  const jobId = str(formData.get("job_id")) || null;
   const supabase = await createClient();
   const {
     data: { user },
@@ -696,6 +736,7 @@ export async function createInvoice(formData: FormData): Promise<void> {
     .from("invoices")
     .insert({
       customer_id: customerId,
+      job_id: jobId,
       number: await nextInvoiceNumber(supabase),
       issue_date: today(),
       created_by: user?.id ?? null,
@@ -705,6 +746,7 @@ export async function createInvoice(formData: FormData): Promise<void> {
   if (error || !invoice) return;
   revalidatePath("/invoices");
   revalidatePath(`/customers/${customerId}`);
+  if (jobId) revalidatePath(`/jobs/${jobId}`);
   redirect(`/invoices/${invoice.id}`);
 }
 
@@ -861,7 +903,7 @@ export async function saveInvoice(
     await supabase.from("invoice_items").delete().in("id", oldIds);
   }
 
-  await recomputeStatus(supabase, invoiceId);
+  await applyDepositsThenRecompute(supabase, invoiceId, user?.id ?? null);
   revalidatePath(`/invoices/${invoiceId}`);
   // Editing line items changes totals → refresh revenue/AR views and the
   // customer file + linked job balance too.
@@ -894,9 +936,16 @@ export async function recordPayment(formData: FormData): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const idempotencyKey =
-    str(formData.get("idempotency_key")) ||
-    `manual:${invoiceId}:${payAmount}:${str(formData.get("paid_at")) || today()}:${str(formData.get("method")) || "other"}:${str(formData.get("reference"))}:${user?.id ?? ""}`;
+  await applyEligibleDepositsToInvoice(supabase, {
+    invoiceId,
+    createdBy: user?.id ?? null,
+    appliedOn: today(),
+  });
+
+  const idempotencyKey = resolveInvoicePaymentIdempotencyKey(
+    str(formData.get("idempotency_key")),
+  );
+  if (!idempotencyKey) fail(INVOICE_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE);
 
   const res = await rpcRecordPayment(supabase, {
     invoiceId,
@@ -979,10 +1028,13 @@ export async function recordCardPayment(
   customerId: string,
   amount: number,
   note?: string | null,
+  operationToken?: string | null,
 ): Promise<{ error: string | null }> {
   if (!customerId) return { error: "Missing customer." };
   if (!Number.isFinite(amount) || amount <= 0)
     return { error: "Enter the amount you charged." };
+  const cardKey = resolveCardPaymentIdempotencyKey(operationToken);
+  if (!cardKey) return { error: CARD_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE };
 
   try {
     await assertRole(INVOICE_PAYMENT_ROLES);
@@ -997,25 +1049,57 @@ export async function recordCardPayment(
 
   const { data: candidates } = await supabase
     .from("invoices")
-    .select("id, tax_rate, status")
+    .select("id, tax_rate, status, issue_date, created_at")
     .eq("customer_id", customerId)
     .neq("status", "void")
-    .order("created_at", { ascending: false });
+    .order("issue_date", { ascending: true })
+    .order("created_at", { ascending: true });
+  for (const inv of candidates ?? []) {
+    await applyEligibleDepositsToInvoice(supabase, {
+      invoiceId: inv.id as string,
+      createdBy: user?.id ?? null,
+      appliedOn: today(),
+    });
+  }
   let invoiceId: string | undefined;
   for (const inv of candidates ?? []) {
-    const [{ data: items }, { data: pays }] = await Promise.all([
+    const [{ data: items }, { data: pays }, { data: apps }] = await Promise.all([
       supabase.from("invoice_items").select("quantity, rate").eq("invoice_id", inv.id),
       supabase.from("payments").select("amount, status").eq("invoice_id", inv.id),
+      supabase.from("credit_applications").select("amount, status").eq("invoice_id", inv.id),
     ]);
-    const total = invoiceTotals(
+    let deposited = 0;
+    let writtenOff = 0;
+    try {
+      const admin = createAdminClient();
+      const [{ data: deps }, { data: wos }] = await Promise.all([
+        admin
+          .from("customer_deposit_applications")
+          .select("amount, status")
+          .eq("invoice_id", inv.id),
+        admin
+          .from("invoice_write_offs")
+          .select("amount, status")
+          .eq("invoice_id", inv.id),
+      ]);
+      deposited = (deps ?? [])
+        .filter((a) => ((a.status as string) ?? "active") !== "void")
+        .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+      writtenOff = (wos ?? [])
+        .filter((a) => ((a.status as string) ?? "active") !== "void")
+        .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+    } catch {
+      /* ignore */
+    }
+    const remaining = invoiceRemainingBalance(
       (items ?? []) as { quantity: number | null; rate: number | null }[],
       inv.tax_rate as number,
-      0,
-    ).total;
-    const paid = (pays ?? [])
-      .filter((p) => ((p.status as string) ?? "active") !== "void")
-      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    if (total - paid > 0.005) {
+      pays ?? [],
+      activeApplicationsTotal(apps ?? []),
+      deposited,
+      writtenOff,
+    );
+    if (remaining > 0.005) {
       invoiceId = inv.id as string;
       break;
     }
@@ -1028,7 +1112,7 @@ export async function recordCardPayment(
       receivedOn: today(),
       notes: note?.trim() || "Card (SwipeSimple)",
       createdBy: user?.id ?? null,
-      idempotencyKey: `card-deposit:${customerId}:${amount}:${today()}:${note?.trim() || ""}:${user?.id ?? ""}`,
+      idempotencyKey: cardKey,
     });
     if (dep.error) return { error: dep.error };
     await advanceFromAutoAction(customerId, "collect_deposit");
@@ -1045,7 +1129,7 @@ export async function recordCardPayment(
     paidAt: today(),
     notes: null,
     createdBy: user?.id ?? null,
-    idempotencyKey: `card:${customerId}:${invoiceId}:${amount}:${today()}:${note?.trim() || ""}:${user?.id ?? ""}`,
+    idempotencyKey: cardKey,
   });
   if (res.error) return { error: res.error };
 
@@ -1229,7 +1313,7 @@ export async function emailInvoice(formData: FormData): Promise<void> {
     email: string | null;
   } | null;
   if (!skipClientEmail && cust?.email) {
-    await sendEmail({
+    const sent = await sendEmail({
       to: cust.email,
       subject: `Invoice ${inv?.number ?? ""} from Cleveland Floor King`.trim(),
       html: emailLayout(
@@ -1241,10 +1325,21 @@ export async function emailInvoice(formData: FormData): Promise<void> {
         { preheader: `Your invoice${inv?.number ? ` ${inv.number}` : ""} is ready to view.` },
       ),
     });
+    revalidatePath(`/invoices/${id}`);
+    redirect(
+      `/invoices/${id}?notify=${sent.status}&notify_detail=${encodeURIComponent(
+        sent.status === "success" ? "sent" : sent.status === "failed" ? sent.error : sent.reason,
+      )}`,
+    );
+  } else if (!skipClientEmail) {
+    revalidatePath(`/invoices/${id}`);
+    redirect(
+      `/invoices/${id}?notify=not_attempted&notify_detail=${encodeURIComponent("No email address.")}`,
+    );
   }
 
   revalidatePath(`/invoices/${id}`);
-  redirect(`/invoices/${id}`);
+  redirect(`/invoices/${id}?notify=not_attempted&notify_detail=${encodeURIComponent("Marked sent without emailing.")}`);
 }
 
 /**

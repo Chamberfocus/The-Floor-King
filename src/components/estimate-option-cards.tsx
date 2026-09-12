@@ -43,7 +43,7 @@ export function EstimateOptionCards({
           estimate.discount_kind,
           estimate.discount_value,
         );
-        const scope = buildCustomerScope(lines, estimate.notes);
+        const scope = buildCustomerScope(lines, estimate.job_description);
         const recommended = o.id === estimate.recommended_option_id;
         return (
           <div

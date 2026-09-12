@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
+import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 import type { LeadSource, LeadStage } from "@/lib/types";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -374,6 +375,11 @@ export async function carryOverDeal(
     if (!fin.ok) {
       return { error: fin.error || "Couldn't finalize carry-over invoice." };
     }
+    await applyEligibleDepositsToInvoice(supabase, {
+      invoiceId: inv.id as string,
+      createdBy: uid ?? null,
+      appliedOn: input.soldDate || today(),
+    });
     if (collected > 0) {
       const paidAt = input.collectedDate || input.soldDate || today();
       const { data: payRes, error: payErr } = await supabase.rpc(

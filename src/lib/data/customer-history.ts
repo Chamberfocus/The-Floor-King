@@ -1,6 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAll } from "@/lib/supabase/paginate";
 import { optionTotalsWithDiscount } from "@/lib/estimate-calc";
+import { effectiveInvoiceBalance, activeApplicationsTotal } from "@/lib/credit-ar";
+import { activePaymentsTotal } from "@/lib/payment-safety";
+import { loadInvoiceArReductions } from "@/lib/data/invoices";
 import type { EstimateLineItem } from "@/lib/types";
 
 /**
@@ -105,7 +108,7 @@ export async function getCustomerHistory(
   const invoiceIds = (invs ?? []).map((i) => i.id as string);
 
   // Line items for estimate values, and invoice items + payments for the money.
-  const [opts, lines, invItems, pays] = await Promise.all([
+  const [opts, lines, invItems, pays, creditApps] = await Promise.all([
     estimateIds.length
       ? fetchAll<{ id: string; estimate_id: string }>((from, to) =>
           supabase.from("estimate_options").select("id, estimate_id")
@@ -131,6 +134,19 @@ export async function getCustomerHistory(
           supabase
             .from("payments")
             .select("id, invoice_id, amount, paid_at, method, status")
+            .in("invoice_id", invoiceIds)
+            .range(from, to),
+        )
+      : Promise.resolve([]),
+    invoiceIds.length
+      ? fetchAll<{
+          invoice_id: string;
+          amount: number | null;
+          status: string | null;
+        }>((from, to) =>
+          supabase
+            .from("credit_applications")
+            .select("invoice_id, amount, status")
             .in("invoice_id", invoiceIds)
             .range(from, to),
         )
@@ -315,6 +331,28 @@ export async function getCustomerHistory(
       .filter((e) => e.kind === "payment" && e.status !== "void")
       .reduce((s, e) => s + (e.amount ?? 0), 0),
   );
+  let outstanding = 0;
+  const invIds = (invs ?? []).map((i) => i.id as string);
+  const reductions = await loadInvoiceArReductions(invIds);
+  for (const i of invs ?? []) {
+    if ((i.status as string) === "void") continue;
+    const iid = i.id as string;
+    const red = reductions.get(iid);
+    outstanding += effectiveInvoiceBalance({
+      items: itemsByInvoice.get(iid) ?? [],
+      taxRate: i.tax_rate,
+      amountPaid: activePaymentsTotal(pays.filter((p) => p.invoice_id === iid)),
+      appliedCredits: activeApplicationsTotal(
+        creditApps.filter((a) => a.invoice_id === iid).map((a) => ({
+          amount: Number(a.amount) || 0,
+          status: a.status,
+        })),
+      ),
+      appliedDeposits: red?.deposited ?? 0,
+      appliedWriteOffs: red?.writtenOff ?? 0,
+    }).amountDue;
+  }
+  outstanding = money(outstanding);
   // Only DECIDED quotes count toward a win rate — one still sitting in their
   // inbox is not a loss, and counting it as one flatters nothing and misleads.
   const decided = estEvents.filter((e) => e.status === "approved" || e.status === "declined").length;
@@ -325,7 +363,7 @@ export async function getCustomerHistory(
     properties,
     totals: {
       quoted, won, billed, paid,
-      outstanding: money(billed - paid),
+      outstanding,
       winRate: decided ? Math.round((wonEsts.length / decided) * 100) : null,
       firstSeen: dates[0] ?? null,
       lastSeen: dates[dates.length - 1] ?? null,

@@ -7,7 +7,7 @@ import { aiText } from "@/lib/ai";
 import { listJobs, getJob } from "@/lib/data/jobs";
 import { listCustomers } from "@/lib/data/customers";
 import { ROLE_LABELS } from "@/lib/types";
-import { setJobStatus } from "@/app/(app)/jobs/actions";
+import { setJobStatus, enforceMaterialsReadyForSchedule } from "@/app/(app)/jobs/actions";
 import { addActivity } from "@/app/(app)/customers/actions";
 import { notifyOnTheWay } from "@/app/(app)/customers/[id]/onway-actions";
 import { createDraftEstimateFromText } from "@/app/(app)/estimates/ai-actions";
@@ -295,6 +295,16 @@ export async function runAssistantAction(
         .eq("id", safe.jobId)
         .maybeSingle();
       if (!job) return { ok: false, message: "I couldn't find that job (or you don't have access)." };
+      const mat = await enforceMaterialsReadyForSchedule({
+        jobId: safe.jobId,
+        db: supabase,
+        userId: profile.id,
+        overrideReason: null,
+        scheduledDate: safe.date,
+      });
+      if (!mat.ok) {
+        return { ok: false, message: mat.error };
+      }
       const { data: schedRes, error: schedErr } = await supabase.rpc(
         "schedule_job_install_safe",
         {

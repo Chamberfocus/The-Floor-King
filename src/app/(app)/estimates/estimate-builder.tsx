@@ -1531,16 +1531,26 @@ export function EstimateBuilder({
       }
       await flushDefaultRates();
       void clearEstimateBuilderDraft(estimate.id);
-      await sendEstimateById(estimate.id, sendEmail);
-      toast.success(
-        res.reapprovalRequired
-          ? sendEmail
-            ? `Revised estimate sent for reapproval to ${customer?.full_name || "the customer"}`
-            : "Revised estimate saved & marked sent (needs reapproval; no email)"
-          : sendEmail
-            ? `Estimate sent to ${customer?.full_name || "the customer"}`
+      const sent = await sendEstimateById(estimate.id, sendEmail);
+      if (!sendEmail) {
+        toast.success(
+          res.reapprovalRequired
+            ? "Revised estimate saved & marked sent (needs reapproval; no email)"
             : "Estimate saved & marked sent (no email)",
-      );
+        );
+      } else if (sent.notify.status === "success") {
+        toast.success(
+          res.reapprovalRequired
+            ? `Revised estimate sent for reapproval to ${customer?.full_name || "the customer"}`
+            : `Estimate sent to ${customer?.full_name || "the customer"}`,
+        );
+      } else if (sent.notify.status === "failed") {
+        toast.error(`Estimate marked sent, but email failed: ${sent.notify.error}`);
+      } else {
+        toast.success(
+          `Estimate marked sent. Email was not sent: ${sent.notify.reason}`,
+        );
+      }
       router.push(`/estimates/${estimate.id}`);
     });
 

@@ -19,6 +19,7 @@ import {
   voidBill,
   activateBill,
 } from "../actions";
+import { PaymentIdempotencyField } from "@/app/(app)/invoices/payment-idempotency-field";
 
 export const metadata: Metadata = { title: "Bill" };
 export const dynamic = "force-dynamic";
@@ -328,6 +329,7 @@ export default async function BillPage({
               className="flex flex-wrap items-end gap-2 border-t pt-3"
             >
               <input type="hidden" name="bill_id" value={bill.id} />
+              <PaymentIdempotencyField />
               <label className="text-xs text-muted-foreground">
                 Amount
                 <Input

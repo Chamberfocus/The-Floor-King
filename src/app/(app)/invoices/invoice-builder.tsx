@@ -20,6 +20,7 @@ import {
   invoiceTotals,
   type SaveInvoiceInput,
 } from "@/lib/invoice-calc";
+import { effectiveInvoiceBalance } from "@/lib/credit-ar";
 import {
   INVOICE_STATUS_LABELS,
   INVOICE_STATUS_ORDER,
@@ -49,6 +50,9 @@ const inputSm =
 export function InvoiceBuilder({
   invoice,
   amountPaid,
+  amountCredited = 0,
+  amountDeposited = 0,
+  amountWrittenOff = 0,
   customer,
   org,
   scope,
@@ -57,6 +61,10 @@ export function InvoiceBuilder({
 }: {
   invoice: Invoice;
   amountPaid: number;
+  /** Active credit applications — same canonical remaining as Payments card. */
+  amountCredited?: number;
+  amountDeposited?: number;
+  amountWrittenOff?: number;
   customer: Customer | null;
   org: OrgSettings;
   preview?: boolean;
@@ -128,11 +136,26 @@ export function InvoiceBuilder({
   const removeItem = (i: number) =>
     setItems((prev) => prev.filter((_, j) => j !== i));
 
-  const totals = invoiceTotals(
+  const lineTotals = invoiceTotals(
     items.map((it) => ({ quantity: it.quantity, rate: it.rate })),
     taxRate,
-    amountPaid,
+    0,
   );
+  const totals = {
+    ...lineTotals,
+    paid: amountPaid,
+    credited: amountCredited,
+    deposited: amountDeposited,
+    writtenOff: amountWrittenOff,
+    balance: effectiveInvoiceBalance({
+      items: items.map((it) => ({ quantity: it.quantity, rate: it.rate })),
+      taxRate,
+      amountPaid,
+      appliedCredits: amountCredited,
+      appliedDeposits: amountDeposited,
+      appliedWriteOffs: amountWrittenOff,
+    }).amountDue,
+  };
 
   const buildInput = (): SaveInvoiceInput => ({
     number,
@@ -152,18 +175,24 @@ export function InvoiceBuilder({
   });
 
   const save = (opts: { stash?: boolean } = {}) =>
-    startTransition(async () => {
-      const res = await saveInvoice(invoice.id, buildInput());
-      if (res.error) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(opts.stash ? "Saved for later" : "Invoice saved");
-      // "Save for later" stashes to /saved; a plain save returns to the
-      // customer's dashboard (the job's spine) — only on a successful save.
-      if (opts.stash) router.push("/saved");
-      else if (invoice.customer_id) router.push(`/customers/${invoice.customer_id}`);
-      else router.refresh();
+    new Promise<void>((resolve) => {
+      startTransition(async () => {
+        try {
+          const res = await saveInvoice(invoice.id, buildInput());
+          if (res.error) {
+            toast.error(res.error);
+            return;
+          }
+          toast.success(opts.stash ? "Saved for later" : "Invoice saved");
+          // "Save for later" stashes to /saved; a plain save returns to the
+          // customer's dashboard (the job's spine) — only on a successful save.
+          if (opts.stash) router.push("/saved");
+          else if (invoice.customer_id) router.push(`/customers/${invoice.customer_id}`);
+          else router.refresh();
+        } finally {
+          resolve();
+        }
+      });
     });
 
   // Save first so the record matches the printout, then open the print dialog.
@@ -353,6 +382,24 @@ export function InvoiceBuilder({
               <span>Paid</span>
               <span>{formatMoney(totals.paid)}</span>
             </div>
+            {totals.credited > 0 ? (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Credits applied</span>
+                <span>{formatMoney(totals.credited)}</span>
+              </div>
+            ) : null}
+            {totals.deposited > 0 ? (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Deposits applied</span>
+                <span>{formatMoney(totals.deposited)}</span>
+              </div>
+            ) : null}
+            {totals.writtenOff > 0 ? (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Write-offs</span>
+                <span>{formatMoney(totals.writtenOff)}</span>
+              </div>
+            ) : null}
             <div className="flex justify-between text-base font-semibold">
               <span>Balance due</span>
               <span>{formatMoney(totals.balance)}</span>
@@ -465,7 +512,16 @@ function InvoicePrintDoc({
   notes: string;
   terms: string;
   items: ItemState[];
-  totals: { subtotal: number; tax: number; total: number; paid: number; balance: number };
+  totals: {
+    subtotal: number;
+    tax: number;
+    total: number;
+    paid: number;
+    credited: number;
+    deposited?: number;
+    writtenOff?: number;
+    balance: number;
+  };
   scope: CustomerScope | null;
   narrative: string | null;
   /** On-screen document preview: show the doc as a white sheet (not print-only). */
@@ -544,6 +600,18 @@ function InvoicePrintDoc({
           <div className="mt-1 flex justify-between">
             <span className="text-gray-600">Paid to date</span>
             <span className="tabular-nums">{formatMoney(totals.paid)}</span>
+          </div>
+        ) : null}
+        {totals.credited > 0 ? (
+          <div className="mt-1 flex justify-between">
+            <span className="text-gray-600">Credits applied</span>
+            <span className="tabular-nums">{formatMoney(totals.credited)}</span>
+          </div>
+        ) : null}
+        {(totals.deposited ?? 0) > 0 ? (
+          <div className="mt-1 flex justify-between">
+            <span className="text-gray-600">Deposits applied</span>
+            <span className="tabular-nums">{formatMoney(totals.deposited ?? 0)}</span>
           </div>
         ) : null}
         <div className="mt-1 flex justify-between border-t pt-1 text-base font-bold">
