@@ -124,6 +124,8 @@ function baseState(over: Partial<InMemoryMergeState> = {}): InMemoryMergeState {
     appointments: [{ id: "ap1", customer_id: B }],
     documents: [{ id: "doc1", customer_id: B, path: `${B}/measure.pdf` }],
     notes: [{ id: "n1", customer_id: B, body: "Called" }],
+    handoffs: [{ id: "h1", customer_id: B }],
+    stepOverrides: [],
     portalProfiles: [],
     estimateDrafts: [],
     exclusions: [],
@@ -207,6 +209,10 @@ describe("TEST 1 — jobs move, not cloned", () => {
     expect(jobs.map((j) => j.id).sort()).toEqual(["j1", "j2", "j3"]);
     expect(r.state.jobs.filter((j) => j.customer_id === B)).toHaveLength(0);
     expect(new Set(r.state.jobs.map((j) => j.id)).size).toBe(3);
+    expect(r.state.handoffs.every((h) => h.customer_id === A)).toBe(true);
+    expect(r.state.notes.some((n) => n.customer_id === A && n.body === "Called")).toBe(
+      true,
+    );
   });
 });
 
@@ -632,6 +638,13 @@ describe("migration + UI wiring", () => {
     expect(sql0185).toContain("security definer");
     expect(sql0185).toContain("set search_path = public");
     expect(sql0185).not.toMatch(/delete from public\.customers/i);
+    expect(sql0185).not.toMatch(/delete from public\.step_overrides/i);
+    expect(sql0185).toContain("STEP_OVERRIDE_CONFLICT");
+    expect(sql0185).toContain("customer_merge_reassign('handoffs'");
+    expect(sql0185).toContain("coalesce(requested.merged_into_customer_id, requested.id)");
+    expect(sql0185).toContain("v_prior.chosen_fields is not distinct from v_chosen");
+    expect(sql0185).toContain("customer_duplicate_exclusions_reason_chk");
+    expect(sql0185).toContain("customers_merged_into_not_self");
     expect(sql0185).toContain("Do NOT apply this file to production without owner review");
   });
 
@@ -655,6 +668,257 @@ describe("migration + UI wiring", () => {
   it("list hides merged-away rows by default", () => {
     const src = readFileSync(join(ROOT, "src/lib/data/customers.ts"), "utf8");
     expect(src).toContain('q.is("merged_into_customer_id", null)');
+  });
+});
+
+describe("TEST 19 — idempotency payload mismatch", () => {
+  it("rejects the same key with different chosen fields", () => {
+    const key = "k-payload";
+    const first = executeCustomerMerge({
+      state: baseState({
+        customers: [
+          cust(A, { phone: "216-555-1111" }),
+          cust(B, { phone: "216-555-2222" }),
+        ],
+      }),
+      survivorId: A,
+      duplicateId: B,
+      chosen: { phone: "survivor" },
+      reason: "Same",
+      idempotencyKey: key,
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const second = executeCustomerMerge({
+      state: first.state,
+      survivorId: A,
+      duplicateId: B,
+      chosen: { phone: "duplicate" },
+      reason: "Same",
+      idempotencyKey: key,
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.code).toBe("IDEMPOTENCY_CONFLICT");
+    expect(first.state.mergeHistory).toHaveLength(1);
+  });
+});
+
+describe("TEST 20 — reverse-direction concurrent merge", () => {
+  it("A→B and B→A serialize on the same sorted lock pair", () => {
+    const state = baseState();
+    const lockIds = [A, B].sort();
+    expect(lockIds).toEqual([B, A].sort());
+    for (const id of lockIds) state.locks.add(id);
+    const reverse = executeCustomerMerge({
+      state,
+      survivorId: B,
+      duplicateId: A,
+      chosen: {},
+      reason: "reverse",
+      idempotencyKey: "k-reverse-lock",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(reverse.ok).toBe(false);
+    if (reverse.ok) return;
+    expect(reverse.code).toBe("MERGE_IN_PROGRESS");
+  });
+
+  it("after A←B, B→A is blocked as a chain/cycle", () => {
+    const first = executeCustomerMerge({
+      state: baseState(),
+      survivorId: A,
+      duplicateId: B,
+      chosen: {},
+      reason: "forward",
+      idempotencyKey: "k-fwd",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const reverse = executeCustomerMerge({
+      state: first.state,
+      survivorId: B,
+      duplicateId: A,
+      chosen: {},
+      reason: "reverse",
+      idempotencyKey: "k-rev",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(reverse.ok).toBe(false);
+    if (reverse.ok) return;
+    expect(reverse.code).toBe("SURVIVOR_MERGED");
+  });
+});
+
+describe("TEST 21 — portal one-sided identity", () => {
+  it("survivor portal only: merge proceeds and keeps one login", () => {
+    const r = executeCustomerMerge({
+      state: baseState({
+        portalProfiles: [{ id: "p1", customer_id: A, role: "customer" }],
+      }),
+      survivorId: A,
+      duplicateId: B,
+      chosen: {},
+      reason: "same",
+      idempotencyKey: "k-portal-s",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.state.portalProfiles.filter((p) => p.role === "customer")).toHaveLength(1);
+    expect(r.state.portalProfiles[0]?.customer_id).toBe(A);
+  });
+
+  it("duplicate portal only: login is reassigned to the survivor", () => {
+    const r = executeCustomerMerge({
+      state: baseState({
+        portalProfiles: [{ id: "p2", customer_id: B, role: "customer" }],
+      }),
+      survivorId: A,
+      duplicateId: B,
+      chosen: {},
+      reason: "same",
+      idempotencyKey: "k-portal-d",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.state.portalProfiles[0]?.customer_id).toBe(A);
+  });
+});
+
+describe("TEST 22 — different salesman owners", () => {
+  it("requires an explicit assigned_to choice and preserves the chosen book", () => {
+    const state = baseState({
+      customers: [
+        cust(A, { assigned_to: "rep-a" }),
+        cust(B, { assigned_to: "rep-b" }),
+      ],
+    });
+    const blocked = executeCustomerMerge({
+      state,
+      survivorId: A,
+      duplicateId: B,
+      chosen: {},
+      reason: "cross book",
+      idempotencyKey: "k-owner-block",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(blocked.ok).toBe(false);
+    if (blocked.ok) return;
+    expect(blocked.code).toBe("FIELD_CONFLICT");
+    const merged = executeCustomerMerge({
+      state,
+      survivorId: A,
+      duplicateId: B,
+      chosen: { assigned_to: "survivor" },
+      reason: "cross book",
+      idempotencyKey: "k-owner",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(merged.ok).toBe(true);
+    if (!merged.ok) return;
+    expect(merged.state.customers.find((c) => c.id === A)?.assigned_to).toBe("rep-a");
+  });
+});
+
+describe("TEST 23 — step override unique collision blocks", () => {
+  it("does not silently delete either override", () => {
+    const r = executeCustomerMerge({
+      state: baseState({
+        stepOverrides: [
+          { id: "s1", customer_id: A, job_id: null, step_key: "deposit" },
+          { id: "s2", customer_id: B, job_id: null, step_key: "deposit" },
+        ],
+      }),
+      survivorId: A,
+      duplicateId: B,
+      chosen: {},
+      reason: "same",
+      idempotencyKey: "k-step",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe("STEP_OVERRIDE_CONFLICT");
+  });
+});
+
+describe("TEST 24 — merged-away excluded from matcher and detector", () => {
+  it("duplicate groups ignore merged-away ids", () => {
+    const first = executeCustomerMerge({
+      state: baseState(),
+      survivorId: A,
+      duplicateId: B,
+      chosen: {},
+      reason: "same",
+      idempotencyKey: "k-det",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const groups = findCleanupDuplicateGroups({ customers: first.state.customers });
+    expect(groups.every((g) => !g.memberIds.includes(B))).toBe(true);
+    expect(hideMergedCustomers(first.state.customers).map((c) => c.id)).toEqual([A]);
+  });
+});
+
+describe("TEST 25 — customer list does not double-count", () => {
+  it("survivor activity is the union of both histories once", () => {
+    const before = baseState();
+    const r = executeCustomerMerge({
+      state: before,
+      survivorId: A,
+      duplicateId: B,
+      chosen: {},
+      reason: "same",
+      idempotencyKey: "k-count",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const visible = hideMergedCustomers(r.state.customers);
+    expect(uniqueCustomersById(visible)).toHaveLength(1);
+    expect(r.state.jobs.filter((j) => j.customer_id === A)).toHaveLength(3);
+    expect(r.state.invoices.filter((i) => i.customer_id === A)).toHaveLength(2);
+    expect(r.state.invoices.filter((i) => i.customer_id === B)).toHaveLength(0);
+    const after = snapshotFinancials(r.state.invoices.filter((i) => i.customer_id === A));
+    const combined = snapshotFinancials(before.invoices);
+    expect(after.invoiceTotal).toBe(combined.invoiceTotal);
+    expect(after.openAr).toBe(combined.openAr);
+  });
+});
+
+describe("TEST 26 — unknown profile columns rejected", () => {
+  it("does not apply arbitrary client column names", () => {
+    const r = executeCustomerMerge({
+      state: baseState(),
+      survivorId: A,
+      duplicateId: B,
+      chosen: { id: "duplicate" } as never,
+      reason: "same",
+      idempotencyKey: "k-bad-field",
+      actorId: "admin-1",
+      actorRole: "admin",
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe("BAD_FIELDS");
   });
 });
 

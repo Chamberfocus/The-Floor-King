@@ -33,6 +33,7 @@ export const LIVE_CUSTOMER_REASSIGN: CustomerReference[] = [
   { table: "orders", column: "customer_id", disposition: "live_reassign", notes: "Customer orders / pickups" },
   { table: "appointments", column: "customer_id", disposition: "live_reassign", notes: "Estimate/install appointments" },
   { table: "activities", column: "customer_id", disposition: "live_reassign", notes: "Notes / call log" },
+  { table: "handoffs", column: "customer_id", disposition: "live_reassign", notes: "Workflow handoff history" },
   { table: "messages", column: "customer_id", disposition: "live_reassign", notes: "Email/SMS records" },
   { table: "documents", column: "customer_id", disposition: "live_reassign", notes: "DB linkage only; storage path unchanged" },
   { table: "office_tasks", column: "customer_id", disposition: "live_reassign", notes: "Office tasks" },
@@ -45,7 +46,7 @@ export const LIVE_CUSTOMER_REASSIGN: CustomerReference[] = [
   { table: "bills", column: "customer_id", disposition: "live_reassign", notes: "Vendor bills tagged to a customer" },
   { table: "stock_movements", column: "customer_id", disposition: "live_reassign", notes: "Inventory pulls" },
   { table: "opening_ar_items", column: "customer_id", disposition: "live_reassign", notes: "Opening AR wizard rows" },
-  { table: "step_overrides", column: "customer_id", disposition: "special", notes: "Drop colliding account-level keys, then move" },
+  { table: "step_overrides", column: "customer_id", disposition: "special", notes: "Block on account-level (customer_id, step_key) collision; never silent-delete" },
   { table: "profiles", column: "customer_id", disposition: "special", notes: "Portal identity; block if both have portal users" },
   { table: "estimate_drafts", column: "customer_id", disposition: "block_if_both", notes: "PK = customer_id; block if both have drafts" },
   { table: "customers", column: "referred_by_customer_id", disposition: "special", notes: "Point at survivor; null if self-ref" },
@@ -87,6 +88,12 @@ export const IMMUTABLE_CUSTOMER_REFS: CustomerReference[] = [
     column: "created_customer_id",
     disposition: "immutable",
     notes: "Create-anyway audit (0160), not pair suppression",
+  },
+  {
+    table: "customer_duplicate_overrides",
+    column: "matched_customer_id",
+    disposition: "immutable",
+    notes: "Historical matcher hit at create-anyway time",
   },
 ];
 

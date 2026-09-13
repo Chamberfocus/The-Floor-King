@@ -39,6 +39,35 @@ create index if not exists customers_active_id_idx
   on public.customers (id)
   where merged_into_customer_id is null;
 
+alter table public.customers
+  drop constraint if exists customers_merged_into_not_self;
+alter table public.customers
+  add constraint customers_merged_into_not_self
+  check (merged_into_customer_id is null or merged_into_customer_id <> id);
+
+-- Storage + salesman ACL: old customer/{merged-away-uuid}/... paths must still
+-- resolve to the surviving book's assigned_to / workflow_owner.
+create or replace function public.mine_customer(cust uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.customers requested
+    join public.customers live
+      on live.id = coalesce(requested.merged_into_customer_id, requested.id)
+    where requested.id = cust
+      and live.merged_into_customer_id is null
+      and (live.assigned_to = auth.uid() or live.workflow_owner_id = auth.uid())
+  );
+$$;
+
+revoke all on function public.mine_customer(uuid) from public, anon;
+grant execute on function public.mine_customer(uuid) to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- 2) Intentional "not a duplicate" pair suppression
 --    Pair order is normalized: customer_id_a < customer_id_b
@@ -46,17 +75,27 @@ create index if not exists customers_active_id_idx
 create table if not exists public.customer_duplicate_exclusions (
   customer_id_a uuid not null references public.customers (id) on delete cascade,
   customer_id_b uuid not null references public.customers (id) on delete cascade,
-  reason text,
+  reason text not null,
   decided_by uuid references auth.users (id) on delete set null,
   decided_at timestamptz not null default now(),
   primary key (customer_id_a, customer_id_b),
   check (customer_id_a < customer_id_b),
-  check (customer_id_a <> customer_id_b)
+  check (customer_id_a <> customer_id_b),
+  check (btrim(reason) <> '')
 );
+
+alter table public.customer_duplicate_exclusions
+  alter column reason set not null;
+alter table public.customer_duplicate_exclusions
+  drop constraint if exists customer_duplicate_exclusions_reason_chk;
+alter table public.customer_duplicate_exclusions
+  add constraint customer_duplicate_exclusions_reason_chk
+  check (btrim(reason) <> '');
 
 create or replace function public.normalize_customer_duplicate_exclusion()
 returns trigger
 language plpgsql
+set search_path = public
 as $$
 declare
   v_lo uuid;
@@ -150,7 +189,7 @@ declare
 begin
   if p_table not in (
     'jobs', 'estimates', 'invoices', 'customer_deposits', 'credit_memos',
-    'refunds', 'orders', 'appointments', 'activities', 'messages', 'documents',
+    'refunds', 'orders', 'appointments', 'activities', 'handoffs', 'messages', 'documents',
     'office_tasks', 'service_callbacks', 'service_addresses', 'sample_checkouts',
     'customer_areas', 'purchase_orders', 'po_items', 'bills', 'stock_movements',
     'opening_ar_items'
@@ -173,10 +212,10 @@ begin
 end;
 $$;
 
+-- Owner-definer merge RPC can call this without EXECUTE grants. Do not expose
+-- the helper to clients or service_role.
 revoke all on function public.customer_merge_reassign(text, text, uuid, uuid)
-  from public, anon, authenticated;
-grant execute on function public.customer_merge_reassign(text, text, uuid, uuid)
-  to service_role;
+  from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 5) Authoritative merge RPC
@@ -220,6 +259,9 @@ declare
   v_after_wo numeric := 0;
   v_pick text;
   v_result jsonb;
+  v_chosen jsonb := coalesce(p_chosen_fields, '{}'::jsonb);
+  v_before_ref numeric := 0;
+  v_after_ref numeric := 0;
 begin
   select role into v_role from public.profiles where id = v_actor;
   if v_role is distinct from 'admin' and v_role is distinct from 'office' then
@@ -258,7 +300,9 @@ begin
   for update;
   if found then
     if v_prior.survivor_customer_id = p_survivor_customer_id
-       and v_prior.duplicate_customer_id = p_duplicate_customer_id then
+       and v_prior.duplicate_customer_id = p_duplicate_customer_id
+       and v_prior.chosen_fields is not distinct from v_chosen
+       and v_prior.reason is not distinct from v_reason then
       return coalesce(v_prior.result, jsonb_build_object(
         'ok', true,
         'duplicate', true,
@@ -269,17 +313,56 @@ begin
     return jsonb_build_object(
       'ok', false,
       'code', 'IDEMPOTENCY_CONFLICT',
-      'error', 'This idempotency key was already used for a different merge.'
+      'error', 'This idempotency key was already used for a different merge payload.'
     );
   end if;
 
-  select * into v_surv from public.customers where id = p_survivor_customer_id for update;
-  if not found then
-    return jsonb_build_object('ok', false, 'code', 'NOT_FOUND', 'error', 'Surviving customer not found.');
+  -- Reject unknown / non-allowlisted profile keys before any rewrite.
+  if exists (
+    select 1
+    from jsonb_object_keys(v_chosen) k
+    where k not in (
+      'full_name', 'phone', 'email', 'street', 'city', 'state', 'zip',
+      'company', 'assigned_to', 'notes'
+    )
+  ) then
+    return jsonb_build_object(
+      'ok', false,
+      'code', 'BAD_FIELDS',
+      'error', 'Only approved customer profile fields may be chosen during merge.'
+    );
   end if;
-  select * into v_dup from public.customers where id = p_duplicate_customer_id for update;
-  if not found then
-    return jsonb_build_object('ok', false, 'code', 'NOT_FOUND', 'error', 'Duplicate customer not found.');
+  if exists (
+    select 1
+    from jsonb_each_text(v_chosen) e
+    where e.value is distinct from 'survivor' and e.value is distinct from 'duplicate'
+  ) then
+    return jsonb_build_object(
+      'ok', false,
+      'code', 'BAD_FIELDS',
+      'error', 'Profile field choices must be survivor or duplicate.'
+    );
+  end if;
+
+  -- Row locks in sorted id order (advisory locks already taken sorted).
+  if p_survivor_customer_id < p_duplicate_customer_id then
+    select * into v_surv from public.customers where id = p_survivor_customer_id for update;
+    if not found then
+      return jsonb_build_object('ok', false, 'code', 'NOT_FOUND', 'error', 'Surviving customer not found.');
+    end if;
+    select * into v_dup from public.customers where id = p_duplicate_customer_id for update;
+    if not found then
+      return jsonb_build_object('ok', false, 'code', 'NOT_FOUND', 'error', 'Duplicate customer not found.');
+    end if;
+  else
+    select * into v_dup from public.customers where id = p_duplicate_customer_id for update;
+    if not found then
+      return jsonb_build_object('ok', false, 'code', 'NOT_FOUND', 'error', 'Duplicate customer not found.');
+    end if;
+    select * into v_surv from public.customers where id = p_survivor_customer_id for update;
+    if not found then
+      return jsonb_build_object('ok', false, 'code', 'NOT_FOUND', 'error', 'Surviving customer not found.');
+    end if;
   end if;
 
   if v_surv.merged_into_customer_id is not null then
@@ -332,30 +415,85 @@ begin
     end if;
   end if;
 
+  if to_regclass('public.step_overrides') is not null then
+    if exists (
+      select 1
+      from public.step_overrides d
+      join public.step_overrides s
+        on s.customer_id = p_survivor_customer_id
+       and s.job_id is null
+       and d.job_id is null
+       and d.step_key = s.step_key
+      where d.customer_id = p_duplicate_customer_id
+    ) then
+      return jsonb_build_object(
+        'ok', false,
+        'code', 'STEP_OVERRIDE_CONFLICT',
+        'error', 'Both records have an account-level checklist override for the same step. Resolve the override before merging.'
+      );
+    end if;
+  end if;
+
   -- Conflicting profile fields need an explicit choice.
   if coalesce(nullif(btrim(v_surv.full_name), ''), '') <> ''
      and coalesce(nullif(btrim(v_dup.full_name), ''), '') <> ''
      and v_surv.full_name is distinct from v_dup.full_name
-     and coalesce(p_chosen_fields->>'full_name', '') not in ('survivor', 'duplicate') then
+     and coalesce(v_chosen->>'full_name', '') not in ('survivor', 'duplicate') then
     return jsonb_build_object('ok', false, 'code', 'FIELD_CONFLICT', 'error', 'Choose a surviving value for: full_name.');
   end if;
   if coalesce(nullif(btrim(v_surv.phone), ''), '') <> ''
      and coalesce(nullif(btrim(v_dup.phone), ''), '') <> ''
      and v_surv.phone is distinct from v_dup.phone
-     and coalesce(p_chosen_fields->>'phone', '') not in ('survivor', 'duplicate') then
+     and coalesce(v_chosen->>'phone', '') not in ('survivor', 'duplicate') then
     return jsonb_build_object('ok', false, 'code', 'FIELD_CONFLICT', 'error', 'Choose a surviving value for: phone.');
   end if;
   if coalesce(nullif(btrim(v_surv.email), ''), '') <> ''
      and coalesce(nullif(btrim(v_dup.email), ''), '') <> ''
      and v_surv.email is distinct from v_dup.email
-     and coalesce(p_chosen_fields->>'email', '') not in ('survivor', 'duplicate') then
+     and coalesce(v_chosen->>'email', '') not in ('survivor', 'duplicate') then
     return jsonb_build_object('ok', false, 'code', 'FIELD_CONFLICT', 'error', 'Choose a surviving value for: email.');
   end if;
   if coalesce(nullif(btrim(v_surv.street), ''), '') <> ''
      and coalesce(nullif(btrim(v_dup.street), ''), '') <> ''
      and v_surv.street is distinct from v_dup.street
-     and coalesce(p_chosen_fields->>'street', '') not in ('survivor', 'duplicate') then
+     and coalesce(v_chosen->>'street', '') not in ('survivor', 'duplicate') then
     return jsonb_build_object('ok', false, 'code', 'FIELD_CONFLICT', 'error', 'Choose a surviving value for: street.');
+  end if;
+  if coalesce(nullif(btrim(v_surv.city), ''), '') <> ''
+     and coalesce(nullif(btrim(v_dup.city), ''), '') <> ''
+     and v_surv.city is distinct from v_dup.city
+     and coalesce(v_chosen->>'city', '') not in ('survivor', 'duplicate') then
+    return jsonb_build_object('ok', false, 'code', 'FIELD_CONFLICT', 'error', 'Choose a surviving value for: city.');
+  end if;
+  if coalesce(nullif(btrim(v_surv.state), ''), '') <> ''
+     and coalesce(nullif(btrim(v_dup.state), ''), '') <> ''
+     and v_surv.state is distinct from v_dup.state
+     and coalesce(v_chosen->>'state', '') not in ('survivor', 'duplicate') then
+    return jsonb_build_object('ok', false, 'code', 'FIELD_CONFLICT', 'error', 'Choose a surviving value for: state.');
+  end if;
+  if coalesce(nullif(btrim(v_surv.zip), ''), '') <> ''
+     and coalesce(nullif(btrim(v_dup.zip), ''), '') <> ''
+     and v_surv.zip is distinct from v_dup.zip
+     and coalesce(v_chosen->>'zip', '') not in ('survivor', 'duplicate') then
+    return jsonb_build_object('ok', false, 'code', 'FIELD_CONFLICT', 'error', 'Choose a surviving value for: zip.');
+  end if;
+  if coalesce(nullif(btrim(v_surv.company), ''), '') <> ''
+     and coalesce(nullif(btrim(v_dup.company), ''), '') <> ''
+     and v_surv.company is distinct from v_dup.company
+     and coalesce(v_chosen->>'company', '') not in ('survivor', 'duplicate') then
+    return jsonb_build_object('ok', false, 'code', 'FIELD_CONFLICT', 'error', 'Choose a surviving value for: company.');
+  end if;
+  if coalesce(nullif(btrim(v_surv.notes), ''), '') <> ''
+     and coalesce(nullif(btrim(v_dup.notes), ''), '') <> ''
+     and v_surv.notes is distinct from v_dup.notes
+     and coalesce(v_chosen->>'notes', '') not in ('survivor', 'duplicate') then
+    return jsonb_build_object('ok', false, 'code', 'FIELD_CONFLICT', 'error', 'Choose a surviving value for: notes.');
+  end if;
+  if v_surv.assigned_to is not null
+     and v_dup.assigned_to is not null
+     and v_surv.assigned_to is distinct from v_dup.assigned_to
+     and coalesce(v_chosen->>'assigned_to', '') not in ('survivor', 'duplicate') then
+    return jsonb_build_object('ok', false, 'code', 'FIELD_CONFLICT', 'error', 'Choose a surviving value for: assigned_to.');
   end if;
 
   -- Financial snapshot BEFORE any identity rewrite (invoice totals only — not a posting).
@@ -395,6 +533,12 @@ begin
     where i.customer_id in (p_survivor_customer_id, p_duplicate_customer_id)
       and coalesce(w.status, 'active') is distinct from 'void';
   end if;
+  if to_regclass('public.refunds') is not null then
+    select coalesce(sum(r.amount), 0) into v_before_ref
+    from public.refunds r
+    where r.customer_id in (p_survivor_customer_id, p_duplicate_customer_id)
+      and coalesce(r.status, 'active') is distinct from 'void';
+  end if;
 
   select jsonb_build_object(
     'jobs', (select count(*) from public.jobs where customer_id = p_duplicate_customer_id),
@@ -420,6 +564,7 @@ begin
   perform public.customer_merge_reassign('orders', 'customer_id', p_duplicate_customer_id, p_survivor_customer_id);
   perform public.customer_merge_reassign('appointments', 'customer_id', p_duplicate_customer_id, p_survivor_customer_id);
   perform public.customer_merge_reassign('activities', 'customer_id', p_duplicate_customer_id, p_survivor_customer_id);
+  perform public.customer_merge_reassign('handoffs', 'customer_id', p_duplicate_customer_id, p_survivor_customer_id);
   perform public.customer_merge_reassign('messages', 'customer_id', p_duplicate_customer_id, p_survivor_customer_id);
   perform public.customer_merge_reassign('documents', 'customer_id', p_duplicate_customer_id, p_survivor_customer_id);
   perform public.customer_merge_reassign('office_tasks', 'customer_id', p_duplicate_customer_id, p_survivor_customer_id);
@@ -435,15 +580,8 @@ begin
     perform public.customer_merge_reassign('opening_ar_items', 'customer_id', p_duplicate_customer_id, p_survivor_customer_id);
   end if;
 
-  -- step_overrides: keep survivor's account-level keys, drop colliding duplicate keys, move the rest.
+  -- step_overrides: collision already blocked above; move remaining rows.
   if to_regclass('public.step_overrides') is not null then
-    delete from public.step_overrides d
-    using public.step_overrides s
-    where d.customer_id = p_duplicate_customer_id
-      and s.customer_id = p_survivor_customer_id
-      and d.job_id is null
-      and s.job_id is null
-      and d.step_key = s.step_key;
     update public.step_overrides
     set customer_id = p_survivor_customer_id
     where customer_id = p_duplicate_customer_id;
@@ -476,43 +614,43 @@ begin
     and referred_by_customer_id = p_duplicate_customer_id;
 
   -- Apply chosen / fill-empty profile fields. Never silently overwrite a conflict.
-  v_pick := coalesce(p_chosen_fields->>'full_name', '');
+  v_pick := coalesce(v_chosen->>'full_name', '');
   if v_pick = 'duplicate' then v_surv.full_name := v_dup.full_name;
   elsif coalesce(nullif(btrim(v_surv.full_name), ''), '') = '' then v_surv.full_name := v_dup.full_name;
   end if;
-  v_pick := coalesce(p_chosen_fields->>'phone', '');
+  v_pick := coalesce(v_chosen->>'phone', '');
   if v_pick = 'duplicate' then v_surv.phone := v_dup.phone;
   elsif coalesce(nullif(btrim(v_surv.phone), ''), '') = '' then v_surv.phone := v_dup.phone;
   end if;
-  v_pick := coalesce(p_chosen_fields->>'email', '');
+  v_pick := coalesce(v_chosen->>'email', '');
   if v_pick = 'duplicate' then v_surv.email := v_dup.email;
   elsif coalesce(nullif(btrim(v_surv.email), ''), '') = '' then v_surv.email := v_dup.email;
   end if;
-  v_pick := coalesce(p_chosen_fields->>'street', '');
+  v_pick := coalesce(v_chosen->>'street', '');
   if v_pick = 'duplicate' then v_surv.street := v_dup.street;
   elsif coalesce(nullif(btrim(v_surv.street), ''), '') = '' then v_surv.street := v_dup.street;
   end if;
-  v_pick := coalesce(p_chosen_fields->>'city', '');
+  v_pick := coalesce(v_chosen->>'city', '');
   if v_pick = 'duplicate' then v_surv.city := v_dup.city;
   elsif coalesce(nullif(btrim(v_surv.city), ''), '') = '' then v_surv.city := v_dup.city;
   end if;
-  v_pick := coalesce(p_chosen_fields->>'state', '');
+  v_pick := coalesce(v_chosen->>'state', '');
   if v_pick = 'duplicate' then v_surv.state := v_dup.state;
   elsif coalesce(nullif(btrim(v_surv.state), ''), '') = '' then v_surv.state := v_dup.state;
   end if;
-  v_pick := coalesce(p_chosen_fields->>'zip', '');
+  v_pick := coalesce(v_chosen->>'zip', '');
   if v_pick = 'duplicate' then v_surv.zip := v_dup.zip;
   elsif coalesce(nullif(btrim(v_surv.zip), ''), '') = '' then v_surv.zip := v_dup.zip;
   end if;
-  v_pick := coalesce(p_chosen_fields->>'company', '');
+  v_pick := coalesce(v_chosen->>'company', '');
   if v_pick = 'duplicate' then v_surv.company := v_dup.company;
   elsif coalesce(nullif(btrim(v_surv.company), ''), '') = '' then v_surv.company := v_dup.company;
   end if;
-  v_pick := coalesce(p_chosen_fields->>'assigned_to', '');
+  v_pick := coalesce(v_chosen->>'assigned_to', '');
   if v_pick = 'duplicate' then v_surv.assigned_to := v_dup.assigned_to;
   elsif v_surv.assigned_to is null then v_surv.assigned_to := v_dup.assigned_to;
   end if;
-  v_pick := coalesce(p_chosen_fields->>'notes', '');
+  v_pick := coalesce(v_chosen->>'notes', '');
   if v_pick = 'duplicate' then v_surv.notes := v_dup.notes;
   elsif coalesce(nullif(btrim(v_surv.notes), ''), '') = '' then v_surv.notes := v_dup.notes;
   end if;
@@ -584,12 +722,19 @@ begin
     where i.customer_id = p_survivor_customer_id
       and coalesce(w.status, 'active') is distinct from 'void';
   end if;
+  if to_regclass('public.refunds') is not null then
+    select coalesce(sum(r.amount), 0) into v_after_ref
+    from public.refunds r
+    where r.customer_id = p_survivor_customer_id
+      and coalesce(r.status, 'active') is distinct from 'void';
+  end if;
 
   if round(v_before_inv, 2) is distinct from round(v_after_inv, 2)
      or round(v_before_pay, 2) is distinct from round(v_after_pay, 2)
      or round(v_before_cred, 2) is distinct from round(v_after_cred, 2)
      or round(v_before_dep, 2) is distinct from round(v_after_dep, 2)
-     or round(v_before_wo, 2) is distinct from round(v_after_wo, 2) then
+     or round(v_before_wo, 2) is distinct from round(v_after_wo, 2)
+     or round(v_before_ref, 2) is distinct from round(v_after_ref, 2) then
     raise exception 'CUSTOMER_MERGE_FINANCIAL_DRIFT';
   end if;
 
@@ -616,7 +761,7 @@ begin
     p_duplicate_customer_id,
     v_actor,
     v_reason,
-    coalesce(p_chosen_fields, '{}'::jsonb),
+    v_chosen,
     v_counts,
     v_key,
     v_result

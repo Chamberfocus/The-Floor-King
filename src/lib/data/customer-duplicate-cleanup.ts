@@ -440,6 +440,8 @@ export async function getMergePreview(survivorId: string, duplicateId: string) {
     appointments: (appointments.data ?? []) as { id: string; customer_id: string }[],
     documents: (documents.data ?? []) as { id: string; customer_id: string; path: string }[],
     notes: (notes.data ?? []) as { id: string; customer_id: string; body: string }[],
+    handoffs: [],
+    stepOverrides: [],
     portalProfiles: (portals.data ?? []) as { id: string; customer_id: string; role: string }[],
     estimateDrafts: (drafts.data ?? []) as { customer_id: string }[],
     exclusions: [],

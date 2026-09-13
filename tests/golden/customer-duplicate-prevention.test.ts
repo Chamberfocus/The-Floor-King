@@ -11,6 +11,7 @@ import {
   decideStaffCreate,
   filterMatchesForActor,
   findPotentialCustomerMatches,
+  canonicalMatchingPool,
   publicBookingResponseSafe,
   recheckBeforeInsert,
   scoreCustomerMatch,
@@ -424,5 +425,50 @@ describe("workflows call the shared resolver", () => {
   it("does not add unique(phone/email/name) constraints", () => {
     const src = readFileSync(join(ROOT, "src/lib/customer-resolve.ts"), "utf8");
     expect(src).toContain("no unique(phone/email/name) index");
+  });
+});
+
+describe("merged-away customers resolve to the survivor", () => {
+  it("public booking exact-match uses the canonical survivor id", () => {
+    const mergedAway = {
+      ...john,
+      id: "cust-dup",
+      phone: "216-555-0000",
+      merged_into_customer_id: "cust-john",
+    };
+    const pool = canonicalMatchingPool([john, mergedAway]);
+    expect(pool.some((r) => r.id === "cust-dup")).toBe(false);
+    expect(
+      pool.some((r) => r.id === "cust-john" && r.phone === "216-555-0000"),
+    ).toBe(true);
+    const matches = findPotentialCustomerMatches(
+      { fullName: "John Smith", phone: "216-555-0000" },
+      pool,
+    );
+    const d = decidePublicBooking(matches);
+    expect(d).toEqual({ action: "link_existing", customerId: "cust-john" });
+    expect(matches.every((m) => m.id !== "cust-dup")).toBe(true);
+  });
+
+  it("staff matcher does not return a merged-away customer id", () => {
+    const pool = canonicalMatchingPool([
+      john,
+      { ...john, id: "cust-dup", merged_into_customer_id: "cust-john" },
+    ]);
+    const matches = findPotentialCustomerMatches(
+      { fullName: "John Smith", phone: "216-555-1111" },
+      pool,
+    );
+    expect(matches.map((m) => m.id)).toEqual(["cust-john"]);
+  });
+
+  it("server loadPool rewrites merged-away hits to the survivor", () => {
+    const src = readFileSync(
+      join(ROOT, "src/lib/data/customer-resolve.ts"),
+      "utf8",
+    );
+    expect(src).toContain("canonicalMatchingPool");
+    expect(src).toContain("survivorIds");
+    expect(src).not.toMatch(/if \(r\.merged_into_customer_id\) continue/);
   });
 });

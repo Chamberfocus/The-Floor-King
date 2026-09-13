@@ -168,7 +168,9 @@ export type MergeBlockCode =
   | "MERGE_IN_PROGRESS"
   | "IDEMPOTENCY_CONFLICT"
   | "MISSING_REASON"
-  | "NOT_FOUND";
+  | "NOT_FOUND"
+  | "BAD_FIELDS"
+  | "STEP_OVERRIDE_CONFLICT";
 
 export type MergeDecision =
   | { ok: true }
@@ -802,6 +804,17 @@ export function financialsUnchanged(
   return keys.every((k) => roundMoney(before[k]) === roundMoney(after[k]));
 }
 
+export function stableChosenPayload(
+  chosen: ChosenProfileFields,
+): ChosenProfileFields {
+  const out: ChosenProfileFields = {};
+  for (const field of PROFILE_MERGE_FIELDS) {
+    const v = chosen[field];
+    if (v === "survivor" || v === "duplicate") out[field] = v;
+  }
+  return out;
+}
+
 export function mergeIdempotencyKey(
   survivorId: string,
   duplicateId: string,
@@ -831,6 +844,8 @@ export type InMemoryMergeState = {
   appointments: { id: string; customer_id: string }[];
   documents: { id: string; customer_id: string; path: string }[];
   notes: { id: string; customer_id: string; body: string }[];
+  handoffs: { id: string; customer_id: string }[];
+  stepOverrides: { id: string; customer_id: string; job_id: string | null; step_key: string }[];
   portalProfiles: { id: string; customer_id: string; role: string }[];
   estimateDrafts: { customer_id: string }[];
   exclusions: ExclusionPair[];
@@ -944,15 +959,37 @@ export function executeCustomerMerge(args: {
   if (prior) {
     if (
       prior.survivor_customer_id === args.survivorId &&
-      prior.duplicate_customer_id === args.duplicateId
+      prior.duplicate_customer_id === args.duplicateId &&
+      JSON.stringify(stableChosenPayload(prior.chosen_fields ?? {})) ===
+        JSON.stringify(stableChosenPayload(args.chosen ?? {})) &&
+      prior.reason === args.reason.trim()
     ) {
       return { ok: true, state: args.state, duplicate: true };
     }
     return {
       ok: false,
       code: "IDEMPOTENCY_CONFLICT",
-      error: "This idempotency key was already used for a different merge.",
+      error: "This idempotency key was already used for a different merge payload.",
     };
+  }
+
+  const allowed = new Set<string>(PROFILE_MERGE_FIELDS);
+  for (const key of Object.keys(args.chosen ?? {})) {
+    if (!allowed.has(key)) {
+      return {
+        ok: false,
+        code: "BAD_FIELDS",
+        error: "Only approved customer profile fields may be chosen during merge.",
+      };
+    }
+    const val = (args.chosen as Record<string, unknown>)[key];
+    if (val !== "survivor" && val !== "duplicate") {
+      return {
+        ok: false,
+        code: "BAD_FIELDS",
+        error: "Profile field choices must be survivor or duplicate.",
+      };
+    }
   }
 
   const lockIds = [args.survivorId, args.duplicateId].sort();
@@ -1008,6 +1045,24 @@ export function executeCustomerMerge(args: {
         ok: false,
         code: "DRAFT_CONFLICT",
         error: "Both records have an in-progress estimate draft. Resolve drafts before merging.",
+      };
+    }
+
+    const collidingSteps = (args.state.stepOverrides ?? []).filter((d) => {
+      if (d.customer_id !== args.duplicateId || d.job_id != null) return false;
+      return (args.state.stepOverrides ?? []).some(
+        (s) =>
+          s.customer_id === args.survivorId &&
+          s.job_id == null &&
+          s.step_key === d.step_key,
+      );
+    });
+    if (collidingSteps.length) {
+      return {
+        ok: false,
+        code: "STEP_OVERRIDE_CONFLICT",
+        error:
+          "Both records have an account-level checklist override for the same step. Resolve the override before merging.",
       };
     }
 
@@ -1067,6 +1122,12 @@ export function executeCustomerMerge(args: {
           body: `Customer record ${args.duplicateId} merged into this customer on ${now} by ${args.actorId}.`,
         },
       ],
+      handoffs: reassign(args.state.handoffs ?? [], args.duplicateId, args.survivorId),
+      stepOverrides: (args.state.stepOverrides ?? []).map((s) =>
+        s.customer_id === args.duplicateId
+          ? { ...s, customer_id: args.survivorId }
+          : s,
+      ),
       portalProfiles: args.state.portalProfiles.map((p) =>
         p.customer_id === args.duplicateId
           ? { ...p, customer_id: args.survivorId }

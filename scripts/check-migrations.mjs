@@ -688,6 +688,10 @@ const REQUIRED_MARKERS = [
       "security definer",
       "set search_path = public",
       "revoke all on function public.merge_customer_records(uuid, uuid, jsonb, text, text) from public, anon",
+      "revoke all on function public.customer_merge_reassign(text, text, uuid, uuid)",
+      "STEP_OVERRIDE_CONFLICT",
+      "handoffs",
+      "mine_customer",
     ],
   },
 ];
