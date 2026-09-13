@@ -19,7 +19,7 @@ export type MaterialsReadyResult =
   | { ready: false; reason: "materials_not_ready" };
 
 export const MATERIALS_NOT_READY_MESSAGE =
-  "Materials are not marked warehouse-ready. Schedule only with an override reason, or wait until the warehouse marks this job ready.";
+  "This job cannot be scheduled yet because required material has not been received. Materials are not marked warehouse-ready. Schedule only with an override reason, or wait until the warehouse marks this job ready.";
 
 export const MATERIALS_OVERRIDE_REASON_REQUIRED =
   "An override reason is required to schedule before materials are ready.";

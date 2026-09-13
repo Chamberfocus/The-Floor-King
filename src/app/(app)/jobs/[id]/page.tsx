@@ -95,9 +95,12 @@ import { buildChecklistSlots } from "@/components/checklist-slots";
 import { STEP_OVERRIDE_ROLES } from "@/lib/job-checklist";
 import { MarkContacted } from "@/app/(app)/customers/[id]/mark-contacted";
 import { JobAttentionStrip } from "./job-attention-strip";
+import { JobOpsFacts } from "./job-ops-facts";
 import { getJobOperationalStateForJob } from "@/lib/data/job-ops-state";
 import { createServiceCallback } from "@/app/(app)/ops/actions";
 import { listOpenServiceCallbacksForJob } from "@/lib/data/ops-glue";
+import { listJobPurchasingFacts } from "@/lib/data/ops-queues";
+import { getCustomerDepositSummary } from "@/lib/data/customer-deposits";
 import { getJobChecklist } from "@/lib/data/job-checklists";
 import { JobNotesCard } from "./job-notes-card";
 import { listJobNotes } from "./note-actions";
@@ -408,6 +411,12 @@ export default async function JobPage({
   const openCallbacks = await listOpenServiceCallbacksForJob(job.id).catch(
     () => [],
   );
+  const jobPos = await listJobPurchasingFacts(job.id).catch(() => []);
+  const depositSummary = job.customer_id
+    ? await getCustomerDepositSummary(job.customer_id).catch(() => null)
+    : null;
+  const staffBalance =
+    isStaff ? (await getJobOpenBalance(id).catch(() => ({ balance: 0 }))).balance : 0;
   const canManageHold =
     profile.role === "admin" ||
     profile.role === "office" ||
@@ -466,10 +475,24 @@ export default async function JobPage({
         />
       ) : null}
 
+      {isStaff ? (
+        <JobOpsFacts
+          warehouseReadyAt={job.warehouse_ready_at ?? null}
+          stagingLocation={job.staging_location ?? null}
+          openBalance={staffBalance}
+          availableDeposit={depositSummary?.available ?? 0}
+          estimateId={job.estimate_id ?? null}
+          pos={jobPos}
+        />
+      ) : null}
+
       {isStaff && job.customer_id ? (
         <div className="mb-4 rounded-lg border p-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Service / callback
+            <Link href="/service" className="font-medium normal-case text-primary hover:underline">
+              Inbox
+            </Link>
           </div>
           {openCallbacks.length ? (
             <ul className="mb-2 space-y-1 text-sm">

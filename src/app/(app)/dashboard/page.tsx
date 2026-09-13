@@ -36,6 +36,8 @@ import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { DayBriefing } from "./day-briefing";
 import { AskBusiness } from "./ask-business";
+import { OpsToday } from "./ops-today";
+import { getOpsTodayQueues } from "@/lib/data/ops-queues";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
@@ -48,6 +50,7 @@ export default async function DashboardPage() {
   const outstanding = await getOutstandingInvoiceCount();
   const queue = await listMyQueue(profile.id);
   const todayTasks = await getTodayTasks();
+  const opsQueues = await getOpsTodayQueues().catch(() => []);
   const officeTaskBuckets = await listMyOfficeTasks(profile.id).catch(() => ({
     overdue: [],
     dueToday: [],
@@ -120,7 +123,7 @@ export default async function DashboardPage() {
     <div>
       <PageHeader
         title={`Welcome back, ${firstName}`}
-        description="Here's a snapshot of your business."
+        description="What needs attention today — not vanity totals."
       >
         <Link href="/customers/new" className={buttonVariants({ size: "lg" })}>
           <Plus className="size-4" /> Add lead
@@ -140,6 +143,7 @@ export default async function DashboardPage() {
         </Card>
       ) : null}
 
+      <OpsToday queues={opsQueues} />
       <MyOfficeTasksCard
         buckets={officeTaskBuckets}
         canAssign={["admin", "office", "sales_manager"].includes(profile.role)}

@@ -12,6 +12,8 @@ import { recordEstimateApproval } from "@/lib/data/estimate-approvals";
 import { buildApprovalIdempotencyKey } from "@/lib/estimate-approval-idempotency";
 import { getInstallAvailability } from "@/lib/data/install-availability";
 import { formatDate } from "@/lib/format";
+import { getCustomerDepositSummary } from "@/lib/data/customer-deposits";
+import { onEstimateResolvedOps } from "@/lib/data/ops-automation";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -249,6 +251,20 @@ export async function portalApproveEstimate(formData: FormData): Promise<void> {
   // RLS session can't insert a job, so this runs elevated inside the helper).
   await ensureJobForEstimate(id, null);
 
+  const dep = e?.customer_id
+    ? await getCustomerDepositSummary(e.customer_id as string).catch(() => null)
+    : null;
+  void onEstimateResolvedOps({
+    estimateId: id,
+    status: "approved",
+    customerId: (e?.customer_id as string | null) ?? portalCustomerId,
+    assignedTo: null,
+    actorId: user.id,
+    title: null,
+    availableDeposit: dep?.available ?? 0,
+    appliedDeposit: dep?.applied ?? 0,
+  });
+
   await notifyOwner(
     supabase,
     id,
@@ -335,6 +351,14 @@ export async function portalDeclineEstimate(formData: FormData): Promise<void> {
   // Same follow-through as the staff-side decline — the pipeline must not keep
   // showing a dead lead as awaiting a response.
   await onEstimateDeclined(supabase, id);
+  void onEstimateResolvedOps({
+    estimateId: id,
+    status: "declined",
+    customerId: (estRow?.customer_id as string | null) ?? portalCustomerId,
+    assignedTo: null,
+    actorId: user.id,
+    title: null,
+  });
   await notifyOwner(
     supabase,
     id,

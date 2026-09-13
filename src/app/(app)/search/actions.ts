@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
+import { parsePoNumberQuery, sanitizeIlikeQuery } from "@/lib/ops-followup";
 
 export type HitType = "customer" | "estimate" | "invoice" | "po" | "job" | "product";
 
@@ -70,7 +71,12 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
   if (q.length < 2) return { query: q, groups: [], total: 0 };
 
   const supabase = await createClient();
-  const like = `%${q}%`;
+  const safe = sanitizeIlikeQuery(q);
+  const poNumber = parsePoNumberQuery(q);
+  if (safe.length < 2 && poNumber == null) {
+    return { query: q, groups: [], total: 0 };
+  }
+  const like = `%${safe}%`;
 
   // Dynamic table names + a built select string defeat the typed client's
   // literal-string parser, so reach it through a small structural interface.
@@ -102,7 +108,7 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
   const [custRes, estRows, invRows, poRows, jobRows, prodRes] = await Promise.all([
     supabase
       .from("customers")
-      .select("id, full_name, company, phone, city")
+      .select("id, full_name, company, phone, city, street, zip, email")
       .or(
         [
           `full_name.ilike.${like}`,
@@ -110,13 +116,15 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
           `email.ilike.${like}`,
           `phone.ilike.${like}`,
           `city.ilike.${like}`,
+          `street.ilike.${like}`,
+          `zip.ilike.${like}`,
         ].join(","),
       )
       .limit(limit),
     docs("estimates", `title.ilike.${like}`, "title"),
     docs("invoices", `number.ilike.${like}`, "number"),
-    docs("purchase_orders", `supplier.ilike.${like},notes.ilike.${like}`, "supplier"),
-    docs("jobs", `title.ilike.${like}`, "title"),
+    docs("purchase_orders", `supplier.ilike.${like},notes.ilike.${like}`, "supplier, po_number"),
+    docs("jobs", `title.ilike.${like},site_street.ilike.${like},site_city.ilike.${like}`, "title, site_street, site_city"),
     supabase
       .from("products")
       .select("id, name, sku, category")
@@ -132,12 +140,26 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
       .limit(limit),
   ]);
 
+  let poHits = poRows;
+  if (poNumber != null) {
+    const { data: byNum } = await supabase
+      .from("purchase_orders")
+      .select("id, status, supplier, po_number, customers(full_name)")
+      .eq("po_number", poNumber)
+      .limit(limit);
+    const seen = new Map<string, Row>();
+    for (const r of [...poRows, ...((byNum ?? []) as Row[])]) {
+      seen.set(r.id as string, r);
+    }
+    poHits = Array.from(seen.values()).slice(0, limit);
+  }
+
   const byType: Record<HitType, QuickHit[]> = {
     customer: (custRes.data ?? []).map((c: Row) => ({
       type: "customer",
       id: c.id as string,
       title: (c.full_name as string) || "Customer",
-      subtitle: dot([c.company as string, c.city as string, c.phone as string]),
+      subtitle: dot([c.company as string, c.street as string, c.city as string, c.phone as string]),
       href: `/customers/${c.id}`,
     })),
     estimate: estRows.map((r) => ({
@@ -154,10 +176,12 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
       subtitle: dot([custName(r), title(String(r.status ?? ""))]),
       href: `/invoices/${r.id}`,
     })),
-    po: poRows.map((r) => ({
+    po: poHits.map((r) => ({
       type: "po",
       id: r.id as string,
-      title: (r.supplier as string) || "Purchase order",
+      title: r.po_number
+        ? `PO ${r.po_number}${r.supplier ? ` — ${r.supplier}` : ""}`
+        : (r.supplier as string) || "Purchase order",
       subtitle: dot([custName(r), title(String(r.status ?? ""))]),
       href: `/purchase-orders/${r.id}`,
     })),
@@ -165,7 +189,12 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
       type: "job",
       id: r.id as string,
       title: (r.title as string) || "Work order",
-      subtitle: dot([custName(r), title(String(r.status ?? ""))]),
+      subtitle: dot([
+        custName(r),
+        r.site_street as string,
+        r.site_city as string,
+        title(String(r.status ?? "")),
+      ]),
       href: `/jobs/${r.id}`,
     })),
     product: (prodRes.data ?? []).map((p: Row) => ({

@@ -16,6 +16,8 @@ import { advanceFromFirstStage, deriveLeadStage,
   settleJobsForStage,
 } from "@/lib/workflow-engine";
 import { requireProfile, assertRole } from "@/lib/auth";
+import { ESTIMATE_FOLLOWUP_KIND, maySnoozeCustomerFollowup, snoozeDueAt } from "@/lib/ops-followup";
+import { snoozeAutomatedOfficeTasks } from "@/lib/data/ops-automation";
 import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
 import { listCustomers } from "@/lib/data/customers";
 import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
@@ -944,4 +946,61 @@ export async function deleteCustomer(formData: FormData): Promise<void> {
 
   refreshCustomerViews();
   redirect("/customers");
+}
+
+const FOLLOWUP_ROLES = [
+  "admin",
+  "office",
+  "sales_manager",
+  "salesman",
+] as const;
+
+/** Push next_action_due forward (1 / 3 / 7 days) and snooze matching follow-up tasks. */
+export async function snoozeCustomerFollowup(formData: FormData): Promise<void> {
+  const profile = await assertRole([...FOLLOWUP_ROLES]);
+  const id = str(formData.get("customer_id"));
+  const days = Number(str(formData.get("days")) || "3");
+  if (!id) throw new Error("Missing customer.");
+  const dueAt = snoozeDueAt(new Date(), days);
+  const supabase = await createClient();
+  const { data: cust } = await supabase
+    .from("customers")
+    .select("id, assigned_to, workflow_owner_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!cust) throw new Error("Customer not found.");
+  if (
+    !maySnoozeCustomerFollowup({
+      role: profile.role,
+      actorId: profile.id,
+      assignedTo: (cust.assigned_to as string | null) ?? null,
+      workflowOwnerId: (cust.workflow_owner_id as string | null) ?? null,
+    })
+  ) {
+    throw new Error("You can only snooze follow-up on customers you own.");
+  }
+  const { error } = await supabase
+    .from("customers")
+    .update({ next_action_due: dueAt })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  const { data: ests } = await supabase
+    .from("estimates")
+    .select("id")
+    .eq("customer_id", id)
+    .eq("status", "sent");
+  for (const e of ests ?? []) {
+    await snoozeAutomatedOfficeTasks({
+      sourceKind: ESTIMATE_FOLLOWUP_KIND,
+      entityId: e.id as string,
+      dueAt,
+    });
+  }
+  await supabase.from("activities").insert({
+    customer_id: id,
+    user_id: profile.id,
+    type: "system",
+    body: `Follow-up snoozed ${days} day${days === 1 ? "" : "s"}.`,
+  });
+  refreshCustomerViews(id);
 }

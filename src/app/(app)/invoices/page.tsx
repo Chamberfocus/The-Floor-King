@@ -16,11 +16,42 @@ import { InvoiceStatusBadge } from "@/components/invoice-status-badge";
 import { listInvoices, invoiceDisplayTotals } from "@/lib/data/invoices";
 import { formatDate, formatMoney } from "@/lib/format";
 import { DeleteInvoiceButton } from "./delete-invoice-button";
+import { classifyInvoiceCollection } from "@/lib/ops-followup";
 
 export const metadata: Metadata = { title: "Invoices" };
 
-export default async function InvoicesPage() {
+export default async function InvoicesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ aging?: string }>;
+}) {
+  const sp = await searchParams;
+  const aging = sp.aging === "overdue" ? "overdue" : "all";
   const invoices = await listInvoices();
+  const now = new Date();
+  const rows = invoices.filter((inv) => {
+    if (aging !== "overdue") return true;
+    const t = invoiceDisplayTotals(inv);
+    return (
+      classifyInvoiceCollection({
+        status: inv.status,
+        dueDate: inv.due_date,
+        balance: t.balance,
+        now,
+      }) === "overdue"
+    );
+  });
+  const overdueCount = invoices.filter((inv) => {
+    const t = invoiceDisplayTotals(inv);
+    return (
+      classifyInvoiceCollection({
+        status: inv.status,
+        dueDate: inv.due_date,
+        balance: t.balance,
+        now,
+      }) === "overdue"
+    );
+  }).length;
 
   return (
     <div>
@@ -28,25 +59,35 @@ export default async function InvoicesPage() {
         title="Invoices"
         description="Bill customers and track who still owes you."
       >
-        {/* This pointed at /invoices/quick — a SECOND page also titled "Counter
-            sale", with a cut-down form: no product picker, no catalog prices.
-            The real one is in the Sales nav and this button never reached it. */}
+        <Link
+          href={aging === "overdue" ? "/invoices" : "/invoices?aging=overdue"}
+          className={buttonVariants({
+            size: "lg",
+            variant: aging === "overdue" ? "default" : "outline",
+          })}
+        >
+          Overdue{overdueCount ? ` (${overdueCount})` : ""}
+        </Link>
         <Link href="/counter-sale" className={buttonVariants({ size: "lg" })}>
           <Zap className="size-4" /> Counter sale
         </Link>
       </PageHeader>
 
-      {invoices.length === 0 ? (
+      {rows.length === 0 ? (
         <EmptyState
           icon={Receipt}
-          title="No invoices yet"
-          description="Create one from an approved estimate or a customer profile."
+          title={aging === "overdue" ? "No overdue invoices" : "No invoices yet"}
+          description={
+            aging === "overdue"
+              ? "Nothing past due right now."
+              : "Create one from an approved estimate or a customer profile."
+          }
         />
       ) : (
         <>
         {/* Phone: tappable cards */}
         <div className="space-y-2 md:hidden">
-          {invoices.map((inv) => {
+          {rows.map((inv) => {
             const t = invoiceDisplayTotals(inv);
             return (
               <div
@@ -99,7 +140,7 @@ export default async function InvoicesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoices.map((inv) => {
+              {rows.map((inv) => {
                 const t = invoiceDisplayTotals(inv);
                 return (
                   <TableRow key={inv.id}>
