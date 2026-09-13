@@ -10,6 +10,8 @@ import {
   decidePublicBooking,
   decideStaffCreate,
   filterMatchesForActor,
+  canonicalMatchingPool,
+  followMergedAwayId,
   findPotentialCustomerMatches,
   publicBookingResponseSafe,
   recheckBeforeInsert,
@@ -424,5 +426,60 @@ describe("workflows call the shared resolver", () => {
   it("does not add unique(phone/email/name) constraints", () => {
     const src = readFileSync(join(ROOT, "src/lib/customer-resolve.ts"), "utf8");
     expect(src).toContain("no unique(phone/email/name) index");
+  });
+});
+
+describe("0185 merged-away aliases cannot become the active identity", () => {
+  it("followMergedAwayId returns the survivor", () => {
+    expect(
+      followMergedAwayId({
+        id: "alias",
+        merged_into_customer_id: "survivor",
+      }),
+    ).toBe("survivor");
+    expect(followMergedAwayId({ id: "live" })).toBe("live");
+    expect(followMergedAwayId(null)).toBeNull();
+  });
+
+  it("canonicalMatchingPool scores alias contact fields as the survivor id", () => {
+    const alias = {
+      ...john,
+      id: "alias-john",
+      merged_into_customer_id: "cust-survivor",
+    };
+    const survivor: MatchableCustomer & { merged_into_customer_id?: string | null } =
+      {
+        id: "cust-survivor",
+        full_name: "John Smith Sr",
+        phone: "216-555-0000",
+        email: "office@example.com",
+        assigned_to: "rep-a",
+        workflow_owner_id: "rep-a",
+      };
+    const pool = canonicalMatchingPool([alias, survivor]);
+    const matches = findPotentialCustomerMatches(
+      { fullName: "John Smith", phone: "2165551111" },
+      pool,
+    );
+    expect(matches.every((m) => m.id !== "alias-john")).toBe(true);
+    expect(matches.map((m) => m.id)).toContain("cust-survivor");
+  });
+
+  it("create paths follow the survivor before inserting jobs/estimates", () => {
+    const data = readFileSync(
+      join(ROOT, "src/lib/data/customer-resolve.ts"),
+      "utf8",
+    );
+    expect(data).toContain("followActiveCustomerId");
+    expect(data).toContain("canonicalMatchingPool");
+    for (const f of [
+      "src/app/(app)/jobs/new/actions.ts",
+      "src/app/(app)/estimates/quick/actions.ts",
+      "src/app/(app)/counter-sale/actions.ts",
+      "src/app/(app)/carry-over/actions.ts",
+    ]) {
+      const src = readFileSync(join(ROOT, f), "utf8");
+      expect(src).toContain("followActiveCustomerId");
+    }
   });
 });

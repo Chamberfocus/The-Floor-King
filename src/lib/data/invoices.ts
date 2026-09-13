@@ -112,41 +112,72 @@ async function attach(
   return invoices;
 }
 
-/** Active deposit applications + write-offs per invoice (DEFINER-safe via admin). */
+type ReductionsDb = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  from: (table: string) => any;
+};
+
+async function reductionsDb(preferred?: ReductionsDb | null): Promise<ReductionsDb> {
+  if (preferred) return preferred;
+  try {
+    return createAdminClient();
+  } catch {
+    return await createClient();
+  }
+}
+
+/**
+ * Active deposit applications + write-offs per invoice.
+ * Prefer service-role; fall back to the session client. Query errors throw —
+ * never treat a failed load as $0 reductions (that overstates AR).
+ */
 export async function loadInvoiceArReductions(
   invoiceIds: string[],
+  db?: ReductionsDb | null,
 ): Promise<Map<string, { deposited: number; writtenOff: number }>> {
   const out = new Map<string, { deposited: number; writtenOff: number }>();
   for (const id of invoiceIds) out.set(id, { deposited: 0, writtenOff: 0 });
   if (!invoiceIds.length) return out;
-  try {
-    const admin = createAdminClient();
-    const [{ data: deps }, { data: wos }] = await Promise.all([
-      admin
+  const client = await reductionsDb(db);
+  const [{ data: deps, error: depErr }, { data: wos, error: woErr }] =
+    await Promise.all([
+      client
         .from("customer_deposit_applications")
         .select("invoice_id, amount, status")
         .in("invoice_id", invoiceIds),
-      admin
+      client
         .from("invoice_write_offs")
         .select("invoice_id, amount, status")
         .in("invoice_id", invoiceIds),
     ]);
-    for (const a of deps ?? []) {
-      if (((a.status as string) ?? "active") === "void") continue;
-      const id = a.invoice_id as string;
-      const cur = out.get(id) ?? { deposited: 0, writtenOff: 0 };
-      cur.deposited += Number(a.amount) || 0;
-      out.set(id, cur);
-    }
-    for (const w of wos ?? []) {
-      if (((w.status as string) ?? "active") === "void") continue;
-      const id = w.invoice_id as string;
-      const cur = out.get(id) ?? { deposited: 0, writtenOff: 0 };
-      cur.writtenOff += Number(w.amount) || 0;
-      out.set(id, cur);
-    }
-  } catch {
-    /* admin missing — leave zeros */
+  if (depErr || woErr) {
+    throw new Error(
+      depErr?.message ||
+        woErr?.message ||
+        "Could not load invoice deposit/write-off reductions.",
+    );
+  }
+  for (const a of (deps ?? []) as {
+    invoice_id: string;
+    amount: number;
+    status?: string | null;
+  }[]) {
+    if (((a.status as string) ?? "active") === "void") continue;
+    const id = a.invoice_id;
+    const cur = out.get(id) ?? { deposited: 0, writtenOff: 0 };
+    cur.deposited += Number(a.amount) || 0;
+    out.set(id, cur);
+  }
+  for (const w of (wos ?? []) as {
+    invoice_id: string;
+    amount: number;
+    status?: string | null;
+  }[]) {
+    if (((w.status as string) ?? "active") === "void") continue;
+    const id = w.invoice_id;
+    const cur = out.get(id) ?? { deposited: 0, writtenOff: 0 };
+    cur.writtenOff += Number(w.amount) || 0;
+    out.set(id, cur);
   }
   return out;
 }

@@ -58,3 +58,27 @@ export function assessScheduleMaterialsGate(args: {
   }
   return { ok: true, override: true };
 }
+
+export const MATERIALS_ARRIVAL_INCOMPLETE =
+  "Required material has not been received yet. Receive the PO first, or enter an override reason if this job is staged from existing stock.";
+
+/**
+ * Warehouse "mark staged & ready" must not claim materials ready when required
+ * material has not physically arrived, unless staff records an override.
+ */
+export function assessWarehouseMarkReady(args: {
+  hasMaterialNeed: boolean;
+  outstandingArrival: number;
+  overrideReason?: string | null;
+}):
+  | { ok: true; override: boolean }
+  | { ok: false; error: string } {
+  if (!args.hasMaterialNeed) return { ok: true, override: false };
+  const outstanding = Number(args.outstandingArrival) || 0;
+  if (!(outstanding > 0.005)) return { ok: true, override: false };
+  const reason = (args.overrideReason ?? "").trim();
+  if (!reason) {
+    return { ok: false, error: MATERIALS_ARRIVAL_INCOMPLETE };
+  }
+  return { ok: true, override: true };
+}

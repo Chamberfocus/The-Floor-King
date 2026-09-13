@@ -13,9 +13,12 @@ import { validatePostgresDump } from "./dump-validate";
 import { md5Hex, sha256Hex } from "./checksums";
 import {
   dumpPoolerRegionCandidates,
+  isDirectSupabaseDbHost,
   isRetryablePoolerFailure,
+  isSessionPoolerHost,
   sessionPoolerHost,
   sessionPoolerUser,
+  shouldAttemptSessionPoolerFallback,
   supabaseProjectRefFromPublicUrl,
 } from "./dump-target";
 
@@ -313,10 +316,21 @@ export async function dumpPostgresSchema(args: {
   publicSupabaseUrl?: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<DumpResult> {
-  const connection = assertDumpConnectionUrl(args.databaseUrl);
+  let connection = assertDumpConnectionUrl(args.databaseUrl);
   const binary = args.binary ?? (await resolvePgDumpBinary({ env: args.env }));
   const timeoutMs = args.timeoutMs ?? 180_000;
   const env = args.env ?? process.env;
+  const publicUrl = args.publicSupabaseUrl ?? env.NEXT_PUBLIC_SUPABASE_URL;
+  // Bare `postgres` on Session Pooler is a tenant miss — rewrite on first try.
+  if (isSessionPoolerHost(connection.host)) {
+    const ref = supabaseProjectRefFromPublicUrl(publicUrl);
+    if (ref) {
+      connection = {
+        ...connection,
+        user: sessionPoolerUser(connection.user, ref),
+      };
+    }
+  }
 
   const tryDump = async (
     conn: ReturnType<typeof parseDirectPostgresUrl> & { hostAddr: string },
@@ -328,13 +342,19 @@ export async function dumpPostgresSchema(args: {
       timeoutMs,
     });
 
-  try {
-    const hostAddr = await resolveDumpHostIpv4(connection.host);
-    const bytes = await tryDump({ ...connection, hostAddr });
-    return finishDump(args.schema, bytes);
-  } catch (err) {
-    const code = err instanceof Error ? err.message : "PG_DUMP_FAILED";
-    if (code !== "PG_DUMP:ipv4_required") throw err;
+  // Direct db.<ref>.supabase.co is IPv6-only from Vercel — skip the doomed
+  // first attempt and go to Session Pooler (port 5432). If the URL is already
+  // a pooler host, try it first.
+  const skipDirectHost = isDirectSupabaseDbHost(connection.host);
+  if (!skipDirectHost) {
+    try {
+      const hostAddr = await resolveDumpHostIpv4(connection.host);
+      const bytes = await tryDump({ ...connection, hostAddr });
+      return finishDump(args.schema, bytes);
+    } catch (err) {
+      const code = err instanceof Error ? err.message : "PG_DUMP_FAILED";
+      if (!shouldAttemptSessionPoolerFallback(code, connection.host)) throw err;
+    }
   }
 
   const projectRef = supabaseProjectRefFromPublicUrl(

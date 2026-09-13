@@ -31,7 +31,7 @@ export function DeleteInvoiceButton({
         variant="ghost"
         size={size}
         title={`Delete ${label || "this invoice"}?`}
-        description="Permanently deletes the invoice, its line items, and every recorded payment. Any linked order is unlinked. This can't be undone."
+        description="Permanently deletes a draft invoice and its line items. Issued invoices must be voided, not deleted."
         confirmLabel="Delete invoice"
         destructive
         aria-label="Delete invoice"

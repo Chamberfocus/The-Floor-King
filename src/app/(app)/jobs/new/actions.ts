@@ -8,7 +8,7 @@ import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { formatServiceAddress } from "@/lib/types";
 import { defaultJobTitle } from "@/lib/job-label";
 import type { UserRole, LeadSource, LeadStage } from "@/lib/types";
-import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
+import { resolveOrCreateCustomer, followActiveCustomerId } from "@/lib/data/customer-resolve";
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 
 /**
@@ -206,6 +206,10 @@ export async function createJobForCustomer(
     }
     customerId = resolved.customerId;
   }
+
+  const liveId = await followActiveCustomerId(supabase, customerId);
+  if (!liveId) return { error: "That customer no longer exists." };
+  customerId = liveId;
 
   const { data: cust } = await supabase
     .from("customers")

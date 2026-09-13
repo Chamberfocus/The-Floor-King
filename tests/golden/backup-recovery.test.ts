@@ -48,9 +48,12 @@ import { validatePostgresDump } from "@/lib/backup/dump-validate";
 import { assertDumpConnectionUrl, classifyPgDumpFailure } from "@/lib/backup/dump";
 import {
   dumpPoolerRegionCandidates,
+  isDirectSupabaseDbHost,
   isRetryablePoolerFailure,
+  isSessionPoolerHost,
   sessionPoolerHost,
   sessionPoolerUser,
+  shouldAttemptSessionPoolerFallback,
   supabaseProjectRefFromPublicUrl,
 } from "@/lib/backup/dump-target";
 import { enumerateStorageObjects, storageBackupComplete } from "@/lib/backup/storage";
@@ -401,6 +404,34 @@ describe("database dump validation", () => {
     expect(isRetryablePoolerFailure("PG_DUMP:stall")).toBe(true);
     expect(isRetryablePoolerFailure("PG_DUMP:timeout")).toBe(false);
     expect(isRetryablePoolerFailure("PG_DUMP:auth")).toBe(false);
+    expect(isDirectSupabaseDbHost("db.abc123xyz789.supabase.co")).toBe(true);
+    expect(isDirectSupabaseDbHost("aws-0-us-east-1.pooler.supabase.com")).toBe(false);
+    expect(isSessionPoolerHost("aws-0-us-east-1.pooler.supabase.com")).toBe(true);
+    expect(isSessionPoolerHost("db.abc123xyz789.supabase.co")).toBe(false);
+    expect(readFileSync(join(ROOT, "src/lib/backup/dump.ts"), "utf8")).toMatch(
+      /isSessionPoolerHost/,
+    );
+    expect(readFileSync(join(ROOT, "src/lib/backup/run.ts"), "utf8")).toContain(
+      "loadListedChecksums",
+    );
+    expect(readFileSync(join(ROOT, "src/lib/backup/run.ts"), "utf8")).toContain(
+      "parseChecksumFile",
+    );
+    expect(readFileSync(join(ROOT, "src/lib/backup/run.ts"), "utf8")).not.toMatch(
+      /return expected;/,
+    );
+    expect(
+      shouldAttemptSessionPoolerFallback(
+        "PG_DUMP:connection",
+        "db.abc123xyz789.supabase.co",
+      ),
+    ).toBe(true);
+    expect(
+      shouldAttemptSessionPoolerFallback("PG_DUMP:auth", "db.abc123xyz789.supabase.co"),
+    ).toBe(false);
+    expect(readFileSync(join(ROOT, "src/lib/backup/dump.ts"), "utf8")).toMatch(
+      /skipDirectHost/,
+    );
     expect(
       verifyDriveDumpMetadata({
         localBytes: 10,

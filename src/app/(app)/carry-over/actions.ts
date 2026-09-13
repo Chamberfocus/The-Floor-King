@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
-import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
+import { resolveOrCreateCustomer, followActiveCustomerId } from "@/lib/data/customer-resolve";
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import type { LeadSource, LeadStage } from "@/lib/types";
 
@@ -150,7 +150,13 @@ export async function carryOverDeal(
     }
     if (resolved.action === "error") return { error: resolved.error };
     customerId = resolved.customerId;
-  } else {
+  }
+
+  const liveId = await followActiveCustomerId(supabase, customerId ?? "");
+  if (!liveId) return { error: "That customer is not available." };
+  customerId = liveId;
+
+  if (input.customerId) {
     const { data: c } = await supabase
       .from("customers")
       .select("source, full_name")

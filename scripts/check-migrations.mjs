@@ -47,6 +47,7 @@ const REQUIRED_FILES = [
   "0182_job_files_storage_least_privilege.sql",
   "0183_po_void_receipt_reversal.sql",
   "0184_inventory_ops_anon_and_documents.sql",
+  "0186_launch_trust_schedule_invoice_guards.sql",
 ];
 
 /**
@@ -669,6 +670,22 @@ const REQUIRED_MARKERS = [
       "documents_storage_select",
       "owner = auth.uid()",
       "revoke all on public.products_inventory_ops from public, anon",
+    ],
+  },
+  {
+    file: "0186_launch_trust_schedule_invoice_guards.sql",
+    markers: [
+      "P0_0186_PRECHECK",
+      "P0_0186_POSTCHECK",
+      "Do NOT set posting_enabled",
+      "invoices_one_active_original_per_estimate",
+      "commercial_kind = 'original'",
+      "mine_job",
+      "schedule_job_install_safe",
+      "security definer",
+      "set search_path = public",
+      "v_role = 'salesman'",
+      "revoke all on function public.schedule_job_install_safe",
     ],
   },
 ];

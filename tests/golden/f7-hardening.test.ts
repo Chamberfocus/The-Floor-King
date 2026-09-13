@@ -244,6 +244,7 @@ describe("F7 hardening — partial receiving ledger plan", () => {
   it("receivePoLines posts applyPoLineReceiptDelta", () => {
     expect(receivingActions).toContain("applyPoLineReceiptDelta");
     expect(receivingActions).toContain("inv_po_item_received_qty");
+    expect(receivingActions).toContain("already received or voided in another session");
   });
 });
 
@@ -253,5 +254,106 @@ describe("F7 hardening — ops vs GL labeling", () => {
     expect(pulsePage).toContain("(Subledger)");
     expect(pulsePage).toMatch(/not posted GL|External books remain official/i);
     expect(accountingBanner).toContain("ACCOUNTING_NOT_BOOKS_MESSAGE");
+  });
+});
+
+describe("launch-trust invoice + warehouse gates", () => {
+  it("invoice create/delete are role-gated; issued invoices cannot be hard-deleted", () => {
+    const invoices = readFileSync(
+      join(ROOT, "src/app/(app)/invoices/actions.ts"),
+      "utf8",
+    );
+    expect(invoices).toContain("INVOICE_CREATE_ROLES");
+    expect(invoices).toContain("INVOICE_DELETE_ROLES");
+    expect(invoices).toContain("Issued invoices cannot be deleted");
+    expect(invoices).toContain("await assertRole(INVOICE_CREATE_ROLES)");
+  });
+
+  it("warehouse mark-ready returns errors instead of false success", () => {
+    expect(jobsActions).toContain("assessWarehouseMarkReady");
+    expect(jobsActions).toContain("Promise<{ error: string | null }>");
+    expect(jobsActions).toContain("return { error: null }");
+    const ui = readFileSync(
+      join(ROOT, "src/app/(app)/warehouse/warehouse-job-actions.tsx"),
+      "utf8",
+    );
+    expect(ui).toContain("res?.error");
+    expect(ui).not.toMatch(/await completeWarehouseJob\(fd\);\s*setCompleteOpen\(false\);\s*toast\.success/);
+  });
+});
+
+describe("launch-trust money + schedule follow-through", () => {
+  it("coverage and saveInvoice treat deposits/credits/write-offs as financial activity", () => {
+    const invoices = readFileSync(
+      join(ROOT, "src/app/(app)/invoices/actions.ts"),
+      "utf8",
+    );
+    expect(invoices).toContain("hasFinancialActivity");
+    expect(invoices).toContain("invoice_open_ar_balance");
+    expect(invoices).toContain("invoices_one_active_original_per_estimate");
+    expect(invoices).toContain("commercial_kind");
+    expect(invoices).not.toMatch(/const due = Math\.max\(\s*0,\s*invoiceCoverageTotal/);
+  });
+
+  it("onsite collect recomputes status from open AR instead of forcing paid", () => {
+    expect(jobsActions).toContain("recomputeInvoiceStatus");
+    expect(jobsActions).not.toMatch(
+      /update\(\{ status: "paid" \}\)\.eq\("id", open\.invoiceId\)/,
+    );
+    expect(jobsActions).toContain("BOOK_INSTALL_ROLES");
+    expect(jobsActions).toContain("That job is not available to schedule");
+    expect(jobsActions).toContain("hasMaterialNeed = true");
+  });
+
+  it("0186 unique original invoice + salesman mine_job schedule guard", () => {
+    const sql = readFileSync(
+      join(ROOT, "supabase/migrations/0186_launch_trust_schedule_invoice_guards.sql"),
+      "utf8",
+    );
+    expect(sql).toContain("invoices_one_active_original_per_estimate");
+    expect(sql).toContain("commercial_kind = 'original'");
+    expect(sql).toContain("v_role = 'salesman' and not public.mine_job(p_job_id)");
+    expect(sql).toContain("Do NOT set posting_enabled");
+    expect(sql).toContain("set search_path = public");
+  });
+
+  it("estimate send waits for email; portal decline checks ownership", () => {
+    const estimates = readFileSync(
+      join(ROOT, "src/app/(app)/estimates/actions.ts"),
+      "utf8",
+    );
+    const sendIdx = estimates.indexOf("Your estimate from Cleveland Floor King");
+    const updateIdx = estimates.indexOf(
+      'await supabase.from("estimates").update(patch).eq("id", id)',
+    );
+    expect(sendIdx).toBeGreaterThan(0);
+    expect(updateIdx).toBeGreaterThan(sendIdx);
+    expect(estimates).toContain('notify.status === "failed"');
+
+    const portal = readFileSync(join(ROOT, "src/app/portal/actions.ts"), "utf8");
+    const decline = portal.slice(
+      portal.indexOf("export async function portalDeclineEstimate"),
+      portal.indexOf("export async function portalRequestChanges"),
+    );
+    expect(decline).toContain("portalCustomerId");
+    expect(decline).toContain("estimates_customer");
+    expect(decline).toContain(".select(\"id\")");
+  });
+
+  it("PO save skips line rewrite after receipts; receive stamps after ledger", () => {
+    const po = readFileSync(
+      join(ROOT, "src/app/(app)/purchase-orders/actions.ts"),
+      "utf8",
+    );
+    expect(po).toContain("rewriteBlocked");
+    expect(po).toContain("hasReceipts");
+    const recv = readFileSync(
+      join(ROOT, "src/app/(app)/warehouse/receiving-actions.ts"),
+      "utf8",
+    );
+    const ledger = recv.indexOf("applyPoLineReceiptDelta");
+    const stamp = recv.indexOf("received_qty: qty");
+    expect(ledger).toBeGreaterThan(0);
+    expect(stamp).toBeGreaterThan(ledger);
   });
 });

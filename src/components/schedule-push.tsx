@@ -53,6 +53,7 @@ export function SchedulePush({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const custRef = useRef<HTMLInputElement>(null);
   const assigneeRef = useRef<HTMLInputElement>(null);
@@ -69,6 +70,8 @@ export function SchedulePush({
   };
 
   const confirm = () => {
+    if (pending) return;
+    setPending(true);
     setOpen(false);
     const form = triggerRef.current?.closest("form");
     if (custRef.current)
@@ -87,7 +90,7 @@ export function SchedulePush({
         variant={variant}
         size={size}
         className={className}
-        disabled={disabled}
+        disabled={disabled || pending}
         onClick={openDialog}
       >
         {children}
@@ -146,10 +149,10 @@ export function SchedulePush({
           </div>
 
           <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
               Cancel
             </Button>
-            <Button type="button" onClick={confirm}>
+            <Button type="button" onClick={confirm} disabled={pending}>
               <CalendarCheck className="size-4" /> {confirmLabel}
             </Button>
           </DialogFooter>

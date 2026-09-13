@@ -83,18 +83,9 @@ export async function receivePoLines(input: {
   for (const l of input.lines) {
     const row = byId.get(l.itemId)!;
     const qty = n(l.receivedQty);
-    await db
-      .from("po_items")
-      .update({
-        received_qty: qty,
-        received_at: now,
-        received_by: profile.id,
-        receiving_note: l.note.trim() || null,
-      })
-      .eq("id", l.itemId)
-      .eq("po_id", input.poId);
 
-    // Post inventory for tracked products immediately (delta only).
+    // Post inventory first, then stamp. A failed ledger must not leave a
+    // receive stamp without a movement (retry would then no-op the delta).
     if (row.product_id) {
       try {
         await applyPoLineReceiptDelta(db as never, {
@@ -114,6 +105,17 @@ export async function receivePoLines(input: {
         };
       }
     }
+
+    await db
+      .from("po_items")
+      .update({
+        received_qty: qty,
+        received_at: now,
+        received_by: profile.id,
+        receiving_note: l.note.trim() || null,
+      })
+      .eq("id", l.itemId)
+      .eq("po_id", input.poId);
   }
 
   const { data: items } = await db
@@ -128,6 +130,22 @@ export async function receivePoLines(input: {
     0,
   );
   const fullyReceived = everyLineChecked && short <= 0.005;
+
+  const { data: poNow } = await db
+    .from("purchase_orders")
+    .select("status")
+    .eq("id", input.poId)
+    .maybeSingle();
+  if (
+    poNow?.status === "received" ||
+    poNow?.status === "void" ||
+    poNow?.status === "cancelled"
+  ) {
+    return {
+      error:
+        "This purchase order was already received or voided in another session. Refresh and continue from the current status.",
+    };
+  }
 
   await db
     .from("purchase_orders")

@@ -32,7 +32,13 @@ export interface CoverageInvoiceRow {
   approvalSnapshotId: string | null;
   /** Tax-inclusive invoice total (qty×rate + tax). */
   total: number;
-  /** True when any payment row exists. */
+  /**
+   * True when any payment, credit application, deposit application, or
+   * write-off is on the invoice. Deposit-only invoices must not look "unpaid".
+   * Optional on fixtures — falls back to hasPayments.
+   */
+  hasFinancialActivity?: boolean;
+  /** Alias kept for fixtures; prefer hasFinancialActivity in new code. */
   hasPayments: boolean;
 }
 
@@ -141,9 +147,11 @@ export function planEstimateInvoiceCreation(args: {
     return { action: "full", kind: "original", amount: approved };
   }
 
-  const anyPaid = active.some((r) => r.hasPayments);
+  const anyPaid = active.some(
+    (r) => r.hasFinancialActivity || r.hasPayments,
+  );
 
-  // Unpaid-only: void & reissue from latest approved snapshot.
+  // No financial activity: void & reissue from latest approved snapshot.
   // Credits should be zero in normal unpaid path; ignore for replace.
   if (!anyPaid) {
     if (Math.abs(round2(approved - invoiced)) < 0.005) {
@@ -160,7 +168,7 @@ export function planEstimateInvoiceCreation(args: {
     };
   }
 
-  // Any payment exists: never void/rewrite paid invoices.
+  // Any financial activity: never void/rewrite those invoices.
   if (delta > 0.005) {
     return {
       action: "supplemental",
@@ -222,11 +230,11 @@ export function supplementalDeltaInvoiceItems(
   ];
 }
 
-/** Server-side: block commercial line/total rewrites when payments exist. */
-export function invoiceCommercialEditBlocked(hasPayments: boolean): {
+/** Server-side: block commercial line/total rewrites when money has moved. */
+export function invoiceCommercialEditBlocked(hasFinancialActivity: boolean): {
   blocked: boolean;
   message: string | null;
 } {
-  if (!hasPayments) return { blocked: false, message: null };
+  if (!hasFinancialActivity) return { blocked: false, message: null };
   return { blocked: true, message: INVOICE_PAID_IMMUTABLE_MESSAGE };
 }

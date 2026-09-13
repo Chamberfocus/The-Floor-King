@@ -36,12 +36,14 @@ import { prepareJobMaterialsFor } from "./material-actions";
 import { seedJobScopeIfEmpty } from "@/lib/data/job-operational-lines";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getJobOpenBalance } from "@/lib/data/invoices";
+import { recomputeInvoiceStatus } from "@/lib/invoice-recompute";
 import { buildInvoiceFromOrder } from "@/lib/data/order-invoice";
 import type {
   JobDeliveryType,
   JobStatus,
   WarehouseStatus,
   EstimateLineItem,
+  UserRole,
 } from "@/lib/types";
 
 export interface JobFormState {
@@ -313,9 +315,13 @@ async function notifyInstallerAssigned(o: {
 import { isMaterialLine } from "@/lib/job-scope";
 import {
   assessScheduleMaterialsGate,
+  assessWarehouseMarkReady,
   MATERIALS_NOT_READY_MESSAGE,
 } from "@/lib/materials-ready";
 import { loadOperationalJobLines } from "@/lib/data/job-operational-lines";
+import { loadJobCoverageItems } from "@/lib/data/job-purchasing";
+import { computeLineCoverage } from "@/lib/po-coverage";
+import { lineOrderQty, type CalcLine } from "@/lib/estimate-calc";
 
 export async function enforceMaterialsReadyForSchedule(args: {
   jobId: string;
@@ -325,13 +331,40 @@ export async function enforceMaterialsReadyForSchedule(args: {
   overrideReason: string | null;
   scheduledDate: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { data: job } = await args.db
+  const { data: job, error: jobErr } = await args.db
     .from("jobs")
     .select("warehouse_ready_at")
     .eq("id", args.jobId)
     .maybeSingle();
-  const lines = await loadOperationalJobLines(args.db, args.jobId);
-  const hasMaterialNeed = lines.some((l) => isMaterialLine(l));
+  if (jobErr) {
+    return {
+      ok: false,
+      error: `${MATERIALS_NOT_READY_MESSAGE} Could not load this job’s materials status. Refresh and try again, or enter an override reason.`,
+    };
+  }
+
+  let hasMaterialNeed = true; // fail closed if we cannot prove labor-only
+  try {
+    const lines = await loadOperationalJobLines(args.db, args.jobId);
+    hasMaterialNeed = lines.some((l) => isMaterialLine(l));
+    if (!hasMaterialNeed) {
+      const { data: pos, error: poErr } = await args.db
+        .from("purchase_orders")
+        .select("id, status")
+        .eq("job_id", args.jobId);
+      if (poErr) {
+        hasMaterialNeed = true;
+      } else {
+        hasMaterialNeed = (pos ?? []).some((p: { status?: string | null }) => {
+          const s = (p.status ?? "").toLowerCase();
+          return s !== "void" && s !== "cancelled";
+        });
+      }
+    }
+  } catch {
+    hasMaterialNeed = true;
+  }
+
   const gate = assessScheduleMaterialsGate({
     warehouseReadyAt: (job?.warehouse_ready_at as string | null) ?? null,
     hasMaterialNeed,
@@ -356,6 +389,14 @@ export async function enforceMaterialsReadyForSchedule(args: {
   return { ok: true };
 }
 
+const BOOK_INSTALL_ROLES: UserRole[] = [
+  "admin",
+  "office",
+  "sales_manager",
+  "salesman",
+  "scheduler",
+];
+
 export async function bookInstall(formData: FormData): Promise<void> {
   const id = str(formData.get("job_id"));
   // One picker, one assignment. The value is either a login installer's profile
@@ -378,9 +419,24 @@ export async function bookInstall(formData: FormData): Promise<void> {
   const afterBookRedirect = str(formData.get("redirect_to"));
   if (!id || !start) return;
   const supabase = await createClient();
+  await assertRole(BOOK_INSTALL_ROLES);
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  const { data: targetJob } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!targetJob) {
+    redirect(
+      (afterBookRedirect || `/jobs/${id}`) +
+        `?schedule_error=${encodeURIComponent(
+          "That job is not available to schedule.",
+        )}`,
+    );
+  }
 
   const mat = await enforceMaterialsReadyForSchedule({
     jobId: id,
@@ -1798,10 +1854,13 @@ export async function acceptWarehouseJob(formData: FormData): Promise<void> {
  * salesperson and admin (with the staging location) and drops the customer a
  * brief heads-up. Keeps the existing auto-advance to install scheduling.
  */
-export async function completeWarehouseJob(formData: FormData): Promise<void> {
+export async function completeWarehouseJob(
+  formData: FormData,
+): Promise<{ error: string | null }> {
   const id = str(formData.get("id") || formData.get("job_id"));
   const location = str(formData.get("staging_location"));
-  if (!id || !location) return;
+  const overrideReason = str(formData.get("override_reason"));
+  if (!id || !location) return { error: "Enter where it's staged." };
   const supabase = await createClient();
   const {
     data: { user },
@@ -1811,6 +1870,46 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
   const admin = createAdminClient() as unknown as WhDb;
   const now = new Date().toISOString();
 
+  const { data: jobRow } = await admin
+    .from("jobs")
+    .select("id, estimate_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!jobRow) return { error: "That job no longer exists." };
+
+  const lines = await loadOperationalJobLines(admin, id);
+  const hasMaterialNeed = lines.some((l) => isMaterialLine(l));
+  let outstandingArrival = 0;
+  try {
+    const coverageItems = await loadJobCoverageItems(
+      admin,
+      id,
+      (jobRow.estimate_id as string | null) ?? null,
+    );
+    for (const l of lines) {
+      if (!isMaterialLine(l)) continue;
+      const src = (l as { source?: string | null }).source;
+      if (src === "stock") continue;
+      const need = lineOrderQty(l as CalcLine);
+      if (need <= 0) continue;
+      outstandingArrival += computeLineCoverage(l.id, need, coverageItems)
+        .outstandingArrival;
+    }
+  } catch {
+    if (hasMaterialNeed && !overrideReason) {
+      return {
+        error:
+          "Could not verify material receipts. Receive the PO first, or enter an override reason.",
+      };
+    }
+  }
+  const gate = assessWarehouseMarkReady({
+    hasMaterialNeed,
+    outstandingArrival,
+    overrideReason,
+  });
+  if (!gate.ok) return { error: gate.error };
+
   await admin
     .from("jobs")
     .update({
@@ -1819,6 +1918,22 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
       staging_location: location,
     })
     .eq("id", id);
+
+  if (gate.override) {
+    const { data: jobCust } = await admin
+      .from("jobs")
+      .select("customer_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (jobCust?.customer_id) {
+      await admin.from("activities").insert({
+        customer_id: jobCust.customer_id,
+        user_id: user?.id ?? null,
+        type: "system",
+        body: `Warehouse marked materials ready with override (job ${id}): ${overrideReason}`,
+      });
+    }
+  }
 
   const { data: job } = await admin
     .from("jobs")
@@ -1914,6 +2029,7 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
   revalidatePath("/orders");
   revalidatePath("/invoices");
   if (job?.customer_id) revalidatePath(`/customers/${job.customer_id}`);
+  return { error: null };
 }
 
 /**
@@ -2049,8 +2165,7 @@ export async function collectJobBalance(formData: FormData): Promise<void> {
     if (!result?.ok) {
       throw new Error(result?.error || "Payment could not be saved.");
     }
-    // Idempotent replay is success; still ensure invoice paid status.
-    await admin.from("invoices").update({ status: "paid" }).eq("id", open.invoiceId);
+    await recomputeInvoiceStatus(admin, open.invoiceId, user.id);
   }
 
   await notifyOffice(
