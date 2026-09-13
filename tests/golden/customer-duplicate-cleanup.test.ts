@@ -645,6 +645,15 @@ describe("migration + UI wiring", () => {
     expect(sql0185).toContain("v_prior.chosen_fields is not distinct from v_chosen");
     expect(sql0185).toContain("customer_duplicate_exclusions_reason_chk");
     expect(sql0185).toContain("customers_merged_into_not_self");
+    expect(sql0185).toContain("live.assigned_to = auth.uid() or live.workflow_owner_id = auth.uid()");
+    expect(sql0185).toContain("revoke all on function public.mine_customer(uuid) from public, anon");
+    expect(sql0185).toContain(
+      "revoke all on function public.merge_customer_records(uuid, uuid, jsonb, text, text) from public, anon",
+    );
+    expect(sql0185).toContain(
+      "revoke all on function public.customer_merge_reassign(text, text, uuid, uuid)",
+    );
+    expect(sql0185).toContain("from public, anon, authenticated, service_role");
     expect(sql0185).toContain("Do NOT apply this file to production without owner review");
   });
 

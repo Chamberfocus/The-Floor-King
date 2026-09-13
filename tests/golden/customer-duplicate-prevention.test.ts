@@ -471,4 +471,13 @@ describe("merged-away customers resolve to the survivor", () => {
     expect(src).toContain("survivorIds");
     expect(src).not.toMatch(/if \(r\.merged_into_customer_id\) continue/);
   });
+
+  it("public booking does not return customer identity to the browser", () => {
+    const src = readFileSync(join(ROOT, "src/app/book/actions.ts"), "utf8");
+    expect(src).toContain("resolvePublicBookingCustomer");
+    expect(src).toContain("return { error: null, ok: true }");
+    expect(src).not.toMatch(/return \{[^}]*customerId/);
+    const body = publicBookingResponseSafe(true);
+    expect(JSON.stringify(body)).not.toMatch(/cust-|@|216-/);
+  });
 });
