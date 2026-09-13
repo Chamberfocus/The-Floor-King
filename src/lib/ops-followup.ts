@@ -71,6 +71,75 @@ export function parsePoNumberQuery(q: string): number | null {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+/** Strip PostgREST `.or()` separators and LIKE wildcards from user search input. */
+export function sanitizeIlikeQuery(q: string): string {
+  return q
+    .replace(/[%_,()\\*]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export const AUTOMATION_SOURCE_KINDS = [
+  ESTIMATE_FOLLOWUP_KIND,
+  DEPOSIT_DUE_KIND,
+  COLLECT_BALANCE_KIND,
+  SERVICE_CALLBACK_KIND,
+  INSTALLER_ISSUE_KIND,
+] as const;
+
+export type AutomationSourceKind = (typeof AUTOMATION_SOURCE_KINDS)[number];
+
+export function isAutomationSourceKind(
+  kind: string,
+): kind is AutomationSourceKind {
+  return (AUTOMATION_SOURCE_KINDS as readonly string[]).includes(kind);
+}
+
+/** Complete-by-prefix is only safe after the kind is allowlisted (no LIKE metachars). */
+export function automationSourceKeyPrefix(kind: string): string | null {
+  if (!isAutomationSourceKind(kind)) return null;
+  return `${kind}:`;
+}
+
+export function maySnoozeCustomerFollowup(args: {
+  role: string;
+  actorId: string;
+  assignedTo: string | null | undefined;
+  workflowOwnerId: string | null | undefined;
+}): boolean {
+  if (["admin", "office", "sales_manager"].includes(args.role)) return true;
+  if (args.role !== "salesman") return false;
+  return (
+    args.assignedTo === args.actorId || args.workflowOwnerId === args.actorId
+  );
+}
+
+export function installerMayReportIssue(args: {
+  role: string;
+  actorId: string;
+  assignedTo: string | null | undefined;
+  assignedCrewId: string | null | undefined;
+  memberCrewIds: readonly string[];
+}): boolean {
+  if (["admin", "office"].includes(args.role)) return true;
+  if (args.role !== "crew") return false;
+  if (!args.actorId) return false;
+  if (args.assignedTo === args.actorId) return true;
+  const crewId = args.assignedCrewId ?? null;
+  return Boolean(crewId && args.memberCrewIds.includes(crewId));
+}
+
+/** Same crew, same job, same description, still open → reuse (no duplicate callback). */
+export function reuseOpenInstallerIssueId(args: {
+  existingOpen: { id: string; description: string | null }[];
+  description: string;
+}): string | null {
+  const want = args.description.trim();
+  if (!want) return null;
+  const hit = args.existingOpen.find((r) => (r.description ?? "").trim() === want);
+  return hit?.id ?? null;
+}
+
 export function shouldCreateCollectBalanceTask(args: {
   jobStatus: string;
   openBalance: number;

@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
-import { parsePoNumberQuery } from "@/lib/ops-followup";
+import { parsePoNumberQuery, sanitizeIlikeQuery } from "@/lib/ops-followup";
 
 export type HitType = "customer" | "estimate" | "invoice" | "po" | "job" | "product";
 
@@ -71,7 +71,12 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
   if (q.length < 2) return { query: q, groups: [], total: 0 };
 
   const supabase = await createClient();
-  const like = `%${q}%`;
+  const safe = sanitizeIlikeQuery(q);
+  const poNumber = parsePoNumberQuery(q);
+  if (safe.length < 2 && poNumber == null) {
+    return { query: q, groups: [], total: 0 };
+  }
+  const like = `%${safe}%`;
 
   // Dynamic table names + a built select string defeat the typed client's
   // literal-string parser, so reach it through a small structural interface.
@@ -135,7 +140,6 @@ export async function quickSearch(qRaw: string, limit = 6): Promise<QuickResults
       .limit(limit),
   ]);
 
-  const poNumber = parsePoNumberQuery(q);
   let poHits = poRows;
   if (poNumber != null) {
     const { data: byNum } = await supabase

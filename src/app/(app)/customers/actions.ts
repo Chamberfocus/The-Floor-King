@@ -16,7 +16,7 @@ import { advanceFromFirstStage, deriveLeadStage,
   settleJobsForStage,
 } from "@/lib/workflow-engine";
 import { requireProfile, assertRole } from "@/lib/auth";
-import { ESTIMATE_FOLLOWUP_KIND, snoozeDueAt } from "@/lib/ops-followup";
+import { ESTIMATE_FOLLOWUP_KIND, maySnoozeCustomerFollowup, snoozeDueAt } from "@/lib/ops-followup";
 import { snoozeAutomatedOfficeTasks } from "@/lib/data/ops-automation";
 import { releaseJobReservations, reverseReceivedPOs } from "@/lib/po-stock";
 import { listCustomers } from "@/lib/data/customers";
@@ -969,10 +969,14 @@ export async function snoozeCustomerFollowup(formData: FormData): Promise<void> 
     .eq("id", id)
     .maybeSingle();
   if (!cust) throw new Error("Customer not found.");
-  const isBoss = ["admin", "office", "sales_manager"].includes(profile.role);
-  const owns =
-    cust.assigned_to === profile.id || cust.workflow_owner_id === profile.id;
-  if (!isBoss && !owns) {
+  if (
+    !maySnoozeCustomerFollowup({
+      role: profile.role,
+      actorId: profile.id,
+      assignedTo: (cust.assigned_to as string | null) ?? null,
+      workflowOwnerId: (cust.workflow_owner_id as string | null) ?? null,
+    })
+  ) {
     throw new Error("You can only snooze follow-up on customers you own.");
   }
   const { error } = await supabase

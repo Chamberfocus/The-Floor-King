@@ -20,7 +20,9 @@ import {
   SERVICE_CALLBACK_KIND,
   callbackCategoryForIssue,
   installerIssueTitle,
+  installerMayReportIssue,
   isInstallerIssueCategory,
+  reuseOpenInstallerIssueId,
 } from "@/lib/ops-followup";
 
 function str(v: FormDataEntryValue | null): string {
@@ -282,6 +284,11 @@ export async function resolveServiceCallback(formData: FormData): Promise<void> 
     entityId: id,
     completedBy: profile.id,
   });
+  void completeAutomatedOfficeTasks({
+    sourceKind: INSTALLER_ISSUE_KIND,
+    entityId: id,
+    completedBy: profile.id,
+  });
   refreshOps(str(formData.get("job_id")), str(formData.get("customer_id")));
 }
 
@@ -322,16 +329,34 @@ export async function reportInstallerIssue(formData: FormData): Promise<void> {
   const supabase = await createClient();
   const { data: job } = await supabase
     .from("jobs")
-    .select("id, customer_id, assigned_to, title, customer:customers(full_name)")
+    .select(
+      "id, customer_id, assigned_to, assigned_crew_id, title, customer:customers(full_name)",
+    )
     .eq("id", jobId)
     .maybeSingle();
   if (!job) throw new Error("Job not found.");
   const isBoss = ["admin", "office"].includes(profile.role);
-  if (!isBoss && job.assigned_to !== profile.id) {
+  let memberCrewIds: string[] = [];
+  if (!isBoss && profile.role === "crew") {
+    const { data: crewRows } = await supabase
+      .from("install_crews")
+      .select("id")
+      .eq("profile_id", profile.id)
+      .eq("active", true);
+    memberCrewIds = (crewRows ?? []).map((c) => c.id as string);
+  }
+  if (
+    !installerMayReportIssue({
+      role: profile.role,
+      actorId: profile.id,
+      assignedTo: (job.assigned_to as string | null) ?? null,
+      assignedCrewId: (job.assigned_crew_id as string | null) ?? null,
+      memberCrewIds,
+    })
+  ) {
     throw new Error("You can only report issues on jobs assigned to you.");
   }
-  const customerId =
-    (job.customer_id as string | null) ?? str(formData.get("customer_id"));
+  const customerId = (job.customer_id as string | null) ?? null;
   if (!customerId) throw new Error("This job has no customer on file.");
   const cust = job.customer as unknown as { full_name?: string | null } | null;
   const category = callbackCategoryForIssue(categoryRaw);
@@ -343,30 +368,47 @@ export async function reportInstallerIssue(formData: FormData): Promise<void> {
       "Could not record the issue. Try again from the office job page.",
     );
   }
-  const { data: created, error } = await admin
+  const { data: existingOpen } = await admin
     .from("service_callbacks")
-    .insert({
-      customer_id: customerId,
-      job_id: jobId,
-      category,
-      description,
-      status: "open",
-      assigned_to: isBoss ? profile.id : null,
-      reported_at: new Date().toISOString().slice(0, 10),
-      created_by: profile.id,
-    })
-    .select("id")
-    .maybeSingle();
-  if (error) throw new Error(error.message);
+    .select("id, description")
+    .eq("job_id", jobId)
+    .eq("created_by", profile.id)
+    .in("status", ["open", "scheduled", "in_progress", "waiting"]);
+  const reuseId = reuseOpenInstallerIssueId({
+    existingOpen: (existingOpen ?? []) as {
+      id: string;
+      description: string | null;
+    }[],
+    description,
+  });
+  let callbackId = reuseId;
+  if (!callbackId) {
+    const { data: created, error } = await admin
+      .from("service_callbacks")
+      .insert({
+        customer_id: customerId,
+        job_id: jobId,
+        category,
+        description,
+        status: "open",
+        assigned_to: isBoss ? profile.id : null,
+        reported_at: new Date().toISOString().slice(0, 10),
+        created_by: profile.id,
+      })
+      .select("id")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    callbackId = (created?.id as string | null) ?? null;
+  }
   const title = installerIssueTitle(
     categoryRaw,
     cust?.full_name || (job.title as string) || "job",
   );
-  if (created?.id) {
+  if (callbackId) {
     void ensureAutomatedOfficeTaskSafe({
       title,
       sourceKind: INSTALLER_ISSUE_KIND,
-      entityId: created.id as string,
+      entityId: callbackId,
       assignedTo: isBoss ? profile.id : null,
       createdBy: profile.id,
       jobId,

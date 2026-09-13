@@ -18,7 +18,9 @@ import {
   DEPOSIT_DUE_KIND,
   ESTIMATE_FOLLOWUP_KIND,
   SERVICE_CALLBACK_KIND,
+  automationSourceKeyPrefix,
   followUpDueAt,
+  isAutomationSourceKind,
   shouldCreateCollectBalanceTask,
   shouldCreateDepositDueTask,
   shouldCreateEstimateFollowup,
@@ -48,6 +50,7 @@ export async function ensureAutomatedOfficeTaskSafe(args: {
 }): Promise<{ created: boolean }> {
   const admin = tryAdmin();
   if (!admin) return { created: false };
+  if (!isAutomationSourceKind(args.sourceKind)) return { created: false };
   const key = automationSourceKey(args.sourceKind, args.entityId);
   const { data: existing } = await admin
     .from("office_tasks")
@@ -88,6 +91,7 @@ export async function completeAutomatedOfficeTasks(args: {
 }): Promise<number> {
   const admin = tryAdmin();
   if (!admin) return 0;
+  if (!isAutomationSourceKind(args.sourceKind)) return 0;
   const key = automationSourceKey(args.sourceKind, args.entityId);
   const now = new Date().toISOString();
   const { data, error } = await admin
@@ -112,6 +116,8 @@ export async function completeOpenAutomatedTasksForCustomer(args: {
 }): Promise<number> {
   const admin = tryAdmin();
   if (!admin) return 0;
+  const prefix = automationSourceKeyPrefix(args.sourceKind);
+  if (!prefix) return 0;
   const now = new Date().toISOString();
   const { data, error } = await admin
     .from("office_tasks")
@@ -122,7 +128,7 @@ export async function completeOpenAutomatedTasksForCustomer(args: {
       updated_at: now,
     })
     .eq("customer_id", args.customerId)
-    .like("source_key", `${args.sourceKind}:%`)
+    .like("source_key", `${prefix}%`)
     .in("status", ["open", "in_progress"])
     .select("id");
   if (error) return 0;
@@ -163,6 +169,7 @@ export async function snoozeAutomatedOfficeTasks(args: {
 }): Promise<number> {
   const admin = tryAdmin();
   if (!admin) return 0;
+  if (!isAutomationSourceKind(args.sourceKind)) return 0;
   const key = automationSourceKey(args.sourceKind, args.entityId);
   const { data, error } = await admin
     .from("office_tasks")
