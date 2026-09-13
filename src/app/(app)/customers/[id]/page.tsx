@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   ArrowLeft,
   StickyNote,
@@ -35,6 +35,7 @@ import {
   getProfileNames,
   getPortalUser,
 } from "@/lib/data/customers";
+import { getCustomerMergeHistory } from "@/lib/data/customer-duplicate-cleanup";
 import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
 import { listOrdersForCustomer } from "@/lib/data/orders";
@@ -188,6 +189,7 @@ export default async function CustomerPage({
     stage_error?: string;
     notify?: string;
     notify_detail?: string;
+    merged_from?: string;
   }>;
 }) {
   const { id } = await params;
@@ -208,6 +210,12 @@ export default async function CustomerPage({
   const prefs = await getUserPreferences();
   const customer = await getCustomer(id);
   if (!customer) notFound();
+  if (customer.merged_into_customer_id) {
+    redirect(
+      `/customers/${customer.merged_into_customer_id}?merged_from=${id}`,
+    );
+  }
+  const mergedFrom = sp.merged_from?.trim() || null;
   const canDelete = profile.role === "admin" || profile.role === "office";
   const leadSources = await listLeadSources({ activeOnly: true });
   // Whether the lead source (+ its required sub-detail) is recorded — gates
@@ -250,6 +258,7 @@ export default async function CustomerPage({
   // Read-only per-job estimated-vs-actual costing for the Job Costing tab.
   const costing = await getCustomerJobCosting(id);
   const history = await getCustomerHistory(id);
+  const mergeHistory = await getCustomerMergeHistory(id).catch(() => []);
 
   // Owner-only real profit breakdown (revenue − material/labor/other + the
   // internal fuel/car/commission), keyed by job for the "cost vs profit" popup.
@@ -292,6 +301,7 @@ export default async function CustomerPage({
     customer.workflow_owner_id ?? "",
     installJob?.assigned_to ?? "",
     schedulableJob?.assigned_to ?? "",
+    ...mergeHistory.map((h) => h.performed_by ?? ""),
   ]);
   const currentStage =
     stages.find((s) => s.id === customer.workflow_stage_id) ?? null;
@@ -708,6 +718,29 @@ export default async function CustomerPage({
           className="mb-4 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-300"
         >
           {creditOk}
+        </div>
+      ) : null}
+      {mergedFrom ? (
+        <div
+          role="status"
+          className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+        >
+          Customer merged into {customer.full_name}. The previous record{" "}
+          <span className="font-mono text-xs">{mergedFrom}</span> now redirects here.
+        </div>
+      ) : null}
+      {mergeHistory.length ? (
+        <div className="mb-4 space-y-1 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+          {mergeHistory.map((h) => (
+            <p key={`${h.duplicate_customer_id}-${h.performed_at}`}>
+              Customer record {h.duplicate_customer_id} merged into this customer on{" "}
+              {formatDate(h.performed_at)}
+              {h.performed_by && names[h.performed_by]
+                ? ` by ${names[h.performed_by]}`
+                : ""}
+              {h.reason ? `. ${h.reason}` : "."}
+            </p>
+          ))}
         </div>
       ) : null}
 

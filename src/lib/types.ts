@@ -282,6 +282,11 @@ export interface Customer {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Soft-merge: this row was merged away into another canonical customer. */
+  merged_into_customer_id?: string | null;
+  merged_at?: string | null;
+  merged_by?: string | null;
+  merge_reason?: string | null;
 }
 
 export interface QualifyingQuestion {

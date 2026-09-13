@@ -209,7 +209,7 @@ export function scoreCustomerMatch(
   };
 }
 
-/** Score a pool. Does not hide distinct customer IDs. */
+/** Score a pool. Collapses aliased/canonical ids so merged-away hits count once. */
 export function findPotentialCustomerMatches(
   input: MatchCandidateInput,
   existing: MatchableCustomer[],
@@ -219,7 +219,44 @@ export function findPotentialCustomerMatches(
     const scored = scoreCustomerMatch(input, row);
     if (scored) out.push(scored);
   }
-  out.sort((a, b) => TIER_RANK[b.tier] - TIER_RANK[a.tier]);
+  const best = new Map<string, ScoredCustomerMatch>();
+  for (const m of out) {
+    const prev = best.get(m.id);
+    if (!prev || TIER_RANK[m.tier] > TIER_RANK[prev.tier]) best.set(m.id, m);
+  }
+  return [...best.values()].sort(
+    (a, b) => TIER_RANK[b.tier] - TIER_RANK[a.tier],
+  );
+}
+
+/**
+ * Prevention matcher never returns a merged-away customer id. Contact fields
+ * from the merged-away row still score, but the match id is the survivor.
+ */
+export function canonicalMatchingPool(
+  rows: Array<
+    MatchableCustomer & { merged_into_customer_id?: string | null }
+  >,
+): MatchableCustomer[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const out: MatchableCustomer[] = [];
+  for (const row of rows) {
+    const dest = row.merged_into_customer_id;
+    if (!dest) {
+      const { merged_into_customer_id: _ignored, ...live } = row;
+      out.push(live);
+      continue;
+    }
+    const live = byId.get(dest);
+    if (!live || live.merged_into_customer_id) continue;
+    const { merged_into_customer_id: _ignored, ...alias } = row;
+    out.push({
+      ...alias,
+      id: live.id,
+      assigned_to: live.assigned_to,
+      workflow_owner_id: live.workflow_owner_id,
+    });
+  }
   return out;
 }
 

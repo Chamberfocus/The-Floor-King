@@ -12,6 +12,7 @@ import {
   decideStaffCreate,
   filterMatchesForActor,
   findPotentialCustomerMatches,
+  canonicalMatchingPool,
   recheckBeforeInsert,
   summarizeImport,
   type ClassifiedImportRow,
@@ -22,6 +23,8 @@ import {
 import { normalizeEmail, normalizePhoneDigits } from "@/lib/customer-duplicate";
 
 const MATCH_COLS =
+  "id, full_name, email, phone, city, street, state, zip, company, assigned_to, workflow_owner_id, merged_into_customer_id";
+const MATCH_COLS_LEGACY =
   "id, full_name, email, phone, city, street, state, zip, company, assigned_to, workflow_owner_id";
 
 type Q = {
@@ -29,12 +32,14 @@ type Q = {
   ilike: (col: string, val: string) => Q;
   in: (col: string, vals: string[]) => Q;
   eq: (col: string, val: string) => Q;
+  is: (col: string, val: null) => Q;
+  not: (col: string, op: string, val?: string | null) => Q;
   limit: (n: number) => Q;
   single: () => PromiseLike<{
     data: { id: string } | null;
     error: { message: string } | null;
   }>;
-} & PromiseLike<{ data: unknown }>;
+} & PromiseLike<{ data: unknown; error?: { message?: string } | null }>;
 
 type Loose = {
   from: (table: string) => {
@@ -47,7 +52,9 @@ function likeSafe(term: string): string {
   return term.replace(/[%_,]/g, " ").trim();
 }
 
-function asRow(r: Record<string, unknown>): MatchableCustomer {
+function asRow(
+  r: Record<string, unknown>,
+): MatchableCustomer & { merged_into_customer_id?: string | null } {
   return {
     id: String(r.id),
     full_name: String(r.full_name ?? ""),
@@ -61,6 +68,7 @@ function asRow(r: Record<string, unknown>): MatchableCustomer {
     company: (r.company as string) ?? null,
     assigned_to: (r.assigned_to as string) ?? null,
     workflow_owner_id: (r.workflow_owner_id as string) ?? null,
+    merged_into_customer_id: (r.merged_into_customer_id as string) ?? null,
   };
 }
 
@@ -68,11 +76,14 @@ async function loadPool(
   db: Loose,
   input: MatchCandidateInput,
 ): Promise<MatchableCustomer[]> {
-  const byId = new Map<string, MatchableCustomer>();
+  const rawById = new Map<
+    string,
+    MatchableCustomer & { merged_into_customer_id?: string | null }
+  >();
   const add = (rows: unknown) => {
     for (const r of (rows as Record<string, unknown>[] | null) ?? []) {
       const row = asRow(r);
-      if (row.id) byId.set(row.id, row);
+      if (row.id) rawById.set(row.id, row);
     }
   };
 
@@ -84,43 +95,88 @@ async function loadPool(
   if (email) {
     jobs.push(
       (async () => {
-        const { data } = await db
+        let res = await db
           .from("customers")
           .select(MATCH_COLS)
           .ilike("email", email)
           .limit(20);
-        add(data);
+        if (res.error) {
+          res = await db
+            .from("customers")
+            .select(MATCH_COLS_LEGACY)
+            .ilike("email", email)
+            .limit(20);
+        }
+        add(res.data);
       })(),
     );
   }
   if (name) {
     jobs.push(
       (async () => {
-        const { data } = await db
+        let res = await db
           .from("customers")
           .select(MATCH_COLS)
           .ilike("full_name", name)
           .limit(25);
-        add(data);
+        if (res.error) {
+          res = await db
+            .from("customers")
+            .select(MATCH_COLS_LEGACY)
+            .ilike("full_name", name)
+            .limit(25);
+        }
+        add(res.data);
       })(),
     );
   }
   if (phone.length >= 4) {
     jobs.push(
       (async () => {
-        const { data } = await db
+        let res = await db
           .from("customers")
           .select(MATCH_COLS)
           .ilike("phone", `%${phone.slice(-4)}`)
           .limit(50);
-        add(data);
+        if (res.error) {
+          res = await db
+            .from("customers")
+            .select(MATCH_COLS_LEGACY)
+            .ilike("phone", `%${phone.slice(-4)}`)
+            .limit(50);
+        }
+        add(res.data);
       })(),
     );
   }
 
   await Promise.all(jobs);
 
-  const ids = [...byId.keys()];
+  const survivorIds = [
+    ...new Set(
+      [...rawById.values()]
+        .map((r) => r.merged_into_customer_id)
+        .filter((id): id is string => !!id && !rawById.has(id)),
+    ),
+  ];
+  if (survivorIds.length) {
+    let extra = await db
+      .from("customers")
+      .select(MATCH_COLS)
+      .in("id", survivorIds)
+      .limit(survivorIds.length);
+    if (extra.error) {
+      extra = await db
+        .from("customers")
+        .select(MATCH_COLS_LEGACY)
+        .in("id", survivorIds)
+        .limit(survivorIds.length);
+    }
+    add(extra.data);
+  }
+
+  const pool = canonicalMatchingPool([...rawById.values()]);
+  const ids = [...new Set(pool.map((r) => r.id))];
   if (ids.length) {
     const { data: jobRows } = await db
       .from("jobs")
@@ -130,12 +186,12 @@ async function loadPool(
     for (const j of (jobRows as { customer_id: string }[] | null) ?? []) {
       counts.set(j.customer_id, (counts.get(j.customer_id) ?? 0) + 1);
     }
-    for (const [id, row] of byId) {
-      row.jobCount = counts.get(id) ?? 0;
+    for (const row of pool) {
+      row.jobCount = counts.get(row.id) ?? 0;
     }
   }
 
-  return [...byId.values()];
+  return pool;
 }
 
 export async function findStaffCustomerMatches(
@@ -166,13 +222,23 @@ export async function resolveOrCreateCustomer(args: {
 
   const existingId = (args.useExistingId ?? "").trim();
   if (existingId) {
-    const { data } = await supabase
+    const first = await supabase
       .from("customers")
-      .select("id")
+      .select("id, merged_into_customer_id")
       .eq("id", existingId);
-    const hit = (data as { id: string }[] | null)?.[0];
+    let hit = (first.data as { id: string; merged_into_customer_id?: string | null }[] | null)?.[0];
+    if (!hit) {
+      const retry = await supabase
+        .from("customers")
+        .select("id")
+        .eq("id", existingId);
+      hit = (retry.data as { id: string }[] | null)?.[0];
+    }
     if (!hit) return { action: "error", error: "That customer is not available." };
-    return { action: "use_existing", customerId: hit.id };
+    return {
+      action: "use_existing",
+      customerId: hit.merged_into_customer_id || hit.id,
+    };
   }
 
   const pool = await loadPool(supabase, args.input);
@@ -294,13 +360,15 @@ export async function previewCustomerImport(
   await requireProfile();
   const supabase = (await createClient()) as unknown as Loose;
   const existing: MatchableCustomer[] = [];
-  const { data } = await supabase
-    .from("customers")
-    .select(MATCH_COLS)
-    .limit(5000);
-  for (const r of (data as Record<string, unknown>[] | null) ?? []) {
-    existing.push(asRow(r));
+  let fetched = await supabase.from("customers").select(MATCH_COLS).limit(5000);
+  if (fetched.error) {
+    fetched = await supabase.from("customers").select(MATCH_COLS_LEGACY).limit(5000);
   }
+  existing.push(
+    ...canonicalMatchingPool(
+      ((fetched.data as Record<string, unknown>[] | null) ?? []).map(asRow),
+    ),
+  );
   const classified = classifyImportRows(rows, existing);
   return { classified, summary: summarizeImport(classified) };
 }

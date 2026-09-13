@@ -8,6 +8,7 @@ import {
   Settings,
   ShoppingCart,
   ClipboardList,
+  Copy,
   FileText,
   Warehouse,
   Boxes,
@@ -89,6 +90,12 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Users,
     items: [
       { label: "Customers", href: "/customers", icon: Users, roles: SALES_VIEW },
+      {
+        label: "Duplicate Review",
+        href: "/customers/duplicates",
+        icon: Copy,
+        roles: ["admin", "office", "sales_manager"],
+      },
       /**
        * Estimates had NO sidebar link. The list, and the "New estimate" button
        * on it, could only be reached by opening a customer first — which is why

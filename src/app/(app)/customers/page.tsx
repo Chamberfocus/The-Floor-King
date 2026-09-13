@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Search, Upload, AlertTriangle, Users } from "lucide-react";
+import { Plus, Search, Upload, AlertTriangle, Users, Copy } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/page-header";
@@ -173,6 +173,14 @@ export default async function CustomersPage({
         }
       >
         <div className="flex gap-2">
+          {["admin", "office", "sales_manager"].includes(profile.role) ? (
+            <Link
+              href="/customers/duplicates"
+              className={buttonVariants({ size: "lg", variant: "outline" })}
+            >
+              <Copy className="size-4" /> Duplicate Review
+            </Link>
+          ) : null}
           <Link
             href="/customers/import"
             className={buttonVariants({ size: "lg", variant: "outline" })}
