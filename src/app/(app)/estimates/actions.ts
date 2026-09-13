@@ -453,6 +453,57 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
   } = await supabase.auth.getUser();
 
   let notify: MessageSendResult | null = null;
+  const backEarly = str(formData.get("redirect_to"));
+  const destEarly = backEarly || `/estimates/${id}`;
+
+  // Send the customer email BEFORE marking sent. A failed send must not
+  // advance the estimate to "sent" (cron thank-you would then fire too).
+  if (status === "sent" && !skipClientEmail) {
+    const { data: est } = await supabase
+      .from("estimates")
+      .select("title, customer:customers(full_name, email)")
+      .eq("id", id)
+      .maybeSingle();
+    const cust = est?.customer as unknown as {
+      full_name: string | null;
+      email: string | null;
+    } | null;
+    if (cust?.email) {
+      notify = await sendEmail({
+        to: cust.email,
+        subject: "Your estimate from Cleveland Floor King 🎉",
+        html: emailLayout(
+          "Thank you for the opportunity!",
+          `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
+           <p>Thank you so much for the opportunity to earn your business — we truly appreciate it and would be delighted to bring your floors to life.</p>
+           <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or request changes — whatever works best for you.</p>
+           <p>We can't wait to work with you!</p>`,
+          { label: "View & approve your estimate", url: `${siteUrl()}/portal/estimates/${id}` },
+          { preheader: "Thank you for the opportunity — your estimate is ready to review." },
+        ),
+        tags: [
+          { name: "category", value: "estimate" },
+          { name: "estimate_id", value: id },
+        ],
+      });
+      if (notify.status === "failed") {
+        const sep = destEarly.includes("?") ? "&" : "?";
+        redirect(
+          `${destEarly}${sep}notify=${notify.status}&notify_detail=${encodeURIComponent(describeMessageSend(notify))}`,
+        );
+      }
+    } else {
+      notify = {
+        status: "not_attempted",
+        reason: "No email address on file.",
+      };
+    }
+  } else if (status === "sent" && skipClientEmail) {
+    notify = {
+      status: "not_attempted",
+      reason: "Marked sent without emailing the customer.",
+    };
+  }
 
   if (status === "approved") {
     // Immutable snapshot + audit (Step 6). Creates a NEW version; never overwrites.
@@ -507,47 +558,6 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
     revalidatePath("/dashboard");
     revalidatePath("/jobs");
     if (ec?.customer_id) revalidatePath(`/customers/${ec.customer_id}`);
-  }
-
-  if (status === "sent" && !skipClientEmail) {
-    const { data: est } = await supabase
-      .from("estimates")
-      .select("title, customer:customers(full_name, email)")
-      .eq("id", id)
-      .maybeSingle();
-    const cust = est?.customer as unknown as {
-      full_name: string | null;
-      email: string | null;
-    } | null;
-    if (cust?.email) {
-      notify = await sendEmail({
-        to: cust.email,
-        subject: "Your estimate from Cleveland Floor King 🎉",
-        html: emailLayout(
-          "Thank you for the opportunity!",
-          `<p>Hi ${cust.full_name?.split(" ")[0] ?? "there"},</p>
-           <p>Thank you so much for the opportunity to earn your business — we truly appreciate it and would be delighted to bring your floors to life.</p>
-           <p>Your estimate${est?.title ? ` &ldquo;${est.title}&rdquo;` : ""} is ready to review. Tap below to view it and approve, decline, or request changes — whatever works best for you.</p>
-           <p>We can't wait to work with you!</p>`,
-          { label: "View & approve your estimate", url: `${siteUrl()}/portal/estimates/${id}` },
-          { preheader: "Thank you for the opportunity — your estimate is ready to review." },
-        ),
-        tags: [
-          { name: "category", value: "estimate" },
-          { name: "estimate_id", value: id },
-        ],
-      });
-    } else {
-      notify = {
-        status: "not_attempted",
-        reason: "No email address on file.",
-      };
-    }
-  } else if (status === "sent" && skipClientEmail) {
-    notify = {
-      status: "not_attempted",
-      reason: "Marked sent without emailing the customer.",
-    };
   }
 
   if (status === "approved") {

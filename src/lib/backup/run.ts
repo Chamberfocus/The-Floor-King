@@ -16,7 +16,7 @@ import {
   MARKER_SYSTEM,
   REQUIRED_STORAGE_BUCKETS,
 } from "./constants";
-import { formatChecksumFile, md5Hex, sha256Hex, verifyChecksums, type ChecksumLine } from "./checksums";
+import { formatChecksumFile, md5Hex, parseChecksumFile, sha256Hex, verifyChecksums, type ChecksumLine } from "./checksums";
 import type { DriveClient } from "./drive-client";
 import { FOLDER_MIME } from "./drive-client";
 import { DriveApiError, isRetryableDriveStatus, isSafeBackupErrorCode } from "./drive-error";
@@ -440,7 +440,16 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
       "text/plain",
     );
 
-    const listedChecksum = parseListedChecksums(await drive.listChildren(runFolder.id), checksums);
+    let listedChecksum: ChecksumLine[];
+    try {
+      listedChecksum = await loadListedChecksums(
+        drive,
+        await drive.listChildren(runFolder.id),
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "CHECKSUMS_MISSING";
+      return await fail(isSafeBackupErrorCode(msg) ? msg : "CHECKSUMS_MISSING");
+    }
     const verified = verifyChecksums(checksums, listedChecksum);
     if (!verified.ok) return await fail(verified.code);
     results.verification = "pass";
@@ -566,12 +575,14 @@ export async function runBackup(deps: BackupDeps): Promise<BackupRunOutcome> {
   }
 }
 
-function parseListedChecksums(
-  files: Array<{ name: string }>,
-  expected: ChecksumLine[],
-): ChecksumLine[] {
-  void files;
-  return expected;
+async function loadListedChecksums(
+  drive: DriveClient,
+  files: Array<{ id: string; name: string }>,
+): Promise<ChecksumLine[]> {
+  const file = files.find((f) => f.name === CHECKSUMS_FILE_NAME);
+  if (!file) throw new Error("CHECKSUMS_MISSING");
+  const bytes = await drive.readBytes(file.id);
+  return parseChecksumFile(new TextDecoder().decode(bytes));
 }
 
 /** Fixture helper for tests that need a structurally valid gzip dump. */

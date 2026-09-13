@@ -108,14 +108,14 @@ export function computeSlots(
   const dur = Math.max(5, durationMin);
 
   // Earliest allowed start (booking notice), as minutes on this day.
+  // nowIso is shop wall-clock pinned to +00 (localNowIso) — do not use
+  // Date#toISOString() which would re-read the calendar day in UTC.
   let minStart = open;
   if (query.nowIso) {
-    const now = new Date(query.nowIso);
-    const nowYmd = now.toISOString().slice(0, 10);
+    const nowYmd = query.nowIso.slice(0, 10);
     const noticeMin = (query.noticeHours ?? settings.booking_notice_hours) * 60;
     if (nowYmd === ymd) {
-      const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-      minStart = Math.max(open, nowMinutes + noticeMin);
+      minStart = Math.max(open, minutesOfIso(query.nowIso) + noticeMin);
     } else if (ymd < nowYmd) {
       return []; // past day
     }

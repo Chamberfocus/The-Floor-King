@@ -281,9 +281,10 @@ export default async function CustomerPage({
   const cancelReasons = await listCancelReasons({ activeOnly: true });
   const qualifyingQuestions = await listQualifyingQuestions({ activeOnly: true });
   // Canonical install target — strip, quick-action, and hidden job_id must agree.
-  const installJob = resolveCustomerInstallScheduleTarget(jobs);
+  // Pass installJobs (not jobs) so a pickup/cash-carry row cannot steal the strip.
+  const installJob = resolveCustomerInstallScheduleTarget(installJobs);
   const schedulableJob = installJob;
-  const siblingInstallJobs = activeInstallJobs(jobs);
+  const siblingInstallJobs = activeInstallJobs(installJobs);
   const names = await getProfileNames([
     ...activities.map((a) => a.user_id ?? ""),
     ...jobs.map((j) => j.assigned_to ?? ""),

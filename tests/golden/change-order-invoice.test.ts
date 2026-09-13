@@ -20,12 +20,14 @@ import { invoiceTotals } from "@/lib/invoice-calc";
 function row(
   partial: Partial<CoverageInvoiceRow> & { id: string },
 ): CoverageInvoiceRow {
+  const has = partial.hasFinancialActivity ?? partial.hasPayments ?? false;
   return {
     status: "sent",
     approvalSnapshotId: "snap-v1",
     total: 10000,
-    hasPayments: false,
     ...partial,
+    hasPayments: partial.hasPayments ?? has,
+    hasFinancialActivity: partial.hasFinancialActivity ?? has,
   };
 }
 
@@ -279,5 +281,21 @@ describe("change-order invoice Phase 1", () => {
       existing: [row({ id: "inv1", total: 10000, hasPayments: false })],
     });
     expect(plan.action).toBe("none");
+  });
+
+  it("deposit-only financial activity uses supplemental, not void_reissue", () => {
+    const plan = planEstimateInvoiceCreation({
+      approvedTotal: 12000,
+      existing: [
+        row({
+          id: "inv1",
+          total: 10000,
+          hasPayments: false,
+          hasFinancialActivity: true,
+        }),
+      ],
+    });
+    expect(plan.action).toBe("supplemental");
+    if (plan.action === "supplemental") expect(plan.amount).toBe(2000);
   });
 });

@@ -11,9 +11,12 @@ export interface ScheduleTargetJob {
   scheduled_date?: string | null;
   created_at?: string | null;
   title?: string | null;
+  /** Cash & carry / pickup is never an install target. */
+  delivery_type?: string | null;
 }
 
 export function isActiveInstallJob(job: ScheduleTargetJob): boolean {
+  if (job.delivery_type === "cash_carry") return false;
   const s = (job.status ?? "").toLowerCase();
   return s !== "cancelled" && s !== "completed";
 }

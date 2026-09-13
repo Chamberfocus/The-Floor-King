@@ -50,6 +50,7 @@ import {
   dumpPoolerRegionCandidates,
   isDirectSupabaseDbHost,
   isRetryablePoolerFailure,
+  isSessionPoolerHost,
   sessionPoolerHost,
   sessionPoolerUser,
   shouldAttemptSessionPoolerFallback,
@@ -405,6 +406,20 @@ describe("database dump validation", () => {
     expect(isRetryablePoolerFailure("PG_DUMP:auth")).toBe(false);
     expect(isDirectSupabaseDbHost("db.abc123xyz789.supabase.co")).toBe(true);
     expect(isDirectSupabaseDbHost("aws-0-us-east-1.pooler.supabase.com")).toBe(false);
+    expect(isSessionPoolerHost("aws-0-us-east-1.pooler.supabase.com")).toBe(true);
+    expect(isSessionPoolerHost("db.abc123xyz789.supabase.co")).toBe(false);
+    expect(readFileSync(join(ROOT, "src/lib/backup/dump.ts"), "utf8")).toMatch(
+      /isSessionPoolerHost/,
+    );
+    expect(readFileSync(join(ROOT, "src/lib/backup/run.ts"), "utf8")).toContain(
+      "loadListedChecksums",
+    );
+    expect(readFileSync(join(ROOT, "src/lib/backup/run.ts"), "utf8")).toContain(
+      "parseChecksumFile",
+    );
+    expect(readFileSync(join(ROOT, "src/lib/backup/run.ts"), "utf8")).not.toMatch(
+      /return expected;/,
+    );
     expect(
       shouldAttemptSessionPoolerFallback(
         "PG_DUMP:connection",

@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  invoiceTotals,
   type SaveInvoiceInput,
 } from "@/lib/invoice-calc";
 import { sendEmail, emailLayout, siteUrl } from "@/lib/notify";
@@ -27,6 +26,7 @@ import { activeApplicationsTotal } from "@/lib/credit-ar";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 import { loadInvoiceArReductions } from "@/lib/data/invoices";
 import { followActiveCustomerId } from "@/lib/data/customer-resolve";
+import { recomputeInvoiceStatus } from "@/lib/invoice-recompute";
 import { assertRole } from "@/lib/auth";
 import {
   CARD_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE,
@@ -153,84 +153,7 @@ async function recomputeStatus(
   supabase: SupabaseServerClient,
   invoiceId: string,
 ) {
-  const { data: inv } = await supabase
-    .from("invoices")
-    .select("tax_rate, status")
-    .eq("id", invoiceId)
-    .maybeSingle();
-  if (!inv || inv.status === "void") return;
-
-  const { data: items } = await supabase
-    .from("invoice_items")
-    .select("quantity, rate")
-    .eq("invoice_id", invoiceId);
-  const { total } = invoiceTotals(
-    (items ?? []) as { quantity: number | null; rate: number | null }[],
-    inv.tax_rate as number,
-    0,
-  );
-
-  let due = total;
-  const { data: openAr, error: arErr } = await supabase.rpc(
-    "invoice_open_ar_balance",
-    { p_invoice_id: invoiceId },
-  );
-  if (!arErr && openAr != null && Number.isFinite(Number(openAr))) {
-    due = Number(openAr);
-  } else {
-    const { data: pays } = await supabase
-      .from("payments")
-      .select("amount, status")
-      .eq("invoice_id", invoiceId);
-    let credited = 0;
-    try {
-      const { data: apps } = await supabase
-        .from("credit_applications")
-        .select("amount, status")
-        .eq("invoice_id", invoiceId);
-      credited = (apps ?? [])
-        .filter((a) => ((a.status as string) ?? "active") !== "void")
-        .reduce((s, a) => s + (Number(a.amount) || 0), 0);
-    } catch {
-      credited = 0;
-    }
-    const red = (await loadInvoiceArReductions([invoiceId])).get(invoiceId);
-    due = invoiceRemainingBalance(
-      (items ?? []) as { quantity: number | null; rate: number | null }[],
-      inv.tax_rate as number,
-      pays ?? [],
-      credited,
-      red?.deposited ?? 0,
-      red?.writtenOff ?? 0,
-    );
-  }
-
-  const covered = Math.max(0, total - due);
-  let status = inv.status as InvoiceStatus;
-  if (total > 0 && due <= 0.005) status = "paid";
-  else if (covered > 0.005) status = "partial";
-  else if (status === "paid" || status === "partial") status = "sent";
-
-  if (status === inv.status) return;
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const ensured = await ensureInvoiceIssued(supabase, {
-    invoiceId,
-    currentStatus: inv.status as string,
-    targetStatus: status,
-    actorId: user?.id ?? null,
-  });
-  if (!ensured.ok) return;
-
-  const { data: after } = await supabase
-    .from("invoices")
-    .select("status")
-    .eq("id", invoiceId)
-    .maybeSingle();
-  if ((after?.status as string) === status) return;
-  await supabase.from("invoices").update({ status }).eq("id", invoiceId);
+  await recomputeInvoiceStatus(supabase, invoiceId);
 }
 
 async function applyDepositsThenRecompute(
@@ -388,17 +311,47 @@ async function loadEstimateInvoiceCoverage(
     .from("invoices")
     .select("id, status, tax_rate, approval_snapshot_id")
     .eq("estimate_id", estimateId);
+  const ids = (invs ?? []).map((inv) => inv.id as string);
+  const [{ data: allPays }, { data: allApps }, reductions] = await Promise.all([
+    ids.length
+      ? supabase
+          .from("payments")
+          .select("invoice_id, status")
+          .in("invoice_id", ids)
+      : Promise.resolve({ data: [] as { invoice_id: string; status: string | null }[] }),
+    ids.length
+      ? supabase
+          .from("credit_applications")
+          .select("invoice_id, status")
+          .in("invoice_id", ids)
+      : Promise.resolve({ data: [] as { invoice_id: string; status: string | null }[] }),
+    loadInvoiceArReductions(ids, supabase),
+  ]);
   const rows: CoverageInvoiceRow[] = [];
   for (const inv of invs ?? []) {
-    const [{ data: items }, { data: pays }] = await Promise.all([
-      supabase
-        .from("invoice_items")
-        .select("quantity, rate")
-        .eq("invoice_id", inv.id),
-      supabase.from("payments").select("id, status").eq("invoice_id", inv.id).limit(5),
-    ]);
+    const id = inv.id as string;
+    const { data: items } = await supabase
+      .from("invoice_items")
+      .select("quantity, rate")
+      .eq("invoice_id", id);
+    const hasPay = (allPays ?? []).some(
+      (p) =>
+        (p.invoice_id as string) === id &&
+        ((p.status as string) ?? "active") !== "void",
+    );
+    const hasCredit = (allApps ?? []).some(
+      (a) =>
+        (a.invoice_id as string) === id &&
+        ((a.status as string) ?? "active") !== "void",
+    );
+    const red = reductions.get(id);
+    const hasFinancialActivity =
+      hasPay ||
+      hasCredit ||
+      (red?.deposited ?? 0) > 0.005 ||
+      (red?.writtenOff ?? 0) > 0.005;
     rows.push({
-      id: inv.id as string,
+      id,
       status: (inv.status as string) ?? "draft",
       approvalSnapshotId:
         (inv.approval_snapshot_id as string | null | undefined) ?? null,
@@ -406,9 +359,8 @@ async function loadEstimateInvoiceCoverage(
         (items ?? []) as { quantity: number | null; rate: number | null }[],
         inv.tax_rate as number,
       ),
-      hasPayments: (pays ?? []).some(
-        (p) => ((p.status as string) ?? "active") !== "void",
-      ),
+      hasFinancialActivity,
+      hasPayments: hasFinancialActivity,
     });
   }
   return rows;
@@ -589,21 +541,29 @@ async function createEstimateDerivedInvoice(args: {
         .eq("id", row.id)
         .maybeSingle();
       if (!inv || inv.status === "void") continue;
-      const paid = (pays ?? [])
-        .filter((p) => ((p.status as string) ?? "active") !== "void")
-        .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-      const credited = (apps ?? [])
-        .filter((a) => ((a.status as string) ?? "active") !== "void")
-        .reduce((s, a) => s + (Number(a.amount) || 0), 0);
-      const due = Math.max(
-        0,
-        invoiceCoverageTotal(
+      const { data: openAr, error: arErr } = await supabase.rpc(
+        "invoice_open_ar_balance",
+        { p_invoice_id: row.id },
+      );
+      let due: number;
+      if (!arErr && openAr != null && Number.isFinite(Number(openAr))) {
+        due = Number(openAr);
+      } else {
+        const credited = (apps ?? [])
+          .filter((a) => ((a.status as string) ?? "active") !== "void")
+          .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+        const red = (await loadInvoiceArReductions([row.id], supabase)).get(
+          row.id,
+        );
+        due = invoiceRemainingBalance(
           (items ?? []) as { quantity: number | null; rate: number | null }[],
           inv.tax_rate as number,
-        ) -
-          paid -
+          pays ?? [],
           credited,
-      );
+          red?.deposited ?? 0,
+          red?.writtenOff ?? 0,
+        );
+      }
       if (due <= 0.005) continue;
       const applyAmt = Math.min(available, due);
       await supabase.rpc("apply_credit_to_invoice_safe", {
@@ -667,6 +627,24 @@ async function createEstimateDerivedInvoice(args: {
   const isSupplemental = plan.action === "supplemental";
   const taxRate = isSupplemental ? 0 : preview.taxRate;
 
+  if (kind === "original") {
+    // Race soften: a concurrent create may have inserted the original already.
+    const { data: origRow } = await supabase
+      .from("invoices")
+      .select("id")
+      .eq("estimate_id", estimateId)
+      .eq("commercial_kind", "original")
+      .neq("status", "void")
+      .limit(1)
+      .maybeSingle();
+    if (origRow?.id) {
+      redirectInvoiceError(
+        estimateId,
+        "An invoice for this estimate was just created. Refresh and continue from that invoice.",
+      );
+    }
+  }
+
   const { data: invoice, error } = await supabase
     .from("invoices")
     .insert({
@@ -683,9 +661,16 @@ async function createEstimateDerivedInvoice(args: {
     .select("id")
     .single();
   if (error || !invoice) {
+    const duplicateOriginal =
+      error?.code === "23505" ||
+      /invoices_one_active_original_per_estimate|duplicate key/i.test(
+        error?.message ?? "",
+      );
     redirectInvoiceError(
       estimateId,
-      error?.message ?? "Could not create the invoice.",
+      duplicateOriginal
+        ? "An original invoice already exists for this estimate. Refresh and continue from that invoice."
+        : (error?.message ?? "Could not create the invoice."),
     );
   }
 
@@ -772,21 +757,32 @@ export async function saveInvoice(
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
-  const [{ data: pays }, { data: existing }] = await Promise.all([
-    supabase
-      .from("payments")
-      .select("id, status")
-      .eq("invoice_id", invoiceId),
-    supabase
-      .from("invoices")
-      .select("status, tax_rate, number, notes, terms, presentation, issue_date, due_date")
-      .eq("id", invoiceId)
-      .maybeSingle(),
-  ]);
-  const hasPayments = (pays ?? []).some(
-    (p) => ((p.status as string) ?? "active") !== "void",
-  );
-  const lock = invoiceCommercialEditBlocked(hasPayments);
+  const [{ data: pays }, { data: creditApps }, { data: existing }, reductions] =
+    await Promise.all([
+      supabase
+        .from("payments")
+        .select("id, status")
+        .eq("invoice_id", invoiceId),
+      supabase
+        .from("credit_applications")
+        .select("id, status")
+        .eq("invoice_id", invoiceId),
+      supabase
+        .from("invoices")
+        .select("status, tax_rate, number, notes, terms, presentation, issue_date, due_date")
+        .eq("id", invoiceId)
+        .maybeSingle(),
+      loadInvoiceArReductions([invoiceId], supabase),
+    ]);
+  const red = reductions.get(invoiceId);
+  const hasFinancialActivity =
+    (pays ?? []).some((p) => ((p.status as string) ?? "active") !== "void") ||
+    (creditApps ?? []).some(
+      (a) => ((a.status as string) ?? "active") !== "void",
+    ) ||
+    (red?.deposited ?? 0) > 0.005 ||
+    (red?.writtenOff ?? 0) > 0.005;
+  const lock = invoiceCommercialEditBlocked(hasFinancialActivity);
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -1396,29 +1392,29 @@ export async function deleteInvoice(formData: FormData): Promise<void> {
     }
     const { data: pays } = await admin
       .from("payments")
-      .select("id, status")
+      .select("id")
       .eq("invoice_id", id);
-    if (
-      (pays ?? []).some((p) => ((p.status as string) ?? "active") !== "void")
-    ) {
+    if ((pays ?? []).length) {
       fail(
-        "This invoice has payments and can’t be deleted. Void only if unpaid, or keep it for history.",
+        "This invoice has payment history and can’t be deleted. Void only if unpaid, or keep it for history.",
       );
     }
-    const [{ data: apps }, reductions] = await Promise.all([
-      admin
-        .from("credit_applications")
-        .select("id, status")
-        .eq("invoice_id", id),
-      loadInvoiceArReductions([id]),
-    ]);
-    if (
-      (apps ?? []).some((a) => ((a.status as string) ?? "active") !== "void")
-    ) {
+    const [{ data: apps }, { data: depApps }, { data: writeOffs }] =
+      await Promise.all([
+        admin
+          .from("credit_applications")
+          .select("id")
+          .eq("invoice_id", id),
+        admin
+          .from("customer_deposit_applications")
+          .select("id")
+          .eq("invoice_id", id),
+        admin.from("invoice_write_offs").select("id").eq("invoice_id", id),
+      ]);
+    if ((apps ?? []).length) {
       fail("This invoice has credit applications and can’t be deleted. Void instead.");
     }
-    const red = reductions.get(id);
-    if ((red?.deposited ?? 0) > 0.005 || (red?.writtenOff ?? 0) > 0.005) {
+    if ((depApps ?? []).length || (writeOffs ?? []).length) {
       fail("This invoice has deposits or write-offs and can’t be deleted. Void instead.");
     }
     await admin.from("invoices").delete().eq("id", id);

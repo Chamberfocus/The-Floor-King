@@ -289,11 +289,49 @@ export async function portalDeclineEstimate(formData: FormData): Promise<void> {
   const id = str(formData.get("estimate_id"));
   if (!id) return;
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("customer_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  const portalCustomerId = (prof?.customer_id as string | null) ?? null;
+  if (!portalCustomerId) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        "Your account is not linked to a customer profile.",
+      )}`,
+    );
+  }
+  const { data: estRow } = await supabase
+    .from("estimates_customer")
+    .select("id, customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!estRow?.customer_id || estRow.customer_id !== portalCustomerId) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        "That estimate is not available.",
+      )}`,
+    );
+  }
   const note = str(formData.get("note"));
-  await supabase
+  const { data: updated, error } = await supabase
     .from("estimates")
     .update({ status: "declined", customer_response_note: note || null })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("customer_id", portalCustomerId)
+    .select("id");
+  if (error || !updated?.length) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        "We couldn’t record your decline. Please try again, or contact us.",
+      )}`,
+    );
+  }
   // Same follow-through as the staff-side decline — the pipeline must not keep
   // showing a dead lead as awaiting a response.
   await onEstimateDeclined(supabase, id);
@@ -312,14 +350,52 @@ export async function portalRequestChanges(formData: FormData): Promise<void> {
   const id = str(formData.get("estimate_id"));
   if (!id) return;
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: prof } = await supabase
+    .from("profiles")
+    .select("customer_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  const portalCustomerId = (prof?.customer_id as string | null) ?? null;
+  if (!portalCustomerId) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        "Your account is not linked to a customer profile.",
+      )}`,
+    );
+  }
+  const { data: estRow } = await supabase
+    .from("estimates_customer")
+    .select("id, customer_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!estRow?.customer_id || estRow.customer_id !== portalCustomerId) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        "That estimate is not available.",
+      )}`,
+    );
+  }
   const note = str(formData.get("note"));
-  await supabase
+  const { data: updated, error } = await supabase
     .from("estimates")
     .update({
       status: "changes_requested",
       customer_response_note: note || null,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("customer_id", portalCustomerId)
+    .select("id");
+  if (error || !updated?.length) {
+    redirect(
+      `/portal/estimates/${id}?approval_error=${encodeURIComponent(
+        "We couldn’t record your request. Please try again, or contact us.",
+      )}`,
+    );
+  }
   await notifyOwner(
     supabase,
     id,

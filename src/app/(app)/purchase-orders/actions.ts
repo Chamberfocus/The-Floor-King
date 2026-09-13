@@ -775,6 +775,21 @@ export async function savePurchaseOrder(
     .maybeSingle();
   const prevStatus = (before?.status as PoStatus | undefined) ?? undefined;
 
+  const { data: existingLines } = await supabase
+    .from("po_items")
+    .select("id, received_at, received_qty")
+    .eq("po_id", poId);
+  const hasReceipts = (existingLines ?? []).some(
+    (r) =>
+      r.received_at != null ||
+      (Number(r.received_qty) || 0) > 0.00005,
+  );
+  const rewriteBlocked =
+    hasReceipts ||
+    prevStatus === "received" ||
+    prevStatus === "void" ||
+    prevStatus === "cancelled";
+
   const { error: updateError } = await supabase
     .from("purchase_orders")
     .update({
@@ -805,54 +820,58 @@ export async function savePurchaseOrder(
 
   // Crash-safe: insert new items first, then delete the old ones, so a failed
   // insert can't leave the PO with no line items.
-  const { data: oldItems } = await supabase
-    .from("po_items")
-    .select("id")
-    .eq("po_id", poId);
-  const oldIds = (oldItems ?? []).map((r) => r.id as string);
+  // Never rewrite lines after receive stamps exist — that drops job_line_id
+  // and receive history, and ON DELETE RESTRICT can leave duplicate lines.
+  if (!rewriteBlocked) {
+    const { data: oldItems } = await supabase
+      .from("po_items")
+      .select("id")
+      .eq("po_id", poId);
+    const oldIds = (oldItems ?? []).map((r) => r.id as string);
 
-  if (input.items.length) {
-    const rows = input.items.map((it, i) => ({
-      po_id: poId,
-      position: i,
-      product_id: it.product_id || null,
-      description: it.description || "",
-      quantity: toNumOrNull(it.quantity),
-      unit: it.unit || "sqft",
-      unit_cost: toNumOrNull(it.unit_cost),
-      manufacturer: it.manufacturer || null,
-      style: it.style || null,
-      color: it.color || null,
-      item_no: it.item_no || null,
-      for_job_id: it.for_job_id || null,
-      for_customer_id: it.for_customer_id || null,
-      note: it.note || null,
-      category: it.category || null,
-      sqft_per_box: toNumOrNull(it.sqft_per_box ?? null),
-      roll_width_ft: toNumOrNull(it.roll_width_ft ?? null),
-    }));
-    let { error: insertError } = await supabase.from("po_items").insert(rows);
-    if (insertError) {
-      // Fallback for before the newer migrations (0097 attribution / 0098 units)
-      // are run — save the line items without the new columns so PO saving never
-      // breaks.
-      const legacy = rows.map(
-        ({
-          for_job_id: _j,
-          for_customer_id: _c,
-          note: _n,
-          category: _cat,
-          sqft_per_box: _s,
-          roll_width_ft: _r,
-          ...r
-        }) => r,
-      );
-      ({ error: insertError } = await supabase.from("po_items").insert(legacy));
+    if (input.items.length) {
+      const rows = input.items.map((it, i) => ({
+        po_id: poId,
+        position: i,
+        product_id: it.product_id || null,
+        description: it.description || "",
+        quantity: toNumOrNull(it.quantity),
+        unit: it.unit || "sqft",
+        unit_cost: toNumOrNull(it.unit_cost),
+        manufacturer: it.manufacturer || null,
+        style: it.style || null,
+        color: it.color || null,
+        item_no: it.item_no || null,
+        for_job_id: it.for_job_id || null,
+        for_customer_id: it.for_customer_id || null,
+        note: it.note || null,
+        category: it.category || null,
+        sqft_per_box: toNumOrNull(it.sqft_per_box ?? null),
+        roll_width_ft: toNumOrNull(it.roll_width_ft ?? null),
+      }));
+      let { error: insertError } = await supabase.from("po_items").insert(rows);
+      if (insertError) {
+        // Fallback for before the newer migrations (0097 attribution / 0098 units)
+        // are run — save the line items without the new columns so PO saving never
+        // breaks.
+        const legacy = rows.map(
+          ({
+            for_job_id: _j,
+            for_customer_id: _c,
+            note: _n,
+            category: _cat,
+            sqft_per_box: _s,
+            roll_width_ft: _r,
+            ...r
+          }) => r,
+        );
+        ({ error: insertError } = await supabase.from("po_items").insert(legacy));
+      }
+      if (insertError) return { error: insertError.message };
     }
-    if (insertError) return { error: insertError.message };
-  }
-  if (oldIds.length) {
-    await supabase.from("po_items").delete().in("id", oldIds);
+    if (oldIds.length) {
+      await supabase.from("po_items").delete().in("id", oldIds);
+    }
   }
 
   // Reconcile inventory AFTER items are saved, so a received PO restocks the

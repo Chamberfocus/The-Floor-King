@@ -15,6 +15,7 @@ import {
   dumpPoolerRegionCandidates,
   isDirectSupabaseDbHost,
   isRetryablePoolerFailure,
+  isSessionPoolerHost,
   sessionPoolerHost,
   sessionPoolerUser,
   shouldAttemptSessionPoolerFallback,
@@ -315,10 +316,21 @@ export async function dumpPostgresSchema(args: {
   publicSupabaseUrl?: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<DumpResult> {
-  const connection = assertDumpConnectionUrl(args.databaseUrl);
+  let connection = assertDumpConnectionUrl(args.databaseUrl);
   const binary = args.binary ?? (await resolvePgDumpBinary({ env: args.env }));
   const timeoutMs = args.timeoutMs ?? 180_000;
   const env = args.env ?? process.env;
+  const publicUrl = args.publicSupabaseUrl ?? env.NEXT_PUBLIC_SUPABASE_URL;
+  // Bare `postgres` on Session Pooler is a tenant miss — rewrite on first try.
+  if (isSessionPoolerHost(connection.host)) {
+    const ref = supabaseProjectRefFromPublicUrl(publicUrl);
+    if (ref) {
+      connection = {
+        ...connection,
+        user: sessionPoolerUser(connection.user, ref),
+      };
+    }
+  }
 
   const tryDump = async (
     conn: ReturnType<typeof parseDirectPostgresUrl> & { hostAddr: string },

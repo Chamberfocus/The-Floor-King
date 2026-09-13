@@ -58,6 +58,11 @@ export function isDirectSupabaseDbHost(host: string): boolean {
   return /^db\.[a-z0-9]+\.supabase\.co$/i.test(host.trim());
 }
 
+/** Session-mode pooler hosts (`*.pooler.supabase.com`) need `postgres.<ref>`. */
+export function isSessionPoolerHost(host: string): boolean {
+  return /\.pooler\.supabase\.com$/i.test(host.trim());
+}
+
 /**
  * When the configured URL is a direct db host, any IPv4/connect/stall failure
  * should retry Session Pooler. Do not abort on PG_DUMP:connection before that.

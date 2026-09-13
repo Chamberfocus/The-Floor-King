@@ -28,7 +28,8 @@ import {
   dedupeJobsById,
   installerAssignmentOrFilter,
 } from "@/lib/installer-assignment";
-import type { Invoice, InvoiceItem, Payment, CreditApplication } from "@/lib/types";
+import { computeSlots } from "@/lib/booking";
+import type { Invoice, InvoiceItem, Payment, CreditApplication, ShowroomSettings } from "@/lib/types";
 
 const ROOT = join(__dirname, "../..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
@@ -268,6 +269,30 @@ describe("P0 multi-job scheduling target", () => {
     expect(src).toContain("resolveCustomerInstallScheduleTarget");
     expect(src).toContain("buildInstallScheduleProps");
     expect(src).toMatch(/const schedulableJob = installJob/);
+    expect(src).toMatch(
+      /resolveCustomerInstallScheduleTarget\(installJobs\)/,
+    );
+  });
+
+  it("cash_carry pickup cannot steal the install strip", () => {
+    const jobs = [
+      {
+        id: "pickup",
+        status: "unscheduled",
+        scheduled_date: "2026-04-01",
+        created_at: "2026-01-01",
+        delivery_type: "cash_carry",
+      },
+      {
+        id: "install",
+        status: "unscheduled",
+        scheduled_date: null,
+        created_at: "2026-02-01",
+        delivery_type: "delivery",
+      },
+    ];
+    expect(resolveCustomerInstallScheduleTarget(jobs)?.id).toBe("install");
+    expect(activeInstallJobs(jobs).map((j) => j.id)).toEqual(["install"]);
   });
 });
 
@@ -388,5 +413,36 @@ describe("P0 subcontractor crew My Work", () => {
     expect(src).toContain("installerSeesJob");
     expect(src).toContain("dedupeJobsById");
     expect(src).not.toMatch(/\.eq\("assigned_to", userId\)/);
+  });
+});
+
+describe("P0 public booking uses shop wall-clock, not UTC calendar", () => {
+  const settings: ShowroomSettings = {
+    id: "default",
+    open_days: "0,1,2,3,4,5,6",
+    day_start: "09:00",
+    day_end: "23:00",
+    slot_interval_min: 60,
+    capacity: 4,
+    buffer_min: 0,
+    booking_enabled: true,
+    booking_notice_hours: 2,
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+
+  it("late evening shop wall-clock still treats that YMD as today", () => {
+    const slots = computeSlots(settings, 60, "2026-09-13", [], {
+      nowIso: "2026-09-13T20:00:00Z",
+      noticeHours: 2,
+    });
+    const available = slots.filter((s) => s.available).map((s) => s.hm);
+    expect(available).toEqual(["22:00"]);
+  });
+
+  it("does not convert nowIso through Date#toISOString for the calendar day", () => {
+    const src = read("src/lib/booking.ts");
+    expect(src).toContain("query.nowIso.slice(0, 10)");
+    expect(src).toContain("minutesOfIso(query.nowIso)");
+    expect(src).not.toMatch(/now\.toISOString\(\)\.slice\(0, 10\)/);
   });
 });

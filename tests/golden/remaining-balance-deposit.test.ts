@@ -482,7 +482,11 @@ describe("app wiring", () => {
     expect(invAct).toContain("applyDepositsThenRecompute");
     expect(invAct).toContain("invoice_open_ar_balance");
     expect(invAct).toContain("loadInvoiceArReductions");
+    const reductions = read("src/lib/data/invoices.ts");
+    expect(reductions).toContain("Could not load invoice deposit/write-off reductions.");
+    expect(reductions).not.toContain("admin missing — leave zeros");
     expect(jobs).toContain("applyEligibleDepositsToInvoice");
+    expect(jobs).toContain("recomputeInvoiceStatus");
     expect(orderInv).toContain("applyEligibleDepositsToInvoice");
     expect(invAct).not.toContain('order("created_at", { ascending: false })');
     const counter = read("src/app/(app)/counter-sale/actions.ts");
