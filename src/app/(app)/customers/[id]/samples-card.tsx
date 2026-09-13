@@ -157,6 +157,7 @@ export function SamplesCard({
             <ProductPicker
               key={resetKey}
               value=""
+              purpose="identity"
               label="Add a sample from the catalog"
               onPick={(p) => p && addFromCatalog(p)}
               onCreated={(p) => addFromCatalog(p)}

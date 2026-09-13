@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { searchCatalog, productCount } from "@/lib/data/products";
 import { getOrgSettings } from "@/lib/data/org";
+import { getBusinessSettings } from "@/lib/data/business-settings";
 import { requireProfile } from "@/lib/auth";
 import { CatalogTable } from "./catalog-table";
 import { CatalogCleanup } from "./catalog-cleanup";
@@ -21,18 +22,19 @@ export default async function CatalogPage({
   searchParams: Promise<{ q?: string }>;
 }) {
   const q = (await searchParams).q?.trim() ?? "";
-  const [products, total, profile, org] = await Promise.all([
+  const [products, total, profile, org, biz] = await Promise.all([
     searchCatalog(q, { limit: LIMIT }),
     productCount(),
     requireProfile(),
     getOrgSettings(),
+    getBusinessSettings(),
   ]);
 
   return (
     <div>
       <PageHeader
         title="Materials catalog"
-        description="Your flooring products and rates. Pull these into estimates to fill prices instantly."
+        description="Your flooring products — our cost and the customer sell at target margin. Pull these into estimates to fill prices instantly."
       >
         <div className="flex gap-2">
           {/* A real <a>, not <Link>: /catalog/export is a Route Handler that
@@ -99,6 +101,8 @@ export default async function CatalogPage({
           capped={products.length >= LIMIT}
           query={q}
           freightPct={org.freight_markup_pct ?? 0}
+          viewerRole={profile.role}
+          targetMarginPct={Number(biz.target_gross_margin_pct) || 40}
         />
       )}
     </div>

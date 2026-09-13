@@ -48,6 +48,7 @@ const REQUIRED_FILES = [
   "0183_po_void_receipt_reversal.sql",
   "0184_inventory_ops_anon_and_documents.sql",
   "0186_launch_trust_schedule_invoice_guards.sql",
+  "0187_catalog_search_pricing_columns.sql",
 ];
 
 /**
@@ -686,6 +687,18 @@ const REQUIRED_MARKERS = [
       "set search_path = public",
       "v_role = 'salesman'",
       "revoke all on function public.schedule_job_install_safe",
+    ],
+  },
+  {
+    file: "0187_catalog_search_pricing_columns.sql",
+    markers: [
+      "P0_0187_PRECHECK",
+      "search_products",
+      "avg_unit_cost",
+      "inventory_carrying_value",
+      "null::",
+      "Does NOT enable accounting",
+      "revoke all on function public.search_products(text, int, boolean, boolean) from public",
     ],
   },
 ];

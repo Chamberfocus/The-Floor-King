@@ -43,6 +43,7 @@ import {
   unitLabel,
   UNIT_OPTIONS,
 } from "@/lib/units";
+import { catalogLineSnapshot, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import {
   bagsNeeded,
   coverageAt,
@@ -1180,27 +1181,14 @@ export function EstimateBuilder({
     // by quantity in that unit — no area, no ×9 conversion, no waste. Area units
     // (sq ft / sq yd) keep the area math; carpet is quoted by the square yard, so
     // its catalog rate converts ×9 if the catalog priced it per sq ft.
-    const catUnit = normalizeUnit(p.unit); // "sqft" | "sqyd" | "bag" | …
-    const count = !isAreaUnit(p.unit);
-    const measure_unit: MeasureUnit = isRollGoodCategory(p.category)
-      ? "sqyd"
-      : catUnit === "sqyd"
-        ? "sqyd"
-        : "sqft";
-    // Convert the catalog rate into the line's area billing unit (area only).
-    const factor = count
-      ? 1
-      : measure_unit === (catUnit || "sqft")
-        ? 1
-        : measure_unit === "sqyd"
-          ? 9
-          : 1 / 9;
-    // Count lines display in the product's own unit; area lines in sq ft / sq yd.
-    const lineUnit = count
-      ? p.unit || "each"
-      : measure_unit === "sqyd"
-        ? "sq yd"
-        : "sq ft";
+    // Vendor cost wins over products.material_rate (OUR COST, never customer sell).
+    const snap = catalogLineSnapshot(p, {
+      targetMarginPct: num(overallMargin),
+      freightMarkupPct: org?.freight_markup_pct ?? 0,
+    });
+    const count = snap.count;
+    const measure_unit: MeasureUnit = snap.measureUnit;
+    const lineUnit = snap.lineUnit;
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
     // Prep goods (self-leveler / patch) carry coverage → the bag calculator
     // sizes the quantity from area + thickness instead of a plain count.
@@ -1221,7 +1209,16 @@ export function EstimateBuilder({
                   // the effective margin (so a picked product isn't sold at cost).
                   // MATERIAL ONLY — labor is priced on its own separate line, so
                   // a material line never bundles labor into a combined price.
-                  material_cost: round2(p.material_rate * factor),
+                  // Missing catalog/vendor cost → PRICE NEEDED: do not keep a
+                  // stale sell from the previous product on this line.
+                  material_cost:
+                    snap.missing || snap.materialCost == null
+                      ? ""
+                      : round2(snap.materialCost),
+                  material_rate:
+                    snap.missing || snap.materialSell == null
+                      ? ""
+                      : round2(snap.materialSell),
                   labor_cost: "0",
                   labor_rate: "0",
                   /**
@@ -1279,6 +1276,8 @@ export function EstimateBuilder({
                     return sep > 0 ? `${prev.slice(0, sep)} — ${p.name}` : p.name;
                   })(),
                 };
+                // Clearance sell is stored on the product; don't re-markup it.
+                if (p.clearance && Number(p.clearance_price) > 0) return base;
                 return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin)), org?.freight_markup_pct ?? 0) };
               }),
             }
@@ -2136,6 +2135,7 @@ export function EstimateBuilder({
                         <div className="rounded-lg border bg-muted/20 p-2">
                           <ProductPicker
                             value=""
+                            purpose="sell"
                             label="Add a material — search catalog (name, color, mfr, SKU) or add new"
                             fullWidth
                             onPick={(p) => addMaterialFromPick(oi, p)}
@@ -2234,7 +2234,14 @@ export function EstimateBuilder({
                           </div>
                         </div>
                         <div className="shrink-0 text-right">
-                          <div className="text-base font-bold tabular-nums">{formatMoney(sSell)}</div>
+                          <div className="text-base font-bold tabular-nums">
+                            {line.product_id &&
+                            !num(line.material_rate) &&
+                            !num(line.material_cost) &&
+                            line.material_rate.trim() === ""
+                              ? PRICE_NEEDED
+                              : formatMoney(sSell)}
+                          </div>
                           {sCost > 0 ? (
                             <div className="text-xs tabular-nums text-muted-foreground">{Math.round(sMargin)}% margin</div>
                           ) : null}
@@ -2267,6 +2274,7 @@ export function EstimateBuilder({
                             value={line.product_id}
                             initialLabel={line.description}
                             fullWidth
+                            purpose="sell"
                             label={
                               line.product_id
                                 ? "Product"
@@ -2579,6 +2587,13 @@ export function EstimateBuilder({
                                     <span className="text-muted-foreground">Following the overall {overallMargin}% margin.</span>
                                   )}
                                 </div>
+                                {!labor &&
+                                line.material_cost.trim() === "" &&
+                                line.material_rate.trim() === "" ? (
+                                  <p className="text-xs font-medium text-amber-700">
+                                    PRICE NEEDED — this product has no catalog or vendor cost on file.
+                                  </p>
+                                ) : null}
                                 {/* Save scope — one-off by default so tweaking a
                                     price never touches your saved rate; opt in to
                                     "Save as my default" to update the catalog. */}

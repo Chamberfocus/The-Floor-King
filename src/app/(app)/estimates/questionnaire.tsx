@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { billsBySquareYard } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
+import { catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -228,7 +229,7 @@ function toProductAns(p: Product): ProductAns {
     label: productLabel(p),
     unit: p.unit || "sqft",
     category: p.category ?? null,
-    materialRate: Number(p.material_rate) || 0,
+    materialRate: catalogUnitCost(p).amount ?? 0,
     laborRate: Number(p.labor_rate) || 0,
     manufacturer: p.manufacturer,
     style: p.style,
@@ -2176,8 +2177,10 @@ function QuestionBody({
               />
               {p ? (
                 <div className="mt-1.5 text-xs text-muted-foreground">
-                  {p.label} · sells{" "}
-                  {formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/{b.unitLabel}
+                  {p.label} ·{" "}
+                  {p.materialRate > 0
+                    ? `sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/${b.unitLabel}`
+                    : PRICE_NEEDED}
                   {q.config.ask_source ? (
                     <span className="mt-1.5 block">
                       <SourceToggle p={p} compact onChange={(np) => setRoom(key, np)} />
@@ -2500,7 +2503,9 @@ function QuestionBody({
             <div className="rounded-md border bg-muted/30 p-2.5 text-sm">
               <div className="font-medium">{p.label}</div>
               <div className="text-xs text-muted-foreground">
-                {formatMoney(p.materialRate)}/{p.unit} → sells {formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/{b.unitLabel}
+                {p.materialRate > 0
+                  ? `${formatMoney(p.materialRate)}/${p.unit} → sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/${b.unitLabel}`
+                  : PRICE_NEEDED}
                 {totalSqft > 0 ? ` · covers ${r2(b.wantYd ? totalSqft / 9 : totalSqft)} ${b.unitLabel}` : ""}
               </div>
             </div>

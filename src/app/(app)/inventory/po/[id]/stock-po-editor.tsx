@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { formatMoney } from "@/lib/format";
+import { catalogUnitCost } from "@/lib/catalog-pricing";
 import type { Product } from "@/lib/types";
 import { saveStockPO, saveAndPlaceStockPO, getReorderAlerts } from "../../actions";
 
@@ -84,12 +85,15 @@ export function StockPoEditor({
       return;
     }
     const label = productLabel(p) || p.name;
+    const cost = catalogUnitCost(p);
     patch(i, {
       product_id: p.id,
       label,
       description: label,
       unit: cur?.unit && cur.unit !== "each" ? cur.unit : p.unit || "each",
-      unit_cost: cur?.unit_cost || (p.material_rate ? String(p.material_rate) : ""),
+      unit_cost:
+        cur?.unit_cost ||
+        (cost.missing || cost.amount == null ? "" : String(cost.amount)),
     });
   };
 
@@ -225,6 +229,7 @@ export function StockPoEditor({
                 value={r.product_id}
                 initialLabel={r.label}
                 label="Product to restock"
+                purpose="cost"
                 fullWidth
                 onPick={(p) => pick(i, p)}
                 onCreated={(p) => pick(i, p)}

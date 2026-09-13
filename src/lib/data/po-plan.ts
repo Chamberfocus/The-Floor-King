@@ -6,6 +6,7 @@ import {
   resolveLineSupplier,
   listActiveSuppliers,
 } from "@/lib/data/suppliers";
+import { primaryCatalogCostByProductIds } from "@/lib/data/products";
 import type { EstimateLineItem, Supplier } from "@/lib/types";
 
 /** One material line as it appears on the ordering review. */
@@ -106,11 +107,12 @@ export async function getEstimateOrderPlan(
       .select("id, name, material_rate, supplier, supplier_id")
       .in("id", productIds);
     for (const p of prods ?? []) {
-      productCost.set(p.id as string, Number(p.material_rate) || 0);
       productName.set(p.id as string, (p.name as string) ?? "");
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
     }
+    const costs = await primaryCatalogCostByProductIds(supabase, productIds);
+    for (const [id, c] of costs) productCost.set(id, c);
   }
 
   const lookup = await buildSupplierLookup(supabase);

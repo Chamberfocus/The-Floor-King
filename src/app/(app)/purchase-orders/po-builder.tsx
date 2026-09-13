@@ -22,6 +22,7 @@ import {
 import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
+import { catalogUnitCost } from "@/lib/catalog-pricing";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
   PO_SOURCE_BADGE,
@@ -224,7 +225,11 @@ export function PoBuilder({
       else if (vs.length) vendorId = vs[0].vendor_id;
     }
     const vRow = vendorId ? vs.find((v) => v.vendor_id === vendorId) : null;
-    const base = vRow?.cost != null ? Number(vRow.cost) : Number(p.material_rate) || 0;
+    const cost = catalogUnitCost({
+      material_rate: p.material_rate,
+      vendors: vRow ? [vRow] : vs,
+    });
+    const base = cost.amount ?? 0;
     const { unit, unitCost } = convertCost(p, base);
 
     updateItem(i, {
@@ -236,7 +241,7 @@ export function PoBuilder({
       item_no: (vRow?.vendor_sku || p.sku) ?? "",
       category: p.category ?? "",
       unit,
-      unit_cost: String(unitCost),
+      unit_cost: cost.missing ? "" : String(unitCost),
       sqft_per_box: p.sqft_per_box != null ? String(p.sqft_per_box) : "",
       roll_width_ft: p.roll_width_ft != null ? String(p.roll_width_ft) : "",
     });
@@ -560,6 +565,7 @@ export function PoBuilder({
                 <ProductPicker
                   value={it.product_id}
                   initialLabel={it.description}
+                  purpose="cost"
                   label="Find in catalog — name, manufacturer, color, style, SKU, category, or vendor"
                   fullWidth
                   onPick={(p) => applyProduct(i, p)}
@@ -860,7 +866,11 @@ export function PoBuilder({
             </DialogHeader>
             <div className="space-y-2">
               {(vendorChoice.product.vendors ?? []).map((v) => {
-                const base = v.cost != null ? Number(v.cost) : Number(vendorChoice.product.material_rate) || 0;
+                const cost = catalogUnitCost({
+                  material_rate: vendorChoice.product.material_rate,
+                  vendors: [v],
+                });
+                const base = cost.amount ?? 0;
                 const { unit, unitCost } = convertCost(vendorChoice.product, base);
                 return (
                   <button

@@ -18,6 +18,7 @@ const STAGE_MATERIALS_RECEIVED = /material.*received|received.*material/;
 /** PO placed, nothing here yet — the waiting-on-delivery stage. */
 const STAGE_AWAITING_MATERIALS = /wait.*material|await.*material/;
 import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
+import { primaryCatalogCostByProductIds } from "@/lib/data/products";
 import { buildPoItemRows, carpetSignature, type PoItemRow } from "@/lib/po-build";
 import { isRollGoodCategory } from "@/lib/types";
 import type { EstimateLineItem, PoSourceType, PoStatus } from "@/lib/types";
@@ -267,11 +268,12 @@ export async function syncPoCarpetFromEstimate(
       .select("id, name, material_rate, supplier, supplier_id")
       .in("id", productIds);
     for (const p of prods ?? []) {
-      productCost.set(p.id as string, Number(p.material_rate) || 0);
       productName.set(p.id as string, p.name as string);
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
     }
+    const costs = await primaryCatalogCostByProductIds(supabase, productIds);
+    for (const [id, c] of costs) productCost.set(id, c);
   }
   const lookup = await buildSupplierLookup(supabase);
   const orderable = lines.filter(
@@ -451,11 +453,12 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
       .select("id, name, material_rate, supplier, supplier_id")
       .in("id", productIds);
     for (const p of prods ?? []) {
-      productCost.set(p.id as string, Number(p.material_rate) || 0);
       productName.set(p.id as string, p.name as string);
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
     }
+    const costs = await primaryCatalogCostByProductIds(supabase, productIds);
+    for (const [id, c] of costs) productCost.set(id, c);
   }
 
   const lookup = await buildSupplierLookup(supabase);
@@ -628,11 +631,12 @@ export async function createPOsFromEstimateSelection(
       .select("id, name, material_rate, supplier, supplier_id")
       .in("id", productIds);
     for (const p of prods ?? []) {
-      productCost.set(p.id as string, Number(p.material_rate) || 0);
       productName.set(p.id as string, (p.name as string) ?? "");
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
     }
+    const costs = await primaryCatalogCostByProductIds(supabase, productIds);
+    for (const [id, c] of costs) productCost.set(id, c);
   }
 
   const lookup = await buildSupplierLookup(supabase);

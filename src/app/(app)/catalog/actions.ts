@@ -17,14 +17,29 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { searchCatalog } from "@/lib/data/products";
+import { redactCatalogCost, roleMaySeeCatalogSell, hydrateCatalogPricing, type CatalogPricePurpose } from "@/lib/catalog-pricing";
+import { getProfile } from "@/lib/auth";
 import { isAreaUnit, normalizeUnit } from "@/lib/units";
 import type { Product, ProductCategory } from "@/lib/types";
 
 /** Live catalog search for the estimate material picker. Includes inactive
  *  products (ranked after active) so a discontinued item you know is there is
  *  still findable, and returns a larger, relevance-ranked result set. */
-export async function searchCatalogProducts(query: string): Promise<Product[]> {
-  return searchCatalog(query, { limit: 60 });
+export async function searchCatalogProducts(
+  query: string,
+  opts: { purpose?: CatalogPricePurpose } = {},
+): Promise<Product[]> {
+  const purpose = opts.purpose ?? "sell";
+  const [rows, profile] = await Promise.all([
+    searchCatalog(query, { limit: 60 }),
+    getProfile(),
+  ]);
+  const role = profile?.role ?? null;
+  return rows.map((p) => {
+    const priced = redactCatalogCost(p, role, purpose);
+    if (roleMaySeeCatalogSell(role)) return priced;
+    return { ...priced, catalog_sell: null, clearance_price: null };
+  });
 }
 
 export interface ProductFormState {
@@ -35,18 +50,27 @@ export interface ProductFormState {
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
 }
-function money(v: FormDataEntryValue | null): number {
-  const n = parseFloat(str(v));
-  return Number.isFinite(n) ? n : 0;
+function money(v: FormDataEntryValue | null): { ok: true; value: number } | { ok: false; error: string } {
+  const raw = str(v);
+  if (!raw) return { ok: true, value: 0 };
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n)) return { ok: false, error: "Prices must be a number." };
+  if (n < 0) return { ok: false, error: "Prices cannot be negative." };
+  return { ok: true, value: Math.round(n * 100) / 100 };
 }
 
 function readFields(formData: FormData) {
+  const material = money(formData.get("material_rate"));
+  const labor = money(formData.get("labor_rate"));
+  if (!material.ok) return { error: material.error } as const;
+  if (!labor.ok) return { error: labor.error } as const;
   return {
+    error: null as string | null,
     name: str(formData.get("name")),
     category: (str(formData.get("category")) || "other") as ProductCategory,
     unit: str(formData.get("unit")) || "sqft",
-    material_rate: money(formData.get("material_rate")),
-    labor_rate: money(formData.get("labor_rate")),
+    material_rate: material.value,
+    labor_rate: labor.value,
     sku: str(formData.get("sku")) || null,
     manufacturer: str(formData.get("manufacturer")) || null,
     style: str(formData.get("style")) || null,
@@ -83,6 +107,21 @@ function numOrNullOf(v: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function vendorCostError(formData: FormData): string | null {
+  let rows: { cost?: string }[] = [];
+  try {
+    rows = JSON.parse(str(formData.get("vendors_json")) || "[]");
+  } catch {
+    return null;
+  }
+  for (const r of rows ?? []) {
+    if (!r?.cost && r.cost !== "0") continue;
+    const c = parseFloat(String(r.cost));
+    if (Number.isFinite(c) && c < 0) return "Vendor costs cannot be negative.";
+  }
+  return null;
+}
+
 type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
 
 /**
@@ -109,10 +148,13 @@ async function saveProductVendors(
     if (rows.length) {
       const insertRows = rows.map((r, i) => {
         const c = parseFloat(r.cost);
+        if (Number.isFinite(c) && c < 0) {
+          throw new Error("VENDOR_COST_NEGATIVE");
+        }
         return {
           product_id: productId,
           vendor_id: r.vendorId,
-          cost: Number.isFinite(c) ? c : i === 0 ? materialRate : null,
+          cost: Number.isFinite(c) ? Math.round(c * 100) / 100 : i === 0 ? materialRate : null,
           vendor_sku: r.sku?.trim() || null,
           position: i,
         };
@@ -138,8 +180,12 @@ export async function createProduct(
   _prev: ProductFormState,
   formData: FormData,
 ): Promise<ProductFormState> {
-  const fields = readFields(formData);
+  const parsed = readFields(formData);
+  if (parsed.error) return { error: parsed.error };
+  const { error: _err, ...fields } = parsed;
   if (!fields.name) return { error: "A product name is required." };
+  const vendorErr = vendorCostError(formData);
+  if (vendorErr) return { error: vendorErr };
 
   const supabase = await createClient();
   let { data, error } = await supabase.from("products").insert(fields).select("id").single();
@@ -194,6 +240,9 @@ export async function createProductInline(input: {
     const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
     return Number.isFinite(n) ? n : 0;
   };
+  if (numOr0(input.material_rate) < 0 || numOr0(input.labor_rate) < 0) {
+    return { error: "Prices cannot be negative." };
+  }
   const numOrNull = (v: number | string | null | undefined) => {
     const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
     return Number.isFinite(n) && n > 0 ? n : null;
@@ -255,7 +304,11 @@ export async function createProductInline(input: {
   if (error) return { error: error.message };
 
   revalidatePath("/catalog");
-  return { error: null, product: data as Product };
+  const [priced] = hydrateCatalogPricing([data as Product], {
+    targetMarginPct: 40,
+    freightMarkupPct: 0,
+  });
+  return { error: null, product: priced };
 }
 
 export async function updateProduct(
@@ -264,8 +317,12 @@ export async function updateProduct(
 ): Promise<ProductFormState> {
   const id = str(formData.get("id"));
   if (!id) return { error: "Missing product id." };
-  const fields = readFields(formData);
+  const parsed = readFields(formData);
+  if (parsed.error) return { error: parsed.error };
+  const { error: _err, ...fields } = parsed;
   if (!fields.name) return { error: "A product name is required." };
+  const vendorErr = vendorCostError(formData);
+  if (vendorErr) return { error: vendorErr };
 
   const supabase = await createClient();
   const active = str(formData.get("active")) === "on";

@@ -8,9 +8,34 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PRODUCT_CATEGORY_LABELS } from "@/lib/types";
-import type { Product } from "@/lib/types";
+import type { Product, UserRole } from "@/lib/types";
 import { formatMoney } from "@/lib/format";
 import { landedMaterialCost } from "@/lib/freight";
+import {
+  PRICE_NEEDED,
+  catalogMarginPct,
+  catalogSellPrice,
+  catalogUnitCost,
+  formatCatalogPrice,
+  roleMaySeeCatalogCost,
+  roleMaySeeCatalogMargin,
+  roleMaySeeCatalogSell,
+} from "@/lib/catalog-pricing";
+import { cn } from "@/lib/utils";
+
+function PriceCell({
+  value,
+  needed,
+}: {
+  value: string;
+  needed: boolean;
+}) {
+  return (
+    <span className={cn("tabular-nums", needed && "font-medium text-amber-700")}>
+      {value}
+    </span>
+  );
+}
 
 export function CatalogTable({
   products,
@@ -18,20 +43,43 @@ export function CatalogTable({
   capped,
   query,
   freightPct,
+  viewerRole,
+  targetMarginPct,
 }: {
   products: Product[];
   total: number;
   capped: boolean;
   query: string;
   freightPct: number;
+  viewerRole: UserRole;
+  targetMarginPct: number;
 }) {
   const shown = products;
-  const showLanded = freightPct > 0;
+  const showCost = roleMaySeeCatalogCost(viewerRole, "sell");
+  const showSell = roleMaySeeCatalogSell(viewerRole);
+  const showMargin = roleMaySeeCatalogMargin(viewerRole);
+  const showLanded = showCost && freightPct > 0;
+
+  const rowMoney = (p: Product) => {
+    const cost = catalogUnitCost(p);
+    const sell =
+      p.catalog_sell != null
+        ? { amount: p.catalog_sell, missing: false as const, kind: "target_margin" as const }
+        : catalogSellPrice({
+            ...p,
+            targetMarginPct,
+            freightMarkupPct: freightPct,
+          });
+    const margin = catalogMarginPct(cost, sell);
+    return { cost, sell, margin };
+  };
 
   return (
     <div className="space-y-3">
       <div className="space-y-2 md:hidden">
-        {shown.map((p) => (
+        {shown.map((p) => {
+          const m = rowMoney(p);
+          return (
           <div
             key={p.id}
             className={`rounded-lg border p-3 ${p.active ? "" : "opacity-50"}`}
@@ -63,30 +111,44 @@ export function CatalogTable({
               </span>
             </div>
             <div className="mt-1.5 grid grid-cols-3 gap-2 text-sm">
-              <div>
-                <div className="text-xs text-muted-foreground">Material</div>
-                <div className="font-medium">
-                  {formatMoney(p.material_rate)}
-                </div>
-              </div>
-              {showLanded ? (
+              {showCost ? (
                 <div>
-                  <div className="text-xs text-muted-foreground">Landed</div>
+                  <div className="text-xs text-muted-foreground">Cost</div>
                   <div className="font-medium">
-                    {formatMoney(landedMaterialCost(p.material_rate, freightPct))}
+                    <PriceCell
+                      value={formatCatalogPrice(m.cost, formatMoney)}
+                      needed={m.cost.missing}
+                    />
                   </div>
                 </div>
               ) : null}
-              <div>
-                <div className="text-xs text-muted-foreground">Labor</div>
-                <div className="font-medium">{formatMoney(p.labor_rate)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Installed</div>
-                <div className="font-medium">
-                  {formatMoney(p.material_rate + p.labor_rate)}
+              {showLanded && !m.cost.missing && m.cost.amount != null ? (
+                <div>
+                  <div className="text-xs text-muted-foreground">Landed</div>
+                  <div className="font-medium">
+                    {formatMoney(landedMaterialCost(m.cost.amount, freightPct))}
+                  </div>
                 </div>
-              </div>
+              ) : null}
+              {showSell ? (
+                <div>
+                  <div className="text-xs text-muted-foreground">Sell</div>
+                  <div className="font-medium">
+                    <PriceCell
+                      value={formatCatalogPrice(m.sell, formatMoney)}
+                      needed={m.sell.missing}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              {showMargin ? (
+                <div>
+                  <div className="text-xs text-muted-foreground">Margin</div>
+                  <div className="font-medium">
+                    {m.margin != null ? `${Math.round(m.margin)}%` : "—"}
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div className="mt-2">
               <Link
@@ -97,7 +159,8 @@ export function CatalogTable({
               </Link>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {(
@@ -109,7 +172,9 @@ export function CatalogTable({
                 <TableHead>Category</TableHead>
                 <TableHead>SKU</TableHead>
                 <TableHead>Maker / Vendor</TableHead>
-                <TableHead className="text-right">Material</TableHead>
+                {showCost ? (
+                  <TableHead className="text-right">Cost</TableHead>
+                ) : null}
                 {showLanded ? (
                   <TableHead className="text-right">
                     Landed
@@ -118,14 +183,20 @@ export function CatalogTable({
                     </span>
                   </TableHead>
                 ) : null}
-                <TableHead className="text-right">Labor</TableHead>
-                <TableHead className="text-right">Installed</TableHead>
+                {showSell ? (
+                  <TableHead className="text-right">Sell</TableHead>
+                ) : null}
+                {showMargin ? (
+                  <TableHead className="text-right">Margin</TableHead>
+                ) : null}
                 <TableHead>Unit</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {shown.map((p) => (
+              {shown.map((p) => {
+                const m = rowMoney(p);
+                return (
                 <TableRow key={p.id} className={p.active ? "" : "opacity-50"}>
                   <TableCell className="font-medium">
                     <Link href={`/catalog/${p.id}`} className="hover:underline">
@@ -153,20 +224,34 @@ export function CatalogTable({
                         : "no vendor"}
                     </span>
                   </TableCell>
-                  <TableCell className="text-right">
-                    {formatMoney(p.material_rate)}
-                  </TableCell>
-                  {showLanded ? (
-                    <TableCell className="text-right font-medium">
-                      {formatMoney(landedMaterialCost(p.material_rate, freightPct))}
+                  {showCost ? (
+                    <TableCell className="text-right">
+                      <PriceCell
+                        value={formatCatalogPrice(m.cost, formatMoney)}
+                        needed={m.cost.missing}
+                      />
                     </TableCell>
                   ) : null}
-                  <TableCell className="text-right">
-                    {formatMoney(p.labor_rate)}
-                  </TableCell>
-                  <TableCell className="text-right text-muted-foreground">
-                    {formatMoney(p.material_rate + p.labor_rate)}
-                  </TableCell>
+                  {showLanded ? (
+                    <TableCell className="text-right font-medium">
+                      {!m.cost.missing && m.cost.amount != null
+                        ? formatMoney(landedMaterialCost(m.cost.amount, freightPct))
+                        : PRICE_NEEDED}
+                    </TableCell>
+                  ) : null}
+                  {showSell ? (
+                    <TableCell className="text-right font-medium">
+                      <PriceCell
+                        value={formatCatalogPrice(m.sell, formatMoney)}
+                        needed={m.sell.missing}
+                      />
+                    </TableCell>
+                  ) : null}
+                  {showMargin ? (
+                    <TableCell className="text-right text-muted-foreground">
+                      {m.margin != null ? `${Math.round(m.margin)}%` : "—"}
+                    </TableCell>
+                  ) : null}
                   <TableCell className="text-muted-foreground">
                     {p.unit}
                   </TableCell>
@@ -179,7 +264,8 @@ export function CatalogTable({
                     </Link>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </div>

@@ -18,8 +18,21 @@ import {
   updateProduct,
   type ProductFormState,
 } from "./actions";
+import { formatMoney } from "@/lib/format";
+import {
+  PRICE_NEEDED,
+  catalogSellPrice,
+  catalogUnitCost,
+  formatCatalogPrice,
+} from "@/lib/catalog-pricing";
 
 const initialState: ProductFormState = { error: null };
+
+interface Row {
+  vendorId: string;
+  cost: string;
+  sku: string;
+}
 
 export interface VendorOption {
   id: string;
@@ -30,9 +43,13 @@ export interface VendorOption {
 export function ProductForm({
   product,
   vendors = [],
+  targetMarginPct = 40,
+  freightMarkupPct = 0,
 }: {
   product?: Product;
   vendors?: VendorOption[];
+  targetMarginPct?: number;
+  freightMarkupPct?: number;
 }) {
   const isEdit = Boolean(product);
   /**
@@ -47,6 +64,25 @@ export function ProductForm({
    */
   const [category, setCategory] = useState<string>(product?.category ?? "lvp");
   const isLabor = category === "labor";
+  const [materialRate, setMaterialRate] = useState(
+    product?.material_rate != null && product.material_rate !== 0
+      ? String(product.material_rate)
+      : "",
+  );
+  const [laborRate, setLaborRate] = useState(
+    product?.labor_rate != null && product.labor_rate !== 0
+      ? String(product.labor_rate)
+      : "",
+  );
+  const [vendorRows, setVendorRows] = useState<Row[]>(
+    product?.vendors?.length
+      ? product.vendors.map((v) => ({
+          vendorId: v.vendor_id,
+          cost: v.cost != null ? String(v.cost) : "",
+          sku: v.vendor_sku ?? "",
+        }))
+      : [{ vendorId: "", cost: "", sku: "" }],
+  );
   /** What this KIND of product is described by — src/lib/product-fields.ts. */
   const specFields = specFieldsFor(category);
   /** Bagged goods sized from area and thickness: patch, self-leveller, primer. */
@@ -114,11 +150,13 @@ export function ProductForm({
               type="number"
               step="0.01"
               min="0"
-              defaultValue={product?.material_rate ?? ""}
+              value={materialRate}
+              onChange={(e) => setMaterialRate(e.target.value)}
               placeholder="3.50"
             />
             <p className="text-xs text-muted-foreground">
-              What you pay for it — not what you sell it for.
+              What you pay for it — not what you sell it for. A vendor cost below
+              wins when recorded.
             </p>
           </div>
         )}
@@ -126,13 +164,14 @@ export function ProductForm({
           <Label htmlFor="labor_rate">
             {isLabor ? "Your cost ($ / unit) *" : "Labor rate ($ / unit)"}
           </Label>
-          <Input
+            <Input
             id="labor_rate"
             name="labor_rate"
             type="number"
             step="0.01"
             min="0"
-            defaultValue={product?.labor_rate ?? ""}
+            value={laborRate}
+            onChange={(e) => setLaborRate(e.target.value)}
             placeholder={isLabor ? "0.12" : "2.00"}
           />
           {isLabor ? (
@@ -142,6 +181,15 @@ export function ProductForm({
             </p>
           ) : null}
         </div>
+
+        <SellPreview
+          category={category}
+          materialRate={materialRate}
+          laborRate={laborRate}
+          vendorRows={vendorRows}
+          targetMarginPct={targetMarginPct}
+          freightMarkupPct={freightMarkupPct}
+        />
 
         {/* Attributes of a physical, manufactured item. Labor has none of
             them — and a labor row carrying a SKU would be swept into a supplier
@@ -283,7 +331,7 @@ export function ProductForm({
         ) : null}
         <div className="space-y-2 sm:col-span-2">
           <Label>Vendors (who you buy it from)</Label>
-          <VendorRows vendors={vendors} initial={product?.vendors ?? []} />
+          <VendorRows vendors={vendors} rows={vendorRows} onChange={setVendorRows} />
           <p className="text-xs text-muted-foreground">
             One vendor is the normal case. Add more only if you buy this same product from more
             than one place — the first is the default, and each carries its own cost.
@@ -330,10 +378,78 @@ export function ProductForm({
   );
 }
 
-interface Row {
-  vendorId: string;
-  cost: string;
-  sku: string;
+function SellPreview({
+  category,
+  materialRate,
+  laborRate,
+  vendorRows,
+  targetMarginPct,
+  freightMarkupPct,
+}: {
+  category: string;
+  materialRate: string;
+  laborRate: string;
+  vendorRows: Row[];
+  targetMarginPct: number;
+  freightMarkupPct: number;
+}) {
+  const cost = catalogUnitCost({
+    material_rate: materialRate,
+    vendors: vendorRows
+      .filter((r) => r.vendorId)
+      .map((r, i) => ({
+        id: String(i),
+        product_id: "",
+        vendor_id: r.vendorId,
+        cost: r.cost === "" ? null : Number(r.cost),
+        vendor_sku: r.sku || null,
+        position: i,
+      })),
+  });
+  const sell = catalogSellPrice({
+    material_rate: materialRate,
+    labor_rate: laborRate,
+    vendors: vendorRows
+      .filter((r) => r.vendorId)
+      .map((r, i) => ({
+        id: String(i),
+        product_id: "",
+        vendor_id: r.vendorId,
+        cost: r.cost === "" ? null : Number(r.cost),
+        vendor_sku: r.sku || null,
+        position: i,
+      })),
+    category,
+    targetMarginPct,
+    freightMarkupPct,
+  });
+  return (
+    <div className="space-y-1 rounded-md border bg-muted/30 px-3 py-2 sm:col-span-2">
+      <div className="text-xs font-medium text-muted-foreground">
+        Customer sell at {targetMarginPct}% target margin
+        {freightMarkupPct > 0 ? ` (incl. ${freightMarkupPct}% freight)` : ""}
+      </div>
+      <div
+        className={
+          sell.missing
+            ? "text-sm font-semibold text-amber-700"
+            : "text-sm font-semibold tabular-nums"
+        }
+      >
+        {formatCatalogPrice(sell, formatMoney)}
+        {sell.missing
+          ? ` — enter a cost (or vendor cost) so estimates can populate a price.`
+          : cost.amount != null
+            ? ` · cost ${formatMoney(cost.amount)}`
+            : ""}
+      </div>
+      {sell.kind === "zero" ? (
+        <p className="text-xs text-muted-foreground">
+          Explicit $0 cost (vendor) — a legitimate free good, not {PRICE_NEEDED}.
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -343,22 +459,15 @@ interface Row {
  */
 function VendorRows({
   vendors,
-  initial,
+  rows,
+  onChange,
 }: {
   vendors: VendorOption[];
-  initial: NonNullable<Product["vendors"]>;
+  rows: Row[];
+  onChange: (rows: Row[]) => void;
 }) {
-  const [rows, setRows] = useState<Row[]>(
-    initial.length
-      ? initial.map((v) => ({
-          vendorId: v.vendor_id,
-          cost: v.cost != null ? String(v.cost) : "",
-          sku: v.vendor_sku ?? "",
-        }))
-      : [{ vendorId: "", cost: "", sku: "" }],
-  );
   const set = (i: number, patch: Partial<Row>) =>
-    setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const payload = rows.filter((r) => r.vendorId);
 
   const mfrs = vendors.filter((v) => v.kind === "manufacturer");
@@ -422,7 +531,9 @@ function VendorRows({
           ) : null}
           <button
             type="button"
-            onClick={() => setRows((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev))}
+            onClick={() =>
+              onChange(rows.length > 1 ? rows.filter((_, j) => j !== i) : rows)
+            }
             className="text-muted-foreground hover:text-destructive"
             aria-label="Remove vendor"
           >
@@ -434,7 +545,7 @@ function VendorRows({
         type="button"
         variant="outline"
         size="sm"
-        onClick={() => setRows((prev) => [...prev, { vendorId: "", cost: "", sku: "" }])}
+        onClick={() => onChange([...rows, { vendorId: "", cost: "", sku: "" }])}
       >
         <Plus className="size-4" /> Add another vendor
       </Button>
