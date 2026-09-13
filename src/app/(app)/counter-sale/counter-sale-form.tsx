@@ -13,6 +13,7 @@ import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { sellMaterialFromTargetMargin } from "@/lib/estimate-pricing";
+import { catalogSellPrice } from "@/lib/catalog-pricing";
 import { ringUpCounterSale, findWalkIn, type CounterSaleLine } from "./actions";
 import { CustomerMatchPanel } from "@/components/customer-match-panel";
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
@@ -114,11 +115,17 @@ export function CounterSaleForm({
     setRow(key, {
       description: productLabel(p).trim(),
       unit: p.unit || "each",
-      // The catalog rate is OUR COST. Selling at it would hand the material
-      // over at cost, so mark it up to the shop's target margin — the same
-      // number the public order form quotes, so a walk-in and an online order
-      // never see two different prices for the same product.
-      rate: retail(Number(p.material_rate ?? 0)),
+      // Catalog material_rate / vendor cost is OUR COST. Selling at it would
+      // hand the material over at cost, so mark it up to the shop's target
+      // margin — same as the public order form.
+      rate: (() => {
+        const sell = catalogSellPrice({
+          ...p,
+          targetMarginPct,
+          freightMarkupPct,
+        });
+        return sell.missing || sell.amount == null ? 0 : sell.amount;
+      })(),
       productId: p.id,
     });
   };
@@ -307,6 +314,7 @@ export function CounterSaleForm({
                 value={r.productId ?? ""}
                 initialLabel={r.description}
                 label="Product"
+                purpose="sell"
                 fullWidth
                 onPick={(p) => pick(r.key, p)}
                 onCreated={(p) => pick(r.key, p)}
@@ -314,7 +322,7 @@ export function CounterSaleForm({
                   setRow(r.key, {
                     description: input.name,
                     unit: input.unit || "each",
-                    rate: Number(input.material_rate) || 0,
+                    rate: retail(Number(input.material_rate) || 0),
                     productId: null,
                   })
                 }

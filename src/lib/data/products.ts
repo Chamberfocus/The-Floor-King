@@ -1,5 +1,58 @@
 import { createClient } from "@/lib/supabase/server";
+import { catalogUnitCost, hydrateCatalogPricing } from "@/lib/catalog-pricing";
 import type { Product, ProductVendor, SupplierKind } from "@/lib/types";
+
+/**
+ * Catalog product columns that `authenticated` may SELECT after 0176.
+ * Never include avg_unit_cost / inventory_carrying_value — PostgREST `select *`
+ * requests those revoked columns and the whole query fails, which is why
+ * pickers could search names but not show prices.
+ */
+export const CATALOG_PRODUCT_COLUMNS = [
+  "id",
+  "name",
+  "category",
+  "unit",
+  "material_rate",
+  "labor_rate",
+  "sku",
+  "manufacturer",
+  "style",
+  "color",
+  "supplier",
+  "supplier_id",
+  "notes",
+  "active",
+  "track_stock",
+  "on_hand",
+  "on_order",
+  "reorder_point",
+  "bin_location",
+  "stock_kind",
+  "reserved",
+  "clearance",
+  "clearance_price",
+  "last_movement_at",
+  "created_at",
+  "updated_at",
+  "sqft_per_box",
+  "roll_width_ft",
+  "coverage_sqft",
+  "coverage_thickness_in",
+  "wear_layer_mil",
+  "thickness_mm",
+  "face_weight_oz",
+  "piece_length_in",
+  "fiber",
+  "wear_rating",
+  "species",
+  "accessory_program_id",
+  "accessory_type_id",
+  "accessory_variant",
+  "accessory_origin",
+  "search_text",
+  "price_override",
+].join(", ");
 
 const PAGE = 1000; // Supabase caps a single request at 1000 rows.
 
@@ -51,6 +104,44 @@ async function attachProductVendors(db: Db, products: Product[]): Promise<Produc
   }
 }
 
+async function catalogPricingContext(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: { from: (t: string) => any },
+): Promise<{ targetMarginPct: number; freightMarkupPct: number }> {
+  let targetMarginPct = 40;
+  let freightMarkupPct = 0;
+  try {
+    const [biz, org] = await Promise.all([
+      supabase
+        .from("business_settings")
+        .select("target_gross_margin_pct")
+        .eq("id", "default")
+        .maybeSingle(),
+      supabase
+        .from("org_settings")
+        .select("freight_markup_pct")
+        .eq("id", "default")
+        .maybeSingle(),
+    ]);
+    targetMarginPct = Number(biz?.data?.target_gross_margin_pct) || 40;
+    freightMarkupPct = Number(org?.data?.freight_markup_pct) || 0;
+  } catch {
+    /* defaults */
+  }
+  return { targetMarginPct, freightMarkupPct };
+}
+
+/** Vendor costs + computed catalog_cost / catalog_sell. Fail-open. */
+export async function enrichCatalogProducts(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: { from: (t: string) => any },
+  products: Product[],
+): Promise<Product[]> {
+  const withVendors = await attachProductVendors(db as Awaited<ReturnType<typeof createClient>>, products);
+  const ctx = await catalogPricingContext(db);
+  return hydrateCatalogPricing(withVendors, ctx);
+}
+
 /**
  * Load products. The catalog can exceed Supabase's 1000-row request cap, so we
  * page through with .range() until every row is fetched.
@@ -75,14 +166,14 @@ export async function listProducts(
   for (let from = 0; ; from += PAGE) {
     let query = supabase
       .from("products")
-      .select("*")
+      .select(CATALOG_PRODUCT_COLUMNS)
       .order("category", { ascending: true })
       .order("name", { ascending: true })
       .range(from, from + PAGE - 1);
     if (opts.activeOnly) query = query.eq("active", true);
     const { data, error } = await query;
     if (error) throw error;
-    const batch = (data ?? []) as Product[];
+    const batch = (data ?? []) as unknown as Product[];
     all.push(...batch);
     if (batch.length < PAGE) break;
   }
@@ -92,7 +183,7 @@ export async function listProducts(
   // scanning, which cost 2.4s on 13,558 products and timed the PO page out.
   // Fourteen rows filtered in memory is free.
   const rows = opts.includeLabor ? all : all.filter((p) => p.category !== "labor");
-  return attachProductVendors(supabase, rows);
+  return enrichCatalogProducts(supabase, rows);
 }
 
 // Text fields a catalog search does a partial (ilike) match across — including
@@ -263,7 +354,7 @@ export async function searchCatalogWith(
           ? (() => {
               let cq = supabase
                 .from("products")
-                .select("*")
+                .select(CATALOG_PRODUCT_COLUMNS)
                 .in("category", cats)
                 .order("name", { ascending: true })
                 .limit(displayLimit * 4);
@@ -287,7 +378,7 @@ export async function searchCatalogWith(
           (p) => !seen.has(p.id) && (opts.includeLabor || p.category !== "labor"),
         );
         merged.push(...(rest.length ? rankProducts(catRows, rest) : catRows));
-        return merged.slice(0, displayLimit);
+        return enrichCatalogProducts(supabase, merged.slice(0, displayLimit));
       }
     } catch {
       // Falls through to the original path — see below.
@@ -299,7 +390,7 @@ export async function searchCatalogWith(
   const pool = tokens.length ? Math.max(displayLimit * 8, 400) : displayLimit;
   let q = supabase
     .from("products")
-    .select("*")
+    .select(CATALOG_PRODUCT_COLUMNS)
     .order("name", { ascending: true })
     .limit(pool);
   if (opts.activeOnly) q = q.eq("active", true);
@@ -318,8 +409,13 @@ export async function searchCatalogWith(
   const rows = ((data ?? []) as Product[]).filter(
     (p) => opts.includeLabor || p.category !== "labor",
   );
-  if (!tokens.length) return rows.slice(0, displayLimit);
-  return rankProducts(rows, tokens).slice(0, displayLimit);
+  if (!tokens.length) {
+    return enrichCatalogProducts(supabase, rows.slice(0, displayLimit));
+  }
+  return enrichCatalogProducts(
+    supabase,
+    rankProducts(rows, tokens).slice(0, displayLimit),
+  );
 }
 
 
@@ -363,14 +459,66 @@ export async function productCount(): Promise<number> {
   return count ?? 0;
 }
 
+/**
+ * Primary catalog/vendor unit cost keyed by product id. Used by PO builders so
+ * vendor COST is never confused with customer sell (`estimate_line_items.material_rate`).
+ */
+export async function primaryCatalogCostByProductIds(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: { from: (t: string) => any },
+  productIds: string[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const ids = [...new Set(productIds)].filter(Boolean);
+  if (!ids.length) return out;
+  const { data: prods } = await db
+    .from("products")
+    .select("id, material_rate")
+    .in("id", ids);
+  const vendorsByProduct = new Map<string, ProductVendor[]>();
+  try {
+    for (let i = 0; i < ids.length; i += 300) {
+      const { data: vendors, error } = await db
+        .from("product_vendors")
+        .select("id, product_id, vendor_id, cost, vendor_sku, position")
+        .in("product_id", ids.slice(i, i + 300))
+        .order("position", { ascending: true });
+      if (error) break;
+      for (const r of vendors ?? []) {
+        const row: ProductVendor = {
+          id: r.id as string,
+          product_id: r.product_id as string,
+          vendor_id: r.vendor_id as string,
+          cost: r.cost == null ? null : Number(r.cost),
+          vendor_sku: (r.vendor_sku as string) ?? null,
+          position: (r.position as number) ?? 0,
+        };
+        const arr = vendorsByProduct.get(row.product_id) ?? [];
+        arr.push(row);
+        vendorsByProduct.set(row.product_id, arr);
+      }
+    }
+  } catch {
+    /* product_vendors missing → material_rate only */
+  }
+  for (const p of prods ?? []) {
+    const c = catalogUnitCost({
+      material_rate: p.material_rate,
+      vendors: vendorsByProduct.get(p.id as string),
+    });
+    if (!c.missing && c.amount != null) out.set(p.id as string, c.amount);
+  }
+  return out;
+}
+
 export async function getProduct(id: string): Promise<Product | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("products")
-    .select("*")
+    .select(CATALOG_PRODUCT_COLUMNS)
     .eq("id", id)
     .maybeSingle();
   if (!data) return null;
-  const [p] = await attachProductVendors(supabase, [data as Product]);
+  const [p] = await enrichCatalogProducts(supabase, [data as unknown as Product]);
   return p;
 }

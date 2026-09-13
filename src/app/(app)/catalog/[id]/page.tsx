@@ -8,6 +8,8 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { getProduct } from "@/lib/data/products";
 import { listSuppliers } from "@/lib/data/suppliers";
+import { getBusinessSettings } from "@/lib/data/business-settings";
+import { getOrgSettings } from "@/lib/data/org";
 import { ProductForm } from "../product-form";
 import { deleteProduct } from "../actions";
 
@@ -31,6 +33,7 @@ export default async function EditProductPage({
   if (!product) notFound();
   // All vendors (incl. inactive) so an existing product's vendor still shows.
   const vendors = (await listSuppliers()).map((s) => ({ id: s.id, name: s.name, kind: s.kind }));
+  const [biz, org] = await Promise.all([getBusinessSettings(), getOrgSettings()]);
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -43,7 +46,12 @@ export default async function EditProductPage({
       <PageHeader title="Edit product" />
       <Card>
         <CardContent className="pt-6">
-          <ProductForm product={product} vendors={vendors} />
+          <ProductForm
+            product={product}
+            vendors={vendors}
+            targetMarginPct={Number(biz.target_gross_margin_pct) || 40}
+            freightMarkupPct={Number(org.freight_markup_pct) || 0}
+          />
         </CardContent>
       </Card>
 

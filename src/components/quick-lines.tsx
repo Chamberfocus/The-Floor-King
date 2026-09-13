@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { formatMoney } from "@/lib/format";
+import { PRICE_NEEDED } from "@/lib/catalog-pricing";
 
 export interface QuickLineState {
   key: string;
@@ -21,6 +22,8 @@ export interface QuickProduct {
   unit: string;
   /** What we sell it for. */
   rate: number;
+  /** True when catalog has no usable cost/sell (PRICE NEEDED). */
+  priceNeeded?: boolean;
   manufacturer?: string | null;
   style?: string | null;
   color?: string | null;
@@ -69,7 +72,11 @@ export function QuickLines({
   /** Show what's on hand — useful when the material is leaving today. */
   showStock?: boolean;
 }) {
-  const options = products.map((p) => ({ value: p.id, label: productLabel(p) }));
+  const options = products.map((p) => ({
+    value: p.id,
+    label: productLabel(p),
+    hint: p.priceNeeded ? PRICE_NEEDED : formatMoney(p.rate),
+  }));
 
   const patch = (key: string, next: Partial<QuickLineState>) =>
     onChange(lines.map((l) => (l.key === key ? { ...l, ...next } : l)));
@@ -81,7 +88,7 @@ export function QuickLines({
       productId: p.id,
       description: productLabel(p),
       unit: p.unit || "each",
-      rate: p.rate ? String(p.rate) : "",
+      rate: p.priceNeeded ? "" : String(p.rate),
     });
   };
 

@@ -16,9 +16,20 @@ import {
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import {
+  PRICE_NEEDED,
+  catalogMarginPct,
+  catalogSellPrice,
+  catalogUnitCost,
+  formatCatalogPrice,
+  roleMaySeeCatalogCost,
+  roleMaySeeCatalogMargin,
+  type CatalogPricePurpose,
+} from "@/lib/catalog-pricing";
+import {
   PRODUCT_CATEGORY_LABELS,
   PRODUCT_CATEGORY_ORDER,
   type Product,
+  type UserRole,
 } from "@/lib/types";
 import { createProductInline, searchCatalogProducts } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
@@ -34,6 +45,22 @@ import {
 
 const inputSm =
   "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+function pickerMoney(p: Product, purpose: CatalogPricePurpose) {
+  const cost = catalogUnitCost(p);
+  const sell =
+    p.catalog_sell != null
+      ? { amount: p.catalog_sell, missing: false as const, kind: "target_margin" as const }
+      : catalogSellPrice(p);
+  const primary = purpose === "cost" ? cost : sell;
+  return {
+    cost,
+    sell,
+    primary,
+    label: formatCatalogPrice(primary, formatMoney),
+    needed: primary.missing,
+  };
+}
 
 /**
  * Searchable catalog picker for an estimate line. Searches the catalog
@@ -67,6 +94,8 @@ export function ProductPicker({
   label = "Material (from catalog)",
   defaultCategory,
   fullWidth = false,
+  purpose = "sell",
+  viewerRole = null,
   onPick,
   onCreated,
   onUseOnce,
@@ -77,6 +106,9 @@ export function ProductPicker({
   defaultCategory?: string;
   /** Make the search field + results span the full container (roomier typing). */
   fullWidth?: boolean;
+  /** sell = estimates/counter; cost = PO/warehouse; identity = samples. */
+  purpose?: CatalogPricePurpose;
+  viewerRole?: UserRole | null;
   onPick: (product: Product | null) => void;
   onCreated: (product: Product) => void;
   /** Add a one-off product to this estimate only, without saving to the catalog. */
@@ -134,7 +166,7 @@ export function ProductPicker({
     const term = q.trim() === initialLabel.trim() ? "" : q;
     const t = setTimeout(async () => {
       try {
-        setResults(await searchCatalogProducts(term));
+        setResults(await searchCatalogProducts(term, { purpose }));
       } catch {
         setResults([]);
       } finally {
@@ -142,7 +174,7 @@ export function ProductPicker({
       }
     }, 200);
     return () => clearTimeout(t);
-  }, [q, open, adding, initialLabel]);
+  }, [q, open, adding, initialLabel, purpose]);
 
   const matches = results;
 
@@ -225,14 +257,15 @@ export function ProductPicker({
             </div>
           </div>
           <p className="mt-2 rounded-md bg-background/60 px-2 py-1.5 text-xs text-muted-foreground">
-            Cost becomes{" "}
-            <span className="font-semibold text-foreground">
-              {formatMoney(pending.material_rate)} per {pending.unit || "unit"}
+            {purpose === "cost" ? "Vendor cost becomes" : "Sell price becomes"}{" "}
+            <span className={cn("font-semibold", pickerMoney(pending, purpose).needed ? "text-amber-700" : "text-foreground")}>
+              {pickerMoney(pending, purpose).label} per {pending.unit || "unit"}
             </span>
             {pending.category ? (
               <> · {PRODUCT_CATEGORY_LABELS[pending.category]}</>
             ) : null}
-            . This replaces the line&apos;s cost, unit and category — anything you
+            . This replaces the line&apos;s{" "}
+            {purpose === "cost" ? "cost" : "price"}, unit and category — anything you
             typed over them is lost.
           </p>
           <div className="mt-2.5 flex gap-2">
@@ -348,11 +381,25 @@ export function ProductPicker({
                   </p>
                 ) : (
                   matches.map((p, i) => {
-                    const installed = p.material_rate + p.labor_rate;
                     const isCarpet = p.category === "carpet";
-                    const perSqyd = (p.unit || "").toLowerCase().includes("yd")
-                      ? installed
-                      : installed * 9;
+                    const money = pickerMoney(p, purpose);
+                    const showCost =
+                      purpose !== "identity" &&
+                      (viewerRole
+                        ? roleMaySeeCatalogCost(viewerRole, purpose)
+                        : !money.cost.missing);
+                    const showMargin =
+                      purpose === "sell" && roleMaySeeCatalogMargin(viewerRole);
+                    const margin =
+                      showMargin && !money.cost.missing && !money.sell.missing
+                        ? catalogMarginPct(money.cost, money.sell)
+                        : null;
+                    const perSqyd =
+                      isCarpet && !money.needed && money.primary.amount != null
+                        ? (p.unit || "").toLowerCase().includes("yd")
+                          ? money.primary.amount
+                          : money.primary.amount * 9
+                        : null;
                     return (
                       <button
                         key={p.id}
@@ -415,21 +462,36 @@ export function ProductPicker({
                           </span>
                         </span>
                         <span className="shrink-0 text-right">
-                          <span className="block font-medium tabular-nums">
-                            {formatMoney(installed)}
-                            <span className="font-normal text-muted-foreground">
-                              /{p.unit}
-                            </span>
-                          </span>
-                          {isCarpet ? (
-                            <span className="block text-xs font-medium tabular-nums text-primary">
-                              {formatMoney(perSqyd)}/sq yd
-                            </span>
-                          ) : null}
-                          <span className="block text-xs tabular-nums text-muted-foreground">
-                            mat {formatMoney(p.material_rate)} · lab{" "}
-                            {formatMoney(p.labor_rate)}
-                          </span>
+                          {purpose === "identity" ? null : (
+                            <>
+                              <span
+                                className={cn(
+                                  "block font-medium tabular-nums",
+                                  money.needed && "text-amber-700",
+                                )}
+                              >
+                                {money.label}
+                                {money.needed ? null : (
+                                  <span className="font-normal text-muted-foreground">
+                                    /{p.unit}
+                                  </span>
+                                )}
+                              </span>
+                              {isCarpet && perSqyd != null ? (
+                                <span className="block text-xs font-medium tabular-nums text-primary">
+                                  {formatMoney(perSqyd)}/sq yd
+                                </span>
+                              ) : null}
+                              {showCost && !money.cost.missing ? (
+                                <span className="block text-xs tabular-nums text-muted-foreground">
+                                  cost {formatMoney(money.cost.amount ?? 0)}
+                                  {showMargin && margin != null
+                                    ? ` · ${Math.round(margin)}% gm`
+                                    : ""}
+                                </span>
+                              ) : null}
+                            </>
+                          )}
                         </span>
                       </button>
                     );
@@ -580,6 +642,17 @@ function AddProductForm({
   const setSpec = (key: string, value: string) =>
     setF((p) => ({ ...p, specs: { ...p.specs, [key]: value } }));
   const rateLbl = `$ / ${unitLabel(f.unit) || "unit"}`;
+  const previewCost = catalogUnitCost({
+    material_rate: f.material_rate,
+    vendors: [],
+  });
+  const previewSell = catalogSellPrice({
+    material_rate: f.material_rate,
+    labor_rate: f.labor_rate,
+    category: f.category,
+    targetMarginPct: 40,
+    freightMarkupPct: 0,
+  });
 
   return (
     <div className="space-y-3">
@@ -734,6 +807,11 @@ function AddProductForm({
           />
         </div>
       </div>
+      <p className="text-[11px] text-muted-foreground">
+        {previewCost.missing
+          ? "No cost yet — the estimate line will show PRICE NEEDED until you enter one."
+          : `At the shop’s 40% target margin this sells for ${formatCatalogPrice(previewSell, formatMoney)} / ${unitLabel(f.unit) || "unit"}.`}
+      </p>
 
       {/* ── What this KIND of product is described by ──────────────────────
           Carpet gets face weight, fibre and a 12'/15' roll. Sheet vinyl gets a

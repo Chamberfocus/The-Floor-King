@@ -566,6 +566,16 @@ export interface Product {
   reserved?: number;
   /** Moving weighted average unit cost (F6-P4). Null until first valued receive. */
   avg_unit_cost?: number | null;
+  /**
+   * Computed at read time (not a column): primary vendor cost, else material_rate.
+   * Null when the catalog has no usable cost (default-0 with no vendor cost).
+   */
+  catalog_cost?: number | null;
+  /**
+   * Computed at read time (not a column): clearance sell, else target-margin sell
+   * from catalog_cost. Null when sell cannot be derived (PRICE NEEDED).
+   */
+  catalog_sell?: number | null;
   clearance: boolean;
   clearance_price: number | null;
   sqft_per_box?: number | null; // hard surface: coverage per carton (vendor unit)

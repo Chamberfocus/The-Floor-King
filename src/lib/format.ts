@@ -105,8 +105,9 @@ export function parseArrivalWindows(
 }
 
 export function formatMoney(value: number | string | null | undefined): string {
-  const n =
-    typeof value === "number" ? value : parseFloat(String(value ?? "0")) || 0;
+  const parsed =
+    typeof value === "number" ? value : parseFloat(String(value ?? ""));
+  const n = Number.isFinite(parsed) ? parsed : 0;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",

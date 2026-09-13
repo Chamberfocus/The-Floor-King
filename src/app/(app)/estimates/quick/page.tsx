@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getOrgSettings } from "@/lib/data/org";
+import { catalogSellPrice, catalogUnitCost } from "@/lib/catalog-pricing";
 import { QuickEstimateForm } from "./quick-estimate-form";
 import type { QuickProduct } from "@/components/quick-lines";
 
@@ -31,7 +32,7 @@ export default async function QuickEstimatePage({
       supabase
         .from("products")
         .select(
-          "id, name, unit, material_rate, manufacturer, style, color, category, active",
+          "id, name, unit, material_rate, manufacturer, style, color, category, active, clearance, clearance_price",
         )
         .eq("active", true)
         .order("name", { ascending: true })
@@ -71,17 +72,47 @@ export default async function QuickEstimatePage({
     full_name: (c.full_name as string) ?? "Unnamed",
   }));
 
+  const margin = Number(biz?.target_gross_margin_pct ?? 40) || 40;
+  const freight = Number(org.freight_markup_pct ?? 0) || 0;
+
   const products: (QuickProduct & { cost?: number | null })[] = (prodData ?? []).map(
-    (p) => ({
-      id: p.id as string,
-      name: (p.name as string) ?? "",
-      unit: (p.unit as string) ?? "each",
-      rate: Number(p.material_rate ?? 0),
-      manufacturer: (p.manufacturer as string) ?? null,
-      style: (p.style as string) ?? null,
-      color: (p.color as string) ?? null,
-      cost: costByProduct.get(p.id as string) ?? null,
-    }),
+    (p) => {
+      const vendors = costByProduct.has(p.id as string)
+        ? [
+            {
+              id: "v",
+              product_id: p.id as string,
+              vendor_id: "s",
+              cost: costByProduct.get(p.id as string)!,
+              vendor_sku: null,
+              position: 0,
+            },
+          ]
+        : [];
+      const cost = catalogUnitCost({
+        material_rate: p.material_rate,
+        vendors,
+      });
+      const sell = catalogSellPrice({
+        material_rate: p.material_rate,
+        vendors,
+        clearance: Boolean(p.clearance),
+        clearance_price: p.clearance_price as number | null,
+        targetMarginPct: margin,
+        freightMarkupPct: freight,
+      });
+      return {
+        id: p.id as string,
+        name: (p.name as string) ?? "",
+        unit: (p.unit as string) ?? "each",
+        rate: sell.missing || sell.amount == null ? 0 : sell.amount,
+        priceNeeded: sell.missing,
+        manufacturer: (p.manufacturer as string) ?? null,
+        style: (p.style as string) ?? null,
+        color: (p.color as string) ?? null,
+        cost: cost.missing ? null : cost.amount,
+      };
+    },
   );
 
   return (
@@ -100,8 +131,8 @@ export default async function QuickEstimatePage({
         customers={customers}
         products={products}
         defaultTaxRate={Number(lastEst?.tax_rate ?? 0) || 0}
-        targetMargin={Number(biz?.target_gross_margin_pct ?? 40) || 40}
-        freightMarkupPct={Number(org.freight_markup_pct ?? 0) || 0}
+        targetMargin={margin}
+        freightMarkupPct={freight}
         presetCustomerId={customer}
       />
     </div>

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sellMaterialFromTargetMargin } from "@/lib/estimate-pricing";
-import type { Order, OrderItem } from "@/lib/types";
+import { enrichCatalogProducts } from "@/lib/data/products";
+import type { Order, OrderItem, Product } from "@/lib/types";
 
 export interface OrderProductRetail {
   id: string;
@@ -18,43 +18,19 @@ export interface OrderProductRetail {
  */
 export async function listOrderProducts(): Promise<OrderProductRetail[]> {
   const admin = createAdminClient();
-  const [{ data: settings }, { data: org }] = await Promise.all([
-    admin
-      .from("business_settings")
-      .select("target_gross_margin_pct")
-      .eq("id", "default")
-      .maybeSingle(),
-    admin
-      .from("org_settings")
-      .select("freight_markup_pct")
-      .eq("id", "default")
-      .maybeSingle(),
-  ]);
-  const margin = Number(settings?.target_gross_margin_pct) || 40;
-  const freightPct = Number(org?.freight_markup_pct) || 0;
   const { data } = await admin
     .from("products")
     .select("id, name, unit, material_rate, clearance, clearance_price")
     .eq("active", true)
     .order("name", { ascending: true })
     .limit(2000);
-  return (data ?? []).map((p) => {
-    // Catalog material_rate is treated as OUR COST on this path (same as
-    // counter sale) — sell is target margin on landed material.
-    const cost = Number(p.material_rate) || 0;
-    const retail =
-      p.clearance && p.clearance_price
-        ? Number(p.clearance_price)
-        : cost > 0
-          ? sellMaterialFromTargetMargin(cost, margin, freightPct)
-          : 0;
-    return {
-      id: p.id as string,
-      name: p.name as string,
-      unit: (p.unit as string) || "sq yd",
-      price: Math.round(retail * 100) / 100,
-    };
-  });
+  const priced = await enrichCatalogProducts(admin, (data ?? []) as Product[]);
+  return priced.map((p) => ({
+    id: p.id,
+    name: p.name,
+    unit: p.unit || "sq yd",
+    price: Math.round(Number(p.catalog_sell ?? 0) * 100) / 100,
+  }));
 }
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;

@@ -15,6 +15,7 @@ import {
   type CoveragePoItem,
   type LineCoverage,
 } from "@/lib/po-coverage";
+import { primaryCatalogCostByProductIds } from "@/lib/data/products";
 import type { EstimateLineItem, PoSourceType } from "@/lib/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -196,8 +197,9 @@ export async function syncJobPurchasingCoverage(
       psupplierId.set(p.id as string, (p.supplier_id as string) || null);
       pname.set(p.id as string, (p.name as string) ?? "");
       punit.set(p.id as string, String(p.unit ?? "").toLowerCase());
-      pcost.set(p.id as string, Number(p.material_rate) || 0);
     }
+    const costs = await primaryCatalogCostByProductIds(db, productIds);
+    for (const [id, c] of costs) pcost.set(id, c);
   }
 
   // Skip auto-stock products that haven't been flipped to order.
@@ -411,8 +413,7 @@ export async function syncJobPurchasingCoverage(
               ["sqft", "sf"].includes(lineUnitNorm)) ||
             (["sqyd", "sy"].includes(catUnit) &&
               ["sqyd", "sy"].includes(lineUnitNorm)));
-        const ownCost =
-          Number(l.material_cost) || Number(l.material_rate) || 0;
+        const ownCost = Number(l.material_cost) > 0 ? Number(l.material_cost) : 0;
         return {
           po_id: poId,
           product_id: l.product_id,
