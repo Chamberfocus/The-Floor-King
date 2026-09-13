@@ -129,6 +129,22 @@ export async function receivePoLines(input: {
   );
   const fullyReceived = everyLineChecked && short <= 0.005;
 
+  const { data: poNow } = await db
+    .from("purchase_orders")
+    .select("status")
+    .eq("id", input.poId)
+    .maybeSingle();
+  if (
+    poNow?.status === "received" ||
+    poNow?.status === "void" ||
+    poNow?.status === "cancelled"
+  ) {
+    return {
+      error:
+        "This purchase order was already received or voided in another session. Refresh and continue from the current status.",
+    };
+  }
+
   await db
     .from("purchase_orders")
     .update({

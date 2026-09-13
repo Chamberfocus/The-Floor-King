@@ -13,9 +13,11 @@ import { validatePostgresDump } from "./dump-validate";
 import { md5Hex, sha256Hex } from "./checksums";
 import {
   dumpPoolerRegionCandidates,
+  isDirectSupabaseDbHost,
   isRetryablePoolerFailure,
   sessionPoolerHost,
   sessionPoolerUser,
+  shouldAttemptSessionPoolerFallback,
   supabaseProjectRefFromPublicUrl,
 } from "./dump-target";
 
@@ -328,13 +330,19 @@ export async function dumpPostgresSchema(args: {
       timeoutMs,
     });
 
-  try {
-    const hostAddr = await resolveDumpHostIpv4(connection.host);
-    const bytes = await tryDump({ ...connection, hostAddr });
-    return finishDump(args.schema, bytes);
-  } catch (err) {
-    const code = err instanceof Error ? err.message : "PG_DUMP_FAILED";
-    if (code !== "PG_DUMP:ipv4_required") throw err;
+  // Direct db.<ref>.supabase.co is IPv6-only from Vercel — skip the doomed
+  // first attempt and go to Session Pooler (port 5432). If the URL is already
+  // a pooler host, try it first.
+  const skipDirectHost = isDirectSupabaseDbHost(connection.host);
+  if (!skipDirectHost) {
+    try {
+      const hostAddr = await resolveDumpHostIpv4(connection.host);
+      const bytes = await tryDump({ ...connection, hostAddr });
+      return finishDump(args.schema, bytes);
+    } catch (err) {
+      const code = err instanceof Error ? err.message : "PG_DUMP_FAILED";
+      if (!shouldAttemptSessionPoolerFallback(code, connection.host)) throw err;
+    }
   }
 
   const projectRef = supabaseProjectRefFromPublicUrl(

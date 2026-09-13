@@ -209,6 +209,50 @@ export function scoreCustomerMatch(
   };
 }
 
+/**
+ * Prevention matcher never returns a merged-away customer id. Contact fields
+ * from the merged-away row still score, but the match id is the survivor.
+ * Compatible when 0185 columns are absent (merged_into unset).
+ */
+export function canonicalMatchingPool(
+  rows: Array<MatchableCustomer & { merged_into_customer_id?: string | null }>,
+): MatchableCustomer[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const out: MatchableCustomer[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const dest = row.merged_into_customer_id;
+    if (!dest) {
+      const { merged_into_customer_id: _ignored, ...live } = row;
+      if (seen.has(live.id)) continue;
+      seen.add(live.id);
+      out.push(live);
+      continue;
+    }
+    const live = byId.get(dest);
+    if (!live || live.merged_into_customer_id) continue;
+    if (seen.has(live.id)) continue;
+    seen.add(live.id);
+    const { merged_into_customer_id: _ignored, ...alias } = row;
+    out.push({
+      ...alias,
+      id: live.id,
+      assigned_to: live.assigned_to,
+      workflow_owner_id: live.workflow_owner_id,
+    });
+  }
+  return out;
+}
+
+/** Follow merged-away alias → survivor. No-op when 0185 columns are absent. */
+export function followMergedAwayId(row: {
+  id: string;
+  merged_into_customer_id?: string | null;
+} | null | undefined): string | null {
+  if (!row?.id) return null;
+  return row.merged_into_customer_id || row.id;
+}
+
 /** Score a pool. Does not hide distinct customer IDs. */
 export function findPotentialCustomerMatches(
   input: MatchCandidateInput,
@@ -219,8 +263,14 @@ export function findPotentialCustomerMatches(
     const scored = scoreCustomerMatch(input, row);
     if (scored) out.push(scored);
   }
-  out.sort((a, b) => TIER_RANK[b.tier] - TIER_RANK[a.tier]);
-  return out;
+  const best = new Map<string, ScoredCustomerMatch>();
+  for (const m of out) {
+    const prev = best.get(m.id);
+    if (!prev || TIER_RANK[m.tier] > TIER_RANK[prev.tier]) best.set(m.id, m);
+  }
+  return [...best.values()].sort(
+    (a, b) => TIER_RANK[b.tier] - TIER_RANK[a.tier],
+  );
 }
 
 export function blockingMatches(

@@ -244,6 +244,7 @@ describe("F7 hardening — partial receiving ledger plan", () => {
   it("receivePoLines posts applyPoLineReceiptDelta", () => {
     expect(receivingActions).toContain("applyPoLineReceiptDelta");
     expect(receivingActions).toContain("inv_po_item_received_qty");
+    expect(receivingActions).toContain("already received or voided in another session");
   });
 });
 
@@ -253,5 +254,30 @@ describe("F7 hardening — ops vs GL labeling", () => {
     expect(pulsePage).toContain("(Subledger)");
     expect(pulsePage).toMatch(/not posted GL|External books remain official/i);
     expect(accountingBanner).toContain("ACCOUNTING_NOT_BOOKS_MESSAGE");
+  });
+});
+
+describe("launch-trust invoice + warehouse gates", () => {
+  it("invoice create/delete are role-gated; issued invoices cannot be hard-deleted", () => {
+    const invoices = readFileSync(
+      join(ROOT, "src/app/(app)/invoices/actions.ts"),
+      "utf8",
+    );
+    expect(invoices).toContain("INVOICE_CREATE_ROLES");
+    expect(invoices).toContain("INVOICE_DELETE_ROLES");
+    expect(invoices).toContain("Issued invoices cannot be deleted");
+    expect(invoices).toContain("await assertRole(INVOICE_CREATE_ROLES)");
+  });
+
+  it("warehouse mark-ready returns errors instead of false success", () => {
+    expect(jobsActions).toContain("assessWarehouseMarkReady");
+    expect(jobsActions).toContain("Promise<{ error: string | null }>");
+    expect(jobsActions).toContain("return { error: null }");
+    const ui = readFileSync(
+      join(ROOT, "src/app/(app)/warehouse/warehouse-job-actions.tsx"),
+      "utf8",
+    );
+    expect(ui).toContain("res?.error");
+    expect(ui).not.toMatch(/await completeWarehouseJob\(fd\);\s*setCompleteOpen\(false\);\s*toast\.success/);
   });
 });

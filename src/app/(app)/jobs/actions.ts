@@ -313,9 +313,13 @@ async function notifyInstallerAssigned(o: {
 import { isMaterialLine } from "@/lib/job-scope";
 import {
   assessScheduleMaterialsGate,
+  assessWarehouseMarkReady,
   MATERIALS_NOT_READY_MESSAGE,
 } from "@/lib/materials-ready";
 import { loadOperationalJobLines } from "@/lib/data/job-operational-lines";
+import { loadJobCoverageItems } from "@/lib/data/job-purchasing";
+import { computeLineCoverage } from "@/lib/po-coverage";
+import { lineOrderQty, type CalcLine } from "@/lib/estimate-calc";
 
 export async function enforceMaterialsReadyForSchedule(args: {
   jobId: string;
@@ -1798,10 +1802,13 @@ export async function acceptWarehouseJob(formData: FormData): Promise<void> {
  * salesperson and admin (with the staging location) and drops the customer a
  * brief heads-up. Keeps the existing auto-advance to install scheduling.
  */
-export async function completeWarehouseJob(formData: FormData): Promise<void> {
+export async function completeWarehouseJob(
+  formData: FormData,
+): Promise<{ error: string | null }> {
   const id = str(formData.get("id") || formData.get("job_id"));
   const location = str(formData.get("staging_location"));
-  if (!id || !location) return;
+  const overrideReason = str(formData.get("override_reason"));
+  if (!id || !location) return { error: "Enter where it's staged." };
   const supabase = await createClient();
   const {
     data: { user },
@@ -1811,6 +1818,46 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
   const admin = createAdminClient() as unknown as WhDb;
   const now = new Date().toISOString();
 
+  const { data: jobRow } = await admin
+    .from("jobs")
+    .select("id, estimate_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!jobRow) return { error: "That job no longer exists." };
+
+  const lines = await loadOperationalJobLines(admin, id);
+  const hasMaterialNeed = lines.some((l) => isMaterialLine(l));
+  let outstandingArrival = 0;
+  try {
+    const coverageItems = await loadJobCoverageItems(
+      admin,
+      id,
+      (jobRow.estimate_id as string | null) ?? null,
+    );
+    for (const l of lines) {
+      if (!isMaterialLine(l)) continue;
+      const src = (l as { source?: string | null }).source;
+      if (src === "stock") continue;
+      const need = lineOrderQty(l as CalcLine);
+      if (need <= 0) continue;
+      outstandingArrival += computeLineCoverage(l.id, need, coverageItems)
+        .outstandingArrival;
+    }
+  } catch {
+    if (hasMaterialNeed && !overrideReason) {
+      return {
+        error:
+          "Could not verify material receipts. Receive the PO first, or enter an override reason.",
+      };
+    }
+  }
+  const gate = assessWarehouseMarkReady({
+    hasMaterialNeed,
+    outstandingArrival,
+    overrideReason,
+  });
+  if (!gate.ok) return { error: gate.error };
+
   await admin
     .from("jobs")
     .update({
@@ -1819,6 +1866,22 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
       staging_location: location,
     })
     .eq("id", id);
+
+  if (gate.override) {
+    const { data: jobCust } = await admin
+      .from("jobs")
+      .select("customer_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (jobCust?.customer_id) {
+      await admin.from("activities").insert({
+        customer_id: jobCust.customer_id,
+        user_id: user?.id ?? null,
+        type: "system",
+        body: `Warehouse marked materials ready with override (job ${id}): ${overrideReason}`,
+      });
+    }
+  }
 
   const { data: job } = await admin
     .from("jobs")
@@ -1914,6 +1977,7 @@ export async function completeWarehouseJob(formData: FormData): Promise<void> {
   revalidatePath("/orders");
   revalidatePath("/invoices");
   if (job?.customer_id) revalidatePath(`/customers/${job.customer_id}`);
+  return { error: null };
 }
 
 /**

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
-import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
+import { resolveOrCreateCustomer, followActiveCustomerId } from "@/lib/data/customer-resolve";
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 
 const OFFICE = ["admin", "office", "sales_manager", "salesman"] as const;
@@ -91,6 +91,10 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
     if (resolved.action === "error") return { error: resolved.error };
     customerId = resolved.customerId;
   }
+
+  const liveId = await followActiveCustomerId(supabase, customerId);
+  if (!liveId) return { error: "That customer is not available." };
+  customerId = liveId;
 
   const { data: estimate, error } = await supabase
     .from("estimates")

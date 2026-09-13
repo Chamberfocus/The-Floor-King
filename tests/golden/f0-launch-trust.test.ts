@@ -12,6 +12,7 @@ import {
 import {
   assessMaterialsReadyForSchedule,
   assessScheduleMaterialsGate,
+  assessWarehouseMarkReady,
   MATERIALS_OVERRIDE_REASON_REQUIRED,
 } from "@/lib/materials-ready";
 import {
@@ -133,6 +134,26 @@ describe("F0 materials-ready scheduling", () => {
         hasMaterialNeed: false,
       }).ready,
     ).toBe(true);
+  });
+
+  it("warehouse mark-ready blocked when required material has not arrived", () => {
+    const blocked = assessWarehouseMarkReady({
+      hasMaterialNeed: true,
+      outstandingArrival: 40,
+    });
+    expect(blocked.ok).toBe(false);
+    const okStock = assessWarehouseMarkReady({
+      hasMaterialNeed: true,
+      outstandingArrival: 40,
+      overrideReason: "Staged from existing warehouse stock",
+    });
+    expect(okStock).toEqual({ ok: true, override: true });
+    expect(
+      assessWarehouseMarkReady({
+        hasMaterialNeed: true,
+        outstandingArrival: 0,
+      }),
+    ).toEqual({ ok: true, override: false });
   });
 });
 

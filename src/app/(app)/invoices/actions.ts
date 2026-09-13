@@ -26,6 +26,7 @@ import { invoiceRemainingBalance } from "@/lib/payment-safety";
 import { activeApplicationsTotal } from "@/lib/credit-ar";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 import { loadInvoiceArReductions } from "@/lib/data/invoices";
+import { followActiveCustomerId } from "@/lib/data/customer-resolve";
 import { assertRole } from "@/lib/auth";
 import {
   CARD_PAYMENT_IDEMPOTENCY_REQUIRED_MESSAGE,
@@ -45,6 +46,17 @@ import type {
 } from "@/lib/types";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+
+/** Roles that may create invoices. Crew/warehouse cannot. */
+const INVOICE_CREATE_ROLES: UserRole[] = [
+  "admin",
+  "office",
+  "sales_manager",
+  "salesman",
+];
+
+/** Roles that may hard-delete draft invoices (void is the issued-invoice path). */
+const INVOICE_DELETE_ROLES: UserRole[] = ["admin", "office"];
 
 /** Roles that may record customer invoice payments (not exported — "use server" constraint). */
 const INVOICE_PAYMENT_ROLES: UserRole[] = [
@@ -342,6 +354,7 @@ async function rpcRecordPayment(
  * Redirects back to the estimate with ?invoice_error= when blocked.
  */
 async function requireApprovalSnapshotForInvoice(estimateId: string) {
+  await assertRole(INVOICE_CREATE_ROLES);
   const supabase = await createClient();
   const { data: est } = await supabase
     .from("estimates")
@@ -725,6 +738,7 @@ export async function createInvoiceFromSelection(
 }
 
 export async function createInvoice(formData: FormData): Promise<void> {
+  await assertRole(INVOICE_CREATE_ROLES);
   const customerId = str(formData.get("customer_id"));
   if (!customerId) return;
   const jobId = str(formData.get("job_id")) || null;
@@ -732,10 +746,12 @@ export async function createInvoice(formData: FormData): Promise<void> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const liveCustomerId = await followActiveCustomerId(supabase, customerId);
+  if (!liveCustomerId) return;
   const { data: invoice, error } = await supabase
     .from("invoices")
     .insert({
-      customer_id: customerId,
+      customer_id: liveCustomerId,
       job_id: jobId,
       number: await nextInvoiceNumber(supabase),
       issue_date: today(),
@@ -745,7 +761,7 @@ export async function createInvoice(formData: FormData): Promise<void> {
     .single();
   if (error || !invoice) return;
   revalidatePath("/invoices");
-  revalidatePath(`/customers/${customerId}`);
+  revalidatePath(`/customers/${liveCustomerId}`);
   if (jobId) revalidatePath(`/jobs/${jobId}`);
   redirect(`/invoices/${invoice.id}`);
 }
@@ -1355,29 +1371,29 @@ export async function deleteInvoice(formData: FormData): Promise<void> {
   let customerId = str(formData.get("customer_id"));
   if (!id) return;
 
-  // Must be signed-in staff.
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return;
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (!me || (me.role as string) === "customer") return;
+  await assertRole(INVOICE_DELETE_ROLES);
 
   const admin = createAdminClient();
-  // Find what the invoice touches before removing it.
+  const fail = (msg: string): never => {
+    redirect(
+      customerId
+        ? `/customers/${customerId}?invoice_error=${encodeURIComponent(msg)}`
+        : `/invoices/${id}?invoice_error=${encodeURIComponent(msg)}`,
+    );
+  };
+
   const { data: inv } = await admin
     .from("invoices")
-    .select("customer_id, job_id")
+    .select("customer_id, job_id, status")
     .eq("id", id)
     .maybeSingle();
   if (inv) {
     if (!customerId) customerId = (inv.customer_id as string | null) ?? "";
     const jobId = (inv.job_id as string | null) ?? null;
+    const status = (inv.status as string) ?? "draft";
+    if (status !== "draft") {
+      fail("Issued invoices cannot be deleted. Void the invoice to cancel it.");
+    }
     const { data: pays } = await admin
       .from("payments")
       .select("id, status")
@@ -1385,14 +1401,26 @@ export async function deleteInvoice(formData: FormData): Promise<void> {
     if (
       (pays ?? []).some((p) => ((p.status as string) ?? "active") !== "void")
     ) {
-      // Never hard-delete payment history.
-      redirect(
-        customerId
-          ? `/customers/${customerId}?invoice_error=${encodeURIComponent("This invoice has payments and can’t be deleted. Void only if unpaid, or keep it for history.")}`
-          : `/invoices/${id}`,
+      fail(
+        "This invoice has payments and can’t be deleted. Void only if unpaid, or keep it for history.",
       );
     }
-    // invoice_items + payments cascade; orders.invoice_id is set null by the FK.
+    const [{ data: apps }, reductions] = await Promise.all([
+      admin
+        .from("credit_applications")
+        .select("id, status")
+        .eq("invoice_id", id),
+      loadInvoiceArReductions([id]),
+    ]);
+    if (
+      (apps ?? []).some((a) => ((a.status as string) ?? "active") !== "void")
+    ) {
+      fail("This invoice has credit applications and can’t be deleted. Void instead.");
+    }
+    const red = reductions.get(id);
+    if ((red?.deposited ?? 0) > 0.005 || (red?.writtenOff ?? 0) > 0.005) {
+      fail("This invoice has deposits or write-offs and can’t be deleted. Void instead.");
+    }
     await admin.from("invoices").delete().eq("id", id);
     if (jobId) revalidatePath(`/jobs/${jobId}`);
   }
@@ -1401,8 +1429,6 @@ export async function deleteInvoice(formData: FormData): Promise<void> {
   revalidatePath("/orders");
   revalidatePath("/invoices");
   if (customerId) revalidatePath(`/customers/${customerId}`);
-  // Deleting from the list stays on the list; from a customer/invoice page it
-  // returns to the customer file.
   const redirectTo = str(formData.get("redirect_to"));
   redirect(redirectTo || (customerId ? `/customers/${customerId}` : "/invoices"));
 }

@@ -614,6 +614,12 @@ function InvoicePrintDoc({
             <span className="tabular-nums">{formatMoney(totals.deposited ?? 0)}</span>
           </div>
         ) : null}
+        {(totals.writtenOff ?? 0) > 0 ? (
+          <div className="mt-1 flex justify-between">
+            <span className="text-gray-600">Write-offs</span>
+            <span className="tabular-nums">{formatMoney(totals.writtenOff ?? 0)}</span>
+          </div>
+        ) : null}
         <div className="mt-1 flex justify-between border-t pt-1 text-base font-bold">
           <span>Balance due</span>
           <span className="tabular-nums">{formatMoney(totals.balance)}</span>

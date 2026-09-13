@@ -35,6 +35,7 @@ export function WarehouseJobActions({
   const [completeOpen, setCompleteOpen] = useState(false);
   const [ack, setAck] = useState(false);
   const [location, setLocation] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
 
   const submitted = !!job.warehouse_submitted_at;
   const accepted = !!job.warehouse_accepted_at;
@@ -61,8 +62,14 @@ export function WarehouseJobActions({
       const fd = new FormData();
       fd.set("id", job.id);
       fd.set("staging_location", location.trim());
-      await completeWarehouseJob(fd);
+      if (overrideReason.trim()) fd.set("override_reason", overrideReason.trim());
+      const res = await completeWarehouseJob(fd);
+      if (res?.error) {
+        toast.error(res.error);
+        return;
+      }
       setCompleteOpen(false);
+      setOverrideReason("");
       toast.success("Staged and marked ready");
       router.refresh();
     });
@@ -111,7 +118,8 @@ export function WarehouseJobActions({
               <DialogDescription>
                 Where is it staged? The installer, salesperson and admin get
                 notified it&apos;s ready (and where), and the customer gets a
-                brief heads-up.
+                brief heads-up. If a required PO has not been received yet, add
+                an override reason (e.g. staged from existing stock).
               </DialogDescription>
             </DialogHeader>
             <div>
@@ -121,6 +129,18 @@ export function WarehouseJobActions({
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
                 placeholder="e.g. Bay 3, rack A, will-call shelf 12"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor={`ovr-${job.id}`}>
+                Override reason (if material is not fully received)
+              </Label>
+              <Input
+                id={`ovr-${job.id}`}
+                value={overrideReason}
+                onChange={(e) => setOverrideReason(e.target.value)}
+                placeholder="Optional — required only if POs are still outstanding"
                 className="mt-1"
               />
             </div>

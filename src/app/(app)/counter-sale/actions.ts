@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { assertRole } from "@/lib/auth";
 import { finalizeInvoiceSafe } from "@/lib/invoice-issue";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
-import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
+import { resolveOrCreateCustomer, followActiveCustomerId } from "@/lib/data/customer-resolve";
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 
 export interface CounterSaleLine {
@@ -103,7 +103,13 @@ export async function ringUpCounterSale(
       return { error: resolved.error };
     }
     customerId = resolved.customerId;
-  } else if (input.marketingOptIn) {
+  }
+
+  const liveId = await followActiveCustomerId(supabase, customerId ?? "");
+  if (!liveId) return { error: "That customer is not available." };
+  customerId = liveId;
+
+  if (input.marketingOptIn) {
     // Only ever turned ON here. Unticking it at the counter shouldn't silently
     // revoke a consent they gave somewhere else.
     await supabase
