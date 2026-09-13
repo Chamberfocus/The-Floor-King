@@ -22,6 +22,7 @@ import {
   Bookmark,
   Hammer,
   HardHat,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { SCHEDULE_ROLES, type UserRole } from "@/lib/types";
@@ -134,6 +135,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Jobs", href: "/jobs", icon: CalendarDays, roles: JOBS_ROLES },
       { label: "Job Board", href: "/board", icon: ClipboardList, roles: ["admin", "office", "scheduler", "crew"] },
+      { label: "Service", href: "/service", icon: Wrench, roles: ["admin", "office", "sales_manager", "salesman", "scheduler"] },
       // "Quick install" was a second door to the same thing — everything it did
       // now lives on /jobs/new, which is reached from the New job button on the
       // Jobs page and on every customer's file.

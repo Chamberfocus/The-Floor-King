@@ -37,6 +37,11 @@ import {
 } from "@/lib/workflow-engine";
 import { ensureJobForEstimate } from "@/app/(app)/jobs/actions";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
+import { getCustomerDepositSummary } from "@/lib/data/customer-deposits";
+import {
+  onEstimateResolvedOps,
+  onEstimateSentOps,
+} from "@/lib/data/ops-automation";
 import type { EstimateStatus } from "@/lib/types";
 import { formatServiceAddress } from "@/lib/types";
 
@@ -550,14 +555,63 @@ export async function setEstimateStatus(formData: FormData): Promise<void> {
     // Approval auto-creates the job (idempotent) so the win never stalls.
     if (status === "approved") {
       const {
-        data: { user },
+        data: { user: approver },
       } = await supabase.auth.getUser();
-      await ensureJobForEstimate(id, user?.id ?? null);
+      await ensureJobForEstimate(id, approver?.id ?? null);
     }
     revalidatePath("/client-status");
     revalidatePath("/dashboard");
     revalidatePath("/jobs");
     if (ec?.customer_id) revalidatePath(`/customers/${ec.customer_id}`);
+  }
+
+  // Follow-up tasks must stop on declined as well as approved. Declined is
+  // handled above (onEstimateDeclined) and is not in the sent/approved block.
+  if (status === "sent" || status === "approved" || status === "declined") {
+    const { data: opsCust } = await supabase
+      .from("estimates")
+      .select(
+        "title, customer_id, customer:customers(assigned_to, workflow_owner_id)",
+      )
+      .eq("id", id)
+      .maybeSingle();
+    const opsOwner = opsCust?.customer as unknown as {
+      assigned_to?: string | null;
+      workflow_owner_id?: string | null;
+    } | null;
+    const actorId = user?.id ?? null;
+    if (status === "sent") {
+      void onEstimateSentOps({
+        estimateId: id,
+        customerId: (opsCust?.customer_id as string | null) ?? null,
+        assignedTo: opsOwner?.workflow_owner_id ?? opsOwner?.assigned_to ?? null,
+        actorId,
+        title: (opsCust?.title as string | null) ?? null,
+      });
+    }
+    if (status === "approved" || status === "declined") {
+      let available: number | undefined;
+      let applied: number | undefined;
+      if (status === "approved" && opsCust?.customer_id) {
+        const dep = await getCustomerDepositSummary(
+          opsCust.customer_id as string,
+        ).catch(() => null);
+        if (dep) {
+          available = dep.available;
+          applied = dep.applied;
+        }
+      }
+      void onEstimateResolvedOps({
+        estimateId: id,
+        status,
+        customerId: (opsCust?.customer_id as string | null) ?? null,
+        assignedTo: opsOwner?.workflow_owner_id ?? opsOwner?.assigned_to ?? null,
+        actorId,
+        title: (opsCust?.title as string | null) ?? null,
+        availableDeposit: available,
+        appliedDeposit: applied,
+      });
+    }
   }
 
   if (status === "approved") {
@@ -1364,12 +1418,29 @@ export async function sendEstimateById(
 
   const { data: est } = await supabase
     .from("estimates")
-    .select("title, customer_id, customer:customers(full_name, email)")
+    .select(
+      "title, customer_id, customer:customers(full_name, email, assigned_to, workflow_owner_id)",
+    )
     .eq("id", id)
     .maybeSingle();
 
   if (est?.customer_id)
     await advanceFromAutoAction(est.customer_id as string, "build_quote");
+
+  const sentCust = est?.customer as unknown as {
+    assigned_to?: string | null;
+    workflow_owner_id?: string | null;
+  } | null;
+  const {
+    data: { user: sender },
+  } = await supabase.auth.getUser();
+  void onEstimateSentOps({
+    estimateId: id,
+    customerId: (est?.customer_id as string | null) ?? null,
+    assignedTo: sentCust?.workflow_owner_id ?? sentCust?.assigned_to ?? null,
+    actorId: sender?.id ?? null,
+    title: (est?.title as string | null) ?? null,
+  });
 
   const cust = est?.customer as unknown as {
     full_name: string | null;

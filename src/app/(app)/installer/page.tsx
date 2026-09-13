@@ -26,6 +26,7 @@ import { getJobProgress } from "@/lib/job-progress";
 import { JobStepPopup } from "@/components/job-step-popup";
 import { listMyAvailability } from "@/lib/data/crew-availability";
 import { MyAvailability } from "./my-availability";
+import { InstallerIssueForm } from "./installer-issue-form";
 
 export const metadata: Metadata = { title: "My work" };
 export const dynamic = "force-dynamic";
@@ -221,6 +222,14 @@ export default async function InstallerHomePage() {
                               <MapPin className="size-3" /> {job.site_city || "Map"}
                             </a>
                           ) : null}
+                          {job.customer_phone ? (
+                            <a
+                              href={`tel:${job.customer_phone}`}
+                              className="inline-flex items-center gap-1 font-medium text-primary"
+                            >
+                              {job.customer_phone}
+                            </a>
+                          ) : null}
                         </div>
                       </div>
                       <JobStatusBadge status={job.status} />
@@ -276,6 +285,7 @@ export default async function InstallerHomePage() {
                         <JobPhotos jobId={job.id} photos={photos} />
                       </div>
                     </details>
+                    <InstallerIssueForm jobId={job.id} />
                   </CardContent>
                 </Card>
               );

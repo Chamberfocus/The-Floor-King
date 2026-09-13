@@ -116,3 +116,65 @@ export async function listOpenSourceKeys(
     .map((r) => r.source_key as string | null)
     .filter((k): k is string => !!k);
 }
+
+export async function listOpenOfficeTasksForCustomer(
+  customerId: string,
+): Promise<OfficeTaskRow[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("office_tasks")
+    .select("*")
+    .eq("customer_id", customerId)
+    .in("status", ["open", "in_progress"])
+    .order("due_at", { ascending: true, nullsFirst: false })
+    .limit(20);
+  return (data ?? []) as OfficeTaskRow[];
+}
+
+export async function listOpenServiceCallbacks(): Promise<
+  {
+    id: string;
+    status: string;
+    category: string;
+    description: string | null;
+    follow_up_at: string | null;
+    customer_id: string;
+    job_id: string | null;
+    customer_name: string | null;
+  }[]
+> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("service_callbacks")
+    .select(
+      "id, status, category, description, follow_up_at, customer_id, job_id, customer:customers(full_name)",
+    )
+    .in("status", ["open", "scheduled", "in_progress", "waiting"])
+    .order("follow_up_at", { ascending: true, nullsFirst: false })
+    .limit(80);
+  return ((data ?? []) as unknown as {
+    id: string;
+    status: string;
+    category: string;
+    description: string | null;
+    follow_up_at: string | null;
+    customer_id: string;
+    job_id: string | null;
+    customer?:
+      | { full_name: string | null }
+      | { full_name: string | null }[]
+      | null;
+  }[]).map((r) => {
+    const customer = Array.isArray(r.customer) ? r.customer[0] ?? null : r.customer;
+    return {
+      id: r.id,
+      status: r.status,
+      category: r.category,
+      description: r.description,
+      follow_up_at: r.follow_up_at,
+      customer_id: r.customer_id,
+      job_id: r.job_id,
+      customer_name: customer?.full_name ?? null,
+    };
+  });
+}

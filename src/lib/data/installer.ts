@@ -13,7 +13,7 @@ import type { JobSatisfaction } from "./jobs";
 import type { Job, CustomerDocument, EstimateLineItem } from "@/lib/types";
 
 export interface InstallerJob {
-  job: Job & { customer_name: string | null };
+  job: Job & { customer_name: string | null; customer_phone: string | null };
   balance: number;
   hasInvoice: boolean;
   collectsBalance: boolean;
@@ -52,13 +52,17 @@ export async function getInstallerHome(
   const memberCrewIds = (crewRows ?? []).map((c) => c.id as string);
   const { data } = await admin
     .from("jobs")
-    .select("*, customer:customers(full_name, workflow_stage_id)")
+    .select("*, customer:customers(full_name, workflow_stage_id, phone)")
     .or(installerAssignmentOrFilter(userId, memberCrewIds))
     .in("status", ["unscheduled", "scheduled", "in_progress", "completed"])
     .order("scheduled_date", { ascending: true });
   const jobsRaw = dedupeJobsById(
     ((data ?? []) as (Job & {
-      customer?: { full_name: string | null; workflow_stage_id: string | null } | null;
+      customer?: {
+        full_name: string | null;
+        workflow_stage_id: string | null;
+        phone: string | null;
+      } | null;
     })[]).filter((j) =>
       installerSeesJob({
         assignedTo: j.assigned_to,
@@ -165,7 +169,11 @@ export async function getInstallerHome(
       j.option_id && !jobLines.length ? (linesByOption.get(j.option_id) ?? []) : [];
     const scopeLines = resolveOperationalLines(jobLines, estimateLines);
     jobs.push({
-      job: { ...j, customer_name: j.customer?.full_name ?? null },
+      job: {
+        ...j,
+        customer_name: j.customer?.full_name ?? null,
+        customer_phone: j.customer?.phone ?? null,
+      },
       balance: bal.balance,
       hasInvoice: bal.hasInvoice,
       collectsBalance: j.installer_collects_balance ?? globalCollects,

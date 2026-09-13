@@ -59,7 +59,7 @@ export default async function ReportsPage() {
 
   return (
     <div>
-      <PageHeader title="Reports" description="Know how your business is doing." />
+      <PageHeader title="Reports" description="Operational CRM figures — not posted GL. Accounting posting remains off." />
       <div className="grid gap-4 sm:grid-cols-2">
         {reports.map((r) => {
           const Icon = r.icon;

@@ -38,6 +38,7 @@ import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getJobOpenBalance } from "@/lib/data/invoices";
 import { recomputeInvoiceStatus } from "@/lib/invoice-recompute";
 import { buildInvoiceFromOrder } from "@/lib/data/order-invoice";
+import { onJobCompletedOps } from "@/lib/data/ops-automation";
 import type {
   JobDeliveryType,
   JobStatus,
@@ -1293,7 +1294,7 @@ export async function setJobStatus(formData: FormData): Promise<void> {
 
   const { data: job } = await supabase
     .from("jobs")
-    .select("customer_id")
+    .select("customer_id, title")
     .eq("id", id)
     .maybeSingle();
   const customerId = (job?.customer_id as string | null) ?? null;
@@ -1312,6 +1313,20 @@ export async function setJobStatus(formData: FormData): Promise<void> {
     await releaseJobReservations(supabase, [id]);
     revalidatePath("/inventory");
     revalidatePath("/warehouse");
+  }
+
+  if (status === "completed") {
+    const {
+      data: { user: actor },
+    } = await supabase.auth.getUser();
+    const bal = await getJobOpenBalance(id).catch(() => ({ balance: 0 }));
+    void onJobCompletedOps({
+      jobId: id,
+      customerId,
+      actorId: actor?.id ?? null,
+      title: (job?.title as string | null) ?? null,
+      openBalance: bal.balance,
+    });
   }
 
   // Fan out to every view that shows the job (installer, warehouse, board,

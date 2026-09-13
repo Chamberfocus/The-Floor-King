@@ -75,7 +75,7 @@ export default async function FinancialsPage({
     <div>
       <PageHeader
         title="Financials"
-        description="How the business is doing — money in, money out, and what's owed."
+        description="Operational cash and job figures from the CRM — not posted general-ledger books. Accounting posting remains off."
       >
         <div className="flex gap-2">
           <Link

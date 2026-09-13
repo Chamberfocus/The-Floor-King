@@ -128,6 +128,8 @@ import { setEstimateStatus } from "@/app/(app)/estimates/actions";
 import { CancelCustomer } from "./cancel-customer";
 import { listCancelReasons } from "@/lib/data/cancel-reasons";
 import { AiFollowup } from "./ai-followup";
+import { CustomerNextActionCard } from "./customer-next-action";
+import { listOpenOfficeTasksForCustomer } from "@/lib/data/ops-glue";
 import {
   CustomerTabs,
   TabGrid,
@@ -246,6 +248,7 @@ export default async function CustomerPage({
       getOrgSettings(),
     ]);
   const stages = await listWorkflowStages();
+  const openTasks = await listOpenOfficeTasksForCustomer(id).catch(() => []);
   const handoffMembers = await listHandoffMembers();
   // Read-only per-job estimated-vs-actual costing for the Job Costing tab.
   const costing = await getCustomerJobCosting(id);
@@ -1368,16 +1371,17 @@ export default async function CustomerPage({
                   </div>
                 ) : null}
 
-                {customer.next_action_due ? (
-                  <div className="rounded-lg border bg-card p-5 shadow-sm">
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Next action due
-                    </p>
-                    <p className="text-sm font-semibold">
-                      {formatDateTime(customer.next_action_due)}
-                    </p>
-                  </div>
-                ) : null}
+                <CustomerNextActionCard
+                  customerId={customer.id}
+                  nextAction={
+                    stages.find((s) => s.id === customer.workflow_stage_id)
+                      ?.next_action ?? null
+                  }
+                  nextActionDue={customer.next_action_due}
+                  stuck={overdue}
+                  tasks={openTasks}
+                  canSnooze={(SALES_ROLES as string[]).includes(profile.role)}
+                />
               </aside>
             </div>
           </TabSection>

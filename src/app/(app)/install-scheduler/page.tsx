@@ -28,6 +28,7 @@ interface Row {
   customer_id: string | null;
   scheduled_date: string | null;
   site_city: string | null;
+  warehouse_ready_at: string | null;
   customer?: { full_name: string | null } | null;
 }
 
@@ -38,7 +39,7 @@ export default async function InstallSchedulerPage() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("jobs")
-    .select("id, title, customer_id, scheduled_date, site_city, customer:customers(full_name)")
+    .select("id, title, customer_id, scheduled_date, site_city, warehouse_ready_at, customer:customers(full_name)")
     .in("status", ["unscheduled", "scheduled", "in_progress"])
     // Cash-and-carry orders are pickup-only — they never need an install date.
     .or("delivery_type.is.null,delivery_type.neq.cash_carry")
@@ -50,6 +51,8 @@ export default async function InstallSchedulerPage() {
   });
 
   const needs = jobs.filter((j) => !j.scheduled_date).slice(0, 20);
+  const readyNeeds = needs.filter((j) => j.warehouse_ready_at);
+  const blockedNeeds = needs.filter((j) => !j.warehouse_ready_at);
   const upcoming = jobs.filter((j) => j.scheduled_date).slice(0, 40);
 
   // ---- Install calendar: every booked install (recent past + all future),
@@ -168,13 +171,17 @@ export default async function InstallSchedulerPage() {
             </span>
           </h2>
           <p className="mb-3 text-xs text-muted-foreground">
-            Click a customer to open its scheduler.
+            {readyNeeds.length} warehouse-ready
+            {blockedNeeds.length
+              ? ` · ${blockedNeeds.length} still waiting on materials (scheduling still requires the warehouse-ready gate or an override)`
+              : ""}
+            . Click a customer to open its scheduler.
           </p>
           <div className="space-y-2">
             {needsProps.map(({ j, props }) => (
               <ClientScheduleRow
                 key={j.id}
-                name={name(j)}
+                name={`${name(j)}${j.warehouse_ready_at ? "" : " · waiting on materials"}`}
                 city={j.site_city}
                 customerId={j.customer_id}
               >

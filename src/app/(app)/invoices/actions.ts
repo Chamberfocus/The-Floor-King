@@ -1025,6 +1025,22 @@ export async function recordPayment(formData: FormData): Promise<void> {
   }
   if (inv?.job_id) revalidatePath(`/jobs/${inv.job_id}`);
 
+  void (async () => {
+    const { onMoneyReceivedOps } = await import("@/lib/data/ops-automation");
+    let openJobBalance: number | null = null;
+    if (inv?.job_id) {
+      const { getJobOpenBalance } = await import("@/lib/data/invoices");
+      const bal = await getJobOpenBalance(inv.job_id as string).catch(() => null);
+      openJobBalance = bal?.balance ?? null;
+    }
+    await onMoneyReceivedOps({
+      customerId: (inv?.customer_id as string | null) ?? null,
+      jobId: (inv?.job_id as string | null) ?? null,
+      actorId: user?.id ?? null,
+      openJobBalance,
+    });
+  })();
+
   revalidatePath(`/invoices/${invoiceId}`);
   refreshMoneyViews();
 }
@@ -1128,6 +1144,14 @@ export async function recordCardPayment(
     });
     if (dep.error) return { error: dep.error };
     await advanceFromAutoAction(customerId, "collect_deposit");
+    void (async () => {
+      const { onMoneyReceivedOps } = await import("@/lib/data/ops-automation");
+      await onMoneyReceivedOps({
+        customerId,
+        jobId: null,
+        actorId: user?.id ?? null,
+      });
+    })();
     revalidatePath(`/customers/${customerId}`);
     refreshMoneyViews();
     return { error: null };
@@ -1147,6 +1171,28 @@ export async function recordCardPayment(
 
   await recomputeStatus(supabase, invoiceId);
   await advanceFromAutoAction(customerId, "collect_deposit");
+  const { data: paidInv } = await supabase
+    .from("invoices")
+    .select("job_id")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  void (async () => {
+    const { onMoneyReceivedOps } = await import("@/lib/data/ops-automation");
+    let openJobBalance: number | null = null;
+    if (paidInv?.job_id) {
+      const { getJobOpenBalance } = await import("@/lib/data/invoices");
+      const bal = await getJobOpenBalance(paidInv.job_id as string).catch(
+        () => null,
+      );
+      openJobBalance = bal?.balance ?? null;
+    }
+    await onMoneyReceivedOps({
+      customerId,
+      jobId: (paidInv?.job_id as string | null) ?? null,
+      actorId: user?.id ?? null,
+      openJobBalance,
+    });
+  })();
   revalidatePath(`/customers/${customerId}`);
   revalidatePath(`/invoices/${invoiceId}`);
   refreshMoneyViews();
