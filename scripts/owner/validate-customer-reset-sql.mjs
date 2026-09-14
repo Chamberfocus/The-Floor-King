@@ -147,6 +147,14 @@ for (const [label, path] of Object.entries(FILES)) {
   }
 }
 
+const preflightRaw = readFileSync(FILES.preflight, "utf8");
+if (statementForbidden(preflightRaw, /\bunnest\s*\(/i)) {
+  errors.push("preflight: contains unnest()");
+}
+if (statementForbidden(preflightRaw, /\bwith\s+ordinality\b/i)) {
+  errors.push("preflight: contains WITH ORDINALITY");
+}
+
 const pre = readFileSync(FILES.preflight, "utf8");
 const preBody = stripComments(pre);
 if (/\bdelete\s+from\b/i.test(preBody)) errors.push("preflight: DELETE");
