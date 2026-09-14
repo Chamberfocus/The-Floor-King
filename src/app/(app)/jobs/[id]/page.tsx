@@ -51,6 +51,11 @@ import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getJobOpenBalance } from "@/lib/data/invoices";
 import { listJobLabor } from "@/lib/data/job-labor";
 import { getJobMaterials } from "@/lib/data/job-materials";
+import { getOrderByJobId } from "@/lib/data/orders";
+import {
+  canStageCustomerOrder,
+  customerOrderStagingBlockMessage,
+} from "@/lib/order-warehouse-gates";
 import { getMeasurementDocuments, getJobPhotos } from "@/lib/data/documents";
 import { getJobSatisfaction } from "@/lib/data/jobs";
 import { setJobShowPrices, setJobCollectsBalance } from "./wo-actions";
@@ -148,6 +153,13 @@ export default async function JobPage({
 
   const job = await getJob(id);
   if (!job) notFound();
+  const linkedOrder = await getOrderByJobId(job.id);
+  const orderMaySendToWarehouse =
+    !linkedOrder ||
+    canStageCustomerOrder({
+      status: linkedOrder.status,
+      stockStatus: linkedOrder.stock_status,
+    });
   const progress = getJobProgress(job);
 
   const org = await getOrgSettings();
@@ -386,6 +398,7 @@ export default async function JobPage({
         warehouseSubmittedAt: job.warehouse_submitted_at ?? null,
       },
       backTo: `/jobs/${job.id}`,
+      maySendToWarehouse: orderMaySendToWarehouse,
     }),
   };
   // Step one, tickable here too — the work order shows the same list, and
@@ -1293,6 +1306,7 @@ export default async function JobPage({
       {/* Cash-and-carry / pickup: send to the warehouse to cut & stage (no
           install date, so it doesn't auto-submit) */}
       {isStaff &&
+      orderMaySendToWarehouse &&
       (job.delivery_type === "cash_carry" ||
         job.delivery_type === "installer_pickup") &&
       !job.warehouse_submitted_at ? (
@@ -1333,9 +1347,14 @@ export default async function JobPage({
                   ? "Accepted — being staged."
                   : job.warehouse_submitted_at
                     ? "Submitted to the warehouse — awaiting acceptance."
-                    : "Not sent yet. Sends automatically once the install is scheduled, or start prep now."}
+                    : linkedOrder && !orderMaySendToWarehouse
+                      ? customerOrderStagingBlockMessage({
+                          status: linkedOrder.status,
+                          stockStatus: linkedOrder.stock_status,
+                        })
+                      : "Not sent yet. Sends automatically once the install is scheduled, or start prep now."}
             </p>
-            {!job.warehouse_submitted_at ? (
+            {!job.warehouse_submitted_at && orderMaySendToWarehouse ? (
               <form action={submitJobToWarehouse}>
                 <input type="hidden" name="job_id" value={job.id} />
                 <ConfirmButton

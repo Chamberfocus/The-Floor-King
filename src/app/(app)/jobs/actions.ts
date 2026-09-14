@@ -21,6 +21,7 @@ import { assessJobStatusTransition, jobStatusUpdatePatch } from "@/lib/job-statu
 import { findInstallerScheduleConflict } from "@/lib/scheduling-conflicts";
 import { warehouseJobIdFromForm } from "@/lib/job-warehouse";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
+import { customerOrderStagingBlockMessage } from "@/lib/order-warehouse-gates";
 
 // Back-half pipeline stages carry no auto_action marker, so job-lifecycle events
 // map to them by name (forward-only, best-effort).
@@ -1719,17 +1720,37 @@ async function warehouseUsers(
   }));
 }
 
+/** True when this job is a customer-order job that may not be staged yet. */
+async function customerOrderJobStagingBlock(
+  db: WhDb,
+  jobId: string,
+): Promise<string | null> {
+  const { data: order } = await db
+    .from("orders")
+    .select("id, status, stock_status")
+    .eq("job_id", jobId)
+    .maybeSingle();
+  if (!order) return null;
+  return customerOrderStagingBlockMessage({
+    status: order.status as string,
+    stockStatus: order.stock_status as string,
+  });
+}
+
 /**
  * Send a scheduled job to the warehouse ONCE — assigns a person (auto if there's
  * a single warehouse user, else leaves it open) and notifies them. No-op if the
  * job isn't scheduled yet or was already submitted. Runs elevated so it works no
  * matter which role scheduled the install (warehouse/customers/profiles reads
  * are otherwise RLS-restricted).
+ *
+ * Customer-order jobs additionally require owner approval + in_stock. Other
+ * install jobs are unchanged.
  */
 async function ensureWarehouseSubmitted(
   jobId: string,
   opts?: { force?: boolean },
-): Promise<void> {
+): Promise<{ error: string | null }> {
   const db = createAdminClient() as unknown as WhDb;
   const { data: job } = await db
     .from("jobs")
@@ -1738,22 +1759,30 @@ async function ensureWarehouseSubmitted(
     )
     .eq("id", jobId)
     .maybeSingle();
-  if (!job || job.warehouse_submitted_at) return;
+  if (!job) return { error: "That job no longer exists." };
+  if (job.warehouse_submitted_at) return { error: null };
   // Installs go to the warehouse once scheduled; cash-and-carry / pickup orders
   // go when explicitly sent (force), since they have no install date.
-  if (!job.scheduled_date && !opts?.force) return;
+  if (!job.scheduled_date && !opts?.force) return { error: null };
+
+  const orderBlock = await customerOrderJobStagingBlock(db, jobId);
+  if (orderBlock) return { error: orderBlock };
 
   const whu = await warehouseUsers(db);
   let assignee = (job.warehouse_assigned_to as string | null) ?? null;
   if (!assignee && whu.length === 1) assignee = whu[0].id;
 
-  await db
+  const { data: submitted } = await db
     .from("jobs")
     .update({
       warehouse_submitted_at: new Date().toISOString(),
       warehouse_assigned_to: assignee,
     })
-    .eq("id", jobId);
+    .eq("id", jobId)
+    .is("warehouse_submitted_at", null)
+    .select("id")
+    .maybeSingle();
+  if (!submitted) return { error: null };
 
   const cust = job.customer as unknown as { full_name: string | null } | null;
   const custName = cust?.full_name ?? "Customer";
@@ -1775,15 +1804,19 @@ async function ensureWarehouseSubmitted(
       ),
     });
   }
+  return { error: null };
 }
 
 /** Send a job to the warehouse now (cash-and-carry / pickup — no install date).
  *  Callable directly (e.g. from order approval) or via the form wrapper. */
-export async function sendJobToWarehouse(jobId: string): Promise<void> {
-  if (!jobId) return;
-  await ensureWarehouseSubmitted(jobId, { force: true });
+export async function sendJobToWarehouse(
+  jobId: string,
+): Promise<{ error: string | null }> {
+  if (!jobId) return { error: "Missing job." };
+  const result = await ensureWarehouseSubmitted(jobId, { force: true });
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/warehouse");
+  return result;
 }
 
 export async function submitJobToWarehouse(formData: FormData): Promise<void> {

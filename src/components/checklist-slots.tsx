@@ -28,6 +28,7 @@ export function buildChecklistSlots({
   estimate,
   job,
   backTo,
+  maySendToWarehouse = true,
 }: {
   /** The estimate this checklist is about, if there is one. */
   estimate: {
@@ -40,6 +41,8 @@ export function buildChecklistSlots({
   /** Where to land afterwards — the page hosting the checklist, so the action
    *  returns you to the list you were reading instead of the record's page. */
   backTo: string;
+  /** Customer-order jobs may only send after owner approval + in_stock. */
+  maySendToWarehouse?: boolean;
 }): Record<string, ReactNode> {
   const slots: Record<string, ReactNode> = {};
 
@@ -98,7 +101,7 @@ export function buildChecklistSlots({
     }
   }
 
-  if (job && !job.warehouseSubmittedAt) {
+  if (job && !job.warehouseSubmittedAt && maySendToWarehouse) {
     slots.staging = (
       <form action={submitJobToWarehouse}>
         <input type="hidden" name="job_id" value={job.id} />

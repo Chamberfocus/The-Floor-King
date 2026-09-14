@@ -12,9 +12,107 @@ import { buildInvoiceFromOrder } from "@/lib/data/order-invoice";
 import { resolveOrCreateCustomer } from "@/lib/data/customer-resolve";
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import type { OrderItem, OrderStockStatus } from "@/lib/types";
+import {
+  WAREHOUSE_STOCK_CHECK_REQUIRED,
+  canApproveCustomerOrder,
+  canStageCustomerOrder,
+} from "@/lib/order-warehouse-gates";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
+}
+
+function orderCutList(items: OrderItem[]): string {
+  return items
+    .map((it) => {
+      const desc = [it.description, it.color, it.style].filter(Boolean).join(", ");
+      const qty = it.quantity ? ` (${it.quantity} ${it.unit})` : "";
+      const cuts = it.cut_notes ? ` — cuts: ${it.cut_notes}` : "";
+      return `• ${desc || "Item"}${qty}${cuts}`;
+    })
+    .join("\n");
+}
+
+/**
+ * Create the cash-and-carry warehouse job at most once. Concurrent in_stock
+ * clicks may insert a spare row; the loser is deleted after the job_id lock.
+ */
+async function ensureOrderCashCarryJob(args: {
+  order: {
+    id: string;
+    job_id: string | null;
+    contact_name: string | null;
+    notes: string | null;
+    customer_id: string | null;
+  };
+  items: OrderItem[];
+  uid: string | null;
+}): Promise<string | null> {
+  if (args.order.job_id) return args.order.job_id;
+  if (!args.order.customer_id) return null;
+  const admin = createAdminClient();
+  const custName = args.order.contact_name || "Order";
+  const jobNotes = `To stage: CASH & CARRY — cut for pickup\n${orderCutList(args.items)}${
+    args.order.notes ? `\n\nCustomer note: ${args.order.notes}` : ""
+  }`;
+  const { data: job } = await admin
+    .from("jobs")
+    .insert({
+      customer_id: args.order.customer_id,
+      title: `Carpet order — ${custName}`,
+      delivery_type: "cash_carry",
+      status: "unscheduled",
+      notes: jobNotes,
+      created_by: args.uid,
+    })
+    .select("id")
+    .single();
+  const insertedId = (job?.id as string | undefined) ?? null;
+  if (!insertedId) return null;
+  await admin
+    .from("orders")
+    .update({ job_id: insertedId })
+    .eq("id", args.order.id)
+    .is("job_id", null);
+  const { data: latest } = await admin
+    .from("orders")
+    .select("job_id")
+    .eq("id", args.order.id)
+    .maybeSingle();
+  const kept = (latest?.job_id as string | null) ?? null;
+  if (kept && kept !== insertedId) {
+    await admin.from("jobs").delete().eq("id", insertedId);
+  }
+  return kept ?? insertedId;
+}
+
+async function sendApprovedInStockOrderToWarehouse(args: {
+  order: {
+    id: string;
+    job_id: string | null;
+    contact_name: string | null;
+    notes: string | null;
+    customer_id: string | null;
+    status: string;
+    stock_status: string;
+  };
+  items: OrderItem[];
+  uid: string | null;
+}): Promise<void> {
+  if (
+    !canStageCustomerOrder({
+      status: args.order.status,
+      stockStatus: args.order.stock_status,
+    })
+  ) {
+    return;
+  }
+  const jobId = await ensureOrderCashCarryJob({
+    order: args.order,
+    items: args.items,
+    uid: args.uid,
+  });
+  if (jobId) await sendJobToWarehouse(jobId);
 }
 
 /** Owner/office approves an order → creates a cash-and-carry job and sends it to
@@ -40,6 +138,9 @@ export async function approveOrder(formData: FormData): Promise<{
     .eq("id", orderId)
     .maybeSingle();
   if (!order || order.status !== "submitted") return { error: "That order is not waiting on approval." };
+  if (!canApproveCustomerOrder(order.stock_status as string)) {
+    return { error: WAREHOUSE_STOCK_CHECK_REQUIRED };
+  }
   const { data: itemData } = await supabase
     .from("order_items")
     .select("*")
@@ -81,78 +182,80 @@ export async function approveOrder(formData: FormData): Promise<{
   }
   if (!customerId) return { error: "Couldn't attach a customer." };
 
-  // Build the warehouse cut list from the order items.
-  const cutList = items
-    .map((it) => {
-      const desc = [it.description, it.color, it.style].filter(Boolean).join(", ");
-      const qty = it.quantity ? ` (${it.quantity} ${it.unit})` : "";
-      const cuts = it.cut_notes ? ` — cuts: ${it.cut_notes}` : "";
-      return `• ${desc || "Item"}${qty}${cuts}`;
-    })
-    .join("\n");
-  const custName = (order.contact_name as string) || "Order";
-  const jobNotes = `To stage: CASH & CARRY — cut for pickup\n${cutList}${
-    order.notes ? `\n\nCustomer note: ${order.notes}` : ""
-  }`;
-
-  const { data: job } = await supabase
-    .from("jobs")
-    .insert({
-      customer_id: customerId,
-      title: `Carpet order — ${custName}`,
-      delivery_type: "cash_carry",
-      status: "unscheduled",
-      notes: jobNotes,
-      created_by: uid,
-    })
-    .select("id")
-    .single();
-  const jobId = (job?.id as string) ?? null;
-
   const readyDate = str(formData.get("ready_date")) || null;
   const readyKindRaw = str(formData.get("ready_kind"));
   const readyKind =
     readyKindRaw === "on_order" || readyKindRaw === "from_stock" ? readyKindRaw : null;
 
-  await supabase
+  // Re-read immediately before the status lock so a stale UI cannot approve
+  // an order the warehouse has not checked (or has since changed).
+  const { data: latest } = await supabase
+    .from("orders")
+    .select("id, status, stock_status, job_id, customer_id, contact_name, contact_email, notes")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (!latest || latest.status !== "submitted") {
+    return { error: "That order is not waiting on approval." };
+  }
+  if (!canApproveCustomerOrder(latest.stock_status as string)) {
+    return { error: WAREHOUSE_STOCK_CHECK_REQUIRED };
+  }
+  const stockNow = latest.stock_status as OrderStockStatus;
+
+  const { data: locked } = await supabase
     .from("orders")
     .update({
       status: "approved",
-      job_id: jobId,
       customer_id: customerId,
       approved_by: uid,
       approved_at: new Date().toISOString(),
-      // Columns arrive in 0151; a pre-migration database just ignores the
-      // promise rather than failing the whole approval.
       ...(readyDate ? { ready_date: readyDate } : {}),
       ...(readyKind ? { ready_kind: readyKind } : {}),
     })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .eq("status", "submitted")
+    .select("id")
+    .maybeSingle();
+  if (!locked) {
+    return { error: "That order is not waiting on approval." };
+  }
 
-  // Send the new cash-and-carry job to the warehouse to cut & stage.
-  if (jobId) await sendJobToWarehouse(jobId);
+  if (stockNow === "in_stock") {
+    await sendApprovedInStockOrderToWarehouse({
+      order: {
+        id: orderId,
+        job_id: (latest.job_id as string | null) ?? null,
+        contact_name: (latest.contact_name as string | null) ?? null,
+        notes: (latest.notes as string | null) ?? null,
+        customer_id: customerId,
+        status: "approved",
+        stock_status: stockNow,
+      },
+      items,
+      uid,
+    });
+  }
 
-  // Let the client know it's approved.
-  /**
-   * Tell them what they actually want to know: when they can collect it, and
-   * whether we're cutting what's on the shelf or waiting on the mill. This used
-   * to send the same sentence either way — "we'll let you know as soon as it's
-   * ready" — which is the shop knowing the answer and not saying it.
-   */
-  const email = order.contact_email as string | null;
+  const custName = (latest.contact_name as string) || "Order";
+  const email = latest.contact_email as string | null;
   if (email) {
     const when = readyDate ? formatDate(readyDate) : null;
     const onOrder = readyKind === "on_order";
-    const line = when
-      ? onOrder
-        ? `<p>We don't have all of this on the shelf, so we're ordering it in for you. It should be cut and ready to collect on <strong>${when}</strong>.</p>`
-        : `<p>We have your material in stock. It'll be cut and ready to collect on <strong>${when}</strong>.</p>`
-      : `<p>Your order is approved and headed to our warehouse to be cut. We'll let you know as soon as it's ready for pickup.</p>`;
+    const headingWarehouse = stockNow === "in_stock";
+    const line = headingWarehouse
+      ? when
+        ? onOrder
+          ? `<p>We don't have all of this on the shelf, so we're ordering it in for you. It should be cut and ready to collect on <strong>${when}</strong>.</p>`
+          : `<p>We have your material in stock. It'll be cut and ready to collect on <strong>${when}</strong>.</p>`
+        : `<p>Your order is approved and headed to our warehouse to be cut. We'll let you know as soon as it's ready for pickup.</p>`
+      : `<p>Your order is approved. Our warehouse reported a material shortage, so it is not headed to staging yet — we'll be in touch about timing.</p>`;
     await sendEmail({
       to: email,
-      subject: when
-        ? `Your order is approved — ready ${when}`
-        : "Your order is approved ✅",
+      subject: headingWarehouse
+        ? when
+          ? `Your order is approved — ready ${when}`
+          : "Your order is approved ✅"
+        : "Your order is approved — we'll confirm material",
       html: emailLayout(
         "Order approved",
         `<p>Hi ${custName.split(" ")[0]},</p>
@@ -172,7 +275,8 @@ export async function approveOrder(formData: FormData): Promise<{
 }
 
 /** Warehouse (or staff) flags whether an order is in stock → pings the owner.
- *  Runs elevated (warehouse can read orders but not write them under RLS). */
+ *  Runs elevated (warehouse can read orders but not write them under RLS).
+ *  Writes only stock columns — never approval, price, invoice, or accounting. */
 export async function reportOrderStock(formData: FormData): Promise<void> {
   const orderId = str(formData.get("order_id"));
   const status = str(formData.get("stock_status")) as OrderStockStatus;
@@ -206,7 +310,9 @@ export async function reportOrderStock(formData: FormData): Promise<void> {
 
   const { data: order } = await admin
     .from("orders")
-    .select("contact_name")
+    .select(
+      "id, status, stock_status, job_id, customer_id, contact_name, notes",
+    )
     .eq("id", orderId)
     .maybeSingle();
   const who = (order?.contact_name as string) || "an order";
@@ -225,8 +331,38 @@ export async function reportOrderStock(formData: FormData): Promise<void> {
       { label: "Open orders", url: `${siteUrl()}/orders` },
     ),
   });
+
+  if (
+    order &&
+    canStageCustomerOrder({
+      status: order.status as string,
+      stockStatus: order.stock_status as string,
+    })
+  ) {
+    const { data: itemData } = await admin
+      .from("order_items")
+      .select("*")
+      .eq("order_id", orderId)
+      .order("position", { ascending: true });
+    await sendApprovedInStockOrderToWarehouse({
+      order: {
+        id: order.id as string,
+        job_id: (order.job_id as string | null) ?? null,
+        contact_name: (order.contact_name as string | null) ?? null,
+        notes: (order.notes as string | null) ?? null,
+        customer_id: (order.customer_id as string | null) ?? null,
+        status: order.status as string,
+        stock_status: order.stock_status as string,
+      },
+      items: (itemData ?? []) as OrderItem[],
+      uid: user.id,
+    });
+  }
+
   revalidatePath("/orders");
   revalidatePath("/warehouse");
+  revalidatePath("/dashboard");
+  revalidatePath("/jobs");
 }
 
 /** Owner/office relays the stock status to the customer (portal note + email). */

@@ -9,6 +9,7 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listOrders, getProductStock, type ProductStock } from "@/lib/data/orders";
+import { getProfileNames } from "@/lib/data/customers";
 import { ApproveOrder } from "./approve-order";
 import {
   ORDER_STATUS_BADGE,
@@ -19,7 +20,6 @@ import {
 import { cn } from "@/lib/utils";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import {
-  approveOrder,
   declineOrder,
   deleteOrder,
   reportOrderStock,
@@ -32,6 +32,11 @@ import { OrderLinkCard } from "@/components/order-link-card";
 import { CutList } from "@/components/cut-list";
 import { DateNeeded } from "@/components/date-needed";
 import { COMPANY_NAME } from "@/lib/nav";
+import {
+  OFFICE_STOCK_HEADING,
+  WAREHOUSE_STOCK_CHECK_REQUIRED,
+  officeWarehouseStockBanner,
+} from "@/lib/order-warehouse-gates";
 
 export const metadata: Metadata = { title: "Customer Orders" };
 export const dynamic = "force-dynamic";
@@ -42,6 +47,9 @@ export default async function OrdersPage() {
   const orders = await listOrders();
   const stock = await getProductStock(
     orders.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? "")),
+  );
+  const checkerNames = await getProfileNames(
+    orders.map((o) => o.stock_checked_by ?? "").filter(Boolean),
   );
   const pending = orders.filter((o) => o.status === "submitted");
   const rest = orders.filter((o) => o.status !== "submitted");
@@ -122,6 +130,41 @@ export default async function OrdersPage() {
             ))}
           </ul>
           {o.notes ? <p className="text-sm text-muted-foreground">Note: {o.notes}</p> : null}
+          {(() => {
+            const banner = officeWarehouseStockBanner(o.stock_status);
+            const tone =
+              banner.tone === "ok"
+                ? "border-emerald-400/60 bg-emerald-50 dark:bg-emerald-950/30"
+                : banner.tone === "warn"
+                  ? "border-amber-400/60 bg-amber-50 dark:bg-amber-950/30"
+                  : banner.tone === "bad"
+                    ? "border-rose-400/60 bg-rose-50 dark:bg-rose-950/30"
+                    : "border-zinc-300 bg-muted/40";
+            const checker =
+              o.stock_checked_by ? checkerNames[o.stock_checked_by] : null;
+            return (
+              <div className={cn("rounded-md border px-3 py-2 text-sm", tone)}>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {banner.kicker}
+                </div>
+                <div className="font-semibold">{banner.headline}</div>
+                {banner.showChecker && o.stock_checked_at ? (
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    Checked by: {checker || "Warehouse"}
+                    <span className="ml-2">Checked: {formatDateTime(o.stock_checked_at)}</span>
+                  </div>
+                ) : null}
+                {banner.showNote && o.stock_note ? (
+                  <p className="mt-1 text-sm">{o.stock_note}</p>
+                ) : null}
+                {o.status === "submitted" && o.stock_status === "unknown" ? (
+                  <p className="mt-1 text-xs font-medium">
+                    {WAREHOUSE_STOCK_CHECK_REQUIRED}
+                  </p>
+                ) : null}
+              </div>
+            );
+          })()}
           {/* What we told them, so nobody has to go digging through sent mail
               to find out what was promised. */}
           {o.ready_date ? (
@@ -138,16 +181,18 @@ export default async function OrdersPage() {
             </div>
           ) : null}
 
-          {o.stock_note ? (
+          {o.stock_note && o.stock_status === "unknown" ? (
             <p className="text-sm">
               <span className="text-muted-foreground">Warehouse:</span> {o.stock_note}
             </p>
           ) : null}
 
-          {/* Stock: quick-set + tell the customer */}
+          {/* Stock: authorized office override + tell the customer */}
           {o.status === "submitted" || o.status === "approved" ? (
             <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2">
-              <span className="text-xs font-medium text-muted-foreground">Stock:</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {OFFICE_STOCK_HEADING.officeOverride}:
+              </span>
               {(["in_stock", "out_of_stock", "partial"] as const).map((st) => (
                 <form key={st} action={reportOrderStock}>
                   <input type="hidden" name="order_id" value={o.id} />
@@ -192,6 +237,11 @@ export default async function OrdersPage() {
             </div>
           ) : o.status === "approved" ? (
             <div className="flex flex-wrap items-center gap-3 border-t pt-3 text-sm">
+              {o.stock_status !== "in_stock" && !o.job_id ? (
+                <p className="w-full text-amber-800 dark:text-amber-300">
+                  Approved — not sent to warehouse staging until stock is fully IN STOCK.
+                </p>
+              ) : null}
               {o.invoice_id ? (
                 <Link href={`/invoices/${o.invoice_id}`} className="text-primary hover:underline">Open invoice →</Link>
               ) : (
@@ -242,7 +292,7 @@ export default async function OrdersPage() {
       <RealtimeRefresh table="orders" />
       <PageHeader
         title="Customer Orders"
-        description="Carpet orders submitted by customers. Approve to send them to the warehouse for cutting & pickup."
+        description="Carpet orders submitted by customers. Warehouse checks stock first; approve only after that result. In-stock approvals go to the warehouse to cut &amp; stage."
       />
       <OrderLinkCard companyName={COMPANY_NAME} />
       {orders.length === 0 ? (

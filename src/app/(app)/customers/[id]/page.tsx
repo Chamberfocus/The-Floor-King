@@ -39,6 +39,7 @@ import { listEstimatesForCustomer } from "@/lib/data/estimates";
 import { listJobsForCustomer, getJobSatisfaction } from "@/lib/data/jobs";
 import { listOrdersForCustomer } from "@/lib/data/orders";
 import { isCashCarryJob } from "@/lib/customer-list";
+import { canStageCustomerOrder } from "@/lib/order-warehouse-gates";
 import {
   createJobFromEstimate,
   submitJobToWarehouse,
@@ -456,6 +457,15 @@ export default async function CustomerPage({
    */
   const singleWork = jobChecklists.length === 1;
   const liveJob = jobs.find((j) => j.status !== "cancelled") ?? null;
+  const liveOrder = liveJob
+    ? pickupOrders.find((o) => o.job_id === liveJob.id) ?? null
+    : null;
+  const maySendToWarehouse =
+    !liveOrder ||
+    canStageCustomerOrder({
+      status: liveOrder.status,
+      stockStatus: liveOrder.stock_status,
+    });
   const liveEstimate =
     estimates.find((e) => e.status === "sent") ??
     estimates.find((e) => e.status === "draft") ??
@@ -479,6 +489,7 @@ export default async function CustomerPage({
               }
             : null,
           backTo: `/customers/${id}`,
+          maySendToWarehouse,
         })
       : {}),
     ...(contactLogged ? {} : { contact: <MarkContacted customerId={id} /> }),
