@@ -18,6 +18,11 @@ import { approveOrder } from "./actions";
 import { CustomerMatchPanel } from "@/components/customer-match-panel";
 import type { ScoredCustomerMatch } from "@/lib/customer-resolve";
 import type { OrderStockStatus } from "@/lib/types";
+import {
+  WAREHOUSE_STOCK_CHECK_REQUIRED,
+  approvalDoesNotStageCopy,
+  canApproveCustomerOrder,
+} from "@/lib/order-warehouse-gates";
 
 export function ApproveOrder({
   orderId,
@@ -37,6 +42,8 @@ export function ApproveOrder({
   const [matches, setMatches] = useState<ScoredCustomerMatch[]>([]);
   const [overrideReason, setOverrideReason] = useState("");
   const [pending, start] = useTransition();
+  const blocked = !canApproveCustomerOrder(stockStatus);
+  const noStage = approvalDoesNotStageCopy(stockStatus);
 
   const option = (
     value: "from_stock" | "on_order",
@@ -85,17 +92,29 @@ export function ApproveOrder({
 
   return (
     <>
-      <Button type="button" size="sm" onClick={() => setOpen(true)}>
-        <Check className="size-3.5" /> Approve
-      </Button>
+      {blocked ? (
+        <div className="space-y-1">
+          <Button type="button" size="sm" disabled title={WAREHOUSE_STOCK_CHECK_REQUIRED}>
+            <Check className="size-3.5" /> Approve
+          </Button>
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+            {WAREHOUSE_STOCK_CHECK_REQUIRED}
+          </p>
+        </div>
+      ) : (
+        <Button type="button" size="sm" onClick={() => setOpen(true)}>
+          <Check className="size-3.5" /> Approve
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Approve {who}&apos;s order</DialogTitle>
             <DialogDescription>
-              Sends it to the warehouse to cut and stage, and tells the customer
-              when to come for it.
+              {noStage
+                ? "Approves the customer order for the office. It will not go to warehouse staging until stock is fully IN STOCK."
+                : "Sends it to the warehouse to cut and stage, and tells the customer when to come for it."}
             </DialogDescription>
           </DialogHeader>
 

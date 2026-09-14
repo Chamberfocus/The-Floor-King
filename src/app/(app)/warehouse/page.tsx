@@ -25,7 +25,7 @@ import { listWorkflowStages } from "@/lib/data/workflow";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
 import { newRemnants } from "@/lib/data/stock-rolls";
 import { getJobMaterials } from "@/lib/data/job-materials";
-import { listOrders, getProductStock } from "@/lib/data/orders";
+import { listWarehouseStockCheckOrders, getWarehouseCatalogFacts } from "@/lib/data/orders";
 import { reportOrderStock } from "../orders/actions";
 import { CutList } from "@/components/cut-list";
 import { DateNeeded } from "@/components/date-needed";
@@ -39,6 +39,14 @@ import {
 } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  WAREHOUSE_ACTION_IN_STOCK,
+  WAREHOUSE_ACTION_OUT,
+  WAREHOUSE_ACTION_PARTIAL,
+  WAREHOUSE_ORDER_QUEUE_HINT,
+  WAREHOUSE_STOCK_SECTION,
+  orderDisplayNumber,
+} from "@/lib/order-warehouse-gates";
 import {
   setWarehouseStatus,
   setDeliveryType,
@@ -108,13 +116,12 @@ export default async function WarehousePage() {
     return m.lengthIn && m.widthIn ? `✂ ${ft(m.widthIn)} × ${ft(m.lengthIn)}` : "";
   };
   const org = await getOrgSettings();
-  const stockChecks = (await listOrders(wh)).filter(
-    (o) => o.status === "submitted",
-  );
+  const stockChecks = await listWarehouseStockCheckOrders(wh);
   // What we actually have of each ordered product, so "in stock?" is answered
-  // from the shelf count rather than from memory.
-  const orderStock = await getProductStock(
+  // from the shelf count rather than from memory. Operational catalog facts only.
+  const orderStock = await getWarehouseCatalogFacts(
     stockChecks.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? "")),
+    wh,
   );
 
   // Purchase orders the warehouse should be expecting.
@@ -173,9 +180,9 @@ export default async function WarehousePage() {
             </div>
             <div className="flex items-center gap-2">
               {stagedSet.has(j.warehouse_status) ? (
-                <span className="rounded-md bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">Staged ✓</span>
+                <span className="rounded-md bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">STAGED / READY</span>
               ) : j.warehouse_submitted_at ? (
-                <span className="rounded-md bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">Ready to prep</span>
+                <span className="rounded-md bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">READY TO STAGE</span>
               ) : (
                 <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">Not sent yet</span>
               )}
@@ -408,69 +415,34 @@ export default async function WarehousePage() {
         description="What's on order, what's landed, and what to prep for upcoming jobs."
       />
 
-      {/* Notes for the shop. The warehouse used to read jobs.notes — the
-          STRUCTURED scope field the questionnaire writes — which was never a
-          message channel, it just happened to be visible. This is one. */}
-      <div className="mb-6 space-y-2">
-        <h2 className="text-sm font-semibold">
-          Notes for the shop
-          {warehouseNotes.length ? ` (${warehouseNotes.length})` : ""}
-        </h2>
-        <WarehouseNotes notes={warehouseNotes} canPost />
-      </div>
-
-      {/* Incoming deliveries — check what arrived against what was ordered.
-          The warehouse could see the jobs but never the POs behind them, so a
-          short shipment only surfaced when an installer opened the box. */}
-      <div className="mb-6 space-y-2">
-        <h2 className="text-sm font-semibold">
-          Incoming deliveries ({incoming.filter((p) => p.status === "ordered").length} on order)
-        </h2>
-        <IncomingDeliveries pos={incoming} />
-      </div>
-
-      {/* New remnants to shelve — give each a location + a reusability call. */}
-      {remnantsToShelve.length > 0 ? (
-        <div className="mb-6 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-500/50 dark:bg-amber-950/30">
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-300">
-            <MapPin className="size-4" /> New remnants to shelve ({remnantsToShelve.length})
-          </div>
-          <ul className="mt-2 divide-y text-sm">
-            {remnantsToShelve.map((r) => (
-              <li key={r.id} className="flex items-center justify-between gap-2 py-2">
-                <span>
-                  <span className="font-medium">{r.product_name}</span>{" "}
-                  <span className="tabular-nums text-muted-foreground">{r.remaining_qty} {r.unit}</span>
-                </span>
-                <Link href={`/inventory/${r.product_id}`} className="font-medium text-primary hover:underline">
-                  Locate &amp; mark →
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {/* New client orders — flag stock right away so the office can decide */}
+      {/* Customer-submitted orders — stock check before owner approval. */}
       {stockChecks.length > 0 ? (
         <div className="mb-6 space-y-2">
           <h2 className="text-sm font-semibold">
-            Stock checks — new orders ({stockChecks.length})
+            {WAREHOUSE_STOCK_SECTION} ({stockChecks.length})
           </h2>
           {stockChecks.map((o) => (
             <Card key={o.id} className="border-blue-300 dark:border-blue-900/60">
               <CardContent className="space-y-2 py-3">
-                <div className="text-sm font-medium">
-                  {o.contact_name || "Order"}
-                  {o.contact_phone ? (
-                    <span className="ml-1 font-normal text-muted-foreground">
-                      · {o.contact_phone}
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <div className="text-sm font-medium">
+                    {orderDisplayNumber(o.id)}
+                    <span className="ml-2">
+                      {o.customer_name || o.contact_name || "Order"}
                     </span>
-                  ) : null}
+                    {o.contact_phone ? (
+                      <span className="ml-1 font-normal text-muted-foreground">
+                        · {o.contact_phone}
+                      </span>
+                    ) : null}
+                  </div>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                    {o.stock_status === "unknown"
+                      ? WAREHOUSE_ORDER_QUEUE_HINT.stockCheckNeeded
+                      : ORDER_STOCK_LABELS[o.stock_status]}
+                  </span>
                 </div>
                 <DateNeeded date={o.date_needed} />
-                {/* One item per block: what it is, what we have, and the cuts
-                    to make — the three things needed to answer "in stock?". */}
                 <ul className="space-y-2">
                   {(o.items ?? []).map((it) => {
                     const s = it.product_id ? orderStock.get(it.product_id) : undefined;
@@ -478,22 +450,31 @@ export default async function WarehousePage() {
                       ? Math.round((s.on_hand - s.reserved) * 100) / 100
                       : null;
                     const needed = cutsTotalSqYd(it) ?? it.quantity ?? null;
-                    // Only a like-for-like comparison is worth showing: their
-                    // cuts are square yards, so the product must price that way.
                     const comparable =
                       avail != null && needed != null && (s?.unit ?? "").includes("yd");
+                    const product = [it.description, s?.name].filter(Boolean)[0] || "Item";
+                    const manufacturer = s?.manufacturer || null;
+                    const style = it.style || s?.style || null;
+                    const color = it.color || s?.color || null;
+                    const sku = s?.sku || null;
                     return (
                       <li key={it.id} className="rounded-md border p-2 text-sm">
-                        <div className="font-medium">
-                          {[it.description, it.color, it.style]
+                        <div className="font-medium">{product}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          {[
+                            manufacturer ? `Manufacturer: ${manufacturer}` : null,
+                            style ? `Style: ${style}` : null,
+                            color ? `Color: ${color}` : null,
+                            sku ? `SKU: ${sku}` : null,
+                          ]
                             .filter(Boolean)
-                            .join(" · ") || "Item"}
-                          {it.quantity ? (
-                            <span className="ml-1 font-normal text-muted-foreground">
-                              — {it.quantity} {it.unit}
-                            </span>
-                          ) : null}
+                            .join(" · ")}
                         </div>
+                        {it.quantity ? (
+                          <div className="text-xs">
+                            Qty {it.quantity} {it.unit}
+                          </div>
+                        ) : null}
                         {s ? (
                           <div className="mt-0.5 text-xs">
                             <span
@@ -542,38 +523,82 @@ export default async function WarehousePage() {
                     name="stock_note"
                     placeholder="Note (optional) — e.g. have beige, gray backordered"
                     className="h-9 min-w-48 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
+                    defaultValue={o.stock_note ?? ""}
                   />
                   <button
                     name="stock_status"
                     value="in_stock"
                     className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white"
                   >
-                    In stock ✓
+                    {WAREHOUSE_ACTION_IN_STOCK}
                   </button>
                   <button
                     name="stock_status"
                     value="partial"
                     className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white"
                   >
-                    Partial
+                    {WAREHOUSE_ACTION_PARTIAL}
                   </button>
                   <button
                     name="stock_status"
                     value="out_of_stock"
                     className="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white"
                   >
-                    Out ✗
+                    {WAREHOUSE_ACTION_OUT}
                   </button>
                 </form>
                 {o.stock_status !== "unknown" ? (
                   <p className="text-xs text-muted-foreground">
-                    Reported: {ORDER_STOCK_LABELS[o.stock_status]}
+                    Stock status: {ORDER_STOCK_LABELS[o.stock_status]}
                     {o.stock_note ? ` — ${o.stock_note}` : ""}
                   </p>
                 ) : null}
               </CardContent>
             </Card>
           ))}
+        </div>
+      ) : null}
+
+      {/* Notes for the shop. The warehouse used to read jobs.notes — the
+          STRUCTURED scope field the questionnaire writes — which was never a
+          message channel, it just happened to be visible. This is one. */}
+      <div className="mb-6 space-y-2">
+        <h2 className="text-sm font-semibold">
+          Notes for the shop
+          {warehouseNotes.length ? ` (${warehouseNotes.length})` : ""}
+        </h2>
+        <WarehouseNotes notes={warehouseNotes} canPost />
+      </div>
+
+      {/* Incoming deliveries — check what arrived against what was ordered.
+          The warehouse could see the jobs but never the POs behind them, so a
+          short shipment only surfaced when an installer opened the box. */}
+      <div className="mb-6 space-y-2">
+        <h2 className="text-sm font-semibold">
+          Incoming deliveries ({incoming.filter((p) => p.status === "ordered").length} on order)
+        </h2>
+        <IncomingDeliveries pos={incoming} />
+      </div>
+
+      {/* New remnants to shelve — give each a location + a reusability call. */}
+      {remnantsToShelve.length > 0 ? (
+        <div className="mb-6 rounded-lg border border-amber-400 bg-amber-50 p-3 dark:border-amber-500/50 dark:bg-amber-950/30">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-300">
+            <MapPin className="size-4" /> New remnants to shelve ({remnantsToShelve.length})
+          </div>
+          <ul className="mt-2 divide-y text-sm">
+            {remnantsToShelve.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-2 py-2">
+                <span>
+                  <span className="font-medium">{r.product_name}</span>{" "}
+                  <span className="tabular-nums text-muted-foreground">{r.remaining_qty} {r.unit}</span>
+                </span>
+                <Link href={`/inventory/${r.product_id}`} className="font-medium text-primary hover:underline">
+                  Locate &amp; mark →
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 

@@ -8,6 +8,10 @@ import { dayTaskCollectAmountDue, type PaymentLike } from "@/lib/payment-safety"
 import { classifyInvoiceCollection, hasActiveDepositOnFile } from "@/lib/ops-followup";
 import { opsQueueGroup } from "@/lib/job-operational-state";
 import { getJobOperationalStateForJob } from "@/lib/data/job-ops-state";
+import {
+  officeCustomerOrderQueueHint,
+  orderDisplayNumber,
+} from "@/lib/order-warehouse-gates";
 
 export interface OpsQueueItem {
   id: string;
@@ -38,6 +42,7 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
   const install_today: OpsQueue = { id: "install_today", items: [] };
   const collect: OpsQueue = { id: "collect", items: [] };
   const callback: OpsQueue = { id: "callback", items: [] };
+  const customer_order: OpsQueue = { id: "customer_order", items: [] };
 
   const followSeen = new Set<string>();
   const { data: leads } = await supabase
@@ -215,6 +220,31 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
     return ao - bo;
   });
 
+  const { data: submittedOrders } = await supabase
+    .from("orders")
+    .select("id, status, stock_status, contact_name, customer:customers(full_name)")
+    .eq("status", "submitted")
+    .order("created_at", { ascending: false })
+    .limit(24);
+  const seenOrder = new Set<string>();
+  for (const o of submittedOrders ?? []) {
+    const oid = o.id as string;
+    if (seenOrder.has(oid)) continue;
+    seenOrder.add(oid);
+    const hint = officeCustomerOrderQueueHint({
+      status: o.status as string,
+      stockStatus: o.stock_status as string,
+    });
+    if (!hint) continue;
+    const c = o.customer as unknown as { full_name?: string } | null;
+    customer_order.items.push({
+      id: `corder-${oid}`,
+      title: c?.full_name || (o.contact_name as string) || orderDisplayNumber(oid),
+      href: "/orders",
+      hint,
+    });
+  }
+
   const cbs = await listOpenServiceCallbacks().catch(() => []);
   for (const c of cbs.slice(0, 12)) {
     callback.items.push({
@@ -239,6 +269,7 @@ export async function getOpsTodayQueues(): Promise<OpsQueue[]> {
     cap(install_today, 8),
     cap(collect, 8),
     cap(callback, 8),
+    cap(customer_order, 8),
   ];
 }
 

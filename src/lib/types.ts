@@ -1274,6 +1274,7 @@ export interface Order {
    *  because they arrive in migration 0151. */
   ready_date?: string | null;
   ready_kind?: OrderReadyKind | null;
+  stock_checked_by?: string | null;
   stock_checked_at: string | null;
   customer_stock_notified_at: string | null;
   invoice_id: string | null;

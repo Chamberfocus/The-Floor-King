@@ -237,7 +237,8 @@ export type OpsQueueId =
   | "schedule"
   | "install_today"
   | "collect"
-  | "callback";
+  | "callback"
+  | "customer_order";
 
 export function opsQueueLabel(id: OpsQueueId): string {
   switch (id) {
@@ -257,5 +258,7 @@ export function opsQueueLabel(id: OpsQueueId): string {
       return "Collect balance";
     case "callback":
       return "Service / callback";
+    case "customer_order":
+      return "Customer orders";
   }
 }
