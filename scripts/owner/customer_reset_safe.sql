@@ -4,10 +4,14 @@
 -- OWNER ACTION. Run ONLY after customer_reset_preflight_readonly.sql returns
 -- verdict = SAFE_TO_RESET and you have reviewed the customer list.
 --
+-- Schema target: repo migrations through 0187.
+-- 0136 created public.job_notes; 0137 renamed it to public.work_notes.
+-- This script never references public.job_notes.
+--
 -- NOT a migration. Does NOT disable triggers. Does NOT bypass foreign keys.
 -- Does NOT change accounting flags. Does NOT delete storage objects.
--- Does NOT delete catalog, vendors, inventory master, staff, or warehouse
--- unattributed purchase orders.
+-- Does NOT delete catalog, vendors, inventory master, staff, warehouse
+-- unattributed purchase orders, or shop-wide work_notes.
 --
 -- If any safety assertion fails, the transaction rolls back.
 -- =============================================================================
@@ -232,6 +236,21 @@ delete from public.office_tasks
     or job_id in (select id from public.jobs)
     or estimate_id in (select id from public.estimates);
 
+-- Work notes (renamed from job_notes in 0137). Keep shop-wide rows
+-- (job_id and po_id both null). Job-linked CASCADE from jobs; PO-linked
+-- CASCADE from purchase_orders. Delete customer-tied rows first.
+delete from public.work_notes
+ where job_id in (select id from public.jobs)
+    or po_id in (
+      select id from public.purchase_orders
+      where customer_id in (select id from public.customers)
+         or job_id in (select id from public.jobs)
+         or estimate_id in (select id from public.estimates)
+    );
+
+delete from public.job_schedule_overrides
+ where job_id in (select id from public.jobs);
+
 -- Orders SET NULL on customer/job delete — remove customer/job-linked orders
 -- explicitly so they do not become anonymous leftover orders.
 delete from public.orders
@@ -268,7 +287,8 @@ delete from public.invoices;
 
 -- Customers last. Remaining children use ON DELETE CASCADE
 -- (jobs, estimates, activities, messages, documents metadata, appointments,
---  addresses, samples, areas, handoffs, drafts, step_overrides, etc.).
+--  addresses, samples, areas, handoffs, drafts, step_overrides, work_notes
+--  already removed above, etc.).
 -- estimate_approval_snapshots are append-only; count was asserted 0 so CASCADE
 -- cannot hit the no-delete trigger.
 delete from public.customers;

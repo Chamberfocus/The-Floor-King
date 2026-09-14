@@ -2,12 +2,87 @@
 -- FLOOR KING — CUSTOMER RESET PREFLIGHT (READ-ONLY)
 -- Paste into the production Supabase SQL Editor and Run.
 --
--- NOT a migration. Does NOT delete, update, disable triggers, or change schema.
--- Does NOT enable accounting. Does NOT delete storage objects (SELECT counts only).
+-- Schema target: repo migrations through 0187.
+-- 0136 created public.job_notes; 0137 renamed it to public.work_notes.
+-- This script never references public.job_notes.
+--
+-- NOT a migration. Does NOT delete, update, insert, alter, disable triggers,
+-- or change schema. Does NOT enable accounting. Does NOT delete storage objects.
 --
 -- Run this FIRST. Send every result set back before any delete SQL is run.
 -- If the VERDICT row is not SAFE_TO_RESET, do not run customer_reset_safe.sql.
 -- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 0) Expected 0187 tables — existence only (cannot 42P01; missing shows false)
+-- ---------------------------------------------------------------------------
+select
+  expected_table,
+  to_regclass('public.' || expected_table) is not null as exists_in_db
+from unnest(array[
+  'customers',
+  'profiles',
+  'activities',
+  'handoffs',
+  'messages',
+  'service_addresses',
+  'customer_areas',
+  'appointments',
+  'sample_checkouts',
+  'sample_checkout_items',
+  'documents',
+  'office_tasks',
+  'service_callbacks',
+  'step_overrides',
+  'estimate_drafts',
+  'estimates',
+  'estimate_options',
+  'estimate_line_items',
+  'estimate_events',
+  'estimate_builder_drafts',
+  'estimate_approval_snapshots',
+  'jobs',
+  'job_line_items',
+  'job_files',
+  'work_notes',
+  'job_issues',
+  'job_labor',
+  'job_applications',
+  'job_operational_holds',
+  'job_schedule_overrides',
+  'job_satisfaction',
+  'installer_bills',
+  'installer_bill_line_items',
+  'orders',
+  'order_items',
+  'invoices',
+  'invoice_items',
+  'payments',
+  'purchase_orders',
+  'po_items',
+  'bills',
+  'expenses',
+  'customer_duplicate_overrides',
+  'credit_memos',
+  'credit_applications',
+  'refunds',
+  'customer_deposits',
+  'customer_deposit_applications',
+  'opening_ar_items',
+  'invoice_write_offs',
+  'journal_entries',
+  'journal_lines',
+  'accounting_settings',
+  'accounting_posting_outbox',
+  'financial_audit_log',
+  'stock_movements',
+  'stock_rolls',
+  'inventory_return_allocations',
+  'products',
+  'suppliers',
+  'workflow_stages'
+]::text[]) as expected_table
+order by 1;
 
 -- ---------------------------------------------------------------------------
 -- 1) Customers that would be removed
@@ -38,6 +113,7 @@ union all select 'customer_deposits', count(*) from public.customer_deposits
 union all select 'opening_ar_items', count(*) from public.opening_ar_items
 union all select 'estimate_approval_snapshots', count(*) from public.estimate_approval_snapshots
 union all select 'financial_audit_log', count(*) from public.financial_audit_log
+union all select 'work_notes', count(*) from public.work_notes
 union all select 'portal_customer_profiles', (
   select count(*) from public.profiles where role = 'customer'
 )
@@ -119,6 +195,12 @@ union all select 'appointments', count(*)
 from public.appointments where customer_id in (select id from public.customers)
 union all select 'sample_checkouts', count(*)
 from public.sample_checkouts where customer_id in (select id from public.customers)
+union all select 'sample_checkout_items', count(*)
+from public.sample_checkout_items
+where checkout_id in (
+  select id from public.sample_checkouts
+  where customer_id in (select id from public.customers)
+)
 union all select 'documents_db_rows', count(*)
 from public.documents where customer_id in (select id from public.customers)
 union all select 'office_tasks', count(*)
@@ -161,9 +243,20 @@ where job_id in (select id from public.jobs)
 union all select 'job_files_db_rows', count(*)
 from public.job_files
 where job_id in (select id from public.jobs)
-union all select 'job_notes', count(*)
-from public.job_notes
+union all select 'work_notes_job_linked', count(*)
+from public.work_notes
 where job_id in (select id from public.jobs)
+union all select 'work_notes_po_customer_linked', count(*)
+from public.work_notes
+where po_id in (
+  select id from public.purchase_orders
+  where customer_id in (select id from public.customers)
+     or job_id in (select id from public.jobs)
+     or estimate_id in (select id from public.estimates)
+)
+union all select 'work_notes_shop_wide', count(*)
+from public.work_notes
+where job_id is null and po_id is null
 union all select 'job_issues', count(*)
 from public.job_issues
 where job_id in (select id from public.jobs)
@@ -176,9 +269,18 @@ where job_id in (select id from public.jobs)
 union all select 'job_operational_holds', count(*)
 from public.job_operational_holds
 where job_id in (select id from public.jobs)
+union all select 'job_schedule_overrides', count(*)
+from public.job_schedule_overrides
+where job_id in (select id from public.jobs)
 union all select 'installer_bills', count(*)
 from public.installer_bills
 where job_id in (select id from public.jobs)
+union all select 'installer_bill_line_items', count(*)
+from public.installer_bill_line_items
+where bill_id in (
+  select id from public.installer_bills
+  where job_id in (select id from public.jobs)
+)
 union all select 'job_satisfaction', count(*)
 from public.job_satisfaction
 where job_id in (select id from public.jobs)
@@ -209,6 +311,10 @@ where customer_id in (select id from public.customers)
 union all select 'purchase_orders_warehouse_unattributed', count(*)
 from public.purchase_orders
 where customer_id is null and job_id is null and estimate_id is null
+union all select 'po_items_for_customer', count(*)
+from public.po_items
+where for_customer_id in (select id from public.customers)
+   or for_job_id in (select id from public.jobs)
 union all select 'bills_customer_or_job', count(*)
 from public.bills
 where customer_id in (select id from public.customers)
@@ -228,6 +334,9 @@ union all select 'customer_duplicate_overrides', count(*)
 from public.customer_duplicate_overrides
 where created_customer_id in (select id from public.customers)
    or matched_customer_id in (select id from public.customers)
+union all select 'stock_rolls_job_linked', count(*)
+from public.stock_rolls
+where job_id in (select id from public.jobs)
 order by 1;
 
 -- ---------------------------------------------------------------------------
