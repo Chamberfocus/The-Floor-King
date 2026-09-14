@@ -12,6 +12,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const MIG_DIR = join(ROOT, "supabase/migrations");
 const FILES = {
   preflight: join(ROOT, "scripts/owner/customer_reset_preflight_readonly.sql"),
+  snapshotInvestigation: join(
+    ROOT,
+    "scripts/owner/customer_reset_snapshot_investigation_readonly.sql",
+  ),
   reset: join(ROOT, "scripts/owner/customer_reset_safe.sql"),
 };
 
@@ -155,16 +159,28 @@ if (statementForbidden(preflightRaw, /\bwith\s+ordinality\b/i)) {
   errors.push("preflight: contains WITH ORDINALITY");
 }
 
-const pre = readFileSync(FILES.preflight, "utf8");
-const preBody = stripComments(pre);
-if (/\bdelete\s+from\b/i.test(preBody)) errors.push("preflight: DELETE");
-if (/\bupdate\s+public\./i.test(preBody)) errors.push("preflight: UPDATE");
-if (/\binsert\s+into\b/i.test(preBody)) errors.push("preflight: INSERT");
-if (/\balter\s+table\b/i.test(preBody)) errors.push("preflight: ALTER TABLE");
-if (/\bdrop\s+table\b/i.test(preBody) && !/\bpg_temp\./i.test(preBody)) {
-  // preflight must not drop
-  if (/\bdrop\s+table\b/i.test(preBody)) errors.push("preflight: DROP TABLE");
+function assertReadOnly(label, sql) {
+  const body = stripComments(sql);
+  if (/\bdelete\s+from\b/i.test(body)) errors.push(`${label}: DELETE`);
+  if (/\bupdate\s+public\./i.test(body)) errors.push(`${label}: UPDATE`);
+  if (/\binsert\s+into\b/i.test(body)) errors.push(`${label}: INSERT`);
+  if (/\balter\s+table\b/i.test(body)) errors.push(`${label}: ALTER TABLE`);
+  if (/\bdrop\s+(table|function|trigger|type)\b/i.test(body)) errors.push(`${label}: DROP`);
+  if (/\btruncate\b/i.test(body)) errors.push(`${label}: TRUNCATE`);
+  if (/\bdisable\s+trigger\b/i.test(body)) errors.push(`${label}: DISABLE TRIGGER`);
+  if (/\bset\s+session_replication_role\b/i.test(body)) {
+    errors.push(`${label}: SET session_replication_role`);
+  }
+  if (/\bunnest\s*\(/i.test(body)) errors.push(`${label}: unnest()`);
+  if (/\bwith\s+ordinality\b/i.test(body)) errors.push(`${label}: WITH ORDINALITY`);
 }
+
+const pre = readFileSync(FILES.preflight, "utf8");
+assertReadOnly("preflight", pre);
+assertReadOnly(
+  "snapshotInvestigation",
+  readFileSync(FILES.snapshotInvestigation, "utf8"),
+);
 
 if (!live.has("work_notes")) errors.push("schema: work_notes missing from live inventory");
 if (live.has("job_notes")) errors.push("schema: job_notes still live (expected rename in 0137)");
