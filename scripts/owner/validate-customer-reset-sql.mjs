@@ -18,6 +18,7 @@ const FILES = {
   ),
   reset: join(ROOT, "scripts/owner/customer_reset_safe.sql"),
   partialReset: join(ROOT, "scripts/owner/customer_reset_partial_safe.sql"),
+  finalReset: join(ROOT, "scripts/owner/customer_reset_final.sql"),
 };
 
 function stripComments(sql) {
@@ -203,6 +204,32 @@ if (!report.partialReset?.refs.includes("work_notes")) {
 if (!report.partialReset?.refs.includes("estimate_approval_snapshots")) {
   errors.push("partialReset: does not reference estimate_approval_snapshots");
 }
+if (report.finalReset?.refs.includes("job_notes")) {
+  errors.push("finalReset: still references job_notes");
+}
+if (!report.finalReset?.refs.includes("work_notes")) {
+  errors.push("finalReset: does not reference work_notes");
+}
+if (!report.finalReset?.refs.includes("estimate_approval_snapshots")) {
+  errors.push("finalReset: does not reference estimate_approval_snapshots");
+}
+if (!report.finalReset?.refs.includes("historical_estimate_id") &&
+    !readFileSync(FILES.finalReset, "utf8").includes("historical_estimate_id")) {
+  errors.push("finalReset: missing historical_estimate_id (0188 detach)");
+}
+const finalRaw = readFileSync(FILES.finalReset, "utf8");
+if (!/ALREADY_CLEAN/.test(finalRaw)) {
+  errors.push("finalReset: missing ALREADY_CLEAN idempotency path");
+}
+if (/\bunnest\s*\(/i.test(stripComments(finalRaw))) {
+  errors.push("finalReset: contains unnest()");
+}
+if (/\bwith\s+ordinality\b/i.test(stripComments(finalRaw))) {
+  errors.push("finalReset: contains WITH ORDINALITY");
+}
+if (!/delete from public\.customers/i.test(stripComments(finalRaw))) {
+  errors.push("finalReset: missing scoped DELETE FROM public.customers");
+}
 
 const requiredCoverage = [
   "customers",
@@ -276,7 +303,13 @@ const requiredColumns = {
     "accountant_validated",
     "cutover_date",
   ],
-  estimate_approval_snapshots: ["estimate_id", "approved_by_customer_id"],
+  estimate_approval_snapshots: [
+    "estimate_id",
+    "approved_by_customer_id",
+    "historical_estimate_id",
+    "historical_customer_id",
+    "historical_customer_name",
+  ],
   documents: ["customer_id", "path"],
   job_files: ["job_id", "path"],
   sample_checkout_items: ["checkout_id"],

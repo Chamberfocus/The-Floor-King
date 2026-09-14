@@ -49,6 +49,7 @@ const REQUIRED_FILES = [
   "0184_inventory_ops_anon_and_documents.sql",
   "0186_launch_trust_schedule_invoice_guards.sql",
   "0187_catalog_search_pricing_columns.sql",
+  "0188_estimate_approval_snapshot_operational_detach.sql",
 ];
 
 /**
@@ -699,6 +700,20 @@ const REQUIRED_MARKERS = [
       "null::",
       "Does NOT enable accounting",
       "revoke all on function public.search_products(text, int, boolean, boolean) from public",
+    ],
+  },
+  {
+    file: "0188_estimate_approval_snapshot_operational_detach.sql",
+    markers: [
+      "P0_0188_PRECHECK",
+      "P0_0188_POSTCHECK",
+      "historical_estimate_id",
+      "historical_customer_id",
+      "historical_customer_name",
+      "on delete set null",
+      "alter column estimate_id drop not null",
+      "estimate_approval_snapshots are append-only; delete is not allowed",
+      "operational detach to NULL",
     ],
   },
 ];
