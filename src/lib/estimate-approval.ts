@@ -159,7 +159,8 @@ export function sanitizeApprovalPayloadForCustomer(
 
 export interface EstimateApprovalSnapshot {
   id: string;
-  estimate_id: string;
+  /** Live operational estimate pointer. Null after 0188 detach when the estimate is removed. */
+  estimate_id: string | null;
   version: number;
   accepted_option_id: string | null;
   approved_at: string;

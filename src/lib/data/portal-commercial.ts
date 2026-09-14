@@ -204,7 +204,7 @@ function mapPortalSnapshot(row: Record<string, unknown>): EstimateApprovalSnapsh
   );
   return {
     id: row.id as string,
-    estimate_id: row.estimate_id as string,
+    estimate_id: (row.estimate_id as string | null) ?? null,
     version: Number(row.version),
     accepted_option_id: (row.accepted_option_id as string) ?? null,
     approved_at: row.approved_at as string,

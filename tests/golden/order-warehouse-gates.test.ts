@@ -1,9 +1,9 @@
 /**
  * Customer order → warehouse stock-check → owner approval → ready-to-stage.
- * App-only gates (no 0188). Does not invent architecture docs.
+ * App-only gates (no order-warehouse migration). Does not invent architecture docs.
  */
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   OFFICE_ORDER_QUEUE_HINT,
@@ -334,10 +334,8 @@ describe("tasks / today queues — derived, no new persistent schema", () => {
   });
 });
 
-describe("accounting unchanged — no 0188", () => {
-  it("does not create 0188 or touch posting flags", () => {
-    const migrations = readdirSync(join(root, "supabase/migrations"));
-    expect(migrations.some((f) => f.startsWith("0188"))).toBe(false);
+describe("accounting unchanged — no order-warehouse migration", () => {
+  it("does not create an order-warehouse migration or touch posting flags", () => {
     expect(existsSync(join(root, "supabase/migrations/0188_order_warehouse.sql"))).toBe(
       false,
     );
