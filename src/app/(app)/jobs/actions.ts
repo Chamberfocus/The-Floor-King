@@ -1819,12 +1819,10 @@ export async function sendJobToWarehouse(
   return result;
 }
 
-export async function submitJobToWarehouse(
-  formData: FormData,
-): Promise<{ error: string | null }> {
+export async function submitJobToWarehouse(formData: FormData): Promise<void> {
   const id = warehouseJobIdFromForm(formData);
-  if (!id) return { error: "Missing job." };
-  return sendJobToWarehouse(id);
+  if (!id) return;
+  await sendJobToWarehouse(id);
 }
 
 /** Office/admin: assign (or change) which warehouse person preps a job. */

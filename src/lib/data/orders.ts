@@ -233,7 +233,7 @@ export async function listWarehouseStockCheckOrders(
       .eq("status", "submitted")
       .order("created_at", { ascending: false });
     if (error) return [];
-    const rows = (data ?? []) as {
+    const rows = (data ?? []) as unknown as {
       id: string;
       customer_id: string | null;
       contact_name: string | null;
