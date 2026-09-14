@@ -17,6 +17,7 @@ const FILES = {
     "scripts/owner/customer_reset_snapshot_investigation_readonly.sql",
   ),
   reset: join(ROOT, "scripts/owner/customer_reset_safe.sql"),
+  partialReset: join(ROOT, "scripts/owner/customer_reset_partial_safe.sql"),
 };
 
 function stripComments(sql) {
@@ -192,6 +193,15 @@ if (report.preflight.refs.includes("job_notes")) {
 }
 if (report.reset.refs.includes("job_notes")) {
   errors.push("reset: still references job_notes");
+}
+if (report.partialReset?.refs.includes("job_notes")) {
+  errors.push("partialReset: still references job_notes");
+}
+if (!report.partialReset?.refs.includes("work_notes")) {
+  errors.push("partialReset: does not reference work_notes");
+}
+if (!report.partialReset?.refs.includes("estimate_approval_snapshots")) {
+  errors.push("partialReset: does not reference estimate_approval_snapshots");
 }
 
 const requiredCoverage = [
