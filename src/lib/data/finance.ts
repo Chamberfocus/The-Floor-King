@@ -9,6 +9,7 @@ import { getProfileNames } from "@/lib/data/customers";
 import { installerLaborActualByJob } from "@/lib/data/job-labor";
 import { optionTotals, optionCostTotals, marginPct, discountAmount } from "@/lib/estimate-calc";
 import { allInProfit } from "@/lib/job-profit";
+import { resolveCommission } from "@/lib/estimate-commission";
 import { getOrgSettings } from "@/lib/data/org";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { freightMultiplier } from "@/lib/freight";
@@ -371,16 +372,30 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
   // The estimate's discount — the customer approved the DISCOUNTED price, so
   // quoted revenue / estimated profit must reflect it (not the pre-discount sub).
   const discountByEstimate = new Map<string, { kind: string | null; value: number | null }>();
+  const commissionByEstimate = new Map<
+    string,
+    { overridePct: number | null; overrideAmount: number | null }
+  >();
   if (estimateIds.length) {
     const { data: estRows } = await supabase
       .from("estimates")
-      .select("id, created_by, discount_kind, discount_value")
+      .select(
+        "id, created_by, discount_kind, discount_value, commission_override_pct, commission_override_amount",
+      )
       .in("id", estimateIds);
     for (const e of estRows ?? []) {
       authorByEstimate.set(e.id as string, (e.created_by as string | null) ?? null);
       discountByEstimate.set(e.id as string, {
         kind: (e.discount_kind as string | null) ?? null,
         value: (e.discount_value as number | null) ?? null,
+      });
+      commissionByEstimate.set(e.id as string, {
+        overridePct:
+          (e as { commission_override_pct?: number | null }).commission_override_pct ??
+          null,
+        overrideAmount:
+          (e as { commission_override_amount?: number | null })
+            .commission_override_amount ?? null,
       });
     }
   }
@@ -534,7 +549,14 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     const hasRevenue = revenue > 0;
     const fuelCost = hasRevenue ? jobFuel : 0;
     const carCost = hasRevenue ? jobCar : 0;
-    const commissionCost = hasRevenue ? (jobCommPct / 100) * revenue : 0;
+    const commOv = j.estimate_id
+      ? commissionByEstimate.get(j.estimate_id)
+      : undefined;
+    const commissionCost = resolveCommission(revenue, {
+      defaultPct: jobCommPct,
+      overridePct: commOv?.overridePct,
+      overrideAmount: commOv?.overrideAmount,
+    }).commission;
     const cost = materialCost + laborCost + otherCost + fuelCost + carCost + commissionCost;
     const profit = revenue - cost;
     // Estimated side is ALL-IN: freighted direct cost + same gas/car/commission
@@ -544,7 +566,11 @@ export async function getJobProfitability(): Promise<JobProfit[]> {
     const estHasRev = quotedRevenue > 0;
     const estFuel = estHasRev ? jobFuel : 0;
     const estCar = estHasRev ? jobCar : 0;
-    const estCommission = estHasRev ? (jobCommPct / 100) * quotedRevenue : 0;
+    const estCommission = resolveCommission(quotedRevenue, {
+      defaultPct: jobCommPct,
+      overridePct: commOv?.overridePct,
+      overrideAmount: commOv?.overrideAmount,
+    }).commission;
     const estCost = estDirect + estFuel + estCar + estCommission;
     const estProfit = quotedRevenue - estCost;
     const salesmanId = j.estimate_id
@@ -712,13 +738,17 @@ export async function getJobCostAnalysis(
 
   const rawSub = optionTotals(commercialLines, 0).subtotal;
   let estRevenue = rawSub;
+  let jobCommissionOverridePct: number | null = null;
+  let jobCommissionOverrideAmount: number | null = null;
   if (job.estimate_id) {
     const { data: est } = await supabase
       .from("estimates")
-      .select("discount_kind, discount_value")
+      .select(
+        "discount_kind, discount_value, commission_override_pct, commission_override_amount",
+      )
       .eq("id", job.estimate_id)
       .maybeSingle();
-    if (est)
+    if (est) {
       estRevenue =
         rawSub -
         discountAmount(
@@ -726,6 +756,13 @@ export async function getJobCostAnalysis(
           (est.discount_kind as string | null) ?? null,
           (est.discount_value as number | null) ?? null,
         );
+      jobCommissionOverridePct =
+        (est as { commission_override_pct?: number | null }).commission_override_pct ??
+        null;
+      jobCommissionOverrideAmount =
+        (est as { commission_override_amount?: number | null })
+          .commission_override_amount ?? null;
+    }
   }
   const directCost = estimatedDirectCostFromScope(
     costLines as Parameters<typeof estimatedDirectCostFromScope>[0],
@@ -851,12 +888,19 @@ export async function getJobCostAnalysis(
   // $25,000 job with $15,300 of direct cost, 38.80% here against 34.66% there.
   // Same job, four margin points apart, depending which screen you opened.
   const bizJ = await getBusinessSettings();
-  const overheadOn = (revenue: number) =>
-    revenue > 0
-      ? (Number(bizJ.job_fuel_fee) || 0) +
-        (Number(bizJ.job_car_allowance) || 0) +
-        ((Number(bizJ.job_commission_pct) || 0) / 100) * revenue
-      : 0;
+  const overheadOn = (revenue: number) => {
+    if (!(revenue > 0)) return 0;
+    const comm = resolveCommission(revenue, {
+      defaultPct: bizJ.job_commission_pct,
+      overridePct: jobCommissionOverridePct,
+      overrideAmount: jobCommissionOverrideAmount,
+    });
+    return (
+      (Number(bizJ.job_fuel_fee) || 0) +
+      (Number(bizJ.job_car_allowance) || 0) +
+      comm.commission
+    );
+  };
   const estOverhead = overheadOn(estRevenue);
   const actualOverhead = overheadOn(actualRevenue);
 
@@ -923,12 +967,22 @@ export async function getInvoiceProfit(invoice: {
   // own internal profit block). Material carries the freight markup once.
   let materialBare = 0;
   let labor = 0;
+  let invoiceCommissionOverridePct: number | null = null;
+  let invoiceCommissionOverrideAmount: number | null = null;
   if (invoice.estimate_id) {
     const { data: est } = await supabase
       .from("estimates")
-      .select("accepted_option_id")
+      .select(
+        "accepted_option_id, commission_override_pct, commission_override_amount",
+      )
       .eq("id", invoice.estimate_id)
       .maybeSingle();
+    invoiceCommissionOverridePct =
+      (est as { commission_override_pct?: number | null } | null)
+        ?.commission_override_pct ?? null;
+    invoiceCommissionOverrideAmount =
+      (est as { commission_override_amount?: number | null } | null)
+        ?.commission_override_amount ?? null;
     let optionId = (est?.accepted_option_id as string | null) ?? null;
     if (!optionId) {
       const { data: opt } = await supabase
@@ -960,6 +1014,8 @@ export async function getInvoiceProfit(invoice: {
     fuelFee: biz.job_fuel_fee,
     carAllowance: biz.job_car_allowance,
     commissionPct: biz.job_commission_pct,
+    commissionOverridePct: invoiceCommissionOverridePct,
+    commissionOverrideAmount: invoiceCommissionOverrideAmount,
   });
   const hasRev = revenue > 0;
   // Fuel charge is part of the price the customer already pays (a memo, not an

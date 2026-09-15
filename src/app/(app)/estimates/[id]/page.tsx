@@ -149,6 +149,8 @@ export default async function EstimatePage({
       fuelFee: biz.job_fuel_fee,
       carAllowance: biz.job_car_allowance,
       commissionPct: biz.job_commission_pct,
+      commissionOverridePct: estimate.commission_override_pct,
+      commissionOverrideAmount: estimate.commission_override_amount,
     });
     const hasRev = p.revenue > 0;
     return {
@@ -161,6 +163,7 @@ export default async function EstimatePage({
       carAllowance: p.carAllowance,
       commissionPct: p.commissionPct,
       commission: p.commission,
+      commissionOverridden: p.commissionOverridden,
       profit: p.profit,
       margin: p.margin,
     };
@@ -656,9 +659,12 @@ export default async function EstimatePage({
                             <span className="tabular-nums">−{formatMoney(p.carAllowance)}</span>
                           </div>
                         ) : null}
-                        {p.commission > 0 ? (
+                        {p.commission > 0 || p.commissionOverridden ? (
                           <div className="flex justify-between text-muted-foreground">
-                            <span>Commission ({p.commissionPct}%)</span>
+                            <span>
+                              Commission ({p.commissionPct.toFixed(2)}%)
+                              {p.commissionOverridden ? " · manual" : ""}
+                            </span>
                             <span className="tabular-nums">−{formatMoney(p.commission)}</span>
                           </div>
                         ) : null}

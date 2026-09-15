@@ -40,6 +40,11 @@ import {
 } from "@/lib/accessories";
 import { profileFor } from "@/lib/flooring-profiles";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets } from "@/lib/questionnaire-calc";
+import {
+  questionnaireEmitToLineQty,
+  smartLineToCalcLine,
+} from "@/lib/questionnaire-emit";
+import { lineTotal } from "@/lib/estimate-calc";
 import { bagsNeeded } from "@/lib/floor-prep";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { isRollGoodCategory } from "@/lib/types";
@@ -74,10 +79,6 @@ function rateFor(rate: number, productUnit: string | null, wantYd: boolean): num
   const factor = isYd === wantYd ? 1 : wantYd ? 9 : 1 / 9;
   return r2((rate || 0) * factor);
 }
-function unitLabel(u: string): string {
-  return u === "sqyd" ? "sq yd" : u === "sqft" ? "sq ft" : u === "lnft" ? "ln ft" : u;
-}
-
 // --- Answer shapes ---------------------------------------------------------
 // A measured area: length × width in feet + inches. `override` (from the
 // multi-shape calculator) wins over L×W when set.
@@ -658,22 +659,24 @@ export function Questionnaire({
     room: string | null,
     qtyOverride?: number,
   ): SmartLine | null => {
-    const per = emit.per || "flat";
-    let qty = 1;
-    if (qtyOverride != null) qty = qtyOverride;
-    else if (per === "area") qty = emit.unit.includes("yd") ? Math.ceil(areaSqft / 9) : Math.ceil(areaSqft);
-    if (qty <= 0) return null;
+    const mapped = questionnaireEmitToLineQty({
+      emitUnit: emit.unit,
+      per: emit.per,
+      areaSqft,
+      qtyOverride,
+    });
+    if (!mapped) return null;
     const isLabor = emit.role === "labor";
     return {
       room,
       description: room ? `${emit.description} — ${room}` : emit.description,
       category: isLabor ? "labor" : emit.category || "other",
-      measure_unit: emit.unit.includes("yd") ? "sqyd" : "sqft",
-      sqft: per === "area" ? r2(areaSqft) : null, // area billed → carried for confirmation
-      quantity: r2(qty),
+      measure_unit: mapped.measure_unit,
+      sqft: mapped.sqft,
+      quantity: mapped.quantity,
       length_in: null,
       width_in: null,
-      unit: unitLabel(emit.unit),
+      unit: mapped.unit,
       material_rate: isLabor ? 0 : sellMat(emit.cost),
       labor_rate: isLabor ? sellLab(emit.cost) : 0,
       material_cost: isLabor ? 0 : emit.cost,
@@ -1428,7 +1431,7 @@ export function Questionnaire({
   }, [questions, answers, visible, overrides]);
   const activeWarnings = warnings.filter((w) => !dismissed.has(w.id));
 
-  const grand = lines.reduce((s, l) => s + (l.quantity ?? 0) * (l.material_rate + l.labor_rate), 0);
+  const grand = lines.reduce((s, l) => s + lineTotal(smartLineToCalcLine(l)), 0);
 
   // Steps: the currently-visible questions (conditionals reveal as you answer),
   // plus a final Review step.
@@ -1719,7 +1722,7 @@ export function Questionnaire({
                       </span>
                     </span>
                     <span className="shrink-0 font-medium tabular-nums">
-                      {formatMoney((l.quantity ?? 0) * (l.material_rate + l.labor_rate))}
+                      {formatMoney(lineTotal(smartLineToCalcLine(l)))}
                     </span>
                   </div>
                 ))}
@@ -2630,8 +2633,20 @@ function QuestionBody({
 
   if (q.kind === "number" && answer?.kind === "number") {
     const opts = q.config.rate_options ?? [];
+    const emitUnit = q.config.emit?.unit;
+    const amountUnit =
+      emitUnit === "sqft"
+        ? "sq ft"
+        : emitUnit === "sqyd"
+          ? "sq yd"
+          : emitUnit === "lnft"
+            ? "ln ft"
+            : emitUnit || "";
     return (
       <div className="space-y-3">
+        <label className="block text-xs text-muted-foreground">
+          Amount{amountUnit ? ` (${amountUnit})` : ""}
+        </label>
         <Input value={answer.value} onChange={(e) => set({ ...answer, value: e.target.value })} inputMode="decimal" placeholder="0" className="h-12 max-w-[10rem] text-lg" />
         {opts.length ? (
           <div className="flex flex-wrap gap-1.5">

@@ -328,6 +328,12 @@ export interface SaveEstimateInput {
   /** Index (into options) of the owner-recommended option, or null. Resolved to
    *  the persisted option id by the save action. */
   recommended_index?: number | null;
+  /**
+   * Per-estimate salesperson commission override. Empty/null = org default %.
+   * Amount (dollars) wins over percent. Profitability only — not a customer price.
+   */
+  commission_override_pct?: string | number | null;
+  commission_override_amount?: string | number | null;
 }
 
 // --- Wizard submission (one line per room + add-on lines) -------------------

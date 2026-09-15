@@ -350,3 +350,35 @@ describe("customer-safe approval payload", () => {
     expect(safe.total).toBe(831.6);
   });
 });
+
+describe("0189 commission override stays off the customer view", () => {
+  const sql0189 = readFileSync(
+    join(ROOT, "supabase/migrations/0189_estimate_commission_override.sql"),
+    "utf8",
+  );
+
+  it("adds override columns on estimates, not on estimates_customer", () => {
+    expect(sql0189).toContain("commission_override_pct");
+    expect(sql0189).toContain("commission_override_amount");
+    expect(sql0189).toContain("commission_overridden_at");
+    expect(sql0189).toContain("commission_overridden_by");
+    expect(sql0189).toContain("add column if not exists commission_override_pct");
+    expect(sql0189).not.toMatch(
+      /create view public\.estimates_customer[\s\S]*commission_override/,
+    );
+    expect(sql0189).toContain("estimates_customer leaked commission override");
+  });
+
+  it("does not enable accounting", () => {
+    expect(sql0189).toContain("P0_0189_PRECHECK");
+    expect(sql0189).toContain("Do NOT set posting_enabled");
+    expect(sql0189).not.toMatch(/posting_enabled\s*=\s*true/i);
+    expect(sql0189).not.toMatch(/books_of_record\s*=\s*true/i);
+  });
+
+  it("portal and print still omit commission", () => {
+    expect(portalPage).not.toMatch(/commission/i);
+    expect(printDoc).not.toMatch(/commission/i);
+    expect(sql0181).not.toContain("e.commission_override_pct");
+  });
+});
