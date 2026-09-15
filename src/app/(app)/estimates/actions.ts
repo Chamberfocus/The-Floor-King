@@ -42,6 +42,7 @@ import {
   onEstimateResolvedOps,
   onEstimateSentOps,
 } from "@/lib/data/ops-automation";
+import { persistCommissionOverride } from "@/lib/estimate-commission";
 import type { EstimateStatus } from "@/lib/types";
 import { formatServiceAddress } from "@/lib/types";
 
@@ -201,13 +202,23 @@ export async function saveEstimate(
 ): Promise<{ error: string | null; reapprovalRequired?: boolean }> {
   const supabase = await createClient();
 
-  const { data: beforeEst } = await supabase
+  let { data: beforeEst, error: beforeEstErr } = await supabase
     .from("estimates")
     .select(
-      "id, customer_id, status, tax_rate, discount_kind, discount_value, accepted_option_id, approval_stale, current_approval_snapshot_id",
+      "id, customer_id, status, tax_rate, discount_kind, discount_value, accepted_option_id, approval_stale, current_approval_snapshot_id, commission_override_pct, commission_override_amount",
     )
     .eq("id", estimateId)
     .maybeSingle();
+  if (beforeEstErr && /commission_override/i.test(beforeEstErr.message)) {
+    ({ data: beforeEst, error: beforeEstErr } = await supabase
+      .from("estimates")
+      .select(
+        "id, customer_id, status, tax_rate, discount_kind, discount_value, accepted_option_id, approval_stale, current_approval_snapshot_id",
+      )
+      .eq("id", estimateId)
+      .maybeSingle());
+  }
+  if (beforeEstErr) return { error: beforeEstErr.message };
   if (!beforeEst) return { error: "Estimate not found." };
 
   const acceptedOptionId = (beforeEst.accepted_option_id as string | null) ?? null;
@@ -250,9 +261,41 @@ export async function saveEstimate(
     return { error: ACCEPTED_OPTION_PROTECTED_MESSAGE };
   }
 
-  const { error: updateError } = await supabase
-    .from("estimates")
-    .update({
+  const persistedCommission = persistCommissionOverride({
+    overridePct: input.commission_override_pct,
+    overrideAmount: input.commission_override_amount,
+  });
+  const prevPct =
+    (beforeEst as { commission_override_pct?: number | null }).commission_override_pct ??
+    null;
+  const prevAmt =
+    (beforeEst as { commission_override_amount?: number | null })
+      .commission_override_amount ?? null;
+  const overrideChanged =
+    prevPct !== persistedCommission.pct || prevAmt !== persistedCommission.amount;
+  const {
+    data: { user: actor },
+  } = await supabase.auth.getUser();
+  const commissionPatch =
+    persistedCommission.pct == null && persistedCommission.amount == null
+      ? {
+          commission_override_pct: null,
+          commission_override_amount: null,
+          commission_overridden_at: null,
+          commission_overridden_by: null,
+        }
+      : {
+          commission_override_pct: persistedCommission.pct,
+          commission_override_amount: persistedCommission.amount,
+          ...(overrideChanged
+            ? {
+                commission_overridden_at: new Date().toISOString(),
+                commission_overridden_by: actor?.id ?? null,
+              }
+            : {}),
+        };
+
+  const estimatePatch = {
       title: input.title || null,
       tax_rate: num(input.tax_rate),
       presentation: input.presentation,
@@ -264,8 +307,20 @@ export async function saveEstimate(
           : null,
       discount_kind: input.discount_kind === "percent" ? "percent" : "amount",
       discount_value: num(input.discount_value),
-    })
+      ...commissionPatch,
+  };
+
+  let { error: updateError } = await supabase
+    .from("estimates")
+    .update(estimatePatch)
     .eq("id", estimateId);
+  if (updateError && /commission_override/i.test(updateError.message)) {
+    const { commission_override_pct: _p, commission_override_amount: _a, commission_overridden_at: _t, commission_overridden_by: _b, ...withoutCommission } = estimatePatch;
+    ({ error: updateError } = await supabase
+      .from("estimates")
+      .update(withoutCommission)
+      .eq("id", estimateId));
+  }
   if (updateError) return { error: updateError.message };
 
   // Rebuild options + lines. CRITICAL: reuse existing option rows by position.
@@ -1739,7 +1794,9 @@ export async function duplicateEstimateToCustomer(
 
   const { data: src } = await supabase
     .from("estimates")
-    .select("title, tax_rate, presentation, job_description")
+    .select(
+      "title, tax_rate, presentation, job_description, commission_override_pct, commission_override_amount",
+    )
     .eq("id", estimateId)
     .maybeSingle();
   if (!src) return { error: "Original estimate not found." };
@@ -1785,6 +1842,26 @@ export async function duplicateEstimateToCustomer(
       job_description: src.job_description,
       service_address_id: serviceAddressId,
       created_by: user?.id ?? null,
+      commission_override_pct:
+        (src as { commission_override_pct?: number | null }).commission_override_pct ??
+        null,
+      commission_override_amount:
+        (src as { commission_override_amount?: number | null })
+          .commission_override_amount ?? null,
+      commission_overridden_at:
+        (src as { commission_override_pct?: number | null }).commission_override_pct !=
+          null ||
+        (src as { commission_override_amount?: number | null })
+          .commission_override_amount != null
+          ? new Date().toISOString()
+          : null,
+      commission_overridden_by:
+        (src as { commission_override_pct?: number | null }).commission_override_pct !=
+          null ||
+        (src as { commission_override_amount?: number | null })
+          .commission_override_amount != null
+          ? (user?.id ?? null)
+          : null,
     })
     .select("id")
     .single();

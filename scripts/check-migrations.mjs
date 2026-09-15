@@ -49,6 +49,7 @@ const REQUIRED_FILES = [
   "0184_inventory_ops_anon_and_documents.sql",
   "0186_launch_trust_schedule_invoice_guards.sql",
   "0187_catalog_search_pricing_columns.sql",
+  "0189_estimate_commission_override.sql",
 ];
 
 /**
@@ -699,6 +700,18 @@ const REQUIRED_MARKERS = [
       "null::",
       "Does NOT enable accounting",
       "revoke all on function public.search_products(text, int, boolean, boolean) from public",
+    ],
+  },
+  {
+    file: "0189_estimate_commission_override.sql",
+    markers: [
+      "P0_0189_PRECHECK",
+      "commission_override_pct",
+      "commission_override_amount",
+      "commission_overridden_at",
+      "commission_overridden_by",
+      "Do NOT set posting_enabled",
+      "estimates_customer leaked commission override",
     ],
   },
 ];

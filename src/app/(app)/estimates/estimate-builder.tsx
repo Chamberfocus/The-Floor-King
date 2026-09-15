@@ -22,6 +22,11 @@ import {
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
 import { jobProfit, marginShortfall } from "@/lib/job-profit";
+import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
+import {
+  isPresentCommissionOverride,
+  resolveCommission,
+} from "@/lib/estimate-commission";
 import { ratesFromTargetMargin, landedMaterialForTarget } from "@/lib/estimate-pricing";
 import { parseCutsFromText } from "@/lib/job-scope";
 import {
@@ -355,6 +360,8 @@ export function EstimateBuilder({
     discountValue?: string;
     activeOption?: number;
     options?: OptionState[];
+    commissionOverridePct?: string;
+    commissionOverrideAmount?: string;
   } | null;
 
   const emptyLine = (): LineState => ({
@@ -421,6 +428,20 @@ export function EstimateBuilder({
   const [discountValue, setDiscountValue] = useState(
     draft?.discountValue ?? (estimate.discount_value ? String(estimate.discount_value) : ""),
   );
+  // Per-estimate commission override. Empty = org default % (`commissionPct`).
+  // Amount (dollars) wins over percent. Unrelated line edits do not clear these.
+  const [commissionOverridePct, setCommissionOverridePct] = useState(
+    draft?.commissionOverridePct ??
+      (estimate.commission_override_pct != null
+        ? String(estimate.commission_override_pct)
+        : ""),
+  );
+  const [commissionOverrideAmount, setCommissionOverrideAmount] = useState(
+    draft?.commissionOverrideAmount ??
+      (estimate.commission_override_amount != null
+        ? String(estimate.commission_override_amount)
+        : ""),
+  );
 
   const [options, setOptions] = useState<OptionState[]>(() => {
     // Resume unsaved edits (fresh keys so nothing collides), else load the saved estimate.
@@ -484,7 +505,11 @@ export function EstimateBuilder({
             : [];
         const sqftStr = measurements.length
           ? String(rowsSqft(measurements))
-          : l.sqft?.toString() ?? "";
+          : recoverAreaSqftFromQuantity({
+              unit: l.unit,
+              sqft: l.sqft,
+              quantity: l.quantity,
+            });
         return {
         key: newKey(),
         id: l.id,
@@ -565,11 +590,13 @@ export function EstimateBuilder({
         discountValue,
         activeOption,
         options,
+        commissionOverridePct,
+        commissionOverrideAmount,
       }).then(() => setSaveState("saved"));
     }, 1000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, taxRate, presentation, jobDescription, notes, overallMargin, discountKind, discountValue, options, activeOption]);
+  }, [title, taxRate, presentation, jobDescription, notes, overallMargin, discountKind, discountValue, options, activeOption, commissionOverridePct, commissionOverrideAmount]);
   const [previewCustomer, setPreviewCustomer] = useState(false);
 
   // Which line editors are expanded — visual only (tap a line to edit it).
@@ -1018,8 +1045,14 @@ export function EstimateBuilder({
     const ct = optionCostTotals(opt.lines.map(toCalc));
     const freightMult = 1 + num(org?.freight_markup_pct ?? 0) / 100;
     const lineCostAllIn = ct.material * freightMult + ct.labor;
-    const costAtTarget = (revenue: number) =>
-      lineCostAllIn + fuelFee + carAllowance + (num(commissionPct) / 100) * revenue;
+    const costAtTarget = (revenue: number) => {
+      const comm = resolveCommission(revenue, {
+        defaultPct: commissionPct,
+        overridePct: commissionOverridePct,
+        overrideAmount: commissionOverrideAmount,
+      });
+      return lineCostAllIn + fuelFee + carAllowance + comm.commission;
+    };
     const trueCostAtTarget = costAtTarget(target);
     if (target < trueCostAtTarget) {
       toast.error(
@@ -1407,6 +1440,9 @@ export function EstimateBuilder({
     discount_kind: discountKind,
     discount_value: num(discountValue) || 0,
     recommended_index: options.findIndex((o) => o.key === recommendedKey),
+    commission_override_pct: commissionOverridePct.trim() === "" ? null : commissionOverridePct,
+    commission_override_amount:
+      commissionOverrideAmount.trim() === "" ? null : commissionOverrideAmount,
   });
 
   // --- Saved-default write-back ("use once" vs "use always") ----------------
@@ -1633,6 +1669,8 @@ export function EstimateBuilder({
       fuelFee,
       carAllowance,
       commissionPct,
+      commissionOverridePct,
+      commissionOverrideAmount,
     },
   );
   const grandMargin = grandProfit.margin;
@@ -2038,6 +2076,8 @@ export function EstimateBuilder({
             fuelFee,
             carAllowance,
             commissionPct,
+            commissionOverridePct,
+            commissionOverrideAmount,
           });
           const optionCost = optionProfit.cost;
           const costSplit = {
@@ -2046,7 +2086,6 @@ export function EstimateBuilder({
           };
           const fuel = optionProfit.fuelFee;
           const car = optionProfit.carAllowance;
-          const commission = optionProfit.commission;
           const optionMargin = optionProfit.margin;
 
           const isRecommended = option.key === recommendedKey;
@@ -3215,12 +3254,89 @@ export function EstimateBuilder({
                           <span className="tabular-nums">{formatMoney(car)}</span>
                         </div>
                       ) : null}
-                      {commission > 0 ? (
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Commission ({num(commissionPct)}%)</span>
-                          <span className="tabular-nums">{formatMoney(commission)}</span>
-                        </div>
-                      ) : null}
+                      {(() => {
+                        const pctInput = isPresentCommissionOverride(commissionOverrideAmount)
+                          ? String(Math.round(optionProfit.commissionPct * 100) / 100)
+                          : isPresentCommissionOverride(commissionOverridePct)
+                            ? commissionOverridePct
+                            : String(commissionPct);
+                        const amtInput = isPresentCommissionOverride(commissionOverrideAmount)
+                          ? commissionOverrideAmount
+                          : String(Math.round(optionProfit.commission * 100) / 100);
+                        const overridden = optionProfit.commissionOverridden;
+                        return (
+                          <div className="space-y-1.5 border-t border-dashed pt-1.5">
+                            <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                              <span>
+                                Commission{" "}
+                                {overridden ? (
+                                  <span className="font-medium text-foreground">(manual)</span>
+                                ) : (
+                                  <span>(calculated)</span>
+                                )}
+                              </span>
+                              {overridden ? (
+                                <button
+                                  type="button"
+                                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                                  onClick={() => {
+                                    setCommissionOverridePct("");
+                                    setCommissionOverrideAmount("");
+                                  }}
+                                >
+                                  Reset to calculated
+                                </button>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap items-end gap-3">
+                              <div>
+                                <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
+                                  Commission %
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  inputMode="decimal"
+                                  aria-label="Commission percent"
+                                  value={pctInput}
+                                  onChange={(e) => {
+                                    setCommissionOverridePct(e.target.value);
+                                    setCommissionOverrideAmount("");
+                                  }}
+                                  className={cn(inputSm, "w-20")}
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-0.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
+                                  Commission $
+                                </label>
+                                <div className="relative">
+                                  <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                                    $
+                                  </span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    inputMode="decimal"
+                                    aria-label="Commission dollars"
+                                    value={amtInput}
+                                    onChange={(e) => {
+                                      setCommissionOverrideAmount(e.target.value);
+                                      setCommissionOverridePct("");
+                                    }}
+                                    className={cn(inputSm, "w-24 pl-5")}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">
+                              Internal — does not change the customer total.
+                            </p>
+                          </div>
+                        );
+                      })()}
                       <div className="flex justify-between font-medium text-foreground">
                         <span>Profit</span>
                         <span className="tabular-nums">

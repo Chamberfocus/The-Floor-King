@@ -774,6 +774,12 @@ export interface Estimate {
   discount_kind: "amount" | "percent";
   discount_value: number;
   target_margin: number | null; // estimate-wide gross-margin default (%)
+  /** Manual commission %; null = use org `job_commission_pct`. */
+  commission_override_pct?: number | null;
+  /** Manual commission $; when set, wins over percent. Null = not a $ override. */
+  commission_override_amount?: number | null;
+  commission_overridden_at?: string | null;
+  commission_overridden_by?: string | null;
   notes: string | null;
   job_description: string | null;
   customer_response_note: string | null;

@@ -6,6 +6,10 @@ import {
   num,
   type CalcLine,
 } from "@/lib/estimate-calc";
+import {
+  resolveCommission,
+  type CommissionOverrideKind,
+} from "@/lib/estimate-commission";
 
 /**
  * THE profit calculation. One definition, used by every screen that shows a
@@ -30,6 +34,10 @@ export interface ProfitInputs {
   carAllowance?: number | string | null;
   /** Internal commission, as a percent of the sale (business settings). */
   commissionPct?: number | string | null;
+  /** Per-estimate manual percent. Ignored when `commissionOverrideAmount` is set. */
+  commissionOverridePct?: number | string | null;
+  /** Per-estimate manual dollars. Wins over percent; not a customer price. */
+  commissionOverrideAmount?: number | string | null;
 }
 
 export interface ProfitResult {
@@ -46,6 +54,9 @@ export interface ProfitResult {
   carAllowance: number;
   commission: number;
   commissionPct: number;
+  /** True when this estimate's commission is a manual override, not org default. */
+  commissionOverridden: boolean;
+  commissionKind: CommissionOverrideKind;
   /** revenue − cost − gas − car − commission. */
   profit: number;
   /** profit ÷ revenue, as a percent. Zero revenue ⇒ 0. */
@@ -79,10 +90,13 @@ export function allInProfit(
   const hasRevenue = revenue > 0;
   const fuelFee = hasRevenue ? num(args.fuelFee) : 0;
   const carAllowance = hasRevenue ? num(args.carAllowance) : 0;
-  const commissionPct = num(args.commissionPct);
-  const commission = hasRevenue ? (commissionPct / 100) * revenue : 0;
+  const resolved = resolveCommission(revenue, {
+    defaultPct: args.commissionPct,
+    overridePct: args.commissionOverridePct,
+    overrideAmount: args.commissionOverrideAmount,
+  });
 
-  const profit = revenue - cost - fuelFee - carAllowance - commission;
+  const profit = revenue - cost - fuelFee - carAllowance - resolved.commission;
   const subtotal = args.subtotal ?? revenue;
   const discount = args.discount ?? 0;
 
@@ -95,8 +109,10 @@ export function allInProfit(
     cost,
     fuelFee,
     carAllowance,
-    commission,
-    commissionPct,
+    commission: resolved.commission,
+    commissionPct: resolved.commissionPct,
+    commissionOverridden: resolved.overridden,
+    commissionKind: resolved.kind,
     profit,
     margin: revenue > 0 ? (profit / revenue) * 100 : 0,
   };
@@ -128,6 +144,8 @@ export function jobProfit(
     fuelFee: opts.fuelFee,
     carAllowance: opts.carAllowance,
     commissionPct: opts.commissionPct,
+    commissionOverridePct: opts.commissionOverridePct,
+    commissionOverrideAmount: opts.commissionOverrideAmount,
   });
 }
 
