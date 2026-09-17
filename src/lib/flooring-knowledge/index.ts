@@ -89,6 +89,7 @@ export {
   computeMaterialTakeoff,
   formatSqft,
   formatSqyd,
+  formatEquivalentSqyd,
   formatMeasuredLabel,
   formatBillingQty,
   formatTakeoffStrip,

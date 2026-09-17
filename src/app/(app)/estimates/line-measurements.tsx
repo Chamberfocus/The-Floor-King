@@ -86,7 +86,7 @@ export function LineMeasurements({
           {total > 0 ? (
             <>
               {total.toFixed(total % 1 === 0 ? 0 : 1)} sq ft
-              {isRoll ? ` · ${sqyd.toFixed(1)} sq yd` : ""}
+              {isRoll ? ` · ${sqyd.toFixed(1)} sq yd from cuts` : ""}
             </>
           ) : (
             "0 sq ft"

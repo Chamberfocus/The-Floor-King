@@ -60,6 +60,7 @@ import {
   DEFAULT_LABOR_PER_BAG,
 } from "@/lib/floor-prep";
 import { defaultWastePct } from "@/lib/flooring-profiles";
+import { formatEquivalentSqyd } from "@/lib/flooring-knowledge";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
 import { saveProductRate, createProductInline } from "../catalog/actions";
 import { writeScopeDescription } from "./ai-actions";
@@ -2439,7 +2440,7 @@ export function EstimateBuilder({
                                   />
                                   {isRollGoodCategory(line.category) && num(line.sqft) > 0 ? (
                                     <div className="pb-2 text-xs text-muted-foreground">
-                                      {(num(line.sqft) / 9).toFixed(1)} sq yd
+                                      {formatEquivalentSqyd(num(line.sqft))}
                                     </div>
                                   ) : null}
                                 </div>

@@ -287,6 +287,11 @@ export function formatSqyd(n: number): string {
   return `${r2(n)} sq yd`;
 }
 
+/** sq ft ÷ 9 labeled as equivalent area so it cannot be read as an order. */
+export function formatEquivalentSqyd(sqft: number): string {
+  return `${formatSqyd(equivalentSqyd(sqft))} equivalent area — not an order qty`;
+}
+
 export function formatMeasuredLabel(m: MeasuredArea, opts?: { showEquivalentYd?: boolean }): string {
   if (!opts?.showEquivalentYd) return formatSqft(m.sqft);
   return `${formatSqft(m.sqft)} (${formatSqyd(m.sqydEquivalent)} equivalent area — not an order quantity)`;

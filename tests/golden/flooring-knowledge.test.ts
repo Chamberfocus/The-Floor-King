@@ -25,6 +25,7 @@ import {
   defaultCutWidthFt,
   equivalentSqyd,
   formatTakeoffStrip,
+  formatEquivalentSqyd,
   familyFromCatalogCategory,
   familyFromSurfaceLabel,
   hardwoodConstructionFromLabel,
@@ -222,6 +223,11 @@ describe("measured area vs order quantity", () => {
     expect(strip).toMatch(/Order TBD \(enter cuts — not sq ft ÷ 9\)/);
     expect(strip).not.toMatch(/Order 50 sq yd/);
     expect(strip).not.toMatch(/Order 55/);
+  });
+
+  it("labels sq ft ÷ 9 as equivalent area, not an order", () => {
+    expect(formatEquivalentSqyd(450)).toBe("50 sq yd equivalent area — not an order qty");
+    expect(formatEquivalentSqyd(9)).toBe("1 sq yd equivalent area — not an order qty");
   });
 
   it("carpet cuts ARE the order quantity (no second waste factor)", () => {
