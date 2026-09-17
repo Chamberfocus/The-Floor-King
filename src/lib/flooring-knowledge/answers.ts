@@ -335,3 +335,13 @@ export function labelsAreConcreteOnly(labels: string[]): boolean {
 export function jobIsExclusiveConcreteSubstrate(valByKey: Record<string, string[]>): boolean {
   return labelsAreConcreteOnly(valByKey.substrate ?? valByKey.subfloor_type ?? []);
 }
+
+/**
+ * Exclusive plywood / OSB / wood deck. Concrete, existing flooring, Other,
+ * and Unknown / unanswered stay open (0142).
+ */
+export function labelsAreWoodDeckOnly(labels: string[]): boolean {
+  const cleaned = labels.map((l) => l.trim()).filter(Boolean);
+  if (!cleaned.length) return false;
+  return cleaned.every((l) => /^(plywood(\s*\/\s*osb)?|osb|wood)$/i.test(l));
+}

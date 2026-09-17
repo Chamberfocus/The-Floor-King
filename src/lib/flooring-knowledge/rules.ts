@@ -38,12 +38,14 @@ import {
   labelsAreNewConstruction,
   labelsAreWallOnly,
   labelsAreConcreteOnly,
+  labelsAreWoodDeckOnly,
   synthesizeStairGate,
 } from "./answers";
 import {
   CARPET_TILE_HIDES_KEYS,
   CARPET_TILE_VAPOR_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
+  WOOD_DECK_MOISTURE_HIDES_KEYS,
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
@@ -528,6 +530,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (WOOD_DECK_MOISTURE_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobHidesSlabMoistureOnWoodDeck(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -546,6 +555,25 @@ export function jobHasNonTileFloorFamily(install: InstallContext): boolean {
  */
 export function jobIsExclusiveConcrete(install: InstallContext): boolean {
   return labelsAreConcreteOnly(install.substrate);
+}
+
+/**
+ * Slab moisture test / Aqua bar on a wood deck. Glue-down, carpet tile, a
+ * moisture-concern flag, mixed LVP, unanswered method, and unanswered
+ * substrate stay open. Exclusive hardwood nail/staple/floating over
+ * plywood hides — 0190 is glue-down or wood over concrete, not a wood
+ * deck and not floating click.
+ */
+export function jobHidesSlabMoistureOnWoodDeck(install: InstallContext): boolean {
+  if (!labelsAreWoodDeckOnly(install.substrate)) return false;
+  if (install.surfacePending || install.installPending) return false;
+  if (install.systems.includes("glue") || install.systems.includes("carpet_tile")) return false;
+  if (install.subfloorCondition.some((l) => /moisture concerns/i.test(l))) return false;
+  if (!install.families.includes("hardwood")) return false;
+  if (install.families.some((f) => f === "lvp" || f === "laminate" || f === "vinyl" || f === "tile" || f === "carpet")) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -879,7 +907,7 @@ export function knowledgeHelpFor(
     return "Carpet pad and many hard-surface products have radiant limits. Yes fires the overlay purchasing warning — do not invent a radiant-rated SKU.";
   }
   if (key === "moisture_mitigation") {
-    return "Aqua bar / primer only when hardwood, glue-down, carpet tile, or a moisture-concern flag makes it relevant. Floating laminate and stretch-in without that flag hide this. Exclusive carpet tile asks this instead of 6-mil vapor barrier. Existing catalog rates — do not invent a new product.";
+    return "Aqua bar / primer only when hardwood, glue-down, carpet tile, or a moisture-concern flag makes it relevant. Floating laminate and stretch-in without that flag hide this. Exclusive carpet tile asks this instead of 6-mil vapor barrier. Exclusive hardwood nail/staple/floating over plywood hides this — Aqua bar is a slab system; glue-down over wood still asks. Mixed LVP still asks. Unanswered substrate stays open. Existing catalog rates — do not invent a new product.";
   }
   if (key === "adhesive") {
     return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this. Quantity is gallons or kits in Builder — taped square feet is not a glue order. A line with no sold-by unit shows How many / Unit TBD, not Sq ft. Do not invent coverage.";
@@ -924,7 +952,7 @@ export function knowledgeHelpFor(
     return "Above / on / below grade can change what a product and adhesive permit. Stretch-in over wood hides this. Glue-down carpet, carpet tile, and hard surface still ask. Confirm against the product — do not assume a ban.";
   }
   if (key === "moisture_test") {
-    return "Glue-down, carpet tile, hardwood, or a moisture-concern flag on the substrate. If you cannot test yet, pick Field verify — do not invent a number. Answering No fires the overlay moisture-untested warning; unanswered does not. Exclusive wall tile hides this — a slab moisture test is floor work. Exclusive carpet tile asks this instead of 6-mil vapor barrier. Wet area still asks.";
+    return "Glue-down, carpet tile, hardwood over concrete, or a moisture-concern flag on the substrate. If you cannot test yet, pick Field verify — do not invent a number. Answering No fires the overlay moisture-untested warning; unanswered does not. Exclusive wall tile hides this — a slab moisture test is floor work. Exclusive carpet tile asks this instead of 6-mil vapor barrier. Exclusive hardwood nail/staple/floating over plywood hides this — 0190 is glue-down or wood over concrete, not a wood deck. Glue-down over plywood still asks. Mixed LVP still asks. Unanswered substrate stays open. Wet area still asks.";
   }
   if (key === "stair_landings") {
     return "Count of landings in EACH. Measured with the rooms when they are floored the same; this flags extra pieces and noses. Exclusive wall tile hides this — a backsplash is not a stair job.";

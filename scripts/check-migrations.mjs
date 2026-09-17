@@ -132,6 +132,7 @@ const REQUIRED_FILES = [
   "0269_flooring_knowledge_vapor_underlayment.sql",
   "0270_flooring_knowledge_concrete_sheets.sql",
   "0271_flooring_knowledge_carpet_tile_vapor.sql",
+  "0272_flooring_knowledge_wood_moisture.sql",
 ];
 
 /**
@@ -1633,6 +1634,16 @@ const REQUIRED_MARKERS = [
       "P0_0271_FLOORING_KNOWLEDGE",
       "modular tile uses adhesive, not a floating-floor sheet",
       "Do NOT SQL-gate vapor_barrier on carpet_install",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0272_flooring_knowledge_wood_moisture.sql",
+    markers: [
+      "P0_0272_FLOORING_KNOWLEDGE",
+      "glue-down or wood over concrete, not a wood deck",
+      "Do NOT SQL-gate moisture_test on substrate",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

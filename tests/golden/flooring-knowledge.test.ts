@@ -81,6 +81,7 @@ import {
   TILE_THINSET_HIDES_KEYS,
   CARPET_TILE_VAPOR_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
+  WOOD_DECK_MOISTURE_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
@@ -90,6 +91,8 @@ import {
   jobIsExclusiveCarpetTileOnly,
   jobIsExclusiveSolidHardwood,
   jobIsExclusiveConcrete,
+  jobHidesSlabMoistureOnWoodDeck,
+  labelsAreWoodDeckOnly,
   jobAllowsFloatingVaporUnderlayment,
   choiceOptionApplies,
   tileWallHidesPrepOptionLabel,
@@ -6115,6 +6118,163 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         }),
       ).some((w) => w.id === "climate"),
     ).toBe(false);
+  });
+
+  it("0272 exclusive hardwood over plywood hides slab moisture; concrete and glue still ask", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0272_flooring_knowledge_wood_moisture.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0272_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/glue-down or wood over concrete, not a wood deck/);
+    expect(sql).toMatch(/Do NOT SQL-gate moisture_test on substrate/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*substrate.*moisture_test|moisture_test.*show_if.*substrate/,
+    );
+
+    expect(WOOD_DECK_MOISTURE_HIDES_KEYS).toEqual(["moisture_test", "moisture_mitigation"]);
+    expect(labelsAreWoodDeckOnly(["Plywood / OSB"])).toBe(true);
+    expect(labelsAreWoodDeckOnly(["Wood"])).toBe(true);
+    expect(labelsAreWoodDeckOnly(["Plywood / OSB", "Wood"])).toBe(true);
+    expect(labelsAreWoodDeckOnly(["Concrete"])).toBe(false);
+    expect(labelsAreWoodDeckOnly(["Plywood / OSB", "Concrete"])).toBe(false);
+    expect(labelsAreWoodDeckOnly(["Existing flooring"])).toBe(false);
+    expect(labelsAreWoodDeckOnly(["Unknown / field verify"])).toBe(false);
+    expect(labelsAreWoodDeckOnly([])).toBe(false);
+
+    expect(
+      jobHidesSlabMoistureOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Nail-down"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesSlabMoistureOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Nail-down"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesSlabMoistureOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Engineered hardwood"],
+          install_method: ["Glue-down"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesSlabMoistureOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesSlabMoistureOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood", "LVP / LVT"],
+          install_method: ["Nail-down"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(false);
+
+    expect(knowledgeHelpFor({ key: "moisture_test" }, emptyInstallContext())).toMatch(
+      /Exclusive hardwood nail\/staple\/floating over plywood hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "moisture_mitigation" }, emptyInstallContext())).toMatch(
+      /Aqua bar is a slab system/,
+    );
+
+    const nailPlywood = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(nailPlywood).not.toContain("moisture_test");
+    expect(nailPlywood).not.toContain("moisture_mitigation");
+    expect(nailPlywood).toContain("acclimation");
+    expect(nailPlywood).toContain("hardwood_fasteners");
+    expect(nailPlywood).not.toContain("vapor_barrier");
+
+    const overlayPlywood = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(overlayPlywood).not.toContain("moisture_test");
+    expect(overlayPlywood).toContain("acclimation");
+
+    const nailConcrete = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Concrete"],
+    });
+    expect(nailConcrete).toContain("moisture_test");
+    expect(nailConcrete).toContain("moisture_mitigation");
+    expect(nailConcrete).toContain("vapor_barrier");
+
+    const unansweredSub = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+    });
+    expect(unansweredSub).toContain("moisture_test");
+    expect(unansweredSub).toContain("substrate");
+
+    const gluePlywood = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Engineered hardwood"],
+      install_method: ["Glue-down"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(gluePlywood).toContain("moisture_test");
+    expect(gluePlywood).toContain("adhesive");
+
+    const floatingPlywood = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Engineered hardwood"],
+      install_method: ["Floating / click"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(floatingPlywood).not.toContain("moisture_test");
+    expect(floatingPlywood).toContain("vapor_barrier");
+    expect(floatingPlywood).toContain("attached_pad");
+
+    const mixedLvp = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood", "LVP / LVT"],
+      install_method: ["Nail-down", "Glue-down"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(mixedLvp).toContain("moisture_test");
+
+    const moistureFlag = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Plywood / OSB"],
+      subfloor_condition: ["Moisture concerns"],
+    });
+    expect(moistureFlag).toContain("moisture_test");
   });
 
   it("pattern repeat only after pattern match is required", () => {

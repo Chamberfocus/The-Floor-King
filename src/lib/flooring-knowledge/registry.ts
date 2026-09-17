@@ -239,7 +239,9 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   /**
    * Hardwood OR glue-down OR carpet tile OR the salesperson flagged moisture
    * concerns on the substrate — laminate floating still hides this unless
-   * condition says so. Stretch-in hides it.
+   * condition says so. Stretch-in hides it. Exclusive hardwood nail/staple/
+   * floating over plywood hides via WOOD_DECK_MOISTURE_HIDES_KEYS — 0190 is
+   * glue-down or wood over concrete, not a wood deck.
    */
   {
     key: "moisture_test",
@@ -561,6 +563,16 @@ export const CARPET_TILE_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
  * SQL-gate subfloor_needed on substrate.
  */
 export const CONCRETE_HIDES_KEYS = ["subfloor_needed"] as const;
+
+/**
+ * Slab moisture test / Aqua bar hidden once the substrate is exclusively
+ * plywood / OSB / wood AND the job is exclusive hardwood that is not
+ * glue-down. 0190: moisture test is glue-down or wood over concrete — not
+ * nail-down over a wood deck and not floating click. Mixed LVP / glue /
+ * unanswered substrate / moisture-concern flags stay open. Do not SQL-gate
+ * moisture_test on substrate (0142).
+ */
+export const WOOD_DECK_MOISTURE_HIDES_KEYS = ["moisture_test", "moisture_mitigation"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,
