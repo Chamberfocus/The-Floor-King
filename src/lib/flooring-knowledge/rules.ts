@@ -46,6 +46,7 @@ import {
   KNOWLEDGE_QUESTIONS,
   NEW_CONSTRUCTION_HIDES_KEYS,
   REMOVAL_QUESTION_KEYS,
+  SOLID_HARDWOOD_HIDES_KEYS,
   TILE_WALL_HIDES_KEYS,
   tileWallHidesPrepOptionLabel,
   tileWallHidesDemoOptionLabel,
@@ -489,6 +490,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (SOLID_HARDWOOD_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobIsExclusiveSolidHardwood(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -524,6 +532,19 @@ export function jobIsExclusiveCarpetTile(install: InstallContext): boolean {
     "carpet",
     carpetInstallSystemsFromLabels(install.answeredCarpetInstall),
   );
+}
+
+/**
+ * Exclusive solid hardwood — surface is Hardwood (solid), no engineered label,
+ * and no LVP/laminate also on the job (those still need attached pad).
+ * Floating follow-ups hide even before a method is picked. Mixed Hardwood +
+ * Engineered hardwood stays open. Unanswered HS stays open (0142).
+ */
+export function jobIsExclusiveSolidHardwood(install: InstallContext): boolean {
+  if (install.hardwoodConstruction !== "solid") return false;
+  if (install.surfaceLabels.some((s) => /engineered/i.test(s))) return false;
+  if (install.families.some((f) => f === "lvp" || f === "laminate")) return false;
+  return install.families.includes("hardwood");
 }
 
 /**
@@ -617,7 +638,7 @@ export function knowledgeHelpFor(
     if (ctx.families.includes("hardwood")) {
       return ctx.hardwoodConstruction === "engineered"
         ? "Engineered hardwood may allow nail, staple, glue, or floating — confirm the product permits the method you pick."
-        : "Solid hardwood is typically nail, staple, or glue. Floating is uncommon; confirm the product before using it.";
+        : "Solid hardwood is typically nail, staple, or glue. Floating follow-ups (attached pad, underlayment, expansion) stay off unless the surface is engineered. Confirm the product before using a leftover Floating chip.";
     }
     if (ctx.families.includes("lvp")) {
       if (ctx.systems.includes("loose_lay"))
@@ -704,7 +725,13 @@ export function knowledgeHelpFor(
     return "AC and heat on site. The acclimation warning fires only for hardwood / glue-down, from this overlay — not a second questionnaire list. Stretch-in and floating still capture it as an install condition. Legacy AC/heat yes-no answers still count.";
   }
   if (key === "laminate_expansion") {
-    return "Floating floors need expansion at walls and transitions. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
+    return "Floating floors need expansion at walls and transitions. Solid hardwood hides this — floating is not a permitted system. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
+  }
+  if (key === "attached_pad") {
+    return "Floating LVP / laminate / engineered may have an attached pad. Solid hardwood hides this — floating is not a permitted system. Glue-down hides this. Yes hides separate underlayment.";
+  }
+  if (key === "hs_underlayment") {
+    return "Separate underlayment for a floating floor. Attached pad Yes hides this. Solid hardwood hides this. Glue-down hides this. Do not invent a roll count.";
   }
   if (key === "selflevel_needed") {
     return "Bag count uses Settings coverage at the chosen pour. Pour is the shop default, else the coverage reference — we do not invent 1/4 inch. Field verify withholds bags.";
@@ -949,6 +976,12 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     w.push({
       id: "solid-below-grade",
       text: "Solid hardwood below grade — confirm the product/manufacturer permits this. Do not assume it; field verify if unsure.",
+    });
+  }
+  if (jobIsExclusiveSolidHardwood(ctx) && ctx.systems.includes("floating")) {
+    w.push({
+      id: "solid-floating",
+      text: "Solid hardwood is typically nail, staple, or glue. Floating is uncommon — confirm the product permits it. Do not assume a click floor or attached pad.",
     });
   }
   if (

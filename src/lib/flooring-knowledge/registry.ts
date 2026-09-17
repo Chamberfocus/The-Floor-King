@@ -148,6 +148,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   // Install
   { key: "install_method", purpose: "INSTALLATION", phase: "install" },
   { key: "carpet_install", purpose: "INSTALLATION", phase: "install", families: ["carpet"] },
+  /**
+   * Floating only. Solid hardwood hides this via SOLID_HARDWOOD_HIDES_KEYS
+   * even before a method is picked — floating is not a permitted system.
+   * Engineered / LVP / laminate keep it. Unanswered HS stays open (0142).
+   */
   { key: "attached_pad", purpose: "MATERIAL", phase: "install", families: ["lvp", "laminate", "hardwood"], systems: ["floating"] },
   /** Residential pad is stretch-in. Glue-down / carpet tile hide this. */
   { key: "carpet_pad", purpose: "MATERIAL", phase: "install", families: ["carpet"], systems: ["stretch_in"],
@@ -503,6 +508,18 @@ export const CARPET_TILE_HIDES_KEYS = [
   "pattern_match",
   "pattern_repeat",
   "carpet_direction",
+] as const;
+
+/**
+ * Floating-floor follow-ups hidden once the surface is exclusive solid
+ * hardwood. Unanswered HS and engineered stay open. Mixed Hardwood +
+ * Engineered hardwood stays open so floating engineered rooms still ask.
+ * Do not SQL-gate attached_pad on surface_type (0142).
+ */
+export const SOLID_HARDWOOD_HIDES_KEYS = [
+  "attached_pad",
+  "hs_underlayment",
+  "laminate_expansion",
 ] as const;
 
 /**

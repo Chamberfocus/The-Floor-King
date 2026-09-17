@@ -92,6 +92,7 @@ export {
   TILE_WALL_HIDES_KEYS,
   FURNITURE_MOVING_KEYS,
   CARPET_TILE_HIDES_KEYS,
+  SOLID_HARDWOOD_HIDES_KEYS,
   tileWallHidesPrepOptionLabel,
   tileWallHidesDemoOptionLabel,
   type KnowledgeQuestionDef,
@@ -174,6 +175,7 @@ export {
   jobHasNonTileFloorFamily,
   jobIsExclusiveWallTile,
   jobIsExclusiveCarpetTile,
+  jobIsExclusiveSolidHardwood,
   choiceOptionApplies,
   type InstallContext,
 } from "./rules";

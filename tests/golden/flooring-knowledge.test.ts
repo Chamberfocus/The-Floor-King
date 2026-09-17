@@ -79,9 +79,11 @@ import {
   tileJobIsWallOnly,
   TILE_WALL_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
+  SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
   jobIsExclusiveWallTile,
   jobIsExclusiveCarpetTile,
+  jobIsExclusiveSolidHardwood,
   choiceOptionApplies,
   tileWallHidesPrepOptionLabel,
   tileWallHidesDemoOptionLabel,
@@ -5500,6 +5502,136 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
       /Furniture moving hides too/,
+    );
+  });
+
+  it("0267 solid hardwood hides floating follow-ups; engineered keeps them", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0267_flooring_knowledge_solid_floating.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0267_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/floating is not a permitted system/);
+    expect(sql).toMatch(/Do NOT SQL-gate attached_pad on surface_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*attached_pad|attached_pad.*show_if.*surface_type/);
+
+    expect(SOLID_HARDWOOD_HIDES_KEYS).toEqual([
+      "attached_pad",
+      "hs_underlayment",
+      "laminate_expansion",
+    ]);
+    expect(
+      jobIsExclusiveSolidHardwood(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobIsExclusiveSolidHardwood(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Engineered hardwood"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveSolidHardwood(
+        installContextFromValByKey({ project_type: ["Hard surface"] }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveSolidHardwood(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood", "LVP / LVT"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveSolidHardwood(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood", "Engineered hardwood"],
+        }),
+      ),
+    ).toBe(false);
+
+    const unansweredHs = visibleKnowledgeKeys({ project_type: ["Hard surface"] });
+    expect(unansweredHs).toContain("attached_pad");
+
+    const lvp = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(lvp).toContain("attached_pad");
+
+    const solid = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+    });
+    expect(solid).not.toContain("attached_pad");
+    expect(solid).not.toContain("hs_underlayment");
+    expect(solid).not.toContain("laminate_expansion");
+    expect(solid).toContain("hardwood_fasteners");
+    expect(solid).toContain("hardwood_finish");
+    expect(solid).toContain("adhesive");
+
+    const leftover = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Floating / click"],
+    });
+    expect(leftover).not.toContain("attached_pad");
+    expect(leftover).not.toContain("laminate_expansion");
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Floating / click"],
+        }),
+      ).some((w) => w.id === "solid-floating"),
+    ).toBe(true);
+
+    const engineered = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Engineered hardwood"],
+    });
+    expect(engineered).toContain("attached_pad");
+    expect(engineered).toContain("laminate_expansion");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood", "Engineered hardwood"],
+    });
+    expect(mixed).toContain("attached_pad");
+
+    const nail = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+    });
+    expect(nail).toContain("hardwood_fasteners");
+    expect(nail).not.toContain("attached_pad");
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Nail-down"],
+        }),
+      ).some((w) => w.id === "solid-floating"),
+    ).toBe(false);
+
+    expect(knowledgeHelpFor({ key: "attached_pad" }, emptyInstallContext())).toMatch(
+      /Solid hardwood hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "laminate_expansion" }, emptyInstallContext())).toMatch(
+      /Solid hardwood hides this/,
     );
   });
 
