@@ -42,7 +42,9 @@ const carpet360sqft10waste: CalcLine = {
   category: "carpet",
   unit: "sq yd",
   measure_unit: "sqyd",
-  sqft: 360, // 40 sq yd
+  sqft: 360, // 40 sq yd from a 12' × 30' cut — not taped room area
+  length_in: 360,
+  width_in: 144,
   quantity: null,
   waste_pct: 10,
   material_rate: 30,
@@ -150,9 +152,42 @@ describe("measurements / area", () => {
 });
 
 describe("lineQty — unit kind rules", () => {
-  it("prices carpet (area, sq yd) from measured area / 9", () => {
-    // 360 sq ft → 40 sq yd
+  it("prices carpet (area, sq yd) from cut area / 9, not taped room sq ft", () => {
+    // 12' × 30' cut → 360 sq ft → 40 sq yd
     expect(lineQty(carpet360sqft10waste)).toBe(40);
+  });
+
+  it("does not bill roll goods from taped sq ft when there are no cuts", () => {
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 450,
+        quantity: null,
+      }),
+    ).toBe(0);
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        category: "vinyl",
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 450,
+        quantity: null,
+      }),
+    ).toBe(0);
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 450,
+        quantity: 50,
+      }),
+    ).toBe(50);
   });
 
   it("prices count units from quantity and ignores sqft (old $33,600 bug)", () => {

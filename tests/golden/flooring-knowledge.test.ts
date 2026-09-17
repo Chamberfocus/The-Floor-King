@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText } from "@/lib/job-scope";
 import { carpetYardageFromCuts } from "@/lib/questionnaire-calc";
-import { lineQty } from "@/lib/estimate-calc";
+import { lineQty, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
 import {
   accessoryUnitForType,
   applyHardSurfaceStairTrimFill,
@@ -3047,6 +3047,66 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const rules = readFileSync(join(root, "src/lib/flooring-knowledge/rules.ts"), "utf8");
     expect(rules).toMatch(/Clicking a chip does not invent \$1\/lnft or \$45\/nose/);
+  });
+
+  it("0222 does not bill roll goods from taped sq ft without cuts", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0222_flooring_knowledge_roll_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0222_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/sq ft ÷ 9/);
+    expect(sql).toMatch(/not billed as an order/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(
+      rollGoodsLineHasCuts({
+        line_type: "mat_labor",
+        category: "carpet",
+        sqft: 450,
+      }),
+    ).toBe(false);
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 450,
+        quantity: null,
+      }),
+    ).toBe(0);
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 450,
+        quantity: 50,
+      }),
+    ).toBe(50);
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 360,
+        length_in: 360,
+        width_in: 144,
+        quantity: null,
+      }),
+    ).toBe(40);
+
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(/never sq ft ÷ 9/);
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/measurements: l\.measurements\.filter\(rowHasDims\)\.map\(rowToMeasurement\)/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

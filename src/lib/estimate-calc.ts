@@ -1,8 +1,9 @@
-import type {
-  EstimatePresentation,
-  LineMeasurement,
-  LineType,
-  MeasureUnit,
+import {
+  isRollGoodCategory,
+  type EstimatePresentation,
+  type LineMeasurement,
+  type LineType,
+  type MeasureUnit,
 } from "@/lib/types";
 import { isAreaUnit, normalizeUnit } from "@/lib/units";
 
@@ -41,6 +42,8 @@ export interface CalcLine {
   // A LABOR line charges labor only — any material rate/cost on it is ignored
   // (it belongs on its own material line, never double-charged here).
   category?: string | null;
+  /** Warehouse cut pieces. Roll-goods order comes from these, not taped sq ft. */
+  measurements?: LineMeasurement[] | null;
 }
 
 /** A labor line is priced on labor alone — material never counts on it. */
@@ -76,6 +79,18 @@ export function lineAreaSqyd(line: CalcLine): number {
 }
 
 /**
+ * Warehouse pieces that make a roll-goods ORDER. Taped room square feet are
+ * measured area, not these.
+ */
+export function rollGoodsLineHasCuts(line: CalcLine): boolean {
+  const pieces = (line.measurements ?? []).filter(
+    (m) => m.op !== "subtract" && num(m.length_in) > 0 && num(m.width_in) > 0,
+  );
+  if (pieces.length) return true;
+  return num(line.length_in) > 0 && num(line.width_in) > 0;
+}
+
+/**
  * Quantity used for pricing, decided by the line's UNIT KIND (not by whether a
  * quantity happens to be > 0):
  *  - COUNT units (each / bag / linear ft / sheet / gallon…) price by their
@@ -84,10 +99,17 @@ export function lineAreaSqyd(line: CalcLine): number {
  *  - AREA units (sq ft / sq yd, or unspecified) price by the MEASURED area, so a
  *    stray quantity can't override the real measurement. Only when there's no
  *    measurement at all does a stored quantity stand in (legacy area lines).
+ *  - ROLL GOODS (carpet / sheet vinyl) without warehouse cuts: measured sq ft
+ *    is not an order. Exclusive carpet tile and a salesperson qty override
+ *    bill from `quantity`. Broadloom/sheet without cuts stay $0 (order TBD)
+ *    — never sq ft ÷ 9.
  */
 export function lineQty(line: CalcLine): number {
   const countUnit = line.unit != null && line.unit !== "" && !isAreaUnit(line.unit);
   if (countUnit) return num(line.quantity);
+  if (isRollGoodCategory(line.category) && line.category !== "labor" && !rollGoodsLineHasCuts(line)) {
+    return num(line.quantity);
+  }
   /**
    * The LABEL decides the number.
    *
