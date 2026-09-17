@@ -456,6 +456,7 @@ export const TILE_WALL_HIDES_KEYS = [
   "selflevel_needed",
   "vapor_barrier",
   "moisture_mitigation",
+  "moisture_test",
 ] as const;
 
 /**

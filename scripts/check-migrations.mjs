@@ -120,6 +120,7 @@ const REQUIRED_FILES = [
   "0257_flooring_knowledge_new_build_skim.sql",
   "0258_flooring_knowledge_new_build_toilets.sql",
   "0259_flooring_knowledge_climate_sot.sql",
+  "0260_flooring_knowledge_wall_moisture.sql",
 ];
 
 /**
@@ -1499,6 +1500,17 @@ const REQUIRED_MARKERS = [
       "climate_control",
       "knowledgeWarnings",
       "Do NOT SQL-gate climate on install_method",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0260_flooring_knowledge_wall_moisture.sql",
+    markers: [
+      "P0_0260_FLOORING_KNOWLEDGE",
+      "moisture_test",
+      "slab moisture",
+      "Do NOT SQL-gate moisture_test on tile_application",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

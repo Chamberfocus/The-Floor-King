@@ -4553,6 +4553,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       "selflevel_needed",
       "vapor_barrier",
       "moisture_mitigation",
+      "moisture_test",
     ]);
 
     const wallCtx = installContextFromValByKey({
@@ -4904,6 +4905,61 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(neu.find((w) => w.id === "new-construction")?.text).toMatch(/toilet pull/);
     expect(neu.find((w) => w.id === "new-construction")?.text).toMatch(/appliances/);
+  });
+
+  it("0260 exclusive wall tile hides slab moisture tests; wet area stays", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0260_flooring_knowledge_wall_moisture.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0260_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/slab moisture/);
+    expect(sql).toMatch(/Do NOT SQL-gate moisture_test on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*tile_application.*moisture_test|moisture_test.*show_if.*tile_application/);
+
+    expect(TILE_WALL_HIDES_KEYS).toContain("moisture_test");
+    expect(TILE_WALL_HIDES_KEYS).toContain("moisture_mitigation");
+    expect(knowledgeHelpFor({ key: "moisture_test" }, emptyInstallContext())).toMatch(
+      /Exclusive wall tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /slab moisture tests/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      subfloor_condition: ["Moisture concerns"],
+    });
+    expect(unanswered).toContain("moisture_test");
+    expect(unanswered).toContain("moisture_mitigation");
+    expect(unanswered).toContain("wet_area");
+    expect(unanswered).toContain("toilets");
+
+    const wall = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+      subfloor_condition: ["Moisture concerns"],
+    });
+    expect(wall).not.toContain("moisture_test");
+    expect(wall).not.toContain("moisture_mitigation");
+    expect(wall).not.toContain("vapor_barrier");
+    expect(wall).toContain("wet_area");
+    expect(wall).toContain("hs_prep");
+    expect(wall).toContain("tile_setting");
+    expect(wall).toContain("substrate");
+
+    const mixed = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "Hardwood"],
+      tile_application: ["Wall"],
+      subfloor_condition: ["Moisture concerns"],
+    });
+    expect(mixed).toContain("moisture_test");
+    expect(mixed).toContain("wet_area");
   });
 
   it("pattern repeat only after pattern match is required", () => {
