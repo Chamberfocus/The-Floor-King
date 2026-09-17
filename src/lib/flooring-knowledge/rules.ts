@@ -527,6 +527,9 @@ export function knowledgeHelpFor(
   if (key === "laminate_expansion") {
     return "Floating floors need expansion at walls and transitions. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
   }
+  if (key === "selflevel_needed") {
+    return "Bag count uses Settings coverage at the chosen pour. Pour is the shop default, else the coverage reference — we do not invent 1/4 inch. Field verify withholds bags.";
+  }
   if (key === "tile_setting") {
     return "Thinset, grout, and backer come from the catalog in Builder. This records the need — bag counts stay TBD unless a product with coverage is actually picked.";
   }

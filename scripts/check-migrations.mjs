@@ -86,6 +86,7 @@ const REQUIRED_FILES = [
   "0223_flooring_knowledge_piece_length.sql",
   "0224_flooring_knowledge_billing_unit.sql",
   "0225_flooring_knowledge_stair_allowance.sql",
+  "0226_flooring_knowledge_selflevel_pour.sql",
 ];
 
 /**
@@ -1107,10 +1108,46 @@ const REQUIRED_MARKERS = [
     ],
   },
   {
+    file: "0222_flooring_knowledge_roll_qty.sql",
+    markers: [
+      "P0_0222_FLOORING_KNOWLEDGE",
+      "sq ft ÷ 9",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0223_flooring_knowledge_piece_length.sql",
+    markers: [
+      "P0_0223_FLOORING_KNOWLEDGE",
+      "94",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0224_flooring_knowledge_billing_unit.sql",
+    markers: [
+      "P0_0224_FLOORING_KNOWLEDGE",
+      "measure_unit",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
     file: "0225_flooring_knowledge_stair_allowance.sql",
     markers: [
       "P0_0225_FLOORING_KNOWLEDGE",
       "do not invent 6/8 sq ft",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0226_flooring_knowledge_selflevel_pour.sql",
+    markers: [
+      "P0_0226_FLOORING_KNOWLEDGE",
+      "do not invent 1/4",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

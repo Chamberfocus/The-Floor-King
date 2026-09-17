@@ -54,6 +54,9 @@ export function questionnaireEmitToLineQty(
   if (args.qtyOverride != null) {
     qty = args.qtyOverride;
   } else if (per === "area") {
+    // Taped square feet is not gallons, bags, each, or linear feet.
+    // Number questions pass qtyOverride; count+area without an Amount is not an order.
+    if (!area) return null;
     qty = yd ? Math.ceil(args.areaSqft / 9) : Math.ceil(args.areaSqft);
   } else {
     qty = 1;
@@ -68,7 +71,10 @@ export function questionnaireEmitToLineQty(
   const measure_unit: "sqft" | "sqyd" = yd ? "sqyd" : "sqft";
 
   let sqft: number | null;
-  if (args.qtyOverride != null && area) {
+  if (!area) {
+    // Count units never inherit taped square feet.
+    sqft = null;
+  } else if (args.qtyOverride != null) {
     // Amount is in the emit unit. Builder Sq ft + lineQty read square feet.
     sqft = r2(yd ? qty * 9 : qty);
   } else if (per === "area") {

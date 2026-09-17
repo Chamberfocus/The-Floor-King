@@ -147,6 +147,43 @@ describe("questionnaire Amount → builder line fields", () => {
     expect(mapped?.unit).toBe("sq ft");
   });
 
+  it("count unit + per=area without Amount is not taped sq ft as gallons/each", () => {
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "each",
+        per: "area",
+        areaSqft: 450,
+      }),
+    ).toBeNull();
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "gal",
+        per: "area",
+        areaSqft: 450,
+      }),
+    ).toBeNull();
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "lnft",
+        per: "area",
+        areaSqft: 80,
+      }),
+    ).toBeNull();
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "each",
+        per: "area",
+        areaSqft: 450,
+        qtyOverride: 3,
+      }),
+    ).toEqual({
+      measure_unit: "sqft",
+      sqft: null,
+      quantity: 3,
+      unit: "each",
+    });
+  });
+
   it("yes/no per=each (qty 1) is unchanged — not an Amount override", () => {
     const mapped = questionnaireEmitToLineQty({
       emitUnit: "each",

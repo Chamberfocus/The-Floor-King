@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText } from "@/lib/job-scope";
 import { carpetYardageFromCuts, stairsCarpet } from "@/lib/questionnaire-calc";
+import { selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { lineQty, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
 import {
   accessoryQuantity,
@@ -3226,6 +3227,31 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const rules = readFileSync(join(root, "src/lib/flooring-knowledge/rules.ts"), "utf8");
     expect(rules).toMatch(/We do not invent 6\/8 sq ft of carpet per step as an order/);
+  });
+
+  it("0226 does not invent a 1/4 inch self-level pour or count qty from taped sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0226_flooring_knowledge_selflevel_pour.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0226_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/do not invent 1\/4/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(selfLevelPourThicknessIn(undefined)).toBe(0);
+    expect(selfLevelPourThicknessIn({})).toBe(0);
+    expect(selfLevelPourThicknessIn({ coverage_thickness_in: 0.125 })).toBe(0.125);
+    expect(selfLevelPourThicknessIn({ default_thickness_in: 0.25, coverage_thickness_in: 0.125 })).toBe(0.25);
+    expect(selfLevelPourThicknessIn({ default_thickness_in: 0.25 }, 0.375)).toBe(0.375);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/selfLevelPourThicknessIn/);
+    expect(q).not.toMatch(/default_thickness_in \?\? 0\.25/);
+    expect(q).toMatch(/We do not invent 1\/4/);
+
+    const emit = readFileSync(join(root, "src/lib/questionnaire-emit.ts"), "utf8");
+    expect(emit).toMatch(/Taped square feet is not gallons/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

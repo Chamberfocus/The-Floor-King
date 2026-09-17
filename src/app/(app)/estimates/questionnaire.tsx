@@ -47,7 +47,7 @@ import {
   smartLineToCalcLine,
 } from "@/lib/questionnaire-emit";
 import { lineTotal } from "@/lib/estimate-calc";
-import { bagsNeeded } from "@/lib/floor-prep";
+import { bagsNeeded, selfLevelPourThicknessIn, thicknessLabel } from "@/lib/floor-prep";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { isRollGoodCategory } from "@/lib/types";
 import {
@@ -562,8 +562,10 @@ export function Questionnaire({
         init[q.id] = { kind: "hs_stairs", steps: "", treadRiser: true, product: null, laborRate: "" };
       else if (q.kind === "subfloor")
         init[q.id] = { kind: "subfloor", thickness: q.config.options?.[0]?.label ?? "" };
-      else if (q.kind === "selflevel")
-        init[q.id] = { kind: "selflevel", thickness: String(q.config.default_thickness_in ?? 0.25) };
+      else if (q.kind === "selflevel") {
+        const pour = selfLevelPourThicknessIn(q.config);
+        init[q.id] = { kind: "selflevel", thickness: pour > 0 ? String(pour) : "" };
+      }
       else init[q.id] = { kind: "text", text: "" };
     }
     return init;
@@ -1824,7 +1826,7 @@ export function Questionnaire({
         if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
         const cov = q.config.coverage_sqft ?? 0;
         const covT = q.config.coverage_thickness_in ?? 0;
-        const pour = numv(a.thickness) || (q.config.default_thickness_in ?? 0.25);
+        const pour = selfLevelPourThicknessIn(q.config, a.thickness);
         const bagCost = q.config.bag_cost ?? 0;
         const suffix = prepQuantitySuffix(flooringCtx.prepConfidence);
         if (cov > 0 && totalSqft > 0) {
@@ -4544,13 +4546,13 @@ function QuestionBody({
   if (q.kind === "selflevel" && answer?.kind === "selflevel") {
     const cov = q.config.coverage_sqft ?? 0;
     const covT = q.config.coverage_thickness_in ?? 0;
-    const pour = numv(answer.thickness) || (q.config.default_thickness_in ?? 0.25);
+    const pour = selfLevelPourThicknessIn(q.config, answer.thickness);
     const THICKS = [
       { v: 0.0625, l: '1/16"' }, { v: 0.125, l: '1/8"' }, { v: 0.1875, l: '3/16"' },
       { v: 0.25, l: '1/4"' }, { v: 0.375, l: '3/8"' }, { v: 0.5, l: '1/2"' },
     ];
     const bags = cov > 0 && totalSqft > 0 ? bagsNeeded(totalSqft, cov, covT > 0 ? covT : null, covT > 0 ? pour : null) : 0;
-    const label = THICKS.find((t) => Math.abs(t.v - pour) < 1e-6)?.l ?? `${pour}"`;
+    const label = thicknessLabel(pour) || (covT > 0 ? "stated coverage thickness" : "");
     return (
       <div className="space-y-3">
         {covT > 0 ? (
@@ -4571,9 +4573,14 @@ function QuestionBody({
         {totalSqft > 0 && cov > 0 ? (
           prepQuantitiesAreFinal(flooringCtx.prepConfidence) ? (
           <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-            {Math.round(totalSqft)} sq ft{covT > 0 ? ` at ${label}` : ""} ÷ {cov} SF/bag ={" "}
+            {Math.round(totalSqft)} sq ft{covT > 0 && label ? ` at ${label}` : ""} ÷ {cov} SF/bag ={" "}
             <span className="font-semibold tabular-nums">{bags} bag{bags === 1 ? "" : "s"}</span>
             {prepQuantitySuffix(flooringCtx.prepConfidence)}
+            {covT > 0 && !(pour > 0) ? (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Pick a pour thickness to scale bags. We do not invent 1/4&quot;.
+              </span>
+            ) : null}
           </div>
           ) : (
             <p className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
