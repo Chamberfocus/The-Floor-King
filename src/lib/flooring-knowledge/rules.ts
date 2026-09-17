@@ -491,6 +491,9 @@ export function knowledgeHelpFor(
   if (key === "tack_strip") {
     return "Stretch-in needs tack strip. Glue-down and carpet tile do not. Capture keep vs replace — do not invent a linear-foot price unless a catalog item is added.";
   }
+  if (key === "tack_strip_qty") {
+    return "Linear feet of new tack strip — never square feet. Skip if you will measure on site. Field verify on the previous step does not invent a footage.";
+  }
   if (key === "metals_needed") {
     return "Carpet-to-hard-surface doorways and edges. Yes opens the count (EACH) plus type/color. Do not invent a metal price here.";
   }

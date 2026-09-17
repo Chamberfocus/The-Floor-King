@@ -71,6 +71,7 @@ const REQUIRED_FILES = [
   "0208_flooring_knowledge_stretch_pad.sql",
   "0209_flooring_knowledge_mixed_install.sql",
   "0210_flooring_knowledge_metals_entry.sql",
+  "0211_flooring_knowledge_tack_lnft.sql",
 ];
 
 /**
@@ -973,6 +974,16 @@ const REQUIRED_MARKERS = [
       "crew_entry",
       "occupancy",
       "climate_control",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0211_flooring_knowledge_tack_lnft.sql",
+    markers: [
+      "P0_0211_FLOORING_KNOWLEDGE",
+      "tack_strip_qty",
+      "linear feet",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

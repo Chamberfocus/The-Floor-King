@@ -892,6 +892,7 @@ describe("family → system asks the right keys (not every question)", () => {
     );
     expect(amountUnitLabelForQuestion({ key: "vents_registers" })).toBe("each");
     expect(amountUnitLabelForQuestion({ key: "metals_qty" })).toBe("each");
+    expect(amountUnitLabelForQuestion({ key: "tack_strip_qty" })).toBe("ln ft");
     expect(amountUnitLabelForQuestion({ key: "pattern_repeat" })).toMatch(/inches of repeat/);
   });
 
@@ -1379,6 +1380,11 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: { key: "pattern_match", in: ["Pattern match required"] },
     },
     { key: "tack_strip", position: 109, show_if: { key: "carpet_install", in: ["Stretch-in"] } },
+    {
+      key: "tack_strip_qty",
+      position: 110,
+      show_if: { key: "tack_strip", in: ["Replace / new tack strip"] },
+    },
     {
       key: "attached_pad",
       position: 206,
@@ -2389,6 +2395,66 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(noMetals).not.toContain("metals_qty");
     expect(noMetals).toContain("climate_control");
     expect(noMetals).toContain("occupancy");
+  });
+
+  it("0211 asks linear feet of new tack strip only after Replace", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0211_flooring_knowledge_tack_lnft.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0211_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/tack_strip_qty/);
+    expect(sql).toMatch(/linear feet/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/insert into public\.products/);
+
+    expect(knowledgeQuestionByKey("tack_strip_qty")?.quantityUnit).toBe("lnft");
+    expect(knowledgeQuestionByKey("tack_strip_qty")?.require).toEqual({
+      key: "tack_strip",
+      in: ["Replace / new tack strip"],
+    });
+    expect(amountUnitLabelForQuestion({ key: "tack_strip_qty" })).toBe("ln ft");
+    expect(reviewBucketForQuestion({ key: "tack_strip_qty", label: "New tack strip" })).toBe(
+      "accessories",
+    );
+
+    const stretch = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("tack_strip");
+    expect(stretch).not.toContain("tack_strip_qty");
+
+    const keep = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      tack_strip: ["Keep existing — in good shape"],
+    });
+    expect(keep).not.toContain("tack_strip_qty");
+
+    const tbd = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      tack_strip: ["Unknown / field verify"],
+    });
+    expect(tbd).not.toContain("tack_strip_qty");
+
+    const replace = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      tack_strip: ["Replace / new tack strip"],
+    });
+    expect(replace).toContain("tack_strip_qty");
+    expect(replace.indexOf("tack_strip")).toBeLessThan(replace.indexOf("tack_strip_qty")!);
+
+    const glue = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+      tack_strip: ["Replace / new tack strip"],
+    });
+    expect(glue).not.toContain("tack_strip");
+    expect(glue).not.toContain("tack_strip_qty");
   });
 
   it("pattern repeat only after pattern match is required", () => {

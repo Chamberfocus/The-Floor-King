@@ -74,8 +74,7 @@ export function normalizeUnit(raw: string | null | undefined): string {
     compact === "squareyard" ||
     compact === "squareyards" ||
     compact.includes("sqyd") ||
-    u.includes("yd") ||
-    u.includes("yard")
+    compact.includes("sqyard")
   )
     return "sqyd";
   if (u === "sf" || u === "ft" || u === "sqft" || u.includes("sq f") || u.includes("square f"))

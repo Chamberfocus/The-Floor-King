@@ -21,6 +21,7 @@ import {
 } from "@/lib/units";
 import { lineSpec, padRollCount, PAD_ROLL_SQYD } from "@/lib/job-scope";
 import { questionnaireEmitToLineQty } from "@/lib/questionnaire-emit";
+import { normUnit } from "@/lib/catalog-csv";
 
 const root = process.cwd();
 
@@ -112,6 +113,11 @@ describe("normalizeUnit — SY / yard aliases are square yards", () => {
     for (const raw of ["sqft", "sq ft", "SF", "square feet"]) {
       expect(normalizeUnit(raw), raw).toBe("sqft");
     }
+  });
+
+  it("does not treat a random yd substring (hydronic) as square yards", () => {
+    expect(normalizeUnit("hydronic")).not.toBe("sqyd");
+    expect(unitIsSqyd("hydronic")).toBe(false);
   });
 });
 
@@ -322,5 +328,16 @@ describe("measured sq ft is never labeled as a carpet order in sq yd", () => {
     const src = readFileSync(join(root, "src/app/(app)/inventory/[id]/page.tsx"), "utf8");
     expect(src).toMatch(/unitIsSqyd\(product\.unit\)/);
     expect(src).not.toMatch(/product\.unit\?\.includes\(["']yd["']\)/);
+  });
+
+  it("catalog CSV import maps SY via normalizeUnit, not includes(yd)", () => {
+    const src = readFileSync(join(root, "src/lib/catalog-csv.ts"), "utf8");
+    expect(src).toMatch(/normalizeUnit/);
+    expect(src).not.toMatch(/u\.includes\(["']yd["']\)/);
+    expect(normUnit("SY")).toBe("sqyd");
+    expect(normUnit("sq yd")).toBe("sqyd");
+    expect(normUnit("hydronic")).toBe("sqft");
+    expect(normUnit("lnft")).toBe("lnft");
+    expect(normUnit("each")).toBe("each");
   });
 });

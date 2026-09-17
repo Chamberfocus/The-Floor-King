@@ -68,6 +68,7 @@ const ACCESSORY_MATERIAL_KEYS = new Set([
   "adhesive",
   "hs_underlayment",
   "tack_strip",
+  "tack_strip_qty",
   "tile_setting",
   "attached_pad",
   "metals_needed",
