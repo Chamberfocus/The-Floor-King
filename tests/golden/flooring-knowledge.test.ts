@@ -66,6 +66,9 @@ import {
   formatMeasuredLabel,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
+  areaDerivedMaterialAllowed,
+  areaDerivedMaterialQty,
+  measuredInstallLaborAllowed,
   buildSalespersonReview,
   reviewToJobNotes,
   mergeReviewWarnings,
@@ -249,6 +252,36 @@ describe("measured area vs order quantity", () => {
     expect(t.measured.sqydEquivalent).toBe(20);
     expect(materialWastePctForEmit({ family: "vinyl", requestedWastePct: 8 })).toBe(0);
     expect(materialWastePctForEmit({ family: "lvp", requestedWastePct: 10 })).toBe(10);
+  });
+
+  it("never writes taped roll-goods area onto a Builder material quantity", () => {
+    expect(areaDerivedMaterialAllowed("carpet")).toBe(false);
+    expect(areaDerivedMaterialAllowed("vinyl")).toBe(false);
+    expect(areaDerivedMaterialAllowed("lvp")).toBe(true);
+    expect(areaDerivedMaterialAllowed("hardwood")).toBe(true);
+    expect(areaDerivedMaterialAllowed("laminate")).toBe(true);
+    expect(areaDerivedMaterialAllowed("tile")).toBe(true);
+    expect(areaDerivedMaterialAllowed("other")).toBe(true);
+    // 450 sq ft = 50 sq yd equivalent — that conversion is not an order.
+    expect(
+      areaDerivedMaterialQty({ family: "carpet", measuredSqft: 450, billingUnit: "sqyd" }),
+    ).toBeNull();
+    expect(
+      areaDerivedMaterialQty({ family: "vinyl", measuredSqft: 180, billingUnit: "sqyd" }),
+    ).toBeNull();
+    expect(
+      areaDerivedMaterialQty({ family: "lvp", measuredSqft: 500, billingUnit: "sqft" }),
+    ).toBe(500);
+    expect(
+      areaDerivedMaterialQty({ family: "hardwood", measuredSqft: 500, billingUnit: "sqft" }),
+    ).toBe(500);
+    // Install labor still follows measured area until cuts own the job.
+    expect(measuredInstallLaborAllowed("carpet", 0)).toBe(true);
+    expect(measuredInstallLaborAllowed("carpet", undefined)).toBe(true);
+    expect(measuredInstallLaborAllowed("carpet", 540)).toBe(false);
+    expect(measuredInstallLaborAllowed("vinyl", 90)).toBe(false);
+    expect(measuredInstallLaborAllowed("lvp", 0)).toBe(true);
+    expect(measuredInstallLaborAllowed("lvp", 999)).toBe(true);
   });
 
   it("boxed LVP uses waste and carton rounding only when coverage exists", () => {

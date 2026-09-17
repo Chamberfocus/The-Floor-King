@@ -90,6 +90,44 @@ export function rollGoodsHaveCuts(
 }
 
 /**
+ * Whether taped / measured area may become a Builder MATERIAL line.
+ * Roll goods: never. sq ft ÷ 9 is equivalent area, not an order. The cuts
+ * step owns carpet/sheet material. Boxed hard surface: yes.
+ */
+export function areaDerivedMaterialAllowed(family: FlooringFamily): boolean {
+  return !isRollGoodsFamily(family);
+}
+
+/**
+ * Quantity that would be written onto a Builder material line from taped area.
+ * Returns null for roll goods so callers cannot accidentally store sqft ÷ 9
+ * as the order.
+ */
+export function areaDerivedMaterialQty(args: {
+  family: FlooringFamily;
+  measuredSqft: number;
+  billingUnit: "sqyd" | "sqft";
+}): number | null {
+  if (!areaDerivedMaterialAllowed(args.family)) return null;
+  const n = Number(args.measuredSqft);
+  if (!(n > 0) || !Number.isFinite(n)) return null;
+  return args.billingUnit === "sqyd" ? r2(n / 9) : r2(n);
+}
+
+/**
+ * Whether install labor may be billed from measured area on the floor-map /
+ * product path. Roll goods with cuts: no — the cuts step already emits
+ * install against cut yardage. Roll goods without cuts: yes — install is
+ * measured work, not an order quantity.
+ */
+export function measuredInstallLaborAllowed(
+  family: FlooringFamily,
+  cutsSqft?: number | null,
+): boolean {
+  return !rollGoodsHaveCuts(family, cutsSqft);
+}
+
+/**
  * Waste that may ride onto an emitted material LINE.
  * Roll goods without cuts: 0 — layout waste lives in the cut list, not a %.
  */

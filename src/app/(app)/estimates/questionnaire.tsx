@@ -70,6 +70,9 @@ import {
   isRollGoodsFamily,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
+  areaDerivedMaterialAllowed,
+  areaDerivedMaterialQty,
+  measuredInstallLaborAllowed,
   knowledgeHelpFor,
   knowledgeWarnings,
   amountUnitLabelForQuestion,
@@ -936,8 +939,14 @@ export function Questionnaire({
           // waste through waste_pct — do NOT bake it into quantity, which area
           // pricing ignores (that's why waste appeared to "not transfer"). Box
           // count is derived from sqft ÷ sqft_per_box in the builder.
-          const qty = b.wantYd ? r2(rm.sqft / 9) : r2(rm.sqft);
-          if (rm.sqft > 0)
+          // Roll goods without cuts: measured sqft is NOT an order. Do not emit
+          // a material line with qty = sqft ÷ 9 — that is equivalent area.
+          const qty = areaDerivedMaterialQty({
+            family: rollFam,
+            measuredSqft: rm.sqft,
+            billingUnit: b.wantYd ? "sqyd" : "sqft",
+          });
+          if (qty != null && rm.sqft > 0)
             out.push({
               room: rm.name || null,
               description: p.label || cat,
@@ -961,11 +970,14 @@ export function Questionnaire({
               from_stock: p.source === "stock",
               sqft_per_box: spb > 0 ? spb : null,
             });
-          // Accumulate install labor per distinct product.
-          const key = `${p.productId || p.label}|${p.laborRate}`;
-          const agg = byProd.get(key) ?? { p, wantYd: b.wantYd, sqft: 0 };
-          agg.sqft += rm.sqft;
-          byProd.set(key, agg);
+          // Accumulate install labor per distinct product. Labor is measured
+          // work even when roll-goods order quantity is still TBD.
+          if (measuredInstallLaborAllowed(rollFam, cutSf)) {
+            const key = `${p.productId || p.label}|${p.laborRate}`;
+            const agg = byProd.get(key) ?? { p, wantYd: b.wantYd, sqft: 0 };
+            agg.sqft += rm.sqft;
+            byProd.set(key, agg);
+          }
         });
         for (const { p, wantYd, sqft } of byProd.values()) {
           // Prefer the product's own labor rate if set, else the per-type default.
@@ -1005,7 +1017,6 @@ export function Questionnaire({
         const defWaste = profileFor(cat)?.waste ?? 0;
         const fam = familyFromCatalogCategory(cat);
         const cutSf = isRollGoodsFamily(fam) ? (cutsSqftByCategory[fam] ?? 0) : 0;
-        const cutsOwnMaterial = rollGoodsHaveCuts(fam, cutSf);
         const wasteOf = (p: ProductAns) =>
           materialWastePctForEmit({
             family: fam,
@@ -1046,7 +1057,12 @@ export function Questionnaire({
           sqft: size?.sqft ?? null, // the measurement, carried for confirmation
           // Raw measured area in the billing unit (no waste, no box snap) — the
           // waste is applied via waste_pct so area pricing charges it.
-          quantity: b.wantYd ? r2((size?.sqft ?? 0) / 9) : r2(size?.sqft ?? 0),
+          // Roll goods return null here — callers must not push those lines.
+          quantity: areaDerivedMaterialQty({
+            family: familyFromCatalogCategory(p.category || cat),
+            measuredSqft: size?.sqft ?? 0,
+            billingUnit: billing(p.category || cat).wantYd ? "sqyd" : "sqft",
+          }) ?? 0,
           // Roll goods: L×W on the line is a warehouse cut, so only explicit
           // cuts go here. Room dimensions stay on sqft (measured area).
           length_in: measurements?.[0]?.length_in ?? (roll ? null : size?.lenIn ?? null),
@@ -1081,7 +1097,8 @@ export function Questionnaire({
           // other stay bundled to one line, but carry the total sq ft.
           const perRoomFloor =
             cat !== "underlayment" && cat !== "trim" && cat !== "other" && allRooms.length > 0 && !boxed;
-          if (!cutsOwnMaterial) {
+          // Roll goods: taped area is never a material line. Cuts own the order.
+          if (areaDerivedMaterialAllowed(fam)) {
             if (perRoomFloor) {
               for (const rm of allRooms) {
                 if (rm.sqft > 0) out.push(matLine(p, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
@@ -1094,8 +1111,10 @@ export function Questionnaire({
           }
           // Install labor — bundled, with the total area recorded.
           // Cuts-owned roll goods emit install with the cut yardage instead.
+          // Without cuts, labor still follows measured area (install is work,
+          // not an order quantity).
           const lr = rateFor(p.laborRate, p.unit, b.wantYd);
-          if (!cutsOwnMaterial && lr > 0 && coverSf > 0) {
+          if (measuredInstallLaborAllowed(fam, cutSf) && lr > 0 && coverSf > 0) {
             const laborQty = b.wantYd ? Math.ceil(coverSf / 9) : Math.ceil(coverSf);
             out.push({
               room: null,
@@ -1122,8 +1141,11 @@ export function Questionnaire({
         }
         // Additional products for specific areas (e.g. upgraded pad on the
         // stairs) — each its own material line, quantity from its own area.
+        // Extra carpet/sheet still cannot be ordered from a taped sqft.
         for (const ex of a.extras) {
           if (!ex.product || numv(ex.sqft) <= 0) continue;
+          const exFam = familyFromCatalogCategory(ex.product.category || cat);
+          if (!areaDerivedMaterialAllowed(exFam)) continue;
           out.push(matLine(ex.product, { sqft: numv(ex.sqft) }));
         }
       } else if (q.kind === "product" && a.kind === "trims") {
