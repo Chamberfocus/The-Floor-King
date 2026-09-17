@@ -1637,7 +1637,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "tile_layout", position: 220, show_if: { key: "surface_type", in: ["Tile"] } },
     { key: "tile_setting", position: 221, show_if: { key: "surface_type", in: ["Tile"] } },
     { key: "subfloor_condition", position: 352, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
-    { key: "existing_pad", position: 108, show_if: { key: "project_type", in: ["Carpet"] } },
+    { key: "existing_pad", position: 271, show_if: { any: [{ key: "project_type", in: ["Carpet"] }, { key: "hs_demo", in: ["Carpet"] }] } },
     { key: "metals_needed", position: 112, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "carpet_pad", position: 110, show_if: { key: "carpet_install", in: ["Stretch-in"] } },
     {
@@ -4162,6 +4162,77 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const qty = readFileSync(join(root, "src/lib/flooring-knowledge/quantities.ts"), "utf8");
     expect(qty).toMatch(/Measured sq ft \(not the order\)/);
     expect(qty).toMatch(/Sq ft ÷ 9 is equivalent area, not a cut plan/);
+  });
+
+  it("0250 existing pad follows tearing out carpet, not only a new-carpet job", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0250_flooring_knowledge_existing_pad.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0250_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/existing_pad/);
+    expect(sql).toMatch(/hs_demo/);
+    expect(sql).toMatch(/position = 271/);
+    expect(sql).toMatch(/Do not invent a second demo rate/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(knowledgeQuestionByKey("existing_pad")?.any).toEqual([
+      { families: ["carpet"] },
+      { demo: ["Carpet"] },
+    ]);
+    expect(knowledgeHelpFor({ key: "existing_pad" }, emptyInstallContext())).toMatch(
+      /follows the existing floor/,
+    );
+
+    const carpet = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(carpet).toContain("existing_pad");
+    expect(carpet).toContain("hs_demo");
+    expect(carpet.indexOf("hs_demo")).toBeLessThan(carpet.indexOf("existing_pad")!);
+
+    const lvpQuiet = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+    });
+    expect(lvpQuiet).toContain("hs_demo");
+    expect(lvpQuiet).not.toContain("existing_pad");
+
+    const lvpOverCarpet = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      hs_demo: ["Carpet"],
+    });
+    expect(lvpOverCarpet).toContain("existing_pad");
+    expect(lvpOverCarpet).toContain("demo_disposal");
+    expect(lvpOverCarpet.indexOf("hs_demo")).toBeLessThan(lvpOverCarpet.indexOf("existing_pad")!);
+
+    const tileOverTile = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      hs_demo: ["Ceramic WITHOUT mortar bed"],
+    });
+    expect(tileOverTile).not.toContain("existing_pad");
+
+    const overlayLvp = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      hs_demo: ["Carpet"],
+    });
+    expect(overlayLvp).toContain("existing_pad");
+
+    const neu = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      work_type: ["New construction"],
+      hs_demo: ["Carpet"],
+    });
+    expect(neu).not.toContain("existing_pad");
+    expect(neu).not.toContain("hs_demo");
   });
 
   it("pattern repeat only after pattern match is required", () => {

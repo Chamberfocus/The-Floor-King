@@ -374,6 +374,12 @@ export interface KnowledgeWhenClause {
    * Unanswered does not satisfy an OR branch on its own.
    */
   subfloor?: string[];
+  /**
+   * Positive match on existing-flooring / `hs_demo` labels (e.g. Carpet).
+   * Unanswered does not satisfy an OR branch on its own. Removal follow-ups
+   * belong to what is coming up, not only the new product family.
+   */
+  demo?: string[];
 }
 
 /**

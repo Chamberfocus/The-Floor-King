@@ -110,6 +110,7 @@ const REQUIRED_FILES = [
   "0247_flooring_knowledge_work_type.sql",
   "0248_flooring_knowledge_wet_area.sql",
   "0249_flooring_knowledge_builder_measured.sql",
+  "0250_flooring_knowledge_existing_pad.sql",
 ];
 
 /**
@@ -1383,6 +1384,16 @@ const REQUIRED_MARKERS = [
       "P0_0249_FLOORING_KNOWLEDGE",
       "Measured sq ft (not the order)",
       "Sq ft ÷ 9",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0250_flooring_knowledge_existing_pad.sql",
+    markers: [
+      "P0_0250_FLOORING_KNOWLEDGE",
+      "existing_pad",
+      "hs_demo",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

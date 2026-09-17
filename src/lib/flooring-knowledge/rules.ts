@@ -317,7 +317,7 @@ export function knowledgeClauseApplies(clause: KnowledgeWhenClause, ctx: Install
     if (!have.length) {
       // Positive-match expander (SQL `{ key: substrate, in }`). Unanswered
       // does not satisfy an OR branch that is only about substrate.
-      if (!clause.families?.length && !clause.systems?.length && !clause.subfloor?.length) return false;
+      if (!clause.families?.length && !clause.systems?.length && !clause.subfloor?.length && !clause.demo?.length) return false;
     } else if (!substrateLabelMatches(have, clause.substrate)) {
       return false;
     }
@@ -326,8 +326,21 @@ export function knowledgeClauseApplies(clause: KnowledgeWhenClause, ctx: Install
   if (clause.subfloor?.length) {
     const have = ctx.subfloorCondition ?? [];
     if (!have.length) {
-      if (!clause.families?.length && !clause.systems?.length && !clause.substrate?.length) return false;
+      if (!clause.families?.length && !clause.systems?.length && !clause.substrate?.length && !clause.demo?.length) return false;
     } else if (!substrateLabelMatches(have, clause.subfloor)) {
+      return false;
+    }
+  }
+
+  if (clause.demo?.length) {
+    const have = ctx.existingFlooring ?? [];
+    if (!have.length) {
+      // Positive-match expander (SQL `{ key: hs_demo, in }`). Unanswered
+      // does not satisfy an OR branch that is only about what is coming up.
+      if (!clause.families?.length && !clause.systems?.length && !clause.substrate?.length && !clause.subfloor?.length) {
+        return false;
+      }
+    } else if (!listHas(have, clause.demo)) {
       return false;
     }
   }
@@ -513,6 +526,9 @@ export function knowledgeHelpFor(
   }
   if (key === "existing_bond") {
     return "Glued-down LVP/laminate/vinyl is a different tear-out than floating. Scope note — existing demo rates stay.";
+  }
+  if (key === "existing_pad") {
+    return "Tearing out carpet — to carpet or to hard surface — usually takes the pad with it. Reuse only when the salesperson explicitly allows it. This follows the existing floor, not only a new-carpet job. Do not invent a second demo rate; the tear-out line gets a pad note.";
   }
   if (key === "work_type") {
     return "Replacement asks what's coming up. New construction hides tear-out, pad removal, asbestos, and disposal — substrate and prep still apply. Unknown / field verify keeps demo visible. Do not invent a demo charge on a new slab.";

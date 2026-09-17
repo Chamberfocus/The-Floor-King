@@ -47,6 +47,7 @@ export interface KnowledgeQuestionDef {
     systems?: InstallSystem[];
     substrate?: string[];
     subfloor?: string[];
+    demo?: string[];
   }[];
 }
 
@@ -90,7 +91,18 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * questions (demo, pad, bond, asbestos, disposal). Unanswered stays open.
    */
   { key: "work_type", purpose: "SCOPE", phase: "existing" },
-  { key: "existing_pad", purpose: "LABOR", phase: "existing", families: ["carpet"] },
+  /**
+   * Pad removal follows EXISTING carpet, not only a new-carpet job.
+   * Installing carpet still asks it. LVP/hardwood/tile over carpet asks it
+   * once hs_demo is Carpet. Sit after hs_demo so the follow-up is not behind
+   * the salesperson (0142).
+   */
+  {
+    key: "existing_pad",
+    purpose: "LABOR",
+    phase: "existing",
+    any: [{ families: ["carpet"] }, { demo: ["Carpet"] }],
+  },
   { key: "hs_demo", purpose: "LABOR", phase: "existing" },
   /**
    * Glued vs floating only after demo is a click/glue hard surface.
