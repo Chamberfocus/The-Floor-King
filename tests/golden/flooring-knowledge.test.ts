@@ -27,6 +27,9 @@ import {
   permittedInstallSystems,
   questionApplies,
   sqydToSqft,
+  visibleKnowledgeKeys,
+  knowledgeQuestionByKey,
+  KNOWLEDGE_QUESTIONS,
 } from "@/lib/flooring-knowledge";
 import { billsBySquareYard } from "@/lib/units";
 
@@ -487,5 +490,97 @@ describe("product metadata overrides generic roll-width defaults", () => {
     expect(hardwoodConstructionFromSpecies("White oak, engineered")).toBe("engineered");
     expect(hardwoodConstructionFromSpecies("Solid white oak")).toBe("solid");
     expect(hardwoodConstructionFromSpecies(null)).toBe("unknown");
+  });
+});
+
+describe("family → system asks the right keys (not every question)", () => {
+  const has = (keys: string[], k: string) => keys.includes(k);
+
+  it("every registry question has a purpose and vents are each", () => {
+    expect(KNOWLEDGE_QUESTIONS.length).toBeGreaterThan(10);
+    for (const q of KNOWLEDGE_QUESTIONS) {
+      expect(q.purpose).toBeTruthy();
+      expect(q.phase).toBeTruthy();
+    }
+    expect(knowledgeQuestionByKey("vents_registers")?.quantityUnit).toBe("each");
+    expect(knowledgeQuestionByKey("tack_strip")?.systems).toEqual(["stretch_in"]);
+  });
+
+  it("floating laminate: no adhesive, no fasteners, no tack, expansion on", () => {
+    const keys = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    });
+    expect(has(keys, "adhesive")).toBe(false);
+    expect(has(keys, "hardwood_fasteners")).toBe(false);
+    expect(has(keys, "tack_strip")).toBe(false);
+    expect(has(keys, "tile_setting")).toBe(false);
+    expect(has(keys, "vinyl_layout")).toBe(false);
+    expect(has(keys, "laminate_expansion")).toBe(true);
+    expect(has(keys, "attached_pad")).toBe(true);
+    expect(has(keys, "hs_underlayment")).toBe(true);
+  });
+
+  it("glue-down LVP: adhesive on, floating follow-ups off", () => {
+    const keys = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+    });
+    expect(has(keys, "adhesive")).toBe(true);
+    expect(has(keys, "attached_pad")).toBe(false);
+    expect(has(keys, "laminate_expansion")).toBe(false);
+    expect(has(keys, "hs_underlayment")).toBe(false);
+    expect(has(keys, "hardwood_fasteners")).toBe(false);
+    expect(has(keys, "tile_layout")).toBe(false);
+  });
+
+  it("stretch-in carpet: tack strip on, adhesive off", () => {
+    const keys = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(has(keys, "tack_strip")).toBe(true);
+    expect(has(keys, "adhesive")).toBe(false);
+    expect(has(keys, "pattern_match")).toBe(true);
+    expect(has(keys, "tile_setting")).toBe(false);
+  });
+
+  it("glue-down carpet: tack strip off, adhesive on", () => {
+    const keys = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(has(keys, "tack_strip")).toBe(false);
+    expect(has(keys, "adhesive")).toBe(true);
+  });
+
+  it("tile: setting materials and layout, not floating pad", () => {
+    const keys = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      install_method: ["Thinset / mortar"],
+    });
+    expect(has(keys, "tile_setting")).toBe(true);
+    expect(has(keys, "tile_layout")).toBe(true);
+    expect(has(keys, "adhesive")).toBe(false);
+    expect(has(keys, "attached_pad")).toBe(false);
+    expect(has(keys, "laminate_expansion")).toBe(false);
+  });
+
+  it("0193 adds subfloor condition without inventing bag counts", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0193_flooring_knowledge_subfloor_condition.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0193_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/subfloor_condition/);
+    expect(sql).toMatch(/Unknown \/ field verify/);
+    expect(sql).toMatch(/Berber \/ loop/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(has(visibleKnowledgeKeys({ project_type: ["Hard surface"] }), "subfloor_condition")).toBe(
+      true,
+    );
   });
 });

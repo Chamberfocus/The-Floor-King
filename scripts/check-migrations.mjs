@@ -53,6 +53,7 @@ const REQUIRED_FILES = [
   "0190_flooring_knowledge_engine.sql",
   "0191_flooring_knowledge_roll_tile_stairs.sql",
   "0192_flooring_knowledge_estimator_gaps.sql",
+  "0193_flooring_knowledge_subfloor_condition.sql",
 ];
 
 /**
@@ -754,6 +755,16 @@ const REQUIRED_MARKERS = [
       "tile_setting",
       "vents_registers",
       "Unknown / field verify",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0193_flooring_knowledge_subfloor_condition.sql",
+    markers: [
+      "P0_0193_FLOORING_KNOWLEDGE",
+      "subfloor_condition",
+      "Berber / loop",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

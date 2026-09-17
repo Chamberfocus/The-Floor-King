@@ -37,6 +37,12 @@ export {
 export { matchesShowIf, isShowIfClause } from "./show-if";
 
 export {
+  knowledgeQuestionByKey,
+  type KnowledgeQuestionDef,
+  type EstimatorPhase,
+} from "./registry";
+
+export {
   measuredArea,
   equivalentSqyd,
   sqydToSqft,
@@ -62,12 +68,14 @@ export {
   emptyInstallContext,
   installContextFromValByKey,
   DEFAULT_KNOWLEDGE_WHEN,
+  KNOWLEDGE_QUESTIONS,
   knowledgeWhenApplies,
   questionKnowledgeWhen,
   questionApplies,
   questionPurpose,
   knowledgeHelpFor,
   knowledgeWarnings,
+  visibleKnowledgeKeys,
   type InstallContext,
 } from "./rules";
 

@@ -21,6 +21,9 @@ import {
   type InstallSystem,
 } from "./families";
 import { matchesShowIf } from "./show-if";
+import { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS } from "./registry";
+
+export { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS } from "./registry";
 
 export interface InstallContext {
   projectTypes: string[];
@@ -129,46 +132,9 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
 }
 
 /**
- * Built-in overlay for keyed questions that predate `knowledge_when`.
- * Keys not listed are unrestricted (show_if alone decides).
+ * Overlay for keyed questions. Built from the canonical registry so a new
+ * family is a registry + permitted-systems entry, not a second copy of keys.
  */
-export const DEFAULT_KNOWLEDGE_WHEN: Record<string, KnowledgeWhen> = {
-  // Carpet-only details
-  metals_needed: { families: ["carpet"], purpose: "ACCESSORY" },
-  pattern_match: { families: ["carpet"], purpose: "WAREHOUSE" },
-  carpet_direction: { families: ["carpet"], purpose: "WAREHOUSE" },
-  existing_pad: { families: ["carpet"], purpose: "LABOR" },
-  carpet_install: { families: ["carpet"], purpose: "INSTALLATION" },
-  tack_strip: { families: ["carpet"], systems: ["stretch_in"], purpose: "ACCESSORY" },
-  laminate_expansion: { systems: ["floating"], purpose: "SCOPE" },
-  tile_setting: { families: ["tile"], purpose: "MATERIAL" },
-  vents_registers: { purpose: "ACCESSORY" },
-  // Hard-surface / method
-  surface_type: { purpose: "MATERIAL" },
-  install_method: { purpose: "INSTALLATION" },
-  adhesive: { systems: ["glue"], purpose: "MATERIAL" },
-  hs_underlayment: { systems: ["floating"], purpose: "MATERIAL" },
-  attached_pad: { systems: ["floating"], families: ["lvp", "laminate", "hardwood"], purpose: "MATERIAL" },
-  vapor_barrier: { systems: ["floating", "glue"], purpose: "PREP" },
-  acclimation: { purpose: "INSTALLATION" },
-  moisture_test: { purpose: "PREP" },
-  moisture_mitigation: { purpose: "PREP" },
-  substrate: { purpose: "PREP" },
-  construction_grade: { families: ["hardwood", "lvp", "laminate", "vinyl", "tile"], purpose: "INSTALLATION" },
-  radiant_heat: { purpose: "WARNING" },
-  hs_product: { purpose: "MATERIAL" },
-  vinyl_layout: { families: ["vinyl"], purpose: "WAREHOUSE" },
-  tile_layout: { families: ["tile"], purpose: "INSTALLATION" },
-  hardwood_fasteners: { systems: ["nail", "staple"], purpose: "MATERIAL" },
-  existing_bond: { purpose: "LABOR" },
-  // Stairs extras
-  stair_landings: { purpose: "MEASUREMENT" },
-  stair_open_sides: { purpose: "MEASUREMENT" },
-  // Site
-  occupancy: { purpose: "SCHEDULING" },
-  access_conditions: { purpose: "SCHEDULING" },
-  prep_confidence: { purpose: "PREP" },
-};
 
 function listHas(have: string[], want: string[]): boolean {
   return want.some((w) => have.includes(w));
@@ -244,6 +210,17 @@ export function questionApplies(
   return true;
 }
 
+/**
+ * Keys the overlay would show for this answer set (no SQL show_if). Proves
+ * family/system branching without a live estimate_questions table.
+ */
+export function visibleKnowledgeKeys(valByKey: Record<string, string[]>): string[] {
+  const ctx = installContextFromValByKey(valByKey);
+  return KNOWLEDGE_QUESTIONS.filter((def) =>
+    questionApplies({ key: def.key, config: {} }, valByKey, ctx),
+  ).map((def) => def.key);
+}
+
 export function questionPurpose(q: {
   key?: string | null;
   config?: { knowledge_when?: KnowledgeWhen | null; purpose?: QuestionPurpose | null };
@@ -311,6 +288,9 @@ export function knowledgeHelpFor(
   }
   if (key === "substrate") {
     return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete.";
+  }
+  if (key === "subfloor_condition") {
+    return "Flat vs uneven vs cracks vs a height change. If demo hasn't happened, pick Unknown / field verify — do not invent a bag count.";
   }
   return null;
 }
