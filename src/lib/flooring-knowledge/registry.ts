@@ -228,9 +228,10 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * this via CARPET_TILE_VAPOR_HIDES_KEYS — modular tile uses adhesive,
    * not a floating-floor sheet; Aqua bar stays on moisture_mitigation.
    * Exclusive glue-down over plywood hides via GLUE_WOOD_VAPOR_HIDES_KEYS —
-   * you cannot glue to 6-mil poly; Aqua bar stays on moisture_mitigation.
-   * Mixed floating + glue still asks. Glue over concrete still asks.
-   * Unanswered substrate stays open. Do not SQL-gate
+   * you cannot glue to 6-mil poly. Exclusive glue / carpet tile over plywood
+   * also hides Aqua bar via WOOD_DECK_AQUA_HIDES_KEYS — Aqua bar is a slab
+   * system. Glue over concrete still asks both. Mixed floating still asks
+   * vapor. Unanswered substrate stays open. Do not SQL-gate
    * vapor_barrier on surface_type, carpet_install, or substrate (0142).
    */
   {
@@ -259,6 +260,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   /**
    * Same gate as moisture_test: hardwood OR glue OR carpet tile OR a
    * moisture-concern flag. Floating laminate without that flag hides Aqua bar.
+   * Exclusive glue-down / carpet tile over plywood hides via
+   * WOOD_DECK_AQUA_HIDES_KEYS — Aqua bar is a slab coating, not a wood-deck
+   * primer. Moisture test still asks (wood MC). Glue over concrete still
+   * asks. A moisture-concern flag still asks. Unanswered substrate stays
+   * open (0142).
    */
   {
     key: "moisture_mitigation",
@@ -580,11 +586,21 @@ export const WOOD_DECK_MOISTURE_HIDES_KEYS = ["moisture_test", "moisture_mitigat
 /**
  * 6-mil click-floor vapor sheet hidden once the job is exclusive glue-down
  * (no floating) over plywood / OSB / wood. You cannot glue to 6-mil poly.
- * Aqua bar stays on moisture_mitigation. Glue over concrete still asks.
- * Mixed floating + glue still asks. Unanswered substrate stays open (0142).
- * Do not SQL-gate vapor_barrier on substrate.
+ * Aqua bar hides separately via WOOD_DECK_AQUA_HIDES_KEYS. Glue over
+ * concrete still asks. Mixed floating + glue still asks vapor. Unanswered
+ * substrate stays open (0142). Do not SQL-gate vapor_barrier on substrate.
  */
 export const GLUE_WOOD_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
+
+/**
+ * Aqua bar / primer hidden once the substrate is exclusively plywood / OSB /
+ * wood AND the job is glue-down or carpet tile. Aqua bar is a slab coating —
+ * not a wood-deck primer. Moisture test still asks (wood moisture content).
+ * Glue over concrete still asks. Mixed plywood + concrete stays open. A
+ * moisture-concern flag still asks. Unanswered substrate and unanswered
+ * method stay open (0142). Do not SQL-gate moisture_mitigation on substrate.
+ */
+export const WOOD_DECK_AQUA_HIDES_KEYS = ["moisture_mitigation"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,

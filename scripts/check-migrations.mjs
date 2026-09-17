@@ -136,6 +136,7 @@ const REQUIRED_FILES = [
   "0273_flooring_knowledge_sole_leftover.sql",
   "0274_flooring_knowledge_carpet_hs_leftover.sql",
   "0275_flooring_knowledge_glue_wood_vapor.sql",
+  "0276_flooring_knowledge_glue_wood_aqua.sql",
 ];
 
 /**
@@ -1677,6 +1678,16 @@ const REQUIRED_MARKERS = [
       "P0_0275_FLOORING_KNOWLEDGE",
       "you cannot glue to 6-mil poly",
       "Do NOT SQL-gate vapor_barrier on substrate",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0276_flooring_knowledge_glue_wood_aqua.sql",
+    markers: [
+      "P0_0276_FLOORING_KNOWLEDGE",
+      "Aqua bar is a slab coating",
+      "Do NOT SQL-gate moisture_mitigation on substrate",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
