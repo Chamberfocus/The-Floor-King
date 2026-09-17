@@ -62,6 +62,7 @@ const REQUIRED_FILES = [
   "0199_flooring_knowledge_hs_trim.sql",
   "0200_flooring_knowledge_prep_gates.sql",
   "0201_flooring_knowledge_shared_demo.sql",
+  "0202_flooring_knowledge_tile_carpet_prep.sql",
 ];
 
 /**
@@ -863,6 +864,17 @@ const REQUIRED_MARKERS = [
       "substrate",
       "demo_disposal",
       "vapor_barrier",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0202_flooring_knowledge_tile_carpet_prep.sql",
+    markers: [
+      "P0_0202_FLOORING_KNOWLEDGE",
+      "moisture_mitigation",
+      "carpet_tile",
+      "tile_body",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

@@ -99,7 +99,8 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "attached_pad", purpose: "MATERIAL", phase: "install", families: ["lvp", "laminate", "hardwood"], systems: ["floating"] },
   /** Residential pad is stretch-in. Glue-down / carpet tile hide this. */
   { key: "carpet_pad", purpose: "MATERIAL", phase: "install", families: ["carpet"], systems: ["stretch_in"] },
-  { key: "adhesive", purpose: "MATERIAL", phase: "install", systems: ["glue"] },
+  /** Glue-down of any family, or carpet tile (pressure-sensitive / glue). */
+  { key: "adhesive", purpose: "MATERIAL", phase: "install", systems: ["glue", "carpet_tile"] },
   { key: "hs_underlayment", purpose: "MATERIAL", phase: "install", systems: ["floating"] },
   { key: "hardwood_fasteners", purpose: "MATERIAL", phase: "install", systems: ["nail", "staple"] },
   /**
@@ -115,8 +116,9 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "construction_grade", purpose: "INSTALLATION", phase: "install", families: ["hardwood", "lvp", "laminate", "vinyl", "tile"] },
   { key: "radiant_heat", purpose: "WARNING", phase: "install" },
   { key: "laminate_expansion", purpose: "SCOPE", phase: "install", systems: ["floating"] },
-  { key: "tile_layout", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_application", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
+  { key: "tile_body", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
+  { key: "tile_layout", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_setting", purpose: "MATERIAL", phase: "install", families: ["tile"] },
   { key: "tack_strip", purpose: "ACCESSORY", phase: "install", families: ["carpet"], systems: ["stretch_in"] },
   { key: "climate_control", purpose: "INSTALLATION", phase: "install" },
@@ -151,7 +153,20 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
       { subfloor: ["Moisture concerns"] },
     ],
   },
-  { key: "moisture_mitigation", purpose: "PREP", phase: "prep" },
+  /**
+   * Same gate as moisture_test: hardwood OR glue OR a moisture-concern flag.
+   * Floating laminate without that flag hides Aqua bar / primer.
+   */
+  {
+    key: "moisture_mitigation",
+    purpose: "PREP",
+    phase: "prep",
+    any: [
+      { families: ["hardwood"] },
+      { systems: ["glue"] },
+      { subfloor: ["Moisture concerns"] },
+    ],
+  },
   { key: "prep_confidence", purpose: "PREP", phase: "prep" },
   { key: "hs_prep", purpose: "PREP", phase: "prep" },
   { key: "selflevel_needed", purpose: "PREP", phase: "prep" },

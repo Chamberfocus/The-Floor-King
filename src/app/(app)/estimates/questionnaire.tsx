@@ -1635,9 +1635,10 @@ export function Questionnaire({
     const has = (k: string, v: string) => (valByKey[k] ?? []).includes(v);
     if (has("radiant_heat", "Yes"))
       w.push({ id: "radiant", text: "Radiant heat present — confirm the selected flooring is rated for radiant heat before ordering." });
-    if (picked.some((l) => /mortar bed/i.test(l) && /with/i.test(l)))
+    const demo = valByKey.hs_demo ?? [];
+    if (demo.some((l) => /ceramic with mortar bed/i.test(l)))
       w.push({ id: "mortar", text: "Ceramic WITH mortar bed demo — expect a floor-height change. Check transitions and door clearance." });
-    if (picked.some((l) => /ceramic/i.test(l))) {
+    if (demo.some((l) => /ceramic/i.test(l))) {
       w.push({ id: "ceramic_substrate", text: "Tearing up ceramic tile — confirm what's under it (mortar bed, backer board, or other substrate) and include removing it in the demo." });
       w.push({ id: "ceramic_base", text: "Ceramic removal usually takes the base with it — plan for shoe molding or quarter round." });
     }

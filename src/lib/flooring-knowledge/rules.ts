@@ -519,6 +519,15 @@ export function knowledgeHelpFor(
   if (key === "tile_application") {
     return "Floor vs wall. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
   }
+  if (key === "tile_body") {
+    return "Ceramic vs porcelain vs natural stone. Still the tile catalog — capture the body for setting notes. Do not invent a waste percent or a second category.";
+  }
+  if (key === "moisture_mitigation") {
+    return "Aqua bar / primer only when hardwood, glue-down, or a moisture-concern flag makes it relevant. Floating laminate without that flag hides this. Existing catalog rates — do not invent a new product.";
+  }
+  if (key === "adhesive") {
+    return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this.";
+  }
   if (key === "vinyl_skim") {
     return "Embossed existing vinyl often needs a skim coat. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";
   }
@@ -649,13 +658,13 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
       text: "Loose-lay is its own system — not glue-down and not floating/click. Confirm the product and substrate; do not assume adhesive or underlayment.",
     });
   }
-  if (picked.some((l) => /mortar bed/i.test(l) && /with/i.test(l))) {
+  if (ctx.existingFlooring.some((l) => /ceramic with mortar bed/i.test(l))) {
     w.push({
       id: "mortar",
       text: "Ceramic WITH mortar bed demo — expect a floor-height change. Check transitions and door clearance.",
     });
   }
-  if (picked.some((l) => /ceramic/i.test(l))) {
+  if (has(ctx.existingFlooring, /ceramic/i)) {
     w.push({
       id: "ceramic_substrate",
       text: "Tearing up ceramic tile — confirm what's under it (mortar bed, backer board, or other substrate) and include removing it in the demo.",
@@ -669,6 +678,12 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     w.push({
       id: "asbestos",
       text: "Possible or confirmed asbestos in existing vinyl/ceramic — test before demo. Do not invent an abatement price here.",
+    });
+  }
+  if (picked.some((l) => /natural stone/i.test(l))) {
+    w.push({
+      id: "tile-stone",
+      text: "Natural stone setting, sealing, and waste differ from ceramic. Pick catalog setting materials in Builder — do not invent a labor rate or waste percent here.",
     });
   }
   if (ctx.families.some((f) => f === "lvp" || f === "laminate" || f === "hardwood") && picked.some((l) => /diagonal/i.test(l))) {
