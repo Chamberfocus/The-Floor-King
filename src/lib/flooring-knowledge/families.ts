@@ -237,6 +237,26 @@ export function isBoxedFamily(family: FlooringFamily): boolean {
   return family === "lvp" || family === "hardwood" || family === "laminate" || family === "tile";
 }
 
+/**
+ * Families whose stairs use treads, risers, and stair noses — not carpet
+ * waterfall / upholstered wrap. Sheet vinyl is included when the job wraps
+ * stairs in that product; the trim types still come from existing TRIM_TYPES.
+ */
+export function isHardSurfaceStairFamily(family: FlooringFamily): boolean {
+  return (
+    family === "lvp" ||
+    family === "hardwood" ||
+    family === "laminate" ||
+    family === "vinyl" ||
+    family === "tile"
+  );
+}
+
+/** Show the Trims stair-nose fill only when a hard-surface family is on the job. */
+export function jobNeedsHardSurfaceStairTrim(families: FlooringFamily[]): boolean {
+  return families.some(isHardSurfaceStairFamily);
+}
+
 export function billsBySqydFamily(family: FlooringFamily): boolean {
   // Pad is sq yd too but is not a flooring family. Carpet + sheet vinyl match
   // SQYD_CATEGORIES in units.ts for the floor itself.

@@ -23,6 +23,8 @@ export {
   installMethodOptionsForFamilies,
   isRollGoodsFamily,
   isBoxedFamily,
+  isHardSurfaceStairFamily,
+  jobNeedsHardSurfaceStairTrim,
   billsBySqydFamily,
   profileForFamily,
   defaultWastePctForFamily,
@@ -38,7 +40,17 @@ export {
 
 export { matchesShowIf, isShowIfClause, showIfReferencedKeys } from "./show-if";
 
-export { answerGateValues, synthesizeStairGate, type GateAnswer } from "./answers";
+export {
+  answerGateValues,
+  synthesizeStairGate,
+  stairStepCountFromAnswer,
+  stairStepCountFromAnswers,
+  applyHardSurfaceStairTrimFill,
+  HARD_SURFACE_STAIR_TRIM_LABELS,
+  type GateAnswer,
+  type StairAnswerKind,
+  type HardSurfaceStairTrimLabel,
+} from "./answers";
 
 export {
   knowledgeQuestionByKey,

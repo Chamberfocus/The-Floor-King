@@ -9,6 +9,7 @@ import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import { carpetCutList } from "@/lib/job-scope";
 import {
   accessoryUnitForType,
+  applyHardSurfaceStairTrimFill,
   billsBySqydFamily,
   cartonTakeoff,
   catalogCategoryForFamily,
@@ -44,6 +45,9 @@ import {
   prepQuantitySuffix,
   answerGateValues,
   synthesizeStairGate,
+  stairStepCountFromAnswers,
+  jobNeedsHardSurfaceStairTrim,
+  HARD_SURFACE_STAIR_TRIM_LABELS,
   groupMeasuredSqftByLabel,
   deliveryAddonCost,
   reviewBucketForQuestion,
@@ -457,7 +461,11 @@ describe("trim / accessory units never mix with area", () => {
   it("T-mold is each and is not classified as linear molding", () => {
     expect(accessoryUnitForType("T-mold")).toBe("each");
     expect(accessoryUnitForType("Reducer")).toBe("each");
+    expect(accessoryUnitForType("Stair nose")).toBe("each");
+    expect(accessoryUnitForType("Stair tread")).toBe("each");
+    expect(accessoryUnitForType("Stair riser")).toBe("each");
     expect(accessoryUnitForType("Vent / register")).toBe("each");
+    expect(coerceTrimUnit("Stair nose", "sqft")).toBe("each");
     expect(coerceTrimUnit("T-mold", "sqft")).toBe("each");
     expect(coerceTrimUnit("Vent / register", "lnft")).toBe("each");
   });
@@ -1357,6 +1365,49 @@ describe("stair extras and mixed-job measured area", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/answerGateValues/);
     expect(q).toMatch(/groupMeasuredSqftByLabel/);
+  });
+
+  it("reads hard-surface step count separately from carpet waterfall", () => {
+    const answers = {
+      carpet: { kind: "stairs", groups: [{ type: "Waterfall", count: "12" }] },
+      hs: { kind: "hs_stairs", steps: "8" },
+      rooms: { kind: "number", value: "3" },
+    };
+    expect(stairStepCountFromAnswers(answers)).toBe(20);
+    expect(stairStepCountFromAnswers(answers, ["hs_stairs"])).toBe(8);
+    expect(stairStepCountFromAnswers(answers, ["stairs"])).toBe(12);
+    expect(stairStepCountFromAnswers({ empty: { kind: "hs_stairs", steps: "" } })).toBe(0);
+  });
+
+  it("does not show HS stair-nose fill on carpet-only jobs", () => {
+    expect(jobNeedsHardSurfaceStairTrim(["carpet"])).toBe(false);
+    expect(jobNeedsHardSurfaceStairTrim(["lvp"])).toBe(true);
+    expect(jobNeedsHardSurfaceStairTrim(["hardwood"])).toBe(true);
+    expect(jobNeedsHardSurfaceStairTrim(["laminate"])).toBe(true);
+    expect(jobNeedsHardSurfaceStairTrim(["vinyl"])).toBe(true);
+    expect(jobNeedsHardSurfaceStairTrim(["tile"])).toBe(true);
+    expect(jobNeedsHardSurfaceStairTrim(["carpet", "hardwood"])).toBe(true);
+    expect(jobNeedsHardSurfaceStairTrim([])).toBe(false);
+  });
+
+  it("fills existing TRIM_TYPES treads, risers, and noses in EACH — no invented SKU", () => {
+    expect([...HARD_SURFACE_STAIR_TRIM_LABELS]).toEqual(["Stair tread", "Stair riser", "Stair nose"]);
+    const filled = applyHardSurfaceStairTrimFill(
+      [{ type: "Stair tread", qty: "1" }],
+      13,
+      (label) => ({ type: label, qty: "" }),
+    );
+    expect(filled).toEqual([
+      { type: "Stair tread", qty: "13" },
+      { type: "Stair riser", qty: "13" },
+      { type: "Stair nose", qty: "13" },
+    ]);
+    expect(applyHardSurfaceStairTrimFill([], 0, (label) => ({ type: label, qty: "" }))).toEqual([]);
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/applyHardSurfaceStairTrimFill/);
+    expect(q).toMatch(/jobNeedsHardSurfaceStairTrim/);
+    expect(q).toMatch(/stairStepCountFromAnswers\(jobAnswers, \["hs_stairs"\]\)/);
+    expect(q).not.toMatch(/ensure\(\/tread\/i, "Stair tread"\)/);
   });
 });
 

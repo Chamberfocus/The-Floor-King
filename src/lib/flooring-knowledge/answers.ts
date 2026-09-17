@@ -72,3 +72,78 @@ export function synthesizeStairGate(valByKey: Record<string, string[]>): Record<
   if (cur.includes("Yes")) return valByKey;
   return { ...valByKey, stairs: [...cur, "Yes"] };
 }
+
+export type StairAnswerKind = "stairs" | "hs_stairs";
+
+/** Step count from one stair answer. Empty / zero is 0 — never invent stairs. */
+export function stairStepCountFromAnswer(a: unknown): number {
+  if (!a || typeof a !== "object") return 0;
+  const ans = a as GateAnswer;
+  if (ans.kind === "stairs") {
+    return (ans.groups ?? []).reduce((sum, g) => sum + positiveCount(g.count), 0);
+  }
+  if (ans.kind === "hs_stairs") {
+    return positiveCount(ans.steps);
+  }
+  return 0;
+}
+
+/**
+ * Sum of stair steps already entered on the job.
+ *
+ * Carpet waterfall (`stairs`) and hard-surface plank (`hs_stairs`) are
+ * different constructions. Pass `kinds` to read only one — Trims fill for
+ * treads/risers/noses uses hard-surface steps, not carpet steps.
+ */
+export function stairStepCountFromAnswers(
+  answers: Record<string, unknown> | unknown[] | null | undefined,
+  kinds: readonly StairAnswerKind[] = ["stairs", "hs_stairs"],
+): number {
+  if (!answers) return 0;
+  const values = Array.isArray(answers) ? answers : Object.values(answers);
+  const allow = new Set(kinds);
+  let n = 0;
+  for (const a of values) {
+    if (!a || typeof a !== "object") continue;
+    const kind = (a as GateAnswer).kind;
+    if (kind !== "stairs" && kind !== "hs_stairs") continue;
+    if (!allow.has(kind)) continue;
+    n += stairStepCountFromAnswer(a);
+  }
+  return n;
+}
+
+/** Existing TRIM_TYPES labels — do not invent Versatrim SKUs or prices. */
+export const HARD_SURFACE_STAIR_TRIM_LABELS = ["Stair tread", "Stair riser", "Stair nose"] as const;
+
+export type HardSurfaceStairTrimLabel = (typeof HARD_SURFACE_STAIR_TRIM_LABELS)[number];
+
+function matchHardSurfaceStairTrim(type: string, label: HardSurfaceStairTrimLabel): boolean {
+  if (label === "Stair nose") return /stair\s*nose/i.test(type);
+  if (label === "Stair tread") return /tread/i.test(type);
+  return /riser/i.test(type);
+}
+
+/**
+ * Set qty = step count on stair tread, riser, and nose rows (adding any that
+ * are missing). Stair noses are EACH, never square feet — the caller must
+ * create rows with the existing trim type unit.
+ */
+export function applyHardSurfaceStairTrimFill<T extends { type: string; qty: string }>(
+  rows: T[],
+  stepCount: number,
+  addRow: (label: HardSurfaceStairTrimLabel) => T,
+): T[] {
+  if (!(stepCount > 0)) return rows;
+  const qty = String(Math.ceil(stepCount));
+  let rs = [...rows];
+  for (const label of HARD_SURFACE_STAIR_TRIM_LABELS) {
+    const idx = rs.findIndex((x) => matchHardSurfaceStairTrim(x.type, label));
+    if (idx >= 0) {
+      rs[idx] = { ...rs[idx], qty };
+    } else {
+      rs = [...rs, { ...addRow(label), qty }];
+    }
+  }
+  return rs;
+}
