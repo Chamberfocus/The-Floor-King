@@ -4562,6 +4562,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       "vapor_barrier",
       "moisture_mitigation",
       "moisture_test",
+      "subfloor_condition",
     ]);
 
     const wallCtx = installContextFromValByKey({
@@ -5162,6 +5163,96 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(knowledgeHelpFor({ key: "carpet_direction" }, emptyInstallContext())).toMatch(
       /there is no roll/,
     );
+  });
+
+  it("0263 exclusive wall tile hides floor subfloor condition; leftover Uneven does not warn to self-level", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0263_flooring_knowledge_wall_subfloor.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0263_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/floor subfloor condition/);
+    expect(sql).toMatch(/Do NOT SQL-gate subfloor_condition on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*tile_application.*subfloor_condition|subfloor_condition.*show_if.*tile_application/,
+    );
+
+    expect(TILE_WALL_HIDES_KEYS).toContain("subfloor_condition");
+    expect(knowledgeHelpFor({ key: "subfloor_condition" }, emptyInstallContext())).toMatch(
+      /Exclusive wall tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /floor subfloor condition/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(unanswered).toContain("subfloor_condition");
+    expect(unanswered).toContain("hs_prep");
+    expect(unanswered).toContain("substrate");
+
+    const wall = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(wall).not.toContain("subfloor_condition");
+    expect(wall).not.toContain("subfloor_needed");
+    expect(wall).not.toContain("selflevel_needed");
+    expect(wall).toContain("hs_prep");
+    expect(wall).toContain("substrate");
+    expect(wall).toContain("tile_setting");
+    expect(wall).toContain("wet_area");
+
+    const floor = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Floor"],
+    });
+    expect(floor).toContain("subfloor_condition");
+
+    const mixed = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+      tile_application: ["Wall"],
+    });
+    expect(mixed).toContain("subfloor_condition");
+
+    const leftoverWall = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Tile"],
+        tile_application: ["Wall"],
+        subfloor_condition: ["Uneven"],
+        hs_prep: ["Patch / skim coat"],
+      }),
+    );
+    expect(leftoverWall.some((w) => w.id === "subfloor-uneven")).toBe(false);
+
+    const leftoverDamage = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Tile"],
+        tile_application: ["Wall"],
+        subfloor_condition: ["Damage / soft spots"],
+        subfloor_needed: ["No"],
+      }),
+    );
+    expect(leftoverDamage.some((w) => w.id === "subfloor-damage")).toBe(false);
+
+    const lvpUneven = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT"],
+        subfloor_condition: ["Uneven"],
+        hs_prep: ["None"],
+      }),
+    );
+    expect(lvpUneven.some((w) => w.id === "subfloor-uneven")).toBe(true);
   });
 
   it("pattern repeat only after pattern match is required", () => {

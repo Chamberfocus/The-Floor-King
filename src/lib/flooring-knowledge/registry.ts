@@ -207,6 +207,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
 
   // Prep
   { key: "substrate", purpose: "PREP", phase: "prep" },
+  /**
+   * Floor flatness / cracks / moisture. Exclusive wall tile hides this via
+   * TILE_WALL_HIDES_KEYS — a backsplash is not a floor pour. Mixed LVP + wall
+   * still asks. Unanswered stays open (0142).
+   */
   { key: "subfloor_condition", purpose: "PREP", phase: "prep" },
   /**
    * Matches 0190/0198 show_if: floating/glue OR concrete substrate.
@@ -466,6 +471,7 @@ export const TILE_WALL_HIDES_KEYS = [
   "vapor_barrier",
   "moisture_mitigation",
   "moisture_test",
+  "subfloor_condition",
 ] as const;
 
 /**

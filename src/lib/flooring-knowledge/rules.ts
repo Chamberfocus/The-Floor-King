@@ -718,7 +718,7 @@ export function knowledgeHelpFor(
     return "Yes emits 4×8 sheets only when Settings has sheet_sqft. Missing coverage is TBD — we do not invent 32 sq ft per sheet. Field verify withholds the count.";
   }
   if (key === "subfloor_condition") {
-    return "Flat vs uneven vs cracks vs a height change. If demo hasn't happened, pick Unknown / field verify — do not invent a bag count.";
+    return "Flat vs uneven vs cracks vs a height change. Exclusive wall tile hides this — that is floor work, not a backsplash. Mixed LVP + wall still asks. If demo hasn't happened, pick Unknown / field verify — do not invent a bag count.";
   }
   if (key === "prep_scope") {
     return "Same-for-the-job is faster. Set it by room when one room is a wet area or a different substrate — you'll fill prep on the rooms step.";
@@ -745,7 +745,7 @@ export function knowledgeHelpFor(
     return "None / patch / skim / self-level / grind. Exclusive wall tile hides Self-leveling and grinding chips — those pour or grind a floor. Patch / skim stays for showers. Mixed LVP + wall tile still shows the floor pours. Do not invent a bag count here; bags are the next step when Self-leveling is picked.";
   }
   if (key === "tile_application") {
-    return "Floor vs wall. Exclusive wall tile hides toilets, vents, door shaves, floor stairs, construction grade, radiant heat, doorway T-molds, 4×8 subfloor sheets, self-leveler bags, slab vapor barrier, aqua-bar mitigation, and slab moisture tests — those are floor work. Self-leveling and grinding chips on Floor prep hide too; patch / skim stays for showers. Mixed carpet or LVP + wall tile still asks them. Unanswered and Unknown stay open. Keep wet area, appliances, floor prep, substrate, base trim, and setting materials. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
+    return "Floor vs wall. Exclusive wall tile hides toilets, vents, door shaves, floor stairs, construction grade, radiant heat, doorway T-molds, 4×8 subfloor sheets, self-leveler bags, slab vapor barrier, aqua-bar mitigation, slab moisture tests, and floor subfloor condition (flat / uneven / cracks) — those are floor work. Self-leveling and grinding chips on Floor prep hide too; patch / skim stays for showers. Mixed carpet or LVP + wall tile still asks them. Unanswered and Unknown stay open. Keep wet area, appliances, floor prep, substrate, base trim, and setting materials. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
   }
   if (key === "tile_body") {
     return "Ceramic vs porcelain vs natural stone. Still the tile catalog — capture the body for setting notes. Do not invent a waste percent or a second category.";
@@ -1155,23 +1155,25 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     }
     w.push({ id: "mixed-unassigned", text });
   }
-  if (has(ctx.subfloorCondition, /uneven|height difference/i) && ctx.hsPrep.length && !has(ctx.hsPrep, /self-?level/i)) {
-    w.push({
-      id: "subfloor-uneven",
-      text: "Substrate is uneven / a height change, but prep is not self-leveling. Confirm None / skim is enough, or set Field verify — do not invent a bag count.",
-    });
-  }
-  if (has(ctx.subfloorCondition, /damage|soft/i) && has(ctx.subfloorNeeded, /^no$/i)) {
-    w.push({
-      id: "subfloor-damage",
-      text: "Substrate has damage / soft spots and subfloor is marked No. Confirm that, or mark Field verify rather than skipping sheets.",
-    });
-  }
-  if (has(ctx.subfloorCondition, /unknown|field verify/i) && has(ctx.prepConfidence, /^known$/i)) {
-    w.push({
-      id: "subfloor-unknown-known",
-      text: "Substrate condition is Unknown / field verify, but prep confidence is Known. Those do not match — switch confidence to Field verify / TBD rather than a fake bag count.",
-    });
+  if (!jobIsExclusiveWallTile(ctx)) {
+    if (has(ctx.subfloorCondition, /uneven|height difference/i) && ctx.hsPrep.length && !has(ctx.hsPrep, /self-?level/i)) {
+      w.push({
+        id: "subfloor-uneven",
+        text: "Substrate is uneven / a height change, but prep is not self-leveling. Confirm None / skim is enough, or set Field verify — do not invent a bag count.",
+      });
+    }
+    if (has(ctx.subfloorCondition, /damage|soft/i) && has(ctx.subfloorNeeded, /^no$/i)) {
+      w.push({
+        id: "subfloor-damage",
+        text: "Substrate has damage / soft spots and subfloor is marked No. Confirm that, or mark Field verify rather than skipping sheets.",
+      });
+    }
+    if (has(ctx.subfloorCondition, /unknown|field verify/i) && has(ctx.prepConfidence, /^known$/i)) {
+      w.push({
+        id: "subfloor-unknown-known",
+        text: "Substrate condition is Unknown / field verify, but prep confidence is Known. Those do not match — switch confidence to Field verify / TBD rather than a fake bag count.",
+      });
+    }
   }
   return w;
 }
