@@ -233,6 +233,15 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
 }
 
 /**
+ * Hardwood or any glue-down system (including glue-down carpet). Stretch-in
+ * and floating laminate do not need the climate / acclimation warning.
+ */
+export function jobNeedsAcclimationClimate(valByKey: Record<string, string[]>): boolean {
+  const ctx = installContextFromValByKey(valByKey);
+  return ctx.families.includes("hardwood") || ctx.systems.includes("glue");
+}
+
+/**
  * Union families from assigned catalog products (floor map / cuts) so a mixed
  * job asks the right overlay questions. Unscoped families stay on the context
  * for the warning — we do not invent a second project_type.
@@ -557,7 +566,7 @@ export function knowledgeHelpFor(
     return "Floor King has a Delivery add-on. Record whether to include it — pick the catalog line in Builder rather than inventing a fuel charge here.";
   }
   if (key === "acclimation") {
-    return "Hardwood and glue-down need acclimation / climate notes. Floating laminate and stretch-in carpet hide this — do not invent a day count.";
+    return "Hardwood and glue-down (including glue-down carpet) need acclimation / climate notes. Floating laminate and stretch-in hide this — do not invent a day count.";
   }
   if (key === "construction_grade") {
     return "Above / on / below grade can change what a product and adhesive permit. Stretch-in over wood hides this. Glue-down carpet, carpet tile, and hard surface still ask. Confirm against the product — do not assume a ban.";

@@ -136,6 +136,7 @@ export {
   visibleKnowledgeKeys,
   resolveQuestionVisibility,
   substrateLabelMatches,
+  jobNeedsAcclimationClimate,
   type InstallContext,
 } from "./rules";
 

@@ -79,6 +79,7 @@ import {
   knowledgeWarnings,
   amountUnitLabelForQuestion,
   resolveQuestionVisibility,
+  jobNeedsAcclimationClimate,
   reviewToJobNotes,
   buildSalespersonReview,
   sortEstimateQuestions,
@@ -1666,7 +1667,7 @@ export function Questionnaire({
       w.push({ id: "ceramic_substrate", text: "Tearing up ceramic tile — confirm what's under it (mortar bed, backer board, or other substrate) and include removing it in the demo." });
       w.push({ id: "ceramic_base", text: "Ceramic removal usually takes the base with it — plan for shoe molding or quarter round." });
     }
-    const hardwoodOrGlue = has("surface_type", "Hardwood") || has("surface_type", "Engineered hardwood") || has("install_method", "Glue-down");
+    const hardwoodOrGlue = jobNeedsAcclimationClimate(valByKey);
     // AC and heat used to be two yes/no questions; they're one multi-select now.
     // Both readings are accepted so an estimate started before the change still
     // evaluates instead of firing a false acclimation warning.
@@ -1675,7 +1676,7 @@ export function Questionnaire({
       (has("ac_available", "Yes") && has("heat_available", "Yes"));
     if (hardwoodOrGlue && !climateOk)
       w.push({ id: "climate", text: "Hardwood / glue-down without confirmed AC and heat — acclimation & adhesion are at risk. Confirm climate control." });
-    if (has("moisture_test", "No") && (has("install_method", "Glue-down") || hardwoodOrGlue))
+    if (has("moisture_test", "No") && hardwoodOrGlue)
       w.push({ id: "moisture-untested", text: "Glue-down / hardwood without a moisture test — record as field verify rather than assuming the slab is dry." });
     const hasCarpetCuts = (cutsSqftByCategory.carpet ?? 0) > 0;
     const hasVinylCuts = (cutsSqftByCategory.vinyl ?? 0) > 0;

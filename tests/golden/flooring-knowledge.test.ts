@@ -49,6 +49,7 @@ import {
   amountUnitLabelForQuestion,
   knowledgeWarnings,
   knowledgeWhenApplies,
+  jobNeedsAcclimationClimate,
   KNOWLEDGE_QUESTIONS,
   sortEstimateQuestions,
   estimatorPhaseForQuestion,
@@ -562,6 +563,25 @@ describe("show_if all/any + knowledge overlay", () => {
       install_method: ["Glue-down"],
     });
     expect(knowledgeWhenApplies({ any: anyWhen }, lvpGlue)).toBe(true);
+
+    const carpetGlue = installContextFromValByKey({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(knowledgeWhenApplies({ any: anyWhen }, carpetGlue)).toBe(true);
+    expect(jobNeedsAcclimationClimate({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    })).toBe(true);
+    expect(jobNeedsAcclimationClimate({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    })).toBe(false);
+    expect(jobNeedsAcclimationClimate({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    })).toBe(false);
   });
 
   it("hides separate underlayment when attached pad is Yes", () => {
@@ -1326,6 +1346,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         any: [
           { key: "surface_type", in: ["Hardwood", "Engineered hardwood"] },
           { key: "install_method", in: ["Glue-down"] },
+          { key: "carpet_install", in: ["Glue-down"] },
         ],
       },
     },
@@ -1335,6 +1356,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: {
         any: [
           { key: "install_method", in: ["Glue-down"] },
+          { key: "carpet_install", in: ["Glue-down"] },
           { key: "surface_type", in: ["Hardwood", "Engineered hardwood"] },
           { key: "subfloor_condition", in: ["Moisture concerns"] },
         ],
@@ -1346,6 +1368,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: {
         any: [
           { key: "install_method", in: ["Glue-down"] },
+          { key: "carpet_install", in: ["Glue-down"] },
           { key: "surface_type", in: ["Hardwood", "Engineered hardwood"] },
           { key: "subfloor_condition", in: ["Moisture concerns"] },
         ],
@@ -1902,6 +1925,38 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       }),
     );
     expect(stretchBelow.some((w) => w.id === "carpet-glue-below-grade")).toBe(false);
+  });
+
+  it("0205 asks acclimation and moisture on glue-down carpet, not stretch-in", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0205_flooring_knowledge_carpet_glue_climate.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0205_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/acclimation/);
+    expect(sql).toMatch(/moisture_test/);
+    expect(sql).toMatch(/moisture_mitigation/);
+    expect(sql).toMatch(/carpet_install/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const stretch = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).not.toContain("acclimation");
+    expect(stretch).not.toContain("moisture_test");
+    expect(stretch).not.toContain("moisture_mitigation");
+
+    const glue = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(glue).toContain("acclimation");
+    expect(glue).toContain("moisture_test");
+    expect(glue).toContain("moisture_mitigation");
+    expect(glue).toContain("adhesive");
+    expect(glue).not.toContain("tack_strip");
   });
 
   it("pattern repeat only after pattern match is required", () => {

@@ -104,8 +104,8 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "hs_underlayment", purpose: "MATERIAL", phase: "install", systems: ["floating"] },
   { key: "hardwood_fasteners", purpose: "MATERIAL", phase: "install", systems: ["nail", "staple"] },
   /**
-   * Hardwood (solid or engineered) OR glue-down of any family — matches 0190
-   * show_if. Laminate floating / stretch-in carpet / thinset tile hide this.
+   * Hardwood (solid or engineered) OR glue-down of any family — including
+   * glue-down carpet. Laminate floating / stretch-in carpet / thinset tile hide this.
    */
   {
     key: "acclimation",

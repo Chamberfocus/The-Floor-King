@@ -65,6 +65,7 @@ const REQUIRED_FILES = [
   "0202_flooring_knowledge_tile_carpet_prep.sql",
   "0203_flooring_knowledge_radiant_tile_format.sql",
   "0204_flooring_knowledge_grade_carpet.sql",
+  "0205_flooring_knowledge_carpet_glue_climate.sql",
 ];
 
 /**
@@ -898,6 +899,18 @@ const REQUIRED_MARKERS = [
       "construction_grade",
       "Glue-down",
       "Carpet tile",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0205_flooring_knowledge_carpet_glue_climate.sql",
+    markers: [
+      "P0_0205_FLOORING_KNOWLEDGE",
+      "acclimation",
+      "moisture_test",
+      "moisture_mitigation",
+      "carpet_install",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
