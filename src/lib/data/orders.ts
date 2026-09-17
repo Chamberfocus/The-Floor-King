@@ -32,7 +32,7 @@ export async function listOrderProducts(): Promise<OrderProductRetail[]> {
   return priced.map((p) => ({
     id: p.id,
     name: p.name,
-    unit: p.unit || "sq yd",
+    unit: (p.unit ?? "").trim(),
     price: Math.round(Number(p.catalog_sell ?? 0) * 100) / 100,
   }));
 }

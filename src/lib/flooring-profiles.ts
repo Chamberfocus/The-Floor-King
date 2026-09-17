@@ -4,6 +4,7 @@
 // the full bill of materials (which the PO, warehouse, and install all rely on).
 
 import type { ProductCategory } from "@/lib/types";
+import { isAreaUnit } from "@/lib/units";
 
 export type MeasureUnit = "sqft" | "sqyd";
 
@@ -87,7 +88,7 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     waste: 7,
     measureHint: "Priced by the square foot. ~7% waste for racking & cuts.",
     companions: [
-      { key: "underlayment", label: "Underlayment / moisture barrier", category: "underlayment", sizeBy: "area", unit: "sqft", defaultOn: true },
+      { key: "underlayment", label: "Underlayment / moisture barrier", category: "underlayment", sizeBy: "area", unit: "sqft", defaultOn: false, hint: "Only if the product needs a separate pad / vapor retarder — attached pad hides this." },
       { key: "transitions", label: "Transitions / reducers", category: "trim", sizeBy: "each", unit: "each", defaultOn: false },
       { key: "shoe", label: "Shoe molding / quarter round", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: false },
       tearout("Tear out old flooring", "sqft"),
@@ -100,7 +101,7 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     waste: 7,
     measureHint: "Priced by the square foot. Needs a foam underlayment.",
     companions: [
-      { key: "underlayment", label: "Foam underlayment", category: "underlayment", sizeBy: "area", unit: "sqft", defaultOn: true },
+      { key: "underlayment", label: "Foam underlayment", category: "underlayment", sizeBy: "area", unit: "sqft", defaultOn: false, hint: "Only if the laminate does not have attached pad." },
       { key: "transitions", label: "Transitions / T-mold", category: "trim", sizeBy: "each", unit: "each", defaultOn: false },
       { key: "quarter", label: "Quarter round / shoe", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: false },
       tearout("Tear out old flooring", "sqft"),
@@ -113,8 +114,8 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     waste: 12,
     measureHint: "Priced by the square foot. Tile runs ~12% waste; needs setting materials.",
     companions: [
-      { key: "thinset", label: "Thinset mortar", category: "other", sizeBy: "area", unit: "sqft", defaultOn: true, hint: "~1 bag per 50–60 sq ft." },
-      { key: "grout", label: "Grout", category: "other", sizeBy: "area", unit: "sqft", defaultOn: true },
+      { key: "thinset", label: "Thinset mortar", category: "other", sizeBy: "area", unit: "bag", defaultOn: false, hint: "Bag count TBD until a catalog product with coverage is picked. Taped sq ft is not bags of thinset." },
+      { key: "grout", label: "Grout", category: "other", sizeBy: "area", unit: "bag", defaultOn: false, hint: "Bag count TBD until a catalog product with coverage is picked. Taped sq ft is not bags of grout." },
       { key: "backer", label: "Backer board / membrane", category: "underlayment", sizeBy: "area", unit: "sqft", defaultOn: false },
       { key: "trim", label: "Tile trim / edge / bullnose", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: false },
       tearout("Tear out old flooring", "sqft"),
@@ -159,7 +160,8 @@ export function areaSqft(lengthFt: number, widthFt: number): number {
   return Math.round(lengthFt * widthFt * 100) / 100;
 }
 
-/** Quantity for a companion, given the room's sq ft and perimeter (lnft). */
+/** Quantity for a companion, given the room's sq ft and perimeter (lnft).
+ *  Count units (bag / gal / each) are not taped square feet. */
 export function companionQty(
   c: Companion,
   sqft: number,
@@ -167,7 +169,8 @@ export function companionQty(
 ): number {
   if (c.sizeBy === "each") return 1;
   if (c.sizeBy === "perimeter") return Math.round(perimeterLnft);
-  // area — match the companion's unit (sqyd for carpet pad, else sqft)
+  // Taped sq ft is not bags of thinset or gallons of adhesive.
+  if (c.unit && !isAreaUnit(c.unit)) return 0;
   const v = c.unit === "sqyd" ? sqft / 9 : sqft;
   // Materials sold in full rolls (e.g. pad) round UP to whole rolls.
   if (c.rollUnits && c.rollUnits > 0 && v > 0) {

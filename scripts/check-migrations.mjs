@@ -89,6 +89,7 @@ const REQUIRED_FILES = [
   "0226_flooring_knowledge_selflevel_pour.sql",
   "0227_flooring_knowledge_subfloor_sheet.sql",
   "0228_flooring_knowledge_order_cut_width.sql",
+  "0229_flooring_knowledge_tile_bags.sql",
 ];
 
 /**
@@ -1168,6 +1169,15 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0228_FLOORING_KNOWLEDGE",
       "12'",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0229_flooring_knowledge_tile_bags.sql",
+    markers: [
+      "P0_0229_FLOORING_KNOWLEDGE",
+      "bags of thinset",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

@@ -153,7 +153,7 @@ export default async function InventoryItemPage({
               </div>
               <div>
                 <Label htmlFor="rr-w">Width (ft)</Label>
-                <Input id="rr-w" name="width_ft" type="number" step="0.01" min="0" placeholder="12" className="w-20" />
+                <Input id="rr-w" name="width_ft" type="number" step="0.01" min="0" placeholder="ft" className="w-20" />
               </div>
               <div>
                 <Label htmlFor="rr-loc">Location</Label>

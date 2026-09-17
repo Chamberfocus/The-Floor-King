@@ -5,7 +5,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
+import { companionQty, defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText } from "@/lib/job-scope";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import { selfLevelPourThicknessIn } from "@/lib/floor-prep";
@@ -3307,6 +3307,39 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const actions = readFileSync(join(root, "src/app/order/actions.ts"), "utf8");
     expect(actions).not.toMatch(/\|\| "sq yd"/);
     expect(actions).toMatch(/length_ft > 0 \|\| c\.length_in > 0/);
+  });
+
+  it("0229 does not treat taped sq ft as bags of thinset or invent sq yd on order products", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0229_flooring_knowledge_tile_bags.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0229_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/bags of thinset/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const tile = profileFor("tile")!;
+    const thinset = tile.companions.find((c) => c.key === "thinset")!;
+    const grout = tile.companions.find((c) => c.key === "grout")!;
+    expect(thinset.defaultOn).toBe(false);
+    expect(grout.defaultOn).toBe(false);
+    expect(thinset.unit).toBe("bag");
+    expect(grout.unit).toBe("bag");
+    expect(companionQty(thinset, 500, 0)).toBe(0);
+    expect(companionQty(grout, 500, 0)).toBe(0);
+
+    const pad = profileFor("carpet")!.companions.find((c) => c.key === "pad")!;
+    expect(companionQty(pad, 450, 0)).toBe(60);
+
+    expect(profileFor("hardwood")!.companions.find((c) => c.key === "underlayment")!.defaultOn).toBe(false);
+    expect(profileFor("laminate")!.companions.find((c) => c.key === "underlayment")!.defaultOn).toBe(false);
+
+    const orders = readFileSync(join(root, "src/lib/data/orders.ts"), "utf8");
+    expect(orders).not.toMatch(/\|\| "sq yd"/);
+
+    const inv = readFileSync(join(root, "src/app/(app)/inventory/[id]/page.tsx"), "utf8");
+    expect(inv).not.toMatch(/placeholder="12"/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

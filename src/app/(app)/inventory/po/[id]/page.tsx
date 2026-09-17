@@ -155,7 +155,7 @@ export default async function StockPOPage({ params }: { params: Promise<{ id: st
                             <>
                               <div>
                                 <label className="mb-1 block text-xs text-muted-foreground">Width (ft)</label>
-                                <Input name="width_ft" inputMode="decimal" placeholder="12" className="h-11 w-20 text-base" />
+                                <Input name="width_ft" inputMode="decimal" placeholder="ft" className="h-11 w-20 text-base" />
                               </div>
                               <div>
                                 <label className="mb-1 block text-xs text-muted-foreground">Location</label>
