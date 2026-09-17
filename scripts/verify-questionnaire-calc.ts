@@ -32,12 +32,13 @@ ok(stairsCarpet(13, "waterfall", 6).sqft === 78, "explicit shop allowance 6 sqft
 ok(stairsCarpet(13, "upholstered", 8).sqft === 104, "explicit shop allowance 8 sqft × 13 = 104");
 ok(stairsCarpet(10, "waterfall", 7).sqft === 70, "config override: 10 × 7 = 70 sqft");
 
-// --- Subfloor → sheets (round up) ---
-console.log("\nSubfloor → sheets (4×8 = 32 sqft, round UP):");
-ok(subfloorSheets(200) === 7, "200 sqft ÷ 32 = 6.25 → 7 sheets", String(subfloorSheets(200)));
-ok(subfloorSheets(320) === 10, "320 sqft ÷ 32 = 10 sheets (exact)", String(subfloorSheets(320)));
-ok(subfloorSheets(1) === 1, "1 sqft → 1 sheet (always round up)", String(subfloorSheets(1)));
-ok(subfloorSheets(0) === 0, "0 sqft → 0 sheets");
+// --- Subfloor → sheets (4×8 = 32 sqft only when Settings has coverage) ---
+console.log("\nSubfloor → sheets (round UP; missing size is 0):");
+ok(subfloorSheets(200) === 0, "200 sqft with no sheet size → 0 (not invented 4×8)", String(subfloorSheets(200)));
+ok(subfloorSheets(200, 32) === 7, "200 sqft ÷ 32 = 6.25 → 7 sheets", String(subfloorSheets(200, 32)));
+ok(subfloorSheets(320, 32) === 10, "320 sqft ÷ 32 = 10 sheets (exact)", String(subfloorSheets(320, 32)));
+ok(subfloorSheets(1, 32) === 1, "1 sqft → 1 sheet (always round up)", String(subfloorSheets(1, 32)));
+ok(subfloorSheets(0, 32) === 0, "0 sqft → 0 sheets");
 
 // --- Self-leveler → bags (reuses floor-prep) ---
 console.log("\nSelf-leveler → bags (floor-prep engine):");

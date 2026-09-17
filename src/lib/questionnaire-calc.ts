@@ -50,13 +50,26 @@ export function stairsCarpet(
   return { sqft: r2(sqft), sqyd: r2(sqft / 9) };
 }
 
-/** Sheets of subfloor for an area. A 4'×8' sheet covers 32 sq ft; round UP so
- *  you never under-order. Sheet size overridable (e.g. 4'×8'=32, 2'×2'=4). */
+/** Typical 4'×8' plywood/OSB sheet. Placeholder only — do not plant as coverage
+ *  when Settings has no `sheet_sqft`, the way we do not invent carton coverage. */
+export const TYPICAL_SUBFLOOR_SHEET_SQFT = 32;
+
+/** Usable sheet coverage (sq ft) or null when missing. */
+export function resolvedSheetSqft(
+  raw: number | string | null | undefined,
+): number | null {
+  const n = typeof raw === "number" ? raw : parseFloat(String(raw ?? ""));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Sheets of subfloor for an area. Round UP so you never under-order.
+ *  Missing sheet size is 0 sheets — we do not invent a 4×8 (32 sq ft). */
 export function subfloorSheets(
   areaSqft: number | string,
-  sheetSqft: number | string = 32,
+  sheetSqft: number | string | null | undefined = null,
 ): number {
   const a = num(areaSqft);
-  const s = num(sheetSqft) > 0 ? num(sheetSqft) : 32;
-  return a > 0 ? Math.ceil(a / s) : 0;
+  const s = resolvedSheetSqft(sheetSqft);
+  if (a <= 0 || s == null) return 0;
+  return Math.ceil(a / s);
 }

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText } from "@/lib/job-scope";
-import { carpetYardageFromCuts, stairsCarpet } from "@/lib/questionnaire-calc";
+import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import { selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { lineQty, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
 import {
@@ -3252,6 +3252,33 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const emit = readFileSync(join(root, "src/lib/questionnaire-emit.ts"), "utf8");
     expect(emit).toMatch(/Taped square feet is not gallons/);
+  });
+
+  it("0227 does not invent a 4×8 (32 sq ft) subfloor sheet", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0227_flooring_knowledge_subfloor_sheet.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0227_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/4×8/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(resolvedSheetSqft(undefined)).toBeNull();
+    expect(resolvedSheetSqft(0)).toBeNull();
+    expect(resolvedSheetSqft(32)).toBe(32);
+    expect(subfloorSheets(200)).toBe(0);
+    expect(subfloorSheets(200, 32)).toBe(7);
+    expect(subfloorSheets(320, 32)).toBe(10);
+
+    const calc = readFileSync(join(root, "src/lib/questionnaire-calc.ts"), "utf8");
+    expect(calc).toMatch(/TYPICAL_SUBFLOOR_SHEET_SQFT/);
+    expect(calc).not.toMatch(/sheetSqft > 0 \? num\(sheetSqft\) : 32/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/resolvedSheetSqft/);
+    expect(q).not.toMatch(/sheet_sqft \?\? 32/);
+    expect(q).toMatch(/We do not invent a 4×8/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

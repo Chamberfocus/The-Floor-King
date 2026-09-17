@@ -41,7 +41,7 @@ import {
   variesByRun,
 } from "@/lib/accessories";
 import { profileFor } from "@/lib/flooring-profiles";
-import { carpetYardageFromCuts, stairsCarpet, subfloorSheets } from "@/lib/questionnaire-calc";
+import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import {
   questionnaireEmitToLineQty,
   smartLineToCalcLine,
@@ -1787,11 +1787,12 @@ export function Questionnaire({
         // does not invent a sheet count — the condition still rides in notes.
         if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
         const opts = q.config.options ?? [];
-        const sheetSqft = q.config.sheet_sqft ?? 32;
+        const sheetSqft = resolvedSheetSqft(q.config.sheet_sqft);
         const opt = opts.find((o) => o.label === a.thickness) ?? opts[0];
         const perSheet = opt?.cost ?? 0;
         const suffix = prepQuantitySuffix(flooringCtx.prepConfidence);
         const rooms = allRooms.length ? allRooms : [{ name: "", sqft: totalSqft, lenIn: null, widIn: null }];
+        if (sheetSqft != null) {
         for (const rm of rooms) {
           const sheets = subfloorSheets(rm.sqft, sheetSqft);
           if (sheets <= 0) continue;
@@ -1816,6 +1817,7 @@ export function Questionnaire({
             color: null,
             from_stock: false,
           });
+        }
         }
         }
       } else if (q.kind === "selflevel" && a.kind === "selflevel") {
@@ -4500,9 +4502,11 @@ function QuestionBody({
   // SUBFLOOR → sheets per room.
   if (q.kind === "subfloor" && answer?.kind === "subfloor") {
     const opts = q.config.options ?? [];
-    const sheetSqft = q.config.sheet_sqft ?? 32;
+    const sheetSqft = resolvedSheetSqft(q.config.sheet_sqft);
     const rooms = floorRooms.length ? floorRooms : [{ name: "", sqft: totalSqft, lenIn: null, widIn: null }];
-    const totalSheets = rooms.reduce((s, r) => s + subfloorSheets(r.sqft, sheetSqft), 0);
+    const totalSheets = sheetSqft != null
+      ? rooms.reduce((s, r) => s + subfloorSheets(r.sqft, sheetSqft), 0)
+      : 0;
     return (
       <div className="space-y-3">
         <div>
@@ -4516,7 +4520,11 @@ function QuestionBody({
             ))}
           </div>
         </div>
-        {totalSqft > 0 ? (
+        {sheetSqft == null ? (
+          <p className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
+            Sheet coverage is not in Settings. We do not invent a 4×8 (32 sq ft). Confirm after demo or enter coverage in Settings.
+          </p>
+        ) : totalSqft > 0 ? (
           prepQuantitiesAreFinal(flooringCtx.prepConfidence) ? (
           <div className="space-y-1 rounded-lg border bg-muted/20 p-3 text-sm">
             {rooms.map((r, i) => (

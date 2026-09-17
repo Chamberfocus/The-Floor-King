@@ -542,6 +542,9 @@ export function knowledgeHelpFor(
   if (key === "substrate") {
     return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete.";
   }
+  if (key === "subfloor_needed") {
+    return "Yes emits 4×8 sheets only when Settings has sheet_sqft. Missing coverage is TBD — we do not invent 32 sq ft per sheet. Field verify withholds the count.";
+  }
   if (key === "subfloor_condition") {
     return "Flat vs uneven vs cracks vs a height change. If demo hasn't happened, pick Unknown / field verify — do not invent a bag count.";
   }
