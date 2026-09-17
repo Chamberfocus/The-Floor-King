@@ -16,11 +16,14 @@ import {
   familyFromSurfaceLabel,
   hardwoodConstructionFromLabel,
   installSystemFromLabel,
+  isHardSurfaceFamily,
   isHardSurfaceStairFamily,
   flooringFamiliesFromCategories,
   mergeFlooringFamilies,
   unscopedProductFamilies,
   familyLabel,
+  solePermittedInstallSystem,
+  INSTALL_METHOD_LABELS,
   type FlooringFamily,
   type HardwoodConstruction,
   type InstallSystem,
@@ -54,6 +57,10 @@ export interface InstallContext {
    * scope. Overlay still unions them into `families`; this list is the warning.
    */
   unscopedProductFamilies: FlooringFamily[];
+  /** Raw hard-surface `install_method` answers — empty means we may infer a sole system. */
+  answeredInstallMethod: string[];
+  /** Raw `carpet_install` answers. Stretch-in / carpet tile never infer. */
+  answeredCarpetInstall: string[];
 }
 
 export function emptyInstallContext(): InstallContext {
@@ -74,16 +81,88 @@ export function emptyInstallContext(): InstallContext {
     surfacePending: false,
     installPending: false,
     unscopedProductFamilies: [],
+    answeredInstallMethod: [],
+    answeredCarpetInstall: [],
   };
+}
+
+function uniqueStrings(list: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of list) {
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function uniqueSystems(list: InstallSystem[]): InstallSystem[] {
+  const seen = new Set<string>();
+  const out: InstallSystem[] = [];
+  for (const s of list) {
+    if (s === "unknown" || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * Rebuild systems/labels from answered methods, then infer a sole hard-surface
+ * system (laminate floating, tile thinset, sheet vinyl glue) when unanswered.
+ * Mixed LVP + laminate does not infer — those families do not share one method.
+ */
+export function finalizeInstallContext(ctx: InstallContext): InstallContext {
+  const carpetSystems = ctx.answeredCarpetInstall
+    .map(installSystemFromLabel)
+    .filter((s): s is InstallSystem => s !== "unknown");
+  const hsAnswered = ctx.answeredInstallMethod
+    .map(installSystemFromLabel)
+    .filter((s): s is InstallSystem => s !== "unknown");
+  let hsSystems = hsAnswered;
+  let inferredLabel: string | null = null;
+  const sole = solePermittedInstallSystem(ctx.families, ctx.hardwoodConstruction);
+  if (!hsAnswered.length && sole) {
+    hsSystems = [sole];
+    inferredLabel = INSTALL_METHOD_LABELS[sole];
+  }
+  const hasHS =
+    ctx.projectTypes.some((p) => /hard/i.test(p)) || ctx.families.some(isHardSurfaceFamily);
+  const hasCarpet =
+    ctx.projectTypes.some((p) => /carpet/i.test(p)) || ctx.families.includes("carpet");
+  return {
+    ...ctx,
+    systems: uniqueSystems([...carpetSystems, ...hsSystems]),
+    installLabels: uniqueStrings([
+      ...ctx.answeredCarpetInstall,
+      ...ctx.answeredInstallMethod,
+      ...(inferredLabel ? [inferredLabel] : []),
+    ]),
+    installPending:
+      (hasHS && !ctx.answeredInstallMethod.length && !sole) ||
+      (hasCarpet && !ctx.answeredCarpetInstall.length),
+  };
+}
+
+/**
+ * Fill `install_method` for show_if when the family has only one legal system.
+ * Overlay inference alone would hide adhesive on laminate while SQL show_if
+ * for attached_pad still waited for a click.
+ */
+export function synthesizeSoleInstallMethod(
+  valByKey: Record<string, string[]>,
+): Record<string, string[]> {
+  if ((valByKey.install_method ?? []).length) return valByKey;
+  const ctx = installContextFromValByKey(valByKey);
+  const sole = solePermittedInstallSystem(ctx.families, ctx.hardwoodConstruction);
+  if (!sole) return valByKey;
+  return { ...valByKey, install_method: [INSTALL_METHOD_LABELS[sole]] };
 }
 
 export function installContextFromValByKey(valByKey: Record<string, string[]>): InstallContext {
   const projectTypes = valByKey.project_type ?? [];
   const surfaceLabels = valByKey.surface_type ?? [];
-  const installLabels = [
-    ...(valByKey.install_method ?? []),
-    ...(valByKey.carpet_install ?? []),
-  ];
   const families: FlooringFamily[] = [];
   const seen = new Set<string>();
   const add = (f: FlooringFamily | null) => {
@@ -103,10 +182,6 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     }
   }
 
-  const systems = installLabels
-    .map(installSystemFromLabel)
-    .filter((s): s is InstallSystem => s !== "unknown");
-
   const padAns = (valByKey.attached_pad ?? [])[0]?.toLowerCase() ?? "";
   const attachedPad: InstallContext["attachedPad"] =
     padAns === "yes" ? "yes" : padAns === "no" || padAns === "unknown" ? (padAns === "no" ? "no" : "unknown") : padAns ? "unknown" : "unknown";
@@ -121,14 +196,13 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     : null;
 
   const hasHS = projectTypes.some((p) => /hard/i.test(p));
-  const hasCarpet = projectTypes.some((p) => /carpet/i.test(p));
 
-  return {
+  return finalizeInstallContext({
     projectTypes,
     surfaceLabels,
     families,
-    installLabels,
-    systems,
+    installLabels: [],
+    systems: [],
     hardwoodConstruction,
     attachedPad,
     substrate: valByKey.substrate ?? valByKey.subfloor_type ?? [],
@@ -138,11 +212,11 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     prepConfidence: valByKey.prep_confidence ?? [],
     occupancy: valByKey.occupancy ?? [],
     surfacePending: hasHS && surfaceLabels.length === 0,
-    installPending:
-      (hasHS && (valByKey.install_method ?? []).length === 0) ||
-      (hasCarpet && (valByKey.carpet_install ?? []).length === 0 && (valByKey.install_method ?? []).length === 0),
+    installPending: false,
     unscopedProductFamilies: [],
-  };
+    answeredInstallMethod: valByKey.install_method ?? [],
+    answeredCarpetInstall: valByKey.carpet_install ?? [],
+  });
 }
 
 /**
@@ -155,11 +229,11 @@ export function withProductFamilies(
   categories: Array<string | null | undefined>,
 ): InstallContext {
   const productFamilies = flooringFamiliesFromCategories(categories);
-  return {
+  return finalizeInstallContext({
     ...ctx,
     unscopedProductFamilies: unscopedProductFamilies(ctx, productFamilies),
     families: mergeFlooringFamilies(ctx.families, productFamilies),
-  };
+  });
 }
 
 /**
@@ -285,7 +359,7 @@ export function questionApplies(
  * family/system branching without a live estimate_questions table.
  */
 export function visibleKnowledgeKeys(valByKey: Record<string, string[]>): string[] {
-  const keys = synthesizeStairGate(valByKey);
+  const keys = synthesizeSoleInstallMethod(synthesizeStairGate(valByKey));
   const ctx = installContextFromValByKey(keys);
   return KNOWLEDGE_QUESTIONS.filter((def) =>
     questionApplies({ key: def.key, config: {} }, keys, ctx),
@@ -309,6 +383,7 @@ export function resolveQuestionVisibility<
     let valByKey: Record<string, string[]> = {};
     for (const q of questions) if (vis[q.id] && q.key) valByKey[q.key] = valsFor(q);
     valByKey = synthesizeStairGate(valByKey);
+    valByKey = synthesizeSoleInstallMethod(valByKey);
     let changed = false;
     for (const q of questions) {
       const show = questionApplies(q, valByKey);

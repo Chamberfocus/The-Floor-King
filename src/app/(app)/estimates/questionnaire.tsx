@@ -66,7 +66,7 @@ import {
   hardwoodConstructionFromSpecies,
   installContextFromValByKey,
   withProductFamilies,
-  installMethodOptionsForFamilies,
+  hardSurfaceInstallMethodOptions,
   isRollGoodsFamily,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
@@ -3515,7 +3515,7 @@ function QuestionBody({
     const configured = q.config.options ?? [];
     const knowledgeOpts =
       q.key === "install_method"
-        ? installMethodOptionsForFamilies(flooringCtx.families, flooringCtx.hardwoodConstruction)
+        ? hardSurfaceInstallMethodOptions(flooringCtx.families, flooringCtx.hardwoodConstruction)
         : [];
     const opts =
       q.key === "install_method" && knowledgeOpts.length
@@ -3530,10 +3530,15 @@ function QuestionBody({
           })()
         : configured;
     const multi = q.config.multi;
+    const soleInstall =
+      q.key === "install_method" && opts.length === 1 && !multi ? opts[0].label : null;
+    const selected =
+      soleInstall && !answer.selected.length ? [soleInstall] : answer.selected;
     const toggle = (label: string) => {
-      const on = answer.selected.includes(label);
+      const on = selected.includes(label);
+      if (soleInstall && on) return; // laminate / tile / sheet vinyl have one legal method
       const next = multi
-        ? (on ? answer.selected.filter((x) => x !== label) : [...answer.selected, label])
+        ? (on ? selected.filter((x) => x !== label) : [...selected, label])
         : (on ? [] : [label]);
       set({ kind: "choice", selected: next, note: answer.note });
     };
@@ -3542,8 +3547,8 @@ function QuestionBody({
         <div className="flex flex-wrap gap-2">
           {opts.map((o) => (
             <button key={o.label} type="button" onClick={() => toggle(o.label)}
-              className={cn("rounded-lg border px-4 py-2.5 text-base font-medium", answer.selected.includes(o.label) ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
-              {answer.selected.includes(o.label) ? <Check className="mr-1 inline size-4" /> : null}
+              className={cn("rounded-lg border px-4 py-2.5 text-base font-medium", selected.includes(o.label) ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
+              {selected.includes(o.label) ? <Check className="mr-1 inline size-4" /> : null}
               {o.label}
             </button>
           ))}

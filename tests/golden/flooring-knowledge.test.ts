@@ -34,9 +34,12 @@ import {
   flooringFamiliesFromCategories,
   unscopedProductFamilies,
   installMethodOptionsFor,
+  permittedInstallSystems,
   installSystemFromLabel,
   matchesShowIf,
-  permittedInstallSystems,
+  hardSurfaceInstallMethodOptions,
+  solePermittedInstallSystem,
+  synthesizeSoleInstallMethod,
   questionApplies,
   sqydToSqft,
   visibleKnowledgeKeys,
@@ -119,6 +122,19 @@ describe("catalog families map onto existing ProductCategory values", () => {
     expect(knowledgeWarnings(lvpOnly).some((w) => w.id === "unscoped-products")).toBe(false);
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/withProductFamilies/);
+    expect(q).toMatch(/hardSurfaceInstallMethodOptions/);
+    expect(q).not.toMatch(/installMethodOptionsForFamilies\(flooringCtx/);
+
+    const lam = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+    });
+    expect(lam.systems).toEqual(["floating"]);
+    expect(lam.installPending).toBe(false);
+    const lamPlusVinyl = withProductFamilies(lam, ["vinyl"]);
+    expect(lamPlusVinyl.families.sort()).toEqual(["laminate", "vinyl"]);
+    expect(lamPlusVinyl.systems).toEqual([]);
+    expect(lamPlusVinyl.installPending).toBe(true);
   });
 });
 
@@ -153,6 +169,27 @@ describe("install systems differ by family", () => {
     expect(installSystemFromLabel("Floating / click")).toBe("floating");
     expect(installSystemFromLabel("Thinset / mortar")).toBe("thinset");
     expect(installSystemFromLabel("Stretch-in")).toBe("stretch_in");
+  });
+
+  it("hard-surface install chips never include carpet stretch-in or carpet tile", () => {
+    const mixed = hardSurfaceInstallMethodOptions(["carpet", "lvp"]);
+    expect(mixed.map((o) => o.label)).toEqual(["Floating / click", "Glue-down", "Loose-lay"]);
+    expect(mixed.some((o) => /stretch|carpet tile/i.test(o.label))).toBe(false);
+
+    const pendingHs = hardSurfaceInstallMethodOptions(["carpet"]);
+    expect(pendingHs.map((o) => o.system)).toEqual(
+      expect.arrayContaining(["floating", "glue", "nail", "thinset", "loose_lay"]),
+    );
+    expect(pendingHs.some((o) => o.system === "stretch_in" || o.system === "carpet_tile")).toBe(false);
+  });
+
+  it("infers the only legal method for laminate, tile, and sheet vinyl — not LVP", () => {
+    expect(solePermittedInstallSystem(["laminate"])).toBe("floating");
+    expect(solePermittedInstallSystem(["tile"])).toBe("thinset");
+    expect(solePermittedInstallSystem(["vinyl"])).toBe("glue");
+    expect(solePermittedInstallSystem(["lvp"])).toBeNull();
+    expect(solePermittedInstallSystem(["hardwood"], "engineered")).toBeNull();
+    expect(solePermittedInstallSystem(["laminate", "vinyl"])).toBeNull();
   });
 });
 
@@ -664,6 +701,41 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "moisture_test")).toBe(false);
   });
 
+  it("laminate / tile / sheet vinyl do not wait for a click on their only legal method", () => {
+    const lam = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+    });
+    expect(has(lam, "adhesive")).toBe(false);
+    expect(has(lam, "laminate_expansion")).toBe(true);
+    expect(has(lam, "attached_pad")).toBe(true);
+    expect(has(lam, "hardwood_fasteners")).toBe(false);
+
+    const tile = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(has(tile, "adhesive")).toBe(false);
+    expect(has(tile, "tile_setting")).toBe(true);
+    expect(has(tile, "attached_pad")).toBe(false);
+
+    const vinyl = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+    });
+    expect(has(vinyl, "adhesive")).toBe(true);
+    expect(has(vinyl, "vinyl_layout")).toBe(true);
+    expect(has(vinyl, "attached_pad")).toBe(false);
+    expect(has(vinyl, "moisture_test")).toBe(true);
+
+    const lvp = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(has(lvp, "adhesive")).toBe(true);
+    expect(has(lvp, "attached_pad")).toBe(true);
+  });
+
   it("glue-down LVP: adhesive on, floating follow-ups off", () => {
     const keys = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
@@ -1150,6 +1222,20 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).not.toContain("carpet_install");
     expect(keys).not.toContain("acclimation");
     expect(keys).not.toContain("moisture_test");
+  });
+
+  it("laminate without clicking install_method still hides adhesive and shows floating follow-ups", () => {
+    const keys = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+    });
+    expect(keys).toContain("attached_pad");
+    expect(keys).toContain("laminate_expansion");
+    expect(keys).not.toContain("adhesive");
+    expect(keys).not.toContain("hardwood_fasteners");
+    expect(synthesizeSoleInstallMethod({ project_type: ["Hard surface"], surface_type: ["Laminate"] }).install_method).toEqual([
+      "Floating / click",
+    ]);
   });
 
   it("glue-down LVP: adhesive on, floating follow-ups off", () => {

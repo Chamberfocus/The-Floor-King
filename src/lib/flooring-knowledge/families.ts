@@ -229,6 +229,54 @@ export function installMethodOptionsForFamilies(
   return out;
 }
 
+/** Boxed / sheet hard surface — not carpet, not pad/trim/labor. */
+export function isHardSurfaceFamily(family: FlooringFamily): boolean {
+  return (
+    family === "lvp" ||
+    family === "hardwood" ||
+    family === "laminate" ||
+    family === "vinyl" ||
+    family === "tile"
+  );
+}
+
+/**
+ * Options for the hard-surface `install_method` question.
+ * Carpet stretch-in / carpet tile live on `carpet_install` — never on this chip list,
+ * including mixed Carpet + Hard surface jobs and unanswered surface type.
+ */
+export function hardSurfaceInstallMethodOptions(
+  families: FlooringFamily[],
+  construction: HardwoodConstruction = "unknown",
+): { label: string; system: InstallSystem }[] {
+  const hs = families.filter(isHardSurfaceFamily);
+  if (!hs.length) {
+    return installMethodOptionsForFamilies(
+      ["lvp", "hardwood", "laminate", "tile", "vinyl"],
+      construction,
+    );
+  }
+  return installMethodOptionsForFamilies(hs, construction);
+}
+
+/**
+ * When exactly one hard-surface family is in play and it allows exactly one
+ * system (laminate → floating, tile → thinset, sheet vinyl → glue), that is
+ * the method — the salesperson should not have to click the only chip.
+ * LVP and hardwood stay unanswered until picked (they have real branches).
+ */
+export function solePermittedInstallSystem(
+  families: FlooringFamily[],
+  construction: HardwoodConstruction = "unknown",
+): Exclude<InstallSystem, "unknown"> | null {
+  const hs = families.filter(isHardSurfaceFamily);
+  if (hs.length !== 1) return null;
+  const systems = permittedInstallSystems(hs[0], construction).filter(
+    (s): s is Exclude<InstallSystem, "unknown"> => s !== "unknown",
+  );
+  return systems.length === 1 ? systems[0] : null;
+}
+
 export function isRollGoodsFamily(family: FlooringFamily): boolean {
   return family === "carpet" || family === "vinyl";
 }
@@ -243,13 +291,7 @@ export function isBoxedFamily(family: FlooringFamily): boolean {
  * stairs in that product; the trim types still come from existing TRIM_TYPES.
  */
 export function isHardSurfaceStairFamily(family: FlooringFamily): boolean {
-  return (
-    family === "lvp" ||
-    family === "hardwood" ||
-    family === "laminate" ||
-    family === "vinyl" ||
-    family === "tile"
-  );
+  return isHardSurfaceFamily(family);
 }
 
 /** Show the Trims stair-nose fill only when a hard-surface family is on the job. */
