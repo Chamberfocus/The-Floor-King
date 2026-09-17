@@ -776,7 +776,7 @@ describe("family → system asks the right keys (not every question)", () => {
       project_type: ["Carpet"],
       carpet_install: ["Stretch-in"],
     });
-    on(carpetStretch, ["carpet_install", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate"]);
+    on(carpetStretch, ["carpet_install", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat"]);
     off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test", "hs_direction"]);
 
     const carpetGlue = visibleKnowledgeKeys({
@@ -830,7 +830,7 @@ describe("family → system asks the right keys (not every question)", () => {
       surface_type: ["Tile"],
       install_method: ["Thinset / mortar"],
     });
-    on(tile, ["tile_application", "tile_body", "tile_layout", "tile_setting"]);
+    on(tile, ["tile_application", "tile_body", "tile_format", "tile_layout", "tile_setting"]);
     off(tile, ["adhesive", "attached_pad", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test", "hs_direction"]);
   });
 
@@ -886,6 +886,7 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "tile_layout")).toBe(true);
     expect(has(keys, "tile_application")).toBe(true);
     expect(has(keys, "tile_body")).toBe(true);
+    expect(has(keys, "tile_format")).toBe(true);
     expect(has(keys, "adhesive")).toBe(false);
     expect(has(keys, "attached_pad")).toBe(false);
     expect(has(keys, "laminate_expansion")).toBe(false);
@@ -1205,8 +1206,9 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "vinyl_skim", position: 353, show_if: { key: "surface_type", in: ["Sheet vinyl"] } },
     { key: "tile_application", position: 217, show_if: { key: "surface_type", in: ["Tile"] } },
     { key: "tile_body", position: 218, show_if: { key: "surface_type", in: ["Tile"] } },
-    { key: "tile_layout", position: 219, show_if: { key: "surface_type", in: ["Tile"] } },
-    { key: "tile_setting", position: 220, show_if: { key: "surface_type", in: ["Tile"] } },
+    { key: "tile_format", position: 219, show_if: { key: "surface_type", in: ["Tile"] } },
+    { key: "tile_layout", position: 220, show_if: { key: "surface_type", in: ["Tile"] } },
+    { key: "tile_setting", position: 221, show_if: { key: "surface_type", in: ["Tile"] } },
     { key: "subfloor_condition", position: 352, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "existing_pad", position: 108, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "carpet_pad", position: 110, show_if: { key: "project_type", in: ["Carpet"] } },
@@ -1281,6 +1283,11 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
           { key: "substrate", in: ["Concrete"] },
         ],
       },
+    },
+    {
+      key: "radiant_heat",
+      position: 208,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
     },
     {
       key: "asbestos_risk",
@@ -1392,6 +1399,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("hs_demo");
     expect(keys).toContain("substrate");
     expect(keys).toContain("existing_pad");
+    expect(keys).toContain("radiant_heat");
     expect(keys).not.toContain("pattern_repeat");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("surface_type");
@@ -1548,7 +1556,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       install_method: ["Thinset / mortar"],
     });
     expect(keys.indexOf("tile_application")).toBeLessThan(keys.indexOf("tile_body")!);
-    expect(keys.indexOf("tile_body")).toBeLessThan(keys.indexOf("tile_layout")!);
+    expect(keys.indexOf("tile_body")).toBeLessThan(keys.indexOf("tile_format")!);
+    expect(keys.indexOf("tile_format")).toBeLessThan(keys.indexOf("tile_layout")!);
     expect(keys).toContain("tile_setting");
     expect(keys).not.toContain("attached_pad");
     expect(keys).not.toContain("vinyl_skim");
@@ -1609,6 +1618,68 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(stone.some((w) => w.id === "tile-stone")).toBe(true);
     expect(knowledgeQuestionByKey("adhesive")?.systems).toEqual(["glue", "carpet_tile"]);
     expect(knowledgeQuestionByKey("tile_body")?.families).toEqual(["tile"]);
+  });
+
+  it("0203 asks radiant on carpet and tile format without inventing waste", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0203_flooring_knowledge_radiant_tile_format.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0203_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/radiant_heat/);
+    expect(sql).toMatch(/tile_format/);
+    expect(sql).toMatch(/\["Carpet","Hard surface"\]/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const large = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Tile"],
+      }),
+      { pickedLabels: ['Large format (24" or larger)'] },
+    );
+    expect(large.some((w) => w.id === "tile-large-format")).toBe(true);
+
+    const mixedGlue = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT", "Hardwood"],
+        install_method: ["Glue-down"],
+      }),
+    );
+    expect(mixedGlue.some((w) => w.id === "mixed-hs-install")).toBe(true);
+
+    const mixedFloat = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT", "Hardwood"],
+        install_method: ["Floating / click"],
+      }),
+    );
+    expect(mixedFloat.some((w) => w.id === "mixed-hs-method")).toBe(true);
+
+    const unanswered = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT", "Hardwood"],
+      }),
+    );
+    expect(unanswered.some((w) => w.id === "mixed-hs-install" || w.id === "mixed-hs-method")).toBe(false);
+
+    const keys = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(keys).toContain("radiant_heat");
+    expect(keys).not.toContain("tile_format");
+    expect(
+      walk({
+        project_type: ["Hard surface"],
+        surface_type: ["Tile"],
+        install_method: ["Thinset / mortar"],
+      }),
+    ).toContain("tile_format");
   });
 
   it("pattern repeat only after pattern match is required", () => {

@@ -23,6 +23,7 @@ import {
   unscopedProductFamilies,
   familyLabel,
   solePermittedInstallSystem,
+  permittedInstallSystems,
   INSTALL_METHOD_LABELS,
   type FlooringFamily,
   type HardwoodConstruction,
@@ -522,6 +523,12 @@ export function knowledgeHelpFor(
   if (key === "tile_body") {
     return "Ceramic vs porcelain vs natural stone. Still the tile catalog — capture the body for setting notes. Do not invent a waste percent or a second category.";
   }
+  if (key === "tile_format") {
+    return "Size / format is scope for waste and flatness. Large format often needs a flatter floor — Field verify if you have not seen it. Do not invent a waste percent.";
+  }
+  if (key === "radiant_heat") {
+    return "Carpet pad and many hard-surface products have radiant limits. Flag it for purchasing — do not invent a radiant-rated SKU.";
+  }
   if (key === "moisture_mitigation") {
     return "Aqua bar / primer only when hardwood, glue-down, or a moisture-concern flag makes it relevant. Floating laminate without that flag hides this. Existing catalog rates — do not invent a new product.";
   }
@@ -685,6 +692,36 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
       id: "tile-stone",
       text: "Natural stone setting, sealing, and waste differ from ceramic. Pick catalog setting materials in Builder — do not invent a labor rate or waste percent here.",
     });
+  }
+  if (ctx.families.includes("tile") && picked.some((l) => /large format/i.test(l))) {
+    w.push({
+      id: "tile-large-format",
+      text: "Large-format tile usually needs a flatter substrate than standard 12x12. Confirm prep / Field verify — do not invent a self-leveler bag count.",
+    });
+  }
+  const hsFamilies = ctx.families.filter(isHardSurfaceFamily);
+  if (hsFamilies.length >= 2 && ctx.answeredInstallMethod.length) {
+    const method = installSystemFromLabel(ctx.answeredInstallMethod[0]);
+    const unsupported = hsFamilies.filter(
+      (f) => method !== "unknown" && !permittedInstallSystems(f, ctx.hardwoodConstruction).includes(method),
+    );
+    const labels = hsFamilies.map(familyLabel).join(" + ");
+    if (unsupported.length) {
+      w.push({
+        id: "mixed-hs-method",
+        text: `This job has ${labels}. “${ctx.answeredInstallMethod[0]}” is not a permitted method for ${unsupported.map(familyLabel).join(" and ")}. Confirm each product, or split the estimate — do not assume one system covers both.`,
+      });
+    } else {
+      const signatures = new Set(
+        hsFamilies.map((f) => permittedInstallSystems(f, ctx.hardwoodConstruction).slice().sort().join(",")),
+      );
+      if (signatures.size > 1) {
+        w.push({
+          id: "mixed-hs-install",
+          text: `This job has ${labels} sharing one install method. Confirm each product actually uses “${ctx.answeredInstallMethod[0]}”, or split the estimate — do not invent a per-room method here.`,
+        });
+      }
+    }
   }
   if (ctx.families.some((f) => f === "lvp" || f === "laminate" || f === "hardwood") && picked.some((l) => /diagonal/i.test(l))) {
     w.push({

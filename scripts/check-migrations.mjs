@@ -63,6 +63,7 @@ const REQUIRED_FILES = [
   "0200_flooring_knowledge_prep_gates.sql",
   "0201_flooring_knowledge_shared_demo.sql",
   "0202_flooring_knowledge_tile_carpet_prep.sql",
+  "0203_flooring_knowledge_radiant_tile_format.sql",
 ];
 
 /**
@@ -875,6 +876,16 @@ const REQUIRED_MARKERS = [
       "moisture_mitigation",
       "carpet_tile",
       "tile_body",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0203_flooring_knowledge_radiant_tile_format.sql",
+    markers: [
+      "P0_0203_FLOORING_KNOWLEDGE",
+      "radiant_heat",
+      "tile_format",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

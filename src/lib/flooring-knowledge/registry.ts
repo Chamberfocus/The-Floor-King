@@ -118,6 +118,7 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "laminate_expansion", purpose: "SCOPE", phase: "install", systems: ["floating"] },
   { key: "tile_application", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_body", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
+  { key: "tile_format", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_layout", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_setting", purpose: "MATERIAL", phase: "install", families: ["tile"] },
   { key: "tack_strip", purpose: "ACCESSORY", phase: "install", families: ["carpet"], systems: ["stretch_in"] },
