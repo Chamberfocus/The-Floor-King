@@ -320,7 +320,7 @@ export type EstimateQuestionKind =
   // Smart auto-calc kinds — the questionnaire does the math:
   | "cuts" // carpet/sheet cuts (length × roll width) → order qty; carpet tile uses this step to pick the SKU, not a cut plan
   | "stairs" // step count + type (waterfall/upholstered) → labor + carpet yd
-  | "hs_stairs" // hard-surface stairs → area (steps × 4/8 sf) → plank + stair labor
+  | "hs_stairs" // hard-surface stairs → step count + trim EACH; wrap sq ft is not automatic
   | "subfloor" // thickness → sheets = ceil(area ÷ 32)
   | "selflevel"; // self-leveler → bags from area + pour thickness
 
@@ -414,6 +414,7 @@ export interface EstimateQuestionConfig {
   default_thickness_in?: number; // selflevel: default pour thickness
   bag_cost?: number; // selflevel: our cost per bag
   labor_per_sqft?: number; // selflevel: self-leveling labor $/sq ft
+  labor_per_step?: number; // hs_stairs: stair-install labor $/step (never × 8 sq ft)
   carpet_cost_per_yd?: number; // stairs: our cost per sq yd of stair carpet
   note?: boolean; // record the answer as a job condition on the work order
   /**

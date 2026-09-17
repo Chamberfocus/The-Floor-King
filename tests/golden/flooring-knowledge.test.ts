@@ -2855,6 +2855,31 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(ai).toMatch(/rollGoodsOrderTbdDescription/);
   });
 
+  it("0217 does not order 8 sq ft of hard-surface flooring per stair", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0217_flooring_knowledge_hs_stair_units.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0217_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/8 sq ft\/step/);
+    expect(sql).toMatch(/hs_plank_stairs/);
+    expect(sql).toMatch(/per step/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).not.toMatch(/STAIR_SQFT_TREAD_RISER/);
+    expect(q).not.toMatch(/STAIR_SQFT_TREAD_ONLY/);
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).toMatch(/Stair labor \$ \/ step/);
+    expect(q).toMatch(/unit: "step"/);
+    expect(q).not.toMatch(/sfPerStep/);
+    expect(lineQty({ line_type: "mat_labor", category: "labor", unit: "step", measure_unit: "sqft", sqft: null, quantity: 12 })).toBe(12);
+
+    const rules = readFileSync(join(root, "src/lib/flooring-knowledge/rules.ts"), "utf8");
+    expect(rules).toMatch(/not an automatic 8 sq ft\/step order/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

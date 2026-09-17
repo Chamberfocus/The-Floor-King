@@ -276,11 +276,6 @@ type Answer =
   | { kind: "selflevel"; thickness: string }
   | { kind: "text"; text: string };
 
-// Hard-surface stairs wrapped in plank: sq ft per step depends on scope, and the
-// install labor runs higher than a flat floor. Both editable per estimate.
-const STAIR_SQFT_TREAD_RISER = 8;
-const STAIR_SQFT_TREAD_ONLY = 4;
-
 let cgid = 0, ctid = 0, sgid = 0;
 const newCutRow = (width = ""): CutRow => ({ id: `c${ctid++}`, lf: "", li: "", width });
 const newCarpetGroup = (width = ""): CarpetGroup => ({ id: `g${cgid++}`, area: "", product: null, cuts: [newCutRow(width)] });
@@ -1657,33 +1652,33 @@ export function Questionnaire({
         }
         }
       } else if (q.kind === "hs_stairs" && a.kind === "hs_stairs") {
-        // Hard-surface stairs wrapped in plank: area = steps × sq ft/step
-        // (tread+riser or tread only). The area buys the flooring at its rate AND
-        // adds stair-install labor at a higher per-sq-ft rate than a flat floor.
-        // (Matching stairnose / treads are handled separately in the trims step.)
-        const steps = numv(a.steps);
+        // Hard-surface stairs: step count + trim EACH (noses/treads/risers).
+        // Do not invent 8/4 sq ft of flooring per step — that is not a cut plan
+        // and it double-counts Trims. Wrap product stays identity / TBD.
+        // Stair labor is per step when the salesperson enters a rate (0194:
+        // do not invent one). Legacy labor_per_sqft is not multiplied by 8.
+        const steps = Math.ceil(numv(a.steps));
         if (steps > 0) {
-          const sfPerStep = a.treadRiser ? STAIR_SQFT_TREAD_RISER : STAIR_SQFT_TREAD_ONLY;
-          const area = r2(steps * sfPerStep);
           const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
           const p = a.product;
-          if (p) {
+          if (p && (p.productId || p.label)) {
             const matCost = rateFor(p.materialRate, p.unit, false);
+            const countUnit = unitLabel(p.unit) || p.unit || "each";
             out.push({
               room: null,
-              description: `Stair flooring — ${p.label || "plank"} (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel})`,
+              description: `${p.label || "Stair wrap"} — wrap qty TBD (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel} — not an automatic sq ft/step order)`,
               category: p.category || "other",
               measure_unit: "sqft",
-              sqft: area,
-              quantity: area,
+              sqft: null,
+              quantity: null,
               length_in: null,
               width_in: null,
-              unit: "sq ft",
+              unit: countUnit,
               material_rate: sellMat(matCost),
               labor_rate: 0,
               material_cost: matCost,
               labor_cost: 0,
-              waste_pct: numv(p.wastePct) || 0,
+              waste_pct: 0,
               product_id: p.productId || null,
               manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
               style: p.style,
@@ -1692,19 +1687,24 @@ export function Questionnaire({
             });
           }
           const typedRate = numv(a.laborRate);
-          const configRate = q.config.labor_per_sqft ?? 0;
-          const lr = typedRate > 0 ? typedRate : configRate > 0 ? configRate : 0;
+          const configPerStep = Number(q.config.labor_per_step);
+          const lr =
+            typedRate > 0
+              ? typedRate
+              : Number.isFinite(configPerStep) && configPerStep > 0
+                ? configPerStep
+                : 0;
           if (lr > 0) {
             out.push({
               room: null,
               description: `Stair install — ${steps} step${steps === 1 ? "" : "s"} (${scopeLabel})`,
               category: "labor",
               measure_unit: "sqft",
-              sqft: area,
-              quantity: area,
+              sqft: null,
+              quantity: steps,
               length_in: null,
               width_in: null,
-              unit: "sq ft",
+              unit: "step",
               material_rate: 0,
               labor_rate: sellLab(lr),
               material_cost: 0,
@@ -4365,11 +4365,9 @@ function QuestionBody({
     const a = answer;
     const upd = (p: Partial<Extract<Answer, { kind: "hs_stairs" }>>) => set({ ...a, ...p });
     const steps = Math.max(0, Math.floor(numv(a.steps)));
-    const sfPerStep = a.treadRiser ? STAIR_SQFT_TREAD_RISER : STAIR_SQFT_TREAD_ONLY;
-    const area = steps * sfPerStep;
-    const lr = numv(a.laborRate) || (q.config.labor_per_sqft ?? 0);
+    const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
+    const lr = numv(a.laborRate) || (Number(q.config.labor_per_step) > 0 ? Number(q.config.labor_per_step) : 0);
     const p = a.product;
-    const matRate = p ? sellMat(rateFor(p.materialRate, p.unit, false)) : 0;
     return (
       <div className="space-y-3">
         <div className="flex flex-wrap items-end gap-3">
@@ -4382,21 +4380,21 @@ function QuestionBody({
             <div className="inline-flex overflow-hidden rounded-md border">
               <button type="button" onClick={() => upd({ treadRiser: true })}
                 className={cn("px-3 py-2 text-sm font-medium", a.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
-                Tread + riser <span className="opacity-70">({STAIR_SQFT_TREAD_RISER} sf)</span>
+                Tread + riser
               </button>
               <button type="button" onClick={() => upd({ treadRiser: false })}
                 className={cn("px-3 py-2 text-sm font-medium", !a.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
-                Tread only <span className="opacity-70">({STAIR_SQFT_TREAD_ONLY} sf)</span>
+                Tread only
               </button>
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Stair labor $ / sq ft</label>
+            <label className="mb-1 block text-xs text-muted-foreground">Stair labor $ / step</label>
             <Input value={a.laborRate} onChange={(e) => upd({ laborRate: e.target.value })} inputMode="decimal" placeholder="TBD" className="h-11 w-24 text-base md:h-10" />
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Flooring that wraps the stairs (optional)</label>
+          <label className="mb-1 block text-xs text-muted-foreground">Wrap product (optional — qty is not automatic)</label>
           <ProductPicker
             value={p?.productId ?? ""}
             initialLabel={p?.label ?? ""}
@@ -4409,13 +4407,17 @@ function QuestionBody({
         </div>
         {steps > 0 ? (
           <div className="rounded-md border border-dashed p-2.5 text-sm">
-            <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"} ×{" "}
-            {sfPerStep} sf = <span className="font-semibold tabular-nums text-primary">{area} sq ft</span>
-            {p ? <> · material <span className="tabular-nums">{formatMoney(matRate * area)}</span></> : null}
-            {lr > 0 ? <> · labor <span className="tabular-nums">{formatMoney(sellLab(lr) * area)}</span></> : <> · labor rate TBD</>}
+            <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"} · {scopeLabel}
+            {" · "}noses / treads / risers fill on Trims in EACH
+            {p ? <> · {p.label} wrap qty TBD (not an automatic sq ft/step order)</> : null}
+            {lr > 0 ? (
+              <> · labor <span className="tabular-nums">{formatMoney(sellLab(lr) * steps)}</span> ({steps} × {formatMoney(sellLab(lr))}/step)</>
+            ) : (
+              <> · labor rate TBD — not invented from 8 sq ft/step</>
+            )}
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">Enter the number of steps (0 = no stairs).</p>
+          <p className="text-xs text-muted-foreground">Enter the number of steps (0 = no stairs). Wrap coverage is not 8 sq ft/step.</p>
         )}
       </div>
     );
