@@ -37,6 +37,11 @@ export interface KnowledgeQuestionDef {
   quantityUnit?: KnowledgeQtyUnit;
   /** Overlay require — hide once the gate is answered with something else. */
   require?: { key: string; in: string[] };
+  /**
+   * OR of family/system clauses. Use this when SQL show_if is `{ any: … }`
+   * (hardwood OR glue-down) so overlay does not AND families with systems.
+   */
+  any?: { families?: FlooringFamily[]; systems?: InstallSystem[] }[];
 }
 
 export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
@@ -76,7 +81,16 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "adhesive", purpose: "MATERIAL", phase: "install", systems: ["glue"] },
   { key: "hs_underlayment", purpose: "MATERIAL", phase: "install", systems: ["floating"] },
   { key: "hardwood_fasteners", purpose: "MATERIAL", phase: "install", systems: ["nail", "staple"] },
-  { key: "acclimation", purpose: "INSTALLATION", phase: "install" },
+  /**
+   * Hardwood (solid or engineered) OR glue-down of any family — matches 0190
+   * show_if. Laminate floating / stretch-in carpet / thinset tile hide this.
+   */
+  {
+    key: "acclimation",
+    purpose: "INSTALLATION",
+    phase: "install",
+    any: [{ families: ["hardwood"] }, { systems: ["glue"] }],
+  },
   { key: "construction_grade", purpose: "INSTALLATION", phase: "install", families: ["hardwood", "lvp", "laminate", "vinyl", "tile"] },
   { key: "radiant_heat", purpose: "WARNING", phase: "install" },
   { key: "laminate_expansion", purpose: "SCOPE", phase: "install", systems: ["floating"] },
@@ -92,7 +106,16 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "substrate", purpose: "PREP", phase: "prep" },
   { key: "subfloor_condition", purpose: "PREP", phase: "prep" },
   { key: "vapor_barrier", purpose: "PREP", phase: "prep", systems: ["floating", "glue"] },
-  { key: "moisture_test", purpose: "PREP", phase: "prep" },
+  /**
+   * Same hardwood-OR-glue gate as 0190 moisture_test show_if. Mitigation stays
+   * all hard-surface (0117) — do not overlay-hide it.
+   */
+  {
+    key: "moisture_test",
+    purpose: "PREP",
+    phase: "prep",
+    any: [{ families: ["hardwood"] }, { systems: ["glue"] }],
+  },
   { key: "moisture_mitigation", purpose: "PREP", phase: "prep" },
   { key: "prep_confidence", purpose: "PREP", phase: "prep" },
   { key: "hs_prep", purpose: "PREP", phase: "prep" },
@@ -125,6 +148,7 @@ export const DEFAULT_KNOWLEDGE_WHEN: Record<string, KnowledgeWhen> = Object.from
     {
       ...(q.families ? { families: q.families } : {}),
       ...(q.systems ? { systems: q.systems } : {}),
+      ...(q.any ? { any: q.any } : {}),
       ...(q.attachedPad ? { attachedPad: q.attachedPad } : {}),
       ...(q.require ? { require: q.require } : {}),
       purpose: q.purpose,

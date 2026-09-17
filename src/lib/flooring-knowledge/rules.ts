@@ -11,7 +11,7 @@
  * hasn't reached yet.
  */
 
-import type { KnowledgeWhen, QuestionPurpose, ShowIfClause } from "@/lib/types";
+import type { KnowledgeWhen, KnowledgeWhenClause, QuestionPurpose, ShowIfClause } from "@/lib/types";
 import {
   familyFromSurfaceLabel,
   hardwoodConstructionFromLabel,
@@ -138,31 +138,48 @@ function listHas(have: string[], want: string[]): boolean {
 }
 
 /**
- * Overlay: hide only with positive evidence.
+ * One overlay clause: hide only with positive evidence. Unanswered surface
+ * or install method keeps the clause open so we never skip a branch the
+ * estimator has not reached yet.
  */
-export function knowledgeWhenApplies(when: KnowledgeWhen | null | undefined, ctx: InstallContext): boolean {
-  if (!when) return true;
-
-  if (when.families?.length) {
+export function knowledgeClauseApplies(clause: KnowledgeWhenClause, ctx: InstallContext): boolean {
+  if (clause.families?.length) {
     if (ctx.surfacePending) {
       // Still deciding the HS product — don't hide family-specific questions
       // that aren't already gated by show_if. Carpet-only questions DO hide
       // when the job is HS-only with no carpet.
-      const wantsCarpet = when.families.includes("carpet");
+      const wantsCarpet = clause.families.includes("carpet");
       const hasCarpet = ctx.families.includes("carpet") || ctx.projectTypes.some((p) => /carpet/i.test(p));
-      const wantsHs = when.families.some((f) => f !== "carpet");
+      const wantsHs = clause.families.some((f) => f !== "carpet");
       if (wantsCarpet && !hasCarpet && !wantsHs) return false;
-    } else if (!ctx.families.some((f) => when.families!.includes(f))) {
+    } else if (!ctx.families.some((f) => clause.families!.includes(f))) {
       return false;
     }
   }
 
-  if (when.systems?.length) {
+  if (clause.systems?.length) {
     if (ctx.installPending || ctx.systems.length === 0) {
       // Method not chosen — leave the question to show_if.
-    } else if (!ctx.systems.some((s) => when.systems!.includes(s))) {
+    } else if (!ctx.systems.some((s) => clause.systems!.includes(s))) {
       return false;
     }
+  }
+
+  return true;
+}
+
+/**
+ * Overlay: hide only with positive evidence.
+ * Top-level families/systems AND together; `any` is an OR of those clauses
+ * (hardwood OR glue-down — matching 0190 show_if, not the intersection).
+ */
+export function knowledgeWhenApplies(when: KnowledgeWhen | null | undefined, ctx: InstallContext): boolean {
+  if (!when) return true;
+
+  if (!knowledgeClauseApplies(when, ctx)) return false;
+
+  if (when.any?.length) {
+    if (!when.any.some((clause) => knowledgeClauseApplies(clause, ctx))) return false;
   }
 
   if (when.require?.key && when.require.in?.length) {
@@ -359,6 +376,12 @@ export function knowledgeHelpFor(
   }
   if (key === "delivery_scope") {
     return "Floor King has a Delivery add-on. Record whether to include it — pick the catalog line in Builder rather than inventing a fuel charge here.";
+  }
+  if (key === "acclimation") {
+    return "Hardwood and glue-down need acclimation / climate notes. Floating laminate and stretch-in carpet hide this — do not invent a day count.";
+  }
+  if (key === "moisture_test") {
+    return "Glue-down and hardwood over concrete often need a moisture reading. If you cannot test yet, pick Field verify — do not invent a number.";
   }
   return null;
 }

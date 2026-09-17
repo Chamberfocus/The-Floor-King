@@ -34,6 +34,7 @@ import {
   knowledgeQuestionByKey,
   amountUnitLabelForQuestion,
   knowledgeWarnings,
+  knowledgeWhenApplies,
   KNOWLEDGE_QUESTIONS,
   sortEstimateQuestions,
   estimatorPhaseForQuestion,
@@ -266,6 +267,36 @@ describe("show_if all/any + knowledge overlay", () => {
         { project_type: ["Hard surface"] },
       ),
     ).toBe(true);
+  });
+
+  it("acclimation/moisture_test are hardwood OR glue-down, not laminate floating", () => {
+    const anyWhen = knowledgeQuestionByKey("acclimation")?.any;
+    expect(anyWhen).toEqual([{ families: ["hardwood"] }, { systems: ["glue"] }]);
+    expect(knowledgeQuestionByKey("moisture_test")?.any).toEqual(anyWhen);
+
+    const pending = installContextFromValByKey({ project_type: ["Hard surface"] });
+    expect(knowledgeWhenApplies({ any: anyWhen }, pending)).toBe(true);
+
+    const lam = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    });
+    expect(knowledgeWhenApplies({ any: anyWhen }, lam)).toBe(false);
+
+    const engNail = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Engineered hardwood"],
+      install_method: ["Nail-down"],
+    });
+    expect(knowledgeWhenApplies({ any: anyWhen }, engNail)).toBe(true);
+
+    const lvpGlue = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+    });
+    expect(knowledgeWhenApplies({ any: anyWhen }, lvpGlue)).toBe(true);
   });
 
   it("hides separate underlayment when attached pad is Yes", () => {
@@ -554,6 +585,8 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "laminate_expansion")).toBe(true);
     expect(has(keys, "attached_pad")).toBe(true);
     expect(has(keys, "hs_underlayment")).toBe(true);
+    expect(has(keys, "acclimation")).toBe(false);
+    expect(has(keys, "moisture_test")).toBe(false);
   });
 
   it("glue-down LVP: adhesive on, floating follow-ups off", () => {
@@ -568,6 +601,8 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "hs_underlayment")).toBe(false);
     expect(has(keys, "hardwood_fasteners")).toBe(false);
     expect(has(keys, "tile_layout")).toBe(false);
+    expect(has(keys, "acclimation")).toBe(true);
+    expect(has(keys, "moisture_test")).toBe(true);
   });
 
   it("each family asks its own follow-ups and hides the others", () => {
@@ -579,7 +614,7 @@ describe("family → system asks the right keys (not every question)", () => {
       carpet_install: ["Stretch-in"],
     });
     on(carpetStretch, ["carpet_install", "pattern_match", "tack_strip", "carpet_pad", "existing_pad"]);
-    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion"]);
+    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test"]);
 
     const carpetGlue = visibleKnowledgeKeys({
       project_type: ["Carpet"],
@@ -600,14 +635,14 @@ describe("family → system asks the right keys (not every question)", () => {
       install_method: ["Floating / click"],
     });
     on(lam, ["attached_pad", "laminate_expansion"]);
-    off(lam, ["adhesive", "hardwood_fasteners", "tile_setting", "vinyl_layout", "tack_strip"]);
+    off(lam, ["adhesive", "hardwood_fasteners", "tile_setting", "vinyl_layout", "tack_strip", "acclimation", "moisture_test"]);
 
     const lvpGlue = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
       surface_type: ["LVP / LVT"],
       install_method: ["Glue-down"],
     });
-    on(lvpGlue, ["adhesive"]);
+    on(lvpGlue, ["adhesive", "acclimation", "moisture_test"]);
     off(lvpGlue, ["attached_pad", "laminate_expansion", "hardwood_fasteners", "tile_setting"]);
 
     const engNail = visibleKnowledgeKeys({
@@ -615,7 +650,7 @@ describe("family → system asks the right keys (not every question)", () => {
       surface_type: ["Engineered hardwood"],
       install_method: ["Nail-down"],
     });
-    on(engNail, ["hardwood_fasteners", "acclimation"]);
+    on(engNail, ["hardwood_fasteners", "acclimation", "moisture_test"]);
     off(engNail, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout"]);
 
     const vinyl = visibleKnowledgeKeys({
@@ -623,7 +658,7 @@ describe("family → system asks the right keys (not every question)", () => {
       surface_type: ["Sheet vinyl"],
       install_method: ["Glue-down"],
     });
-    on(vinyl, ["vinyl_layout", "vinyl_skim", "adhesive"]);
+    on(vinyl, ["vinyl_layout", "vinyl_skim", "adhesive", "moisture_test"]);
     off(vinyl, ["attached_pad", "carpet_pad", "tile_application", "hardwood_fasteners"]);
 
     const tile = visibleKnowledgeKeys({
@@ -632,7 +667,7 @@ describe("family → system asks the right keys (not every question)", () => {
       install_method: ["Thinset / mortar"],
     });
     on(tile, ["tile_application", "tile_layout", "tile_setting"]);
-    off(tile, ["adhesive", "attached_pad", "vinyl_layout", "hardwood_fasteners", "laminate_expansion"]);
+    off(tile, ["adhesive", "attached_pad", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test"]);
   });
 
   it("stretch-in carpet: tack strip on, adhesive off", () => {
@@ -911,6 +946,26 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       position: 228,
       show_if: { key: "install_method", in: ["Nail-down", "Staple-down"] },
     },
+    {
+      key: "acclimation",
+      position: 230,
+      show_if: {
+        any: [
+          { key: "surface_type", in: ["Hardwood", "Engineered hardwood"] },
+          { key: "install_method", in: ["Glue-down"] },
+        ],
+      },
+    },
+    {
+      key: "moisture_test",
+      position: 235,
+      show_if: {
+        any: [
+          { key: "install_method", in: ["Glue-down"] },
+          { key: "surface_type", in: ["Hardwood", "Engineered hardwood"] },
+        ],
+      },
+    },
     { key: "vinyl_layout", position: 216, show_if: { key: "surface_type", in: ["Sheet vinyl"] } },
     { key: "vinyl_skim", position: 353, show_if: { key: "surface_type", in: ["Sheet vinyl"] } },
     { key: "tile_application", position: 217, show_if: { key: "surface_type", in: ["Tile"] } },
@@ -952,6 +1007,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).not.toContain("tile_setting");
     expect(keys).not.toContain("vinyl_layout");
     expect(keys).not.toContain("carpet_install");
+    expect(keys).not.toContain("acclimation");
+    expect(keys).not.toContain("moisture_test");
   });
 
   it("glue-down LVP: adhesive on, floating follow-ups off", () => {
@@ -961,6 +1018,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       install_method: ["Glue-down"],
     });
     expect(keys).toContain("adhesive");
+    expect(keys).toContain("acclimation");
+    expect(keys).toContain("moisture_test");
     expect(keys).not.toContain("attached_pad");
     expect(keys).not.toContain("laminate_expansion");
     expect(keys).not.toContain("hs_underlayment");

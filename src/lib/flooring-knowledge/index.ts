@@ -82,6 +82,7 @@ export {
   DEFAULT_KNOWLEDGE_WHEN,
   KNOWLEDGE_QUESTIONS,
   knowledgeWhenApplies,
+  knowledgeClauseApplies,
   questionKnowledgeWhen,
   questionApplies,
   questionPurpose,

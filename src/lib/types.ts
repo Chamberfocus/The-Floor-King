@@ -360,10 +360,22 @@ export type ShowIfClause =
   | { all: ShowIfClause[] }
   | { any: ShowIfClause[] };
 
-/** Domain overlay on top of `show_if`. Unanswered gates do not hide. */
-export interface KnowledgeWhen {
+/** One overlay clause — AND of families and/or systems. */
+export interface KnowledgeWhenClause {
   families?: string[];
   systems?: string[];
+}
+
+/**
+ * Domain overlay on top of `show_if`. Unanswered gates do not hide.
+ *
+ * `families` / `systems` AND together. `any` is an OR of those clauses
+ * (hardwood OR glue-down — not the intersection). Hide only when every
+ * applicable clause fails with positive evidence.
+ */
+export interface KnowledgeWhen extends KnowledgeWhenClause {
+  /** OR of family/system clauses. Matches 0190 `{ any: [hardwood, glue] }` show_if. */
+  any?: KnowledgeWhenClause[];
   require?: { key: string; in: string[] };
   attachedPad?: "yes" | "no" | "any";
   purpose?: QuestionPurpose;
