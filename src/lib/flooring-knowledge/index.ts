@@ -163,6 +163,7 @@ export {
   substrateLabelMatches,
   jobNeedsAcclimationClimate,
   jobHasNonTileFloorFamily,
+  jobIsExclusiveWallTile,
   type InstallContext,
 } from "./rules";
 

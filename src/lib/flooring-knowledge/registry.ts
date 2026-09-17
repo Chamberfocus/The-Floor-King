@@ -443,6 +443,11 @@ export const TILE_WALL_HIDES_KEYS = [
   "hs_plank_stairs",
   "construction_grade",
   "radiant_heat",
+  "hs_transitions",
+  "subfloor_needed",
+  "selflevel_needed",
+  "vapor_barrier",
+  "moisture_mitigation",
 ] as const;
 
 export interface SortableEstimateQuestion {

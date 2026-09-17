@@ -77,6 +77,7 @@ import {
   tileJobIsWallOnly,
   TILE_WALL_HIDES_KEYS,
   jobHasNonTileFloorFamily,
+  jobIsExclusiveWallTile,
   KNOWLEDGE_QUESTIONS,
   sortEstimateQuestions,
   estimatorPhaseForQuestion,
@@ -4389,14 +4390,16 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(sql).not.toMatch(/create table public\.products/);
     expect(sql).not.toMatch(/show_if.*tile_application.*toilets|toilets.*show_if.*tile_application/);
 
-    expect([...TILE_WALL_HIDES_KEYS]).toEqual([
-      "toilets",
-      "vents_registers",
-      "doors_shave",
-      "hs_plank_stairs",
-      "construction_grade",
-      "radiant_heat",
-    ]);
+    expect(TILE_WALL_HIDES_KEYS).toEqual(
+      expect.arrayContaining([
+        "toilets",
+        "vents_registers",
+        "doors_shave",
+        "hs_plank_stairs",
+        "construction_grade",
+        "radiant_heat",
+      ]),
+    );
     expect(tileJobIsWallOnly({})).toBe(false);
     expect(tileJobIsWallOnly({ tile_application: ["Wall"] })).toBe(true);
     expect(tileJobIsWallOnly({ tile_application: ["Floor"] })).toBe(false);
@@ -4519,6 +4522,106 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(overlayWall).not.toContain("vents_registers");
     expect(overlayWall).toContain("wet_area");
     expect(overlayWall).toContain("appliances");
+  });
+
+  it("0255 exclusive wall tile also hides floor T-molds, subfloor sheets, vapor, and self-level", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0255_flooring_knowledge_wall_floor.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0255_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/doorway T-molds/);
+    expect(sql).toMatch(/Do NOT SQL-gate these on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect([...TILE_WALL_HIDES_KEYS]).toEqual([
+      "toilets",
+      "vents_registers",
+      "doors_shave",
+      "hs_plank_stairs",
+      "construction_grade",
+      "radiant_heat",
+      "hs_transitions",
+      "subfloor_needed",
+      "selflevel_needed",
+      "vapor_barrier",
+      "moisture_mitigation",
+    ]);
+
+    const wallCtx = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(jobIsExclusiveWallTile(wallCtx)).toBe(true);
+    expect(jobIsExclusiveWallTile(emptyInstallContext())).toBe(false);
+    expect(
+      jobIsExclusiveWallTile(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Tile", "LVP / LVT"],
+          tile_application: ["Wall"],
+        }),
+      ),
+    ).toBe(false);
+
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /doorway T-molds/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(unanswered).toContain("hs_transitions");
+    expect(unanswered).toContain("subfloor_needed");
+    expect(unanswered).toContain("tile_setting");
+    expect(unanswered).toContain("hs_base_trim");
+    expect(unanswered).toContain("hs_prep");
+
+    const wall = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+      hs_prep: ["Self-leveling"],
+      substrate: ["Concrete"],
+      subfloor_condition: ["Moisture concerns"],
+    });
+    expect(wall).not.toContain("hs_transitions");
+    expect(wall).not.toContain("subfloor_needed");
+    expect(wall).not.toContain("selflevel_needed");
+    expect(wall).not.toContain("vapor_barrier");
+    expect(wall).not.toContain("moisture_mitigation");
+    expect(wall).toContain("hs_base_trim");
+    expect(wall).toContain("hs_prep");
+    expect(wall).toContain("tile_setting");
+    expect(wall).toContain("wet_area");
+    expect(wall).toContain("substrate");
+
+    const mixedLvp = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+      tile_application: ["Wall"],
+      hs_prep: ["Self-leveling"],
+      substrate: ["Concrete"],
+    });
+    expect(mixedLvp).toContain("hs_transitions");
+    expect(mixedLvp).toContain("subfloor_needed");
+    expect(mixedLvp).toContain("selflevel_needed");
+    expect(mixedLvp).toContain("vapor_barrier");
+
+    expect(
+      knowledgeWarnings(wallCtx, {
+        hsStairSteps: 13,
+        hasStairNose: false,
+        neededTransitionTrims: ["T-mold"],
+        presentTrimTypes: [],
+      }).some((w) => w.id === "hs-transitions" || w.id === "hs-stair-nose"),
+    ).toBe(false);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/jobIsExclusiveWallTile\(flooringCtx\)/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

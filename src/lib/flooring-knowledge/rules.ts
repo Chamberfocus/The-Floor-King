@@ -35,8 +35,8 @@ import { matchesShowIf } from "./show-if";
 import {
   jobIsNewConstruction,
   labelsAreNewConstruction,
+  labelsAreWallOnly,
   synthesizeStairGate,
-  tileJobIsWallOnly,
 } from "./answers";
 import {
   DEFAULT_KNOWLEDGE_WHEN,
@@ -82,6 +82,8 @@ export interface InstallContext {
   answeredInstallMethod: string[];
   /** Raw `carpet_install` answers. Stretch-in / carpet tile never infer. */
   answeredCarpetInstall: string[];
+  /** Floor vs wall vs both vs unknown. Empty means unanswered. */
+  tileApplication: string[];
 }
 
 export function emptyInstallContext(): InstallContext {
@@ -108,6 +110,7 @@ export function emptyInstallContext(): InstallContext {
     unscopedProductFamilies: [],
     answeredInstallMethod: [],
     answeredCarpetInstall: [],
+    tileApplication: [],
   };
 }
 
@@ -245,6 +248,7 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     unscopedProductFamilies: [],
     answeredInstallMethod: valByKey.install_method ?? [],
     answeredCarpetInstall: valByKey.carpet_install ?? [],
+    tileApplication: valByKey.tile_application ?? [],
   });
 }
 
@@ -421,9 +425,7 @@ export function questionApplies(
   if (
     q.key &&
     (TILE_WALL_HIDES_KEYS as readonly string[]).includes(q.key) &&
-    tileJobIsWallOnly(valByKey) &&
-    !install.surfacePending &&
-    !jobHasNonTileFloorFamily(install)
+    jobIsExclusiveWallTile(install)
   ) {
     return false;
   }
@@ -436,6 +438,19 @@ export function questionApplies(
  */
 export function jobHasNonTileFloorFamily(install: InstallContext): boolean {
   return install.families.some((f) => f === "carpet" || (isHardSurfaceFamily(f) && f !== "tile"));
+}
+
+/**
+ * Exclusive wall tile — no other floor-covering family, application is Wall
+ * (not Floor / Both / Unknown / unanswered). Showers still keep wet area,
+ * appliances, prep, and setting materials.
+ */
+export function jobIsExclusiveWallTile(install: InstallContext): boolean {
+  return (
+    labelsAreWallOnly(install.tileApplication) &&
+    !install.surfacePending &&
+    !jobHasNonTileFloorFamily(install)
+  );
 }
 
 /**
@@ -639,7 +654,7 @@ export function knowledgeHelpFor(
     return "Count of doors to undercut, in EACH. Never square feet.";
   }
   if (key === "tile_application") {
-    return "Floor vs wall. Exclusive wall tile hides toilets, vents, door shaves, floor stairs, construction grade, and radiant heat — those are floor work. Mixed carpet or LVP + wall tile still asks them. Unanswered and Unknown stay open. Keep wet area, appliances, floor prep, and setting materials. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
+    return "Floor vs wall. Exclusive wall tile hides toilets, vents, door shaves, floor stairs, construction grade, radiant heat, doorway T-molds, 4×8 subfloor sheets, self-leveler bags, slab vapor barrier, and aqua-bar mitigation — those are floor work. Mixed carpet or LVP + wall tile still asks them. Unanswered and Unknown stay open. Keep wet area, appliances, floor prep, substrate, base trim, and setting materials. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
   }
   if (key === "tile_body") {
     return "Ceramic vs porcelain vs natural stone. Still the tile catalog — capture the body for setting notes. Do not invent a waste percent or a second category.";
@@ -958,14 +973,15 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   if (
     (extras?.hsStairSteps ?? 0) > 0 &&
     extras?.hasStairNose === false &&
-    ctx.families.some(isHardSurfaceStairFamily)
+    ctx.families.some(isHardSurfaceStairFamily) &&
+    !jobIsExclusiveWallTile(ctx)
   ) {
     w.push({
       id: "hs-stair-nose",
       text: "Hard-surface stairs usually need a stair nose (each) per step. Add them on Trims or confirm none — do not invent a Versatrim SKU here.",
     });
   }
-  if (ctx.families.some(isHardSurfaceStairFamily)) {
+  if (ctx.families.some(isHardSurfaceStairFamily) && !jobIsExclusiveWallTile(ctx)) {
     const present = extras?.presentTrimTypes ?? [];
     const missingTrans = (extras?.neededTransitionTrims ?? []).filter(
       (label) => !present.some((t) => t.toLowerCase() === label.toLowerCase()),

@@ -114,6 +114,7 @@ import {
   stairStepCountFromAnswers,
   applyHardSurfaceStairTrimFill,
   jobNeedsHardSurfaceStairTrim,
+  jobIsExclusiveWallTile,
   answersHaveTrimType,
   keyedChoiceSelections,
   trimLabelsFromPicks,
@@ -3538,7 +3539,9 @@ function QuestionBody({
         }),
       );
     };
-    const showHsStairFill = jobNeedsHardSurfaceStairTrim(flooringCtx.families);
+    const showHsStairFill =
+      jobNeedsHardSurfaceStairTrim(flooringCtx.families) &&
+      !jobIsExclusiveWallTile(flooringCtx);
     const fillFromPicks = (labels: string[]) => {
       if (!labels.length) return;
       upd(
