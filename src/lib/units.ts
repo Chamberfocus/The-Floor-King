@@ -57,7 +57,27 @@ const LABELS: Record<string, string> = {
 export function normalizeUnit(raw: string | null | undefined): string {
   const u = (raw ?? "").trim().toLowerCase();
   if (!u) return "";
-  if (u.includes("yd")) return "sqyd";
+  const compact = u.replace(/[^a-z0-9]/g, "");
+  // Flooring catalogs write square yards as SY / sq yd / yard. "sy" does not
+  // contain "yd", so it must be named — otherwise a SY line prices as COUNT
+  // and a 50-yard pad order is treated as 50 of something else.
+  if (
+    compact === "sy" ||
+    compact === "syd" ||
+    compact === "yd" ||
+    compact === "yds" ||
+    compact === "yard" ||
+    compact === "yards" ||
+    compact === "sqyd" ||
+    compact === "sqyard" ||
+    compact === "sqyards" ||
+    compact === "squareyard" ||
+    compact === "squareyards" ||
+    compact.includes("sqyd") ||
+    u.includes("yd") ||
+    u.includes("yard")
+  )
+    return "sqyd";
   if (u === "sf" || u === "ft" || u === "sqft" || u.includes("sq f") || u.includes("square f"))
     return "sqft";
   if (u === "lf" || u === "lnft" || u.includes("ln ft") || u.includes("lin ft") || u.includes("linear"))
@@ -132,6 +152,19 @@ export function lineDisplayUnit(line: {
 }): string {
   const key = lineUnitKey(line);
   return unitLabel(key) || key;
+}
+
+/**
+ * Convert a billed quantity into square yards.
+ *
+ * sq yd stays yards. sq ft divides by 9. Any other unit (each / lnft / roll /
+ * bag…) is not an area conversion — return null so callers do not invent yards.
+ */
+export function billedQtyToSqyd(qty: number, unitKey: string): number | null {
+  if (!(Number.isFinite(qty) && qty > 0)) return null;
+  if (unitKey === "sqyd") return qty;
+  if (unitKey === "sqft") return qty / 9;
+  return null;
 }
 
 /** True when the line is billed by count, not taped area. */

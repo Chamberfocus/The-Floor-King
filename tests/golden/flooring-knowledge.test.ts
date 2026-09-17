@@ -840,9 +840,16 @@ describe("product metadata overrides generic roll-width defaults", () => {
   it("PO and Builder do not invent a 12' roll when catalog width is missing", () => {
     const po = readFileSync(join(root, "src/lib/po-build.ts"), "utf8");
     expect(po).toMatch(/lineUnitKey/);
+    expect(po).toMatch(/billedQtyToSqyd/);
     expect(po).toMatch(/roll width TBD/);
     expect(po).not.toMatch(/: 12;/);
     expect(po).not.toMatch(/measure_unit === "sqyd" \? orderQty : orderQty \/ 9/);
+    expect(po).not.toMatch(/unit === "sqyd" \? orderQty : unit === "sqft" \? orderQty \/ 9 : orderQty/);
+    const scope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(scope).toMatch(/lineUnitKey/);
+    expect(scope).toMatch(/padRollCount/);
+    expect(scope).toMatch(/billedQtyToSqyd/);
+    expect(scope).not.toMatch(/unit\.toLowerCase\(\)\.includes\(["']yd["']\)/);
     const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
     expect(builder).toMatch(/cutWidthChoicesFt/);
     expect(builder).toMatch(/Width TBD/);

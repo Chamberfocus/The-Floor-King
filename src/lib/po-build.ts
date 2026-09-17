@@ -1,6 +1,6 @@
 import { stripRoomFromName } from "@/lib/job-scope";
 import { lineOrderQty } from "@/lib/estimate-calc";
-import { lineUnitKey } from "@/lib/units";
+import { billedQtyToSqyd, lineUnitKey } from "@/lib/units";
 import type { EstimateLineItem } from "@/lib/types";
 
 /** A PO line row derived from estimate lines — the shape (minus po_id/position)
@@ -97,7 +97,9 @@ export function buildPoItemRows(
     const g = rollGroups.get(key) ?? { product_id: l.product_id ?? null, width, sqyd: 0, sample: l };
     const orderQty = lineOrderQty(l);
     const unit = lineUnitKey(l);
-    const sqyd = unit === "sqyd" ? orderQty : unit === "sqft" ? orderQty / 9 : orderQty;
+    // Area units convert; anything else keeps the billed qty rather than
+    // inventing yards from each/lnft. Same helper as work-order pad rolls.
+    const sqyd = billedQtyToSqyd(orderQty, unit) ?? orderQty;
     g.sqyd += sqyd;
     rollGroups.set(key, g);
   }

@@ -6,7 +6,8 @@ import {
   isHardSurfaceCategory,
   type OrgSettings,
 } from "@/lib/types";
-import { stripRoomFromName, PAD_ROLL_SQYD, type CutSource } from "@/lib/job-scope";
+import { stripRoomFromName, PAD_ROLL_SQYD, padRollCount, type CutSource } from "@/lib/job-scope";
+import { normalizeUnit } from "@/lib/units";
 import { CarpetCutList } from "@/components/carpet-cut-list";
 import type { WarehouseJob } from "@/lib/data/jobs";
 import type { JobMaterialLine } from "@/lib/data/job-materials";
@@ -190,16 +191,15 @@ export function StagingSheetDoc({
                 const isRoll = isRollGoodCategory(g.category);
                 // Padding = underlayment sold by the sq yd → tell the warehouse
                 // how many ROLLS to pull (standard PAD_ROLL_SQYD per roll).
-                const isPad =
-                  g.category === "underlayment" && /yd/i.test(g.unit || "");
+                // Use the canonical unit key — never parse "yd" out of a label.
+                const unitKey = normalizeUnit(g.unit);
+                const padRolls = padRollCount(g.category, g.qty, unitKey);
                 // Hard surface pulls by the CARTON; show the sq-ft basis so the
                 // count is verifiable. Roll goods show the total + broadloom width.
                 const cartons =
                   isHard && g.sqftPerBox && g.sqftPerBox > 0
                     ? Math.ceil(g.qty / g.sqftPerBox)
                     : 0;
-                const padRolls =
-                  isPad && g.qty > 0 ? Math.ceil(g.qty / PAD_ROLL_SQYD) : 0;
                 const qtyMain = cartons
                   ? `${cartons} carton${cartons === 1 ? "" : "s"}`
                   : padRolls
@@ -211,7 +211,7 @@ export function StagingSheetDoc({
                   ? `${Math.round(g.qty * 100) / 100} sq ft ÷ ${g.sqftPerBox}/box`
                   : isHard
                     ? "⚠ set sq ft/box"
-                    : padRolls
+                    : padRolls && unitKey === "sqyd"
                       ? `${Math.round(g.qty * 100) / 100} sq yd ÷ ${PAD_ROLL_SQYD}/roll`
                       : isRoll && g.rollWidthFt
                         ? `${g.rollWidthFt} ft broadloom`

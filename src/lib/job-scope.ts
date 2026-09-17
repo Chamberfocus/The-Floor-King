@@ -4,11 +4,31 @@ import {
   type EstimateLineItem,
 } from "@/lib/types";
 import { lineQty, type CalcLine } from "@/lib/estimate-calc";
-import { lineDisplayUnit } from "@/lib/units";
+import { billedQtyToSqyd, lineDisplayUnit, lineUnitKey } from "@/lib/units";
 
 // Carpet padding is bought by the roll; the shop's standard roll covers this
 // many square yards (matches the estimate builder's roll math).
 export const PAD_ROLL_SQYD = 30;
+
+/**
+ * How many 30-sq-yd carpet-pad rolls to pull.
+ *
+ * Only square-yard pad and already-counted rolls convert. Laminate
+ * underlayment billed in sq ft is not a 30-yard carpet-pad roll — do not
+ * invent one by dividing square feet by 9.
+ */
+export function padRollCount(
+  category: string | null | undefined,
+  qty: number,
+  unitKey: string,
+): number {
+  if (category !== "underlayment" || !(qty > 0)) return 0;
+  if (unitKey === "roll") return Math.ceil(qty);
+  if (unitKey !== "sqyd") return 0;
+  const sqyd = billedQtyToSqyd(qty, unitKey);
+  if (sqyd == null || !(sqyd > 0)) return 0;
+  return Math.ceil(sqyd / PAD_ROLL_SQYD);
+}
 
 /** Total inches → a tidy feet-and-inches label, e.g. 186 → 15' 6". */
 export function ftIn(totalIn: number | null | undefined): string {
@@ -54,6 +74,7 @@ export function lineSpec(l: {
   // area lines, count for count lines) — never the raw stored quantity, which
   // could be waste-baked or off by rounding and made the work order disagree.
   const q = lineQty(l as unknown as CalcLine);
+  const unitKey = lineUnitKey(l);
   const unit = lineDisplayUnit(l);
   const qty = q > 0 ? `${Math.round(q * 100) / 100} ${unit}` : l.sqft ? `${l.sqft} sq ft` : "";
   // Cuts only apply to roll goods (carpet / sheet vinyl). Hard surface is sold
@@ -63,8 +84,7 @@ export function lineSpec(l: {
     isRoll && l.length_in && l.width_in
       ? `${ftIn(l.width_in)} × ${ftIn(l.length_in)}`
       : "";
-  const sqyd = q > 0 ? (unit.toLowerCase().includes("yd") ? q : q / 9) : 0;
-  const rolls = l.category === "underlayment" && sqyd > 0 ? Math.ceil(sqyd / PAD_ROLL_SQYD) : 0;
+  const rolls = padRollCount(l.category, q, unitKey);
   return { qty, qtyNum: q, unit, cut, rolls, isFill: isRoll && !!l.is_fill };
 }
 

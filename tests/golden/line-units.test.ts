@@ -10,13 +10,14 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  billedQtyToSqyd,
   isCountPricedLine,
   lineDisplayUnit,
   lineUnitKey,
   normalizeUnit,
   unitLabel,
 } from "@/lib/units";
-import { lineSpec } from "@/lib/job-scope";
+import { lineSpec, padRollCount, PAD_ROLL_SQYD } from "@/lib/job-scope";
 import { questionnaireEmitToLineQty } from "@/lib/questionnaire-emit";
 
 const root = process.cwd();
@@ -97,6 +98,32 @@ describe("lineUnitKey / lineDisplayUnit — count vs area", () => {
   });
 });
 
+describe("normalizeUnit — SY / yard aliases are square yards", () => {
+  it("catalog SY and vendor yard words map to sqyd, not a count unit", () => {
+    for (const raw of ["SY", "sy", "s.y.", "sq yd", "sqyd", "yard", "yards", "square yard"]) {
+      expect(normalizeUnit(raw), raw).toBe("sqyd");
+      expect(lineUnitKey({ unit: raw, measure_unit: "sqft", sqft: 450 })).toBe("sqyd");
+    }
+  });
+
+  it("square feet aliases stay sqft — never yards", () => {
+    for (const raw of ["sqft", "sq ft", "SF", "square feet"]) {
+      expect(normalizeUnit(raw), raw).toBe("sqft");
+    }
+  });
+});
+
+describe("billedQtyToSqyd — never invent yards from count units", () => {
+  it("sq yd stays yards; sq ft divides by 9; each/lnft/roll return null", () => {
+    expect(billedQtyToSqyd(50, "sqyd")).toBe(50);
+    expect(billedQtyToSqyd(450, "sqft")).toBe(50);
+    expect(billedQtyToSqyd(2, "each")).toBeNull();
+    expect(billedQtyToSqyd(20, "lnft")).toBeNull();
+    expect(billedQtyToSqyd(2, "roll")).toBeNull();
+    expect(billedQtyToSqyd(0, "sqyd")).toBeNull();
+  });
+});
+
 describe("work-order lineSpec follows the same display unit", () => {
   it("count labor with measure_unit sqft prints each, not sq ft", () => {
     const spec = lineSpec({
@@ -140,6 +167,55 @@ describe("work-order lineSpec follows the same display unit", () => {
     expect(spec.unit).toBe("sq yd");
     expect(spec.qty).toMatch(/sq yd/);
     expect(spec.qty).not.toMatch(/50 sq ft/);
+  });
+
+  it("carpet pad billed in sq yd uses 30-yard rolls and does not divide yards by 9", () => {
+    const spec = lineSpec({
+      quantity: 50,
+      unit: "SY",
+      measure_unit: "sqft",
+      sqft: 450,
+      length_in: null,
+      width_in: null,
+      category: "underlayment",
+    });
+    expect(spec.unit).toBe("sq yd");
+    expect(spec.qtyNum).toBe(50);
+    expect(spec.rolls).toBe(Math.ceil(50 / PAD_ROLL_SQYD));
+    expect(spec.rolls).toBe(2);
+    expect(spec.rolls).not.toBe(Math.ceil(50 / 9 / PAD_ROLL_SQYD));
+  });
+
+  it("pad already counted in rolls is not converted as if it were square feet", () => {
+    const spec = lineSpec({
+      quantity: 2,
+      unit: "roll",
+      measure_unit: "sqft",
+      sqft: null,
+      length_in: null,
+      width_in: null,
+      category: "underlayment",
+    });
+    expect(spec.unit).toBe("roll");
+    expect(spec.qtyNum).toBe(2);
+    expect(spec.rolls).toBe(2);
+  });
+
+  it("laminate underlayment billed in sq ft is not invented as 30-yard carpet-pad rolls", () => {
+    const spec = lineSpec({
+      quantity: 270,
+      unit: "sq ft",
+      measure_unit: "sqft",
+      sqft: 270,
+      length_in: null,
+      width_in: null,
+      category: "underlayment",
+    });
+    expect(spec.unit).toBe("sq ft");
+    expect(spec.qtyNum).toBe(270);
+    expect(spec.rolls).toBe(0);
+    expect(padRollCount("underlayment", 270, "sqft")).toBe(0);
+    expect(padRollCount("underlayment", 50, "sqyd")).toBe(2);
   });
 });
 
