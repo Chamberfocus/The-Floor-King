@@ -227,8 +227,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * barrier; membranes stay on tile_setting. Exclusive carpet tile hides
    * this via CARPET_TILE_VAPOR_HIDES_KEYS — modular tile uses adhesive,
    * not a floating-floor sheet; Aqua bar stays on moisture_mitigation.
-   * Mixed LVP/hardwood + tile or carpet tile still asks. Do not SQL-gate
-   * vapor_barrier on surface_type or carpet_install (0142).
+   * Exclusive glue-down over plywood hides via GLUE_WOOD_VAPOR_HIDES_KEYS —
+   * you cannot glue to 6-mil poly; Aqua bar stays on moisture_mitigation.
+   * Mixed floating + glue still asks. Glue over concrete still asks.
+   * Unanswered substrate stays open. Do not SQL-gate
+   * vapor_barrier on surface_type, carpet_install, or substrate (0142).
    */
   {
     key: "vapor_barrier",
@@ -573,6 +576,15 @@ export const CONCRETE_HIDES_KEYS = ["subfloor_needed"] as const;
  * moisture_test on substrate (0142).
  */
 export const WOOD_DECK_MOISTURE_HIDES_KEYS = ["moisture_test", "moisture_mitigation"] as const;
+
+/**
+ * 6-mil click-floor vapor sheet hidden once the job is exclusive glue-down
+ * (no floating) over plywood / OSB / wood. You cannot glue to 6-mil poly.
+ * Aqua bar stays on moisture_mitigation. Glue over concrete still asks.
+ * Mixed floating + glue still asks. Unanswered substrate stays open (0142).
+ * Do not SQL-gate vapor_barrier on substrate.
+ */
+export const GLUE_WOOD_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,

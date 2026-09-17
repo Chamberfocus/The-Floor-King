@@ -48,6 +48,7 @@ import {
   CARPET_TILE_VAPOR_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
   WOOD_DECK_MOISTURE_HIDES_KEYS,
+  GLUE_WOOD_VAPOR_HIDES_KEYS,
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
@@ -552,6 +553,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (GLUE_WOOD_VAPOR_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobHidesVaporOnGlueWoodDeck(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -581,6 +589,19 @@ export function jobIsExclusiveConcrete(install: InstallContext): boolean {
 export function jobHasHardSurfaceInstallScope(install: InstallContext): boolean {
   if (install.surfacePending) return true;
   return install.families.some(isHardSurfaceFamily);
+}
+
+/**
+ * 6-mil click-floor vapor on glue-down over a wood deck. You cannot glue to
+ * 6-mil poly — Aqua bar stays on moisture_mitigation. Glue over concrete
+ * still asks. Mixed floating + glue still asks. Unanswered substrate and
+ * unanswered method stay open (0142).
+ */
+export function jobHidesVaporOnGlueWoodDeck(install: InstallContext): boolean {
+  if (!labelsAreWoodDeckOnly(install.substrate)) return false;
+  if (install.surfacePending || install.installPending) return false;
+  if (install.systems.includes("floating")) return false;
+  return install.systems.includes("glue");
 }
 
 /**
@@ -885,7 +906,7 @@ export function knowledgeHelpFor(
     return "Count of vents/registers to change, in EACH. Never square feet. Pick a catalog vent on Trims if Floor King sells it; otherwise this is a crew note.";
   }
   if (key === "vapor_barrier") {
-    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Exclusive carpet tile hides this — modular tile uses adhesive, not a floating-floor sheet. Aqua bar stays on moisture mitigation. Mixed LVP or hardwood + tile or carpet tile still asks. Leftover Floating on a carpet-only job does not reopen this. Glue-down, carpet tile, nail-down, and stretch-in hide Included with underlayment — that is a floating-floor sheet, not an adhesive moisture system. Unanswered LVP and floating still offer it.";
+    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Exclusive carpet tile hides this — modular tile uses adhesive, not a floating-floor sheet. Aqua bar stays on moisture mitigation. Mixed LVP or hardwood + tile or carpet tile still asks. Leftover Floating on a carpet-only job does not reopen this. Exclusive glue-down over plywood hides this — you cannot glue to 6-mil poly; Aqua bar stays on moisture mitigation. Glue over concrete still asks. Mixed floating still asks. Unanswered substrate stays open. Glue-down, carpet tile, nail-down, and stretch-in hide Included with underlayment — that is a floating-floor sheet, not an adhesive moisture system. Unanswered LVP and floating still offer it.";
   }
   if (key === "substrate") {
     return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete. Exclusive Concrete hides 4×8 subfloor sheets — a slab is patch / self-level, not plywood overlay. Plywood / wood / existing flooring still ask.";
