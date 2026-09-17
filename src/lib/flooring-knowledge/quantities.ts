@@ -349,6 +349,25 @@ export function formatEquivalentSqyd(sqft: number): string {
 }
 
 /**
+ * Builder fallback when the sq ft field is shown without warehouse cuts.
+ * Hard-surface boxed lines may still type sq ft as the order. Roll goods
+ * without cuts must never read that field as "enter the order in sq ft".
+ */
+export function builderAreaFallbackLabel(opts: {
+  isRollGood: boolean;
+  hasWarehouseCuts: boolean;
+}): string {
+  if (opts.isRollGood && !opts.hasWarehouseCuts) {
+    return "Measured sq ft (not the order)";
+  }
+  return "Or enter sq ft directly";
+}
+
+/** Caption under the Builder measured-sq-ft field when roll cuts are missing. */
+export const ROLL_GOODS_CUTS_MISSING_CAPTION =
+  "Order TBD until you enter warehouse cuts (width × length). Sq ft ÷ 9 is equivalent area, not a cut plan.";
+
+/**
  * Builder line description when a roll-goods SKU is picked but cuts are not
  * entered. Measured area may be noted in the text; it is never a warehouse
  * cut and must not look like `12' × 14'` (legacy parseCutsFromText).

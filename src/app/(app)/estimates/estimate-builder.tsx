@@ -15,6 +15,7 @@ import {
   lineTotal,
   lineQty,
   lineIsStairWrapTbd,
+  rollGoodsLineHasCuts,
   optionTotalsWithDiscount,
   marginPct,
   lineCost,
@@ -67,6 +68,8 @@ import {
   cutWidthChoicesFt,
   familyFromCatalogCategory,
   formatEquivalentSqyd,
+  builderAreaFallbackLabel,
+  ROLL_GOODS_CUTS_MISSING_CAPTION,
   formatTakeoffStrip,
 } from "@/lib/flooring-knowledge";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
@@ -2289,6 +2292,15 @@ export function EstimateBuilder({
                   const flooringAreaUi =
                     !wrapTbd &&
                     (isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category));
+                  const rollCutsMissing =
+                    isRollGoodCategory(line.category) &&
+                    !modularCarpet &&
+                    !rollGoodsLineHasCuts({
+                      line_type: line.line_type,
+                      measurements: line.measurements.map(rowToMeasurement),
+                      length_in: ftInToIn(line.len_ft, line.len_in) || null,
+                      width_in: ftInToIn(line.wid_ft, line.wid_in) || null,
+                    });
                   // Flooring (roll goods / hard surface) — color is part of its
                   // at-a-glance identity, so it stays an essential for these.
                   const isFlooring =
@@ -2557,20 +2569,31 @@ export function EstimateBuilder({
                                 sqftPerBox={line.sqft_per_box}
                                 onSqftPerBoxChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
                               />
-                              {/* Fallback for lines with no measured pieces yet
-                                  (e.g. older estimates) — type the sq ft directly. */}
+                              {/* Fallback when there are no warehouse pieces yet.
+                                  Roll goods: leftover sq ft is MEASURED area, not
+                                  the order. Hard-surface boxed: type sq ft as the order. */}
                               {line.measurements.length === 0 ? (
-                                <div className="flex items-end gap-2">
-                                  <LabeledNumber
-                                    label="Or enter sq ft directly"
-                                    width="w-28"
-                                    value={line.sqft}
-                                    onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
-                                  />
-                                  {isRollGoodCategory(line.category) && num(line.sqft) > 0 ? (
-                                    <div className="pb-2 text-xs text-muted-foreground">
-                                      {formatEquivalentSqyd(num(line.sqft))}
-                                    </div>
+                                <div className="space-y-1">
+                                  <div className="flex items-end gap-2">
+                                    <LabeledNumber
+                                      label={builderAreaFallbackLabel({
+                                        isRollGood: isRollGoodCategory(line.category) && !modularCarpet,
+                                        hasWarehouseCuts: !rollCutsMissing,
+                                      })}
+                                      width="w-28"
+                                      value={line.sqft}
+                                      onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
+                                    />
+                                    {isRollGoodCategory(line.category) && num(line.sqft) > 0 ? (
+                                      <div className="pb-2 text-xs text-muted-foreground">
+                                        {formatEquivalentSqyd(num(line.sqft))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  {rollCutsMissing ? (
+                                    <p className="text-xs text-muted-foreground">
+                                      {ROLL_GOODS_CUTS_MISSING_CAPTION}
+                                    </p>
                                   ) : null}
                                 </div>
                               ) : null}

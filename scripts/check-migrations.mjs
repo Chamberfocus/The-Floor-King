@@ -109,6 +109,7 @@ const REQUIRED_FILES = [
   "0246_flooring_knowledge_stair_wrap_qty.sql",
   "0247_flooring_knowledge_work_type.sql",
   "0248_flooring_knowledge_wet_area.sql",
+  "0249_flooring_knowledge_builder_measured.sql",
 ];
 
 /**
@@ -1372,6 +1373,16 @@ const REQUIRED_MARKERS = [
       "P0_0248_FLOORING_KNOWLEDGE",
       "wet_area",
       "Yes — bath / laundry / mudroom",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0249_flooring_knowledge_builder_measured.sql",
+    markers: [
+      "P0_0249_FLOORING_KNOWLEDGE",
+      "Measured sq ft (not the order)",
+      "Sq ft ÷ 9",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

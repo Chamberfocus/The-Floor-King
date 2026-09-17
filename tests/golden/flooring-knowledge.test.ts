@@ -36,6 +36,8 @@ import {
   equivalentSqyd,
   formatTakeoffStrip,
   formatEquivalentSqyd,
+  builderAreaFallbackLabel,
+  ROLL_GOODS_CUTS_MISSING_CAPTION,
   formatBillingQty,
   takeoffConceptRows,
   takeoffUnitKeyLabel,
@@ -4096,6 +4098,70 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       { pickedLabels: ["Unknown / field verify"] },
     );
     expect(unknown.some((w) => w.id === "wet-area")).toBe(false);
+  });
+
+  it("0249 Builder roll goods without cuts label leftover sq ft as measured, not the order", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0249_flooring_knowledge_builder_measured.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0249_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Measured sq ft \(not the order\)/);
+    expect(sql).toMatch(/Sq ft ÷ 9/);
+    expect(sql).toMatch(/do not invent a 12-foot width/i);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(
+      builderAreaFallbackLabel({ isRollGood: true, hasWarehouseCuts: false }),
+    ).toBe("Measured sq ft (not the order)");
+    expect(
+      builderAreaFallbackLabel({ isRollGood: true, hasWarehouseCuts: true }),
+    ).toBe("Or enter sq ft directly");
+    expect(
+      builderAreaFallbackLabel({ isRollGood: false, hasWarehouseCuts: false }),
+    ).toBe("Or enter sq ft directly");
+    expect(ROLL_GOODS_CUTS_MISSING_CAPTION).toMatch(/Order TBD until you enter warehouse cuts/);
+    expect(ROLL_GOODS_CUTS_MISSING_CAPTION).toMatch(/Sq ft ÷ 9 is equivalent area, not a cut plan/);
+
+    expect(
+      rollGoodsLineHasCuts({
+        line_type: "mat_labor",
+        category: "carpet",
+        sqft: 450,
+      }),
+    ).toBe(false);
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 450,
+        quantity: null,
+      }),
+    ).toBe(0);
+
+    expect(
+      knowledgeHelpFor({ kind: "cuts" }, emptyInstallContext()),
+    ).toMatch(/Builder labels leftover sq ft as measured area, not the order/);
+    expect(
+      knowledgeHelpFor({ kind: "cuts", config: { category: "vinyl" } }, emptyInstallContext()),
+    ).toMatch(/Builder labels leftover sq ft as measured area, not the order/);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/builderAreaFallbackLabel/);
+    expect(builder).toMatch(/ROLL_GOODS_CUTS_MISSING_CAPTION/);
+    expect(builder).toMatch(/rollGoodsLineHasCuts/);
+    expect(builder).not.toMatch(/label="Or enter sq ft directly"/);
+    expect(builder).not.toMatch(/width_ft: 12/);
+
+    const qty = readFileSync(join(root, "src/lib/flooring-knowledge/quantities.ts"), "utf8");
+    expect(qty).toMatch(/Measured sq ft \(not the order\)/);
+    expect(qty).toMatch(/Sq ft ÷ 9 is equivalent area, not a cut plan/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

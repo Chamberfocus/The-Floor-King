@@ -98,6 +98,8 @@ export {
   formatSqft,
   formatSqyd,
   formatEquivalentSqyd,
+  builderAreaFallbackLabel,
+  ROLL_GOODS_CUTS_MISSING_CAPTION,
   formatMeasuredLabel,
   formatBillingQty,
   formatTakeoffStrip,
