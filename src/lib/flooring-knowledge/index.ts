@@ -40,6 +40,7 @@ export { matchesShowIf, isShowIfClause, showIfReferencedKeys } from "./show-if";
 
 export {
   knowledgeQuestionByKey,
+  amountUnitLabelForQuestion,
   estimatorPhaseForQuestion,
   estimatorPhaseRank,
   estimatorPhaseLabel,
@@ -86,6 +87,7 @@ export {
   knowledgeHelpFor,
   knowledgeWarnings,
   visibleKnowledgeKeys,
+  resolveQuestionVisibility,
   type InstallContext,
 } from "./rules";
 

@@ -62,6 +62,8 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "install_method", purpose: "INSTALLATION", phase: "install" },
   { key: "carpet_install", purpose: "INSTALLATION", phase: "install", families: ["carpet"] },
   { key: "attached_pad", purpose: "MATERIAL", phase: "install", families: ["lvp", "laminate", "hardwood"], systems: ["floating"] },
+  /** Residential pad is stretch-in. Glue-down / carpet tile hide this. */
+  { key: "carpet_pad", purpose: "MATERIAL", phase: "install", families: ["carpet"], systems: ["stretch_in"] },
   { key: "adhesive", purpose: "MATERIAL", phase: "install", systems: ["glue"] },
   { key: "hs_underlayment", purpose: "MATERIAL", phase: "install", systems: ["floating"] },
   { key: "hardwood_fasteners", purpose: "MATERIAL", phase: "install", systems: ["nail", "staple"] },
@@ -70,6 +72,7 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "radiant_heat", purpose: "WARNING", phase: "install" },
   { key: "laminate_expansion", purpose: "SCOPE", phase: "install", systems: ["floating"] },
   { key: "tile_layout", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
+  { key: "tile_application", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_setting", purpose: "MATERIAL", phase: "install", families: ["tile"] },
   { key: "tack_strip", purpose: "ACCESSORY", phase: "install", families: ["carpet"], systems: ["stretch_in"] },
   { key: "climate_control", purpose: "INSTALLATION", phase: "install" },
@@ -86,16 +89,23 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "hs_prep", purpose: "PREP", phase: "prep" },
   { key: "selflevel_needed", purpose: "PREP", phase: "prep" },
   { key: "subfloor_needed", purpose: "PREP", phase: "prep" },
+  { key: "vinyl_skim", purpose: "PREP", phase: "prep", families: ["vinyl"] },
 
   // Details
   { key: "stairs", purpose: "MEASUREMENT", phase: "details" },
+  { key: "carpet_stairs", purpose: "MEASUREMENT", phase: "details", families: ["carpet"] },
+  { key: "hs_plank_stairs", purpose: "MEASUREMENT", phase: "details", families: ["lvp", "hardwood", "laminate", "vinyl", "tile"] },
   { key: "metals_needed", purpose: "ACCESSORY", phase: "details", families: ["carpet"] },
   { key: "vents_registers", purpose: "ACCESSORY", phase: "details", quantityUnit: "each" },
-  { key: "stair_landings", purpose: "MEASUREMENT", phase: "details" },
+  { key: "stair_landings", purpose: "MEASUREMENT", phase: "details", quantityUnit: "each" },
   { key: "stair_open_sides", purpose: "MEASUREMENT", phase: "details" },
   { key: "occupancy", purpose: "SCHEDULING", phase: "details" },
   { key: "access_conditions", purpose: "SCHEDULING", phase: "details" },
+  { key: "furniture_level", purpose: "LABOR", phase: "details" },
   { key: "furniture_heavy", purpose: "SCOPE", phase: "details" },
+  { key: "toilets", purpose: "LABOR", phase: "details", quantityUnit: "each" },
+  { key: "appliances", purpose: "LABOR", phase: "details", quantityUnit: "each" },
+  { key: "doors_shave", purpose: "LABOR", phase: "details", quantityUnit: "each" },
   { key: "carpet_curb", purpose: "LABOR", phase: "details", families: ["carpet"] },
 ];
 
@@ -113,6 +123,25 @@ export const DEFAULT_KNOWLEDGE_WHEN: Record<string, KnowledgeWhen> = Object.from
 
 export function knowledgeQuestionByKey(key: string): KnowledgeQuestionDef | undefined {
   return KNOWLEDGE_QUESTIONS.find((q) => q.key === key);
+}
+
+/**
+ * Unit shown next to a number answer. Registry quantityUnit wins so we never
+ * label toilets or vents as square feet just because the emit is missing.
+ */
+export function amountUnitLabelForQuestion(q: {
+  key?: string | null;
+  config?: { emit?: { unit?: string } | null };
+}): string {
+  const keyed = q.key ? knowledgeQuestionByKey(q.key)?.quantityUnit : undefined;
+  const raw = keyed || q.config?.emit?.unit || "";
+  if (!raw) return "";
+  if (raw === "lnft") return "ln ft";
+  if (raw === "sqft") return "sq ft";
+  if (raw === "sqyd") return "sq yd";
+  if (raw === "each") return "each";
+  if (raw === "box") return "carton";
+  return raw;
 }
 
 /** Conversation order the salesperson walks — not SQL `position`. */

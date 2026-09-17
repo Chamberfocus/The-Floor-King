@@ -29,7 +29,10 @@ import {
   questionApplies,
   sqydToSqft,
   visibleKnowledgeKeys,
+  resolveQuestionVisibility,
   knowledgeQuestionByKey,
+  amountUnitLabelForQuestion,
+  knowledgeWarnings,
   KNOWLEDGE_QUESTIONS,
   sortEstimateQuestions,
   estimatorPhaseForQuestion,
@@ -39,6 +42,7 @@ import {
   prepQuantitySuffix,
 } from "@/lib/flooring-knowledge";
 import { billsBySquareYard } from "@/lib/units";
+import type { ShowIfClause } from "@/lib/types";
 
 const root = process.cwd();
 
@@ -287,7 +291,8 @@ describe("install context from questionnaire keys", () => {
 describe("questionnaire is wired to the knowledge engine", () => {
   it("uses overlay visibility, takeoff review, and does not treat sqyd as a second copy of sqft", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
-    expect(q).toMatch(/questionApplies/);
+    expect(q).toMatch(/resolveQuestionVisibility/);
+    expect(q).toMatch(/amountUnitLabelForQuestion/);
     expect(q).toMatch(/computeMaterialTakeoff/);
     expect(q).toMatch(/equivalent area — not an order qty/);
     expect(q).toMatch(/Continue to Builder/);
@@ -512,7 +517,15 @@ describe("family → system asks the right keys (not every question)", () => {
       expect(q.phase).toBeTruthy();
     }
     expect(knowledgeQuestionByKey("vents_registers")?.quantityUnit).toBe("each");
+    expect(knowledgeQuestionByKey("toilets")?.quantityUnit).toBe("each");
+    expect(knowledgeQuestionByKey("appliances")?.quantityUnit).toBe("each");
+    expect(knowledgeQuestionByKey("doors_shave")?.quantityUnit).toBe("each");
     expect(knowledgeQuestionByKey("tack_strip")?.systems).toEqual(["stretch_in"]);
+    expect(knowledgeQuestionByKey("carpet_pad")?.systems).toEqual(["stretch_in"]);
+    expect(amountUnitLabelForQuestion({ key: "toilets", config: { emit: { unit: "sqft" } } })).toBe(
+      "each",
+    );
+    expect(amountUnitLabelForQuestion({ key: "vents_registers" })).toBe("each");
   });
 
   it("floating laminate: no adhesive, no fasteners, no tack, expansion on", () => {
@@ -553,6 +566,7 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "tack_strip")).toBe(true);
     expect(has(keys, "adhesive")).toBe(false);
     expect(has(keys, "pattern_match")).toBe(true);
+    expect(has(keys, "carpet_pad")).toBe(true);
     expect(has(keys, "tile_setting")).toBe(false);
   });
 
@@ -563,6 +577,7 @@ describe("family → system asks the right keys (not every question)", () => {
     });
     expect(has(keys, "tack_strip")).toBe(false);
     expect(has(keys, "adhesive")).toBe(true);
+    expect(has(keys, "carpet_pad")).toBe(false);
   });
 
   it("tile: setting materials and layout, not floating pad", () => {
@@ -573,6 +588,7 @@ describe("family → system asks the right keys (not every question)", () => {
     });
     expect(has(keys, "tile_setting")).toBe(true);
     expect(has(keys, "tile_layout")).toBe(true);
+    expect(has(keys, "tile_application")).toBe(true);
     expect(has(keys, "adhesive")).toBe(false);
     expect(has(keys, "attached_pad")).toBe(false);
     expect(has(keys, "laminate_expansion")).toBe(false);
@@ -746,5 +762,193 @@ describe("unknown conditions stay unknown", () => {
     ]);
     expect(real.cuts.length).toBe(1);
     expect(real.totalSqyd).toBeGreaterThan(0);
+  });
+});
+
+describe("SQL show_if + overlay + phase sort (no live database)", () => {
+  /** Configs copied from 0190–0194 so the walk matches what owner apply installs. */
+  const catalogRows: { key: string; position: number; show_if: ShowIfClause | null }[] = [
+    { key: "project_type", position: 10, show_if: null },
+    { key: "surface_type", position: 200, show_if: { key: "project_type", in: ["Hard surface"] } },
+    { key: "install_method", position: 205, show_if: { key: "project_type", in: ["Hard surface"] } },
+    { key: "carpet_install", position: 105, show_if: { key: "project_type", in: ["Carpet"] } },
+    { key: "pattern_match", position: 106, show_if: { key: "project_type", in: ["Carpet"] } },
+    { key: "tack_strip", position: 109, show_if: { key: "project_type", in: ["Carpet"] } },
+    {
+      key: "attached_pad",
+      position: 206,
+      show_if: { key: "install_method", in: ["Floating / click"] },
+    },
+    {
+      key: "adhesive",
+      position: 225,
+      show_if: {
+        any: [
+          { key: "install_method", in: ["Glue-down"] },
+          { key: "carpet_install", in: ["Glue-down"] },
+        ],
+      },
+    },
+    {
+      key: "hs_underlayment",
+      position: 220,
+      show_if: {
+        all: [
+          { key: "install_method", in: ["Floating / click"] },
+          { key: "attached_pad", in: ["No", "Unknown", "Not sure"] },
+        ],
+      },
+    },
+    {
+      key: "laminate_expansion",
+      position: 217,
+      show_if: { key: "install_method", in: ["Floating / click"] },
+    },
+    {
+      key: "hardwood_fasteners",
+      position: 228,
+      show_if: { key: "install_method", in: ["Nail-down", "Staple-down"] },
+    },
+    { key: "vinyl_layout", position: 216, show_if: { key: "surface_type", in: ["Sheet vinyl"] } },
+    { key: "vinyl_skim", position: 353, show_if: { key: "surface_type", in: ["Sheet vinyl"] } },
+    { key: "tile_application", position: 217, show_if: { key: "surface_type", in: ["Tile"] } },
+    { key: "tile_layout", position: 218, show_if: { key: "surface_type", in: ["Tile"] } },
+    { key: "tile_setting", position: 219, show_if: { key: "surface_type", in: ["Tile"] } },
+    { key: "subfloor_condition", position: 352, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
+    { key: "carpet_pad", position: 110, show_if: { key: "project_type", in: ["Carpet"] } },
+    { key: "toilets", position: 255, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
+    { key: "appliances", position: 260, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
+  ];
+  const catalog = catalogRows.map((row) => ({
+    id: row.key,
+    key: row.key,
+    kind: "choice",
+    section: "",
+    position: row.position,
+    config: { show_if: row.show_if },
+  }));
+
+  const walk = (answers: Record<string, string[]>) => {
+    const vis = resolveQuestionVisibility(catalog, (q) => (q.key && answers[q.key]) || []);
+    return sortEstimateQuestions(catalog.filter((q) => vis[q.id])).map((q) => q.key);
+  };
+
+  it("floating laminate: expansion and attached pad, no adhesive or fasteners", () => {
+    const keys = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    });
+    expect(keys.indexOf("project_type")).toBeLessThan(keys.indexOf("surface_type")!);
+    expect(keys.indexOf("surface_type")).toBeLessThan(keys.indexOf("install_method")!);
+    expect(keys.indexOf("install_method")).toBeLessThan(keys.indexOf("attached_pad")!);
+    expect(keys).toContain("laminate_expansion");
+    expect(keys).not.toContain("adhesive");
+    expect(keys).not.toContain("hardwood_fasteners");
+    expect(keys).not.toContain("tack_strip");
+    expect(keys).not.toContain("tile_setting");
+    expect(keys).not.toContain("vinyl_layout");
+    expect(keys).not.toContain("carpet_install");
+  });
+
+  it("glue-down LVP: adhesive on, floating follow-ups off", () => {
+    const keys = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+    });
+    expect(keys).toContain("adhesive");
+    expect(keys).not.toContain("attached_pad");
+    expect(keys).not.toContain("laminate_expansion");
+    expect(keys).not.toContain("hs_underlayment");
+  });
+
+  it("stretch-in carpet: tack strip on via overlay, adhesive off", () => {
+    const keys = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(keys).toContain("tack_strip");
+    expect(keys).toContain("pattern_match");
+    expect(keys).toContain("carpet_pad");
+    expect(keys).toContain("toilets");
+    expect(keys).not.toContain("adhesive");
+    expect(keys).not.toContain("surface_type");
+  });
+
+  it("glue-down carpet: overlay hides tack strip even though show_if is Carpet", () => {
+    const keys = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(keys).toContain("adhesive");
+    expect(keys).not.toContain("tack_strip");
+    expect(keys).not.toContain("carpet_pad");
+  });
+
+  it("attached pad Yes hides separate underlayment", () => {
+    const keys = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+      attached_pad: ["Yes"],
+    });
+    expect(keys).toContain("attached_pad");
+    expect(keys).not.toContain("hs_underlayment");
+  });
+
+  it("sheet vinyl: layout + skim, no carton pad questions", () => {
+    const keys = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      install_method: ["Glue-down"],
+    });
+    expect(keys).toContain("vinyl_layout");
+    expect(keys).toContain("vinyl_skim");
+    expect(keys).toContain("adhesive");
+    expect(keys).not.toContain("attached_pad");
+    expect(keys).not.toContain("tile_application");
+    expect(keys).not.toContain("carpet_pad");
+  });
+
+  it("tile: floor vs wall before layout, no floating follow-ups", () => {
+    const keys = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      install_method: ["Thinset / mortar"],
+    });
+    expect(keys.indexOf("tile_application")).toBeLessThan(keys.indexOf("tile_layout")!);
+    expect(keys).toContain("tile_setting");
+    expect(keys).not.toContain("attached_pad");
+    expect(keys).not.toContain("vinyl_skim");
+  });
+});
+
+describe("0194 keys live questions without inventing prices", () => {
+  it("keys pad/toilets/appliances and adds tile vs wall + vinyl skim", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0194_flooring_knowledge_job_conditions.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0194_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/carpet_pad/);
+    expect(sql).toMatch(/tile_application/);
+    expect(sql).toMatch(/vinyl_skim/);
+    expect(sql).toMatch(/furniture_level/);
+    expect(sql).toMatch(/hs_plank_stairs/);
+    expect(sql).toMatch(/Count in EACH/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+  });
+
+  it("wall tile is a warning, not invented labor", () => {
+    const ctx = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      install_method: ["Thinset / mortar"],
+    });
+    const w = knowledgeWarnings(ctx, { pickedLabels: ["Wall"] });
+    expect(w.some((x) => x.id === "tile-wall")).toBe(true);
   });
 });

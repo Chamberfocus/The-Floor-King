@@ -67,7 +67,8 @@ import {
   isRollGoodsFamily,
   knowledgeHelpFor,
   knowledgeWarnings,
-  questionApplies,
+  amountUnitLabelForQuestion,
+  resolveQuestionVisibility,
   reviewToJobNotes,
   buildSalespersonReview,
   sortEstimateQuestions,
@@ -640,21 +641,7 @@ export function Questionnaire({
       }
       return [...vals];
     };
-    const vis: Record<string, boolean> = {};
-    for (const q of questions) vis[q.id] = true; // start optimistic
-    for (let iter = 0; iter <= questions.length; iter++) {
-      const valByKey: Record<string, string[]> = {};
-      for (const q of questions) if (vis[q.id] && q.key) valByKey[q.key] = answerVal(q);
-      let changed = false;
-      for (const q of questions) {
-        const show = questionApplies(q, valByKey);
-        if (vis[q.id] !== show) {
-          vis[q.id] = show;
-          changed = true;
-        }
-      }
-      if (!changed) break;
-    }
+    const vis = resolveQuestionVisibility(questions, answerVal);
     // Cash & carry: hide every pure-labor question (materials only).
     if (cashCarry) for (const q of questions) if (isPureLaborQuestion(q)) vis[q.id] = false;
     return vis;
@@ -1735,12 +1722,20 @@ export function Questionnaire({
       if (!v) continue;
       const blob = `${q.key ?? ""} ${q.label} ${v}`.toLowerCase();
       if (/demo|tear|removal|haul|dispos|pad remove|existing_bond|existing_pad/.test(blob)) removal.push(`${q.label}: ${v}`);
-      else if (/install|method|acclim|surface type|carpet_install/.test(blob) || q.key === "install_method" || q.key === "surface_type" || q.key === "carpet_install")
+      else if (/install|method|acclim|surface type|carpet_install|tile_application/.test(blob) || q.key === "install_method" || q.key === "surface_type" || q.key === "carpet_install" || q.key === "tile_application")
         installation.push(`${q.label}: ${v}`);
-      else if (/prep|level|subfloor|moisture|vapor|substrate|skim|grind/.test(blob) || q.key === "prep_confidence")
+      else if (/prep|level|subfloor|moisture|vapor|substrate|skim|grind/.test(blob) || q.key === "prep_confidence" || q.key === "vinyl_skim")
         prep.push(`${q.label}: ${v}`);
-      else if (/trim|metal|transition|quarter|nose|underlay|pad|adhesive|tack|vent|register|grout|thinset|backer|expansion/.test(blob) || q.key === "tack_strip" || q.key === "tile_setting" || q.key === "vents_registers" || q.key === "laminate_expansion")
+      else if (/trim|metal|transition|quarter|nose|underlay|pad|adhesive|tack|vent|register|grout|thinset|backer|expansion/.test(blob) || q.key === "tack_strip" || q.key === "tile_setting" || q.key === "vents_registers" || q.key === "laminate_expansion" || q.key === "carpet_pad")
         accessories.push(`${q.label}: ${v}`);
+      else if (
+        /toilet|appliance|furniture|door shav|occupancy|access/.test(blob) ||
+        q.key === "toilets" ||
+        q.key === "appliances" ||
+        q.key === "furniture_level" ||
+        q.key === "doors_shave"
+      )
+        specials.push(`${q.label}: ${v}`);
       else if (q.config.note || q.config.trim_list) specials.push(`${q.label}: ${v}`);
     }
     if (flooringCtx.installLabels.length)
@@ -3232,17 +3227,7 @@ function QuestionBody({
 
   if (q.kind === "number" && answer?.kind === "number") {
     const opts = q.config.rate_options ?? [];
-    const emitUnit = q.config.emit?.unit;
-    const amountUnit =
-      q.key === "vents_registers"
-        ? "each"
-        : emitUnit === "sqft"
-          ? "sq ft"
-          : emitUnit === "sqyd"
-            ? "sq yd"
-            : emitUnit === "lnft"
-              ? "ln ft"
-              : emitUnit || "";
+    const amountUnit = amountUnitLabelForQuestion(q);
     return (
       <div className="space-y-3">
         <label className="block text-xs text-muted-foreground">

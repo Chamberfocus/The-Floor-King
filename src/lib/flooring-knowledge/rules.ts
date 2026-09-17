@@ -218,6 +218,35 @@ export function visibleKnowledgeKeys(valByKey: Record<string, string[]>): string
   ).map((def) => def.key);
 }
 
+/**
+ * Same visibility loop the Guided Estimate walks: start optimistic, then
+ * hide by show_if + overlay. Hidden answers do not gate later questions.
+ */
+export function resolveQuestionVisibility<
+  T extends {
+    id: string;
+    key?: string | null;
+    config?: { show_if?: ShowIfClause | null; knowledge_when?: KnowledgeWhen | null };
+  },
+>(questions: T[], valsFor: (q: T) => string[]): Record<string, boolean> {
+  const vis: Record<string, boolean> = {};
+  for (const q of questions) vis[q.id] = true;
+  for (let iter = 0; iter <= questions.length; iter++) {
+    const valByKey: Record<string, string[]> = {};
+    for (const q of questions) if (vis[q.id] && q.key) valByKey[q.key] = valsFor(q);
+    let changed = false;
+    for (const q of questions) {
+      const show = questionApplies(q, valByKey);
+      if (vis[q.id] !== show) {
+        vis[q.id] = show;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return vis;
+}
+
 export function questionPurpose(q: {
   key?: string | null;
   config?: { knowledge_when?: KnowledgeWhen | null; purpose?: QuestionPurpose | null };
@@ -298,6 +327,33 @@ export function knowledgeHelpFor(
   if (key === "furniture_heavy") {
     return "Pianos, pool tables, and loaded cabinets are scope/schedule notes unless this job already has a furniture-moving labor line.";
   }
+  if (key === "furniture_level") {
+    return "Light / medium / heavy uses Floor King's furniture-moving labor. Specialty items (piano, pool table) stay on the next question as scope.";
+  }
+  if (key === "carpet_pad") {
+    return "Stretch-in over pad is the residential default. Glue-down and carpet tile hide this — they do not use residential pad.";
+  }
+  if (key === "toilets") {
+    return "Count in EACH. Uses Floor King's pull & reset labor when you enter a number — do not type square feet.";
+  }
+  if (key === "appliances") {
+    return "Count in EACH (fridge, stove, washer/dryer). Uses Floor King's disconnect/move labor when you enter a number.";
+  }
+  if (key === "doors_shave") {
+    return "Count of doors to undercut, in EACH. Never square feet.";
+  }
+  if (key === "tile_application") {
+    return "Floor vs wall. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
+  }
+  if (key === "vinyl_skim") {
+    return "Embossed existing vinyl often needs a skim coat. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";
+  }
+  if (key === "carpet_stairs") {
+    return "Waterfall vs upholstered changes the per-step labor. This is not a hard-surface stair-nose takeoff.";
+  }
+  if (key === "hs_plank_stairs") {
+    return "Hard-surface stairs are treads/risers and stair noses, not carpet waterfall. Matching stairnose stays on Trims.";
+  }
   return null;
 }
 
@@ -353,6 +409,12 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     w.push({
       id: "tile-layout-waste",
       text: "Diagonal / special tile layout usually needs more waste than a straight lay. Confirm waste with the salesperson — do not invent a percent.",
+    });
+  }
+  if (ctx.families.includes("tile") && picked.some((l) => l === "Wall" || l === "Both")) {
+    w.push({
+      id: "tile-wall",
+      text: "Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor or trim.",
     });
   }
   if (picked.some((l) => /glued down/i.test(l))) {
