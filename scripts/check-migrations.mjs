@@ -83,6 +83,7 @@ const REQUIRED_FILES = [
   "0220_flooring_knowledge_install_rate.sql",
   "0221_flooring_knowledge_trim_price.sql",
   "0222_flooring_knowledge_roll_qty.sql",
+  "0223_flooring_knowledge_piece_length.sql",
 ];
 
 /**
@@ -1104,11 +1105,10 @@ const REQUIRED_MARKERS = [
     ],
   },
   {
-    file: "0222_flooring_knowledge_roll_qty.sql",
+    file: "0223_flooring_knowledge_piece_length.sql",
     markers: [
-      "P0_0222_FLOORING_KNOWLEDGE",
-      "sq ft ÷ 9",
-      "not billed as an order",
+      "P0_0223_FLOORING_KNOWLEDGE",
+      "do not invent 94",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

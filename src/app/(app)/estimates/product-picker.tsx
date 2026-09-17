@@ -33,7 +33,7 @@ import {
 } from "@/lib/types";
 import { createProductInline, searchCatalogProducts } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
-import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
+import { TYPICAL_PIECE_LENGTH_IN } from "@/lib/accessories";
 import { specFieldsFor } from "@/lib/product-fields";
 import {
   defaultUnitForCategory,
@@ -755,11 +755,11 @@ function AddProductForm({
                 inputMode="decimal"
                 value={f.piece_length_in}
                 onChange={(e) => set({ piece_length_in: e.target.value })}
-                placeholder={String(DEFAULT_PIECE_LENGTH_IN)}
+                placeholder={`${TYPICAL_PIECE_LENGTH_IN} typical`}
                 className={cn(inputSm, "h-9 w-24")}
               />
               <span className="text-xs text-muted-foreground">
-                inches per piece — blank uses {DEFAULT_PIECE_LENGTH_IN}&quot;
+                inches per piece — blank leaves TBD; {TYPICAL_PIECE_LENGTH_IN}&quot; is typical, not assumed
               </span>
             </div>
           ) : null}

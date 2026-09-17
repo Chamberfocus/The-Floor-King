@@ -8,6 +8,7 @@ import {
   linearFeetForPieces,
   parseAccessoryType,
   piecesForLinearFeet,
+  resolvedPieceLengthIn,
   styleIsNotALine,
   variantKey,
 } from "../src/lib/accessories.ts";
@@ -52,13 +53,22 @@ eq(piecesForLinearFeet(24, 94), 4, "24 lnft → 4 sticks (3.06 → 4)");
 eq(piecesForLinearFeet(0, 94), 0, "zero → zero");
 eq(piecesForLinearFeet(-5, 94), 0, "negative → zero");
 eq(piecesForLinearFeet(10, 0), 0, "zero stick length → zero, no divide-by-zero");
+eq(piecesForLinearFeet(24, null), 0, "missing stick length → not a 94\" invention");
+eq(resolvedPieceLengthIn(null), null, "resolvedPieceLengthIn(null) is TBD");
+eq(resolvedPieceLengthIn(94), 94, "resolvedPieceLengthIn keeps a real catalog length");
 eq(linearFeetForPieces(4, 94), 31.33, "4 sticks cover 31.33 lnft");
+eq(linearFeetForPieces(4, null), 0, "missing stick length covers nothing");
 
 console.log("── accessoryQuantity: unit decides the quantity ──");
 eq(
   accessoryQuantity({ linearFeet: 24, unit: "each", pieceLengthIn: 94 }),
   4,
   "each → whole pieces",
+);
+eq(
+  accessoryQuantity({ linearFeet: 24, unit: "each" }),
+  0,
+  "each without stick length → 0, not a 94\" invention",
 );
 eq(
   accessoryQuantity({ linearFeet: 24, unit: "lnft" }),

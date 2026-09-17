@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
 
 /** Spec columns stored as numbers; the rest are graded text (AC3, PEI IV…). */
 const NUMERIC_SPECS = new Set([
@@ -266,11 +265,9 @@ export async function createProductInline(input: {
     color: input.color?.trim() || null,
     coverage_sqft: numOrNull(input.coverage_sqft),
     coverage_thickness_in: numOrNull(input.coverage_thickness_in),
-    // Only meaningful for by-the-piece goods; defaulted so a trim added without
-    // one still converts linear feet to sticks instead of hiding the box.
     piece_length_in:
       input.unit === "each" || input.unit === "pc"
-        ? (numOrNull(input.piece_length_in) ?? DEFAULT_PIECE_LENGTH_IN)
+        ? numOrNull(input.piece_length_in)
         : null,
     // Only the specs this category actually asked for, and only the ones filled
     // in — a blank box shouldn't write an empty string over a real value.

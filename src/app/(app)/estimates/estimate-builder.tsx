@@ -2831,7 +2831,7 @@ export function EstimateBuilder({
                             label={
                               isSubfloor(line)
                                 ? "$ / sheet (installed)"
-                                : `Installed /${line.measure_unit === "sqyd" ? "sq yd" : "sq ft"}`
+                                : `Installed /${lineDisplayUnit(line)}`
                             }
                             prefix="$"
                             value={line.installed_rate}

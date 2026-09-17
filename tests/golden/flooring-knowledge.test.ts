@@ -10,6 +10,11 @@ import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText } from "@
 import { carpetYardageFromCuts } from "@/lib/questionnaire-calc";
 import { lineQty, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
 import {
+  accessoryQuantity,
+  piecesForLinearFeet,
+  resolvedPieceLengthIn,
+} from "@/lib/accessories";
+import {
   accessoryUnitForType,
   applyHardSurfaceStairTrimFill,
   answersHaveTrimType,
@@ -3107,6 +3112,54 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       "utf8",
     );
     expect(builder).toMatch(/measurements: l\.measurements\.filter\(rowHasDims\)\.map\(rowToMeasurement\)/);
+  });
+
+  it("0223 does not invent a 94\" stick when piece length is missing", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0223_flooring_knowledge_piece_length.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0223_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/do not invent 94/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(resolvedPieceLengthIn(null)).toBeNull();
+    expect(resolvedPieceLengthIn(0)).toBeNull();
+    expect(resolvedPieceLengthIn(94)).toBe(94);
+    expect(piecesForLinearFeet(24, null)).toBe(0);
+    expect(piecesForLinearFeet(24, 94)).toBe(4);
+    expect(accessoryQuantity({ linearFeet: 24, unit: "each" })).toBe(0);
+    expect(accessoryQuantity({ linearFeet: 24, unit: "each", pieceLengthIn: 94 })).toBe(4);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/resolvedPieceLengthIn/);
+    expect(q).toMatch(/showTrimLinearFt/);
+    expect(q).toMatch(/is typical but not assumed/);
+    expect(q).not.toMatch(/row\.product\.pieceLengthIn \|\| DEFAULT_PIECE_LENGTH_IN/);
+    expect(q).not.toMatch(/numOr0\(input\.piece_length_in\) \|\| DEFAULT_PIECE_LENGTH_IN/);
+
+    const catalog = readFileSync(join(root, "src/app/(app)/catalog/actions.ts"), "utf8");
+    expect(catalog).not.toMatch(/DEFAULT_PIECE_LENGTH_IN/);
+    expect(catalog).toMatch(/numOrNull\(input\.piece_length_in\)/);
+
+    const engine = readFileSync(join(root, "src/lib/accessory-engine.ts"), "utf8");
+    expect(engine).not.toMatch(/DEFAULT_PIECE_LENGTH_IN/);
+    expect(engine).toMatch(/resolvedPieceLengthIn/);
+
+    const picker = readFileSync(join(root, "src/app/(app)/estimates/product-picker.tsx"), "utf8");
+    expect(picker).toMatch(/blank leaves TBD/);
+    expect(picker).not.toMatch(/blank uses/);
+
+    const rules = readFileSync(join(root, "src/lib/flooring-knowledge/rules.ts"), "utf8");
+    expect(rules).toMatch(/we do not invent 94/);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/Installed \/\$\{lineDisplayUnit\(line\)\}/);
+    expect(builder).not.toMatch(/Installed \/\$\{line\.measure_unit === "sqyd"/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

@@ -657,7 +657,7 @@ export interface Product {
   accessory_variant?: string | null; // the color/size key this item was generated for
   accessory_origin?: AccessoryOrigin | null;
   price_override?: number | null; // when set, regeneration leaves material_rate alone
-  piece_length_in?: number | null; // unit='each': stick length, for lnft → pieces
+  piece_length_in?: number | null; // unit='each': stick length for lnft → pieces. Null = TBD, never a hidden 94".
   /** Catalog spec columns — optional because older loads may omit them. */
   species?: string | null;
   wear_rating?: string | null;

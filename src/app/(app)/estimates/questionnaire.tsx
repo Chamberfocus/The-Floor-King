@@ -36,7 +36,9 @@ import {
 import {
   linearFeetForPieces,
   piecesForLinearFeet,
-  DEFAULT_PIECE_LENGTH_IN,
+  resolvedPieceLengthIn,
+  TYPICAL_PIECE_LENGTH_IN,
+  variesByRun,
 } from "@/lib/accessories";
 import { profileFor } from "@/lib/flooring-profiles";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets } from "@/lib/questionnaire-calc";
@@ -216,22 +218,24 @@ const isStairnose = (type: string): boolean => /stair\s*nose/i.test(type);
 
 /**
  * The stick length of an accessory sold by the piece, or null when the row is
- * billed by the linear foot. Vendors sell trim as pre-cut sticks at a per-piece
- * price, so the run you measure has to be rounded UP into whole pieces — you
- * cannot buy 2.3 sticks, and the PO has to name a number the vendor can fill.
+ * billed by the linear foot or the catalog has no length. Vendors sell some
+ * trim as pre-cut sticks, so a measured run rounds UP into whole pieces —
+ * only when `piece_length_in` is actually on the product. Missing length
+ * stays TBD; we do not invent 94".
  */
 const pieceLenFor = (row: TrimRow): number | null => {
-  if (!row.product || row.product.unit !== "each") return null;
-  /**
-   * Fall back to the standard stick rather than giving up.
-   *
-   * 2,789 of the catalog's trim products carry no piece length, and without one
-   * this returned null — which hid the "Linear ft" box completely and left you
-   * typing a piece count worked out in your head. Every trim that DOES carry a
-   * length is 94", so that's the sane default; it's editable on the line, and
-   * new products now ask for it.
-   */
-  return row.product.pieceLengthIn || DEFAULT_PIECE_LENGTH_IN;
+  if (!row.product) return null;
+  const u = (row.product.unit || "").toLowerCase();
+  if (u !== "each" && u !== "pc") return null;
+  return resolvedPieceLengthIn(row.product.pieceLengthIn);
+};
+
+/** Capture a measured run in linear feet for each-unit moldings/transitions.
+ *  Conversion to pieces happens only when stick length is known. */
+const showTrimLinearFt = (row: TrimRow): boolean => {
+  const unit = coerceTrimUnit(row.type, row.unit);
+  if (unit !== "each" && unit !== "pc") return false;
+  return variesByRun(row.type || row.product?.label || "");
 };
 
 /** The trims you click to add. Units are real (lnft / each) — prices are not.
@@ -357,7 +361,7 @@ function customToProductAns(input: CustomProductInput): ProductAns {
     // be turned into pieces.
     pieceLengthIn:
       input.unit === "each" || input.unit === "pc"
-        ? numOr0(input.piece_length_in) || DEFAULT_PIECE_LENGTH_IN
+        ? resolvedPieceLengthIn(input.piece_length_in)
         : null,
     rollWidthFt: numOr0(input.specs?.roll_width_ft) > 0 ? numOr0(input.specs.roll_width_ft) : null,
     species: input.specs?.species?.trim() || null,
@@ -3497,18 +3501,19 @@ function QuestionBody({
             <div className="flex flex-wrap items-end gap-2">
               {/* An accessory sold by the piece is measured in linear feet but BOUGHT
                   in whole sticks. Enter the run; this buys enough sticks to cover it. */}
-              {pieceLenFor(row) ? (
+              {showTrimLinearFt(row) ? (
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">Linear ft</label>
                   <Input
                     value={row.linearFt ?? ""}
                     onChange={(e) => {
                       const lf = e.target.value;
+                      const len = pieceLenFor(row);
                       patch(row.id, {
                         linearFt: lf,
-                        qty: String(
-                          piecesForLinearFeet(numv(lf), pieceLenFor(row)!) || "",
-                        ),
+                        ...(len
+                          ? { qty: String(piecesForLinearFeet(numv(lf), len) || "") }
+                          : {}),
                       });
                     }}
                     inputMode="decimal"
@@ -3529,6 +3534,11 @@ function QuestionBody({
                   {numv(row.qty) > 0
                     ? `covers ${linearFeetForPieces(numv(row.qty), pieceLenFor(row)!)} ln ft`
                     : "rounds up to whole sticks"}
+                </p>
+              ) : showTrimLinearFt(row) ? (
+                <p className="mb-2.5 max-w-[14rem] text-xs text-muted-foreground">
+                  Stick length is not on this product — enter pieces. {TYPICAL_PIECE_LENGTH_IN}&quot;
+                  is typical but not assumed.
                 </p>
               ) : (
                 <div>

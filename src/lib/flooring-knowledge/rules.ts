@@ -474,7 +474,7 @@ export function knowledgeHelpFor(
     return "If you cannot see the substrate until demo, leave this as Field verify / TBD rather than guessing a bag count.";
   }
   if (q.config?.trim_list) {
-    return "Quarter round, shoe, and base are linear feet; stair noses, T-molds, and reducers are EACH — never square feet. Pick a catalog item or type a rate. Clicking a chip does not invent $1/lnft or $45/nose.";
+    return "Quarter round, shoe, and base are linear feet; stair noses, T-molds, and reducers are EACH — never square feet. Pick a catalog item or type a rate. Clicking a chip does not invent $1/lnft or $45/nose. Linear feet convert to sticks only when the product has a piece length — we do not invent 94\".";
   }
   if (q.kind === "areas") {
     return "Enter rooms in feet and inches. Add a section for closets and offsets. This is MEASURED area — order quantity is calculated next from the product and (for carpet) the cuts.";
