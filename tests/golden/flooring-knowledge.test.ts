@@ -6,6 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
+import { carpetCutList } from "@/lib/job-scope";
 import {
   accessoryUnitForType,
   billsBySqydFamily,
@@ -713,5 +714,37 @@ describe("unknown conditions stay unknown", () => {
     expect(q).not.toMatch(/DEFAULT_STAIR_LABOR_PER_SQFT/);
     expect(q).toMatch(/prepQuantitiesAreFinal/);
     expect(q).toMatch(/labor rate TBD/);
+    expect(q).not.toMatch(/derive one cut from the area @ 12/);
+    expect(q).not.toMatch(/width_in: 144/);
+    const scope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(scope).not.toMatch(/Derive one cut from the area at the roll/);
+    const fake = carpetCutList([
+      {
+        room: "Living",
+        description: "Mohawk",
+        category: "carpet",
+        length_in: null,
+        width_in: null,
+        sqft: 450,
+        roll_width_ft: 12,
+        measurements: null,
+      },
+    ]);
+    expect(fake.cuts).toEqual([]);
+    expect(fake.totalSqyd).toBe(0);
+    const real = carpetCutList([
+      {
+        room: "Living",
+        description: "Mohawk",
+        category: "carpet",
+        length_in: 25 * 12,
+        width_in: 12 * 12,
+        sqft: 300,
+        roll_width_ft: 12,
+        measurements: [{ label: "Living", length_in: 25 * 12, width_in: 12 * 12, op: "add" }],
+      },
+    ]);
+    expect(real.cuts.length).toBe(1);
+    expect(real.totalSqyd).toBeGreaterThan(0);
   });
 });
