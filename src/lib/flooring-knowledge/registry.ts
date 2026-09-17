@@ -269,6 +269,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "vinyl_skim", purpose: "PREP", phase: "prep", families: ["vinyl"] },
 
   // Details
+  /**
+   * Generic stair gate. Exclusive wall tile hides this via TILE_WALL_HIDES_KEYS
+   * along with landings / open sides — a backsplash is not a stair job.
+   * Mixed carpet or LVP + wall still asks. Unanswered stays open (0142).
+   */
   { key: "stairs", purpose: "MEASUREMENT", phase: "details" },
   {
     key: "carpet_stairs",
@@ -472,6 +477,9 @@ export const TILE_WALL_HIDES_KEYS = [
   "moisture_mitigation",
   "moisture_test",
   "subfloor_condition",
+  "stairs",
+  "stair_landings",
+  "stair_open_sides",
 ] as const;
 
 /**

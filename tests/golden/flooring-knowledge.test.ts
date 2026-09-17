@@ -1681,6 +1681,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: { key: "carpet_tile_stairs", in: ["Yes"] },
     },
     { key: "hs_plank_stairs", position: 250, show_if: { key: "project_type", in: ["Hard surface"] } },
+    { key: "stairs", position: 249, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     {
       key: "stair_landings",
       position: 265,
@@ -4563,6 +4564,9 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       "moisture_mitigation",
       "moisture_test",
       "subfloor_condition",
+      "stairs",
+      "stair_landings",
+      "stair_open_sides",
     ]);
 
     const wallCtx = installContextFromValByKey({
@@ -5253,6 +5257,98 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       }),
     );
     expect(lvpUneven.some((w) => w.id === "subfloor-uneven")).toBe(true);
+  });
+
+  it("0264 exclusive wall tile hides stairs, landings, and open sides", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0264_flooring_knowledge_wall_stairs.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0264_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/stair landings/);
+    expect(sql).toMatch(/Do NOT SQL-gate stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*tile_application.*stairs|stairs.*show_if.*tile_application/);
+
+    expect(TILE_WALL_HIDES_KEYS).toEqual(
+      expect.arrayContaining(["stairs", "stair_landings", "stair_open_sides", "hs_plank_stairs"]),
+    );
+    expect(knowledgeHelpFor({ key: "stairs" }, emptyInstallContext())).toMatch(
+      /a backsplash is not a stair job/,
+    );
+    expect(knowledgeHelpFor({ key: "stair_landings" }, emptyInstallContext())).toMatch(
+      /Exclusive wall tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /stair landings/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(unanswered).toContain("stairs");
+    expect(unanswered).toContain("hs_plank_stairs");
+    expect(unanswered).not.toContain("stair_landings");
+
+    const wall = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(wall).not.toContain("stairs");
+    expect(wall).not.toContain("hs_plank_stairs");
+    expect(wall).not.toContain("stair_landings");
+    expect(wall).not.toContain("stair_open_sides");
+    expect(wall).toContain("hs_prep");
+    expect(wall).toContain("tile_setting");
+
+    const leftover = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+      hs_plank_stairs: ["Yes"],
+      stairs: ["Yes"],
+    });
+    expect(leftover).not.toContain("stair_landings");
+    expect(leftover).not.toContain("stair_open_sides");
+
+    const floor = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Floor"],
+      hs_plank_stairs: ["Yes"],
+    });
+    expect(floor).toContain("stairs");
+    expect(floor).toContain("hs_plank_stairs");
+    expect(floor).toContain("stair_landings");
+    expect(floor).toContain("stair_open_sides");
+
+    const mixed = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+      tile_application: ["Wall"],
+    });
+    expect(mixed).toContain("stairs");
+    expect(mixed).toContain("hs_plank_stairs");
+
+    const overlayWall = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(overlayWall).not.toContain("stairs");
+    expect(overlayWall).not.toContain("stair_landings");
+    expect(overlayWall).not.toContain("stair_open_sides");
+
+    const overlayUnanswered = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(overlayUnanswered).toContain("stairs");
+    expect(overlayUnanswered).toContain("stair_landings");
+    expect(overlayUnanswered).toContain("stair_open_sides");
   });
 
   it("pattern repeat only after pattern match is required", () => {
