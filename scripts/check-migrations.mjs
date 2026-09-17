@@ -121,6 +121,7 @@ const REQUIRED_FILES = [
   "0258_flooring_knowledge_new_build_toilets.sql",
   "0259_flooring_knowledge_climate_sot.sql",
   "0260_flooring_knowledge_wall_moisture.sql",
+  "0261_flooring_knowledge_wall_prep.sql",
 ];
 
 /**
@@ -1511,6 +1512,17 @@ const REQUIRED_MARKERS = [
       "moisture_test",
       "slab moisture",
       "Do NOT SQL-gate moisture_test on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0261_flooring_knowledge_wall_prep.sql",
+    markers: [
+      "P0_0261_FLOORING_KNOWLEDGE",
+      "hs_prep",
+      "Self-leveling and grinding",
+      "Do NOT SQL-gate hs_prep on tile_application",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

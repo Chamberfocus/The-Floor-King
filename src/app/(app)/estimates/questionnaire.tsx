@@ -114,6 +114,7 @@ import {
   applyHardSurfaceStairTrimFill,
   jobNeedsHardSurfaceStairTrim,
   jobIsExclusiveWallTile,
+  choiceOptionApplies,
   answersHaveTrimType,
   keyedChoiceSelections,
   trimLabelsFromPicks,
@@ -961,7 +962,7 @@ export function Questionnaire({
       }
     } else if (q.kind === "choice" && a.kind === "choice") {
       for (const opt of q.config.options ?? []) {
-        if (a.selected.includes(opt.label) && opt.emit) {
+        if (a.selected.includes(opt.label) && opt.emit && choiceOptionApplies(q, opt.label, flooringCtx)) {
           const l = emitLineArea(opt.emit, areaSqft, room);
           if (l) out.push(l);
         }
@@ -2009,7 +2010,7 @@ export function Questionnaire({
     const condValue = (q: EstimateQuestion, a: Answer | undefined): string => {
       if (q.kind === "choice" && a?.kind === "choice") {
         // Selected option(s) plus any typed prep instructions.
-        return [a.selected.join(", "), a.note?.trim()].filter(Boolean).join(" — ");
+        return [a.selected.filter((l) => choiceOptionApplies(q, l, flooringCtx)).join(", "), a.note?.trim()].filter(Boolean).join(" — ");
       }
       if (q.kind === "choice" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
@@ -2326,7 +2327,7 @@ export function Questionnaire({
     }
     const condValue = (q: EstimateQuestion, a: Answer | undefined): string => {
       if (q.kind === "choice" && a?.kind === "choice")
-        return [a.selected.join(", "), a.note?.trim()].filter(Boolean).join(" — ");
+        return [a.selected.filter((l) => choiceOptionApplies(q, l, flooringCtx)).join(", "), a.note?.trim()].filter(Boolean).join(" — ");
       if (q.kind === "choice" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "text" && a?.kind === "text") return a.text.trim();
@@ -4116,7 +4117,7 @@ function QuestionBody({
       q.key === "install_method"
         ? hardSurfaceInstallMethodOptions(flooringCtx.families, flooringCtx.hardwoodConstruction)
         : [];
-    const opts =
+    const configuredOpts =
       q.key === "install_method" && knowledgeOpts.length
         ? (() => {
             const labels = new Set(knowledgeOpts.map((o) => o.label));
@@ -4128,6 +4129,7 @@ function QuestionBody({
             return [...merged, ...extra];
           })()
         : configured;
+    const opts = configuredOpts.filter((o) => choiceOptionApplies(q, o.label, flooringCtx));
     const mixedHsInstall =
       q.key === "install_method" && jobNeedsMixedInstallMethodPicks(flooringCtx.families);
     const multi = q.key === "install_method" ? mixedHsInstall : q.config.multi;

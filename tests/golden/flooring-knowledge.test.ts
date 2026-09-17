@@ -80,6 +80,8 @@ import {
   TILE_WALL_HIDES_KEYS,
   jobHasNonTileFloorFamily,
   jobIsExclusiveWallTile,
+  choiceOptionApplies,
+  tileWallHidesPrepOptionLabel,
   FURNITURE_MOVING_KEYS,
   jobIsVacant,
   NEW_CONSTRUCTION_HIDES_KEYS,
@@ -4960,6 +4962,67 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(mixed).toContain("moisture_test");
     expect(mixed).toContain("wet_area");
+  });
+
+  it("0261 exclusive wall tile hides Self-leveling and grinding chips; patch/skim stays", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0261_flooring_knowledge_wall_prep.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0261_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Self-leveling and grinding/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_prep on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*tile_application.*hs_prep|hs_prep.*show_if.*tile_application/);
+
+    expect(tileWallHidesPrepOptionLabel("Self-leveling")).toBe(true);
+    expect(tileWallHidesPrepOptionLabel("Self-level")).toBe(true);
+    expect(tileWallHidesPrepOptionLabel("Grinding / high spots")).toBe(true);
+    expect(tileWallHidesPrepOptionLabel("Patch / skim coat")).toBe(false);
+    expect(tileWallHidesPrepOptionLabel("None")).toBe(false);
+
+    const wall = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(choiceOptionApplies({ key: "hs_prep" }, "Self-leveling", wall)).toBe(false);
+    expect(choiceOptionApplies({ key: "hs_prep" }, "Grinding / high spots", wall)).toBe(false);
+    expect(choiceOptionApplies({ key: "hs_prep" }, "Patch / skim coat", wall)).toBe(true);
+    expect(choiceOptionApplies({ key: "hs_prep" }, "None", wall)).toBe(true);
+
+    const unanswered = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(choiceOptionApplies({ key: "hs_prep" }, "Self-leveling", unanswered)).toBe(true);
+
+    const mixed = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+      tile_application: ["Wall"],
+    });
+    expect(choiceOptionApplies({ key: "hs_prep" }, "Self-leveling", mixed)).toBe(true);
+
+    const walkWall = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(walkWall).toContain("hs_prep");
+    expect(walkWall).toContain("tile_setting");
+    expect(walkWall).not.toContain("selflevel_needed");
+
+    expect(knowledgeHelpFor({ key: "hs_prep" }, emptyInstallContext())).toMatch(
+      /hides Self-leveling and grinding/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /grinding chips/,
+    );
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/choiceOptionApplies/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

@@ -465,6 +465,17 @@ export const TILE_WALL_HIDES_KEYS = [
  */
 export const FURNITURE_MOVING_KEYS = ["furniture_level", "furniture_heavy"] as const;
 
+/**
+ * Floor-prep chips that pour or grind a floor. Exclusive wall keeps Patch / skim
+ * and None — showers still skim. Do not SQL-remove these options (mixed and
+ * unanswered floor-vs-wall still need them).
+ */
+export function tileWallHidesPrepOptionLabel(label: string): boolean {
+  const t = label.trim();
+  if (!t) return false;
+  return /self-?level/i.test(t) || /grind/i.test(t);
+}
+
 export interface SortableEstimateQuestion {
   id: string;
   key?: string | null;

@@ -46,6 +46,7 @@ import {
   NEW_CONSTRUCTION_HIDES_KEYS,
   REMOVAL_QUESTION_KEYS,
   TILE_WALL_HIDES_KEYS,
+  tileWallHidesPrepOptionLabel,
 } from "./registry";
 
 export { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS } from "./registry";
@@ -504,6 +505,22 @@ export function jobIsExclusiveWallTile(install: InstallContext): boolean {
 }
 
 /**
+ * Choice chips the salesperson should not see (or emit) in this context.
+ * Exclusive wall tile keeps Floor prep as a question — patch/skim still
+ * applies in a shower — but Self-leveling / grinding are floor pours.
+ */
+export function choiceOptionApplies(
+  q: { key?: string | null },
+  optionLabel: string,
+  install: InstallContext,
+): boolean {
+  if (q.key === "hs_prep" && jobIsExclusiveWallTile(install) && tileWallHidesPrepOptionLabel(optionLabel)) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Keys the overlay would show for this answer set (no SQL show_if). Proves
  * family/system branching without a live estimate_questions table.
  */
@@ -703,8 +720,11 @@ export function knowledgeHelpFor(
   if (key === "doors_shave") {
     return "Count of doors to undercut, in EACH. Never square feet.";
   }
+  if (key === "hs_prep") {
+    return "None / patch / skim / self-level / grind. Exclusive wall tile hides Self-leveling and grinding chips — those pour or grind a floor. Patch / skim stays for showers. Mixed LVP + wall tile still shows the floor pours. Do not invent a bag count here; bags are the next step when Self-leveling is picked.";
+  }
   if (key === "tile_application") {
-    return "Floor vs wall. Exclusive wall tile hides toilets, vents, door shaves, floor stairs, construction grade, radiant heat, doorway T-molds, 4×8 subfloor sheets, self-leveler bags, slab vapor barrier, aqua-bar mitigation, and slab moisture tests — those are floor work. Mixed carpet or LVP + wall tile still asks them. Unanswered and Unknown stay open. Keep wet area, appliances, floor prep, substrate, base trim, and setting materials. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
+    return "Floor vs wall. Exclusive wall tile hides toilets, vents, door shaves, floor stairs, construction grade, radiant heat, doorway T-molds, 4×8 subfloor sheets, self-leveler bags, slab vapor barrier, aqua-bar mitigation, and slab moisture tests — those are floor work. Self-leveling and grinding chips on Floor prep hide too; patch / skim stays for showers. Mixed carpet or LVP + wall tile still asks them. Unanswered and Unknown stay open. Keep wet area, appliances, floor prep, substrate, base trim, and setting materials. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
   }
   if (key === "tile_body") {
     return "Ceramic vs porcelain vs natural stone. Still the tile catalog — capture the body for setting notes. Do not invent a waste percent or a second category.";

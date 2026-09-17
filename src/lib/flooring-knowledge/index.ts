@@ -91,6 +91,7 @@ export {
   NEW_CONSTRUCTION_HIDES_KEYS,
   TILE_WALL_HIDES_KEYS,
   FURNITURE_MOVING_KEYS,
+  tileWallHidesPrepOptionLabel,
   type KnowledgeQuestionDef,
   type EstimatorPhase,
   type SortableEstimateQuestion,
@@ -170,6 +171,7 @@ export {
   climateControlConfirmed,
   jobHasNonTileFloorFamily,
   jobIsExclusiveWallTile,
+  choiceOptionApplies,
   type InstallContext,
 } from "./rules";
 
