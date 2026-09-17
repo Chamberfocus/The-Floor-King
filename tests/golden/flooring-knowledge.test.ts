@@ -98,7 +98,7 @@ import {
   mergeReviewWarnings,
   emptyInstallContext,
 } from "@/lib/flooring-knowledge";
-import { billsBySquareYard, pickedProductUnit, rollReceiveUnit } from "@/lib/units";
+import { billsBySquareYard, defaultUnitForCategory, pickedProductUnit, rollReceiveUnit } from "@/lib/units";
 import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import type { ShowIfClause } from "@/lib/types";
@@ -3599,6 +3599,33 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(po).toMatch(/pickedProductUnit/);
     expect(po).not.toMatch(/\|\| "sqft"/);
     expect(po).not.toMatch(/\|\| "lnft"/);
+  });
+
+  it("0236 does not plant sq ft on Other, or LVP on a carpet floor-map fill", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0236_flooring_knowledge_other_unit.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0236_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/does not plant LVP/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(defaultUnitForCategory("other")).toBe("");
+    expect(defaultUnitForCategory("lvp")).toBe("sqft");
+    expect(defaultUnitForCategory("carpet")).toBe("sqyd");
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/mapDefaultCategory/);
+    expect(q).toMatch(/defaultCategory=\{mapDefaultCategory\}/);
+
+    const picker = readFileSync(join(root, "src/app/(app)/estimates/product-picker.tsx"), "utf8");
+    expect(picker).toMatch(/Unit TBD — pick how this is sold/);
+    expect(picker).toMatch(/do not plant sq ft on Other/);
+
+    const units = readFileSync(join(root, "src/lib/units.ts"), "utf8");
+    expect(units).toMatch(/Planting sq ft here is how a pail/);
+    expect(units).not.toMatch(/default:\s*return "sqft";/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

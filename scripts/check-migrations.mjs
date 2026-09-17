@@ -96,6 +96,7 @@ const REQUIRED_FILES = [
   "0233_flooring_knowledge_unit_tbd.sql",
   "0234_flooring_knowledge_review_units.sql",
   "0235_flooring_knowledge_product_unit.sql",
+  "0236_flooring_knowledge_other_unit.sql",
 ];
 
 /**
@@ -1238,6 +1239,15 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0235_FLOORING_KNOWLEDGE",
       "does not plant sq ft",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0236_flooring_knowledge_other_unit.sql",
+    markers: [
+      "P0_0236_FLOORING_KNOWLEDGE",
+      "does not plant LVP",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

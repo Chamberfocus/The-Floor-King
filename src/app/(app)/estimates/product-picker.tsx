@@ -770,6 +770,10 @@ function AddProductForm({
                 ? "Carpet pad is sold by the square yard; laminate underlayment usually by the square foot."
                 : "Carpet and sheet vinyl are sold by the square yard — enter the price you pay per yard."}
             </p>
+          ) : !f.unit ? (
+            <p className="text-[11px] text-amber-800 dark:text-amber-200">
+              Unit TBD — pick how this is sold. We do not plant sq ft on Other / adhesive.
+            </p>
           ) : null}
         </div>
       </div>

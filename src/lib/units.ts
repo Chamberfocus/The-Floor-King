@@ -251,8 +251,7 @@ const CONTAINER_RE =
  * Infer a product's unit at import time. If the price list already gave a unit,
  * trust it. Otherwise: real flooring categories bill by their area default;
  * anything that reads like a container (adhesive / gallon / pail…) bills by the
- * EACH; only a genuinely unknown "other" falls back to square feet. This stops
- * the old "default everything to sqft" bug that priced pails by the square foot.
+ * EACH; a genuinely unknown "other" stays unit TBD — never planted square feet.
  */
 export function inferUnit(
   name: string | null | undefined,
@@ -340,7 +339,9 @@ export function defaultUnitForCategory(category: string | null | undefined): str
     case "labor":
       return "hour";
     default:
-      return "sqft";
+      // Other / unknown is unit TBD. Planting sq ft here is how a pail of
+      // adhesive gets priced by the square foot.
+      return "";
   }
 }
 

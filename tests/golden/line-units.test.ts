@@ -17,6 +17,7 @@ import {
   lineDisplayUnit,
   lineUnitKey,
   normalizeUnit,
+  defaultUnitForCategory,
   pickedProductUnit,
   unitIsSqyd,
   unitLabel,
@@ -359,6 +360,7 @@ describe("measured sq ft is never labeled as a carpet order in sq yd", () => {
     expect(pickedProductUnit("", "other")).toBe("");
     expect(pickedProductUnit("", "carpet")).toBe("sqyd");
     expect(pickedProductUnit("gal", "other")).toBe("gal");
+    expect(defaultUnitForCategory("other")).toBe("");
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/pickedProductUnit\(p\.unit, p\.category\)/);
     expect(q).not.toMatch(/p\.unit \|\| "sqft"/);

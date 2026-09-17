@@ -3189,6 +3189,10 @@ function QuestionBody({
     const assignedProducts = floorRooms
       .map((rm, i) => byRoom[roomKey(rm.name, i)])
       .filter(Boolean) as ProductAns[];
+    const mapDefaultCategory =
+      flooringCtx.families.length === 1
+        ? catalogCategoryForFamily(flooringCtx.families[0])
+        : undefined;
     const commonWaste =
       assignedProducts.length && assignedProducts.every((p) => p.wastePct === assignedProducts[0].wastePct)
         ? assignedProducts[0].wastePct
@@ -3233,6 +3237,7 @@ function QuestionBody({
           <ProductPicker
             value=""
             label=""
+            defaultCategory={mapDefaultCategory}
             onPick={(prod) => fillEmpty(prod ? toProductAns(prod) : null)}
             onCreated={(prod) => fillEmpty(toProductAns(prod))}
             onUseOnce={(input) => fillEmpty(customToProductAns(input))}
@@ -3282,10 +3287,7 @@ function QuestionBody({
                 initialLabel={p?.label ?? ""}
                 label="Product for this room"
                 defaultCategory={
-                  (p?.category as string) ||
-                  (flooringCtx.families.length === 1
-                    ? catalogCategoryForFamily(flooringCtx.families[0])
-                    : undefined)
+                  (p?.category as string) || mapDefaultCategory
                 }
                 onPick={(prod) => setRoom(key, prod ? toProductAns(prod) : null)}
                 onCreated={(prod) => setRoom(key, toProductAns(prod))}
