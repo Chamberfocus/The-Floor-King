@@ -78,9 +78,11 @@ import {
   climateControlConfirmed,
   tileJobIsWallOnly,
   TILE_WALL_HIDES_KEYS,
+  TILE_THINSET_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
+  jobIsExclusiveTile,
   jobIsExclusiveWallTile,
   jobIsExclusiveCarpetTile,
   jobIsExclusiveSolidHardwood,
@@ -1210,7 +1212,7 @@ describe("family → system asks the right keys (not every question)", () => {
       install_method: ["Thinset / mortar"],
     });
     on(tile, ["tile_application", "tile_body", "tile_format", "tile_layout", "tile_setting"]);
-    off(tile, ["adhesive", "attached_pad", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction"]);
+    off(tile, ["adhesive", "attached_pad", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "vapor_barrier"]);
   });
 
   it("stretch-in carpet: tack strip on, adhesive off", () => {
@@ -5633,6 +5635,120 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(knowledgeHelpFor({ key: "laminate_expansion" }, emptyInstallContext())).toMatch(
       /Solid hardwood hides this/,
     );
+  });
+
+  it("0268 exclusive tile hides 6-mil vapor barrier; mixed LVP + tile still asks", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0268_flooring_knowledge_tile_vapor.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0268_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/thinset is not a 6-mil click-floor vapor barrier/);
+    expect(sql).toMatch(/Do NOT SQL-gate vapor_barrier on surface_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*vapor_barrier|vapor_barrier.*show_if.*surface_type/,
+    );
+
+    expect(TILE_THINSET_HIDES_KEYS).toEqual(["vapor_barrier"]);
+    expect(
+      jobIsExclusiveTile(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Tile"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobIsExclusiveTile(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Tile"],
+          tile_application: ["Floor"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobIsExclusiveTile(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Tile", "LVP / LVT"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveTile(
+        installContextFromValByKey({ project_type: ["Hard surface"] }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveWallTile(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Tile"],
+          tile_application: ["Floor"],
+        }),
+      ),
+    ).toBe(false);
+
+    expect(knowledgeHelpFor({ key: "vapor_barrier" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /Exclusive floor tile also hides the 6-mil/,
+    );
+
+    const floorConcrete = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Floor"],
+      substrate: ["Concrete"],
+    });
+    expect(floorConcrete).not.toContain("vapor_barrier");
+    expect(floorConcrete).toContain("tile_setting");
+    expect(floorConcrete).toContain("hs_prep");
+    expect(floorConcrete).toContain("substrate");
+    expect(floorConcrete).toContain("construction_grade");
+
+    const overlayFloor = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Floor"],
+      substrate: ["Concrete"],
+    });
+    expect(overlayFloor).not.toContain("vapor_barrier");
+    expect(overlayFloor).toContain("tile_setting");
+
+    const unansweredTile = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      substrate: ["Concrete"],
+    });
+    expect(unansweredTile).not.toContain("vapor_barrier");
+    expect(unansweredTile).toContain("tile_application");
+
+    const mixed = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+      tile_application: ["Floor"],
+      install_method: ["Floating / click"],
+      substrate: ["Concrete"],
+    });
+    expect(mixed).toContain("vapor_barrier");
+    expect(mixed).toContain("tile_setting");
+    expect(mixed).toContain("attached_pad");
+
+    const hardwoodSlab = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Concrete"],
+    });
+    expect(hardwoodSlab).toContain("vapor_barrier");
   });
 
   it("pattern repeat only after pattern match is required", () => {

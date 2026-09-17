@@ -122,6 +122,13 @@ const REQUIRED_FILES = [
   "0259_flooring_knowledge_climate_sot.sql",
   "0260_flooring_knowledge_wall_moisture.sql",
   "0261_flooring_knowledge_wall_prep.sql",
+  "0262_flooring_knowledge_carpet_tile_layout.sql",
+  "0263_flooring_knowledge_wall_subfloor.sql",
+  "0264_flooring_knowledge_wall_stairs.sql",
+  "0265_flooring_knowledge_wall_demo.sql",
+  "0266_flooring_knowledge_wall_furniture.sql",
+  "0267_flooring_knowledge_solid_floating.sql",
+  "0268_flooring_knowledge_tile_vapor.sql",
 ];
 
 /**
@@ -1523,6 +1530,76 @@ const REQUIRED_MARKERS = [
       "hs_prep",
       "Self-leveling and grinding",
       "Do NOT SQL-gate hs_prep on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0262_flooring_knowledge_carpet_tile_layout.sql",
+    markers: [
+      "P0_0262_FLOORING_KNOWLEDGE",
+      "pattern_match",
+      "Do NOT SQL-gate pattern_match on carpet_install",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0263_flooring_knowledge_wall_subfloor.sql",
+    markers: [
+      "P0_0263_FLOORING_KNOWLEDGE",
+      "subfloor_condition",
+      "Do NOT SQL-gate subfloor_condition on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0264_flooring_knowledge_wall_stairs.sql",
+    markers: [
+      "P0_0264_FLOORING_KNOWLEDGE",
+      "stair landings",
+      "Do NOT SQL-gate stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0265_flooring_knowledge_wall_demo.sql",
+    markers: [
+      "P0_0265_FLOORING_KNOWLEDGE",
+      "floor demo chips",
+      "Do NOT SQL-gate hs_demo on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0266_flooring_knowledge_wall_furniture.sql",
+    markers: [
+      "P0_0266_FLOORING_KNOWLEDGE",
+      "Vacant hides furniture moving",
+      "Do NOT SQL-gate furniture on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0267_flooring_knowledge_solid_floating.sql",
+    markers: [
+      "P0_0267_FLOORING_KNOWLEDGE",
+      "floating is not a permitted system",
+      "Do NOT SQL-gate attached_pad on surface_type",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0268_flooring_knowledge_tile_vapor.sql",
+    markers: [
+      "P0_0268_FLOORING_KNOWLEDGE",
+      "thinset is not a 6-mil click-floor vapor barrier",
+      "Do NOT SQL-gate vapor_barrier on surface_type",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

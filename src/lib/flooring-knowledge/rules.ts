@@ -47,6 +47,7 @@ import {
   NEW_CONSTRUCTION_HIDES_KEYS,
   REMOVAL_QUESTION_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
+  TILE_THINSET_HIDES_KEYS,
   TILE_WALL_HIDES_KEYS,
   tileWallHidesPrepOptionLabel,
   tileWallHidesDemoOptionLabel,
@@ -497,6 +498,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (TILE_THINSET_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobIsExclusiveTile(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -509,16 +517,25 @@ export function jobHasNonTileFloorFamily(install: InstallContext): boolean {
 }
 
 /**
- * Exclusive wall tile — no other floor-covering family, application is Wall
+ * Exclusive tile — surface is Tile, no carpet / LVP / hardwood / laminate /
+ * sheet vinyl also on the job. Floor and wall both hide 6-mil vapor barrier.
+ * Unanswered HS stays open (0142). Mixed LVP + tile stays open.
+ */
+export function jobIsExclusiveTile(install: InstallContext): boolean {
+  return (
+    install.families.includes("tile") &&
+    !install.surfacePending &&
+    !jobHasNonTileFloorFamily(install)
+  );
+}
+
+/**
+ * Exclusive wall tile — exclusive tile whose application is Wall
  * (not Floor / Both / Unknown / unanswered). Showers still keep wet area,
  * appliances, prep, and setting materials.
  */
 export function jobIsExclusiveWallTile(install: InstallContext): boolean {
-  return (
-    labelsAreWallOnly(install.tileApplication) &&
-    !install.surfacePending &&
-    !jobHasNonTileFloorFamily(install)
-  );
+  return jobIsExclusiveTile(install) && labelsAreWallOnly(install.tileApplication);
 }
 
 /**
@@ -737,13 +754,13 @@ export function knowledgeHelpFor(
     return "Bag count uses Settings coverage at the chosen pour. Pour is the shop default, else the coverage reference — we do not invent 1/4 inch. Field verify withholds bags.";
   }
   if (key === "tile_setting") {
-    return "Thinset, grout, and backer come from the catalog in Builder. This records the need — bag counts stay TBD unless a product with coverage is actually picked. Taped square feet is not bags of thinset.";
+    return "Thinset, grout, and backer come from the catalog in Builder. This records the need — bag counts stay TBD unless a product with coverage is actually picked. Taped square feet is not bags of thinset. Exclusive tile hides the 6-mil vapor-barrier question; crack isolation / uncoupling membranes belong here, not on that floating-floor sheet.";
   }
   if (key === "vents_registers") {
     return "Count of vents/registers to change, in EACH. Never square feet. Pick a catalog vent on Trims if Floor King sells it; otherwise this is a crew note.";
   }
   if (key === "vapor_barrier") {
-    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed.";
+    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Mixed LVP or hardwood + tile still asks.";
   }
   if (key === "substrate") {
     return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete.";
@@ -779,7 +796,7 @@ export function knowledgeHelpFor(
     return "None / patch / skim / self-level / grind. Exclusive wall tile hides Self-leveling and grinding chips — those pour or grind a floor. Patch / skim stays for showers. Mixed LVP + wall tile still shows the floor pours. Do not invent a bag count here; bags are the next step when Self-leveling is picked.";
   }
   if (key === "tile_application") {
-    return "Floor vs wall. Exclusive wall tile hides toilets, vents, door shaves, floor stairs, construction grade, radiant heat, doorway T-molds, 4×8 subfloor sheets, self-leveler bags, slab vapor barrier, aqua-bar mitigation, slab moisture tests, floor subfloor condition (flat / uneven / cracks), stair landings, and open-side notes — those are floor work. Self-leveling and grinding chips on Floor prep hide too; patch / skim stays for showers. Floor demo chips (carpet / LVP / hardwood / sheet vinyl / luan) hide; ceramic mortar, None, and Other stay for wall-tile tear-out. Furniture moving hides too — a backsplash is not a furniture-moving job. Mixed carpet or LVP + wall tile still asks them. Unanswered and Unknown stay open. Keep wet area, appliances, floor prep, substrate, base trim, and setting materials. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
+    return "Floor vs wall. Exclusive wall tile hides toilets, vents, door shaves, floor stairs, construction grade, radiant heat, doorway T-molds, 4×8 subfloor sheets, self-leveler bags, slab vapor barrier, aqua-bar mitigation, slab moisture tests, floor subfloor condition (flat / uneven / cracks), stair landings, and open-side notes — those are floor work. Self-leveling and grinding chips on Floor prep hide too; patch / skim stays for showers. Floor demo chips (carpet / LVP / hardwood / sheet vinyl / luan) hide; ceramic mortar, None, and Other stay for wall-tile tear-out. Furniture moving hides too — a backsplash is not a furniture-moving job. Mixed carpet or LVP + wall tile still asks them. Unanswered and Unknown stay open. Keep wet area, appliances, floor prep, substrate, base trim, and setting materials. Exclusive floor tile also hides the 6-mil vapor-barrier question — thinset is not a click-floor vapor barrier; membranes stay on Tile setting. Mixed LVP or hardwood + tile still asks. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
   }
   if (key === "tile_body") {
     return "Ceramic vs porcelain vs natural stone. Still the tile catalog — capture the body for setting notes. Do not invent a waste percent or a second category.";

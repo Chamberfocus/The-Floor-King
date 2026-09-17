@@ -221,7 +221,10 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   /**
    * Matches 0190/0198 show_if: floating/glue OR concrete substrate.
    * Nail-down hardwood over a slab still needs this question; stretch-in
-   * carpet over plywood does not.
+   * carpet over plywood does not. Exclusive tile hides this via
+   * TILE_THINSET_HIDES_KEYS — thinset is not a 6-mil click-floor vapor
+   * barrier; membranes stay on tile_setting. Mixed LVP/hardwood + tile
+   * still asks. Do not SQL-gate vapor_barrier on surface_type (0142).
    */
   {
     key: "vapor_barrier",
@@ -521,6 +524,15 @@ export const SOLID_HARDWOOD_HIDES_KEYS = [
   "hs_underlayment",
   "laminate_expansion",
 ] as const;
+
+/**
+ * 6-mil click-floor vapor barrier hidden once the job is exclusive tile
+ * (floor or wall). Thinset / mortar uses backer and uncoupling membranes
+ * on tile_setting — not a floating-floor vapor sheet. Unanswered HS and
+ * mixed LVP or hardwood + tile stay open. Do not SQL-gate vapor_barrier
+ * on surface_type (0142).
+ */
+export const TILE_THINSET_HIDES_KEYS = ["vapor_barrier"] as const;
 
 /**
  * Floor-prep chips that pour or grind a floor. Exclusive wall keeps Patch / skim
