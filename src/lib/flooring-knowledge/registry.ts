@@ -46,6 +46,7 @@ export interface KnowledgeQuestionDef {
     families?: FlooringFamily[];
     systems?: InstallSystem[];
     substrate?: string[];
+    subfloor?: string[];
   }[];
 }
 
@@ -137,14 +138,18 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     any: [{ systems: ["floating", "glue"] }, { substrate: ["Concrete"] }],
   },
   /**
-   * Same hardwood-OR-glue gate as 0190 moisture_test show_if. Mitigation stays
-   * all hard-surface (0117) — do not overlay-hide it.
+   * Hardwood OR glue-down OR the salesperson flagged moisture concerns on
+   * the substrate — laminate floating still hides this unless condition says so.
    */
   {
     key: "moisture_test",
     purpose: "PREP",
     phase: "prep",
-    any: [{ families: ["hardwood"] }, { systems: ["glue"] }],
+    any: [
+      { families: ["hardwood"] },
+      { systems: ["glue"] },
+      { subfloor: ["Moisture concerns"] },
+    ],
   },
   { key: "moisture_mitigation", purpose: "PREP", phase: "prep" },
   { key: "prep_confidence", purpose: "PREP", phase: "prep" },

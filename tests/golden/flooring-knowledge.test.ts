@@ -371,10 +371,14 @@ describe("show_if all/any + knowledge overlay", () => {
     ).toBe(true);
   });
 
-  it("acclimation/moisture_test are hardwood OR glue-down, not laminate floating", () => {
+  it("acclimation is hardwood OR glue-down; moisture_test also follows a moisture-concern flag", () => {
     const anyWhen = knowledgeQuestionByKey("acclimation")?.any;
     expect(anyWhen).toEqual([{ families: ["hardwood"] }, { systems: ["glue"] }]);
-    expect(knowledgeQuestionByKey("moisture_test")?.any).toEqual(anyWhen);
+    expect(knowledgeQuestionByKey("moisture_test")?.any).toEqual([
+      { families: ["hardwood"] },
+      { systems: ["glue"] },
+      { subfloor: ["Moisture concerns"] },
+    ]);
 
     const pending = installContextFromValByKey({ project_type: ["Hard surface"] });
     expect(knowledgeWhenApplies({ any: anyWhen }, pending)).toBe(true);
@@ -385,6 +389,16 @@ describe("show_if all/any + knowledge overlay", () => {
       install_method: ["Floating / click"],
     });
     expect(knowledgeWhenApplies({ any: anyWhen }, lam)).toBe(false);
+    expect(knowledgeWhenApplies(knowledgeQuestionByKey("moisture_test")!, lam)).toBe(false);
+
+    const lamMoisture = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+      subfloor_condition: ["Moisture concerns"],
+    });
+    expect(knowledgeWhenApplies(knowledgeQuestionByKey("moisture_test")!, lamMoisture)).toBe(true);
+    expect(knowledgeWhenApplies({ any: anyWhen }, lamMoisture)).toBe(false);
 
     const engNail = installContextFromValByKey({
       project_type: ["Hard surface"],
@@ -887,6 +901,67 @@ describe("family → system asks the right keys (not every question)", () => {
       true,
     );
   });
+
+  it("0200 asks moisture_test from substrate moisture concerns without inventing a reading", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0200_flooring_knowledge_prep_gates.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0200_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Moisture concerns/);
+    expect(sql).toMatch(/subfloor/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+
+    const lam = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+    });
+    expect(has(lam, "moisture_test")).toBe(false);
+
+    const flagged = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      subfloor_condition: ["Moisture concerns"],
+    });
+    expect(has(flagged, "moisture_test")).toBe(true);
+
+    const uneven = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      subfloor_condition: ["Uneven"],
+      hs_prep: ["None"],
+    });
+    expect(knowledgeWarnings(uneven).some((w) => w.id === "subfloor-uneven")).toBe(true);
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          subfloor_condition: ["Uneven"],
+          hs_prep: ["Self-leveling"],
+        }),
+      ).some((w) => w.id === "subfloor-uneven"),
+    ).toBe(false);
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          subfloor_condition: ["Damage / soft spots"],
+          subfloor_needed: ["No"],
+        }),
+      ).some((w) => w.id === "subfloor-damage"),
+    ).toBe(true);
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          subfloor_condition: ["Unknown / field verify"],
+          prep_confidence: ["Known"],
+        }),
+      ).some((w) => w.id === "subfloor-unknown-known"),
+    ).toBe(true);
+  });
 });
 
 describe("estimator conversation order (not SQL position)", () => {
@@ -1105,6 +1180,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         any: [
           { key: "install_method", in: ["Glue-down"] },
           { key: "surface_type", in: ["Hardwood", "Engineered hardwood"] },
+          { key: "subfloor_condition", in: ["Moisture concerns"] },
         ],
       },
     },
@@ -1236,6 +1312,23 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(synthesizeSoleInstallMethod({ project_type: ["Hard surface"], surface_type: ["Laminate"] }).install_method).toEqual([
       "Floating / click",
     ]);
+  });
+
+  it("laminate + moisture concerns still asks moisture_test (not a fake reading)", () => {
+    const keys = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      subfloor_condition: ["Moisture concerns"],
+    });
+    expect(keys).toContain("moisture_test");
+    expect(keys).not.toContain("adhesive");
+    expect(
+      visibleKnowledgeKeys({
+        project_type: ["Hard surface"],
+        surface_type: ["Laminate"],
+        subfloor_condition: ["Moisture concerns"],
+      }),
+    ).toContain("moisture_test");
   });
 
   it("glue-down LVP: adhesive on, floating follow-ups off", () => {

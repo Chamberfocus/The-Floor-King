@@ -369,6 +369,11 @@ export interface KnowledgeWhenClause {
    * an OR branch on its own — same as SQL `{ key: "substrate", in: [...] }`.
    */
   substrate?: string[];
+  /**
+   * Positive match on `subfloor_condition` labels (e.g. Moisture concerns).
+   * Unanswered does not satisfy an OR branch on its own.
+   */
+  subfloor?: string[];
 }
 
 /**

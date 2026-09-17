@@ -48,6 +48,12 @@ export interface InstallContext {
   existingFlooring: string[];
   prepConfidence: string[];
   occupancy: string[];
+  /** Subfloor condition labels (flat / uneven / moisture / TBD). */
+  subfloorCondition: string[];
+  /** Floor prep / leveling choice (None / skim / self-level / …). */
+  hsPrep: string[];
+  /** Subfloor needed? Yes/No. */
+  subfloorNeeded: string[];
   /** Hard surface chosen but surface type not answered yet. */
   surfacePending: boolean;
   /** Hard surface / carpet install method not answered yet. */
@@ -78,6 +84,9 @@ export function emptyInstallContext(): InstallContext {
     existingFlooring: [],
     prepConfidence: [],
     occupancy: [],
+    subfloorCondition: [],
+    hsPrep: [],
+    subfloorNeeded: [],
     surfacePending: false,
     installPending: false,
     unscopedProductFamilies: [],
@@ -211,6 +220,9 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     existingFlooring: valByKey.hs_demo ?? [],
     prepConfidence: valByKey.prep_confidence ?? [],
     occupancy: valByKey.occupancy ?? [],
+    subfloorCondition: valByKey.subfloor_condition ?? [],
+    hsPrep: valByKey.hs_prep ?? [],
+    subfloorNeeded: valByKey.subfloor_needed ?? [],
     surfacePending: hasHS && surfaceLabels.length === 0,
     installPending: false,
     unscopedProductFamilies: [],
@@ -289,8 +301,17 @@ export function knowledgeClauseApplies(clause: KnowledgeWhenClause, ctx: Install
     if (!have.length) {
       // Positive-match expander (SQL `{ key: substrate, in }`). Unanswered
       // does not satisfy an OR branch that is only about substrate.
-      if (!clause.families?.length && !clause.systems?.length) return false;
+      if (!clause.families?.length && !clause.systems?.length && !clause.subfloor?.length) return false;
     } else if (!substrateLabelMatches(have, clause.substrate)) {
+      return false;
+    }
+  }
+
+  if (clause.subfloor?.length) {
+    const have = ctx.subfloorCondition ?? [];
+    if (!have.length) {
+      if (!clause.families?.length && !clause.systems?.length && !clause.substrate?.length) return false;
+    } else if (!substrateLabelMatches(have, clause.subfloor)) {
       return false;
     }
   }
@@ -523,7 +544,7 @@ export function knowledgeHelpFor(
     return "Hardwood and glue-down need acclimation / climate notes. Floating laminate and stretch-in carpet hide this — do not invent a day count.";
   }
   if (key === "moisture_test") {
-    return "Glue-down and hardwood over concrete often need a moisture reading. If you cannot test yet, pick Field verify — do not invent a number.";
+    return "Glue-down, hardwood, or a moisture-concern flag on the substrate. If you cannot test yet, pick Field verify — do not invent a number.";
   }
   if (key === "stair_landings") {
     return "Count of landings in EACH. Measured with the rooms when they are floored the same; this flags extra pieces and noses.";
@@ -698,6 +719,24 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     w.push({
       id: "unscoped-products",
       text: `Assigned products include ${labels}, but the job type / surface pick does not. Add that flooring type (project type is multi-select) so pad, cuts, fasteners, and the right follow-ups appear — do not guess.`,
+    });
+  }
+  if (has(ctx.subfloorCondition, /uneven|height difference/i) && ctx.hsPrep.length && !has(ctx.hsPrep, /self-?level/i)) {
+    w.push({
+      id: "subfloor-uneven",
+      text: "Substrate is uneven / a height change, but prep is not self-leveling. Confirm None / skim is enough, or set Field verify — do not invent a bag count.",
+    });
+  }
+  if (has(ctx.subfloorCondition, /damage|soft/i) && has(ctx.subfloorNeeded, /^no$/i)) {
+    w.push({
+      id: "subfloor-damage",
+      text: "Substrate has damage / soft spots and subfloor is marked No. Confirm that, or mark Field verify rather than skipping sheets.",
+    });
+  }
+  if (has(ctx.subfloorCondition, /unknown|field verify/i) && has(ctx.prepConfidence, /^known$/i)) {
+    w.push({
+      id: "subfloor-unknown-known",
+      text: "Substrate condition is Unknown / field verify, but prep confidence is Known. Those do not match — switch confidence to Field verify / TBD rather than a fake bag count.",
     });
   }
   return w;

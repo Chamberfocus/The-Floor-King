@@ -60,6 +60,7 @@ const REQUIRED_FILES = [
   "0197_flooring_knowledge_scope_notes.sql",
   "0198_flooring_knowledge_vapor_barrier.sql",
   "0199_flooring_knowledge_hs_trim.sql",
+  "0200_flooring_knowledge_prep_gates.sql",
 ];
 
 /**
@@ -836,6 +837,17 @@ const REQUIRED_MARKERS = [
       "P0_0199_FLOORING_KNOWLEDGE",
       "hs_transitions",
       "hs_base_trim",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0200_flooring_knowledge_prep_gates.sql",
+    markers: [
+      "P0_0200_FLOORING_KNOWLEDGE",
+      "moisture_test",
+      "Moisture concerns",
+      "subfloor_condition",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
