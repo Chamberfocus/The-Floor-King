@@ -1275,6 +1275,10 @@ describe("unknown conditions stay unknown", () => {
       key: "hs_prep",
       in: ["Self-leveling"],
     });
+    expect(knowledgeQuestionByKey("existing_bond")?.require).toEqual({
+      key: "hs_demo",
+      in: ["LVP", "Laminate", "Sheet vinyl", "LVP / Vinyl"],
+    });
     expect(knowledgeQuestionByKey("subfloor_needed")?.purpose).toBe("PREP");
     expect(knowledgeQuestionByKey("climate_control")?.phase).toBe("install");
     expect(knowledgeQuestionByKey("hs_product")).toBeUndefined();
@@ -1546,6 +1550,21 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       position: 340,
       show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
     },
+    {
+      key: "existing_bond",
+      position: 272,
+      show_if: { key: "hs_demo", in: ["LVP", "Laminate", "Sheet vinyl", "LVP / Vinyl"] },
+    },
+    {
+      key: "doors_shave",
+      position: 500,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
+    {
+      key: "furniture_level",
+      position: 510,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
   ];
   const catalog = catalogRows.map((row) => ({
     id: row.key,
@@ -1642,7 +1661,10 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("hs_prep");
     expect(keys).toContain("subfloor_needed");
     expect(keys).toContain("prep_scope");
+    expect(keys).toContain("doors_shave");
+    expect(keys).toContain("furniture_level");
     expect(keys).not.toContain("selflevel_needed");
+    expect(keys).not.toContain("existing_bond");
     expect(keys).not.toContain("pattern_repeat");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("surface_type");
@@ -2067,6 +2089,65 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(lam).toContain("hs_prep");
     expect(lam).toContain("subfloor_needed");
     expect(lam).not.toContain("selflevel_needed");
+  });
+
+  it("0207 asks glued-vs-floating only after LVP/laminate/vinyl demo", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0207_flooring_knowledge_bond_site.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0207_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/existing_bond/);
+    expect(sql).toMatch(/doors_shave/);
+    expect(sql).toMatch(/furniture_level/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/insert into public\.estimate_questions/);
+
+    const stretch = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("doors_shave");
+    expect(stretch).toContain("furniture_level");
+    expect(stretch).not.toContain("existing_bond");
+
+    const carpetDemo = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Carpet"],
+    });
+    expect(carpetDemo).not.toContain("existing_bond");
+
+    const lvpDemo = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["LVP"],
+    });
+    expect(lvpDemo).toContain("existing_bond");
+    expect(lvpDemo.indexOf("hs_demo")).toBeLessThan(lvpDemo.indexOf("existing_bond")!);
+
+    const lamDemo = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      hs_demo: ["Laminate"],
+    });
+    expect(lamDemo).toContain("existing_bond");
+    expect(lamDemo).toContain("doors_shave");
+    expect(lamDemo).toContain("furniture_level");
+
+    expect(
+      visibleKnowledgeKeys({
+        project_type: ["Carpet"],
+        hs_demo: ["Carpet"],
+      }).includes("existing_bond"),
+    ).toBe(false);
+    expect(
+      visibleKnowledgeKeys({
+        project_type: ["Carpet"],
+        hs_demo: ["LVP"],
+      }).includes("existing_bond"),
+    ).toBe(true);
   });
 
   it("pattern repeat only after pattern match is required", () => {

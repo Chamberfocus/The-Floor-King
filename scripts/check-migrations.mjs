@@ -67,6 +67,7 @@ const REQUIRED_FILES = [
   "0204_flooring_knowledge_grade_carpet.sql",
   "0205_flooring_knowledge_carpet_glue_climate.sql",
   "0206_flooring_knowledge_shared_prep.sql",
+  "0207_flooring_knowledge_bond_site.sql",
 ];
 
 /**
@@ -925,6 +926,17 @@ const REQUIRED_MARKERS = [
       "selflevel_needed",
       "prep_scope",
       "Field verify / TBD",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0207_flooring_knowledge_bond_site.sql",
+    markers: [
+      "P0_0207_FLOORING_KNOWLEDGE",
+      "existing_bond",
+      "doors_shave",
+      "furniture_level",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

@@ -81,7 +81,16 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   // Existing
   { key: "existing_pad", purpose: "LABOR", phase: "existing", families: ["carpet"] },
   { key: "hs_demo", purpose: "LABOR", phase: "existing" },
-  { key: "existing_bond", purpose: "LABOR", phase: "existing" },
+  /**
+   * Glued vs floating only after demo is a click/glue hard surface.
+   * Carpet / ceramic / nailed hardwood already named the bond on the demo pick.
+   */
+  {
+    key: "existing_bond",
+    purpose: "LABOR",
+    phase: "existing",
+    require: { key: "hs_demo", in: ["LVP", "Laminate", "Sheet vinyl", "LVP / Vinyl"] },
+  },
   { key: "demo_disposal", purpose: "LABOR", phase: "existing" },
   {
     key: "asbestos_risk",
