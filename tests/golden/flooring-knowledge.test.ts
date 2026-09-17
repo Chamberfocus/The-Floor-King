@@ -62,6 +62,8 @@ import {
   hardSurfaceInstallMethodOptions,
   jobNeedsMixedInstallMethodPicks,
   solePermittedInstallSystem,
+  leftoverIllegalSoleInstallLabels,
+  coalesceSoleInstallSystem,
   synthesizeSoleInstallMethod,
   questionApplies,
   sqydToSqft,
@@ -263,6 +265,24 @@ describe("install systems differ by family", () => {
     expect(solePermittedInstallSystem(["lvp"])).toBeNull();
     expect(solePermittedInstallSystem(["hardwood"], "engineered")).toBeNull();
     expect(solePermittedInstallSystem(["laminate", "vinyl"])).toBeNull();
+    expect(
+      leftoverIllegalSoleInstallLabels(["laminate"], "unknown", ["Glue-down"]),
+    ).toEqual(["Glue-down"]);
+    expect(
+      leftoverIllegalSoleInstallLabels(["vinyl"], "unknown", ["Floating / click"]),
+    ).toEqual(["Floating / click"]);
+    expect(
+      leftoverIllegalSoleInstallLabels(["laminate"], "unknown", ["Floating / click"]),
+    ).toEqual([]);
+    expect(
+      leftoverIllegalSoleInstallLabels(["lvp"], "unknown", ["Glue-down"]),
+    ).toEqual([]);
+    expect(coalesceSoleInstallSystem(["laminate"], "unknown", ["glue"]).systems).toEqual([
+      "floating",
+    ]);
+    expect(coalesceSoleInstallSystem(["vinyl"], "unknown", ["floating"]).systems).toEqual(["glue"]);
+    expect(coalesceSoleInstallSystem(["tile"], "unknown", ["floating"]).systems).toEqual(["thinset"]);
+    expect(coalesceSoleInstallSystem(["lvp"], "unknown", ["glue"]).systems).toEqual(["glue"]);
   });
 });
 
@@ -683,6 +703,8 @@ describe("show_if all/any + knowledge overlay", () => {
         ctxVals,
       ),
     ).toBe(false);
+    // Leftover Glue-down on exclusive laminate does not switch the sole
+    // floating system. Mixed LVP + laminate still asks adhesive.
     expect(
       questionApplies(
         {
@@ -690,6 +712,19 @@ describe("show_if all/any + knowledge overlay", () => {
           config: { show_if: { key: "install_method", in: ["Glue-down"] } },
         },
         { ...ctxVals, install_method: ["Glue-down"] },
+      ),
+    ).toBe(false);
+    expect(
+      questionApplies(
+        {
+          key: "adhesive",
+          config: { show_if: { key: "install_method", in: ["Glue-down"] } },
+        },
+        {
+          project_type: ["Hard surface"],
+          surface_type: ["Laminate", "LVP / LVT"],
+          install_method: ["Glue-down"],
+        },
       ),
     ).toBe(true);
   });
@@ -6275,6 +6310,156 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       subfloor_condition: ["Moisture concerns"],
     });
     expect(moistureFlag).toContain("moisture_test");
+  });
+
+  it("0273 leftover illegal chips do not switch sole-system follow-ups", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0273_flooring_knowledge_sole_leftover.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0273_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/do not switch follow-ups/);
+    expect(sql).toMatch(/Do NOT SQL-gate adhesive on surface_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*adhesive|adhesive.*show_if.*surface_type/,
+    );
+
+    const lamGlue = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Glue-down"],
+    });
+    expect(lamGlue).toContain("laminate_expansion");
+    expect(lamGlue).toContain("attached_pad");
+    expect(lamGlue).toContain("hs_underlayment");
+    expect(lamGlue).not.toContain("adhesive");
+    expect(lamGlue).not.toContain("hardwood_fasteners");
+
+    const overlayLam = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Glue-down"],
+    });
+    expect(overlayLam).toContain("laminate_expansion");
+    expect(overlayLam).not.toContain("adhesive");
+    expect(
+      synthesizeSoleInstallMethod({
+        project_type: ["Hard surface"],
+        surface_type: ["Laminate"],
+        install_method: ["Glue-down"],
+      }).install_method,
+    ).toEqual(["Floating / click"]);
+
+    const vinylFloat = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      install_method: ["Floating / click"],
+    });
+    expect(vinylFloat).toContain("adhesive");
+    expect(vinylFloat).toContain("vinyl_layout");
+    expect(vinylFloat).toContain("moisture_test");
+    expect(vinylFloat).not.toContain("attached_pad");
+    expect(vinylFloat).not.toContain("laminate_expansion");
+    expect(vinylFloat).not.toContain("hs_underlayment");
+
+    const overlayVinyl = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      install_method: ["Floating / click"],
+    });
+    expect(overlayVinyl).toContain("adhesive");
+    expect(overlayVinyl).not.toContain("laminate_expansion");
+
+    const tileFloat = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      install_method: ["Floating / click"],
+    });
+    expect(tileFloat).toContain("tile_setting");
+    expect(tileFloat).not.toContain("attached_pad");
+    expect(tileFloat).not.toContain("laminate_expansion");
+    expect(tileFloat).not.toContain("hs_underlayment");
+    expect(tileFloat).not.toContain("adhesive");
+
+    const unansweredLam = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+    });
+    expect(unansweredLam).toContain("laminate_expansion");
+    expect(unansweredLam).not.toContain("adhesive");
+
+    const mixed = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate", "LVP / LVT"],
+      install_method: ["Glue-down"],
+    });
+    expect(mixed).toContain("adhesive");
+    expect(mixed).not.toContain("laminate_expansion");
+
+    const mixedBoth = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate", "LVP / LVT"],
+      install_method: ["Glue-down", "Floating / click"],
+    });
+    expect(mixedBoth).toContain("adhesive");
+    expect(mixedBoth).toContain("laminate_expansion");
+    expect(mixedBoth).toContain("attached_pad");
+
+    const legalLam = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    });
+    expect(legalLam).toContain("laminate_expansion");
+    expect(legalLam).not.toContain("adhesive");
+
+    expect(
+      leftoverIllegalSoleInstallLabels(
+        ["laminate"],
+        "unknown",
+        ["Glue-down"],
+      ),
+    ).toEqual(["Glue-down"]);
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Laminate"],
+          install_method: ["Glue-down"],
+        }),
+      ).some((w) => w.id === "sole-system-leftover"),
+    ).toBe(true);
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Laminate"],
+          install_method: ["Floating / click"],
+        }),
+      ).some((w) => w.id === "sole-system-leftover"),
+    ).toBe(false);
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Floating / click"],
+        }),
+      ).some((w) => w.id === "sole-system-leftover"),
+    ).toBe(false);
+
+    expect(knowledgeHelpFor({ key: "adhesive" }, emptyInstallContext())).toMatch(
+      /Exclusive laminate leftover Glue-down does not show this/,
+    );
+    expect(knowledgeHelpFor({ key: "install_method" }, installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+    }))).toMatch(/Leftover Glue-down/);
+    expect(knowledgeHelpFor({ key: "laminate_expansion" }, emptyInstallContext())).toMatch(
+      /Exclusive laminate leftover Glue-down still asks this/,
+    );
   });
 
   it("pattern repeat only after pattern match is required", () => {

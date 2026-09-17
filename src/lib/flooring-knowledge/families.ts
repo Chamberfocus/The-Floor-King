@@ -286,6 +286,49 @@ export function solePermittedInstallSystem(
   return systems.length === 1 ? systems[0] : null;
 }
 
+/**
+ * Leftover install_method chips that are not the family's only legal system
+ * (laminate leftover Glue-down, sheet vinyl leftover Floating, tile leftover
+ * click). Mixed LVP + laminate has no sole system — leftover stays.
+ */
+export function leftoverIllegalSoleInstallLabels(
+  families: FlooringFamily[],
+  construction: HardwoodConstruction,
+  installLabels: string[] | null | undefined,
+): string[] {
+  const sole = solePermittedInstallSystem(families, construction);
+  if (!sole) return [];
+  const out: string[] = [];
+  for (const label of installLabels ?? []) {
+    const s = installSystemFromLabel(label);
+    if (s === "unknown" || s === sole) continue;
+    out.push(label);
+  }
+  return out;
+}
+
+/**
+ * Overlay systems for a sole-system family. Leftover illegal chips do not
+ * switch adhesive / pad / expansion — laminate stays floating, tile stays
+ * thinset, sheet vinyl stays glue. Unanswered infers the sole system.
+ * LVP / hardwood (no sole) keep the answered chips.
+ */
+export function coalesceSoleInstallSystem(
+  families: FlooringFamily[],
+  construction: HardwoodConstruction,
+  answered: InstallSystem[],
+): {
+  systems: InstallSystem[];
+  inferred: Exclude<InstallSystem, "unknown"> | null;
+} {
+  const sole = solePermittedInstallSystem(families, construction);
+  if (!sole) return { systems: answered, inferred: null };
+  return {
+    systems: [sole],
+    inferred: answered.includes(sole) ? null : sole,
+  };
+}
+
 export function isRollGoodsFamily(family: FlooringFamily): boolean {
   return family === "carpet" || family === "vinyl";
 }

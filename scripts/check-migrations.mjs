@@ -133,6 +133,7 @@ const REQUIRED_FILES = [
   "0270_flooring_knowledge_concrete_sheets.sql",
   "0271_flooring_knowledge_carpet_tile_vapor.sql",
   "0272_flooring_knowledge_wood_moisture.sql",
+  "0273_flooring_knowledge_sole_leftover.sql",
 ];
 
 /**
@@ -1644,6 +1645,16 @@ const REQUIRED_MARKERS = [
       "P0_0272_FLOORING_KNOWLEDGE",
       "glue-down or wood over concrete, not a wood deck",
       "Do NOT SQL-gate moisture_test on substrate",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0273_flooring_knowledge_sole_leftover.sql",
+    markers: [
+      "P0_0273_FLOORING_KNOWLEDGE",
+      "do not switch follow-ups",
+      "Do NOT SQL-gate adhesive on surface_type",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

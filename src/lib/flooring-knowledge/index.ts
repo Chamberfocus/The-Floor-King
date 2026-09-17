@@ -23,6 +23,8 @@ export {
   installMethodOptionsForFamilies,
   hardSurfaceInstallMethodOptions,
   solePermittedInstallSystem,
+  leftoverIllegalSoleInstallLabels,
+  coalesceSoleInstallSystem,
   isHardSurfaceFamily,
   jobNeedsMixedInstallMethodPicks,
   isRollGoodsFamily,

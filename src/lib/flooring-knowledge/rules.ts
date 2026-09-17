@@ -25,6 +25,8 @@ import {
   unscopedProductFamilies,
   familyLabel,
   solePermittedInstallSystem,
+  leftoverIllegalSoleInstallLabels,
+  coalesceSoleInstallSystem,
   permittedInstallSystems,
   INSTALL_METHOD_LABELS,
   type FlooringFamily,
@@ -166,8 +168,9 @@ function uniqueSystems(list: InstallSystem[]): InstallSystem[] {
 
 /**
  * Rebuild systems/labels from answered methods, then infer a sole hard-surface
- * system (laminate floating, tile thinset, sheet vinyl glue) when unanswered.
- * Mixed LVP + laminate does not infer — those families do not share one method.
+ * system (laminate floating, tile thinset, sheet vinyl glue) when unanswered
+ * **or** when leftover chips are illegal for that family. Mixed LVP + laminate
+ * does not infer — those families do not share one method.
  */
 export function finalizeInstallContext(ctx: InstallContext): InstallContext {
   const carpetSystems = ctx.answeredCarpetInstall
@@ -176,13 +179,16 @@ export function finalizeInstallContext(ctx: InstallContext): InstallContext {
   const hsAnswered = ctx.answeredInstallMethod
     .map(installSystemFromLabel)
     .filter((s): s is InstallSystem => s !== "unknown");
-  let hsSystems = hsAnswered;
-  let inferredLabel: string | null = null;
-  const sole = solePermittedInstallSystem(ctx.families, ctx.hardwoodConstruction);
-  if (!hsAnswered.length && sole) {
-    hsSystems = [sole];
-    inferredLabel = INSTALL_METHOD_LABELS[sole];
-  }
+  const coalesced = coalesceSoleInstallSystem(
+    ctx.families,
+    ctx.hardwoodConstruction,
+    hsAnswered,
+  );
+  const hsSystems = coalesced.systems;
+  const inferredLabel = coalesced.inferred
+    ? INSTALL_METHOD_LABELS[coalesced.inferred]
+    : null;
+  const sole = coalesced.inferred ?? solePermittedInstallSystem(ctx.families, ctx.hardwoodConstruction);
   const hasHS =
     ctx.projectTypes.some((p) => /hard/i.test(p)) || ctx.families.some(isHardSurfaceFamily);
   const hasCarpet =
@@ -204,16 +210,23 @@ export function finalizeInstallContext(ctx: InstallContext): InstallContext {
 /**
  * Fill `install_method` for show_if when the family has only one legal system.
  * Overlay inference alone would hide adhesive on laminate while SQL show_if
- * for attached_pad still waited for a click.
+ * for attached_pad still waited for a click. Leftover illegal chips (Glue-down
+ * on laminate, Floating on sheet vinyl / tile) are replaced so SQL show_if
+ * follows the legal system — do not SQL-gate adhesive on surface_type (0142).
  */
 export function synthesizeSoleInstallMethod(
   valByKey: Record<string, string[]>,
 ): Record<string, string[]> {
-  if ((valByKey.install_method ?? []).length) return valByKey;
   const ctx = installContextFromValByKey(valByKey);
   const sole = solePermittedInstallSystem(ctx.families, ctx.hardwoodConstruction);
   if (!sole) return valByKey;
-  return { ...valByKey, install_method: [INSTALL_METHOD_LABELS[sole]] };
+  const label = INSTALL_METHOD_LABELS[sole];
+  const have = valByKey.install_method ?? [];
+  if (!have.length) return { ...valByKey, install_method: [label] };
+  const legal = have.filter((l) => installSystemFromLabel(l) === sole);
+  if (legal.length === have.length) return valByKey;
+  if (legal.length) return { ...valByKey, install_method: legal };
+  return { ...valByKey, install_method: [label] };
 }
 
 export function installContextFromValByKey(valByKey: Record<string, string[]>): InstallContext {
@@ -746,11 +759,11 @@ export function knowledgeHelpFor(
       return `This job has ${hs.map(familyLabel).join(" + ")}. Pick every install method in play — adhesive, pad, and fastener follow-ups follow those picks. One chip still hides the other branch. Do not invent a per-room editor here.`;
     }
     if (ctx.families.includes("laminate"))
-      return "Laminate is a floating floor. Adhesive questions stay hidden unless a different method is actually in play.";
+      return "Laminate is a floating floor. Leftover Glue-down from a previous surface does not open adhesive follow-ups — expansion and attached pad still ask. Mixed LVP + laminate still asks both branches.";
     if (ctx.families.includes("vinyl"))
-      return "Sheet vinyl is roll goods — glue-down is the usual system. Layout and seams, not carton math.";
+      return "Sheet vinyl is roll goods — glue-down is the usual system. Leftover Floating / click does not hide adhesive or open expansion. Layout and seams, not carton math.";
     if (ctx.families.includes("tile"))
-      return "Tile sets in thinset/mortar. Floating-floor accessories do not apply.";
+      return "Tile sets in thinset/mortar. Leftover Floating / click does not open attached pad, underlayment, or expansion. Floating-floor accessories do not apply.";
     if (ctx.families.includes("hardwood")) {
       return ctx.hardwoodConstruction === "engineered"
         ? "Engineered hardwood may allow nail, staple, glue, or floating — confirm the product permits the method you pick."
@@ -841,13 +854,13 @@ export function knowledgeHelpFor(
     return "AC and heat on site. The acclimation warning fires only for hardwood / glue-down / carpet tile, from this overlay — not a second questionnaire list. Stretch-in and floating still capture it as an install condition. Legacy AC/heat yes-no answers still count.";
   }
   if (key === "laminate_expansion") {
-    return "Floating floors need expansion at walls and transitions. Solid hardwood hides this — floating is not a permitted system. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
+    return "Floating floors need expansion at walls and transitions. Solid hardwood hides this — floating is not a permitted system. Exclusive laminate leftover Glue-down still asks this — laminate is floating. Exclusive tile leftover Floating hides this. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
   }
   if (key === "attached_pad") {
-    return "Floating LVP / laminate / engineered may have an attached pad. Solid hardwood hides this — floating is not a permitted system. Glue-down hides this. Yes hides separate underlayment.";
+    return "Floating LVP / laminate / engineered may have an attached pad. Solid hardwood hides this — floating is not a permitted system. Glue-down hides this. Exclusive laminate leftover Glue-down still asks this. Exclusive tile leftover Floating hides this. Yes hides separate underlayment.";
   }
   if (key === "hs_underlayment") {
-    return "Separate underlayment for a floating floor. Attached pad Yes hides this. Solid hardwood hides this. Glue-down hides this. Do not invent a roll count.";
+    return "Separate underlayment for a floating floor. Attached pad Yes hides this. Solid hardwood hides this. Glue-down hides this. Exclusive laminate leftover Glue-down still asks this. Exclusive tile leftover Floating hides this. Do not invent a roll count.";
   }
   if (key === "selflevel_needed") {
     return "Bag count uses Settings coverage at the chosen pour. Pour is the shop default, else the coverage reference — we do not invent 1/4 inch. Field verify withholds bags.";
@@ -910,7 +923,7 @@ export function knowledgeHelpFor(
     return "Aqua bar / primer only when hardwood, glue-down, carpet tile, or a moisture-concern flag makes it relevant. Floating laminate and stretch-in without that flag hide this. Exclusive carpet tile asks this instead of 6-mil vapor barrier. Exclusive hardwood nail/staple/floating over plywood hides this — Aqua bar is a slab system; glue-down over wood still asks. Mixed LVP still asks. Unanswered substrate stays open. Existing catalog rates — do not invent a new product.";
   }
   if (key === "adhesive") {
-    return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this. Quantity is gallons or kits in Builder — taped square feet is not a glue order. A line with no sold-by unit shows How many / Unit TBD, not Sq ft. Do not invent coverage.";
+    return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this. Exclusive laminate leftover Glue-down does not show this — laminate is floating. Exclusive sheet vinyl leftover Floating still asks this — sheet vinyl is glue-down. Mixed LVP still asks. Quantity is gallons or kits in Builder — taped square feet is not a glue order. A line with no sold-by unit shows How many / Unit TBD, not Sq ft. Do not invent coverage.";
   }
   if (key === "vinyl_skim") {
     return "Embossed existing vinyl often needs a skim coat. New construction hides this — there is no existing vinyl. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";
@@ -1099,6 +1112,21 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
       id: "solid-floating",
       text: "Solid hardwood is typically nail, staple, or glue. Floating is uncommon — confirm the product permits it. Do not assume a click floor or attached pad.",
     });
+  }
+  {
+    const leftover = leftoverIllegalSoleInstallLabels(
+      ctx.families,
+      ctx.hardwoodConstruction,
+      ctx.answeredInstallMethod,
+    );
+    const sole = solePermittedInstallSystem(ctx.families, ctx.hardwoodConstruction);
+    if (leftover.length && sole) {
+      const hs = ctx.families.find(isHardSurfaceFamily);
+      w.push({
+        id: "sole-system-leftover",
+        text: `${hs ? familyLabel(hs) : "This product"} is ${INSTALL_METHOD_LABELS[sole]}. Leftover “${leftover.join(" / ")}” does not switch follow-ups — adhesive, pad, and expansion follow the legal system. Confirm the product, or clear the leftover chip.`,
+      });
+    }
   }
   if (
     ctx.families.includes("carpet") &&
