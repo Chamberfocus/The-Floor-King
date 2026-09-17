@@ -166,6 +166,7 @@ export {
   measuredSqftForQuestionCover,
   roomsAssignedToFamilies,
   roomsForPrepTakeoff,
+  emitAreaSqftForQuestion,
   deliveryAddonCost,
   reviewBucketForQuestion,
   type ReviewRoom,

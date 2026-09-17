@@ -88,6 +88,7 @@ import {
   knowledgeWarnings,
   amountUnitLabelForQuestion,
   resolveQuestionVisibility,
+  questionPurpose,
   jobNeedsAcclimationClimate,
   reviewToJobNotes,
   buildSalespersonReview,
@@ -104,6 +105,7 @@ import {
   measuredSqftForQuestionCover,
   roomsAssignedToFamilies,
   roomsForPrepTakeoff,
+  emitAreaSqftForQuestion,
   deliveryAddonCost,
   reviewBucketForQuestion,
   prepQuantitySuffix,
@@ -1923,17 +1925,26 @@ export function Questionnaire({
       } else if (q.kind === "yesno" || q.kind === "number" || q.kind === "choice") {
         // Per-room prep: split into a job-default line for the remaining area +
         // one room-scoped line per flagged room (its own answer/area). Otherwise
-        // one job-level line at the whole measured area.
+        // one job-level line. Prep labor uses HS rooms on a mixed job — demo /
+        // haul stay whole-job (the old floor is not the new family).
+        const emitArea = emitAreaSqftForQuestion({
+          key: q.key,
+          kind: q.kind,
+          purpose: questionPurpose(q),
+          totalSqft,
+          byFamily: floorMapAssignments.byFamily,
+          jobFamilies: flooringCtx.families,
+        });
         if (q.config.per_room && flaggedRooms.length) {
           const flaggedArea = flaggedRooms.reduce((s, r) => s + rowSqft(r), 0);
-          const remaining = r2(Math.max(0, totalSqft - flaggedArea));
+          const remaining = r2(Math.max(0, emitArea - flaggedArea));
           if (remaining > 0) out.push(...linesForAnswer(q, a, remaining, null));
           for (const r of flaggedRooms) {
             const ov = overrides[r.id]?.[q.id] ?? a;
             out.push(...linesForAnswer(q, ov, rowSqft(r), r.name || "Room"));
           }
         } else {
-          out.push(...linesForAnswer(q, a, totalSqft, null));
+          out.push(...linesForAnswer(q, a, emitArea, null));
         }
       }
     }

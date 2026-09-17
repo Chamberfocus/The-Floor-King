@@ -311,6 +311,56 @@ export function measuredSqftForQuestionCover(args: {
   return 0;
 }
 
+/**
+ * Area-based yes/no / choice / number emit (demo, haul, prep labor).
+ * Prep lines follow hard-surface rooms on a mixed job — the same split as
+ * self-leveler bags. Demo / haul / furniture stay whole-job: the old floor is
+ * not the new family.
+ */
+export function emitAreaSqftForQuestion(args: {
+  key?: string | null;
+  kind?: string | null;
+  purpose?: string | null;
+  totalSqft: number;
+  byFamily: Partial<Record<FlooringFamily, number>>;
+  jobFamilies: FlooringFamily[];
+}): number {
+  const key = args.key ?? "";
+  const kind = args.kind ?? "";
+  const purpose = (args.purpose ?? "").toUpperCase();
+  if (key === "vinyl_skim") {
+    return measuredSqftForFamilyTakeoff({
+      family: "vinyl",
+      totalSqft: args.totalSqft,
+      byFamily: args.byFamily,
+      jobFamilies: args.jobFamilies,
+    });
+  }
+  if (
+    purpose === "PREP" ||
+    kind === "selflevel" ||
+    kind === "subfloor" ||
+    key === "hs_prep" ||
+    key === "selflevel_needed" ||
+    key === "subfloor_needed" ||
+    key === "moisture_mitigation" ||
+    key === "hs_underlayment" ||
+    key === "vapor_barrier"
+  ) {
+    return measuredSqftForPrepTakeoff(args);
+  }
+  if (key === "carpet_pad" || key === "tack_strip") {
+    return measuredSqftForFamilyTakeoff({
+      family: "carpet",
+      totalSqft: args.totalSqft,
+      byFamily: args.byFamily,
+      jobFamilies: args.jobFamilies,
+    });
+  }
+  const n = Number(args.totalSqft);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 export function roomsAssignedToFamilies<T>(args: {
   rooms: { room: T; family: FlooringFamily | null }[];
   families: FlooringFamily[];

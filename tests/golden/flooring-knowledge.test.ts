@@ -86,6 +86,7 @@ import {
   measuredSqftForQuestionCover,
   roomsAssignedToFamilies,
   roomsForPrepTakeoff,
+  emitAreaSqftForQuestion,
   deliveryAddonCost,
   reviewBucketForQuestion,
   formatMeasuredLabel,
@@ -3690,6 +3691,21 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/questionCoverSf/);
   });
 
+  it("0240 mixed prep labor does not clone whole-job sq ft onto carpet rooms", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0240_flooring_knowledge_prep_area.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0240_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/prep labor/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/emitAreaSqftForQuestion/);
+    expect(q).toMatch(/questionPurpose/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
@@ -3925,6 +3941,33 @@ describe("stair extras and mixed-job measured area", () => {
         jobFamilies: ["carpet", "lvp"],
       }),
     ).toEqual([living]);
+    expect(
+      emitAreaSqftForQuestion({
+        key: "hs_prep",
+        purpose: "PREP",
+        totalSqft: 550,
+        byFamily: byFam,
+        jobFamilies: ["carpet", "lvp"],
+      }),
+    ).toBe(200);
+    expect(
+      emitAreaSqftForQuestion({
+        key: "hs_demo",
+        purpose: "LABOR",
+        totalSqft: 550,
+        byFamily: byFam,
+        jobFamilies: ["carpet", "lvp"],
+      }),
+    ).toBe(550);
+    expect(
+      emitAreaSqftForQuestion({
+        key: "vinyl_skim",
+        purpose: "PREP",
+        totalSqft: 550,
+        byFamily: { vinyl: 180, carpet: 370 },
+        jobFamilies: ["carpet", "vinyl"],
+      }),
+    ).toBe(180);
   });
 
   it("0196 re-gates stair extras and floating underlayment without inventing prices", () => {
