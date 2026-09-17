@@ -1439,6 +1439,16 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
     },
     {
+      key: "construction_grade",
+      position: 209,
+      show_if: {
+        any: [
+          { key: "project_type", in: ["Hard surface"] },
+          { key: "carpet_install", in: ["Glue-down", "Carpet tile"] },
+        ],
+      },
+    },
+    {
       key: "asbestos_risk",
       position: 277,
       show_if: {
@@ -1829,6 +1839,69 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         install_method: ["Thinset / mortar"],
       }),
     ).toContain("tile_format");
+  });
+
+  it("0204 asks grade on glue-down carpet, not stretch-in, without inventing a ban", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0204_flooring_knowledge_grade_carpet.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0204_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/construction_grade/);
+    expect(sql).toMatch(/Glue-down/);
+    expect(sql).toMatch(/Carpet tile/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(knowledgeQuestionByKey("construction_grade")?.any).toEqual([
+      { families: ["hardwood", "lvp", "laminate", "vinyl", "tile"] },
+      { systems: ["glue", "carpet_tile"] },
+    ]);
+
+    expect(
+      walk({
+        project_type: ["Carpet"],
+        carpet_install: ["Stretch-in"],
+      }),
+    ).not.toContain("construction_grade");
+    expect(
+      walk({
+        project_type: ["Carpet"],
+        carpet_install: ["Glue-down"],
+      }),
+    ).toContain("construction_grade");
+    expect(
+      walk({
+        project_type: ["Carpet"],
+        carpet_install: ["Carpet tile"],
+      }),
+    ).toContain("construction_grade");
+    expect(
+      walk({
+        project_type: ["Hard surface"],
+        surface_type: ["Laminate"],
+        install_method: ["Floating / click"],
+      }),
+    ).toContain("construction_grade");
+
+    const below = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Carpet"],
+        carpet_install: ["Glue-down"],
+        construction_grade: ["Below grade"],
+      }),
+    );
+    expect(below.some((w) => w.id === "carpet-glue-below-grade")).toBe(true);
+    expect(below.some((w) => /do not assume a ban/i.test(w.text))).toBe(true);
+
+    const stretchBelow = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Carpet"],
+        carpet_install: ["Stretch-in"],
+        construction_grade: ["Below grade"],
+      }),
+    );
+    expect(stretchBelow.some((w) => w.id === "carpet-glue-below-grade")).toBe(false);
   });
 
   it("pattern repeat only after pattern match is required", () => {

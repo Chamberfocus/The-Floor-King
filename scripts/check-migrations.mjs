@@ -64,6 +64,7 @@ const REQUIRED_FILES = [
   "0201_flooring_knowledge_shared_demo.sql",
   "0202_flooring_knowledge_tile_carpet_prep.sql",
   "0203_flooring_knowledge_radiant_tile_format.sql",
+  "0204_flooring_knowledge_grade_carpet.sql",
 ];
 
 /**
@@ -886,6 +887,17 @@ const REQUIRED_MARKERS = [
       "P0_0203_FLOORING_KNOWLEDGE",
       "radiant_heat",
       "tile_format",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0204_flooring_knowledge_grade_carpet.sql",
+    markers: [
+      "P0_0204_FLOORING_KNOWLEDGE",
+      "construction_grade",
+      "Glue-down",
+      "Carpet tile",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

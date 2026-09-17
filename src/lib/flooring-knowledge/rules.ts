@@ -559,6 +559,9 @@ export function knowledgeHelpFor(
   if (key === "acclimation") {
     return "Hardwood and glue-down need acclimation / climate notes. Floating laminate and stretch-in carpet hide this — do not invent a day count.";
   }
+  if (key === "construction_grade") {
+    return "Above / on / below grade can change what a product and adhesive permit. Stretch-in over wood hides this. Glue-down carpet, carpet tile, and hard surface still ask. Confirm against the product — do not assume a ban.";
+  }
   if (key === "moisture_test") {
     return "Glue-down, hardwood, or a moisture-concern flag on the substrate. If you cannot test yet, pick Field verify — do not invent a number.";
   }
@@ -607,6 +610,16 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     w.push({
       id: "solid-below-grade",
       text: "Solid hardwood below grade — confirm the product/manufacturer permits this. Do not assume it; field verify if unsure.",
+    });
+  }
+  if (
+    ctx.families.includes("carpet") &&
+    (ctx.systems.includes("glue") || ctx.systems.includes("carpet_tile")) &&
+    has(ctx.grade, /below/i)
+  ) {
+    w.push({
+      id: "carpet-glue-below-grade",
+      text: "Glue-down / carpet tile below grade — confirm the adhesive and product permit it. Do not assume a ban; field verify if unsure.",
     });
   }
   if (

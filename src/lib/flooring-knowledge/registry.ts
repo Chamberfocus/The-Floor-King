@@ -113,7 +113,12 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     phase: "install",
     any: [{ families: ["hardwood"] }, { systems: ["glue"] }],
   },
-  { key: "construction_grade", purpose: "INSTALLATION", phase: "install", families: ["hardwood", "lvp", "laminate", "vinyl", "tile"] },
+  { key: "construction_grade", purpose: "INSTALLATION", phase: "install",
+    any: [
+      { families: ["hardwood", "lvp", "laminate", "vinyl", "tile"] },
+      { systems: ["glue", "carpet_tile"] },
+    ],
+  },
   { key: "radiant_heat", purpose: "WARNING", phase: "install" },
   { key: "laminate_expansion", purpose: "SCOPE", phase: "install", systems: ["floating"] },
   { key: "tile_application", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
