@@ -1021,8 +1021,11 @@ export function Questionnaire({
               measure_unit: b.measureUnit,
               sqft: rm.sqft,
               quantity: qty,
-              length_in: rm.lenIn,
-              width_in: rm.widIn,
+              // Room L×W is measured area. Never stuff it onto a carpet/vinyl
+              // line as a warehouse cut — exclusive tile is modular, and
+              // broadloom order comes from the cuts step.
+              length_in: isRollGoodCategory(cat) ? null : rm.lenIn,
+              width_in: isRollGoodCategory(cat) ? null : rm.widIn,
               unit: b.unitLabel,
               material_rate: sellMat(rateFor(p.materialRate, p.unit, b.wantYd)),
               labor_rate: 0,
@@ -1036,6 +1039,7 @@ export function Questionnaire({
               color: p.color,
               from_stock: p.source === "stock",
               sqft_per_box: spb > 0 ? spb : null,
+              order_as_roll: isRollGoodCategory(cat) ? false : undefined,
             });
           else if (rollGoodsNeedCuts(rollFam, carpetSystems) && (p.productId || p.label)) {
             const key = p.productId || p.label;

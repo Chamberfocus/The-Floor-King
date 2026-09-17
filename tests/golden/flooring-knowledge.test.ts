@@ -1474,6 +1474,21 @@ describe("unknown conditions stay unknown", () => {
     ]);
     expect(real.cuts.length).toBe(1);
     expect(real.totalSqyd).toBeGreaterThan(0);
+    const tileRoom = carpetCutList([
+      {
+        room: "Living",
+        description: "Carpet tile",
+        category: "carpet",
+        length_in: 12 * 12,
+        width_in: 14 * 12,
+        sqft: 168,
+        roll_width_ft: null,
+        measurements: null,
+        order_as_roll: false,
+      },
+    ]);
+    expect(tileRoom.cuts).toEqual([]);
+    expect(tileRoom.totalSqyd).toBe(0);
   });
 });
 
@@ -2878,6 +2893,24 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const rules = readFileSync(join(root, "src/lib/flooring-knowledge/rules.ts"), "utf8");
     expect(rules).toMatch(/not an automatic 8 sq ft\/step order/);
+  });
+
+  it("0218 does not turn a floor-map room into a carpet-tile warehouse cut", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0218_flooring_knowledge_tile_not_room_cut.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0218_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/warehouse cut/);
+    expect(sql).toMatch(/order_as_roll/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/isRollGoodCategory\(cat\) \? null : rm\.lenIn/);
+    expect(q).toMatch(/order_as_roll: isRollGoodCategory\(cat\) \? false/);
+    const scope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(scope).toMatch(/order_as_roll === false && !measured\.length/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

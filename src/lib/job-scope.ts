@@ -130,6 +130,12 @@ export interface CutSource {
     width_in: number;
     op?: string | null;
   }[] | null;
+  /**
+   * Exclusive carpet tile (and other modular carpet) is category `carpet` but
+   * not a roll cut plan. `false` means room L×W is measured area, not a
+   * warehouse piece. Absent / true keeps legacy broadloom behavior.
+   */
+  order_as_roll?: boolean | null;
 }
 
 /**
@@ -184,6 +190,9 @@ export function carpetCutList(items: CutSource[]): {
         widthIn: Number(m.width_in),
         room: (m.label && m.label.trim()) || null,
       }));
+    // Modular / boxed carpet (order_as_roll === false): room L×W is measured
+    // area, not a 12'×14' warehouse cut. Explicit measurement pieces still count.
+    if (l.order_as_roll === false && !measured.length) continue;
     const len = Number(l.length_in) || 0;
     const wid = Number(l.width_in) || 0;
     const lineCuts = measured.length

@@ -78,6 +78,7 @@ const REQUIRED_FILES = [
   "0215_flooring_knowledge_cut_width.sql",
   "0216_flooring_knowledge_roll_tbd_sku.sql",
   "0217_flooring_knowledge_hs_stair_units.sql",
+  "0218_flooring_knowledge_tile_not_room_cut.sql",
 ];
 
 /**
@@ -1054,6 +1055,16 @@ const REQUIRED_MARKERS = [
       "8 sq ft/step",
       "hs_plank_stairs",
       "per step",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0218_flooring_knowledge_tile_not_room_cut.sql",
+    markers: [
+      "P0_0218_FLOORING_KNOWLEDGE",
+      "warehouse cut",
+      "order_as_roll",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
