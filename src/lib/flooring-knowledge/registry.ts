@@ -120,6 +120,12 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "hs_underlayment", purpose: "MATERIAL", phase: "install", systems: ["floating"] },
   { key: "hardwood_fasteners", purpose: "MATERIAL", phase: "install", systems: ["nail", "staple"] },
   /**
+   * Prefinished vs unfinished (site finish). Catalog has no sand/finish labor —
+   * capture as scope. Overlay families hardwood so laminate/LVP hide once the
+   * surface is known; unanswered HS stays open (surfacePending).
+   */
+  { key: "hardwood_finish", purpose: "SCOPE", phase: "product", families: ["hardwood"] },
+  /**
    * Hardwood (solid or engineered) OR glue-down of any family — including
    * glue-down carpet. Laminate floating / stretch-in carpet / thinset tile hide this.
    */

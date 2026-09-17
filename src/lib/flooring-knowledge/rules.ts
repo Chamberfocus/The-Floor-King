@@ -497,6 +497,9 @@ export function knowledgeHelpFor(
   if (key === "hardwood_fasteners") {
     return "Nail/staple jobs need fasteners. Pick the catalog item in Builder — this question only records the need.";
   }
+  if (key === "hardwood_finish") {
+    return "Prefinished vs unfinished (site finish) changes sanding, finishing, and acclimation notes. Floor King has no sand/finish labor in the catalog — capture it as scope. Field verify if the SKU is not in front of you. Do not invent a sand-and-finish dollar amount.";
+  }
   if (key === "existing_bond") {
     return "Glued-down LVP/laminate/vinyl is a different tear-out than floating. Scope note — existing demo rates stay.";
   }
@@ -695,6 +698,15 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     w.push({
       id: "legacy-lvp-vinyl",
       text: "“LVP / Vinyl” is the old combined label. LVP/LVT (boxed) and sheet vinyl (roll goods) order differently — pick the matching surface if you can.",
+    });
+  }
+  if (
+    ctx.families.includes("hardwood") &&
+    picked.some((l) => /^unfinished \(site finish\)$/i.test(l.trim()))
+  ) {
+    w.push({
+      id: "hardwood-unfinished",
+      text: "Unfinished hardwood needs site sanding and finishing. Floor King has no sand/finish labor in the catalog — capture it as a scope note, add a real catalog item in Builder if you sell it, or Field verify. Do not invent a dollar amount.",
     });
   }
   if (ctx.families.includes("hardwood") && ctx.hardwoodConstruction === "solid" && has(ctx.grade, /below/i)) {

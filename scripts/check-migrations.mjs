@@ -105,6 +105,7 @@ const REQUIRED_FILES = [
   "0242_flooring_knowledge_mixed_unassigned.sql",
   "0243_flooring_knowledge_adhesive_qty_ui.sql",
   "0244_flooring_knowledge_pad_count_ui.sql",
+  "0245_flooring_knowledge_hardwood_finish.sql",
 ];
 
 /**
@@ -1328,6 +1329,16 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0244_FLOORING_KNOWLEDGE",
       "How many / Unit TBD",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0245_flooring_knowledge_hardwood_finish.sql",
+    markers: [
+      "P0_0245_FLOORING_KNOWLEDGE",
+      "hardwood_finish",
+      "Unfinished (site finish)",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

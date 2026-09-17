@@ -1064,6 +1064,7 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "attached_pad")).toBe(true);
     expect(has(keys, "hs_underlayment")).toBe(true);
     expect(has(keys, "hs_direction")).toBe(true);
+    expect(has(keys, "hardwood_finish")).toBe(false);
     expect(has(keys, "acclimation")).toBe(false);
     expect(has(keys, "moisture_test")).toBe(false);
     expect(has(keys, "moisture_mitigation")).toBe(false);
@@ -1078,6 +1079,7 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(lam, "laminate_expansion")).toBe(true);
     expect(has(lam, "attached_pad")).toBe(true);
     expect(has(lam, "hardwood_fasteners")).toBe(false);
+    expect(has(lam, "hardwood_finish")).toBe(false);
 
     const tile = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
@@ -1115,6 +1117,7 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "laminate_expansion")).toBe(false);
     expect(has(keys, "hs_underlayment")).toBe(false);
     expect(has(keys, "hardwood_fasteners")).toBe(false);
+    expect(has(keys, "hardwood_finish")).toBe(false);
     expect(has(keys, "tile_layout")).toBe(false);
     expect(has(keys, "acclimation")).toBe(true);
     expect(has(keys, "moisture_test")).toBe(true);
@@ -1130,7 +1133,7 @@ describe("family → system asks the right keys (not every question)", () => {
       carpet_install: ["Stretch-in"],
     });
     on(carpetStretch, ["carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat", "carpet_stairs"]);
-    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "carpet_tile_stairs"]);
+    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "carpet_tile_stairs"]);
 
     const carpetGlue = visibleKnowledgeKeys({
       project_type: ["Carpet"],
@@ -1152,7 +1155,7 @@ describe("family → system asks the right keys (not every question)", () => {
       install_method: ["Floating / click"],
     });
     on(lam, ["attached_pad", "laminate_expansion", "hs_direction"]);
-    off(lam, ["adhesive", "hardwood_fasteners", "tile_setting", "vinyl_layout", "tack_strip", "acclimation", "moisture_test", "moisture_mitigation"]);
+    off(lam, ["adhesive", "hardwood_fasteners", "hardwood_finish", "tile_setting", "vinyl_layout", "tack_strip", "acclimation", "moisture_test", "moisture_mitigation"]);
 
     const lvpGlue = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
@@ -1160,14 +1163,14 @@ describe("family → system asks the right keys (not every question)", () => {
       install_method: ["Glue-down"],
     });
     on(lvpGlue, ["adhesive", "acclimation", "moisture_test", "moisture_mitigation"]);
-    off(lvpGlue, ["attached_pad", "laminate_expansion", "hardwood_fasteners", "tile_setting"]);
+    off(lvpGlue, ["attached_pad", "laminate_expansion", "hardwood_fasteners", "hardwood_finish", "tile_setting"]);
 
     const engNail = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
       surface_type: ["Engineered hardwood"],
       install_method: ["Nail-down"],
     });
-    on(engNail, ["hardwood_fasteners", "acclimation", "moisture_test", "moisture_mitigation"]);
+    on(engNail, ["hardwood_fasteners", "hardwood_finish", "acclimation", "moisture_test", "moisture_mitigation"]);
     off(engNail, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout"]);
 
     const vinyl = visibleKnowledgeKeys({
@@ -1176,7 +1179,7 @@ describe("family → system asks the right keys (not every question)", () => {
       install_method: ["Glue-down"],
     });
     on(vinyl, ["vinyl_layout", "vinyl_skim", "adhesive", "moisture_test", "moisture_mitigation"]);
-    off(vinyl, ["attached_pad", "carpet_pad", "tile_application", "hardwood_fasteners"]);
+    off(vinyl, ["attached_pad", "carpet_pad", "tile_application", "hardwood_fasteners", "hardwood_finish"]);
 
     const tile = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
@@ -1184,7 +1187,7 @@ describe("family → system asks the right keys (not every question)", () => {
       install_method: ["Thinset / mortar"],
     });
     on(tile, ["tile_application", "tile_body", "tile_format", "tile_layout", "tile_setting"]);
-    off(tile, ["adhesive", "attached_pad", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test", "hs_direction"]);
+    off(tile, ["adhesive", "attached_pad", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction"]);
   });
 
   it("stretch-in carpet: tack strip on, adhesive off", () => {
@@ -1585,6 +1588,11 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: { key: "install_method", in: ["Nail-down", "Staple-down"] },
     },
     {
+      key: "hardwood_finish",
+      position: 211,
+      show_if: { key: "surface_type", in: ["Hardwood", "Engineered hardwood"] },
+    },
+    {
       key: "acclimation",
       position: 230,
       show_if: {
@@ -1853,6 +1861,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("hs_base_trim");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("hardwood_fasteners");
+    expect(keys).not.toContain("hardwood_finish");
     expect(keys).not.toContain("tack_strip");
     expect(keys).not.toContain("tile_setting");
     expect(keys).not.toContain("vinyl_layout");
@@ -1871,6 +1880,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("laminate_expansion");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("hardwood_fasteners");
+    expect(keys).not.toContain("hardwood_finish");
     expect(synthesizeSoleInstallMethod({ project_type: ["Hard surface"], surface_type: ["Laminate"] }).install_method).toEqual([
       "Floating / click",
     ]);
@@ -1937,6 +1947,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).not.toContain("stair_landings");
     expect(keys).not.toContain("stair_open_sides");
     expect(keys).not.toContain("demo_disposal");
+    expect(keys).not.toContain("hardwood_finish");
   });
 
   it("vapor_barrier: floating or concrete; not nail-down over plywood", () => {
@@ -2219,6 +2230,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(bothBranches).toContain("attached_pad");
     expect(bothBranches).toContain("hardwood_fasteners");
+    expect(bothBranches).toContain("hardwood_finish");
     expect(bothBranches).not.toContain("adhesive");
 
     expect(jobNeedsMixedInstallMethodPicks(["lvp", "hardwood"])).toBe(true);
@@ -2506,6 +2518,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(mixed).toContain("attached_pad");
     expect(mixed).toContain("hardwood_fasteners");
+    expect(mixed).toContain("hardwood_finish");
     expect(mixed).not.toContain("adhesive");
     expect(mixed).toContain("occupancy");
     expect(mixed).toContain("climate_control");
@@ -3776,6 +3789,102 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(builder).toMatch(/category === "underlayment"/);
 
     expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(/Unit TBD/);
+  });
+
+  it("0245 hardwood prefinished vs unfinished is SCOPE, not invented sand/finish labor", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0245_flooring_knowledge_hardwood_finish.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0245_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/hardwood_finish/);
+    expect(sql).toMatch(/Unfinished \(site finish\)/);
+    expect(sql).toMatch(/Prefinished/);
+    expect(sql).toMatch(/Field verify \/ TBD/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/insert into public\.products/);
+
+    expect(knowledgeQuestionByKey("hardwood_finish")?.purpose).toBe("SCOPE");
+    expect(knowledgeQuestionByKey("hardwood_finish")?.phase).toBe("product");
+    expect(knowledgeQuestionByKey("hardwood_finish")?.families).toEqual(["hardwood"]);
+    expect(reviewBucketForQuestion({ key: "hardwood_finish", label: "Prefinished or unfinished?" })).toBe(
+      "specials",
+    );
+    expect(knowledgeHelpFor({ key: "hardwood_finish" }, emptyInstallContext())).toMatch(
+      /sand\/finish/,
+    );
+
+    const solid = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+    });
+    expect(solid).toContain("hardwood_finish");
+    expect(solid).toContain("hardwood_fasteners");
+
+    const engineered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Engineered hardwood"],
+      install_method: ["Glue-down"],
+    });
+    expect(engineered).toContain("hardwood_finish");
+    expect(engineered).toContain("adhesive");
+    expect(engineered).not.toContain("hardwood_fasteners");
+
+    const lam = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    });
+    expect(lam).not.toContain("hardwood_finish");
+
+    // Overlay stays open on unanswered HS (surfacePending). SQL show_if hides
+    // until Hardwood / Engineered hardwood is picked.
+    expect(
+      visibleKnowledgeKeys({ project_type: ["Hard surface"] }),
+    ).toContain("hardwood_finish");
+    expect(walk({ project_type: ["Hard surface"] })).not.toContain("hardwood_finish");
+    expect(
+      walk({ project_type: ["Hard surface"], surface_type: ["Hardwood"] }),
+    ).toContain("hardwood_finish");
+
+    const unfinished = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Hardwood"],
+      }),
+      { pickedLabels: ["Unfinished (site finish)"] },
+    );
+    expect(unfinished.some((w) => w.id === "hardwood-unfinished")).toBe(true);
+    expect(unfinished.find((w) => w.id === "hardwood-unfinished")?.text).toMatch(/Do not invent/);
+
+    const prefinished = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Hardwood"],
+      }),
+      { pickedLabels: ["Prefinished"] },
+    );
+    expect(prefinished.some((w) => w.id === "hardwood-unfinished")).toBe(false);
+
+    const unknown = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Hardwood"],
+      }),
+      { pickedLabels: ["Unknown"] },
+    );
+    expect(unknown.some((w) => w.id === "hardwood-unfinished")).toBe(false);
+
+    const shoe = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Laminate"],
+      }),
+      { pickedLabels: ["Shoe (unfinished)"] },
+    );
+    expect(shoe.some((w) => w.id === "hardwood-unfinished")).toBe(false);
   });
 
   it("pattern repeat only after pattern match is required", () => {
