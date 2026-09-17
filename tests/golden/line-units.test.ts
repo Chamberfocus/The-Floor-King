@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
   billedQtyToSqyd,
   catalogRateToBillingUnit,
+  catalogUnitFactor,
   isCountPricedLine,
   lineDisplayUnit,
   lineUnitKey,
@@ -152,6 +153,16 @@ describe("catalogRateToBillingUnit — SY is yards, never ×9", () => {
   it("count units stay 1:1 even on a sq-yd job", () => {
     expect(catalogRateToBillingUnit(45.62, "each", true)).toBe(45.62);
     expect(catalogRateToBillingUnit(12, "roll", true)).toBe(12);
+  });
+
+  it("catalogUnitFactor keys off the printed billing unit, not leftover measure_unit", () => {
+    // Carpet line: unit sq yd, leftover measure_unit sqft. Catalog SY → factor 1.
+    expect(lineUnitKey({ unit: "sq yd", measure_unit: "sqft", sqft: 450 })).toBe("sqyd");
+    expect(catalogUnitFactor("SY", lineUnitKey({ unit: "sq yd", measure_unit: "sqft", sqft: 450 }) === "sqyd")).toBe(1);
+    // Using leftover measure_unit would have been ÷9.
+    expect(catalogUnitFactor("SY", false)).toBe(1 / 9);
+    expect(catalogUnitFactor("sqft", true)).toBe(9);
+    expect(catalogUnitFactor("each", true)).toBe(1);
   });
 });
 

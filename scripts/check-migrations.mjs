@@ -84,6 +84,7 @@ const REQUIRED_FILES = [
   "0221_flooring_knowledge_trim_price.sql",
   "0222_flooring_knowledge_roll_qty.sql",
   "0223_flooring_knowledge_piece_length.sql",
+  "0224_flooring_knowledge_billing_unit.sql",
 ];
 
 /**
@@ -1105,10 +1106,10 @@ const REQUIRED_MARKERS = [
     ],
   },
   {
-    file: "0223_flooring_knowledge_piece_length.sql",
+    file: "0224_flooring_knowledge_billing_unit.sql",
     markers: [
-      "P0_0223_FLOORING_KNOWLEDGE",
-      "do not invent 94",
+      "P0_0224_FLOORING_KNOWLEDGE",
+      "Leftover measure_unit is not the billing unit",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

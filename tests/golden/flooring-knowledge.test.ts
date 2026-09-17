@@ -414,6 +414,8 @@ describe("measured area vs order quantity", () => {
     expect(src).toMatch(/rollGoodsOrderTbdDescription/);
     expect(src).not.toMatch(/Math\.ceil\(\(sqft \/ 9\) \* \(1 \+ profile\.waste/);
     expect(src).toMatch(/length_in: null/);
+    expect(src).toMatch(/areaDerivedMaterialQty/);
+    expect(src).toMatch(/waste_pct: waste/);
   });
 
   it("boxed LVP uses waste and carton rounding only when coverage exists", () => {
@@ -3160,6 +3162,35 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(builder).toMatch(/Installed \/\$\{lineDisplayUnit\(line\)\}/);
     expect(builder).not.toMatch(/Installed \/\$\{line\.measure_unit === "sqyd"/);
+  });
+
+  it("0224 catalog conversion uses the printed billing unit, not leftover measure_unit", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0224_flooring_knowledge_billing_unit.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0224_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Leftover measure_unit is not the billing unit/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/catalogUnitFactor\(d\.unit, lineUnitKey\(l\) === "sqyd"\)/);
+    expect(builder).toMatch(/measureUnit: lineUnitKey\(l\) === "sqyd" \? "sqyd" : "sqft"/);
+    expect(builder).not.toMatch(/catalogFactor\(l\.measure_unit/);
+
+    const catalog = readFileSync(join(root, "src/app/(app)/catalog/actions.ts"), "utf8");
+    expect(catalog).toMatch(/catalogUnitFactor\(p\.unit/);
+    expect(catalog).not.toMatch(/input\.measureUnit === catUnit/);
+
+    const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
+    expect(ai).toMatch(/areaDerivedMaterialQty/);
+    expect(ai).toMatch(/materialWastePctForEmit/);
+    expect(ai).not.toMatch(/Math\.ceil\(sqft \* \(1 \+ profile\.waste/);
+    expect(ai).toMatch(/sqft: round2\(sqft\)/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

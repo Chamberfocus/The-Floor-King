@@ -18,7 +18,7 @@
  */
 import { marginPct, priceFromMargin } from "@/lib/estimate-calc";
 import { sellMaterialFromTargetMargin } from "@/lib/estimate-pricing";
-import { isAreaUnit, normalizeUnit } from "@/lib/units";
+import { catalogUnitFactor, isAreaUnit, normalizeUnit } from "@/lib/units";
 import { isRollGoodCategory } from "@/lib/types";
 import type { Product, ProductVendor, UserRole } from "@/lib/types";
 
@@ -228,13 +228,7 @@ export function catalogToLineMeasure(product: {
     : catUnit === "sqyd"
       ? "sqyd"
       : "sqft";
-  const factor = count
-    ? 1
-    : measureUnit === (catUnit || "sqft")
-      ? 1
-      : measureUnit === "sqyd"
-        ? 9
-        : 1 / 9;
+  const factor = catalogUnitFactor(product.unit, measureUnit === "sqyd");
   const lineUnit = count
     ? product.unit || "each"
     : measureUnit === "sqyd"

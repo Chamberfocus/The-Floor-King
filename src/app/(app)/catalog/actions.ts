@@ -18,7 +18,7 @@ import { assertRole } from "@/lib/auth";
 import { searchCatalog } from "@/lib/data/products";
 import { redactCatalogCost, roleMaySeeCatalogSell, hydrateCatalogPricing, type CatalogPricePurpose } from "@/lib/catalog-pricing";
 import { getProfile } from "@/lib/auth";
-import { isAreaUnit, normalizeUnit } from "@/lib/units";
+import { catalogUnitFactor } from "@/lib/units";
 import type { Product, ProductCategory } from "@/lib/types";
 
 /** Live catalog search for the estimate material picker. Includes inactive
@@ -381,11 +381,9 @@ export async function saveProductRate(input: {
     return Number.isFinite(n) ? n : 0;
   };
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  // Mirror pickProduct's unit conversion: count units 1:1; area units convert
-  // between the line's sq ft / sq yd and the catalog unit.
-  const count = !isAreaUnit(p.unit as string);
-  const catUnit = normalizeUnit(p.unit as string); // "sqft" | "sqyd" | …
-  const factor = count ? 1 : input.measureUnit === catUnit ? 1 : input.measureUnit === "sqyd" ? 9 : 1 / 9;
+  // Convert using the line's printed billing unit, not leftover measure_unit.
+  // Count catalog units stay 1:1. SY catalog vs sq-yd line is 1, not ÷9.
+  const factor = catalogUnitFactor(p.unit as string, input.measureUnit === "sqyd");
   const material_rate = r2(num(input.materialCost) / factor);
   const labor_rate = r2(num(input.laborCost) / factor);
 

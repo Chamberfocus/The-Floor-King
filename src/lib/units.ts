@@ -176,18 +176,28 @@ export function unitIsSqyd(raw: string | null | undefined): boolean {
  *
  * Catalog SY is yards — never a 9× surprise just because the letters "yd"
  * are missing. Count units (each / box / lnft / roll) stay 1:1.
+ *
+ * The billing unit is the printed line unit (`lineUnitKey`), not leftover
+ * `measure_unit`. Count lines and leftover "sqft" on a sq-yd carpet line
+ * must not 9× or ÷9 the catalog rate.
  */
+export function catalogUnitFactor(
+  productUnit: string | null | undefined,
+  billingIsSqyd: boolean,
+): number {
+  const key = normalizeUnit(productUnit);
+  if (key && !isAreaUnit(key)) return 1;
+  const productIsSqyd = key === "sqyd";
+  return productIsSqyd === billingIsSqyd ? 1 : billingIsSqyd ? 9 : 1 / 9;
+}
+
 export function catalogRateToBillingUnit(
   rate: number,
   productUnit: string | null | undefined,
   billingIsSqyd: boolean,
 ): number {
-  const key = normalizeUnit(productUnit);
   const r = Number(rate) || 0;
-  if (key && !isAreaUnit(key)) return Math.round(r * 100) / 100;
-  const productIsSqyd = key === "sqyd";
-  const factor = productIsSqyd === billingIsSqyd ? 1 : billingIsSqyd ? 9 : 1 / 9;
-  return Math.round(r * factor * 100) / 100;
+  return Math.round(r * catalogUnitFactor(productUnit, billingIsSqyd) * 100) / 100;
 }
 
 /** True when the line is billed by count, not taped area. */

@@ -43,8 +43,10 @@ import {
 } from "@/lib/types";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import {
+  catalogUnitFactor,
   isAreaUnit,
   lineDisplayUnit,
+  lineUnitKey,
   normalizeUnit,
   unitLabel,
   UNIT_OPTIONS,
@@ -1458,19 +1460,14 @@ export function EstimateBuilder({
   });
 
   // --- Saved-default write-back ("use once" vs "use always") ----------------
-  const catalogFactor = (measure: MeasureUnit, productUnit: string): number => {
-    if (!isAreaUnit(productUnit)) return 1; // count units price 1:1
-    const catUnit = normalizeUnit(productUnit);
-    return measure === catUnit ? 1 : measure === "sqyd" ? 9 : 1 / 9;
-  };
-  // The catalog default cost expressed in THIS line's billing unit — or null
-  // when the line has no linked product/default. Drives the standard-vs-one-off
-  // badge (compared against the current cost).
+  // Convert using the printed billing unit (`lineUnitKey`), never leftover
+  // measure_unit. A sq-yd carpet line that still stores measure_unit "sqft"
+  // must not ÷9 a catalog SY rate.
   const defaultCostFor = (l: LineState, labor: boolean): number | null => {
     const d = l.product_id ? productDefaults[l.product_id] : undefined;
     if (!d) return null;
     const rate = labor ? d.labor_rate : d.material_rate;
-    return Math.round(rate * catalogFactor(l.measure_unit, d.unit) * 100) / 100;
+    return Math.round(rate * catalogUnitFactor(d.unit, lineUnitKey(l) === "sqyd") * 100) / 100;
   };
   // On save, push every "Save as my default" line's cost back to its product's
   // saved rate (one write per product). "Use once" lines never reach here.
@@ -1484,7 +1481,7 @@ export function EstimateBuilder({
           productId: l.product_id,
           materialCost: num(l.material_cost),
           laborCost: num(l.labor_cost),
-          measureUnit: l.measure_unit,
+          measureUnit: lineUnitKey(l) === "sqyd" ? "sqyd" : "sqft",
         });
       }
   };
@@ -1497,7 +1494,7 @@ export function EstimateBuilder({
       const res = await createProductInline({
         name: l.description || "New product",
         category: l.category || "other",
-        unit: isCountLine(l) ? l.unit || "each" : l.measure_unit,
+        unit: isCountLine(l) ? l.unit || "each" : lineUnitKey(l) === "sqyd" ? "sqyd" : "sqft",
         material_rate: num(l.material_cost),
         labor_rate: num(l.labor_cost),
         manufacturer: l.manufacturer || undefined,

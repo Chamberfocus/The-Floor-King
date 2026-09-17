@@ -17,9 +17,12 @@ import {
 import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
 import {
   areaDerivedMaterialAllowed,
+  areaDerivedMaterialQty,
   familyFromCatalogCategory,
+  materialWastePctForEmit,
   rollGoodsOrderTbdDescription,
 } from "@/lib/flooring-knowledge";
+import { isRollGoodCategory } from "@/lib/types";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
 export interface DraftQuoteResult {
@@ -153,12 +156,14 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     let style: string | null = null;
     let color: string | null = null;
     let laborRate = 0;
+    let productUnit: string | null = null;
     if (room.material) {
       try {
         const hits = await searchCatalog(room.material, { activeOnly: true, limit: 5 });
         const match = hits.find((p) => p.category === profile.category) ?? null;
         if (match) {
           productId = match.id;
+          productUnit = match.unit;
           if (!cost) cost = rateFor(Number(match.material_rate) || 0, match.unit, isYd);
           laborRate = rateFor(Number(match.labor_rate) || 0, match.unit, isYd);
           manufacturer = match.manufacturer;
@@ -183,33 +188,45 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
       if (!laborRate && cp) laborRate = rateFor(cp.labor_rate, cp.unit, isYd);
     }
 
-    // MATERIAL line. Boxed hard surface can order from measured area + waste.
-    // Roll goods cannot: sq ft ÷ 9 is equivalent area, not a cut plan. Keep the
-    // product identity at $0 until cuts are entered in Builder.
+    // MATERIAL line. Boxed hard surface: measured sqft + waste_pct — do not bake
+    // waste into quantity and null out sqft (Builder would then bill L×W and
+    // drop waste). Roll goods cannot order from taped sq ft ÷ 9.
     const baseDesc =
       [manufacturer, room.material].filter(Boolean).join(" ").trim() || profile.label;
-    if (areaDerivedMaterialAllowed(family)) {
-      const matQty = Math.ceil(sqft * (1 + profile.waste / 100));
-      lines.push({
-        room: room.name || null,
-        description: needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
-        category: profile.category,
-        measure_unit: profile.unit,
-        sqft: null,
-        quantity: matQty > 0 ? matQty : null,
-        length_in: lenIn > 0 ? lenIn : null,
-        width_in: widIn > 0 ? widIn : null,
-        unit,
-        material_rate: sellMat(cost),
-        labor_rate: 0,
-        material_cost: cost,
-        labor_cost: 0,
-        waste_pct: 0,
-        product_id: productId,
-        manufacturer,
-        style,
-        color,
+    if (areaDerivedMaterialAllowed(family, productUnit)) {
+      const billingQty = areaDerivedMaterialQty({
+        family,
+        measuredSqft: sqft,
+        billingUnit: isYd ? "sqyd" : "sqft",
+        productUnit,
       });
+      const waste = materialWastePctForEmit({
+        family,
+        requestedWastePct: profile.waste,
+      });
+      const roll = isRollGoodCategory(profile.category);
+      if (billingQty != null && sqft > 0) {
+        lines.push({
+          room: room.name || null,
+          description: needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
+          category: profile.category,
+          measure_unit: profile.unit,
+          sqft: round2(sqft),
+          quantity: billingQty,
+          length_in: roll ? null : lenIn > 0 ? lenIn : null,
+          width_in: roll ? null : widIn > 0 ? widIn : null,
+          unit,
+          material_rate: sellMat(cost),
+          labor_rate: 0,
+          material_cost: cost,
+          labor_cost: 0,
+          waste_pct: waste,
+          product_id: productId,
+          manufacturer,
+          style,
+          color,
+        });
+      }
     } else if (sqft > 0 || productId) {
       lines.push({
         room: room.name || null,
