@@ -91,7 +91,6 @@ import {
   amountUnitLabelForQuestion,
   resolveQuestionVisibility,
   questionPurpose,
-  jobNeedsAcclimationClimate,
   reviewToJobNotes,
   buildSalespersonReview,
   sortEstimateQuestions,
@@ -2079,39 +2078,15 @@ export function Questionnaire({
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const warnings = useMemo(() => {
     const w: { id: string; text: string }[] = [];
-    const valByKey: Record<string, string[]> = {};
     const picked: string[] = [];
     for (const qq of questions) {
       if (!visible[qq.id]) continue;
       const a = answers[qq.id];
-      if (qq.key)
-        valByKey[qq.key] = answerGateValues(a);
       if (a?.kind === "choice") picked.push(...a.selected);
       if (a?.kind === "choice_areas") picked.push(...a.rows.map((r) => r.option));
     }
     for (const roomOv of Object.values(overrides))
       for (const a of Object.values(roomOv)) if (a?.kind === "choice") picked.push(...a.selected);
-    const has = (k: string, v: string) => (valByKey[k] ?? []).includes(v);
-    if (has("radiant_heat", "Yes"))
-      w.push({ id: "radiant", text: "Radiant heat present — confirm the selected flooring is rated for radiant heat before ordering." });
-    const demo = valByKey.hs_demo ?? [];
-    if (demo.some((l) => /ceramic with mortar bed/i.test(l)))
-      w.push({ id: "mortar", text: "Ceramic WITH mortar bed demo — expect a floor-height change. Check transitions and door clearance." });
-    if (demo.some((l) => /ceramic/i.test(l))) {
-      w.push({ id: "ceramic_substrate", text: "Tearing up ceramic tile — confirm what's under it (mortar bed, backer board, or other substrate) and include removing it in the demo." });
-      w.push({ id: "ceramic_base", text: "Ceramic removal usually takes the base with it — plan for shoe molding or quarter round." });
-    }
-    const hardwoodOrGlue = jobNeedsAcclimationClimate(valByKey);
-    // AC and heat used to be two yes/no questions; they're one multi-select now.
-    // Both readings are accepted so an estimate started before the change still
-    // evaluates instead of firing a false acclimation warning.
-    const climateOk =
-      (has("climate_control", "AC") && has("climate_control", "Heat")) ||
-      (has("ac_available", "Yes") && has("heat_available", "Yes"));
-    if (hardwoodOrGlue && !climateOk)
-      w.push({ id: "climate", text: "Hardwood / glue-down without confirmed AC and heat — acclimation & adhesion are at risk. Confirm climate control." });
-    if (has("moisture_test", "No") && hardwoodOrGlue)
-      w.push({ id: "moisture-untested", text: "Glue-down / hardwood without a moisture test — record as field verify rather than assuming the slab is dry." });
     const hasCarpetCuts = (cutsSqftByCategory.carpet ?? 0) > 0;
     const hasVinylCuts = (cutsSqftByCategory.vinyl ?? 0) > 0;
     w.push(

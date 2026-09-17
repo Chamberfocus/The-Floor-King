@@ -87,6 +87,15 @@ export interface InstallContext {
   answeredCarpetInstall: string[];
   /** Floor vs wall vs both vs unknown. Empty means unanswered. */
   tileApplication: string[];
+  /** Climate control multi-select (AC / Heat). */
+  climateControl: string[];
+  /** Legacy yes/no from before climate_control merged AC + heat (0142). */
+  acAvailable: string[];
+  heatAvailable: string[];
+  /** Radiant heat Yes / No / Unknown. */
+  radiantHeat: string[];
+  /** Moisture test Yes / No / Field verify. */
+  moistureTest: string[];
 }
 
 export function emptyInstallContext(): InstallContext {
@@ -114,6 +123,11 @@ export function emptyInstallContext(): InstallContext {
     answeredInstallMethod: [],
     answeredCarpetInstall: [],
     tileApplication: [],
+    climateControl: [],
+    acAvailable: [],
+    heatAvailable: [],
+    radiantHeat: [],
+    moistureTest: [],
   };
 }
 
@@ -252,6 +266,11 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     answeredInstallMethod: valByKey.install_method ?? [],
     answeredCarpetInstall: valByKey.carpet_install ?? [],
     tileApplication: valByKey.tile_application ?? [],
+    climateControl: valByKey.climate_control ?? [],
+    acAvailable: valByKey.ac_available ?? [],
+    heatAvailable: valByKey.heat_available ?? [],
+    radiantHeat: valByKey.radiant_heat ?? [],
+    moistureTest: valByKey.moisture_test ?? [],
   });
 }
 
@@ -259,9 +278,23 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
  * Hardwood or any glue-down system (including glue-down carpet). Stretch-in
  * and floating laminate do not need the climate / acclimation warning.
  */
-export function jobNeedsAcclimationClimate(valByKey: Record<string, string[]>): boolean {
-  const ctx = installContextFromValByKey(valByKey);
+export function installNeedsAcclimationClimate(ctx: InstallContext): boolean {
   return ctx.families.includes("hardwood") || ctx.systems.includes("glue");
+}
+
+export function jobNeedsAcclimationClimate(valByKey: Record<string, string[]>): boolean {
+  return installNeedsAcclimationClimate(installContextFromValByKey(valByKey));
+}
+
+/** AC + heat confirmed. Legacy ac_available / heat_available still count (0142). */
+export function climateControlConfirmed(ctx: InstallContext): boolean {
+  const hasAc =
+    ctx.climateControl.some((l) => /^ac$/i.test(l.trim())) ||
+    ctx.acAvailable.some((l) => /^yes$/i.test(l.trim()));
+  const hasHeat =
+    ctx.climateControl.some((l) => /^heat$/i.test(l.trim())) ||
+    ctx.heatAvailable.some((l) => /^yes$/i.test(l.trim()));
+  return hasAc && hasHeat;
 }
 
 /**
@@ -593,7 +626,7 @@ export function knowledgeHelpFor(
     return "Tearing out carpet usually takes tack strip with it. Keep is unusual. This is not new stretch-in tack strip — that stays on the install step. Linear feet stay off until you add a catalog item. Do not invent a linear-foot price.";
   }
   if (key === "work_type") {
-    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, disposal, and toilet pull/reset — substrate, prep, appliances, and door shaves still apply. Unknown / field verify keeps demo visible. Do not invent a demo charge on a new slab.";
+    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, disposal, and toilet pull/reset — substrate, prep, appliances, and door shaves still apply. Unknown / field verify keeps demo visible. The overlay warning names those hides; do not invent a demo charge on a new slab.";
   }
   if (key === "tack_strip") {
     return "Stretch-in needs tack strip. Glue-down and carpet tile do not. Capture keep vs replace — do not invent a linear-foot price unless a catalog item is added.";
@@ -623,7 +656,7 @@ export function knowledgeHelpFor(
     return "Upper floor, elevator, long carry, unusual access — scope/schedule notes unless a Floor King labor item is added in Builder.";
   }
   if (key === "climate_control") {
-    return "AC and heat on site. The acclimation warning fires only for hardwood / glue-down. Stretch-in and floating still capture it as an install condition.";
+    return "AC and heat on site. The acclimation warning fires only for hardwood / glue-down, from this overlay — not a second questionnaire list. Stretch-in and floating still capture it as an install condition. Legacy AC/heat yes-no answers still count.";
   }
   if (key === "laminate_expansion") {
     return "Floating floors need expansion at walls and transitions. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
@@ -680,7 +713,7 @@ export function knowledgeHelpFor(
     return "Size / format is scope for waste and flatness. Large format often needs a flatter floor — Field verify if you have not seen it. Do not invent a waste percent.";
   }
   if (key === "radiant_heat") {
-    return "Carpet pad and many hard-surface products have radiant limits. Flag it for purchasing — do not invent a radiant-rated SKU.";
+    return "Carpet pad and many hard-surface products have radiant limits. Yes fires the overlay purchasing warning — do not invent a radiant-rated SKU.";
   }
   if (key === "moisture_mitigation") {
     return "Aqua bar / primer only when hardwood, glue-down, or a moisture-concern flag makes it relevant. Floating laminate without that flag hides this. Existing catalog rates — do not invent a new product.";
@@ -722,7 +755,7 @@ export function knowledgeHelpFor(
     return "Above / on / below grade can change what a product and adhesive permit. Stretch-in over wood hides this. Glue-down carpet, carpet tile, and hard surface still ask. Confirm against the product — do not assume a ban.";
   }
   if (key === "moisture_test") {
-    return "Glue-down, hardwood, or a moisture-concern flag on the substrate. If you cannot test yet, pick Field verify — do not invent a number.";
+    return "Glue-down, hardwood, or a moisture-concern flag on the substrate. If you cannot test yet, pick Field verify — do not invent a number. Answering No fires the overlay moisture-untested warning; unanswered does not.";
   }
   if (key === "stair_landings") {
     return "Count of landings in EACH. Measured with the rooms when they are floored the same; this flags extra pieces and noses.";
@@ -793,7 +826,7 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   if (newBuild) {
     w.push({
       id: "new-construction",
-      text: "New construction — no tear-out. Demo, pad removal, asbestos, and disposal stay off. Substrate and prep still apply. Do not invent a demo charge.",
+      text: "New construction — no tear-out. Demo, pad removal, existing-vinyl skim, asbestos, disposal, and toilet pull/reset stay off. Substrate, prep, appliances, and door shaves still apply. Do not invent a demo charge.",
     });
   }
   const wet = picked.some(
@@ -816,6 +849,28 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
         text: "Carpet in a wet area — typical residential carpet is not a wet-area floor. Confirm the product. Do not invent a waterproof SKU.",
       });
     }
+  }
+
+  if (ctx.radiantHeat.some((l) => /^yes$/i.test(l.trim()))) {
+    w.push({
+      id: "radiant",
+      text: "Radiant heat present — confirm the selected flooring is rated for radiant heat before ordering.",
+    });
+  }
+  if (installNeedsAcclimationClimate(ctx) && !climateControlConfirmed(ctx)) {
+    w.push({
+      id: "climate",
+      text: "Hardwood / glue-down without confirmed AC and heat — acclimation & adhesion are at risk. Confirm climate control.",
+    });
+  }
+  if (
+    installNeedsAcclimationClimate(ctx) &&
+    ctx.moistureTest.some((l) => /^no$/i.test(l.trim()))
+  ) {
+    w.push({
+      id: "moisture-untested",
+      text: "Glue-down / hardwood without a moisture test — record as field verify rather than assuming the slab is dry.",
+    });
   }
 
   if (ctx.surfaceLabels.includes("LVP / Vinyl")) {

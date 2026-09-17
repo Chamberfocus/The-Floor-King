@@ -166,6 +166,8 @@ export {
   resolveQuestionVisibility,
   substrateLabelMatches,
   jobNeedsAcclimationClimate,
+  installNeedsAcclimationClimate,
+  climateControlConfirmed,
   jobHasNonTileFloorFamily,
   jobIsExclusiveWallTile,
   type InstallContext,

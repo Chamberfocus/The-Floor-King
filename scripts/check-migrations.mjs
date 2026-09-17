@@ -119,6 +119,7 @@ const REQUIRED_FILES = [
   "0256_flooring_knowledge_vacant_furniture.sql",
   "0257_flooring_knowledge_new_build_skim.sql",
   "0258_flooring_knowledge_new_build_toilets.sql",
+  "0259_flooring_knowledge_climate_sot.sql",
 ];
 
 /**
@@ -1487,6 +1488,17 @@ const REQUIRED_MARKERS = [
       "toilets",
       "toilet pull",
       "Do NOT SQL-gate toilets on work_type",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0259_flooring_knowledge_climate_sot.sql",
+    markers: [
+      "P0_0259_FLOORING_KNOWLEDGE",
+      "climate_control",
+      "knowledgeWarnings",
+      "Do NOT SQL-gate climate on install_method",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

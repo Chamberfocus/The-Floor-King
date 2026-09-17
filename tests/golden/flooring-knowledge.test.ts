@@ -74,6 +74,8 @@ import {
   knowledgeHelpFor,
   knowledgeWhenApplies,
   jobNeedsAcclimationClimate,
+  installNeedsAcclimationClimate,
+  climateControlConfirmed,
   tileJobIsWallOnly,
   TILE_WALL_HIDES_KEYS,
   jobHasNonTileFloorFamily,
@@ -4781,6 +4783,127 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(neu).toContain("substrate");
     expect(neu).not.toContain("toilets");
     expect(neu).not.toContain("hs_demo");
+  });
+
+  it("0259 climate / radiant / moisture warnings live on the overlay, not a second questionnaire list", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0259_flooring_knowledge_climate_sot.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0259_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/knowledgeWarnings/);
+    expect(sql).toMatch(/Do NOT SQL-gate climate on install_method/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*install_method.*climate_control|climate_control.*show_if.*install_method/);
+
+    expect(knowledgeHelpFor({ key: "climate_control" }, emptyInstallContext())).toMatch(
+      /not a second questionnaire list/,
+    );
+    expect(knowledgeHelpFor({ key: "radiant_heat" }, emptyInstallContext())).toMatch(
+      /overlay purchasing warning/,
+    );
+    expect(knowledgeHelpFor({ key: "moisture_test" }, emptyInstallContext())).toMatch(
+      /moisture-untested/,
+    );
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).not.toMatch(/Hardwood \/ glue-down without confirmed AC/);
+    expect(q).not.toMatch(/Radiant heat present — confirm the selected flooring/);
+    expect(q).not.toMatch(/Glue-down \/ hardwood without a moisture test/);
+    expect(q).not.toMatch(/Ceramic WITH mortar bed demo — expect a floor-height change/);
+
+    const hardwood = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+    });
+    expect(installNeedsAcclimationClimate(hardwood)).toBe(true);
+    expect(climateControlConfirmed(hardwood)).toBe(false);
+    const climateWarn = knowledgeWarnings(hardwood);
+    expect(climateWarn.some((w) => w.id === "climate")).toBe(true);
+    expect(climateWarn.find((w) => w.id === "climate")?.text).toMatch(/Confirm climate control/);
+
+    const climateOk = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Hardwood"],
+        climate_control: ["AC", "Heat"],
+      }),
+    );
+    expect(climateOk.some((w) => w.id === "climate")).toBe(false);
+
+    const legacyOk = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Hardwood"],
+        ac_available: ["Yes"],
+        heat_available: ["Yes"],
+      }),
+    );
+    expect(legacyOk.some((w) => w.id === "climate")).toBe(false);
+
+    const stretch = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Carpet"],
+        carpet_install: ["Stretch-in"],
+      }),
+    );
+    expect(installNeedsAcclimationClimate(
+      installContextFromValByKey({
+        project_type: ["Carpet"],
+        carpet_install: ["Stretch-in"],
+      }),
+    )).toBe(false);
+    expect(stretch.some((w) => w.id === "climate")).toBe(false);
+    expect(stretch.some((w) => w.id === "moisture-untested")).toBe(false);
+
+    const laminate = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Laminate"],
+        install_method: ["Floating / click"],
+      }),
+    );
+    expect(laminate.some((w) => w.id === "climate")).toBe(false);
+
+    const radiant = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Carpet"],
+        carpet_install: ["Stretch-in"],
+        radiant_heat: ["Yes"],
+      }),
+    );
+    expect(radiant.some((w) => w.id === "radiant")).toBe(true);
+
+    const untested = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Hardwood"],
+        climate_control: ["AC", "Heat"],
+        moisture_test: ["No"],
+      }),
+    );
+    expect(untested.some((w) => w.id === "moisture-untested")).toBe(true);
+    expect(untested.some((w) => w.id === "climate")).toBe(false);
+
+    const unansweredMoisture = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Hardwood"],
+        climate_control: ["AC", "Heat"],
+      }),
+    );
+    expect(unansweredMoisture.some((w) => w.id === "moisture-untested")).toBe(false);
+
+    const neu = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT"],
+        work_type: ["New construction"],
+      }),
+    );
+    expect(neu.find((w) => w.id === "new-construction")?.text).toMatch(/toilet pull/);
+    expect(neu.find((w) => w.id === "new-construction")?.text).toMatch(/appliances/);
   });
 
   it("pattern repeat only after pattern match is required", () => {
