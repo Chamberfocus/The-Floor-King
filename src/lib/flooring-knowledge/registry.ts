@@ -169,13 +169,14 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "hardwood_finish", purpose: "SCOPE", phase: "product", families: ["hardwood"] },
   /**
    * Hardwood (solid or engineered) OR glue-down of any family — including
-   * glue-down carpet. Laminate floating / stretch-in carpet / thinset tile hide this.
+   * glue-down carpet — OR carpet tile (pressure-sensitive / glue). Laminate
+   * floating / stretch-in carpet / thinset tile hide this.
    */
   {
     key: "acclimation",
     purpose: "INSTALLATION",
     phase: "install",
-    any: [{ families: ["hardwood"] }, { systems: ["glue"] }],
+    any: [{ families: ["hardwood"] }, { systems: ["glue", "carpet_tile"] }],
   },
   { key: "construction_grade", purpose: "INSTALLATION", phase: "install",
     any: [
@@ -223,8 +224,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * Nail-down hardwood over a slab still needs this question; stretch-in
    * carpet over plywood does not. Exclusive tile hides this via
    * TILE_THINSET_HIDES_KEYS — thinset is not a 6-mil click-floor vapor
-   * barrier; membranes stay on tile_setting. Mixed LVP/hardwood + tile
-   * still asks. Do not SQL-gate vapor_barrier on surface_type (0142).
+   * barrier; membranes stay on tile_setting. Exclusive carpet tile hides
+   * this via CARPET_TILE_VAPOR_HIDES_KEYS — modular tile uses adhesive,
+   * not a floating-floor sheet; Aqua bar stays on moisture_mitigation.
+   * Mixed LVP/hardwood + tile or carpet tile still asks. Do not SQL-gate
+   * vapor_barrier on surface_type or carpet_install (0142).
    */
   {
     key: "vapor_barrier",
@@ -233,8 +237,9 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     any: [{ systems: ["floating", "glue"] }, { substrate: ["Concrete"] }],
   },
   /**
-   * Hardwood OR glue-down OR the salesperson flagged moisture concerns on
-   * the substrate — laminate floating still hides this unless condition says so.
+   * Hardwood OR glue-down OR carpet tile OR the salesperson flagged moisture
+   * concerns on the substrate — laminate floating still hides this unless
+   * condition says so. Stretch-in hides it.
    */
   {
     key: "moisture_test",
@@ -242,13 +247,13 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     phase: "prep",
     any: [
       { families: ["hardwood"] },
-      { systems: ["glue"] },
+      { systems: ["glue", "carpet_tile"] },
       { subfloor: ["Moisture concerns"] },
     ],
   },
   /**
-   * Same gate as moisture_test: hardwood OR glue OR a moisture-concern flag.
-   * Floating laminate without that flag hides Aqua bar / primer.
+   * Same gate as moisture_test: hardwood OR glue OR carpet tile OR a
+   * moisture-concern flag. Floating laminate without that flag hides Aqua bar.
    */
   {
     key: "moisture_mitigation",
@@ -256,7 +261,7 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     phase: "prep",
     any: [
       { families: ["hardwood"] },
-      { systems: ["glue"] },
+      { systems: ["glue", "carpet_tile"] },
       { subfloor: ["Moisture concerns"] },
     ],
   },
@@ -538,6 +543,16 @@ export const SOLID_HARDWOOD_HIDES_KEYS = [
  * on surface_type (0142).
  */
 export const TILE_THINSET_HIDES_KEYS = ["vapor_barrier"] as const;
+
+/**
+ * 6-mil click-floor vapor barrier hidden once carpet_install is exclusively
+ * Carpet tile and no click/glue hard-surface family is also on the job.
+ * Modular tile uses adhesive (Aqua bar on moisture_mitigation) — not a
+ * floating-floor sheet. Mixed LVP / laminate / hardwood / sheet vinyl still
+ * asks. Unanswered carpet install and mixed stretch-in / glue-down stay
+ * open (0142). Do not SQL-gate vapor_barrier on carpet_install.
+ */
+export const CARPET_TILE_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
 
 /**
  * 4×8 plywood overlay hidden once the substrate is exclusively Concrete.

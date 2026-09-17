@@ -79,6 +79,7 @@ import {
   tileJobIsWallOnly,
   TILE_WALL_HIDES_KEYS,
   TILE_THINSET_HIDES_KEYS,
+  CARPET_TILE_VAPOR_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
@@ -86,6 +87,7 @@ import {
   jobIsExclusiveTile,
   jobIsExclusiveWallTile,
   jobIsExclusiveCarpetTile,
+  jobIsExclusiveCarpetTileOnly,
   jobIsExclusiveSolidHardwood,
   jobIsExclusiveConcrete,
   jobAllowsFloatingVaporUnderlayment,
@@ -700,10 +702,10 @@ describe("show_if all/any + knowledge overlay", () => {
 
   it("acclimation is hardwood OR glue-down; moisture_test also follows a moisture-concern flag", () => {
     const anyWhen = knowledgeQuestionByKey("acclimation")?.any;
-    expect(anyWhen).toEqual([{ families: ["hardwood"] }, { systems: ["glue"] }]);
+    expect(anyWhen).toEqual([{ families: ["hardwood"] }, { systems: ["glue", "carpet_tile"] }]);
     expect(knowledgeQuestionByKey("moisture_test")?.any).toEqual([
       { families: ["hardwood"] },
-      { systems: ["glue"] },
+      { systems: ["glue", "carpet_tile"] },
       { subfloor: ["Moisture concerns"] },
     ]);
 
@@ -749,6 +751,10 @@ describe("show_if all/any + knowledge overlay", () => {
     expect(jobNeedsAcclimationClimate({
       project_type: ["Carpet"],
       carpet_install: ["Glue-down"],
+    })).toBe(true);
+    expect(jobNeedsAcclimationClimate({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
     })).toBe(true);
     expect(jobNeedsAcclimationClimate({
       project_type: ["Carpet"],
@@ -1175,8 +1181,8 @@ describe("family → system asks the right keys (not every question)", () => {
       project_type: ["Carpet"],
       carpet_install: ["Carpet tile"],
     });
-    on(carpetTile, ["adhesive", "carpet_cuts", "carpet_tile_stairs"]);
-    off(carpetTile, ["tack_strip", "carpet_pad", "laminate_expansion", "carpet_stairs", "pattern_match", "pattern_repeat", "carpet_direction"]);
+    on(carpetTile, ["adhesive", "carpet_cuts", "carpet_tile_stairs", "acclimation", "moisture_test", "moisture_mitigation"]);
+    off(carpetTile, ["tack_strip", "carpet_pad", "laminate_expansion", "carpet_stairs", "pattern_match", "pattern_repeat", "carpet_direction", "vapor_barrier"]);
 
     const lam = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
@@ -1629,7 +1635,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         any: [
           { key: "surface_type", in: ["Hardwood", "Engineered hardwood"] },
           { key: "install_method", in: ["Glue-down"] },
-          { key: "carpet_install", in: ["Glue-down"] },
+          { key: "carpet_install", in: ["Glue-down", "Carpet tile"] },
         ],
       },
     },
@@ -1639,7 +1645,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: {
         any: [
           { key: "install_method", in: ["Glue-down"] },
-          { key: "carpet_install", in: ["Glue-down"] },
+          { key: "carpet_install", in: ["Glue-down", "Carpet tile"] },
           { key: "surface_type", in: ["Hardwood", "Engineered hardwood"] },
           { key: "subfloor_condition", in: ["Moisture concerns"] },
         ],
@@ -1651,7 +1657,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: {
         any: [
           { key: "install_method", in: ["Glue-down"] },
-          { key: "carpet_install", in: ["Glue-down"] },
+          { key: "carpet_install", in: ["Glue-down", "Carpet tile"] },
           { key: "surface_type", in: ["Hardwood", "Engineered hardwood"] },
           { key: "subfloor_condition", in: ["Moisture concerns"] },
         ],
@@ -2158,6 +2164,9 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("adhesive");
     expect(keys).toContain("carpet_cuts");
     expect(keys).toContain("carpet_tile_stairs");
+    expect(keys).toContain("acclimation");
+    expect(keys).toContain("moisture_test");
+    expect(keys).toContain("moisture_mitigation");
     expect(keys).not.toContain("carpet_stairs");
     expect(keys).not.toContain("tack_strip");
     expect(keys).not.toContain("carpet_pad");
@@ -4837,6 +4846,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).not.toMatch(/Hardwood \/ glue-down without confirmed AC/);
     expect(q).not.toMatch(/Radiant heat present — confirm the selected flooring/);
     expect(q).not.toMatch(/Glue-down \/ hardwood without a moisture test/);
+    expect(q).not.toMatch(/Hardwood \/ glue-down \/ carpet tile without confirmed AC/);
+    expect(q).not.toMatch(/Glue-down \/ hardwood \/ carpet tile without a moisture test/);
     expect(q).not.toMatch(/Ceramic WITH mortar bed demo — expect a floor-height change/);
 
     const hardwood = installContextFromValByKey({
@@ -5962,6 +5973,148 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(stretchConcrete).not.toContain("subfloor_needed");
     expect(stretchConcrete).toContain("hs_prep");
+  });
+
+  it("0271 exclusive carpet tile hides 6-mil vapor barrier; moisture and acclimation still ask", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0271_flooring_knowledge_carpet_tile_vapor.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0271_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/modular tile uses adhesive, not a floating-floor sheet/);
+    expect(sql).toMatch(/Do NOT SQL-gate vapor_barrier on carpet_install/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*carpet_install.*vapor_barrier|vapor_barrier.*show_if.*carpet_install/,
+    );
+
+    expect(CARPET_TILE_VAPOR_HIDES_KEYS).toEqual(["vapor_barrier"]);
+    expect(
+      jobIsExclusiveCarpetTileOnly(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Carpet tile"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobIsExclusiveCarpetTileOnly(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Floating / click"],
+          carpet_install: ["Carpet tile"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveCarpetTileOnly(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          carpet_install: ["Carpet tile"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveCarpetTileOnly(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Glue-down", "Carpet tile"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveCarpetTileOnly(
+        installContextFromValByKey({ project_type: ["Carpet"] }),
+      ),
+    ).toBe(false);
+
+    expect(knowledgeHelpFor({ key: "vapor_barrier" }, emptyInstallContext())).toMatch(
+      /Exclusive carpet tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_install" }, emptyInstallContext())).toMatch(
+      /hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "acclimation" }, emptyInstallContext())).toMatch(
+      /carpet tile need acclimation/,
+    );
+    expect(knowledgeHelpFor({ key: "moisture_test" }, emptyInstallContext())).toMatch(
+      /Exclusive carpet tile asks this instead of 6-mil/,
+    );
+
+    const tileConcrete = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+      substrate: ["Concrete"],
+    });
+    expect(tileConcrete).not.toContain("vapor_barrier");
+    expect(tileConcrete).toContain("adhesive");
+    expect(tileConcrete).toContain("acclimation");
+    expect(tileConcrete).toContain("moisture_test");
+    expect(tileConcrete).toContain("moisture_mitigation");
+    expect(tileConcrete).not.toContain("pattern_match");
+    expect(tileConcrete).not.toContain("tack_strip");
+
+    const overlayTile = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+      substrate: ["Concrete"],
+    });
+    expect(overlayTile).not.toContain("vapor_barrier");
+    expect(overlayTile).toContain("moisture_test");
+
+    const unanswered = walk({
+      project_type: ["Carpet"],
+      substrate: ["Concrete"],
+    });
+    expect(unanswered).toContain("vapor_barrier");
+    expect(unanswered).toContain("carpet_install");
+
+    const stretchConcrete = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      substrate: ["Concrete"],
+    });
+    expect(stretchConcrete).toContain("vapor_barrier");
+    expect(stretchConcrete).not.toContain("acclimation");
+    expect(stretchConcrete).not.toContain("moisture_test");
+
+    const mixedLvp = walk({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      carpet_install: ["Carpet tile"],
+      substrate: ["Concrete"],
+    });
+    expect(mixedLvp).toContain("vapor_barrier");
+    expect(mixedLvp).toContain("attached_pad");
+    expect(mixedLvp).toContain("moisture_test");
+
+    const glueCarpet = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+      substrate: ["Concrete"],
+    });
+    expect(glueCarpet).toContain("vapor_barrier");
+    expect(glueCarpet).toContain("acclimation");
+
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Carpet tile"],
+        }),
+      ).some((w) => w.id === "climate"),
+    ).toBe(true);
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+        }),
+      ).some((w) => w.id === "climate"),
+    ).toBe(false);
   });
 
   it("pattern repeat only after pattern match is required", () => {

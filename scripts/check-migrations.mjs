@@ -131,6 +131,7 @@ const REQUIRED_FILES = [
   "0268_flooring_knowledge_tile_vapor.sql",
   "0269_flooring_knowledge_vapor_underlayment.sql",
   "0270_flooring_knowledge_concrete_sheets.sql",
+  "0271_flooring_knowledge_carpet_tile_vapor.sql",
 ];
 
 /**
@@ -1622,6 +1623,16 @@ const REQUIRED_MARKERS = [
       "P0_0270_FLOORING_KNOWLEDGE",
       "a slab is patch / self-level, not plywood overlay",
       "Do NOT SQL-gate subfloor_needed on substrate",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0271_flooring_knowledge_carpet_tile_vapor.sql",
+    markers: [
+      "P0_0271_FLOORING_KNOWLEDGE",
+      "modular tile uses adhesive, not a floating-floor sheet",
+      "Do NOT SQL-gate vapor_barrier on carpet_install",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

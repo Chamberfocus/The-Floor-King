@@ -42,6 +42,7 @@ import {
 } from "./answers";
 import {
   CARPET_TILE_HIDES_KEYS,
+  CARPET_TILE_VAPOR_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
@@ -283,11 +284,16 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
 }
 
 /**
- * Hardwood or any glue-down system (including glue-down carpet). Stretch-in
- * and floating laminate do not need the climate / acclimation warning.
+ * Hardwood, any glue-down system (including glue-down carpet), or carpet
+ * tile. Stretch-in and floating laminate do not need the climate /
+ * acclimation warning.
  */
 export function installNeedsAcclimationClimate(ctx: InstallContext): boolean {
-  return ctx.families.includes("hardwood") || ctx.systems.includes("glue");
+  return (
+    ctx.families.includes("hardwood") ||
+    ctx.systems.includes("glue") ||
+    ctx.systems.includes("carpet_tile")
+  );
 }
 
 export function jobNeedsAcclimationClimate(valByKey: Record<string, string[]>): boolean {
@@ -510,6 +516,13 @@ export function questionApplies(
   }
   if (
     q.key &&
+    (CARPET_TILE_VAPOR_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobIsExclusiveCarpetTileOnly(install)
+  ) {
+    return false;
+  }
+  if (
+    q.key &&
     (CONCRETE_HIDES_KEYS as readonly string[]).includes(q.key) &&
     jobIsExclusiveConcrete(install)
   ) {
@@ -568,6 +581,26 @@ export function jobIsExclusiveCarpetTile(install: InstallContext): boolean {
     "carpet",
     carpetInstallSystemsFromLabels(install.answeredCarpetInstall),
   );
+}
+
+/**
+ * Exclusive carpet tile with no click/glue hard-surface family also on
+ * the job. 6-mil vapor barrier hides — modular tile uses adhesive, not a
+ * floating-floor sheet. Mixed LVP / laminate / hardwood / sheet vinyl still
+ * asks. Unanswered HS stays open (0142). Mixed stretch-in or glue-down
+ * carpet is not exclusive tile (cuts remain). Mixed floor tile + carpet
+ * tile hides — neither wants 6-mil (membranes stay on tile_setting).
+ */
+export function jobIsExclusiveCarpetTileOnly(install: InstallContext): boolean {
+  if (!jobIsExclusiveCarpetTile(install)) return false;
+  if (install.surfacePending) return false;
+  if (install.families.some((f) => f === "lvp" || f === "laminate" || f === "hardwood" || f === "vinyl")) {
+    return false;
+  }
+  if (install.systems.includes("floating") || install.systems.includes("glue")) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -702,7 +735,7 @@ export function knowledgeHelpFor(
     }
   }
   if (key === "carpet_install") {
-    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Exclusive carpet tile hides pattern match, pattern repeat, and seam/direction notes — those are a roll cut plan, not modular layout. Mixed stretch-in + tile still asks them. Do not invent a box size.";
+    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Exclusive carpet tile hides pattern match, pattern repeat, and seam/direction notes — those are a roll cut plan, not modular layout. Mixed stretch-in + tile still asks them. Exclusive carpet tile also hides the 6-mil vapor-barrier question — modular tile uses adhesive, not a floating-floor sheet. Acclimation, moisture test, and Aqua bar still ask. Mixed LVP or hardwood + carpet tile still asks vapor barrier. Do not invent a box size.";
   }
   if (key === "prep_confidence") {
     return "If you cannot see the substrate until demo, leave this as Field verify / TBD rather than guessing a bag count.";
@@ -777,7 +810,7 @@ export function knowledgeHelpFor(
     return "Upper floor, elevator, long carry, unusual access — scope/schedule notes unless a Floor King labor item is added in Builder.";
   }
   if (key === "climate_control") {
-    return "AC and heat on site. The acclimation warning fires only for hardwood / glue-down, from this overlay — not a second questionnaire list. Stretch-in and floating still capture it as an install condition. Legacy AC/heat yes-no answers still count.";
+    return "AC and heat on site. The acclimation warning fires only for hardwood / glue-down / carpet tile, from this overlay — not a second questionnaire list. Stretch-in and floating still capture it as an install condition. Legacy AC/heat yes-no answers still count.";
   }
   if (key === "laminate_expansion") {
     return "Floating floors need expansion at walls and transitions. Solid hardwood hides this — floating is not a permitted system. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
@@ -798,7 +831,7 @@ export function knowledgeHelpFor(
     return "Count of vents/registers to change, in EACH. Never square feet. Pick a catalog vent on Trims if Floor King sells it; otherwise this is a crew note.";
   }
   if (key === "vapor_barrier") {
-    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Mixed LVP or hardwood + tile still asks. Glue-down, carpet tile, nail-down, and stretch-in hide Included with underlayment — that is a floating-floor sheet, not an adhesive moisture system. Aqua bar stays on moisture mitigation. Unanswered LVP and floating still offer it.";
+    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Exclusive carpet tile hides this — modular tile uses adhesive, not a floating-floor sheet. Aqua bar stays on moisture mitigation. Mixed LVP or hardwood + tile or carpet tile still asks. Glue-down, carpet tile, nail-down, and stretch-in hide Included with underlayment — that is a floating-floor sheet, not an adhesive moisture system. Unanswered LVP and floating still offer it.";
   }
   if (key === "substrate") {
     return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete. Exclusive Concrete hides 4×8 subfloor sheets — a slab is patch / self-level, not plywood overlay. Plywood / wood / existing flooring still ask.";
@@ -846,7 +879,7 @@ export function knowledgeHelpFor(
     return "Carpet pad and many hard-surface products have radiant limits. Yes fires the overlay purchasing warning — do not invent a radiant-rated SKU.";
   }
   if (key === "moisture_mitigation") {
-    return "Aqua bar / primer only when hardwood, glue-down, or a moisture-concern flag makes it relevant. Floating laminate without that flag hides this. Existing catalog rates — do not invent a new product.";
+    return "Aqua bar / primer only when hardwood, glue-down, carpet tile, or a moisture-concern flag makes it relevant. Floating laminate and stretch-in without that flag hide this. Exclusive carpet tile asks this instead of 6-mil vapor barrier. Existing catalog rates — do not invent a new product.";
   }
   if (key === "adhesive") {
     return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this. Quantity is gallons or kits in Builder — taped square feet is not a glue order. A line with no sold-by unit shows How many / Unit TBD, not Sq ft. Do not invent coverage.";
@@ -885,13 +918,13 @@ export function knowledgeHelpFor(
     return "Floor King has a Delivery add-on. Record whether to include it — pick the catalog line in Builder rather than inventing a fuel charge here.";
   }
   if (key === "acclimation") {
-    return "Hardwood and glue-down (including glue-down carpet) need acclimation / climate notes. Floating laminate and stretch-in hide this — do not invent a day count.";
+    return "Hardwood, glue-down (including glue-down carpet), and carpet tile need acclimation / climate notes. Floating laminate and stretch-in hide this — do not invent a day count.";
   }
   if (key === "construction_grade") {
     return "Above / on / below grade can change what a product and adhesive permit. Stretch-in over wood hides this. Glue-down carpet, carpet tile, and hard surface still ask. Confirm against the product — do not assume a ban.";
   }
   if (key === "moisture_test") {
-    return "Glue-down, hardwood, or a moisture-concern flag on the substrate. If you cannot test yet, pick Field verify — do not invent a number. Answering No fires the overlay moisture-untested warning; unanswered does not. Exclusive wall tile hides this — a slab moisture test is floor work. Wet area still asks.";
+    return "Glue-down, carpet tile, hardwood, or a moisture-concern flag on the substrate. If you cannot test yet, pick Field verify — do not invent a number. Answering No fires the overlay moisture-untested warning; unanswered does not. Exclusive wall tile hides this — a slab moisture test is floor work. Exclusive carpet tile asks this instead of 6-mil vapor barrier. Wet area still asks.";
   }
   if (key === "stair_landings") {
     return "Count of landings in EACH. Measured with the rooms when they are floored the same; this flags extra pieces and noses. Exclusive wall tile hides this — a backsplash is not a stair job.";
@@ -999,7 +1032,7 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   if (installNeedsAcclimationClimate(ctx) && !climateControlConfirmed(ctx)) {
     w.push({
       id: "climate",
-      text: "Hardwood / glue-down without confirmed AC and heat — acclimation & adhesion are at risk. Confirm climate control.",
+      text: "Hardwood / glue-down / carpet tile without confirmed AC and heat — acclimation & adhesion are at risk. Confirm climate control.",
     });
   }
   if (
@@ -1008,7 +1041,7 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   ) {
     w.push({
       id: "moisture-untested",
-      text: "Glue-down / hardwood without a moisture test — record as field verify rather than assuming the slab is dry.",
+      text: "Glue-down / hardwood / carpet tile without a moisture test — record as field verify rather than assuming the slab is dry.",
     });
   }
 
