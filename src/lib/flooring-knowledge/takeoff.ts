@@ -9,6 +9,7 @@
 import { formatSqft, takeoffConceptRows, type MaterialTakeoff } from "./quantities";
 import {
   CONDITION_CONFIDENCE_LABELS,
+  familyFromCatalogCategory,
   familyLabel,
   type ConditionConfidence,
   type FlooringFamily,
@@ -177,6 +178,40 @@ export function groupMeasuredSqftByLabel(
     out[label] = Math.round(((out[label] ?? 0) + r.measuredSqft) * 100) / 100;
   }
   return out;
+}
+
+/** Measured area per flooring family — carpet rooms are not LVP rooms. */
+export function groupMeasuredSqftByFamily(
+  rows: { category?: string | null; measuredSqft: number }[],
+): Partial<Record<FlooringFamily, number>> {
+  const out: Partial<Record<FlooringFamily, number>> = {};
+  for (const r of rows) {
+    const fam = familyFromCatalogCategory(r.category);
+    if (fam === "other" || !(r.measuredSqft > 0)) continue;
+    out[fam] = Math.round(((out[fam] ?? 0) + r.measuredSqft) * 100) / 100;
+  }
+  return out;
+}
+
+/**
+ * Whole-job taped sq ft may become a family takeoff only when that family
+ * owns the job. Mixed jobs without a per-room assignment stay 0 — we do not
+ * clone 500 sq ft onto both carpet and LVP.
+ */
+export function measuredSqftForFamilyTakeoff(args: {
+  family: FlooringFamily;
+  totalSqft: number;
+  byFamily: Partial<Record<FlooringFamily, number>>;
+  jobFamilies: FlooringFamily[];
+}): number {
+  const assigned = args.byFamily[args.family];
+  if (assigned != null && assigned > 0) return assigned;
+  const flooring = args.jobFamilies.filter((f) => f !== "other");
+  if (flooring.length <= 1) {
+    const n = Number(args.totalSqft);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+  return 0;
 }
 
 /**

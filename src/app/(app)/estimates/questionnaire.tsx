@@ -99,6 +99,8 @@ import {
   answerGateValues,
   coerceYesNoChoiceAnswer,
   groupMeasuredSqftByLabel,
+  groupMeasuredSqftByFamily,
+  measuredSqftForFamilyTakeoff,
   deliveryAddonCost,
   reviewBucketForQuestion,
   prepQuantitySuffix,
@@ -2172,13 +2174,33 @@ export function Questionnaire({
     const products: string[] = [];
     const takeoffs = [];
     const seenProd = new Set<string>();
+    const floorMapRows: { category: string | null; measuredSqft: number }[] = [];
+    for (const qq of questions) {
+      if (!visible[qq.id]) continue;
+      const a = answers[qq.id];
+      if (a?.kind !== "floor_map") continue;
+      allRooms.forEach((rm, i) => {
+        const p = a.byRoom[roomKey(rm.name, i)];
+        if (!p || rm.sqft <= 0) return;
+        floorMapRows.push({ category: p.category, measuredSqft: rm.sqft });
+      });
+    }
+    const familySqft = groupMeasuredSqftByFamily(floorMapRows);
+    const measuredFor = (family: ReturnType<typeof familyFromCatalogCategory>, override?: number) => {
+      if (override != null && override > 0) return override;
+      return measuredSqftForFamilyTakeoff({
+        family,
+        totalSqft,
+        byFamily: familySqft,
+        jobFamilies: flooringCtx.families,
+      });
+    };
     const addProduct = (
       label: string,
       category: string | null,
       wastePct: string,
       sqftPerBox: string,
-      cuts: number,
-      measuredSqft = totalSqft,
+      measuredSqft?: number,
     ) => {
       if (!label || seenProd.has(label)) return;
       seenProd.add(label);
@@ -2189,7 +2211,7 @@ export function Questionnaire({
       takeoffs.push(
         computeMaterialTakeoff({
           family,
-          measuredSqft,
+          measuredSqft: measuredFor(family, measuredSqft),
           wastePct: waste,
           cutsSqft: family === "carpet" ? cutsSqftByCategory.carpet ?? 0 : family === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : null,
           sqftPerBox: numv(sqftPerBox) > 0 ? numv(sqftPerBox) : null,
@@ -2201,10 +2223,10 @@ export function Questionnaire({
       if (!visible[qq.id]) continue;
       const a = answers[qq.id];
       if (a?.kind === "product" && a.product) {
-        addProduct(a.product.label, a.product.category, a.product.wastePct, a.product.sqftPerBox, cutsSqft);
+        addProduct(a.product.label, a.product.category, a.product.wastePct, a.product.sqftPerBox);
       } else if (a?.kind === "cuts") {
         const p = a.same !== false ? a.product : a.groups.map((g) => g.product).find(Boolean) ?? null;
-        if (p) addProduct(p.label, p.category || qq.config.category || "carpet", p.wastePct, p.sqftPerBox, cutsSqft);
+        if (p) addProduct(p.label, p.category || qq.config.category || "carpet", p.wastePct, p.sqftPerBox);
         else {
           const fam = qq.config.category === "vinyl" ? "vinyl" : "carpet";
           const cutSf = fam === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : cutsSqftByCategory.carpet ?? 0;
@@ -2212,7 +2234,7 @@ export function Questionnaire({
             takeoffs.push(
               computeMaterialTakeoff({
                 family: fam,
-                measuredSqft: totalSqft,
+                measuredSqft: measuredFor(fam),
                 cutsSqft: cutSf,
                 carpetSystems: fam === "carpet" ? carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall) : null,
               }),
@@ -2238,16 +2260,18 @@ export function Questionnaire({
         for (const p of assigned) {
           if (seen.has(p.label)) continue;
           seen.add(p.label);
-          addProduct(p.label, p.category, p.wastePct, p.sqftPerBox, 0, sqftByLabel[p.label] ?? p.measuredSqft);
+          addProduct(p.label, p.category, p.wastePct, p.sqftPerBox, sqftByLabel[p.label] ?? p.measuredSqft);
         }
       }
     }
     if (!takeoffs.length && totalSqft > 0) {
-      for (const f of flooringCtx.families) {
+      const flooring = flooringCtx.families.filter((f) => f !== "other");
+      if (flooring.length === 1) {
+        const f = flooring[0];
         takeoffs.push(
           computeMaterialTakeoff({
             family: f,
-            measuredSqft: totalSqft,
+            measuredSqft: measuredFor(f),
             cutsSqft:
               f === "carpet"
                 ? cutsSqftByCategory.carpet || null

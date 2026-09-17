@@ -159,6 +159,8 @@ export {
   formatDimensionPair,
   confidenceFromLabel,
   groupMeasuredSqftByLabel,
+  groupMeasuredSqftByFamily,
+  measuredSqftForFamilyTakeoff,
   deliveryAddonCost,
   reviewBucketForQuestion,
   type ReviewRoom,

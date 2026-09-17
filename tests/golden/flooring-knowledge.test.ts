@@ -79,6 +79,8 @@ import {
   jobNeedsHardSurfaceStairTrim,
   HARD_SURFACE_STAIR_TRIM_LABELS,
   groupMeasuredSqftByLabel,
+  groupMeasuredSqftByFamily,
+  measuredSqftForFamilyTakeoff,
   deliveryAddonCost,
   reviewBucketForQuestion,
   formatMeasuredLabel,
@@ -3649,6 +3651,22 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(picker).not.toMatch(/initialCategory \|\| "lvp"/);
   });
 
+  it("0238 mixed jobs do not clone whole-job sq ft onto every family", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0238_flooring_knowledge_mixed_takeoff.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0238_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/per family/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/measuredSqftForFamilyTakeoff/);
+    expect(q).toMatch(/groupMeasuredSqftByFamily/);
+    expect(q).toMatch(/flooring.length === 1/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
@@ -3784,6 +3802,37 @@ describe("stair extras and mixed-job measured area", () => {
     expect(lvp.measured.sqft).toBe(200);
     expect(lvp.orderSqft).toBe(220);
     expect(carpet.measured.sqft).not.toBe(lvp.measured.sqft);
+    const byFam = groupMeasuredSqftByFamily([
+      { category: "carpet", measuredSqft: 300 },
+      { category: "lvp", measuredSqft: 200 },
+      { category: "carpet", measuredSqft: 50 },
+    ]);
+    expect(byFam.carpet).toBe(350);
+    expect(byFam.lvp).toBe(200);
+    expect(
+      measuredSqftForFamilyTakeoff({
+        family: "carpet",
+        totalSqft: 550,
+        byFamily: byFam,
+        jobFamilies: ["carpet", "lvp"],
+      }),
+    ).toBe(350);
+    expect(
+      measuredSqftForFamilyTakeoff({
+        family: "lvp",
+        totalSqft: 550,
+        byFamily: {},
+        jobFamilies: ["carpet", "lvp"],
+      }),
+    ).toBe(0);
+    expect(
+      measuredSqftForFamilyTakeoff({
+        family: "lvp",
+        totalSqft: 500,
+        byFamily: {},
+        jobFamilies: ["lvp"],
+      }),
+    ).toBe(500);
   });
 
   it("0196 re-gates stair extras and floating underlayment without inventing prices", () => {
