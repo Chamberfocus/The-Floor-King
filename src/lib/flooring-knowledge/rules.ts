@@ -606,7 +606,7 @@ export function knowledgeHelpFor(
     return "Count of carpet-tile steps in EACH — never square feet. Notes for the crew. Field verify if you have not seen them.";
   }
   if (key === "hs_plank_stairs") {
-    return "Hard-surface stairs are treads, risers, and stair noses in EACH — not an automatic 8 sq ft/step order. Wrap extra boxes in Builder if you use field plank. Matching stairnose stays on Trims. Stair labor is per step when you enter a rate; do not invent one.";
+    return "Hard-surface stairs are treads, risers, and stair noses in EACH — not an automatic 8 sq ft/step order. Wrap extra boxes are How many / Unit TBD in Builder, never taped square feet. Matching stairnose stays on Trims. Stair labor is per step when you enter a rate; do not invent one.";
   }
   if (key === "hs_transitions") {
     return "Doorway transitions are EACH — T-mold, reducer, end cap, threshold, metal. Add matching catalog pieces on Trims. Do not invent a SKU here. Field verify is allowed.";

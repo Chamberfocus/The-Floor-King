@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { billsBySquareYard, catalogRateToBillingUnit, lineDisplayUnit, pickedProductUnit, unitLabel } from "@/lib/units";
+import { billsBySquareYard, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, pickedProductUnit, unitLabel } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
@@ -1779,7 +1779,10 @@ export function Questionnaire({
           const p = a.product;
           if (p && (p.productId || p.label)) {
             const matCost = rateFor(p.materialRate, p.unit, false);
-            const { unit: countUnit } = countUnitForTbd(p.unit);
+            // Wrap extra boxes are COUNT. A boxed LVP/hardwood SKU sold by the
+            // square foot must not plant that area unit onto the wrap line —
+            // typing 104 sq ft in Builder would reopen the 8 sq ft/step order.
+            const { unit: countUnit } = countUnitForTbd(isAreaUnit(p.unit) ? "" : p.unit);
             out.push({
               room: null,
               description: `${p.label || "Stair wrap"} — wrap qty TBD (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel} — not an automatic sq ft/step order)`,

@@ -44,6 +44,8 @@ export interface CalcLine {
   category?: string | null;
   /** Warehouse cut pieces. Roll-goods order comes from these, not taped sq ft. */
   measurements?: LineMeasurement[] | null;
+  /** Stair wrap TBD is identified from the questionnaire description. */
+  description?: string | null;
 }
 
 /** A labor line is priced on labor alone — material never counts on it. */
@@ -79,6 +81,15 @@ export function lineAreaSqyd(line: CalcLine): number {
 }
 
 /**
+ * Hard-surface stair wrap from Guided Estimate. Extra boxes / EACH — never
+ * taped sq ft and never 8 sq ft per step. The questionnaire stamps
+ * "wrap qty TBD" so leftover product unit sqft cannot reopen that order.
+ */
+export function lineIsStairWrapTbd(line: { description?: string | null }): boolean {
+  return /wrap qty TBD/i.test((line.description ?? "").trim());
+}
+
+/**
  * Warehouse pieces that make a roll-goods ORDER. Taped room square feet are
  * measured area, not these.
  */
@@ -109,6 +120,8 @@ export function lineQty(line: CalcLine): number {
   // measure_unit "sqft" with no taped area is COUNT — toilets, adhesive, pad
   // TBD — never square feet. Roll goods without cuts still bill from quantity
   // only (sq ft ÷ 9 is not an order), including exclusive carpet tile.
+  // Stair wrap TBD is extra boxes, even when the wrap SKU is sold by the sq ft.
+  if (lineIsStairWrapTbd(line)) return num(line.quantity);
   if (isCountPricedLine(line)) return num(line.quantity);
   if (isRollGoodCategory(line.category) && line.category !== "labor" && !rollGoodsLineHasCuts(line)) {
     return num(line.quantity);

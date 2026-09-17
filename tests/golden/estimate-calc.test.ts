@@ -17,6 +17,7 @@ import {
   lineOrderQty,
   lineProfit,
   lineQty,
+  lineIsStairWrapTbd,
   lineTotal,
   marginPct,
   markupPct,
@@ -188,6 +189,36 @@ describe("lineQty — unit kind rules", () => {
         quantity: 50,
       }),
     ).toBe(50);
+  });
+
+  it("does not bill stair wrap TBD from taped sq ft (not 8 sq ft/step)", () => {
+    const wrap: CalcLine = {
+      line_type: "mat_labor",
+      category: "lvp",
+      unit: "sqft",
+      measure_unit: "sqft",
+      sqft: 104,
+      quantity: null,
+      description:
+        "Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+      material_rate: 4.5,
+    };
+    expect(lineIsStairWrapTbd(wrap)).toBe(true);
+    expect(lineQty(wrap)).toBe(0);
+    expect(lineTotal(wrap)).toBe(0);
+    expect(
+      lineQty({
+        ...wrap,
+        quantity: 13,
+        unit: "each",
+      }),
+    ).toBe(13);
+    expect(
+      lineQty({
+        ...wrap,
+        description: "Lifeproof Oak living room",
+      }),
+    ).toBe(104);
   });
 
   it("prices count units from quantity and ignores sqft (old $33,600 bug)", () => {

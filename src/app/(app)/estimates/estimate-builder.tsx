@@ -14,6 +14,7 @@ import { formatMoney } from "@/lib/format";
 import {
   lineTotal,
   lineQty,
+  lineIsStairWrapTbd,
   optionTotalsWithDiscount,
   marginPct,
   lineCost,
@@ -210,6 +211,8 @@ function isSubfloor(l: LineState): boolean {
  *  quantity × per-unit price), NOT by measured area. Roll goods and hard surface
  *  are always area-billed regardless of a stray unit string. */
 function isCountLine(l: LineState): boolean {
+  // Stair wrap TBD is extra boxes / EACH, even when the wrap SKU is LVP/hardwood.
+  if (lineIsStairWrapTbd(l)) return true;
   if (isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) return false;
   if (isSubfloor(l)) return false;
   if ((l.unit ?? "").trim()) return !isAreaUnit(l.unit);
@@ -254,6 +257,7 @@ function lineOurCost(l: LineState): number {
   // sitting on a LABOR line — the shared one gets both right.
   return lineCost({
     line_type: l.line_type,
+    description: l.description,
     sqft: l.sqft,
     length_in: ftInToIn(l.len_ft, l.len_in) || null,
     width_in: ftInToIn(l.wid_ft, l.wid_in) || null,
@@ -1664,6 +1668,7 @@ export function EstimateBuilder({
   // and shown in the always-visible bar, with the true blended margin.
   const toCalc = (l: LineState) => ({
     line_type: l.line_type,
+    description: l.description,
     sqft: l.sqft,
     length_in: ftInToIn(l.len_ft, l.len_in) || null,
     width_in: ftInToIn(l.wid_ft, l.wid_in) || null,
@@ -2239,6 +2244,7 @@ export function EstimateBuilder({
                     // Carry category, or a labor line's per-line price shows a
                     // material rate the option total doesn't charge.
                     category: line.category,
+                    description: line.description,
                     line_type: line.line_type,
                     sqft: line.sqft,
                     length_in: ftInToIn(line.len_ft, line.len_in) || null,
@@ -2279,6 +2285,10 @@ export function EstimateBuilder({
                         carpetSystems: ["carpet_tile"],
                       })
                     : null;
+                  const wrapTbd = lineIsStairWrapTbd(line);
+                  const flooringAreaUi =
+                    !wrapTbd &&
+                    (isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category));
                   // Flooring (roll goods / hard surface) — color is part of its
                   // at-a-glance identity, so it stays an essential for these.
                   const isFlooring =
@@ -2535,7 +2545,7 @@ export function EstimateBuilder({
                                 Switch to warehouse cut plan
                               </button>
                             </div>
-                          ) : isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category) ? (
+                          ) : flooringAreaUi ? (
                             /* FLOORING — build the area up from measured pieces.
                                Carpet/vinyl: each add-piece is a cut off the roll
                                (→ staging sheet). Hard surface: pieces sum to SF. */
@@ -3123,7 +3133,7 @@ export function EstimateBuilder({
                                 area (carpet needs sq yd); everything else gets the
                                 full unit picker so bag / each / lnft is one tap. */}
                             {line.line_type !== "flat" && !isSubfloor(line) ? (
-                              isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category) ? (
+                              flooringAreaUi ? (
                                 <div>
                                   <label className="mb-1 block text-xs text-muted-foreground">
                                     Price per

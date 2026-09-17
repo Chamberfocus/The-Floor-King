@@ -3887,6 +3887,44 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(shoe.some((w) => w.id === "hardwood-unfinished")).toBe(false);
   });
 
+  it("0246 stair wrap TBD is How many / Unit TBD, never taped sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0246_flooring_knowledge_stair_wrap_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0246_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/wrap qty TBD/);
+    expect(sql).toMatch(/How many \/ Unit TBD/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(/lineIsStairWrapTbd/);
+    expect(calc).toMatch(/if \(lineIsStairWrapTbd\(line\)\) return num\(line\.quantity\)/);
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/lineIsStairWrapTbd/);
+    expect(builder).toMatch(/flooringAreaUi/);
+    expect(builder).toMatch(/description: l\.description/);
+    expect(builder).toMatch(/description: line\.description/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
+    expect(q).toMatch(/wrap qty TBD/);
+
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /How many \/ Unit TBD/,
+    );
+    expect(lineQty({
+      line_type: "mat_labor",
+      category: "hardwood",
+      unit: "sqft",
+      sqft: 104,
+      quantity: null,
+      description: "Oak wrap — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+    })).toBe(0);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

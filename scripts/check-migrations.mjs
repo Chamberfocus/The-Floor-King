@@ -106,6 +106,7 @@ const REQUIRED_FILES = [
   "0243_flooring_knowledge_adhesive_qty_ui.sql",
   "0244_flooring_knowledge_pad_count_ui.sql",
   "0245_flooring_knowledge_hardwood_finish.sql",
+  "0246_flooring_knowledge_stair_wrap_qty.sql",
 ];
 
 /**
@@ -1339,6 +1340,16 @@ const REQUIRED_MARKERS = [
       "P0_0245_FLOORING_KNOWLEDGE",
       "hardwood_finish",
       "Unfinished (site finish)",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0246_flooring_knowledge_stair_wrap_qty.sql",
+    markers: [
+      "P0_0246_FLOORING_KNOWLEDGE",
+      "wrap qty TBD",
+      "How many / Unit TBD",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
