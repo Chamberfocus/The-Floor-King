@@ -427,6 +427,7 @@ export const REMOVAL_QUESTION_KEYS = [
   "existing_tack",
   "demo_disposal",
   "asbestos_risk",
+  "vinyl_skim",
 ] as const;
 
 /**

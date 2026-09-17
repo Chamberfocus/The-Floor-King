@@ -3997,6 +3997,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(neu).not.toContain("demo_disposal");
     expect(neu).not.toContain("asbestos_risk");
     expect(neu).not.toContain("existing_bond");
+    expect(neu).not.toContain("vinyl_skim");
 
     const walkNew = walk({
       project_type: ["Hard surface"],
@@ -4684,6 +4685,53 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(unknown).toContain("furniture_heavy");
   });
 
+  it("0257 new construction hides existing-vinyl skim; unanswered and replacement still ask", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0257_flooring_knowledge_new_build_skim.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0257_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/existing-vinyl skim/);
+    expect(sql).toMatch(/Do NOT SQL-gate vinyl_skim on work_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(knowledgeHelpFor({ key: "vinyl_skim" }, emptyInstallContext())).toMatch(
+      /New construction hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(
+      /existing-vinyl skim/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+    });
+    expect(unanswered).toContain("work_type");
+    expect(unanswered).toContain("vinyl_skim");
+    expect(unanswered).toContain("vinyl_layout");
+
+    const replacement = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      work_type: ["Replacement (tear-out)"],
+    });
+    expect(replacement).toContain("vinyl_skim");
+    expect(replacement).toContain("hs_demo");
+
+    const neu = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      work_type: ["New construction"],
+    });
+    expect(neu).toContain("work_type");
+    expect(neu).toContain("vinyl_layout");
+    expect(neu).toContain("adhesive");
+    expect(neu).toContain("substrate");
+    expect(neu).not.toContain("vinyl_skim");
+    expect(neu).not.toContain("hs_demo");
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
@@ -5243,6 +5291,7 @@ describe("salesperson review buckets by purpose, not a level regex", () => {
       "removal",
     );
     expect(reviewBucketForQuestion({ key: "asbestos_risk", label: "Asbestos" })).toBe("removal");
+    expect(reviewBucketForQuestion({ key: "vinyl_skim", label: "Existing vinyl skim" })).toBe("removal");
     expect(reviewBucketForQuestion({ key: "tack_strip", label: "Tack strip" })).toBe("accessories");
     expect(reviewBucketForQuestion({ key: "hs_transitions", label: "Doorway transitions" })).toBe(
       "accessories",

@@ -50,6 +50,7 @@ const REMOVAL_KEYS = new Set([
   "existing_tack",
   "demo_disposal",
   "asbestos_risk",
+  "vinyl_skim",
 ]);
 
 const SPECIAL_KEYS = new Set([

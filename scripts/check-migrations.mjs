@@ -117,6 +117,7 @@ const REQUIRED_FILES = [
   "0254_flooring_knowledge_wall_tile.sql",
   "0255_flooring_knowledge_wall_floor.sql",
   "0256_flooring_knowledge_vacant_furniture.sql",
+  "0257_flooring_knowledge_new_build_skim.sql",
 ];
 
 /**
@@ -1463,6 +1464,17 @@ const REQUIRED_MARKERS = [
       "occupancy",
       "Vacant hides furniture moving",
       "Do NOT SQL-gate furniture on occupancy",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0257_flooring_knowledge_new_build_skim.sql",
+    markers: [
+      "P0_0257_FLOORING_KNOWLEDGE",
+      "vinyl_skim",
+      "existing-vinyl skim",
+      "Do NOT SQL-gate vinyl_skim on work_type",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

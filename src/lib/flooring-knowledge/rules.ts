@@ -585,7 +585,7 @@ export function knowledgeHelpFor(
     return "Tearing out carpet usually takes tack strip with it. Keep is unusual. This is not new stretch-in tack strip — that stays on the install step. Linear feet stay off until you add a catalog item. Do not invent a linear-foot price.";
   }
   if (key === "work_type") {
-    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, asbestos, and disposal — substrate and prep still apply. Unknown / field verify keeps demo visible. Do not invent a demo charge on a new slab.";
+    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, and disposal — substrate and prep still apply. Unknown / field verify keeps demo visible. Do not invent a demo charge on a new slab.";
   }
   if (key === "tack_strip") {
     return "Stretch-in needs tack strip. Glue-down and carpet tile do not. Capture keep vs replace — do not invent a linear-foot price unless a catalog item is added.";
@@ -681,7 +681,7 @@ export function knowledgeHelpFor(
     return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this. Quantity is gallons or kits in Builder — taped square feet is not a glue order. A line with no sold-by unit shows How many / Unit TBD, not Sq ft. Do not invent coverage.";
   }
   if (key === "vinyl_skim") {
-    return "Embossed existing vinyl often needs a skim coat. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";
+    return "Embossed existing vinyl often needs a skim coat. New construction hides this — there is no existing vinyl. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";
   }
   if (key === "carpet_stairs") {
     return "Waterfall vs upholstered is stretch-in / glue-down wrap labor. Exclusive carpet tile hides this — modular tile on stairs is not a waterfall cut plan. Step count is EACH. We do not invent 6/8 sq ft of carpet per step as an order — include stairs in your cuts.";
