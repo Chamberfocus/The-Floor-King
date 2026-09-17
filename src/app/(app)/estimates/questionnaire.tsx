@@ -89,6 +89,12 @@ import {
   applyHardSurfaceStairTrimFill,
   jobNeedsHardSurfaceStairTrim,
   answersHaveTrimType,
+  keyedChoiceSelections,
+  trimLabelsFromPicks,
+  applyTrimTypeSeed,
+  presentTrimTypes,
+  HS_TRANSITION_OPTION_TO_TRIM,
+  HS_BASE_OPTION_TO_TRIM,
   type InstallContext,
   type ReviewRoom,
 } from "@/lib/flooring-knowledge";
@@ -695,6 +701,23 @@ export function Questionnaire({
     }
     return ctx;
   }, [questions, answers, overrides, visible]);
+
+  const hsTransitionTrims = useMemo(
+    () =>
+      trimLabelsFromPicks(
+        keyedChoiceSelections(questions, answers, "hs_transitions"),
+        HS_TRANSITION_OPTION_TO_TRIM,
+      ),
+    [questions, answers],
+  );
+  const hsBaseTrims = useMemo(
+    () =>
+      trimLabelsFromPicks(
+        keyedChoiceSelections(questions, answers, "hs_base_trim"),
+        HS_BASE_OPTION_TO_TRIM,
+      ),
+    [questions, answers],
+  );
 
   const cutsSqftByCategory = useMemo(() => {
     const out: Record<string, number> = {};
@@ -1631,12 +1654,15 @@ export function Questionnaire({
         hasVinylCuts,
         hsStairSteps: stairStepCountFromAnswers(answers, ["hs_stairs"]),
         hasStairNose: answersHaveTrimType(answers, /stair\s*nose/i),
+        neededTransitionTrims: hsTransitionTrims,
+        neededBaseTrims: hsBaseTrims,
+        presentTrimTypes: presentTrimTypes(answers),
       }),
     );
     // Dedupe by id so overlay + local flags don't double.
     const seen = new Set<string>();
     return w.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
-  }, [questions, answers, visible, overrides, flooringCtx, cutsSqftByCategory, totalSqft]);
+  }, [questions, answers, visible, overrides, flooringCtx, cutsSqftByCategory, totalSqft, hsTransitionTrims, hsBaseTrims]);
   const activeWarnings = warnings.filter((w) => !dismissed.has(w.id));
 
   const grand = lines.reduce((s, l) => s + lineTotal(smartLineToCalcLine(l)), 0);
@@ -2119,6 +2145,8 @@ export function Questionnaire({
               jobAnswers={answers}
               floorRooms={allRooms}
               flooringCtx={flooringCtx}
+              hsTransitionTrims={hsTransitionTrims}
+              hsBaseTrims={hsBaseTrims}
               cutsSqftByCategory={cutsSqftByCategory}
               goToAreas={() => {
                 const i = stepQuestions.findIndex((sq) => sq.kind === "areas");
@@ -2338,6 +2366,8 @@ function QuestionBody({
   goToAreas,
   flooringCtx = emptyInstallContext(),
   cutsSqftByCategory = {},
+  hsTransitionTrims = [],
+  hsBaseTrims = [],
 }: {
   q: EstimateQuestion;
   answer: Answer | undefined;
@@ -2359,6 +2389,10 @@ function QuestionBody({
   flooringCtx?: InstallContext;
   /** Roll-goods cut totals by catalog family — floor-map order uses cuts when present. */
   cutsSqftByCategory?: Record<string, number>;
+  /** TRIM_TYPES labels the salesperson already picked on hs_transitions. */
+  hsTransitionTrims?: string[];
+  /** TRIM_TYPES labels the salesperson already picked on hs_base_trim. */
+  hsBaseTrims?: string[];
 }) {
   // How many stairs? — seeded from hs_plank_stairs when the salesperson already
   // counted steps. Declared unconditionally so hook order is stable across kinds.
@@ -2901,6 +2935,15 @@ function QuestionBody({
       );
     };
     const showHsStairFill = jobNeedsHardSurfaceStairTrim(flooringCtx.families);
+    const fillFromPicks = (labels: string[]) => {
+      if (!labels.length) return;
+      upd(
+        applyTrimTypeSeed(rows, labels, (label) => {
+          const t = TRIM_TYPES.find((x) => x.label === label);
+          return newTrimRow(t);
+        }),
+      );
+    };
     return (
       <div className="space-y-3">
         {/* Quick-add: click the trims you need. */}
@@ -2946,6 +2989,28 @@ function QuestionBody({
             <span className="text-xs text-muted-foreground">
               One tread, one riser, and one stair nose (each) per step — then pick the product.
               {derivedHsStairSteps > 0 ? " Count came from the stair question." : ""}
+            </span>
+          </div>
+        ) : null}
+
+        {hsTransitionTrims.length ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed bg-primary/5 p-2.5">
+            <Button type="button" variant="outline" size="sm" onClick={() => fillFromPicks(hsTransitionTrims)}>
+              Add selected transitions
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {hsTransitionTrims.join(", ")} — each, never square feet. Then pick the catalog piece.
+            </span>
+          </div>
+        ) : null}
+
+        {hsBaseTrims.length ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed bg-primary/5 p-2.5">
+            <Button type="button" variant="outline" size="sm" onClick={() => fillFromPicks(hsBaseTrims)}>
+              Add selected base / shoe / QR
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {hsBaseTrims.join(", ")} — linear feet, never square feet.
             </span>
           </div>
         ) : null}

@@ -404,6 +404,12 @@ export function knowledgeHelpFor(
   if (key === "hs_plank_stairs") {
     return "Hard-surface stairs are treads/risers and stair noses, not carpet waterfall. Matching stairnose stays on Trims.";
   }
+  if (key === "hs_transitions") {
+    return "Doorway transitions are EACH — T-mold, reducer, end cap, threshold, metal. Add matching catalog pieces on Trims. Do not invent a SKU here. Field verify is allowed.";
+  }
+  if (key === "hs_base_trim") {
+    return "Base, quarter round, and shoe are linear feet — never square feet. Add footage on Trims. Keep existing or Field verify if demo has not happened.";
+  }
   if (key === "pattern_repeat") {
     return "Inches of pattern repeat for purchasing and layout notes. This does not generate a cut plan.";
   }
@@ -440,6 +446,12 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   hsStairSteps?: number;
   /** Trims already has a Stair nose row (each). */
   hasStairNose?: boolean;
+  /** TRIM_TYPES labels implied by hs_transitions (T-mold, reducer, …). */
+  neededTransitionTrims?: string[];
+  /** TRIM_TYPES labels implied by hs_base_trim (quarter round, shoe, base). */
+  neededBaseTrims?: string[];
+  /** Types already present on the Trims step. */
+  presentTrimTypes?: string[];
 }): { id: string; text: string }[] {
   const w: { id: string; text: string }[] = [];
   const has = (arr: string[], re: RegExp) => arr.some((v) => re.test(v));
@@ -556,6 +568,27 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
       id: "hs-stair-nose",
       text: "Hard-surface stairs usually need a stair nose (each) per step. Add them on Trims or confirm none — do not invent a Versatrim SKU here.",
     });
+  }
+  if (ctx.families.some(isHardSurfaceStairFamily)) {
+    const present = extras?.presentTrimTypes ?? [];
+    const missingTrans = (extras?.neededTransitionTrims ?? []).filter(
+      (label) => !present.some((t) => t.toLowerCase() === label.toLowerCase()),
+    );
+    if (missingTrans.length) {
+      w.push({
+        id: "hs-transitions",
+        text: `Doorway transitions still needed on Trims (${missingTrans.join(", ")} — each, never square feet). Add catalog pieces or confirm none — do not invent a SKU here.`,
+      });
+    }
+    const missingBase = (extras?.neededBaseTrims ?? []).filter(
+      (label) => !present.some((t) => t.toLowerCase() === label.toLowerCase()),
+    );
+    if (missingBase.length) {
+      w.push({
+        id: "hs-base-trim",
+        text: `Base / quarter round / shoe still needed on Trims (${missingBase.join(", ")} — linear feet, never square feet). Add footage or keep existing.`,
+      });
+    }
   }
   return w;
 }

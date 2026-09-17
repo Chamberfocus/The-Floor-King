@@ -163,3 +163,79 @@ export function answersHaveTrimType(
   }
   return false;
 }
+
+const SKIP_TRIM_PICK = /none|keep existing|field verify|tbd/i;
+
+/** Option label → existing TRIM_TYPES label. Doorway pieces are EACH. */
+export const HS_TRANSITION_OPTION_TO_TRIM: Record<string, string> = {
+  "T-mold": "T-mold",
+  Reducer: "Reducer",
+  "End cap": "End cap",
+  Threshold: "Threshold",
+  Metal: "Metal transition",
+  "Metal transition": "Metal transition",
+};
+
+/** Option label → existing TRIM_TYPES label. Base/QR/shoe are LN FT. */
+export const HS_BASE_OPTION_TO_TRIM: Record<string, string> = {
+  "Quarter round": "Quarter round",
+  "Shoe molding": "Shoe molding",
+  Baseboard: "Baseboard",
+};
+
+/** TRIM_TYPES labels implied by a notes-only pick list (skips None / TBD). */
+export function trimLabelsFromPicks(selected: string[] | undefined, map: Record<string, string>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const s of selected ?? []) {
+    if (!s || SKIP_TRIM_PICK.test(s)) continue;
+    const label = map[s];
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    out.push(label);
+  }
+  return out;
+}
+
+export function applyTrimTypeSeed<T extends { type: string }>(
+  rows: T[],
+  labels: string[],
+  addRow: (label: string) => T,
+): T[] {
+  if (!labels.length) return rows;
+  let rs = [...rows];
+  for (const label of labels) {
+    if (rs.some((x) => x.type.trim().toLowerCase() === label.toLowerCase())) continue;
+    rs = [...rs, addRow(label)];
+  }
+  return rs;
+}
+
+export function presentTrimTypes(
+  answers: Record<string, unknown> | unknown[] | null | undefined,
+): string[] {
+  if (!answers) return [];
+  const values = Array.isArray(answers) ? answers : Object.values(answers);
+  const types: string[] = [];
+  for (const a of values) {
+    if (!a || typeof a !== "object") continue;
+    const ans = a as { kind?: string; rows?: { type?: string }[] };
+    if (ans.kind !== "trims") continue;
+    for (const r of ans.rows ?? []) {
+      const t = (r.type ?? "").trim();
+      if (t) types.push(t);
+    }
+  }
+  return types;
+}
+
+/** Choice selections for a keyed question (questionnaire answers are id-keyed). */
+export function keyedChoiceSelections(
+  questions: { id: string; key?: string | null }[],
+  answers: Record<string, unknown>,
+  key: string,
+): string[] {
+  const q = questions.find((x) => x.key === key);
+  if (!q) return [];
+  return answerGateValues(answers[q.id]);
+}

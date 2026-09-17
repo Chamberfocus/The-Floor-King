@@ -11,6 +11,10 @@ import {
   accessoryUnitForType,
   applyHardSurfaceStairTrimFill,
   answersHaveTrimType,
+  trimLabelsFromPicks,
+  applyTrimTypeSeed,
+  HS_TRANSITION_OPTION_TO_TRIM,
+  HS_BASE_OPTION_TO_TRIM,
   billsBySqydFamily,
   cartonTakeoff,
   catalogCategoryForFamily,
@@ -1062,6 +1066,16 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         in: ["Ceramic WITH mortar bed", "Ceramic WITHOUT mortar bed", "Sheet vinyl"],
       },
     },
+    {
+      key: "hs_transitions",
+      position: 291,
+      show_if: { key: "project_type", in: ["Hard surface"] },
+    },
+    {
+      key: "hs_base_trim",
+      position: 292,
+      show_if: { key: "project_type", in: ["Hard surface"] },
+    },
   ];
   const catalog = catalogRows.map((row) => ({
     id: row.key,
@@ -1089,6 +1103,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("laminate_expansion");
     expect(keys).toContain("hs_underlayment");
     expect(keys).toContain("hs_direction");
+    expect(keys).toContain("hs_transitions");
+    expect(keys).toContain("hs_base_trim");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("hardwood_fasteners");
     expect(keys).not.toContain("tack_strip");
@@ -1125,6 +1141,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).not.toContain("pattern_repeat");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("surface_type");
+    expect(keys).not.toContain("hs_transitions");
+    expect(keys).not.toContain("hs_base_trim");
     expect(keys).not.toContain("stair_landings");
     expect(keys).not.toContain("stair_open_sides");
   });
@@ -1560,6 +1578,10 @@ describe("salesperson review buckets by purpose, not a level regex", () => {
     expect(reviewBucketForQuestion({ key: "hs_demo", label: "Existing flooring" })).toBe("removal");
     expect(reviewBucketForQuestion({ key: "asbestos_risk", label: "Asbestos" })).toBe("removal");
     expect(reviewBucketForQuestion({ key: "tack_strip", label: "Tack strip" })).toBe("accessories");
+    expect(reviewBucketForQuestion({ key: "hs_transitions", label: "Doorway transitions" })).toBe(
+      "accessories",
+    );
+    expect(reviewBucketForQuestion({ key: "hs_base_trim", label: "Base / QR" })).toBe("accessories");
     expect(reviewBucketForQuestion({ key: "carpet_stairs", label: "Carpet stairs" })).toBe(
       "installation",
     );
@@ -1572,5 +1594,79 @@ describe("salesperson review buckets by purpose, not a level regex", () => {
     expect(
       formatMeasuredLabel({ sqft: 270, sqydEquivalent: 30 }, { showEquivalentYd: true }),
     ).toMatch(/equivalent area — not an order quantity/);
+  });
+});
+
+describe("0199 hard-surface transitions and base trim without invented SKUs", () => {
+  it("adds notes-only hs_transitions and hs_base_trim with correct units", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0199_flooring_knowledge_hs_trim.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0199_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/hs_transitions/);
+    expect(sql).toMatch(/hs_base_trim/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/"emit"/);
+    expect(knowledgeQuestionByKey("hs_transitions")?.quantityUnit).toBe("each");
+    expect(knowledgeQuestionByKey("hs_base_trim")?.quantityUnit).toBe("lnft");
+    expect(knowledgeQuestionByKey("hs_transitions")?.families).toEqual([
+      "lvp",
+      "hardwood",
+      "laminate",
+      "vinyl",
+      "tile",
+    ]);
+  });
+
+  it("maps picks onto existing TRIM_TYPES and skips None / TBD", () => {
+    expect(
+      trimLabelsFromPicks(["T-mold", "Reducer", "Field verify / TBD"], HS_TRANSITION_OPTION_TO_TRIM),
+    ).toEqual(["T-mold", "Reducer"]);
+    expect(
+      trimLabelsFromPicks(["None — keep existing / no new transitions", "Metal"], HS_TRANSITION_OPTION_TO_TRIM),
+    ).toEqual(["Metal transition"]);
+    expect(trimLabelsFromPicks(["Keep existing base", "Quarter round"], HS_BASE_OPTION_TO_TRIM)).toEqual([
+      "Quarter round",
+    ]);
+    expect(accessoryUnitForType("T-mold")).toBe("each");
+    expect(accessoryUnitForType("Quarter round")).toBe("lnft");
+    const seeded = applyTrimTypeSeed([{ type: "T-mold", qty: "2" }], ["T-mold", "Reducer"], (label) => ({
+      type: label,
+      qty: "",
+    }));
+    expect(seeded).toEqual([
+      { type: "T-mold", qty: "2" },
+      { type: "Reducer", qty: "" },
+    ]);
+  });
+
+  it("warns when picked transitions are missing from Trims, and stays quiet once added", () => {
+    const ctx = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+    });
+    expect(
+      knowledgeWarnings(ctx, {
+        neededTransitionTrims: ["T-mold"],
+        neededBaseTrims: ["Quarter round"],
+        presentTrimTypes: [],
+      })
+        .map((w) => w.id)
+        .sort(),
+    ).toEqual(["hs-base-trim", "hs-transitions"]);
+    expect(
+      knowledgeWarnings(ctx, {
+        neededTransitionTrims: ["T-mold"],
+        neededBaseTrims: ["Quarter round"],
+        presentTrimTypes: ["T-mold", "Quarter round"],
+      }).some((w) => w.id === "hs-transitions" || w.id === "hs-base-trim"),
+    ).toBe(false);
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/applyTrimTypeSeed/);
+    expect(q).toMatch(/hsTransitionTrims/);
+    expect(q).toMatch(/hsBaseTrims/);
   });
 });

@@ -70,6 +70,8 @@ const ACCESSORY_MATERIAL_KEYS = new Set([
   "tile_setting",
   "attached_pad",
   "metals_needed",
+  "hs_transitions",
+  "hs_base_trim",
   "vents_registers",
 ]);
 

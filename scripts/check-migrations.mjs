@@ -59,6 +59,7 @@ const REQUIRED_FILES = [
   "0196_flooring_knowledge_stair_gates.sql",
   "0197_flooring_knowledge_scope_notes.sql",
   "0198_flooring_knowledge_vapor_barrier.sql",
+  "0199_flooring_knowledge_hs_trim.sql",
 ];
 
 /**
@@ -825,6 +826,16 @@ const REQUIRED_MARKERS = [
       "vapor_barrier",
       "substrate",
       "Concrete",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0199_flooring_knowledge_hs_trim.sql",
+    markers: [
+      "P0_0199_FLOORING_KNOWLEDGE",
+      "hs_transitions",
+      "hs_base_trim",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

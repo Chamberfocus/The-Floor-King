@@ -158,6 +158,20 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "carpet_stairs", purpose: "MEASUREMENT", phase: "details", families: ["carpet"] },
   { key: "hs_plank_stairs", purpose: "MEASUREMENT", phase: "details", families: ["lvp", "hardwood", "laminate", "vinyl", "tile"] },
   { key: "metals_needed", purpose: "ACCESSORY", phase: "details", families: ["carpet"] },
+  {
+    key: "hs_transitions",
+    purpose: "ACCESSORY",
+    phase: "details",
+    families: ["lvp", "hardwood", "laminate", "vinyl", "tile"],
+    quantityUnit: "each",
+  },
+  {
+    key: "hs_base_trim",
+    purpose: "ACCESSORY",
+    phase: "details",
+    families: ["lvp", "hardwood", "laminate", "vinyl", "tile"],
+    quantityUnit: "lnft",
+  },
   { key: "vents_registers", purpose: "ACCESSORY", phase: "details", quantityUnit: "each" },
   {
     key: "stair_landings",
