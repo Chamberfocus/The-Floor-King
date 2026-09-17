@@ -108,6 +108,7 @@ const REQUIRED_FILES = [
   "0245_flooring_knowledge_hardwood_finish.sql",
   "0246_flooring_knowledge_stair_wrap_qty.sql",
   "0247_flooring_knowledge_work_type.sql",
+  "0248_flooring_knowledge_wet_area.sql",
 ];
 
 /**
@@ -1361,6 +1362,16 @@ const REQUIRED_MARKERS = [
       "P0_0247_FLOORING_KNOWLEDGE",
       "work_type",
       "New construction",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0248_flooring_knowledge_wet_area.sql",
+    markers: [
+      "P0_0248_FLOORING_KNOWLEDGE",
+      "wet_area",
+      "Yes — bath / laundry / mudroom",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

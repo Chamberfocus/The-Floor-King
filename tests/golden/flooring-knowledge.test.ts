@@ -1132,7 +1132,7 @@ describe("family → system asks the right keys (not every question)", () => {
       project_type: ["Carpet"],
       carpet_install: ["Stretch-in"],
     });
-    on(carpetStretch, ["work_type", "carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat", "carpet_stairs"]);
+    on(carpetStretch, ["work_type", "wet_area", "carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat", "carpet_stairs"]);
     off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "carpet_tile_stairs"]);
 
     const carpetGlue = visibleKnowledgeKeys({
@@ -1638,6 +1638,11 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "existing_pad", position: 108, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "metals_needed", position: 112, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "carpet_pad", position: 110, show_if: { key: "carpet_install", in: ["Stretch-in"] } },
+    {
+      key: "wet_area",
+      position: 254,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
     { key: "toilets", position: 255, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "appliances", position: 260, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "delivery_scope", position: 535, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
@@ -4021,6 +4026,78 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(ceramicNew.some((w) => w.id === "new-construction")).toBe(true);
   });
 
+  it("0248 wet area warns without inventing a waterproof SKU", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0248_flooring_knowledge_wet_area.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0248_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/wet_area/);
+    expect(sql).toMatch(/Yes — bath \/ laundry \/ mudroom/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(knowledgeQuestionByKey("wet_area")?.purpose).toBe("WARNING");
+    expect(knowledgeQuestionByKey("wet_area")?.phase).toBe("details");
+    expect(knowledgeHelpFor({ key: "wet_area" }, emptyInstallContext())).toMatch(
+      /no waterproof column/,
+    );
+
+    const keys = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(keys).toContain("wet_area");
+    expect(keys).toContain("toilets");
+
+    const dry = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      wet_area: ["No"],
+    });
+    expect(dry).toContain("wet_area");
+
+    const lvpWet = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT"],
+      }),
+      { pickedLabels: ["Yes — bath / laundry / mudroom"] },
+    );
+    expect(lvpWet.some((w) => w.id === "wet-area")).toBe(true);
+    expect(lvpWet.find((w) => w.id === "wet-area")?.text).toMatch(/Do not invent/);
+    expect(lvpWet.some((w) => w.id === "wet-area-hardwood")).toBe(false);
+    expect(lvpWet.some((w) => w.id === "wet-area-carpet")).toBe(false);
+
+    const oakWet = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Hardwood"],
+      }),
+      { pickedLabels: ["Some rooms"] },
+    );
+    expect(oakWet.some((w) => w.id === "wet-area")).toBe(true);
+    expect(oakWet.some((w) => w.id === "wet-area-hardwood")).toBe(true);
+
+    const carpetWet = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Carpet"],
+        carpet_install: ["Stretch-in"],
+      }),
+      { pickedLabels: ["Yes — bath / laundry / mudroom"] },
+    );
+    expect(carpetWet.some((w) => w.id === "wet-area-carpet")).toBe(true);
+
+    const unknown = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT"],
+      }),
+      { pickedLabels: ["Unknown / field verify"] },
+    );
+    expect(unknown.some((w) => w.id === "wet-area")).toBe(false);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
@@ -4587,6 +4664,7 @@ describe("salesperson review buckets by purpose, not a level regex", () => {
     expect(reviewBucketForQuestion({ key: "carpet_stairs", label: "Carpet stairs" })).toBe(
       "installation",
     );
+    expect(reviewBucketForQuestion({ key: "wet_area", label: "Any wet areas?" })).toBe("specials");
   });
 
   it("extra-pad area uses measured-vs-equivalent wording, not a bare sqyd conversion", () => {

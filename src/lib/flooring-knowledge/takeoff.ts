@@ -63,6 +63,7 @@ const SPECIAL_KEYS = new Set([
   "crew_entry",
   "delivery_scope",
   "radiant_heat",
+  "wet_area",
 ]);
 
 const ACCESSORY_MATERIAL_KEYS = new Set([

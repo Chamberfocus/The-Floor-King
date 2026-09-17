@@ -305,6 +305,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     require: { key: "stairs", in: ["Yes"] },
   },
   { key: "occupancy", purpose: "SCHEDULING", phase: "details" },
+  /**
+   * Bath / laundry / mudroom. Catalog has no waterproof column — capture as
+   * scope and warn. Do not invent a waterproof SKU or a ban.
+   */
+  { key: "wet_area", purpose: "WARNING", phase: "details" },
   { key: "access_conditions", purpose: "SCHEDULING", phase: "details" },
   { key: "crew_entry", purpose: "SCHEDULING", phase: "details" },
   { key: "furniture_level", purpose: "LABOR", phase: "details" },

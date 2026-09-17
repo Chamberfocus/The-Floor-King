@@ -538,6 +538,9 @@ export function knowledgeHelpFor(
   if (key === "occupancy") {
     return "Occupied vs vacant changes furniture and scheduling. Not a price by itself.";
   }
+  if (key === "wet_area") {
+    return "Bath, laundry, or mudroom. Confirm the selected product is rated for a wet area. Catalog has no waterproof column — do not invent a SKU or a ban. Field verify if you have not seen the space.";
+  }
   if (key === "access_conditions") {
     return "Upper floor, elevator, long carry, unusual access — scope/schedule notes unless a Floor King labor item is added in Builder.";
   }
@@ -714,6 +717,27 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
       id: "new-construction",
       text: "New construction — no tear-out. Demo, pad removal, asbestos, and disposal stay off. Substrate and prep still apply. Do not invent a demo charge.",
     });
+  }
+  const wet = picked.some(
+    (l) => /^yes — bath/i.test(l.trim()) || /^some rooms$/i.test(l.trim()),
+  );
+  if (wet) {
+    w.push({
+      id: "wet-area",
+      text: "Wet area (bath / laundry / mudroom) — confirm the selected product is rated for it. Catalog has no waterproof column. Do not invent a waterproof SKU or a ban.",
+    });
+    if (ctx.families.includes("hardwood")) {
+      w.push({
+        id: "wet-area-hardwood",
+        text: "Hardwood in a wet area — confirm the product/manufacturer permits it. Do not assume a ban and do not invent a waterproof hardwood SKU.",
+      });
+    }
+    if (ctx.families.includes("carpet")) {
+      w.push({
+        id: "wet-area-carpet",
+        text: "Carpet in a wet area — typical residential carpet is not a wet-area floor. Confirm the product. Do not invent a waterproof SKU.",
+      });
+    }
   }
 
   if (ctx.surfaceLabels.includes("LVP / Vinyl")) {
