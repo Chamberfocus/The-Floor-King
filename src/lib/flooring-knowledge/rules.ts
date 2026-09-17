@@ -444,6 +444,10 @@ export function knowledgeHelpFor(
 ): string | null {
   const key = q.key ?? "";
   if (key === "install_method") {
+    const hs = ctx.families.filter(isHardSurfaceFamily);
+    if (hs.length >= 2) {
+      return `This job has ${hs.map(familyLabel).join(" + ")}. Pick every install method in play — adhesive, pad, and fastener follow-ups follow those picks. One chip still hides the other branch. Do not invent a per-room editor here.`;
+    }
     if (ctx.families.includes("laminate"))
       return "Laminate is a floating floor. Adhesive questions stay hidden unless a different method is actually in play.";
     if (ctx.families.includes("vinyl"))
@@ -723,24 +727,35 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   }
   const hsFamilies = ctx.families.filter(isHardSurfaceFamily);
   if (hsFamilies.length >= 2 && ctx.answeredInstallMethod.length) {
-    const method = installSystemFromLabel(ctx.answeredInstallMethod[0]);
-    const unsupported = hsFamilies.filter(
-      (f) => method !== "unknown" && !permittedInstallSystems(f, ctx.hardwoodConstruction).includes(method),
+    const methods = uniqueSystems(
+      ctx.answeredInstallMethod.map(installSystemFromLabel),
     );
     const labels = hsFamilies.map(familyLabel).join(" + ");
-    if (unsupported.length) {
+    const uncovered = hsFamilies.filter(
+      (f) => !methods.some((m) => permittedInstallSystems(f, ctx.hardwoodConstruction).includes(m)),
+    );
+    const orphanLabels = ctx.answeredInstallMethod.filter((label) => {
+      const m = installSystemFromLabel(label);
+      return m !== "unknown" && !hsFamilies.some((f) => permittedInstallSystems(f, ctx.hardwoodConstruction).includes(m));
+    });
+    if (orphanLabels.length) {
       w.push({
         id: "mixed-hs-method",
-        text: `This job has ${labels}. “${ctx.answeredInstallMethod[0]}” is not a permitted method for ${unsupported.map(familyLabel).join(" and ")}. Confirm each product, or split the estimate — do not assume one system covers both.`,
+        text: `This job has ${labels}. “${orphanLabels.join(" / ")}” is not a permitted method for those products. Confirm each product, or split the estimate — do not assume one system covers both.`,
       });
-    } else {
+    } else if (uncovered.length) {
+      w.push({
+        id: "mixed-hs-method",
+        text: `This job has ${labels}. No selected method covers ${uncovered.map(familyLabel).join(" and ")}. Pick that product’s system too, or split the estimate — do not invent a per-room method here.`,
+      });
+    } else if (methods.length === 1) {
       const signatures = new Set(
         hsFamilies.map((f) => permittedInstallSystems(f, ctx.hardwoodConstruction).slice().sort().join(",")),
       );
       if (signatures.size > 1) {
         w.push({
           id: "mixed-hs-install",
-          text: `This job has ${labels} sharing one install method. Confirm each product actually uses “${ctx.answeredInstallMethod[0]}”, or split the estimate — do not invent a per-room method here.`,
+          text: `This job has ${labels} sharing one install method. Confirm each product actually uses “${ctx.answeredInstallMethod[0]}”, or pick every method in play — do not invent a per-room editor here.`,
         });
       }
     }

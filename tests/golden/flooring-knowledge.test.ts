@@ -39,6 +39,7 @@ import {
   installSystemFromLabel,
   matchesShowIf,
   hardSurfaceInstallMethodOptions,
+  jobNeedsMixedInstallMethodPicks,
   solePermittedInstallSystem,
   synthesizeSoleInstallMethod,
   questionApplies,
@@ -1963,6 +1964,29 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(unanswered.some((w) => w.id === "mixed-hs-install" || w.id === "mixed-hs-method")).toBe(false);
 
+    const mixedBoth = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT", "Hardwood"],
+        install_method: ["Floating / click", "Nail-down"],
+      }),
+    );
+    expect(mixedBoth.some((w) => w.id === "mixed-hs-install" || w.id === "mixed-hs-method")).toBe(
+      false,
+    );
+
+    const bothBranches = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT", "Hardwood"],
+      install_method: ["Floating / click", "Nail-down"],
+    });
+    expect(bothBranches).toContain("attached_pad");
+    expect(bothBranches).toContain("hardwood_fasteners");
+    expect(bothBranches).not.toContain("adhesive");
+
+    expect(jobNeedsMixedInstallMethodPicks(["lvp", "hardwood"])).toBe(true);
+    expect(jobNeedsMixedInstallMethodPicks(["lvp"])).toBe(false);
+
     const keys = walk({
       project_type: ["Carpet"],
       carpet_install: ["Stretch-in"],
@@ -2220,6 +2244,32 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(glue).toContain("metals_needed");
     expect(glue).not.toContain("tack_strip");
     expect(glue).not.toContain("carpet_pad");
+  });
+
+  it("0209 lets mixed hard-surface jobs pick more than one install method", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0209_flooring_knowledge_mixed_install.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0209_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/install_method/);
+    expect(sql).toMatch(/\{multi\}/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/insert into public\.estimate_questions/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/jobNeedsMixedInstallMethodPicks/);
+    expect(q).toMatch(/mixedHsInstall/);
+
+    const mixed = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT", "Hardwood"],
+      install_method: ["Floating / click", "Nail-down"],
+    });
+    expect(mixed).toContain("attached_pad");
+    expect(mixed).toContain("hardwood_fasteners");
+    expect(mixed).not.toContain("adhesive");
   });
 
   it("pattern repeat only after pattern match is required", () => {

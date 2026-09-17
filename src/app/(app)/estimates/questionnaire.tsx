@@ -67,6 +67,7 @@ import {
   installContextFromValByKey,
   withProductFamilies,
   hardSurfaceInstallMethodOptions,
+  jobNeedsMixedInstallMethodPicks,
   isRollGoodsFamily,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
@@ -3651,9 +3652,11 @@ function QuestionBody({
             return [...merged, ...extra];
           })()
         : configured;
-    const multi = q.config.multi;
+    const mixedHsInstall =
+      q.key === "install_method" && jobNeedsMixedInstallMethodPicks(flooringCtx.families);
+    const multi = q.key === "install_method" ? mixedHsInstall : q.config.multi;
     const soleInstall =
-      q.key === "install_method" && opts.length === 1 && !multi ? opts[0].label : null;
+      q.key === "install_method" && opts.length === 1 ? opts[0].label : null;
     const selected =
       soleInstall && !answerChoice.selected.length ? [soleInstall] : answerChoice.selected;
     const toggle = (label: string) => {

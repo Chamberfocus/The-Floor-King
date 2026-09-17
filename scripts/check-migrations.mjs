@@ -69,6 +69,7 @@ const REQUIRED_FILES = [
   "0206_flooring_knowledge_shared_prep.sql",
   "0207_flooring_knowledge_bond_site.sql",
   "0208_flooring_knowledge_stretch_pad.sql",
+  "0209_flooring_knowledge_mixed_install.sql",
 ];
 
 /**
@@ -949,6 +950,16 @@ const REQUIRED_MARKERS = [
       "tack_strip",
       "carpet_pad",
       "Stretch-in",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0209_flooring_knowledge_mixed_install.sql",
+    markers: [
+      "P0_0209_FLOORING_KNOWLEDGE",
+      "install_method",
+      "multi",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

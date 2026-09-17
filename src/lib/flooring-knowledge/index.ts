@@ -24,6 +24,7 @@ export {
   hardSurfaceInstallMethodOptions,
   solePermittedInstallSystem,
   isHardSurfaceFamily,
+  jobNeedsMixedInstallMethodPicks,
   isRollGoodsFamily,
   isBoxedFamily,
   isHardSurfaceStairFamily,

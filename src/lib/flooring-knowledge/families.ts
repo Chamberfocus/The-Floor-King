@@ -260,6 +260,15 @@ export function hardSurfaceInstallMethodOptions(
 }
 
 /**
+ * Two or more hard-surface families on one job can use different systems
+ * (floating LVP + nail-down hardwood). The install-method question then
+ * accepts more than one pick so follow-ups are not forced through a single chip.
+ */
+export function jobNeedsMixedInstallMethodPicks(families: FlooringFamily[]): boolean {
+  return families.filter(isHardSurfaceFamily).length >= 2;
+}
+
+/**
  * When exactly one hard-surface family is in play and it allows exactly one
  * system (laminate → floating, tile → thinset, sheet vinyl → glue), that is
  * the method — the salesperson should not have to click the only chip.
