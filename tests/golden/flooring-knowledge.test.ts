@@ -17,6 +17,7 @@ import {
   cutWidthChoicesFt,
   defaultCutWidthFt,
   equivalentSqyd,
+  formatTakeoffStrip,
   familyFromCatalogCategory,
   familyFromSurfaceLabel,
   hardwoodConstructionFromLabel,
@@ -132,6 +133,10 @@ describe("measured area vs order quantity", () => {
     expect(t.orderSqft).toBe(540);
     expect(t.billingQty).toBe(60);
     expect(t.warnings).toEqual([]);
+    const strip = formatTakeoffStrip(t);
+    expect(strip).toMatch(/Measured 450 sq ft \(50 sq yd equivalent area — not an order quantity\)/);
+    expect(strip).toMatch(/Order 540 sq ft · 60 sq yd \(from cuts/);
+    expect(strip).not.toMatch(/Order 50 sq yd[^.]/);
   });
 
   it("sheet vinyl is roll goods billed in sq yd, same measured ≠ order rule", () => {
@@ -167,6 +172,11 @@ describe("measured area vs order quantity", () => {
     expect(noBox.cartons).toBeNull();
     expect(noBox.orderSqft).toBe(550);
     expect(noBox.notes.some((n) => /not invented/i.test(n))).toBe(true);
+    const strip = formatTakeoffStrip(withBox);
+    expect(strip).toMatch(/Measured 500 sq ft/);
+    expect(strip).toMatch(/Waste 10% \(50 sq ft\)/);
+    expect(strip).toMatch(/Order 567\.36 sq ft \(24 cartons @ 23\.64 sq ft\)/);
+    expect(strip).not.toMatch(/sq yd/);
   });
 
   it("does not invent carton coverage from zero or missing metadata", () => {
@@ -296,7 +306,8 @@ describe("questionnaire is wired to the knowledge engine", () => {
     expect(q).toMatch(/computeMaterialTakeoff/);
     expect(q).toMatch(/equivalent area — not an order qty/);
     expect(q).toMatch(/Continue to Builder/);
-    expect(q).toMatch(/installMethodOptionsForFamilies/);
+    expect(q).toMatch(/formatTakeoffStrip/);
+    expect(q).toMatch(/Running takeoff — measured is not order quantity/);
   });
 });
 
@@ -557,6 +568,71 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "hs_underlayment")).toBe(false);
     expect(has(keys, "hardwood_fasteners")).toBe(false);
     expect(has(keys, "tile_layout")).toBe(false);
+  });
+
+  it("each family asks its own follow-ups and hides the others", () => {
+    const on = (keys: string[], want: string[]) => want.forEach((k) => expect(keys, k).toContain(k));
+    const off = (keys: string[], hide: string[]) => hide.forEach((k) => expect(keys, k).not.toContain(k));
+
+    const carpetStretch = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    on(carpetStretch, ["carpet_install", "pattern_match", "tack_strip", "carpet_pad", "existing_pad"]);
+    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion"]);
+
+    const carpetGlue = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    on(carpetGlue, ["adhesive"]);
+    off(carpetGlue, ["tack_strip", "carpet_pad", "attached_pad", "tile_layout"]);
+
+    const carpetTile = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    off(carpetTile, ["tack_strip", "carpet_pad", "adhesive", "laminate_expansion"]);
+
+    const lam = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    });
+    on(lam, ["attached_pad", "laminate_expansion"]);
+    off(lam, ["adhesive", "hardwood_fasteners", "tile_setting", "vinyl_layout", "tack_strip"]);
+
+    const lvpGlue = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+    });
+    on(lvpGlue, ["adhesive"]);
+    off(lvpGlue, ["attached_pad", "laminate_expansion", "hardwood_fasteners", "tile_setting"]);
+
+    const engNail = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Engineered hardwood"],
+      install_method: ["Nail-down"],
+    });
+    on(engNail, ["hardwood_fasteners", "acclimation"]);
+    off(engNail, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout"]);
+
+    const vinyl = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      install_method: ["Glue-down"],
+    });
+    on(vinyl, ["vinyl_layout", "vinyl_skim", "adhesive"]);
+    off(vinyl, ["attached_pad", "carpet_pad", "tile_application", "hardwood_fasteners"]);
+
+    const tile = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      install_method: ["Thinset / mortar"],
+    });
+    on(tile, ["tile_application", "tile_layout", "tile_setting"]);
+    off(tile, ["adhesive", "attached_pad", "vinyl_layout", "hardwood_fasteners", "laminate_expansion"]);
   });
 
   it("stretch-in carpet: tack strip on, adhesive off", () => {

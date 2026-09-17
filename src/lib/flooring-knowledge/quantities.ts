@@ -238,6 +238,40 @@ export function formatBillingQty(qty: number, unit: string): string {
 }
 
 /**
+ * One-line running takeoff. Measured / waste / order stay labeled as themselves.
+ * Never prints a sq ft number with a "sq yd" unit or the reverse.
+ */
+export function formatTakeoffStrip(t: MaterialTakeoff): string {
+  const bits: string[] = [
+    `Measured ${formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" })}`,
+  ];
+  if (t.orderBasis === "none") return bits.join(" · ");
+  if (t.orderBasis === "cuts") {
+    bits.push(
+      `Order ${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)} (from cuts — not sq ft ÷ 9)`,
+    );
+    return bits.join(" · ");
+  }
+  if (t.wastePct) bits.push(`Waste ${t.wastePct}% (${formatSqft(t.wasteSqft)})`);
+  if (t.cartons) {
+    bits.push(
+      `Order ${formatSqft(t.cartons.orderedCoverageSqft)} (${t.cartons.cartonCount} carton${t.cartons.cartonCount === 1 ? "" : "s"} @ ${t.cartons.coverageSqft} sq ft)`,
+    );
+    return bits.join(" · ");
+  }
+  const order =
+    t.billingUnit === "sqyd"
+      ? `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)}`
+      : formatSqft(t.orderSqft);
+  bits.push(
+    t.orderBasis === "measured_plus_waste_estimated"
+      ? `Order ${order} (estimate — not a cut plan)`
+      : `Order ${order}`,
+  );
+  return bits.join(" · ");
+}
+
+/**
  * Canonical accessory unit from the trim *type*.
  * T-mold must not match generic "mold" and become linear feet.
  * Quarter round / shoe / base are never square feet.

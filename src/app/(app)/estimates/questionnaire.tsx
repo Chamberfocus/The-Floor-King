@@ -61,6 +61,8 @@ import {
   formatMeasuredLabel,
   formatSqft,
   formatSqyd,
+  formatTakeoffStrip,
+  familyLabel,
   hardwoodConstructionFromSpecies,
   installContextFromValByKey,
   installMethodOptionsForFamilies,
@@ -1975,6 +1977,23 @@ export function Questionnaire({
           >
             Review
           </button>
+        </div>
+      ) : null}
+
+      {salespersonReview.takeoffs.some((t) => t.measured.sqft > 0 || t.orderSqft > 0) ? (
+        <div className="space-y-1.5 rounded-lg border bg-muted/20 px-3 py-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Running takeoff — measured is not order quantity
+          </div>
+          {salespersonReview.takeoffs.map((t, i) =>
+            t.measured.sqft > 0 || t.orderSqft > 0 ? (
+              <p key={`${t.family}-${i}`} className="text-xs leading-snug">
+                <span className="font-semibold">{familyLabel(t.family)}</span>
+                {" · "}
+                {formatTakeoffStrip(t)}
+              </p>
+            ) : null,
+          )}
         </div>
       ) : null}
 

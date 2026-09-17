@@ -63,6 +63,7 @@ export {
   formatSqyd,
   formatMeasuredLabel,
   formatBillingQty,
+  formatTakeoffStrip,
   accessoryUnitForType,
   coerceTrimUnit,
   defaultCutWidthFt,
