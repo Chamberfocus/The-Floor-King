@@ -26,6 +26,8 @@ export {
   isHardSurfaceFamily,
   jobNeedsMixedInstallMethodPicks,
   isRollGoodsFamily,
+  carpetInstallSystemsFromLabels,
+  rollGoodsNeedCuts,
   isBoxedFamily,
   isHardSurfaceStairFamily,
   jobNeedsHardSurfaceStairTrim,

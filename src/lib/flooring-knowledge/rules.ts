@@ -18,6 +18,8 @@ import {
   installSystemFromLabel,
   isHardSurfaceFamily,
   isHardSurfaceStairFamily,
+  rollGoodsNeedCuts,
+  carpetInstallSystemsFromLabels,
   flooringFamiliesFromCategories,
   mergeFlooringFamilies,
   unscopedProductFamilies,
@@ -466,7 +468,7 @@ export function knowledgeHelpFor(
     }
   }
   if (key === "carpet_install") {
-    return "Stretch-in over pad is the residential default. Glue-down and carpet tile change pad, tack strip, and adhesive.";
+    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Do not invent a box size.";
   }
   if (key === "prep_confidence") {
     return "If you cannot see the substrate until demo, leave this as Field verify / TBD rather than guessing a bag count.";
@@ -475,9 +477,13 @@ export function knowledgeHelpFor(
     return "Enter rooms in feet and inches. Add a section for closets and offsets. This is MEASURED area — order quantity is calculated next from the product and (for carpet) the cuts.";
   }
   if (q.kind === "cuts") {
-    return q.config?.category === "vinyl"
-      ? "Sheet vinyl is roll goods. These cuts are the order quantity — converting room square feet into yards is not a layout."
-      : "Cuts are the order quantity. Converting room square feet into yards is not a cut plan.";
+    if (q.config?.category === "vinyl") {
+      return "Sheet vinyl is roll goods. These cuts are the order quantity — converting room square feet into yards is not a layout.";
+    }
+    if (!rollGoodsNeedCuts("carpet", carpetInstallSystemsFromLabels(ctx.answeredCarpetInstall))) {
+      return "Carpet tile is modular. Pick the product here; order is measured area plus waste. Carton count only if the product has coverage — we do not invent a box size. This is not a roll cut plan.";
+    }
+    return "Cuts are the order quantity. Converting room square feet into yards is not a cut plan. Carpet tile hides the cut list and uses measured area instead.";
   }
   if (key === "tile_layout") {
     return "Straight vs diagonal changes waste and labor. Capture it; do not auto-inflate waste without the salesperson.";
@@ -672,7 +678,8 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   if (
     ctx.families.includes("carpet") &&
     (extras?.measuredSqft ?? 0) > 0 &&
-    extras?.hasCuts === false
+    extras?.hasCuts === false &&
+    rollGoodsNeedCuts("carpet", carpetInstallSystemsFromLabels(ctx.answeredCarpetInstall))
   ) {
     w.push({
       id: "carpet-no-cuts",

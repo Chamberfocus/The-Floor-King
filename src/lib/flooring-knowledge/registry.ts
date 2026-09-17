@@ -62,6 +62,12 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "prep_scope", purpose: "PREP", phase: "measure" },
   // Measure / layout (after the product is in play)
   { key: "vinyl_layout", purpose: "WAREHOUSE", phase: "measure", families: ["vinyl"] },
+  /**
+   * Carpet product + (for broadloom) the cut list. Exclusive carpet tile keeps
+   * this step so the salesperson can pick the SKU; the cut rows hide in the UI
+   * and order follows measured area + waste. Catalog category stays `carpet`.
+   */
+  { key: "carpet_cuts", purpose: "WAREHOUSE", phase: "measure", families: ["carpet"] },
   { key: "pattern_match", purpose: "WAREHOUSE", phase: "measure", families: ["carpet"] },
   {
     key: "pattern_repeat",

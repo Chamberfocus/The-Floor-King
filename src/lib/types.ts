@@ -318,7 +318,7 @@ export type EstimateQuestionKind =
   | "choice" // single/multi choice → each picked option can emit a line
   | "text" // free note → appended to the job notes
   // Smart auto-calc kinds — the questionnaire does the math:
-  | "cuts" // carpet cuts (length × 12'/15' roll) → total sq yd to order
+  | "cuts" // carpet/sheet cuts (length × roll width) → order qty; carpet tile uses this step to pick the SKU, not a cut plan
   | "stairs" // step count + type (waterfall/upholstered) → labor + carpet yd
   | "hs_stairs" // hard-surface stairs → area (steps × 4/8 sf) → plank + stair labor
   | "subfloor" // thickness → sheets = ceil(area ÷ 32)

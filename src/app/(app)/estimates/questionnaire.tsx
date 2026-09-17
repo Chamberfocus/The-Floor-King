@@ -69,6 +69,8 @@ import {
   hardSurfaceInstallMethodOptions,
   jobNeedsMixedInstallMethodPicks,
   isRollGoodsFamily,
+  carpetInstallSystemsFromLabels,
+  rollGoodsNeedCuts,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
   areaDerivedMaterialAllowed,
@@ -898,6 +900,7 @@ export function Questionnaire({
 
   const lines: SmartLine[] = useMemo(() => {
     const out: SmartLine[] = [];
+    const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
     // If a floor-map assigns products per room, the area that gets CARPET (billed
     // by the yard) drives padding — so a mixed job doesn't buy pad for the LVP.
     let carpetArea = 0;
@@ -937,10 +940,11 @@ export function Questionnaire({
           if (!p || rm.sqft <= 0) return;
           const cat = p.category || "other";
           const rollFam = familyFromCatalogCategory(cat);
-          // Mixed jobs: carpet/sheet vinyl ORDER comes from the cuts step.
-          // Do not also bill the taped room area as a second roll-goods line.
+          // Mixed jobs: broadloom / sheet ORDER comes from the cuts step.
+          // Exclusive carpet tile is modular — taped room area may become the
+          // material line. Do not also bill a second roll-goods line from cuts.
           const cutSf = isRollGoodsFamily(rollFam) ? (cutsSqftByCategory[rollFam] ?? 0) : 0;
-          if (rollGoodsHaveCuts(rollFam, cutSf)) return;
+          if (rollGoodsHaveCuts(rollFam, cutSf, carpetSystems)) return;
           const b = billing(cat);
           const defWaste = profileFor(cat)?.waste ?? 0;
           const requested = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
@@ -948,6 +952,7 @@ export function Questionnaire({
             family: rollFam,
             cutsSqft: cutSf,
             requestedWastePct: requested,
+            carpetInstallSystems: carpetSystems,
           });
           const spb = numv(p.sqftPerBox);
           // Flooring is AREA-billed: the builder prices area × material_cost ×
@@ -962,6 +967,7 @@ export function Questionnaire({
             measuredSqft: rm.sqft,
             billingUnit: b.wantYd ? "sqyd" : "sqft",
             productUnit: p.unit,
+            carpetInstallSystems: carpetSystems,
           });
           if (qty != null && rm.sqft > 0)
             out.push({
@@ -989,7 +995,7 @@ export function Questionnaire({
             });
           // Accumulate install labor per distinct product. Labor is measured
           // work even when roll-goods order quantity is still TBD.
-          if (measuredInstallLaborAllowed(rollFam, cutSf)) {
+          if (measuredInstallLaborAllowed(rollFam, cutSf, carpetSystems)) {
             const key = `${p.productId || p.label}|${p.laborRate}`;
             const agg = byProd.get(key) ?? { p, wantYd: b.wantYd, sqft: 0 };
             agg.sqft += rm.sqft;
@@ -1039,6 +1045,7 @@ export function Questionnaire({
             family: fam,
             cutsSqft: cutSf,
             requestedWastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste,
+            carpetInstallSystems: carpetSystems,
           });
         const matLine = (
           p: ProductAns,
@@ -1080,6 +1087,7 @@ export function Questionnaire({
             measuredSqft: size?.sqft ?? 0,
             billingUnit: billing(p.category || cat).wantYd ? "sqyd" : "sqft",
             productUnit: p.unit,
+            carpetInstallSystems: carpetSystems,
           }) ?? 0,
           // Roll goods: L×W on the line is a warehouse cut, so only explicit
           // cuts go here. Room dimensions stay on sqft (measured area).
@@ -1116,7 +1124,7 @@ export function Questionnaire({
           const perRoomFloor =
             cat !== "underlayment" && cat !== "trim" && cat !== "other" && allRooms.length > 0 && !boxed;
           const allowAreaMat =
-            areaDerivedMaterialAllowed(fam, p.unit) && q.key !== "adhesive";
+            areaDerivedMaterialAllowed(fam, p.unit, carpetSystems) && q.key !== "adhesive";
           // Roll goods: taped area is never a material line. Cuts own the order.
           // Adhesive / gal / kit: taped sq ft is not a glue order.
           if (allowAreaMat) {
@@ -1159,7 +1167,7 @@ export function Questionnaire({
           // Without cuts, labor still follows measured area (install is work,
           // not an order quantity). Glue/count picks do not get fake sq-ft labor.
           const lr = rateFor(p.laborRate, p.unit, b.wantYd);
-          if (allowAreaMat && measuredInstallLaborAllowed(fam, cutSf) && lr > 0 && coverSf > 0) {
+          if (allowAreaMat && measuredInstallLaborAllowed(fam, cutSf, carpetSystems) && lr > 0 && coverSf > 0) {
             const laborQty = b.wantYd ? Math.ceil(coverSf / 9) : Math.ceil(coverSf);
             out.push({
               room: null,
@@ -1190,7 +1198,7 @@ export function Questionnaire({
         for (const ex of a.extras) {
           if (!ex.product || numv(ex.sqft) <= 0) continue;
           const exFam = familyFromCatalogCategory(ex.product.category || cat);
-          if (!areaDerivedMaterialAllowed(exFam, ex.product.unit)) continue;
+          if (!areaDerivedMaterialAllowed(exFam, ex.product.unit, carpetSystems)) continue;
           out.push(matLine(ex.product, { sqft: numv(ex.sqft) }));
         }
       } else if (q.kind === "product" && a.kind === "trims") {
@@ -1256,6 +1264,87 @@ export function Questionnaire({
         const sameCarpet = a.same !== false;
         const rollCategory = q.config.category === "vinyl" ? "vinyl" : "carpet";
         const rollLabel = rollCategory === "vinyl" ? "Sheet vinyl" : "Carpet";
+        const modularTile =
+          rollCategory === "carpet" && !rollGoodsNeedCuts("carpet", carpetSystems);
+        if (modularTile) {
+          // Carpet tile is modular. Keep this step so the salesperson can pick
+          // the SKU; do not invent a roll cut plan or a 12' warehouse piece.
+          // Mixed floor-map jobs already emit assigned rooms above.
+          if (!floorMapActive) {
+            const emitModular = (p: ProductAns | null, roomLabel: string | null, sqft: number) => {
+              if (!p || !(sqft > 0)) return;
+              const qty = areaDerivedMaterialQty({
+                family: "carpet",
+                measuredSqft: sqft,
+                billingUnit: "sqyd",
+                productUnit: p.unit,
+                carpetInstallSystems: carpetSystems,
+              });
+              if (qty == null) return;
+              const waste = materialWastePctForEmit({
+                family: "carpet",
+                requestedWastePct:
+                  p.wastePct.trim() !== "" ? numv(p.wastePct) : (profileFor("carpet")?.waste ?? 0),
+                carpetInstallSystems: carpetSystems,
+              });
+              out.push({
+                room: roomLabel,
+                description: p.label || "Carpet tile",
+                category: p.category || "carpet",
+                measure_unit: "sqyd",
+                sqft: r2(sqft),
+                quantity: qty,
+                length_in: null,
+                width_in: null,
+                measurements: null,
+                unit: "sq yd",
+                material_rate: sellMat(rateFor(p.materialRate, p.unit, true)),
+                labor_rate: 0,
+                material_cost: rateFor(p.materialRate, p.unit, true),
+                labor_cost: 0,
+                waste_pct: waste,
+                product_id: p.productId || null,
+                manufacturer:
+                  p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                style: p.style,
+                color: p.color,
+                from_stock: p.source === "stock",
+                order_as_roll: false,
+                roll_width_ft: null,
+                sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+              });
+              const instYd = rateFor(p.laborRate, p.unit, true) || (q.config.install_yd ?? 6);
+              if (instYd > 0) {
+                out.push({
+                  room: roomLabel,
+                  description: `Carpet installation${roomLabel ? ` — ${roomLabel}` : ""}`,
+                  category: "labor",
+                  measure_unit: "sqyd",
+                  sqft: r2(sqft),
+                  quantity: Math.ceil(sqft / 9),
+                  length_in: null,
+                  width_in: null,
+                  unit: "sq yd",
+                  material_rate: 0,
+                  labor_rate: sellLab(instYd),
+                  material_cost: 0,
+                  labor_cost: instYd,
+                  waste_pct: 0,
+                  product_id: null,
+                  manufacturer: null,
+                  style: null,
+                  color: null,
+                  from_stock: false,
+                });
+              }
+            };
+            if (sameCarpet) emitModular(a.product, null, totalSqft);
+            else {
+              const picked = a.groups.map((g) => g.product).find(Boolean) ?? a.product;
+              emitModular(picked, null, totalSqft);
+            }
+          }
+        } else {
         // stores). Every add-piece is a cut off the roll (labeled with its area),
         // and the pieces sum to the line's yardage.
         type Piece = {
@@ -1367,6 +1456,7 @@ export function Questionnaire({
         } else {
           // Different carpet per area → one line per area (each with its cuts).
           for (const g of a.groups) emitCarpet(g.product, groupPieces(g, g.product), g.area.trim() || null);
+        }
         }
       } else if (q.kind === "stairs" && a.kind === "stairs") {
         // Stairs → step LABOR + the CARPET the steps consume (waterfall vs
@@ -1797,13 +1887,15 @@ export function Questionnaire({
       return flooringCtx.families.includes(fam) ? rects : [];
     };
     w.push(
-      ...rollGoodsSeamWarnings({
-        family: "carpet",
-        catalogWidthsFt: catalogWidths.carpet,
-        rooms: rectsFor("carpet"),
-        patternMatch,
-        hasCuts: hasCarpetCuts,
-      }),
+      ...(rollGoodsNeedCuts("carpet", carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall))
+        ? rollGoodsSeamWarnings({
+            family: "carpet",
+            catalogWidthsFt: catalogWidths.carpet,
+            rooms: rectsFor("carpet"),
+            patternMatch,
+            hasCuts: hasCarpetCuts,
+          })
+        : []),
       ...rollGoodsSeamWarnings({
         family: "vinyl",
         catalogWidthsFt: catalogWidths.vinyl,
@@ -1877,6 +1969,7 @@ export function Questionnaire({
           wastePct: waste,
           cutsSqft: family === "carpet" ? cutsSqftByCategory.carpet ?? 0 : family === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : null,
           sqftPerBox: numv(sqftPerBox) > 0 ? numv(sqftPerBox) : null,
+          carpetSystems: family === "carpet" ? carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall) : null,
         }),
       );
     };
@@ -1897,6 +1990,7 @@ export function Questionnaire({
                 family: fam,
                 measuredSqft: totalSqft,
                 cutsSqft: cutSf,
+                carpetSystems: fam === "carpet" ? carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall) : null,
               }),
             );
           }
@@ -1936,6 +2030,7 @@ export function Questionnaire({
                 : f === "vinyl"
                   ? cutsSqftByCategory.vinyl || null
                   : null,
+            carpetSystems: f === "carpet" ? carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall) : null,
           }),
         );
       }
@@ -2360,7 +2455,9 @@ export function Questionnaire({
                 {lines.map((l, i) => {
                   const fam = familyFromCatalogCategory(l.category);
                   const rollOrderTbd =
-                    isRollGoodsFamily(fam) && !(l.measurements && l.measurements.length);
+                    isRollGoodsFamily(fam) &&
+                    rollGoodsNeedCuts(fam, carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall)) &&
+                    !(l.measurements && l.measurements.length);
                   return (
                   <div key={i} className="flex items-center justify-between gap-3 py-1.5">
                     <span className="min-w-0">
@@ -2986,18 +3083,21 @@ function QuestionBody({
                   {(() => {
                     const defWaste = profileFor(cat)?.waste ?? 0;
                     const family = familyFromCatalogCategory(cat);
-                    const cutSf = isRollGoodsFamily(family) ? (cutsSqftByCategory[family] ?? 0) : 0;
+                    const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
+                    const needCuts = rollGoodsNeedCuts(family, carpetSystems);
+                    const cutSf = needCuts ? (cutsSqftByCategory[family] ?? 0) : 0;
                     const takeoff = computeMaterialTakeoff({
                       family,
                       measuredSqft: rm.sqft,
                       wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste,
                       cutsSqft: cutSf > 0 ? cutSf : null,
-                      sqftPerBox: !isRollGoodCategory(cat) && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                      sqftPerBox: !needCuts && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                      carpetSystems: family === "carpet" ? carpetSystems : null,
                     });
                     return (
                       <div className="mt-2 space-y-1.5">
                         <div className="flex flex-wrap items-end gap-3">
-                          {!isRollGoodsFamily(family) ? (
+                          {!needCuts ? (
                           <div>
                             <label className="mb-1 block text-[11px] text-muted-foreground">Waste factor</label>
                             <div className="flex items-center gap-1">
@@ -3012,7 +3112,7 @@ function QuestionBody({
                             </div>
                           </div>
                           ) : null}
-                          {!isRollGoodCategory(cat) ? (
+                          {!needCuts ? (
                             <div>
                               <label className="mb-1 block text-[11px] text-muted-foreground">Sq ft per box</label>
                               <Input
@@ -3034,13 +3134,13 @@ function QuestionBody({
                             {" · "}
                             {takeoff.orderBasis === "cuts"
                               ? "Order (from cuts) "
-                              : takeoff.orderBasis === "none" && isRollGoodsFamily(family)
+                              : takeoff.orderBasis === "none" && needCuts
                                 ? "Order TBD — enter cuts "
                                 : takeoff.orderBasis === "measured_plus_waste_estimated"
                                   ? "Order (estimate — not a cut plan) "
                                   : "Order "}
                             <span className="font-semibold tabular-nums text-foreground">
-                              {takeoff.orderBasis === "none" && isRollGoodsFamily(family)
+                              {takeoff.orderBasis === "none" && needCuts
                                 ? ""
                                 : takeoff.billingUnit === "sqyd"
                                   ? formatSqyd(takeoff.billingQty)
@@ -3380,7 +3480,10 @@ function QuestionBody({
     const kindLabel = cat === "underlayment" ? "padding" : cat;
     // Waste + carton entry is for the flooring itself (not pad / trim / other).
     const isFlooring = ["carpet", "lvp", "vinyl", "laminate", "hardwood", "tile"].includes(cat);
-    const isRoll = isRollGoodCategory(cat);
+    const family = familyFromCatalogCategory(cat);
+    const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
+    const needRollCuts = rollGoodsNeedCuts(family, carpetSystems);
+    const isRoll = needRollCuts;
     const defWasteForCat = profileFor(cat)?.waste ?? 0;
     const setMain = (product: ProductAns | null) => set({ kind: "product", product, extras });
     const setExtras = (xs: ExtraPad[]) => set({ kind: "product", product: p, extras: xs });
@@ -3414,13 +3517,14 @@ function QuestionBody({
             {isFlooring ? (
               (() => {
                 const takeoff = computeMaterialTakeoff({
-                  family: familyFromCatalogCategory(cat),
+                  family,
                   measuredSqft: totalSqft,
                   wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWasteForCat,
-                  cutsSqft: isRoll
-                    ? (cutsSqftByCategory[familyFromCatalogCategory(cat)] ?? 0)
+                  cutsSqft: needRollCuts
+                    ? (cutsSqftByCategory[family] ?? 0)
                     : null,
-                  sqftPerBox: !isRoll && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                  sqftPerBox: !needRollCuts && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                  carpetSystems: family === "carpet" ? carpetSystems : null,
                 });
                 return (
                   <div className="space-y-2 rounded-md border border-dashed p-2.5">
@@ -3765,6 +3869,8 @@ function QuestionBody({
     const rollNoun = q.config.category === "vinyl" ? "sheet vinyl" : "carpet";
     const rollNounCap = q.config.category === "vinyl" ? "Sheet vinyl" : "Carpet";
     const rollFamily = q.config.category === "vinyl" ? "vinyl" : "carpet";
+    const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
+    const modularTile = rollFamily === "carpet" && !rollGoodsNeedCuts("carpet", carpetSystems);
     const productForWidth = (a: CutsA, g: CarpetGroup): ProductAns | null =>
       a.same !== false ? a.product : g.product;
     const widthFromProduct = (p: ProductAns | null): number | null =>
@@ -3819,6 +3925,70 @@ function QuestionBody({
         {label}
       </button>
     );
+    if (modularTile) {
+      const p = answer.product;
+      const defWaste = profileFor("carpet")?.waste ?? 0;
+      const takeoff = computeMaterialTakeoff({
+        family: "carpet",
+        measuredSqft: totalSqft,
+        wastePct: p && p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste,
+        sqftPerBox: p && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+        carpetSystems,
+      });
+      const setProduct = (product: ProductAns | null) => mutate((a) => ({ ...a, product, same: true }));
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Carpet tile is modular — pick the product. Order is measured area plus waste.
+            Carton count only if coverage is on the product. This is not a roll cut plan.
+          </p>
+          <ProductPicker
+            value={p?.productId ?? ""}
+            initialLabel={p?.label ?? ""}
+            label="Which carpet tile?"
+            defaultCategory="carpet"
+            fullWidth
+            onPick={(prod) => setProduct(prod ? toProductAns(prod) : null)}
+            onCreated={(prod) => setProduct(toProductAns(prod))}
+            onUseOnce={(input) => setProduct(customToProductAns(input))}
+          />
+          {p ? (
+            <div className="space-y-2 rounded-md border border-dashed p-2.5">
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Waste factor</label>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      value={p.wastePct}
+                      onChange={(e) => setProduct({ ...p, wastePct: e.target.value })}
+                      inputMode="decimal"
+                      placeholder={String(defWaste)}
+                      className="h-10 w-20 text-base"
+                    />
+                    <span className="text-sm text-muted-foreground">%</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Sq ft per box</label>
+                  <Input
+                    value={p.sqftPerBox}
+                    onChange={(e) => setProduct({ ...p, sqftPerBox: e.target.value })}
+                    inputMode="decimal"
+                    placeholder="if known — do not invent"
+                    className="h-10 w-28 text-base"
+                  />
+                </div>
+              </div>
+              {totalSqft > 0 ? (
+                <p className="text-sm">{formatTakeoffStrip(takeoff)}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">Enter rooms first — this is measured area, then order.</p>
+              )}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
     return (
       <div className="space-y-3">
         {/* Same carpet everywhere vs a different carpet per area. */}

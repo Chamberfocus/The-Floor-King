@@ -70,6 +70,8 @@ import {
   formatMeasuredLabel,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
+  rollGoodsNeedCuts,
+  carpetInstallSystemsFromLabels,
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
   measuredInstallLaborAllowed,
@@ -307,6 +309,91 @@ describe("measured area vs order quantity", () => {
     expect(measuredInstallLaborAllowed("vinyl", 90)).toBe(false);
     expect(measuredInstallLaborAllowed("lvp", 0)).toBe(true);
     expect(measuredInstallLaborAllowed("lvp", 999)).toBe(true);
+  });
+
+  it("exclusive carpet tile is modular — measured + waste, not a roll cut plan", () => {
+    expect(rollGoodsNeedCuts("carpet")).toBe(true);
+    expect(rollGoodsNeedCuts("carpet", [])).toBe(true);
+    expect(rollGoodsNeedCuts("carpet", ["stretch_in"])).toBe(true);
+    expect(rollGoodsNeedCuts("carpet", ["glue"])).toBe(true);
+    expect(rollGoodsNeedCuts("carpet", ["carpet_tile"])).toBe(false);
+    expect(rollGoodsNeedCuts("carpet", ["stretch_in", "carpet_tile"])).toBe(true);
+    expect(rollGoodsNeedCuts("vinyl", ["carpet_tile"])).toBe(true);
+    expect(rollGoodsNeedCuts("lvp", ["carpet_tile"])).toBe(false);
+    // Hard-surface glue must not leak into the carpet-tile decision.
+    expect(carpetInstallSystemsFromLabels(["Glue-down", "Carpet tile"])).toEqual(["glue", "carpet_tile"]);
+    expect(carpetInstallSystemsFromLabels(["Floating / click", "Carpet tile"])).toEqual(["carpet_tile"]);
+    expect(rollGoodsNeedCuts("carpet", carpetInstallSystemsFromLabels(["Carpet tile"]))).toBe(false);
+    expect(
+      rollGoodsNeedCuts("carpet", carpetInstallSystemsFromLabels(["Floating / click", "Carpet tile"])),
+    ).toBe(false);
+
+    expect(areaDerivedMaterialAllowed("carpet")).toBe(false);
+    expect(areaDerivedMaterialAllowed("carpet", "sqyd", ["carpet_tile"])).toBe(true);
+    expect(
+      areaDerivedMaterialQty({
+        family: "carpet",
+        measuredSqft: 450,
+        billingUnit: "sqyd",
+        carpetInstallSystems: ["carpet_tile"],
+      }),
+    ).toBe(50);
+    expect(materialWastePctForEmit({ family: "carpet", requestedWastePct: 10 })).toBe(0);
+    expect(
+      materialWastePctForEmit({
+        family: "carpet",
+        requestedWastePct: 10,
+        carpetInstallSystems: ["carpet_tile"],
+      }),
+    ).toBe(10);
+
+    const tile = computeMaterialTakeoff({
+      family: "carpet",
+      measuredSqft: 450,
+      wastePct: 10,
+      carpetSystems: ["carpet_tile"],
+    });
+    expect(tile.orderBasis).toBe("measured_plus_waste");
+    expect(tile.measured.sqft).toBe(450);
+    expect(tile.measured.sqydEquivalent).toBe(50);
+    expect(tile.wastePct).toBe(10);
+    expect(tile.wasteSqft).toBe(45);
+    expect(tile.orderSqft).toBe(495);
+    expect(tile.billingUnit).toBe("sqyd");
+    expect(tile.billingQty).toBe(55);
+    expect(tile.cartons).toBeNull();
+    expect(tile.notes.some((n) => /carton coverage/i.test(n))).toBe(true);
+    const strip = formatTakeoffStrip(tile);
+    expect(strip).toMatch(/Measured 450 sq ft \(50 sq yd equivalent area — not an order quantity\)/);
+    expect(strip).toMatch(/Waste 10%/);
+    expect(strip).toMatch(/Order 495 sq ft · 55 sq yd/);
+    expect(strip).not.toMatch(/Order TBD/);
+    expect(strip).not.toMatch(/from cuts/);
+
+    const boxed = computeMaterialTakeoff({
+      family: "carpet",
+      measuredSqft: 450,
+      wastePct: 10,
+      sqftPerBox: 24,
+      carpetSystems: ["carpet_tile"],
+    });
+    expect(boxed.cartons).toEqual({
+      coverageSqft: 24,
+      cartonCount: 21,
+      orderedCoverageSqft: 504,
+    });
+    expect(boxed.orderSqft).toBe(504);
+    expect(boxed.billingQty).toBe(56);
+
+    const glue = computeMaterialTakeoff({
+      family: "carpet",
+      measuredSqft: 450,
+      wastePct: 10,
+      carpetSystems: ["glue"],
+    });
+    expect(glue.orderBasis).toBe("none");
+    expect(glue.billingQty).toBe(0);
+    expect(glue.warnings.some((w) => /not a professional carpet cut plan/i.test(w))).toBe(true);
   });
 
   it("AI notes estimate does not order roll goods from taped sq ft ÷ 9", () => {
@@ -989,7 +1076,7 @@ describe("family → system asks the right keys (not every question)", () => {
       project_type: ["Carpet"],
       carpet_install: ["Stretch-in"],
     });
-    on(carpetStretch, ["carpet_install", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat"]);
+    on(carpetStretch, ["carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat"]);
     off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test", "hs_direction"]);
 
     const carpetGlue = visibleKnowledgeKeys({
@@ -1003,7 +1090,7 @@ describe("family → system asks the right keys (not every question)", () => {
       project_type: ["Carpet"],
       carpet_install: ["Carpet tile"],
     });
-    on(carpetTile, ["adhesive"]);
+    on(carpetTile, ["adhesive", "carpet_cuts"]);
     off(carpetTile, ["tack_strip", "carpet_pad", "laminate_expansion"]);
 
     const lam = visibleKnowledgeKeys({
@@ -1386,6 +1473,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "surface_type", position: 200, show_if: { key: "project_type", in: ["Hard surface"] } },
     { key: "install_method", position: 205, show_if: { key: "project_type", in: ["Hard surface"] } },
     { key: "carpet_install", position: 105, show_if: { key: "project_type", in: ["Carpet"] } },
+    { key: "carpet_cuts", position: 100, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "pattern_match", position: 106, show_if: { key: "project_type", in: ["Carpet"] } },
     {
       key: "pattern_repeat",
@@ -1934,6 +2022,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       carpet_install: ["Carpet tile"],
     });
     expect(keys).toContain("adhesive");
+    expect(keys).toContain("carpet_cuts");
     expect(keys).not.toContain("tack_strip");
     expect(keys).not.toContain("carpet_pad");
     expect(keys).not.toContain("vapor_barrier");
@@ -2503,6 +2592,79 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         productUnit: "sqft",
       }),
     ).toBe(500);
+  });
+
+  it("0213 treats exclusive carpet tile as modular, not a roll cut plan", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0213_flooring_knowledge_carpet_tile.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0213_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/carpet_cuts/);
+    expect(sql).toMatch(/Carpet tile is modular/);
+    expect(sql).toMatch(/do not invent a box size/i);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/insert into public\.products/);
+    expect(sql).not.toMatch(/create table public\.estimate_questions/);
+
+    const unanswered = walk({
+      project_type: ["Carpet"],
+    });
+    expect(unanswered).toContain("carpet_install");
+    expect(unanswered).toContain("carpet_cuts");
+
+    const stretch = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("carpet_cuts");
+
+    const glue = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(glue).toContain("carpet_cuts");
+
+    const tile = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(tile).toContain("carpet_cuts");
+    expect(tile).not.toContain("tack_strip");
+
+    const mixedHsGlue = walk({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(mixedHsGlue).toContain("carpet_cuts");
+    expect(mixedHsGlue).toContain("adhesive");
+
+    const tileWarn = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Carpet"],
+        carpet_install: ["Carpet tile"],
+      }),
+      { measuredSqft: 450, hasCuts: false },
+    );
+    expect(tileWarn.some((w) => w.id === "carpet-no-cuts")).toBe(false);
+
+    const stretchWarn = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Carpet"],
+        carpet_install: ["Stretch-in"],
+      }),
+      { measuredSqft: 450, hasCuts: false },
+    );
+    expect(stretchWarn.some((w) => w.id === "carpet-no-cuts")).toBe(true);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/modularTile/);
+    expect(q).toMatch(/rollGoodsNeedCuts/);
+    expect(q).toMatch(/order_as_roll: false/);
+    expect(knowledgeQuestionByKey("carpet_cuts")?.purpose).toBe("WAREHOUSE");
   });
 
   it("pattern repeat only after pattern match is required", () => {

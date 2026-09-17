@@ -10,7 +10,10 @@
  *                  measured × (1 + waste) for boxed goods; carton-rounded
  *                  only when the product actually has coverage metadata.
  *
- * Carpet is roll goods. sqft ÷ 9 is never "the amount of carpet to order".
+ * Broadloom carpet and sheet vinyl are roll goods. sqft ÷ 9 is never
+ * "the amount to order". Exclusive carpet tile is modular: measured + waste,
+ * carton only when the product actually has coverage. Catalog category stays
+ * `carpet` — we do not invent a carpet-tile category.
  */
 
 import { billsBySquareYard, isAreaUnit, normalizeUnit, unitLabel } from "@/lib/units";
@@ -19,7 +22,9 @@ import {
   defaultWastePctForFamily,
   isBoxedFamily,
   isRollGoodsFamily,
+  rollGoodsNeedCuts,
   type FlooringFamily,
+  type InstallSystem,
 } from "./families";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -84,23 +89,30 @@ export function sqydToSqft(sqyd: number): number {
 export function rollGoodsHaveCuts(
   family: FlooringFamily,
   cutsSqft: number | null | undefined,
+  carpetInstallSystems?: InstallSystem[] | null,
 ): boolean {
   const cuts = Number(cutsSqft);
-  return isRollGoodsFamily(family) && Number.isFinite(cuts) && cuts > 0;
+  return (
+    rollGoodsNeedCuts(family, carpetInstallSystems) &&
+    Number.isFinite(cuts) &&
+    cuts > 0
+  );
 }
 
 /**
  * Whether taped / measured area may become a Builder MATERIAL line.
- * Roll goods: never. sq ft ÷ 9 is equivalent area, not an order. The cuts
- * step owns carpet/sheet material. Count-unit catalog items (gal / each /
- * bag / kit of adhesive): never — taped sq ft is not gallons of glue.
+ * Broadloom / sheet vinyl: never. sq ft ÷ 9 is equivalent area, not an order.
+ * Exclusive carpet tile is modular — measured area may become the material
+ * line (carton only when coverage exists). Count-unit catalog items (gal /
+ * each / bag / kit of adhesive): never — taped sq ft is not gallons of glue.
  * Boxed hard surface billed by area: yes.
  */
 export function areaDerivedMaterialAllowed(
   family: FlooringFamily,
   productUnit?: string | null,
+  carpetInstallSystems?: InstallSystem[] | null,
 ): boolean {
-  if (isRollGoodsFamily(family)) return false;
+  if (rollGoodsNeedCuts(family, carpetInstallSystems)) return false;
   if (productUnit != null && String(productUnit).trim() !== "" && !isAreaUnit(productUnit)) {
     return false;
   }
@@ -118,8 +130,11 @@ export function areaDerivedMaterialQty(args: {
   measuredSqft: number;
   billingUnit: "sqyd" | "sqft";
   productUnit?: string | null;
+  carpetInstallSystems?: InstallSystem[] | null;
 }): number | null {
-  if (!areaDerivedMaterialAllowed(args.family, args.productUnit)) return null;
+  if (!areaDerivedMaterialAllowed(args.family, args.productUnit, args.carpetInstallSystems)) {
+    return null;
+  }
   const n = Number(args.measuredSqft);
   if (!(n > 0) || !Number.isFinite(n)) return null;
   return args.billingUnit === "sqyd" ? r2(n / 9) : r2(n);
@@ -134,21 +149,24 @@ export function areaDerivedMaterialQty(args: {
 export function measuredInstallLaborAllowed(
   family: FlooringFamily,
   cutsSqft?: number | null,
+  carpetInstallSystems?: InstallSystem[] | null,
 ): boolean {
-  return !rollGoodsHaveCuts(family, cutsSqft);
+  return !rollGoodsHaveCuts(family, cutsSqft, carpetInstallSystems);
 }
 
 /**
  * Waste that may ride onto an emitted material LINE.
  * Roll goods without cuts: 0 — layout waste lives in the cut list, not a %.
+ * Exclusive carpet tile uses the requested / family waste like boxed goods.
  */
 export function materialWastePctForEmit(args: {
   family: FlooringFamily;
   cutsSqft?: number | null;
   requestedWastePct: number;
+  carpetInstallSystems?: InstallSystem[] | null;
 }): number {
-  if (rollGoodsHaveCuts(args.family, args.cutsSqft)) return 0;
-  if (isRollGoodsFamily(args.family)) return 0;
+  if (rollGoodsHaveCuts(args.family, args.cutsSqft, args.carpetInstallSystems)) return 0;
+  if (rollGoodsNeedCuts(args.family, args.carpetInstallSystems)) return 0;
   const n = Number(args.requestedWastePct);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
@@ -183,6 +201,12 @@ export interface ComputeTakeoffInput {
   cutsSqft?: number | null;
   /** Product `sqft_per_box` — only used when actually present. */
   sqftPerBox?: number | null;
+  /**
+   * Carpet-install systems only. Exclusive carpet_tile uses measured + waste
+   * (carton if coverage exists). Unanswered / glue-down / stretch-in stay
+   * roll goods. Hard-surface glue must not be passed here.
+   */
+  carpetSystems?: InstallSystem[] | null;
   /** When true, skip waste even without cuts (explicit 0 on the line). */
   wasteAlreadyInQuantity?: boolean;
 }
@@ -198,7 +222,9 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
   const billingUnit = billsBySqydFamily(family) ? "sqyd" : "sqft";
 
   const cuts = Number(input.cutsSqft);
-  const hasCuts = rollGoodsHaveCuts(family, input.cutsSqft);
+  const hasCuts = rollGoodsHaveCuts(family, input.cutsSqft, input.carpetSystems);
+  const needCuts = rollGoodsNeedCuts(family, input.carpetSystems);
+  const boxedLike = isBoxedFamily(family) || (family === "carpet" && !needCuts);
 
   let wastePct: number;
   let orderSqft: number;
@@ -234,9 +260,10 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
         `Measured area ${measured.sqft} sq ft (${measured.sqydEquivalent} sq yd equivalent) vs cut area ${orderSqft} sq ft (${r2(orderSqft / 9)} sq yd).`,
       );
     }
-  } else if (isRollGoodsFamily(family)) {
+  } else if (needCuts) {
     // sq ft ÷ 9 is equivalent area, not an order. Do not invent layout waste
-    // or a purchase quantity until cuts exist.
+    // or a purchase quantity until cuts exist. Exclusive carpet tile does not
+    // take this branch — it is modular, not a roll cut plan.
     wastePct = 0;
     orderSqft = 0;
     orderBasis = "none";
@@ -261,8 +288,8 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
   // not a separate add-on on the takeoff.
   const wasteSqftOut = orderBasis === "measured_plus_waste" ? r2(orderSqft - measured.sqft) : 0;
 
-  const cartons = isBoxedFamily(family) ? cartonTakeoff(orderSqft, input.sqftPerBox) : null;
-  if (isBoxedFamily(family) && !(Number(input.sqftPerBox) > 0)) {
+  const cartons = boxedLike ? cartonTakeoff(orderSqft, input.sqftPerBox) : null;
+  if (boxedLike && !(Number(input.sqftPerBox) > 0)) {
     notes.push("No carton coverage on this product — carton count is not invented.");
   }
   if (cartons) {
@@ -325,7 +352,7 @@ export function formatTakeoffStrip(t: MaterialTakeoff): string {
     `Measured ${formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" })}`,
   ];
   if (t.orderBasis === "none") {
-    if (isRollGoodsFamily(t.family) && t.measured.sqft > 0) {
+    if (t.measured.sqft > 0 && (isRollGoodsFamily(t.family) || t.family === "carpet")) {
       bits.push("Order TBD (enter cuts — not sq ft ÷ 9)");
     }
     return bits.join(" · ");

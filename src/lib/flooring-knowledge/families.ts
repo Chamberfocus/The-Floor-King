@@ -290,6 +290,46 @@ export function isRollGoodsFamily(family: FlooringFamily): boolean {
   return family === "carpet" || family === "vinyl";
 }
 
+/**
+ * Carpet-install systems only (stretch-in / glue-down / carpet tile).
+ * Hard-surface Glue-down must not leak in — that is a different question.
+ */
+export function carpetInstallSystemsFromLabels(
+  labels: string[] | null | undefined,
+): InstallSystem[] {
+  const seen = new Set<string>();
+  const out: InstallSystem[] = [];
+  for (const label of labels ?? []) {
+    const s = installSystemFromLabel(label);
+    if (s !== "stretch_in" && s !== "glue" && s !== "carpet_tile") continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * Whether ORDER quantity still needs a roll cut / sheet layout.
+ *
+ * Catalog category stays `carpet` / `vinyl` — we do not invent a carpet-tile
+ * category. Exclusive carpet tile is modular (boxed): measured area + waste,
+ * carton only when `sqft_per_box` exists. Glue-down broadloom stays roll goods.
+ * Unanswered carpet install stays optimistic (cuts remain the order path).
+ */
+export function rollGoodsNeedCuts(
+  family: FlooringFamily,
+  carpetInstallSystems?: InstallSystem[] | null,
+): boolean {
+  if (family === "vinyl") return true;
+  if (family !== "carpet") return false;
+  const carpet = (carpetInstallSystems ?? []).filter(
+    (s) => s === "stretch_in" || s === "glue" || s === "carpet_tile",
+  );
+  if (!carpet.length) return true;
+  return carpet.some((s) => s === "stretch_in" || s === "glue");
+}
+
 export function isBoxedFamily(family: FlooringFamily): boolean {
   return family === "lvp" || family === "hardwood" || family === "laminate" || family === "tile";
 }
