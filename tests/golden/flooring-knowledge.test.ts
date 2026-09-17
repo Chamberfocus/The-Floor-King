@@ -37,6 +37,8 @@ import {
   formatTakeoffStrip,
   formatEquivalentSqyd,
   formatBillingQty,
+  takeoffConceptRows,
+  takeoffUnitKeyLabel,
   rollGoodsOrderTbdDescription,
   familyFromCatalogCategory,
   familyFromSurfaceLabel,
@@ -243,7 +245,10 @@ describe("measured area vs order quantity", () => {
     expect(materialWastePctForEmit({ family: "carpet", requestedWastePct: 10 })).toBe(0);
     const strip = formatTakeoffStrip(t);
     expect(strip).toMatch(/Measured 450 sq ft \(50 sq yd equivalent area — not an order quantity\)/);
-    expect(strip).toMatch(/Order TBD \(enter cuts — not sq ft ÷ 9\)/);
+    expect(strip).toMatch(/Waste 0%/);
+    expect(strip).toMatch(/Order TBD — enter cuts \(sq ft ÷ 9 is not an order\)/);
+    expect(strip).toMatch(/Billing TBD — not 50 sq yd from taped area/);
+    expect(strip).toMatch(/Unit sq yd/);
     expect(strip).not.toMatch(/Order 50 sq yd/);
     expect(strip).not.toMatch(/Order 55/);
   });
@@ -266,7 +271,10 @@ describe("measured area vs order quantity", () => {
     expect(t.warnings).toEqual([]);
     const strip = formatTakeoffStrip(t);
     expect(strip).toMatch(/Measured 450 sq ft \(50 sq yd equivalent area — not an order quantity\)/);
+    expect(strip).toMatch(/Waste 0%/);
     expect(strip).toMatch(/Order 540 sq ft · 60 sq yd \(from cuts/);
+    expect(strip).toMatch(/Billing 60 sq yd \(this number is yards, not square feet\)/);
+    expect(strip).toMatch(/Unit sq yd/);
     expect(strip).not.toMatch(/Order 50 sq yd[^.]/);
   });
 
@@ -382,6 +390,8 @@ describe("measured area vs order quantity", () => {
     expect(strip).toMatch(/Measured 450 sq ft \(50 sq yd equivalent area — not an order quantity\)/);
     expect(strip).toMatch(/Waste 10%/);
     expect(strip).toMatch(/Order 495 sq ft · 55 sq yd/);
+    expect(strip).toMatch(/Billing 55 sq yd \(this number is yards, not square feet\)/);
+    expect(strip).toMatch(/Unit sq yd/);
     expect(strip).not.toMatch(/Order TBD/);
     expect(strip).not.toMatch(/from cuts/);
 
@@ -449,6 +459,8 @@ describe("measured area vs order quantity", () => {
     expect(strip).toMatch(/Measured 500 sq ft/);
     expect(strip).toMatch(/Waste 10% \(50 sq ft\)/);
     expect(strip).toMatch(/Order 567\.36 sq ft \(24 cartons @ 23\.64 sq ft\)/);
+    expect(strip).toMatch(/Billing 567\.36 sq ft \(this number is square feet, not yards\)/);
+    expect(strip).toMatch(/Unit sq ft/);
     expect(strip).not.toMatch(/sq yd/);
   });
 
@@ -747,7 +759,7 @@ describe("questionnaire is wired to the knowledge engine", () => {
     expect(q).toMatch(/reviewBucketForQuestion/);
     expect(q).toMatch(/formatMeasuredLabel/);
     expect(q).toMatch(/materialWastePctForEmit/);
-    expect(q).toMatch(/order TBD \(enter cuts/);
+    expect(q).toMatch(/billing quantity, and unit of/);
   });
 });
 
@@ -3467,6 +3479,83 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(qty).not.toMatch(/\|\| "each"/);
   });
 
+  it("0234 review always labels measured, waste, order, billing, and unit of measure", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0234_flooring_knowledge_review_units.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0234_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/UNIT of measure/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const lvp = computeMaterialTakeoff({ family: "lvp", measuredSqft: 500, wastePct: 10 });
+    const lvpRows = takeoffConceptRows(lvp);
+    expect(lvpRows.map((r) => r.label)).toEqual(
+      expect.arrayContaining([
+        "Measured area",
+        "Waste",
+        "Order quantity",
+        "Billing quantity",
+        "Unit of measure",
+      ]),
+    );
+    expect(lvpRows.find((r) => r.label === "Measured area")?.value).toBe("500 sq ft");
+    expect(lvpRows.find((r) => r.label === "Waste")?.value).toBe("10% (50 sq ft)");
+    expect(lvpRows.find((r) => r.label === "Order quantity")?.value).toBe("550 sq ft");
+    expect(lvpRows.find((r) => r.label === "Billing quantity")?.value).toBe(
+      "550 sq ft (this number is square feet, not yards)",
+    );
+    expect(lvpRows.find((r) => r.label === "Unit of measure")?.value).toMatch(/^sq ft/);
+    expect(lvpRows.find((r) => r.label === "Billing quantity")?.value).not.toMatch(/sq yd/);
+    expect(takeoffUnitKeyLabel("sqft")).toBe("sq ft");
+    expect(formatTakeoffStrip(lvp)).toMatch(/Billing 550 sq ft \(this number is square feet, not yards\)/);
+    expect(formatTakeoffStrip(lvp)).toMatch(/Unit sq ft/);
+    expect(formatTakeoffStrip(lvp)).not.toMatch(/sq yd/);
+
+    const review = buildSalespersonReview({
+      rooms: [],
+      products: ["LVP sample"],
+      takeoffs: [lvp],
+      ctx: emptyInstallContext(),
+      removal: [],
+      installation: [],
+      prep: [],
+      accessories: [],
+      specials: [],
+    });
+    const takeoffSec = review.sections.find((s) => s.id === "takeoff-0");
+    expect(takeoffSec?.rows.find((r) => r.label === "Billing quantity")?.value).toMatch(/550 sq ft/);
+    expect(takeoffSec?.rows.find((r) => r.label === "Unit of measure")?.value).toMatch(/sq ft/);
+
+    const carpet = computeMaterialTakeoff({ family: "carpet", measuredSqft: 450 });
+    const carpetRows = takeoffConceptRows(carpet);
+    expect(carpetRows.find((r) => r.label === "Order quantity")?.value).toMatch(/TBD — enter cuts/);
+    expect(carpetRows.find((r) => r.label === "Billing quantity")?.value).toBe(
+      "TBD — not 50 sq yd from taped area",
+    );
+    expect(carpetRows.find((r) => r.label === "Unit of measure")?.value).toMatch(/^sq yd/);
+    expect(carpet.billingQty).toBe(0);
+
+    const cuts = computeMaterialTakeoff({
+      family: "carpet",
+      measuredSqft: 450,
+      cutsSqft: 540,
+    });
+    const cutRows = takeoffConceptRows(cuts);
+    expect(cutRows.find((r) => r.label === "Waste")?.value).toMatch(/already in the entered cuts/);
+    expect(cutRows.find((r) => r.label === "Billing quantity")?.value).toBe(
+      "60 sq yd (this number is yards, not square feet)",
+    );
+
+    const qty = readFileSync(join(root, "src/lib/flooring-knowledge/quantities.ts"), "utf8");
+    expect(qty).toMatch(/takeoffConceptRows/);
+    expect(qty).toMatch(/UNIT/);
+    const takeoffSrc = readFileSync(join(root, "src/lib/flooring-knowledge/takeoff.ts"), "utf8");
+    expect(takeoffSrc).toMatch(/takeoffConceptRows/);
+    expect(takeoffSrc).not.toMatch(/if \(t\.billingUnit === "sqyd"\)/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
@@ -3974,6 +4063,9 @@ describe("salesperson review warnings are one source of truth for Builder notes"
     expect(notes).toMatch(/Carpet measured by area only/);
     expect(notes).toMatch(/Radiant heat present/);
     expect(notes).toMatch(/Order quantity: TBD — enter cuts/);
+    expect(notes).toMatch(/Billing quantity: TBD — not 50 sq yd from taped area/);
+    expect(notes).toMatch(/Unit of measure: sq yd/);
+    expect(notes).toMatch(/Waste:/);
     expect(notes).not.toMatch(/Flags to confirm/);
     // Takeoff's similar "no cut list" message must not duplicate the knowledge flag.
     expect(notes.match(/sq ft ÷ 9/g)?.length).toBeGreaterThanOrEqual(1);

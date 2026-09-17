@@ -6,11 +6,10 @@
  * reading every line item first.
  */
 
-import { formatMeasuredLabel, formatSqft, formatSqyd, type MaterialTakeoff } from "./quantities";
+import { formatSqft, takeoffConceptRows, type MaterialTakeoff } from "./quantities";
 import {
   CONDITION_CONFIDENCE_LABELS,
   familyLabel,
-  isRollGoodsFamily,
   type ConditionConfidence,
   type FlooringFamily,
 } from "./families";
@@ -195,69 +194,7 @@ export function deliveryAddonCost(
 }
 
 function takeoffRows(t: MaterialTakeoff): ReviewSection["rows"] {
-  const rows: ReviewSection["rows"] = [
-    { label: "Measured area", value: formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" }) },
-  ];
-  if (t.orderBasis === "none") {
-    if (isRollGoodsFamily(t.family) && t.measured.sqft > 0) {
-      rows.push({
-        label: "Order quantity",
-        value: "TBD — enter cuts (sq ft ÷ 9 is not an order)",
-        tone: "warn",
-      });
-    }
-  } else if (t.orderBasis === "cuts") {
-    rows.push({
-      label: "Order quantity",
-      value: `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)} (from cuts — not sq ft ÷ 9)`,
-      tone: "ok",
-    });
-    rows.push({
-      label: "Billing quantity",
-      value: formatSqyd(t.billingQty),
-    });
-  } else {
-    rows.push({
-      label: "Waste",
-      value: t.wastePct ? `${t.wastePct}% (${formatSqft(t.wasteSqft)})` : "0%",
-    });
-    if (t.cartons) {
-      rows.push({
-        label: "Carton coverage",
-        value: `${t.cartons.coverageSqft} sq ft`,
-      });
-      rows.push({
-        label: "Required cartons",
-        value: String(t.cartons.cartonCount),
-      });
-      rows.push({
-        label: "Order quantity",
-        value: `${formatSqft(t.cartons.orderedCoverageSqft)} (${t.cartons.cartonCount} cartons)`,
-        tone: "ok",
-      });
-    } else {
-      const order =
-        t.billingUnit === "sqyd"
-          ? `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)}`
-          : formatSqft(t.orderSqft);
-      rows.push({
-        label: "Order quantity",
-        value:
-          t.orderBasis === "measured_plus_waste_estimated"
-            ? `${order} (estimate — not a cut plan)`
-            : order,
-        tone: t.orderBasis === "measured_plus_waste_estimated" ? "warn" : "ok",
-      });
-    }
-    if (t.billingUnit === "sqyd") {
-      rows.push({
-        label: "Billing quantity",
-        value: `${formatSqyd(t.billingQty)} (this number is yards, not square feet)`,
-      });
-    }
-  }
-  for (const n of t.notes) rows.push({ label: "Note", value: n, tone: "muted" });
-  return rows;
+  return takeoffConceptRows(t);
 }
 
 export function buildSalespersonReview(args: {

@@ -379,42 +379,179 @@ export function formatBillingQty(qty: number, unit: string): string {
   return `${n} ${label}`;
 }
 
-/**
- * One-line running takeoff. Measured / waste / order stay labeled as themselves.
- * Never prints a sq ft number with a "sq yd" unit or the reverse.
- */
-export function formatTakeoffStrip(t: MaterialTakeoff): string {
-  const bits: string[] = [
-    `Measured ${formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" })}`,
-  ];
+/** Printed unit key — never labels a sq ft number as sq yd or the reverse. */
+export function takeoffUnitKeyLabel(unit: string | null | undefined): string {
+  const key = normalizeUnit(unit);
+  if (key === "sqyd") return "sq yd";
+  if (key === "sqft") return "sq ft";
+  return unitLabel(unit) || (unit || "").trim() || "unit TBD";
+}
+
+export type TakeoffConceptRow = {
+  label: string;
+  value: string;
+  tone?: "muted" | "warn" | "ok";
+};
+
+function wasteConceptRow(t: MaterialTakeoff): TakeoffConceptRow {
+  if (t.orderBasis === "cuts") {
+    return {
+      label: "Waste",
+      value: "0% (layout waste is already in the entered cuts — not a second add-on)",
+    };
+  }
   if (t.orderBasis === "none") {
     if (t.measured.sqft > 0 && (isRollGoodsFamily(t.family) || t.family === "carpet")) {
-      bits.push("Order TBD (enter cuts — not sq ft ÷ 9)");
+      return {
+        label: "Waste",
+        value: "0% (not invented from sq ft ÷ 9 — layout waste lives in the cut list)",
+        tone: "muted",
+      };
     }
-    return bits.join(" · ");
+    return { label: "Waste", value: "0%" };
+  }
+  return {
+    label: "Waste",
+    value: t.wastePct ? `${t.wastePct}% (${formatSqft(t.wasteSqft)})` : "0%",
+  };
+}
+
+function orderConceptRow(t: MaterialTakeoff): TakeoffConceptRow {
+  if (t.orderBasis === "none") {
+    if (t.measured.sqft > 0 && (isRollGoodsFamily(t.family) || t.family === "carpet")) {
+      return {
+        label: "Order quantity",
+        value: "TBD — enter cuts (sq ft ÷ 9 is not an order)",
+        tone: "warn",
+      };
+    }
+    return { label: "Order quantity", value: "TBD", tone: "warn" };
   }
   if (t.orderBasis === "cuts") {
-    bits.push(
-      `Order ${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)} (from cuts — not sq ft ÷ 9)`,
-    );
-    return bits.join(" · ");
+    return {
+      label: "Order quantity",
+      value: `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)} (from cuts — not sq ft ÷ 9)`,
+      tone: "ok",
+    };
   }
-  if (t.wastePct) bits.push(`Waste ${t.wastePct}% (${formatSqft(t.wasteSqft)})`);
   if (t.cartons) {
-    bits.push(
-      `Order ${formatSqft(t.cartons.orderedCoverageSqft)} (${t.cartons.cartonCount} carton${t.cartons.cartonCount === 1 ? "" : "s"} @ ${t.cartons.coverageSqft} sq ft)`,
-    );
-    return bits.join(" · ");
+    const n = t.cartons.cartonCount;
+    return {
+      label: "Order quantity",
+      value: `${formatSqft(t.cartons.orderedCoverageSqft)} (${n} carton${n === 1 ? "" : "s"} @ ${t.cartons.coverageSqft} sq ft)`,
+      tone: "ok",
+    };
   }
   const order =
     t.billingUnit === "sqyd"
       ? `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)}`
       : formatSqft(t.orderSqft);
-  bits.push(
-    t.orderBasis === "measured_plus_waste_estimated"
-      ? `Order ${order} (estimate — not a cut plan)`
-      : `Order ${order}`,
-  );
+  return {
+    label: "Order quantity",
+    value:
+      t.orderBasis === "measured_plus_waste_estimated"
+        ? `${order} (estimate — not a cut plan)`
+        : order,
+    tone: t.orderBasis === "measured_plus_waste_estimated" ? "warn" : "ok",
+  };
+}
+
+function billingConceptRow(t: MaterialTakeoff): TakeoffConceptRow {
+  if (t.orderBasis === "none") {
+    const equiv =
+      t.billingUnit === "sqyd" && t.measured.sqydEquivalent > 0
+        ? `TBD — not ${formatSqyd(t.measured.sqydEquivalent)} from taped area`
+        : "TBD";
+    return { label: "Billing quantity", value: equiv, tone: "warn" };
+  }
+  const key = normalizeUnit(t.billingUnit);
+  const qty = formatBillingQty(t.billingQty, t.billingUnit);
+  if (key === "sqyd") {
+    return {
+      label: "Billing quantity",
+      value: `${qty} (this number is yards, not square feet)`,
+    };
+  }
+  if (key === "sqft") {
+    return {
+      label: "Billing quantity",
+      value: `${qty} (this number is square feet, not yards)`,
+    };
+  }
+  return { label: "Billing quantity", value: qty || "TBD", tone: qty ? undefined : "warn" };
+}
+
+function unitConceptRow(t: MaterialTakeoff): TakeoffConceptRow {
+  const key = normalizeUnit(t.billingUnit);
+  if (key === "sqyd") {
+    return {
+      label: "Unit of measure",
+      value: "sq yd — billed by the yard. Taped sq ft is measured area, not an order.",
+    };
+  }
+  if (key === "sqft") {
+    return {
+      label: "Unit of measure",
+      value: "sq ft — this job bills in square feet, not yards.",
+    };
+  }
+  return {
+    label: "Unit of measure",
+    value: takeoffUnitKeyLabel(t.billingUnit),
+  };
+}
+
+/**
+ * Salesperson review takeoff — MEASURED / WASTE / ORDER / BILLING / UNIT
+ * are always separate rows. Never omit billing on a sq-ft hard-surface job,
+ * and never print taped sq ft ÷ 9 as a yard order.
+ */
+export function takeoffConceptRows(t: MaterialTakeoff): TakeoffConceptRow[] {
+  const rows: TakeoffConceptRow[] = [
+    {
+      label: "Measured area",
+      value: formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" }),
+    },
+    wasteConceptRow(t),
+  ];
+  if (t.cartons) {
+    rows.push({
+      label: "Carton coverage",
+      value: `${t.cartons.coverageSqft} sq ft`,
+    });
+    rows.push({
+      label: "Required cartons",
+      value: String(t.cartons.cartonCount),
+    });
+  }
+  rows.push(orderConceptRow(t));
+  rows.push(billingConceptRow(t));
+  rows.push(unitConceptRow(t));
+  for (const n of t.notes) rows.push({ label: "Note", value: n, tone: "muted" });
+  return rows;
+}
+
+/**
+ * One-line running takeoff. Measured / waste / order / billing / unit stay
+ * labeled as themselves. Never prints a sq ft number with a "sq yd" unit
+ * or the reverse.
+ */
+export function formatTakeoffStrip(t: MaterialTakeoff): string {
+  const bits: string[] = [];
+  for (const row of takeoffConceptRows(t)) {
+    if (
+      row.label === "Note" ||
+      row.label === "Carton coverage" ||
+      row.label === "Required cartons"
+    ) {
+      continue;
+    }
+    if (row.label === "Measured area") bits.push(`Measured ${row.value}`);
+    else if (row.label === "Waste") bits.push(`Waste ${row.value}`);
+    else if (row.label === "Order quantity") bits.push(`Order ${row.value}`);
+    else if (row.label === "Billing quantity") bits.push(`Billing ${row.value}`);
+    else if (row.label === "Unit of measure") bits.push(`Unit ${takeoffUnitKeyLabel(t.billingUnit)}`);
+  }
   return bits.join(" · ");
 }
 

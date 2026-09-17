@@ -97,6 +97,8 @@ export {
   formatMeasuredLabel,
   formatBillingQty,
   formatTakeoffStrip,
+  takeoffConceptRows,
+  takeoffUnitKeyLabel,
   rollGoodsOrderTbdDescription,
   accessoryUnitForType,
   coerceTrimUnit,
@@ -115,6 +117,7 @@ export {
   type MaterialTakeoff,
   type OrderBasis,
   type ComputeTakeoffInput,
+  type TakeoffConceptRow,
 } from "./quantities";
 
 export {

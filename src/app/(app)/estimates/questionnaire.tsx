@@ -2644,8 +2644,9 @@ export function Questionnaire({
             ) : null}
             <div className="text-sm font-semibold">Review before Builder</div>
             <p className="text-xs text-muted-foreground">
-              Measured area is what you taped. Order quantity is what to buy. They are not the same
-              on roll goods, and carton counts appear only when the product has coverage on file.
+              Measured area is what you taped. Waste, order quantity, billing quantity, and unit of
+              measure are listed separately. sq ft ÷ 9 is equivalent area, not a yard order. Carton
+              counts appear only when the product has coverage on file.
             </p>
             {salespersonReview.sections.map((sec) => (
               <div key={sec.id} className="rounded-lg border bg-muted/20 p-3">
