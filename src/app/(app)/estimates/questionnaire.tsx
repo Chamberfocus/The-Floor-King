@@ -73,6 +73,8 @@ import {
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
   measuredInstallLaborAllowed,
+  rollGoodsSeamWarnings,
+  measuredRectsFromRooms,
   knowledgeHelpFor,
   knowledgeWarnings,
   amountUnitLabelForQuestion,
@@ -1690,10 +1692,85 @@ export function Questionnaire({
         presentTrimTypes: presentTrimTypes(answers),
       }),
     );
+
+    const areaRows: AreaRow[] = [];
+    for (const qq of questions) {
+      if (qq.kind !== "areas") continue;
+      const ar = answers[qq.id];
+      if (ar?.kind === "areas") areaRows.push(...ar.rooms);
+    }
+    const rects = measuredRectsFromRooms(
+      areaRows.map((r) => ({
+        name: r.name,
+        lengthFt: numv(r.lf),
+        lengthIn: numv(r.li),
+        widthFt: numv(r.wf),
+        widthIn: numv(r.wi),
+        sqftOverride: numv(r.override),
+        sections: (r.sections ?? []).map((s) => ({
+          name: s.name,
+          lengthFt: numv(s.lf),
+          lengthIn: numv(s.li),
+          widthFt: numv(s.wf),
+          widthIn: numv(s.wi),
+        })),
+      })),
+    );
+    const catalogWidths: { carpet: number[]; vinyl: number[] } = { carpet: [], vinyl: [] };
+    const roomFamily = new Map<string, "carpet" | "vinyl" | "other">();
+    const takeWidth = (p: ProductAns | null | undefined) => {
+      if (!(p?.rollWidthFt && p.rollWidthFt > 0)) return;
+      const fam = familyFromCatalogCategory(p.category);
+      if (fam === "carpet" || fam === "vinyl") catalogWidths[fam].push(p.rollWidthFt);
+    };
+    for (const qq of questions) {
+      if (!visible[qq.id]) continue;
+      const a = answers[qq.id];
+      if (a?.kind === "product") {
+        takeWidth(a.product);
+        for (const x of a.extras) takeWidth(x.product);
+      } else if (a?.kind === "cuts") {
+        takeWidth(a.product);
+        for (const g of a.groups) takeWidth(g.product);
+      } else if (a?.kind === "floor_map") {
+        allRooms.forEach((rm, i) => {
+          const p = a.byRoom[roomKey(rm.name, i)];
+          takeWidth(p);
+          const fam = familyFromCatalogCategory(p?.category);
+          if (fam === "carpet" || fam === "vinyl") roomFamily.set(rm.name, fam);
+          else if (p?.category) roomFamily.set(rm.name, "other");
+        });
+      }
+    }
+    const patternMatch = picked.some((l) => /pattern match required/i.test(l));
+    const rectsFor = (fam: "carpet" | "vinyl") => {
+      if (roomFamily.size) {
+        return rects.filter((r) => {
+          const base = r.name.split(" / ")[0] ?? r.name;
+          return roomFamily.get(r.name) === fam || roomFamily.get(base) === fam;
+        });
+      }
+      return flooringCtx.families.includes(fam) ? rects : [];
+    };
+    w.push(
+      ...rollGoodsSeamWarnings({
+        family: "carpet",
+        catalogWidthsFt: catalogWidths.carpet,
+        rooms: rectsFor("carpet"),
+        patternMatch,
+        hasCuts: hasCarpetCuts,
+      }),
+      ...rollGoodsSeamWarnings({
+        family: "vinyl",
+        catalogWidthsFt: catalogWidths.vinyl,
+        rooms: rectsFor("vinyl"),
+        hasCuts: hasVinylCuts,
+      }),
+    );
     // Dedupe by id so overlay + local flags don't double.
     const seen = new Set<string>();
     return w.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
-  }, [questions, answers, visible, overrides, flooringCtx, cutsSqftByCategory, totalSqft, hsTransitionTrims, hsBaseTrims]);
+  }, [questions, answers, visible, overrides, flooringCtx, cutsSqftByCategory, totalSqft, hsTransitionTrims, hsBaseTrims, allRooms]);
 
   const grand = lines.reduce((s, l) => s + lineTotal(smartLineToCalcLine(l)), 0);
 

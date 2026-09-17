@@ -70,6 +70,9 @@ import {
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
   measuredInstallLaborAllowed,
+  rollGoodsSeamWarnings,
+  measuredRectsFromRooms,
+  seamImplication,
   buildSalespersonReview,
   reviewToJobNotes,
   mergeReviewWarnings,
@@ -325,6 +328,105 @@ describe("measured area vs order quantity", () => {
     expect(cartonTakeoff(550, null)).toBeNull();
     expect(cartonTakeoff(550, 0)).toBeNull();
     expect(cartonTakeoff(0, 23.64)).toBeNull();
+  });
+});
+
+describe("roll-goods seam implications are not a cut plan", () => {
+  it("does not invent a seam from a missing catalog roll width", () => {
+    expect(seamImplication({ name: "Dining", lengthFt: 14, widthFt: 16 }, null)).toBeNull();
+    expect(
+      rollGoodsSeamWarnings({
+        family: "carpet",
+        rooms: [{ name: "Dining", lengthFt: 14, widthFt: 16 }],
+      }),
+    ).toEqual([]);
+  });
+
+  it("flags a seam when both room dimensions exceed the catalog roll width", () => {
+    expect(seamImplication({ name: "Dining", lengthFt: 14, widthFt: 16 }, 12)).toBe("must_seam");
+    const w = rollGoodsSeamWarnings({
+      family: "carpet",
+      rollWidthFt: 12,
+      rooms: [{ name: "Dining", lengthFt: 14, widthFt: 16 }],
+    });
+    expect(w).toHaveLength(1);
+    expect(w[0].id).toBe("carpet-must-seam");
+    expect(w[0].text).toMatch(/12' carpet roll/);
+    expect(w[0].text).toMatch(/Dining \(14' × 16'\)/);
+    expect(w[0].text).toMatch(/Enter cuts — this is not a cut plan/);
+    expect(w[0].text).not.toMatch(/order 50/);
+  });
+
+  it("flags direction when the room fits one way on the roll", () => {
+    expect(seamImplication({ name: "Living", lengthFt: 12, widthFt: 16 }, 12)).toBe("direction_matters");
+    const w = rollGoodsSeamWarnings({
+      family: "vinyl",
+      rollWidthFt: 12,
+      rooms: [{ name: "Living", lengthFt: 12, widthFt: 16 }],
+    });
+    expect(w[0].id).toBe("vinyl-direction");
+    expect(w[0].text).toMatch(/confirm direction/);
+    expect(w[0].text).toMatch(/Living \(12' × 16'\)/);
+  });
+
+  it("is silent when the room fits the roll, and silent once cuts exist", () => {
+    expect(seamImplication({ name: "Office", lengthFt: 10, widthFt: 11 }, 12)).toBe("fits");
+    expect(
+      rollGoodsSeamWarnings({
+        family: "carpet",
+        rollWidthFt: 12,
+        rooms: [{ name: "Office", lengthFt: 10, widthFt: 11 }],
+      }),
+    ).toEqual([]);
+    expect(
+      rollGoodsSeamWarnings({
+        family: "carpet",
+        rollWidthFt: 12,
+        hasCuts: true,
+        rooms: [{ name: "Dining", lengthFt: 14, widthFt: 16 }],
+      }),
+    ).toEqual([]);
+  });
+
+  it("does not pick a width when catalog products disagree", () => {
+    const w = rollGoodsSeamWarnings({
+      family: "carpet",
+      catalogWidthsFt: [12, 15],
+      rooms: [{ name: "Dining", lengthFt: 14, widthFt: 16 }],
+    });
+    expect(w).toHaveLength(1);
+    expect(w[0].id).toBe("carpet-roll-widths");
+    expect(w[0].text).toMatch(/12' and 15'/);
+    expect(w[0].text).not.toMatch(/seam is required/);
+  });
+
+  it("includes closets as their own rectangles and mentions pattern match", () => {
+    const rooms = measuredRectsFromRooms([
+      {
+        name: "Living",
+        lengthFt: 14,
+        widthFt: 16,
+        sections: [{ name: "Closet", lengthFt: 3, widthFt: 5 }],
+      },
+    ]);
+    expect(rooms).toEqual([
+      { name: "Living", lengthFt: 14, widthFt: 16 },
+      { name: "Living / Closet", lengthFt: 3, widthFt: 5 },
+    ]);
+    const w = rollGoodsSeamWarnings({
+      family: "carpet",
+      rollWidthFt: 12,
+      patternMatch: true,
+      rooms,
+    });
+    expect(w.some((x) => x.id === "carpet-must-seam" && /Pattern matching/.test(x.text))).toBe(true);
+    expect(w.some((x) => x.id === "carpet-must-seam" && /Closet/.test(x.text))).toBe(false);
+  });
+
+  it("skips irregular sq ft overrides that have no L×W", () => {
+    expect(
+      measuredRectsFromRooms([{ name: "Odd", lengthFt: 0, widthFt: 0, sqftOverride: 220 }]),
+    ).toEqual([]);
   });
 });
 

@@ -111,6 +111,14 @@ export {
 } from "./quantities";
 
 export {
+  measuredRectsFromRooms,
+  seamImplication,
+  rollGoodsSeamWarnings,
+  type MeasuredRect,
+  type SeamKind,
+} from "./layout";
+
+export {
   emptyInstallContext,
   installContextFromValByKey,
   withProductFamilies,
