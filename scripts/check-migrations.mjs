@@ -68,6 +68,7 @@ const REQUIRED_FILES = [
   "0205_flooring_knowledge_carpet_glue_climate.sql",
   "0206_flooring_knowledge_shared_prep.sql",
   "0207_flooring_knowledge_bond_site.sql",
+  "0208_flooring_knowledge_stretch_pad.sql",
 ];
 
 /**
@@ -937,6 +938,17 @@ const REQUIRED_MARKERS = [
       "existing_bond",
       "doors_shave",
       "furniture_level",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0208_flooring_knowledge_stretch_pad.sql",
+    markers: [
+      "P0_0208_FLOORING_KNOWLEDGE",
+      "tack_strip",
+      "carpet_pad",
+      "Stretch-in",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

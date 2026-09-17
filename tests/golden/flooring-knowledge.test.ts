@@ -878,6 +878,14 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(knowledgeQuestionByKey("doors_shave")?.quantityUnit).toBe("each");
     expect(knowledgeQuestionByKey("tack_strip")?.systems).toEqual(["stretch_in"]);
     expect(knowledgeQuestionByKey("carpet_pad")?.systems).toEqual(["stretch_in"]);
+    expect(knowledgeQuestionByKey("tack_strip")?.require).toEqual({
+      key: "carpet_install",
+      in: ["Stretch-in"],
+    });
+    expect(knowledgeQuestionByKey("carpet_pad")?.require).toEqual({
+      key: "carpet_install",
+      in: ["Stretch-in"],
+    });
     expect(amountUnitLabelForQuestion({ key: "toilets", config: { emit: { unit: "sqft" } } })).toBe(
       "each",
     );
@@ -1368,7 +1376,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       position: 107,
       show_if: { key: "pattern_match", in: ["Pattern match required"] },
     },
-    { key: "tack_strip", position: 109, show_if: { key: "project_type", in: ["Carpet"] } },
+    { key: "tack_strip", position: 109, show_if: { key: "carpet_install", in: ["Stretch-in"] } },
     {
       key: "attached_pad",
       position: 206,
@@ -1443,7 +1451,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "tile_setting", position: 221, show_if: { key: "surface_type", in: ["Tile"] } },
     { key: "subfloor_condition", position: 352, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "existing_pad", position: 108, show_if: { key: "project_type", in: ["Carpet"] } },
-    { key: "carpet_pad", position: 110, show_if: { key: "project_type", in: ["Carpet"] } },
+    { key: "metals_needed", position: 112, show_if: { key: "project_type", in: ["Carpet"] } },
+    { key: "carpet_pad", position: 110, show_if: { key: "carpet_install", in: ["Stretch-in"] } },
     { key: "toilets", position: 255, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "appliances", position: 260, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "delivery_scope", position: 535, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
@@ -1676,6 +1685,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("hs_demo");
     expect(keys).toContain("substrate");
     expect(keys).toContain("existing_pad");
+    expect(keys).toContain("metals_needed");
     expect(keys).toContain("radiant_heat");
     expect(keys).toContain("hs_prep");
     expect(keys).toContain("subfloor_needed");
@@ -1739,13 +1749,15 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     ).toContain("vapor_barrier");
   });
 
-  it("glue-down carpet: overlay hides tack strip even though show_if is Carpet", () => {
+  it("glue-down carpet: SQL + overlay hide tack strip and pad (not just overlay)", () => {
     const keys = walk({
       project_type: ["Carpet"],
       carpet_install: ["Glue-down"],
     });
     expect(keys).toContain("adhesive");
     expect(keys).toContain("vapor_barrier");
+    expect(keys).toContain("metals_needed");
+    expect(keys).toContain("existing_pad");
     expect(keys).not.toContain("tack_strip");
     expect(keys).not.toContain("carpet_pad");
   });
@@ -2167,6 +2179,47 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         hs_demo: ["LVP"],
       }).includes("existing_bond"),
     ).toBe(true);
+  });
+
+  it("0208 asks tack strip and new pad only after stretch-in", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0208_flooring_knowledge_stretch_pad.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0208_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/tack_strip/);
+    expect(sql).toMatch(/carpet_pad/);
+    expect(sql).toMatch(/Stretch-in/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/insert into public\.estimate_questions/);
+
+    const unanswered = walk({
+      project_type: ["Carpet"],
+    });
+    expect(unanswered).toContain("carpet_install");
+    expect(unanswered).toContain("existing_pad");
+    expect(unanswered).toContain("metals_needed");
+    expect(unanswered).not.toContain("tack_strip");
+    expect(unanswered).not.toContain("carpet_pad");
+
+    const stretch = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("tack_strip");
+    expect(stretch).toContain("carpet_pad");
+    expect(stretch).toContain("existing_pad");
+    expect(stretch).toContain("metals_needed");
+
+    const glue = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(glue).toContain("existing_pad");
+    expect(glue).toContain("metals_needed");
+    expect(glue).not.toContain("tack_strip");
+    expect(glue).not.toContain("carpet_pad");
   });
 
   it("pattern repeat only after pattern match is required", () => {

@@ -107,7 +107,8 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "carpet_install", purpose: "INSTALLATION", phase: "install", families: ["carpet"] },
   { key: "attached_pad", purpose: "MATERIAL", phase: "install", families: ["lvp", "laminate", "hardwood"], systems: ["floating"] },
   /** Residential pad is stretch-in. Glue-down / carpet tile hide this. */
-  { key: "carpet_pad", purpose: "MATERIAL", phase: "install", families: ["carpet"], systems: ["stretch_in"] },
+  { key: "carpet_pad", purpose: "MATERIAL", phase: "install", families: ["carpet"], systems: ["stretch_in"],
+    require: { key: "carpet_install", in: ["Stretch-in"] } },
   /** Glue-down of any family, or carpet tile (pressure-sensitive / glue). */
   { key: "adhesive", purpose: "MATERIAL", phase: "install", systems: ["glue", "carpet_tile"] },
   { key: "hs_underlayment", purpose: "MATERIAL", phase: "install", systems: ["floating"] },
@@ -135,7 +136,8 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "tile_format", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_layout", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_setting", purpose: "MATERIAL", phase: "install", families: ["tile"] },
-  { key: "tack_strip", purpose: "ACCESSORY", phase: "install", families: ["carpet"], systems: ["stretch_in"] },
+  { key: "tack_strip", purpose: "ACCESSORY", phase: "install", families: ["carpet"], systems: ["stretch_in"],
+    require: { key: "carpet_install", in: ["Stretch-in"] } },
   { key: "climate_control", purpose: "INSTALLATION", phase: "install" },
   { key: "ac_available", purpose: "INSTALLATION", phase: "install" },
   { key: "heat_available", purpose: "INSTALLATION", phase: "install" },
