@@ -11,6 +11,7 @@ import {
   CONDITION_CONFIDENCE_LABELS,
   familyFromCatalogCategory,
   familyLabel,
+  isHardSurfaceFamily,
   type ConditionConfidence,
   type FlooringFamily,
 } from "./families";
@@ -212,6 +213,139 @@ export function measuredSqftForFamilyTakeoff(args: {
     return Number.isFinite(n) && n > 0 ? n : 0;
   }
   return 0;
+}
+
+/** Sum of several families — still 0 on an unassigned mixed job. */
+export function measuredSqftForFamiliesTakeoff(args: {
+  families: FlooringFamily[];
+  totalSqft: number;
+  byFamily: Partial<Record<FlooringFamily, number>>;
+  jobFamilies: FlooringFamily[];
+}): number {
+  const wanted = args.families.filter((f) => f !== "other");
+  if (!wanted.length) return 0;
+  let assigned = 0;
+  for (const f of wanted) {
+    const n = args.byFamily[f];
+    if (n != null && n > 0) assigned += n;
+  }
+  if (assigned > 0) return Math.round(assigned * 100) / 100;
+  const flooring = args.jobFamilies.filter((f) => f !== "other");
+  if (flooring.length > 0 && flooring.every((f) => wanted.includes(f))) {
+    const n = Number(args.totalSqft);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+  return 0;
+}
+
+/**
+ * Self-leveler bags and subfloor sheets.
+ * Mixed carpet + hard surface uses HS rooms only. Unassigned mixed stays 0
+ * rather than pouring bags onto the carpet. Carpet-only or HS-only still
+ * uses the whole measured area (0142 asks Floor prep on either path).
+ */
+export function measuredSqftForPrepTakeoff(args: {
+  totalSqft: number;
+  byFamily: Partial<Record<FlooringFamily, number>>;
+  jobFamilies: FlooringFamily[];
+}): number {
+  const hs = args.jobFamilies.filter(isHardSurfaceFamily);
+  const flooring = args.jobFamilies.filter((f) => f !== "other");
+  if (flooring.includes("carpet") && hs.length > 0) {
+    return measuredSqftForFamiliesTakeoff({
+      families: hs,
+      totalSqft: args.totalSqft,
+      byFamily: args.byFamily,
+      jobFamilies: args.jobFamilies,
+    });
+  }
+  const n = Number(args.totalSqft);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Builder emit / running takeoff strip for one question.
+ * Pad covers carpet rooms. Laminate underlayment and prep cover HS rooms.
+ * A flooring product covers its own family — never the whole mixed job.
+ */
+export function measuredSqftForQuestionCover(args: {
+  kind?: string | null;
+  key?: string | null;
+  category?: string | null;
+  totalSqft: number;
+  byFamily: Partial<Record<FlooringFamily, number>>;
+  jobFamilies: FlooringFamily[];
+}): number {
+  const kind = args.kind ?? "";
+  const key = args.key ?? "";
+  const cat = (args.category ?? "").trim().toLowerCase();
+  if (kind === "selflevel" || kind === "subfloor" || key === "hs_underlayment") {
+    return measuredSqftForPrepTakeoff(args);
+  }
+  if (key === "carpet_pad" || (kind === "product" && cat === "underlayment")) {
+    return measuredSqftForFamilyTakeoff({
+      family: "carpet",
+      totalSqft: args.totalSqft,
+      byFamily: args.byFamily,
+      jobFamilies: args.jobFamilies,
+    });
+  }
+  const fam = familyFromCatalogCategory(cat || (kind === "cuts" ? "carpet" : "other"));
+  if (fam !== "other") {
+    return measuredSqftForFamilyTakeoff({
+      family: fam,
+      totalSqft: args.totalSqft,
+      byFamily: args.byFamily,
+      jobFamilies: args.jobFamilies,
+    });
+  }
+  const flooring = args.jobFamilies.filter((f) => f !== "other");
+  if (flooring.length === 1) {
+    return measuredSqftForFamilyTakeoff({
+      family: flooring[0]!,
+      totalSqft: args.totalSqft,
+      byFamily: args.byFamily,
+      jobFamilies: args.jobFamilies,
+    });
+  }
+  return 0;
+}
+
+export function roomsAssignedToFamilies<T>(args: {
+  rooms: { room: T; family: FlooringFamily | null }[];
+  families: FlooringFamily[];
+  jobFamilies: FlooringFamily[];
+}): T[] {
+  const wanted: Set<FlooringFamily> = new Set(args.families.filter((f) => f !== "other"));
+  const assigned = args.rooms.filter((r) => r.family && r.family !== "other");
+  if (assigned.length) {
+    return assigned.filter((r) => r.family != null && wanted.has(r.family)).map((r) => r.room);
+  }
+  const flooring = args.jobFamilies.filter((f) => f !== "other");
+  if (flooring.length > 0 && flooring.every((f) => wanted.has(f))) {
+    return args.rooms.map((r) => r.room);
+  }
+  if (flooring.length === 1 && flooring[0] && wanted.has(flooring[0])) {
+    return args.rooms.map((r) => r.room);
+  }
+  return [];
+}
+
+/** Subfloor sheets: HS rooms on a mixed job; every room on a single-path job. */
+export function roomsForPrepTakeoff<T>(args: {
+  rooms: { room: T; family: FlooringFamily | null }[];
+  jobFamilies: FlooringFamily[];
+}): T[] {
+  const hs = args.jobFamilies.filter(isHardSurfaceFamily);
+  const flooring = args.jobFamilies.filter((f) => f !== "other");
+  if (flooring.includes("carpet") && hs.length > 0) {
+    return roomsAssignedToFamilies({
+      rooms: args.rooms,
+      families: hs,
+      jobFamilies: args.jobFamilies,
+    });
+  }
+  return args.rooms.map((r) => r.room);
 }
 
 /**

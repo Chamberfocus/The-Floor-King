@@ -99,6 +99,7 @@ const REQUIRED_FILES = [
   "0236_flooring_knowledge_other_unit.sql",
   "0237_flooring_knowledge_stair_wrap.sql",
   "0238_flooring_knowledge_mixed_takeoff.sql",
+  "0239_flooring_knowledge_mixed_emit.sql",
 ];
 
 /**
@@ -1268,6 +1269,15 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0238_FLOORING_KNOWLEDGE",
       "per family",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0239_flooring_knowledge_mixed_emit.sql",
+    markers: [
+      "P0_0239_FLOORING_KNOWLEDGE",
+      "Builder lines",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
