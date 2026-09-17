@@ -480,6 +480,9 @@ export const TILE_WALL_HIDES_KEYS = [
   "stairs",
   "stair_landings",
   "stair_open_sides",
+  "existing_pad",
+  "existing_tack",
+  "existing_bond",
 ] as const;
 
 /**
@@ -509,6 +512,19 @@ export function tileWallHidesPrepOptionLabel(label: string): boolean {
   const t = label.trim();
   if (!t) return false;
   return /self-?level/i.test(t) || /grind/i.test(t);
+}
+
+/**
+ * Floor-covering tear-out chips. Exclusive wall keeps ceramic mortar / none /
+ * other — showers and backsplashes still demo existing tile. Do not SQL-remove
+ * carpet/LVP/hardwood options (mixed and unanswered floor-vs-wall still need them).
+ */
+export function tileWallHidesDemoOptionLabel(label: string): boolean {
+  const t = label.trim();
+  if (!t) return false;
+  if (/^none$/i.test(t) || /^other$/i.test(t) || /unknown|field verify|tbd/i.test(t)) return false;
+  if (/ceramic/i.test(t)) return false;
+  return /carpet|sheet vinyl|luan|\blvp\b|laminate|hardwood/i.test(t);
 }
 
 export interface SortableEstimateQuestion {

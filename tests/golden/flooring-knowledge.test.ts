@@ -84,6 +84,7 @@ import {
   jobIsExclusiveCarpetTile,
   choiceOptionApplies,
   tileWallHidesPrepOptionLabel,
+  tileWallHidesDemoOptionLabel,
   FURNITURE_MOVING_KEYS,
   jobIsVacant,
   NEW_CONSTRUCTION_HIDES_KEYS,
@@ -4567,6 +4568,9 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       "stairs",
       "stair_landings",
       "stair_open_sides",
+      "existing_pad",
+      "existing_tack",
+      "existing_bond",
     ]);
 
     const wallCtx = installContextFromValByKey({
@@ -5349,6 +5353,93 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(overlayUnanswered).toContain("stairs");
     expect(overlayUnanswered).toContain("stair_landings");
     expect(overlayUnanswered).toContain("stair_open_sides");
+  });
+
+  it("0265 exclusive wall tile hides floor demo chips; ceramic mortar stays", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0265_flooring_knowledge_wall_demo.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0265_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Floor demo chips/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_demo on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*tile_application.*hs_demo|hs_demo.*show_if.*tile_application/);
+
+    expect(tileWallHidesDemoOptionLabel("Carpet")).toBe(true);
+    expect(tileWallHidesDemoOptionLabel("LVP")).toBe(true);
+    expect(tileWallHidesDemoOptionLabel("Laminate")).toBe(true);
+    expect(tileWallHidesDemoOptionLabel("Sheet vinyl")).toBe(true);
+    expect(tileWallHidesDemoOptionLabel("Luan")).toBe(true);
+    expect(tileWallHidesDemoOptionLabel("Glue-down hardwood")).toBe(true);
+    expect(tileWallHidesDemoOptionLabel("Nailed hardwood")).toBe(true);
+    expect(tileWallHidesDemoOptionLabel("Ceramic WITH mortar bed")).toBe(false);
+    expect(tileWallHidesDemoOptionLabel("Ceramic WITHOUT mortar bed")).toBe(false);
+    expect(tileWallHidesDemoOptionLabel("None")).toBe(false);
+    expect(tileWallHidesDemoOptionLabel("Other")).toBe(false);
+
+    const wall = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(choiceOptionApplies({ key: "hs_demo" }, "Carpet", wall)).toBe(false);
+    expect(choiceOptionApplies({ key: "hs_demo" }, "LVP", wall)).toBe(false);
+    expect(choiceOptionApplies({ key: "hs_demo" }, "Ceramic WITH mortar bed", wall)).toBe(true);
+    expect(choiceOptionApplies({ key: "hs_demo" }, "None", wall)).toBe(true);
+
+    const unanswered = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(choiceOptionApplies({ key: "hs_demo" }, "Carpet", unanswered)).toBe(true);
+
+    const mixed = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+      tile_application: ["Wall"],
+    });
+    expect(choiceOptionApplies({ key: "hs_demo" }, "Carpet", mixed)).toBe(true);
+
+    const walkUnanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(walkUnanswered).toContain("hs_demo");
+    expect(walkUnanswered).not.toContain("existing_pad");
+
+    const walkWall = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+      hs_demo: ["Carpet"],
+    });
+    expect(walkWall).toContain("hs_demo");
+    expect(walkWall).not.toContain("existing_pad");
+    expect(walkWall).not.toContain("existing_tack");
+    expect(walkWall).not.toContain("existing_bond");
+    expect(walkWall).toContain("tile_setting");
+    expect(walkWall).toContain("wet_area");
+
+    const walkFloor = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Floor"],
+      hs_demo: ["Carpet"],
+    });
+    expect(walkFloor).toContain("existing_pad");
+    expect(walkFloor).toContain("existing_tack");
+
+    expect(TILE_WALL_HIDES_KEYS).toEqual(
+      expect.arrayContaining(["existing_pad", "existing_tack", "existing_bond"]),
+    );
+    expect(knowledgeHelpFor({ key: "hs_demo" }, emptyInstallContext())).toMatch(
+      /hides floor demo chips/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /Floor demo chips/,
+    );
   });
 
   it("pattern repeat only after pattern match is required", () => {

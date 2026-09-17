@@ -93,6 +93,7 @@ export {
   FURNITURE_MOVING_KEYS,
   CARPET_TILE_HIDES_KEYS,
   tileWallHidesPrepOptionLabel,
+  tileWallHidesDemoOptionLabel,
   type KnowledgeQuestionDef,
   type EstimatorPhase,
   type SortableEstimateQuestion,
