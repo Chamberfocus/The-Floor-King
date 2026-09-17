@@ -130,6 +130,7 @@ const REQUIRED_FILES = [
   "0267_flooring_knowledge_solid_floating.sql",
   "0268_flooring_knowledge_tile_vapor.sql",
   "0269_flooring_knowledge_vapor_underlayment.sql",
+  "0270_flooring_knowledge_concrete_sheets.sql",
 ];
 
 /**
@@ -1611,6 +1612,16 @@ const REQUIRED_MARKERS = [
       "P0_0269_FLOORING_KNOWLEDGE",
       "floating-floor sheet, not an adhesive moisture system",
       "Do NOT SQL-gate vapor_barrier options on install_method",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0270_flooring_knowledge_concrete_sheets.sql",
+    markers: [
+      "P0_0270_FLOORING_KNOWLEDGE",
+      "a slab is patch / self-level, not plywood overlay",
+      "Do NOT SQL-gate subfloor_needed on substrate",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

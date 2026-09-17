@@ -324,3 +324,14 @@ export function labelsAreVacant(labels: string[]): boolean {
 export function jobIsVacant(valByKey: Record<string, string[]>): boolean {
   return labelsAreVacant(valByKey.occupancy ?? []);
 }
+
+/** Exclusive Concrete — plywood / wood / existing / unknown / unanswered stay open. */
+export function labelsAreConcreteOnly(labels: string[]): boolean {
+  const cleaned = labels.map((l) => l.trim()).filter(Boolean);
+  if (!cleaned.length) return false;
+  return cleaned.every((l) => /^concrete(\s+slab)?$/i.test(l));
+}
+
+export function jobIsExclusiveConcreteSubstrate(valByKey: Record<string, string[]>): boolean {
+  return labelsAreConcreteOnly(valByKey.substrate ?? valByKey.subfloor_type ?? []);
+}

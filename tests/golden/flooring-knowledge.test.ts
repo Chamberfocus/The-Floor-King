@@ -79,6 +79,7 @@ import {
   tileJobIsWallOnly,
   TILE_WALL_HIDES_KEYS,
   TILE_THINSET_HIDES_KEYS,
+  CONCRETE_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
@@ -86,6 +87,7 @@ import {
   jobIsExclusiveWallTile,
   jobIsExclusiveCarpetTile,
   jobIsExclusiveSolidHardwood,
+  jobIsExclusiveConcrete,
   jobAllowsFloatingVaporUnderlayment,
   choiceOptionApplies,
   tileWallHidesPrepOptionLabel,
@@ -1813,7 +1815,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     },
     {
       key: "subfloor_needed",
-      position: 340,
+      position: 355,
       show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
     },
     {
@@ -4637,7 +4639,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       substrate: ["Concrete"],
     });
     expect(mixedLvp).toContain("hs_transitions");
-    expect(mixedLvp).toContain("subfloor_needed");
+    expect(mixedLvp).not.toContain("subfloor_needed");
     expect(mixedLvp).toContain("selflevel_needed");
     expect(mixedLvp).toContain("vapor_barrier");
 
@@ -5848,6 +5850,118 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(knowledgeHelpFor({ key: "vapor_barrier" }, emptyInstallContext())).toMatch(
       /hide Included with underlayment/,
     );
+  });
+
+  it("0270 exclusive concrete hides 4x8 plywood overlay; wood still asks", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0270_flooring_knowledge_concrete_sheets.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0270_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/a slab is patch \/ self-level, not plywood overlay/);
+    expect(sql).toMatch(/Do NOT SQL-gate subfloor_needed on substrate/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*substrate.*subfloor_needed|subfloor_needed.*show_if.*substrate/,
+    );
+
+    expect(CONCRETE_HIDES_KEYS).toEqual(["subfloor_needed"]);
+    expect(
+      jobIsExclusiveConcrete(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobIsExclusiveConcrete(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveConcrete(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          substrate: ["Concrete", "Plywood / OSB"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveConcrete(
+        installContextFromValByKey({ project_type: ["Hard surface"] }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveConcrete(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          substrate: ["Unknown / field verify"],
+        }),
+      ),
+    ).toBe(false);
+
+    expect(knowledgeHelpFor({ key: "subfloor_needed" }, emptyInstallContext())).toMatch(
+      /Exclusive Concrete hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "substrate" }, emptyInstallContext())).toMatch(
+      /Exclusive Concrete hides 4×8/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+    });
+    expect(unanswered).toContain("subfloor_needed");
+    expect(unanswered).toContain("substrate");
+    expect(unanswered.indexOf("substrate")).toBeLessThan(unanswered.indexOf("subfloor_needed")!);
+
+    const concrete = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+      substrate: ["Concrete"],
+    });
+    expect(concrete).not.toContain("subfloor_needed");
+    expect(concrete).toContain("hs_prep");
+    expect(concrete).toContain("vapor_barrier");
+    expect(concrete).toContain("moisture_mitigation");
+
+    const plywood = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(plywood).toContain("subfloor_needed");
+
+    const mixed = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      substrate: ["Concrete", "Plywood / OSB"],
+    });
+    expect(mixed).toContain("subfloor_needed");
+
+    const unknown = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      substrate: ["Unknown / field verify"],
+    });
+    expect(unknown).toContain("subfloor_needed");
+
+    const stretchConcrete = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      substrate: ["Concrete"],
+    });
+    expect(stretchConcrete).not.toContain("subfloor_needed");
+    expect(stretchConcrete).toContain("hs_prep");
   });
 
   it("pattern repeat only after pattern match is required", () => {

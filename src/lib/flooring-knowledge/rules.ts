@@ -37,10 +37,12 @@ import {
   jobIsVacant,
   labelsAreNewConstruction,
   labelsAreWallOnly,
+  labelsAreConcreteOnly,
   synthesizeStairGate,
 } from "./answers";
 import {
   CARPET_TILE_HIDES_KEYS,
+  CONCRETE_HIDES_KEYS,
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
@@ -506,6 +508,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (CONCRETE_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobIsExclusiveConcrete(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -515,6 +524,15 @@ export function questionApplies(
  */
 export function jobHasNonTileFloorFamily(install: InstallContext): boolean {
   return install.families.some((f) => f === "carpet" || (isHardSurfaceFamily(f) && f !== "tile"));
+}
+
+/**
+ * Exclusive Concrete substrate — 4×8 plywood overlay is a wood-deck repair,
+ * not a slab pour. Unknown / existing flooring / plywood stay open so we
+ * do not hide sheets behind the salesperson (0142).
+ */
+export function jobIsExclusiveConcrete(install: InstallContext): boolean {
+  return labelsAreConcreteOnly(install.substrate);
 }
 
 /**
@@ -783,10 +801,10 @@ export function knowledgeHelpFor(
     return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Mixed LVP or hardwood + tile still asks. Glue-down, carpet tile, nail-down, and stretch-in hide Included with underlayment — that is a floating-floor sheet, not an adhesive moisture system. Aqua bar stays on moisture mitigation. Unanswered LVP and floating still offer it.";
   }
   if (key === "substrate") {
-    return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete.";
+    return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete. Exclusive Concrete hides 4×8 subfloor sheets — a slab is patch / self-level, not plywood overlay. Plywood / wood / existing flooring still ask.";
   }
   if (key === "subfloor_needed") {
-    return "Yes emits 4×8 sheets only when Settings has sheet_sqft. Missing coverage is TBD — we do not invent 32 sq ft per sheet. Field verify withholds the count.";
+    return "Yes emits 4×8 sheets only when Settings has sheet_sqft. Missing coverage is TBD — we do not invent 32 sq ft per sheet. Field verify withholds the count. Exclusive Concrete hides this — a slab is not a plywood overlay. Plywood / wood / existing flooring / Unknown still ask. Self-level stays on Floor prep.";
   }
   if (key === "subfloor_condition") {
     return "Flat vs uneven vs cracks vs a height change. Exclusive wall tile hides this — that is floor work, not a backsplash. Mixed LVP + wall still asks. If demo hasn't happened, pick Unknown / field verify — do not invent a bag count.";

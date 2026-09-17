@@ -273,6 +273,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     phase: "prep",
     require: { key: "hs_prep", in: ["Self-leveling"] },
   },
+  /**
+   * 4×8 plywood overlay. Exclusive Concrete hides this via CONCRETE_HIDES_KEYS
+   * — a slab is patch / self-level, not sheets. Plywood / wood / existing /
+   * Unknown stay open. Unanswered stays open (0142).
+   */
   { key: "subfloor_needed", purpose: "PREP", phase: "prep" },
   { key: "vinyl_skim", purpose: "PREP", phase: "prep", families: ["vinyl"] },
 
@@ -533,6 +538,14 @@ export const SOLID_HARDWOOD_HIDES_KEYS = [
  * on surface_type (0142).
  */
 export const TILE_THINSET_HIDES_KEYS = ["vapor_barrier"] as const;
+
+/**
+ * 4×8 plywood overlay hidden once the substrate is exclusively Concrete.
+ * A slab gets patch / self-level, not sheets. Plywood / wood / existing
+ * flooring / Unknown stay open. Unanswered stays open (0142). Do not
+ * SQL-gate subfloor_needed on substrate.
+ */
+export const CONCRETE_HIDES_KEYS = ["subfloor_needed"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,
