@@ -25,6 +25,9 @@ export {
   isBoxedFamily,
   isHardSurfaceStairFamily,
   jobNeedsHardSurfaceStairTrim,
+  flooringFamiliesFromCategories,
+  mergeFlooringFamilies,
+  unscopedProductFamilies,
   billsBySqydFamily,
   profileForFamily,
   defaultWastePctForFamily,
@@ -102,6 +105,7 @@ export {
 export {
   emptyInstallContext,
   installContextFromValByKey,
+  withProductFamilies,
   DEFAULT_KNOWLEDGE_WHEN,
   KNOWLEDGE_QUESTIONS,
   knowledgeWhenApplies,

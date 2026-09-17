@@ -29,6 +29,9 @@ import {
   hardwoodConstructionFromLabel,
   hardwoodConstructionFromSpecies,
   installContextFromValByKey,
+  withProductFamilies,
+  flooringFamiliesFromCategories,
+  unscopedProductFamilies,
   installMethodOptionsFor,
   installSystemFromLabel,
   matchesShowIf,
@@ -82,6 +85,35 @@ describe("catalog families map onto existing ProductCategory values", () => {
     expect(familyFromSurfaceLabel("Engineered hardwood")).toBe("hardwood");
     expect(hardwoodConstructionFromLabel("Engineered hardwood")).toBe("engineered");
     expect(hardwoodConstructionFromLabel("Hardwood")).toBe("solid");
+  });
+
+  it("flags floor-map products that the job type / surface did not scope", () => {
+    expect(flooringFamiliesFromCategories(["carpet", "lvp", "trim", "labor"])).toEqual(["carpet", "lvp"]);
+    const lvpOnly = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+    });
+    expect(unscopedProductFamilies(lvpOnly, ["hardwood"])).toEqual(["hardwood"]);
+    expect(unscopedProductFamilies(lvpOnly, ["lvp"])).toEqual([]);
+    const mixedType = installContextFromValByKey({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(unscopedProductFamilies(mixedType, ["carpet", "lvp"])).toEqual([]);
+    const pending = installContextFromValByKey({
+      project_type: ["Hard surface"],
+    });
+    expect(pending.surfacePending).toBe(true);
+    expect(unscopedProductFamilies(pending, ["hardwood"])).toEqual([]);
+
+    const merged = withProductFamilies(lvpOnly, ["hardwood", "lvp"]);
+    expect(merged.families).toEqual(["lvp", "hardwood"]);
+    expect(merged.unscopedProductFamilies).toEqual(["hardwood"]);
+    expect(knowledgeWarnings(merged).some((w) => w.id === "unscoped-products")).toBe(true);
+    expect(knowledgeWarnings(lvpOnly).some((w) => w.id === "unscoped-products")).toBe(false);
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/withProductFamilies/);
   });
 });
 

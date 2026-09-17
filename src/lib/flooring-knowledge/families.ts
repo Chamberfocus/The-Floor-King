@@ -257,6 +257,50 @@ export function jobNeedsHardSurfaceStairTrim(families: FlooringFamily[]): boolea
   return families.some(isHardSurfaceStairFamily);
 }
 
+/** Flooring families from catalog categories on assigned products (not pad/trim). */
+export function flooringFamiliesFromCategories(
+  categories: Array<string | null | undefined>,
+): FlooringFamily[] {
+  const out: FlooringFamily[] = [];
+  const seen = new Set<string>();
+  for (const c of categories) {
+    const f = familyFromCatalogCategory(c);
+    if (f === "other" || seen.has(f)) continue;
+    seen.add(f);
+    out.push(f);
+  }
+  return out;
+}
+
+export function mergeFlooringFamilies(
+  base: FlooringFamily[],
+  extra: FlooringFamily[],
+): FlooringFamily[] {
+  return flooringFamiliesFromCategories([...base, ...extra]);
+}
+
+/**
+ * Product families the answers have not scoped yet. Mixed floor-map jobs
+ * often assign carpet or hardwood while project_type / surface_type is still
+ * a single pick — overlay cannot ask pad/cuts/fasteners until that is fixed.
+ * Surface pending: do not nag; the salesperson has not chosen the HS type.
+ */
+export function unscopedProductFamilies(
+  ctx: {
+    families: FlooringFamily[];
+    projectTypes: string[];
+    surfacePending: boolean;
+  },
+  productFamilies: FlooringFamily[],
+): FlooringFamily[] {
+  return productFamilies.filter((f) => {
+    if (ctx.families.includes(f)) return false;
+    if (f === "carpet") return !ctx.projectTypes.some((p) => /carpet/i.test(p));
+    if (ctx.surfacePending) return false;
+    return true;
+  });
+}
+
 export function billsBySqydFamily(family: FlooringFamily): boolean {
   // Pad is sq yd too but is not a flooring family. Carpet + sheet vinyl match
   // SQYD_CATEGORIES in units.ts for the floor itself.

@@ -65,6 +65,7 @@ import {
   familyLabel,
   hardwoodConstructionFromSpecies,
   installContextFromValByKey,
+  withProductFamilies,
   installMethodOptionsForFamilies,
   isRollGoodsFamily,
   materialWastePctForEmit,
@@ -676,8 +677,10 @@ export function Questionnaire({
     }
     const ctx = installContextFromValByKey(valByKey);
     const species: string[] = [];
+    const categories: Array<string | null | undefined> = [];
     const take = (p: ProductAns | null | undefined) => {
       if (p?.species) species.push(p.species);
+      if (p?.category) categories.push(p.category);
     };
     for (const q of questions) {
       if (!visible[q.id]) continue;
@@ -699,7 +702,7 @@ export function Questionnaire({
         break;
       }
     }
-    return ctx;
+    return withProductFamilies(ctx, categories);
   }, [questions, answers, overrides, visible]);
 
   const hsTransitionTrims = useMemo(

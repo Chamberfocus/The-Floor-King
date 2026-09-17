@@ -17,6 +17,10 @@ import {
   hardwoodConstructionFromLabel,
   installSystemFromLabel,
   isHardSurfaceStairFamily,
+  flooringFamiliesFromCategories,
+  mergeFlooringFamilies,
+  unscopedProductFamilies,
+  familyLabel,
   type FlooringFamily,
   type HardwoodConstruction,
   type InstallSystem,
@@ -45,6 +49,11 @@ export interface InstallContext {
   surfacePending: boolean;
   /** Hard surface / carpet install method not answered yet. */
   installPending: boolean;
+  /**
+   * Families on assigned products that project_type / surface_type did not
+   * scope. Overlay still unions them into `families`; this list is the warning.
+   */
+  unscopedProductFamilies: FlooringFamily[];
 }
 
 export function emptyInstallContext(): InstallContext {
@@ -64,6 +73,7 @@ export function emptyInstallContext(): InstallContext {
     occupancy: [],
     surfacePending: false,
     installPending: false,
+    unscopedProductFamilies: [],
   };
 }
 
@@ -131,6 +141,24 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     installPending:
       (hasHS && (valByKey.install_method ?? []).length === 0) ||
       (hasCarpet && (valByKey.carpet_install ?? []).length === 0 && (valByKey.install_method ?? []).length === 0),
+    unscopedProductFamilies: [],
+  };
+}
+
+/**
+ * Union families from assigned catalog products (floor map / cuts) so a mixed
+ * job asks the right overlay questions. Unscoped families stay on the context
+ * for the warning — we do not invent a second project_type.
+ */
+export function withProductFamilies(
+  ctx: InstallContext,
+  categories: Array<string | null | undefined>,
+): InstallContext {
+  const productFamilies = flooringFamiliesFromCategories(categories);
+  return {
+    ...ctx,
+    unscopedProductFamilies: unscopedProductFamilies(ctx, productFamilies),
+    families: mergeFlooringFamilies(ctx.families, productFamilies),
   };
 }
 
@@ -589,6 +617,13 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
         text: `Base / quarter round / shoe still needed on Trims (${missingBase.join(", ")} — linear feet, never square feet). Add footage or keep existing.`,
       });
     }
+  }
+  if (ctx.unscopedProductFamilies.length) {
+    const labels = ctx.unscopedProductFamilies.map(familyLabel).join(", ");
+    w.push({
+      id: "unscoped-products",
+      text: `Assigned products include ${labels}, but the job type / surface pick does not. Add that flooring type (project type is multi-select) so pad, cuts, fasteners, and the right follow-ups appear — do not guess.`,
+    });
   }
   return w;
 }
