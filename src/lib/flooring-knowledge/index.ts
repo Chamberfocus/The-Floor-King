@@ -28,6 +28,8 @@ export {
   defaultWastePctForFamily,
   familyLabel,
   hardwoodConstructionFromSpecies,
+  prepQuantitiesAreFinal,
+  prepQuantitySuffix,
   type FlooringFamily,
   type HardwoodConstruction,
   type InstallSystem,

@@ -74,6 +74,8 @@ import {
   estimatorPhaseForQuestion,
   estimatorPhaseLabel,
   questionPhaseMap,
+  prepQuantitiesAreFinal,
+  prepQuantitySuffix,
   type InstallContext,
   type ReviewRoom,
 } from "@/lib/flooring-knowledge";
@@ -247,7 +249,6 @@ type Answer =
 // install labor runs higher than a flat floor. Both editable per estimate.
 const STAIR_SQFT_TREAD_RISER = 8;
 const STAIR_SQFT_TREAD_ONLY = 4;
-const DEFAULT_STAIR_LABOR_PER_SQFT = 4;
 
 let cgid = 0, ctid = 0, sgid = 0;
 const newCutRow = (width = "12"): CutRow => ({ id: `c${ctid++}`, lf: "", li: "", width });
@@ -1373,43 +1374,50 @@ export function Questionnaire({
               from_stock: p.source === "stock",
             });
           }
-          const lr = numv(a.laborRate) || DEFAULT_STAIR_LABOR_PER_SQFT;
-          out.push({
-            room: null,
-            description: `Stair install — ${steps} step${steps === 1 ? "" : "s"} (${scopeLabel})`,
-            category: "labor",
-            measure_unit: "sqft",
-            sqft: area,
-            quantity: area,
-            length_in: null,
-            width_in: null,
-            unit: "sq ft",
-            material_rate: 0,
-            labor_rate: sellLab(lr),
-            material_cost: 0,
-            labor_cost: lr,
-            waste_pct: 0,
-            product_id: null,
-            manufacturer: null,
-            style: null,
-            color: null,
-            from_stock: false,
-          });
+          const typedRate = numv(a.laborRate);
+          const configRate = q.config.labor_per_sqft ?? 0;
+          const lr = typedRate > 0 ? typedRate : configRate > 0 ? configRate : 0;
+          if (lr > 0) {
+            out.push({
+              room: null,
+              description: `Stair install — ${steps} step${steps === 1 ? "" : "s"} (${scopeLabel})`,
+              category: "labor",
+              measure_unit: "sqft",
+              sqft: area,
+              quantity: area,
+              length_in: null,
+              width_in: null,
+              unit: "sq ft",
+              material_rate: 0,
+              labor_rate: sellLab(lr),
+              material_cost: 0,
+              labor_cost: lr,
+              waste_pct: 0,
+              product_id: null,
+              manufacturer: null,
+              style: null,
+              color: null,
+              from_stock: false,
+            });
+          }
         }
       } else if (q.kind === "subfloor" && a.kind === "subfloor") {
         // Subfloor → SHEETS per room (ceil(area ÷ sheet coverage)) so nothing is
-        // under-ordered. The builder prices it by the sheet.
+        // under-ordered. The builder prices it by the sheet. Field verify / TBD
+        // does not invent a sheet count — the condition still rides in notes.
+        if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
         const opts = q.config.options ?? [];
         const sheetSqft = q.config.sheet_sqft ?? 32;
         const opt = opts.find((o) => o.label === a.thickness) ?? opts[0];
         const perSheet = opt?.cost ?? 0;
+        const suffix = prepQuantitySuffix(flooringCtx.prepConfidence);
         const rooms = allRooms.length ? allRooms : [{ name: "", sqft: totalSqft, lenIn: null, widIn: null }];
         for (const rm of rooms) {
           const sheets = subfloorSheets(rm.sqft, sheetSqft);
           if (sheets <= 0) continue;
           out.push({
             room: rm.name || null,
-            description: `Subfloor${a.thickness ? ` ${a.thickness}` : ""}${rm.name ? ` — ${rm.name}` : ""}`,
+            description: `Subfloor${a.thickness ? ` ${a.thickness}` : ""}${rm.name ? ` — ${rm.name}` : ""}${suffix}`,
             category: "underlayment",
             measure_unit: "sqft",
             sqft: r2(rm.sqft),
@@ -1429,20 +1437,24 @@ export function Questionnaire({
             from_stock: false,
           });
         }
+        }
       } else if (q.kind === "selflevel" && a.kind === "selflevel") {
         // Self-leveler → BAGS from area ÷ coverage-at-thickness. Coverage is
         // carried so the builder's bag calculator stays live. (Labor is the prep
-        // question's job — no double-charge here.)
+        // question's job — no double-charge here.) TBD prep does not emit a
+        // fake bag count.
+        if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
         const cov = q.config.coverage_sqft ?? 0;
         const covT = q.config.coverage_thickness_in ?? 0;
         const pour = numv(a.thickness) || (q.config.default_thickness_in ?? 0.25);
         const bagCost = q.config.bag_cost ?? 0;
+        const suffix = prepQuantitySuffix(flooringCtx.prepConfidence);
         if (cov > 0 && totalSqft > 0) {
           const bags = bagsNeeded(totalSqft, cov, covT > 0 ? covT : null, covT > 0 ? pour : null);
           if (bags > 0)
             out.push({
               room: null,
-              description: "Self-leveler",
+              description: `Self-leveler${suffix}`,
               category: "other",
               measure_unit: "sqft",
               sqft: r2(totalSqft),
@@ -1464,6 +1476,7 @@ export function Questionnaire({
               coverage_thickness_in: covT > 0 ? covT : null,
               prep_thickness_in: covT > 0 ? pour : null,
             });
+        }
         }
       } else if (q.kind === "yesno" || q.kind === "number" || q.kind === "choice") {
         // Per-room prep: split into a job-default line for the remaining area +
@@ -1495,7 +1508,7 @@ export function Questionnaire({
           )
       : out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry, cutsSqftByCategory]);
+  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry, cutsSqftByCategory, flooringCtx]);
 
   const notes = useMemo(() => {
     // "Job conditions" — flagged choice / yes-no answers (subfloor, tackless…)
@@ -1509,6 +1522,7 @@ export function Questionnaire({
         return [a.selected.join(", "), a.note?.trim()].filter(Boolean).join(" — ");
       }
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
+      if (q.kind === "number" && a?.kind === "number") return a.value.trim();
       return "";
     };
     for (const q of questions) {
@@ -1545,6 +1559,16 @@ export function Questionnaire({
           .join("\n")}`,
       );
     if (freeText.length) blocks.push(freeText.join("\n"));
+    for (const q of questions) {
+      if (!visible[q.id] || q.kind !== "hs_stairs") continue;
+      const a = answers[q.id];
+      if (a?.kind !== "hs_stairs") continue;
+      const steps = Math.ceil(numv(a.steps));
+      const lr = numv(a.laborRate) || (q.config.labor_per_sqft ?? 0);
+      if (steps > 0 && !(lr > 0)) {
+        blocks.push("Stair install labor rate: TBD — enter a Floor King rate in Builder rather than inventing one.");
+      }
+    }
     return blocks.join("\n\n");
   }, [questions, answers, visible, flaggedRooms, overrides]);
 
@@ -3684,7 +3708,7 @@ function QuestionBody({
     const steps = Math.max(0, Math.floor(numv(a.steps)));
     const sfPerStep = a.treadRiser ? STAIR_SQFT_TREAD_RISER : STAIR_SQFT_TREAD_ONLY;
     const area = steps * sfPerStep;
-    const lr = numv(a.laborRate) || DEFAULT_STAIR_LABOR_PER_SQFT;
+    const lr = numv(a.laborRate) || (q.config.labor_per_sqft ?? 0);
     const p = a.product;
     const matRate = p ? sellMat(rateFor(p.materialRate, p.unit, false)) : 0;
     return (
@@ -3709,7 +3733,7 @@ function QuestionBody({
           </div>
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">Stair labor $ / sq ft</label>
-            <Input value={a.laborRate} onChange={(e) => upd({ laborRate: e.target.value })} inputMode="decimal" placeholder={String(DEFAULT_STAIR_LABOR_PER_SQFT)} className="h-11 w-24 text-base md:h-10" />
+            <Input value={a.laborRate} onChange={(e) => upd({ laborRate: e.target.value })} inputMode="decimal" placeholder="TBD" className="h-11 w-24 text-base md:h-10" />
           </div>
         </div>
         <div>
@@ -3729,7 +3753,7 @@ function QuestionBody({
             <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"} ×{" "}
             {sfPerStep} sf = <span className="font-semibold tabular-nums text-primary">{area} sq ft</span>
             {p ? <> · material <span className="tabular-nums">{formatMoney(matRate * area)}</span></> : null}
-            {" "}· labor <span className="tabular-nums">{formatMoney(sellLab(lr) * area)}</span>
+            {lr > 0 ? <> · labor <span className="tabular-nums">{formatMoney(sellLab(lr) * area)}</span></> : <> · labor rate TBD</>}
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">Enter the number of steps (0 = no stairs).</p>
@@ -3758,6 +3782,7 @@ function QuestionBody({
           </div>
         </div>
         {totalSqft > 0 ? (
+          prepQuantitiesAreFinal(flooringCtx.prepConfidence) ? (
           <div className="space-y-1 rounded-lg border bg-muted/20 p-3 text-sm">
             {rooms.map((r, i) => (
               <div key={i} className="flex justify-between gap-3">
@@ -3766,10 +3791,15 @@ function QuestionBody({
               </div>
             ))}
             <div className="flex justify-between gap-3 border-t pt-1 font-semibold">
-              <span>Total ({sheetSqft} sq ft / sheet, rounded up)</span>
+              <span>Total ({sheetSqft} sq ft / sheet, rounded up){prepQuantitySuffix(flooringCtx.prepConfidence)}</span>
               <span className="tabular-nums">{totalSheets} sheets</span>
             </div>
           </div>
+          ) : (
+            <p className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
+              Prep is Field verify / TBD — sheet count is not added to the estimate. Confirm after demo.
+            </p>
+          )
         ) : (
           <p className="text-sm text-muted-foreground">Add areas first — sheets are figured from each room&apos;s sq ft.</p>
         )}
@@ -3806,10 +3836,17 @@ function QuestionBody({
           <p className="text-xs text-muted-foreground">Flat coverage — thickness doesn&apos;t change the count.</p>
         )}
         {totalSqft > 0 && cov > 0 ? (
+          prepQuantitiesAreFinal(flooringCtx.prepConfidence) ? (
           <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
             {Math.round(totalSqft)} sq ft{covT > 0 ? ` at ${label}` : ""} ÷ {cov} SF/bag ={" "}
             <span className="font-semibold tabular-nums">{bags} bag{bags === 1 ? "" : "s"}</span>
+            {prepQuantitySuffix(flooringCtx.prepConfidence)}
           </div>
+          ) : (
+            <p className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
+              Prep is Field verify / TBD — bag count is not added to the estimate. Confirm after demo.
+            </p>
+          )
         ) : (
           <p className="text-sm text-muted-foreground">Add areas first — bags are figured from total sq ft.</p>
         )}

@@ -270,3 +270,20 @@ export function familyLabel(family: FlooringFamily): string {
       return "Other";
   }
 }
+
+/**
+ * Bag/sheet counts are only final when the salesperson did not mark prep as
+ * field-verify / TBD. Unanswered stays open (do not hide quantities yet).
+ */
+export function prepQuantitiesAreFinal(labels: string[] | null | undefined): boolean {
+  return !(labels ?? []).some((l) => /field|tbd|verify/i.test(l));
+}
+
+/** Suffix for estimated / allowance material lines. Empty when known or TBD. */
+export function prepQuantitySuffix(labels: string[] | null | undefined): string {
+  const t = (labels ?? []).join(" ").toLowerCase();
+  if (/field|tbd|verify/.test(t)) return "";
+  if (/allow/.test(t)) return " (allowance)";
+  if (/estimat/.test(t)) return " (estimated)";
+  return "";
+}

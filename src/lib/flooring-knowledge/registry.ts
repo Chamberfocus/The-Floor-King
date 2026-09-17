@@ -24,7 +24,7 @@ export type EstimatorPhase =
   | "details"
   | "review";
 
-export type KnowledgeQtyUnit = "sqft" | "sqyd" | "lnft" | "each";
+export type KnowledgeQtyUnit = "sqft" | "sqyd" | "lnft" | "each" | "box" | "roll" | "sheet" | "bag";
 
 export interface KnowledgeQuestionDef {
   key: string;
@@ -41,7 +41,6 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "project_type", purpose: "SCOPE", phase: "area" },
   // Product
   { key: "surface_type", purpose: "MATERIAL", phase: "product" },
-  { key: "hs_product", purpose: "MATERIAL", phase: "product" },
   /**
    * Gate for per-room prep. Must sit with Measure (before rooms) so "set it by
    * room" can live on the rooms step — not back at SQL position 4, in front of
@@ -73,6 +72,9 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "tile_layout", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_setting", purpose: "MATERIAL", phase: "install", families: ["tile"] },
   { key: "tack_strip", purpose: "ACCESSORY", phase: "install", families: ["carpet"], systems: ["stretch_in"] },
+  { key: "climate_control", purpose: "INSTALLATION", phase: "install" },
+  { key: "ac_available", purpose: "INSTALLATION", phase: "install" },
+  { key: "heat_available", purpose: "INSTALLATION", phase: "install" },
 
   // Prep
   { key: "substrate", purpose: "PREP", phase: "prep" },
@@ -81,8 +83,12 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "moisture_test", purpose: "PREP", phase: "prep" },
   { key: "moisture_mitigation", purpose: "PREP", phase: "prep" },
   { key: "prep_confidence", purpose: "PREP", phase: "prep" },
+  { key: "hs_prep", purpose: "PREP", phase: "prep" },
+  { key: "selflevel_needed", purpose: "PREP", phase: "prep" },
+  { key: "subfloor_needed", purpose: "PREP", phase: "prep" },
 
   // Details
+  { key: "stairs", purpose: "MEASUREMENT", phase: "details" },
   { key: "metals_needed", purpose: "ACCESSORY", phase: "details", families: ["carpet"] },
   { key: "vents_registers", purpose: "ACCESSORY", phase: "details", quantityUnit: "each" },
   { key: "stair_landings", purpose: "MEASUREMENT", phase: "details" },
@@ -90,6 +96,7 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "occupancy", purpose: "SCHEDULING", phase: "details" },
   { key: "access_conditions", purpose: "SCHEDULING", phase: "details" },
   { key: "furniture_heavy", purpose: "SCOPE", phase: "details" },
+  { key: "carpet_curb", purpose: "LABOR", phase: "details", families: ["carpet"] },
 ];
 
 export const DEFAULT_KNOWLEDGE_WHEN: Record<string, KnowledgeWhen> = Object.fromEntries(

@@ -278,7 +278,8 @@ export function coerceTrimUnit(
 
 /**
  * Cut/roll width for carpet or sheet vinyl. Product `roll_width_ft` wins when
- * it is actually on the catalog row — we do not invent 12' or 15'.
+ * it is actually on the catalog row. Otherwise the first width chip from the
+ * question config (or the family chip list) — not a third invented number.
  */
 export function defaultCutWidthFt(opts: {
   family: FlooringFamily;
@@ -287,9 +288,7 @@ export function defaultCutWidthFt(opts: {
 }): number {
   const fromProduct = Number(opts.productWidthFt);
   if (Number.isFinite(fromProduct) && fromProduct > 0) return fromProduct;
-  const cfg = (opts.configWidths ?? []).filter((n) => Number.isFinite(n) && n > 0);
-  if (cfg.length) return cfg[0]!;
-  return opts.family === "vinyl" ? 12 : 12;
+  return cutWidthChoicesFt({ ...opts, productWidthFt: null })[0]!;
 }
 
 /** Width chips: question config + the product's real roll width when present. */

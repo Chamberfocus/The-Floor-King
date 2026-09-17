@@ -34,6 +34,8 @@ import {
   estimatorPhaseForQuestion,
   estimatorPhaseLabel,
   showIfReferencedKeys,
+  prepQuantitiesAreFinal,
+  prepQuantitySuffix,
 } from "@/lib/flooring-knowledge";
 import { billsBySquareYard } from "@/lib/units";
 
@@ -485,6 +487,7 @@ describe("product metadata overrides generic roll-width defaults", () => {
       defaultCutWidthFt({ family: "vinyl", productWidthFt: null, configWidths: [6, 12] }),
     ).toBe(6);
     expect(defaultCutWidthFt({ family: "carpet" })).toBe(12);
+    expect(defaultCutWidthFt({ family: "vinyl" })).toBe(6);
     expect(cutWidthChoicesFt({ family: "carpet", productWidthFt: 13.5 })).toEqual([12, 13.5, 15]);
     expect(cutWidthChoicesFt({ family: "vinyl", configWidths: [6, 12], productWidthFt: 12 })).toEqual([
       6, 12,
@@ -669,5 +672,46 @@ describe("estimator conversation order (not SQL position)", () => {
     expect(showIfReferencedKeys({ all: [{ key: "install_method", in: ["Glue-down"] }, { key: "attached_pad", in: ["No"] }] })).toEqual(
       ["install_method", "attached_pad"],
     );
+  });
+});
+
+describe("unknown conditions stay unknown", () => {
+  it("withholds bag/sheet counts only when prep is field verify / TBD", () => {
+    expect(prepQuantitiesAreFinal([])).toBe(true);
+    expect(prepQuantitiesAreFinal(["Known"])).toBe(true);
+    expect(prepQuantitiesAreFinal(["Estimated"])).toBe(true);
+    expect(prepQuantitiesAreFinal(["Allowance"])).toBe(true);
+    expect(prepQuantitiesAreFinal(["Field verify / TBD"])).toBe(false);
+    expect(prepQuantitySuffix(["Estimated"])).toBe(" (estimated)");
+    expect(prepQuantitySuffix(["Allowance"])).toBe(" (allowance)");
+    expect(prepQuantitySuffix(["Field verify / TBD"])).toBe("");
+  });
+
+  it("classifies live orphan keys instead of dumping them in details", () => {
+    expect(knowledgeQuestionByKey("stairs")?.phase).toBe("details");
+    expect(knowledgeQuestionByKey("hs_prep")?.phase).toBe("prep");
+    expect(knowledgeQuestionByKey("selflevel_needed")?.purpose).toBe("PREP");
+    expect(knowledgeQuestionByKey("subfloor_needed")?.purpose).toBe("PREP");
+    expect(knowledgeQuestionByKey("climate_control")?.phase).toBe("install");
+    expect(knowledgeQuestionByKey("hs_product")).toBeUndefined();
+  });
+
+  it("loose-lay LVP does not ask glue or floating follow-ups", () => {
+    const keys = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Loose-lay"],
+    });
+    expect(keys.includes("adhesive")).toBe(false);
+    expect(keys.includes("attached_pad")).toBe(false);
+    expect(keys.includes("hs_underlayment")).toBe(false);
+    expect(keys.includes("laminate_expansion")).toBe(false);
+  });
+
+  it("does not invent a hard-surface stair labor rate", () => {
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).not.toMatch(/DEFAULT_STAIR_LABOR_PER_SQFT/);
+    expect(q).toMatch(/prepQuantitiesAreFinal/);
+    expect(q).toMatch(/labor rate TBD/);
   });
 });

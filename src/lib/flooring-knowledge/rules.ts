@@ -118,10 +118,7 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     substrate: valByKey.substrate ?? valByKey.subfloor_type ?? [],
     grade: valByKey.construction_grade ?? [],
     stairs,
-    existingFlooring: [
-      ...(valByKey.existing_floor ?? []),
-      ...(valByKey.hs_demo ?? []),
-    ],
+    existingFlooring: valByKey.hs_demo ?? [],
     prepConfidence: valByKey.prep_confidence ?? [],
     occupancy: valByKey.occupancy ?? [],
     surfacePending: hasHS && surfaceLabels.length === 0,
@@ -248,8 +245,11 @@ export function knowledgeHelpFor(
         ? "Engineered hardwood may allow nail, staple, glue, or floating — confirm the product permits the method you pick."
         : "Solid hardwood is typically nail, staple, or glue. Floating is uncommon; confirm the product before using it.";
     }
-    if (ctx.families.includes("lvp"))
+    if (ctx.families.includes("lvp")) {
+      if (ctx.systems.includes("loose_lay"))
+        return "Loose-lay is not glue-down and not a floating click floor — adhesive and attached-pad questions stay off. Confirm the product permits it on this substrate.";
       return "Floating/click, glue-down, and loose-lay ask different follow-ups. Pick the system this product actually uses.";
+    }
   }
   if (key === "carpet_install") {
     return "Stretch-in over pad is the residential default. Glue-down and carpet tile change pad, tack strip, and adhesive.";
@@ -365,6 +365,12 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     w.push({
       id: "pad-glue",
       text: "Attached pad on a glue-down system is unusual — confirm the product is actually glue-down or actually has an attached pad.",
+    });
+  }
+  if (ctx.systems.includes("loose_lay")) {
+    w.push({
+      id: "loose-lay",
+      text: "Loose-lay is its own system — not glue-down and not floating/click. Confirm the product and substrate; do not assume adhesive or underlayment.",
     });
   }
   if (picked.some((l) => /mortar bed/i.test(l) && /with/i.test(l))) {
