@@ -9,6 +9,7 @@ import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText } from "@/lib/job-scope";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import { selfLevelPourThicknessIn } from "@/lib/floor-prep";
+import { cutLabel, cutSqYd } from "@/lib/order-cuts";
 import { lineQty, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
 import {
   accessoryQuantity,
@@ -3279,6 +3280,33 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/resolvedSheetSqft/);
     expect(q).not.toMatch(/sheet_sqft \?\? 32/);
     expect(q).toMatch(/We do not invent a 4×8/);
+  });
+
+  it("0228 customer order cuts do not invent a 12' width or sq yd unit", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0228_flooring_knowledge_order_cut_width.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0228_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/12'/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(cutLabel({ width_ft: 12, length_ft: 14, length_in: 6 })).toMatch(/12'/);
+    expect(cutLabel({ width_ft: 0, length_ft: 14, length_in: 6 })).toMatch(/width TBD/);
+    expect(cutSqYd({ width_ft: 12, length_ft: 30, length_in: 0 })).toBe(40);
+    expect(cutSqYd({ width_ft: 0, length_ft: 30, length_in: 0 })).toBeNull();
+
+    const form = readFileSync(join(root, "src/components/order-form.tsx"), "utf8");
+    expect(form).toMatch(/width: ""/);
+    expect(form).not.toMatch(/width: "12"/);
+    expect(form).toMatch(/unit: ""/);
+    expect(form).not.toMatch(/unit: "sq yd"/);
+    expect(form).toMatch(/Width TBD/);
+
+    const actions = readFileSync(join(root, "src/app/order/actions.ts"), "utf8");
+    expect(actions).not.toMatch(/\|\| "sq yd"/);
+    expect(actions).toMatch(/length_ft > 0 \|\| c\.length_in > 0/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

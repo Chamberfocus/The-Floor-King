@@ -88,6 +88,7 @@ const REQUIRED_FILES = [
   "0225_flooring_knowledge_stair_allowance.sql",
   "0226_flooring_knowledge_selflevel_pour.sql",
   "0227_flooring_knowledge_subfloor_sheet.sql",
+  "0228_flooring_knowledge_order_cut_width.sql",
 ];
 
 /**
@@ -1158,6 +1159,15 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0227_FLOORING_KNOWLEDGE",
       "4×8",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0228_flooring_knowledge_order_cut_width.sql",
+    markers: [
+      "P0_0228_FLOORING_KNOWLEDGE",
+      "12'",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

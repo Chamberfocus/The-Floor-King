@@ -27,12 +27,18 @@ export function cutLabel(c: OrderCutRow): string {
   const ft = Number(c.length_ft) || 0;
   const inch = Number(c.length_in) || 0;
   const len = `${ft}'${inch ? `${inch}"` : ""}`;
-  return `${Number(c.width_ft) || 0}' × ${len}`;
+  const w = Number(c.width_ft) || 0;
+  const widthPart = w > 0 ? `${w}'` : "width TBD";
+  return `${widthPart} × ${len}`;
 }
 
-/** Broadloom is bought by the square yard: width × length ÷ 9. */
-export function cutSqYd(c: OrderCutRow): number {
-  return round2(((Number(c.width_ft) || 0) * lengthFt(c)) / 9);
+/** Broadloom is bought by the square yard: width × length ÷ 9.
+ *  Missing width is not a 12' roll and is not 0 yards — it is TBD. */
+export function cutSqYd(c: OrderCutRow): number | null {
+  const w = Number(c.width_ft) || 0;
+  const len = lengthFt(c);
+  if (!(w > 0) || !(len > 0)) return null;
+  return round2((w * len) / 9);
 }
 
 /**
