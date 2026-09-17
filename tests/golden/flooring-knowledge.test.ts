@@ -46,6 +46,8 @@ import {
   synthesizeStairGate,
   groupMeasuredSqftByLabel,
   deliveryAddonCost,
+  reviewBucketForQuestion,
+  formatMeasuredLabel,
 } from "@/lib/flooring-knowledge";
 import { billsBySquareYard } from "@/lib/units";
 import type { ShowIfClause } from "@/lib/types";
@@ -344,6 +346,8 @@ describe("questionnaire is wired to the knowledge engine", () => {
     expect(q).toMatch(/formatTakeoffStrip/);
     expect(q).toMatch(/Running takeoff — measured is not order quantity/);
     expect(q).toMatch(/lineDisplayUnit/);
+    expect(q).toMatch(/reviewBucketForQuestion/);
+    expect(q).toMatch(/formatMeasuredLabel/);
   });
 });
 
@@ -1012,6 +1016,21 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: { key: "project_type", in: ["Hard surface"] },
     },
     {
+      key: "substrate",
+      position: 350,
+      show_if: { key: "project_type", in: ["Hard surface"] },
+    },
+    {
+      key: "vapor_barrier",
+      position: 207,
+      show_if: {
+        any: [
+          { key: "install_method", in: ["Floating / click", "Glue-down"] },
+          { key: "substrate", in: ["Concrete"] },
+        ],
+      },
+    },
+    {
       key: "asbestos_risk",
       position: 277,
       show_if: {
@@ -1084,6 +1103,38 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).not.toContain("surface_type");
     expect(keys).not.toContain("stair_landings");
     expect(keys).not.toContain("stair_open_sides");
+  });
+
+  it("vapor_barrier: floating or concrete; not nail-down over plywood", () => {
+    expect(
+      walk({
+        project_type: ["Hard surface"],
+        surface_type: ["Laminate"],
+        install_method: ["Floating / click"],
+      }),
+    ).toContain("vapor_barrier");
+    expect(
+      walk({
+        project_type: ["Hard surface"],
+        surface_type: ["Hardwood"],
+        install_method: ["Nail-down"],
+        substrate: ["Concrete"],
+      }),
+    ).toContain("vapor_barrier");
+    expect(
+      walk({
+        project_type: ["Hard surface"],
+        surface_type: ["Hardwood"],
+        install_method: ["Nail-down"],
+        substrate: ["Plywood / OSB"],
+      }),
+    ).not.toContain("vapor_barrier");
+    expect(
+      walk({
+        project_type: ["Carpet"],
+        carpet_install: ["Stretch-in"],
+      }),
+    ).not.toContain("vapor_barrier");
   });
 
   it("glue-down carpet: overlay hides tack strip even though show_if is Carpet", () => {
@@ -1328,5 +1379,96 @@ describe("0197 scope notes and delivery charge", () => {
     });
     const w = knowledgeWarnings(ctx, { pickedLabels: ["Possible — test before removal"] });
     expect(w.some((x) => x.id === "asbestos")).toBe(true);
+  });
+});
+
+describe("vapor_barrier overlay matches SQL any (floating/glue OR concrete)", () => {
+  it("nail-down hardwood over concrete still asks; plywood does not", () => {
+    const nailConcrete = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Concrete"],
+    });
+    expect(nailConcrete).toContain("vapor_barrier");
+    expect(nailConcrete).toContain("hardwood_fasteners");
+
+    const nailPlywood = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(nailPlywood).not.toContain("vapor_barrier");
+
+    const floating = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    });
+    expect(floating).toContain("vapor_barrier");
+
+    const stretch = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).not.toContain("vapor_barrier");
+  });
+
+  it("SQL walk: nail + concrete shows vapor_barrier; nail + plywood hides it", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0198_flooring_knowledge_vapor_barrier.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0198_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/vapor_barrier/);
+    expect(sql).toMatch(/substrate/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(knowledgeQuestionByKey("vapor_barrier")?.any).toEqual([
+      { systems: ["floating", "glue"] },
+      { substrate: ["Concrete"] },
+    ]);
+  });
+});
+
+describe("salesperson review buckets by purpose, not a level regex", () => {
+  it("furniture_level is Specials, never Prep", () => {
+    expect(reviewBucketForQuestion({ key: "furniture_level", label: "Furniture moving" })).toBe(
+      "specials",
+    );
+    expect(reviewBucketForQuestion({ key: "selflevel_needed", label: "Self-leveler" })).toBe("prep");
+    expect(reviewBucketForQuestion({ key: "vapor_barrier", label: "Moisture barrier" })).toBe("prep");
+  });
+
+  it("layout notes sit under Installation, not Special conditions", () => {
+    expect(reviewBucketForQuestion({ key: "tile_layout", label: "Tile layout" })).toBe("installation");
+    expect(reviewBucketForQuestion({ key: "pattern_match", label: "Pattern match" })).toBe(
+      "installation",
+    );
+    expect(reviewBucketForQuestion({ key: "hs_direction", label: "Plank run direction" })).toBe(
+      "installation",
+    );
+    expect(reviewBucketForQuestion({ key: "vinyl_layout", label: "Sheet vinyl layout" })).toBe(
+      "installation",
+    );
+  });
+
+  it("removal / accessories / stairs land in the right columns", () => {
+    expect(reviewBucketForQuestion({ key: "hs_demo", label: "Existing flooring" })).toBe("removal");
+    expect(reviewBucketForQuestion({ key: "asbestos_risk", label: "Asbestos" })).toBe("removal");
+    expect(reviewBucketForQuestion({ key: "tack_strip", label: "Tack strip" })).toBe("accessories");
+    expect(reviewBucketForQuestion({ key: "carpet_stairs", label: "Carpet stairs" })).toBe(
+      "installation",
+    );
+  });
+
+  it("extra-pad area uses measured-vs-equivalent wording, not a bare sqyd conversion", () => {
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).not.toMatch(/wantYd \? numv\(ex\.sqft\) \/ 9/);
+    expect(q).toMatch(/formatMeasuredLabel/);
+    expect(
+      formatMeasuredLabel({ sqft: 270, sqydEquivalent: 30 }, { showEquivalentYd: true }),
+    ).toMatch(/equivalent area — not an order quantity/);
   });
 });

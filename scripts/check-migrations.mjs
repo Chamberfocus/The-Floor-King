@@ -58,6 +58,7 @@ const REQUIRED_FILES = [
   "0195_flooring_knowledge_pattern_delivery.sql",
   "0196_flooring_knowledge_stair_gates.sql",
   "0197_flooring_knowledge_scope_notes.sql",
+  "0198_flooring_knowledge_vapor_barrier.sql",
 ];
 
 /**
@@ -813,6 +814,17 @@ const REQUIRED_MARKERS = [
       "P0_0197_FLOORING_KNOWLEDGE",
       "asbestos_risk",
       "hs_direction",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0198_flooring_knowledge_vapor_barrier.sql",
+    markers: [
+      "P0_0198_FLOORING_KNOWLEDGE",
+      "vapor_barrier",
+      "substrate",
+      "Concrete",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

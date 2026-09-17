@@ -360,10 +360,15 @@ export type ShowIfClause =
   | { all: ShowIfClause[] }
   | { any: ShowIfClause[] };
 
-/** One overlay clause — AND of families and/or systems. */
+/** One overlay clause — AND of families, systems, and/or substrate. */
 export interface KnowledgeWhenClause {
   families?: string[];
   systems?: string[];
+  /**
+   * Positive substrate match (e.g. Concrete). Unanswered does not satisfy
+   * an OR branch on its own — same as SQL `{ key: "substrate", in: [...] }`.
+   */
+  substrate?: string[];
 }
 
 /**

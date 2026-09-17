@@ -81,6 +81,7 @@ import {
   answerGateValues,
   groupMeasuredSqftByLabel,
   deliveryAddonCost,
+  reviewBucketForQuestion,
   prepQuantitySuffix,
   type InstallContext,
   type ReviewRoom,
@@ -1765,40 +1766,18 @@ export function Questionnaire({
     const prep: string[] = [];
     const accessories: string[] = [];
     const specials: string[] = [];
+    const buckets: Record<"removal" | "installation" | "prep" | "accessories" | "specials", string[]> = {
+      removal,
+      installation,
+      prep,
+      accessories,
+      specials,
+    };
     for (const q of questions) {
       if (!visible[q.id]) continue;
       const v = condValue(q, answers[q.id]);
       if (!v) continue;
-      const blob = `${q.key ?? ""} ${q.label} ${v}`.toLowerCase();
-      if (/demo|tear|removal|haul|dispos|pad remove|existing_bond|existing_pad/.test(blob)) removal.push(`${q.label}: ${v}`);
-      else if (
-        /install|method|acclim|surface type|carpet_install|tile_application|stair/.test(blob) ||
-        q.key === "install_method" ||
-        q.key === "surface_type" ||
-        q.key === "carpet_install" ||
-        q.key === "tile_application" ||
-        q.key === "stair_landings" ||
-        q.key === "stair_open_sides" ||
-        q.key === "carpet_stairs" ||
-        q.key === "hs_plank_stairs" ||
-        q.key === "hs_direction"
-      )
-        installation.push(`${q.label}: ${v}`);
-      else if (/prep|level|subfloor|moisture|vapor|substrate|skim|grind/.test(blob) || q.key === "prep_confidence" || q.key === "vinyl_skim")
-        prep.push(`${q.label}: ${v}`);
-      else if (/trim|metal|transition|quarter|nose|underlay|pad|adhesive|tack|vent|register|grout|thinset|backer|expansion/.test(blob) || q.key === "tack_strip" || q.key === "tile_setting" || q.key === "vents_registers" || q.key === "laminate_expansion" || q.key === "carpet_pad")
-        accessories.push(`${q.label}: ${v}`);
-      else if (
-        /toilet|appliance|furniture|door shav|occupancy|access|delivery|asbestos/.test(blob) ||
-        q.key === "toilets" ||
-        q.key === "appliances" ||
-        q.key === "furniture_level" ||
-        q.key === "doors_shave" ||
-        q.key === "delivery_scope" ||
-        q.key === "asbestos_risk"
-      )
-        specials.push(`${q.label}: ${v}`);
-      else if (q.config.note || q.config.trim_list) specials.push(`${q.label}: ${v}`);
+      buckets[reviewBucketForQuestion(q)].push(`${q.label}: ${v}`);
     }
     if (flooringCtx.installLabels.length)
       installation.unshift(`System: ${flooringCtx.installLabels.join(", ")}`);
@@ -3293,7 +3272,10 @@ function QuestionBody({
                   <Input value={ex.sqft} onChange={(e) => patchExtra(ex.id, { sqft: e.target.value })} inputMode="decimal" placeholder="sq ft" className="h-10 w-28" />
                   {ex.product && numv(ex.sqft) > 0 ? (
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      = {r2(b.wantYd ? numv(ex.sqft) / 9 : numv(ex.sqft))} {b.unitLabel}
+                      {formatMeasuredLabel(
+                        { sqft: numv(ex.sqft), sqydEquivalent: r2(numv(ex.sqft) / 9) },
+                        { showEquivalentYd: b.wantYd },
+                      )}
                     </span>
                   ) : null}
                   {ex.product && q.config.ask_source ? (

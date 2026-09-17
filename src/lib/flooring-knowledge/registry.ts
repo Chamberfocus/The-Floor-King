@@ -38,10 +38,15 @@ export interface KnowledgeQuestionDef {
   /** Overlay require — hide once the gate is answered with something else. */
   require?: { key: string; in: string[] };
   /**
-   * OR of family/system clauses. Use this when SQL show_if is `{ any: … }`
-   * (hardwood OR glue-down) so overlay does not AND families with systems.
+   * OR of family/system/substrate clauses. Use this when SQL show_if is
+   * `{ any: … }` (hardwood OR glue-down, floating/glue OR concrete) so the
+   * overlay does not AND those branches together.
    */
-  any?: { families?: FlooringFamily[]; systems?: InstallSystem[] }[];
+  any?: {
+    families?: FlooringFamily[];
+    systems?: InstallSystem[];
+    substrate?: string[];
+  }[];
 }
 
 export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
@@ -120,7 +125,17 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   // Prep
   { key: "substrate", purpose: "PREP", phase: "prep" },
   { key: "subfloor_condition", purpose: "PREP", phase: "prep" },
-  { key: "vapor_barrier", purpose: "PREP", phase: "prep", systems: ["floating", "glue"] },
+  /**
+   * Matches 0190/0198 show_if: floating/glue OR concrete substrate.
+   * Nail-down hardwood over a slab still needs this question; stretch-in
+   * carpet over plywood does not.
+   */
+  {
+    key: "vapor_barrier",
+    purpose: "PREP",
+    phase: "prep",
+    any: [{ systems: ["floating", "glue"] }, { substrate: ["Concrete"] }],
+  },
   /**
    * Same hardwood-OR-glue gate as 0190 moisture_test show_if. Mitigation stays
    * all hard-surface (0117) — do not overlay-hide it.

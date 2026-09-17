@@ -13,7 +13,8 @@ import {
   type ConditionConfidence,
   type FlooringFamily,
 } from "./families";
-import type { InstallContext } from "./rules";
+import { questionPurpose, type InstallContext } from "./rules";
+import type { KnowledgeWhen, QuestionPurpose } from "@/lib/types";
 
 export interface ReviewRoom {
   name: string;
@@ -34,6 +35,98 @@ export interface SalespersonReview {
   sections: ReviewSection[];
   warnings: { id: string; text: string }[];
   notes: string[];
+}
+
+/** Review column a answered question belongs in — purpose/key, not a `|level|` regex. */
+export type ReviewBucket = "removal" | "installation" | "prep" | "accessories" | "specials";
+
+const REMOVAL_KEYS = new Set([
+  "hs_demo",
+  "existing_bond",
+  "existing_pad",
+  "demo_disposal",
+  "asbestos_risk",
+]);
+
+const SPECIAL_KEYS = new Set([
+  "furniture_level",
+  "furniture_heavy",
+  "toilets",
+  "appliances",
+  "doors_shave",
+  "carpet_curb",
+  "occupancy",
+  "access_conditions",
+  "delivery_scope",
+  "radiant_heat",
+]);
+
+const ACCESSORY_MATERIAL_KEYS = new Set([
+  "carpet_pad",
+  "adhesive",
+  "hs_underlayment",
+  "tack_strip",
+  "tile_setting",
+  "attached_pad",
+  "metals_needed",
+  "vents_registers",
+]);
+
+/**
+ * One source of truth for the salesperson review columns.
+ *
+ * `furniture_level` is LABOR, not Prep — a `|level|` regex used to dump it
+ * there. Warehouse/layout notes (pattern, plank direction, tile layout) sit
+ * under Installation, not Special conditions.
+ */
+export function reviewBucketForQuestion(q: {
+  key?: string | null;
+  label?: string | null;
+  kind?: string;
+  config?: {
+    purpose?: QuestionPurpose | null;
+    knowledge_when?: KnowledgeWhen | null;
+    note?: boolean;
+    trim_list?: boolean;
+  };
+}): ReviewBucket {
+  const key = q.key ?? "";
+  if (REMOVAL_KEYS.has(key)) return "removal";
+  if (SPECIAL_KEYS.has(key)) return "specials";
+  if (ACCESSORY_MATERIAL_KEYS.has(key) || q.config?.trim_list) return "accessories";
+
+  const purpose = questionPurpose(q);
+  switch (purpose) {
+    case "PREP":
+      return "prep";
+    case "INSTALLATION":
+    case "WAREHOUSE":
+    case "MEASUREMENT":
+      return "installation";
+    case "ACCESSORY":
+      return "accessories";
+    case "MATERIAL":
+      return ACCESSORY_MATERIAL_KEYS.has(key) ? "accessories" : "installation";
+    case "LABOR":
+      return "specials";
+    case "WARNING":
+    case "SCHEDULING":
+    case "PURCHASING":
+    case "SCOPE":
+    case "PRICE":
+      return "specials";
+    default:
+      break;
+  }
+
+  const blob = `${key} ${q.label ?? ""}`.toLowerCase();
+  if (/demo|tear|removal|haul|dispos|pad remove/.test(blob)) return "removal";
+  if (/prep|subfloor|moisture|vapor|substrate|skim|grind/.test(blob)) return "prep";
+  if (/trim|metal|transition|quarter|nose|underlay|adhesive|tack|vent|grout|thinset|backer/.test(blob))
+    return "accessories";
+  if (/install|method|acclim|surface|stair|layout|pattern|direction/.test(blob)) return "installation";
+  if (/toilet|appliance|furniture|occupancy|access|delivery|asbestos/.test(blob)) return "specials";
+  return "specials";
 }
 
 export function confidenceFromLabel(raw: string | null | undefined): ConditionConfidence | null {

@@ -142,6 +142,17 @@ function listHas(have: string[], want: string[]): boolean {
   return want.some((w) => have.includes(w));
 }
 
+/** Concrete matches "Concrete" and "Concrete slab"; not a substring of plywood. */
+export function substrateLabelMatches(have: string[], want: string[]): boolean {
+  const norm = (s: string) => s.trim().toLowerCase();
+  const haveN = have.map(norm);
+  return want.some((w) => {
+    const nw = norm(w);
+    if (!nw) return false;
+    return haveN.some((h) => h === nw || h.startsWith(`${nw} `) || h.startsWith(`${nw}/`));
+  });
+}
+
 /**
  * One overlay clause: hide only with positive evidence. Unanswered surface
  * or install method keeps the clause open so we never skip a branch the
@@ -166,6 +177,17 @@ export function knowledgeClauseApplies(clause: KnowledgeWhenClause, ctx: Install
     if (ctx.installPending || ctx.systems.length === 0) {
       // Method not chosen — leave the question to show_if.
     } else if (!ctx.systems.some((s) => clause.systems!.includes(s))) {
+      return false;
+    }
+  }
+
+  if (clause.substrate?.length) {
+    const have = ctx.substrate ?? [];
+    if (!have.length) {
+      // Positive-match expander (SQL `{ key: substrate, in }`). Unanswered
+      // does not satisfy an OR branch that is only about substrate.
+      if (!clause.families?.length && !clause.systems?.length) return false;
+    } else if (!substrateLabelMatches(have, clause.substrate)) {
       return false;
     }
   }
@@ -338,6 +360,9 @@ export function knowledgeHelpFor(
   }
   if (key === "vents_registers") {
     return "Count of vents/registers to change, in EACH. Never square feet. Pick a catalog vent on Trims if Floor King sells it; otherwise this is a crew note.";
+  }
+  if (key === "vapor_barrier") {
+    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed.";
   }
   if (key === "substrate") {
     return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete.";

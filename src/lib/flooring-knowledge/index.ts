@@ -92,6 +92,7 @@ export {
   knowledgeWarnings,
   visibleKnowledgeKeys,
   resolveQuestionVisibility,
+  substrateLabelMatches,
   type InstallContext,
 } from "./rules";
 
@@ -104,7 +105,9 @@ export {
   confidenceFromLabel,
   groupMeasuredSqftByLabel,
   deliveryAddonCost,
+  reviewBucketForQuestion,
   type ReviewRoom,
   type ReviewSection,
+  type ReviewBucket,
   type SalespersonReview,
 } from "./takeoff";
