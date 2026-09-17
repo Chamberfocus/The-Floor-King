@@ -50,6 +50,7 @@ const REQUIRED_FILES = [
   "0186_launch_trust_schedule_invoice_guards.sql",
   "0187_catalog_search_pricing_columns.sql",
   "0189_estimate_commission_override.sql",
+  "0190_flooring_knowledge_engine.sql",
 ];
 
 /**
@@ -712,6 +713,21 @@ const REQUIRED_MARKERS = [
       "commission_overridden_by",
       "Do NOT set posting_enabled",
       "estimates_customer leaked commission override",
+    ],
+  },
+  {
+    file: "0190_flooring_knowledge_engine.sql",
+    markers: [
+      "P0_0190_FLOORING_KNOWLEDGE",
+      "carpet_install",
+      "attached_pad",
+      "prep_confidence",
+      "LVP / LVT",
+      "Sheet vinyl",
+      "Engineered hardwood",
+      "Field verify / TBD",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
     ],
   },
 ];

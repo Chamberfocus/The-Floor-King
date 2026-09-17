@@ -122,9 +122,10 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
   vinyl: {
     category: "vinyl",
     label: "Sheet Vinyl",
-    unit: "sqft",
+    unit: "sqyd",
     waste: 7,
-    measureHint: "Priced by the square foot.",
+    measureHint:
+      "Sheet vinyl is roll goods, priced by the square yard. Measured area is not automatically the order quantity — layout and seams can require more.",
     companions: [
       { key: "prep", label: "Floor prep / level", category: "labor", sizeBy: "area", unit: "sqft", defaultOn: false, labor: true },
       { key: "transitions", label: "Transitions / edge", category: "trim", sizeBy: "each", unit: "each", defaultOn: false },
@@ -145,6 +146,11 @@ export const FLOORING_TYPES = [
 
 export function profileFor(category: string): FlooringProfile | null {
   return FLOORING_PROFILES[category] ?? null;
+}
+
+/** Typical material waste % — one source of truth for builder + questionnaire. */
+export function defaultWastePct(category: string | null | undefined): number {
+  return profileFor(category ?? "")?.waste ?? 0;
 }
 
 /** Area in sq ft from feet dimensions. */

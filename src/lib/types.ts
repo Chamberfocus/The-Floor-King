@@ -334,6 +334,41 @@ export interface EstimateEmit {
   cost: number; // our per-unit cost (sells at the target margin)
 }
 
+/** Why a guided-estimate question exists. */
+export type QuestionPurpose =
+  | "MEASUREMENT"
+  | "MATERIAL"
+  | "LABOR"
+  | "PREP"
+  | "ACCESSORY"
+  | "PRICE"
+  | "SCOPE"
+  | "SCHEDULING"
+  | "PURCHASING"
+  | "WAREHOUSE"
+  | "INSTALLATION"
+  | "WARNING";
+
+/**
+ * Show this question when…
+ * - `{ key, in }` — the keyed question's answer is one of `in`
+ * - `{ all }` — every nested clause matches
+ * - `{ any }` — at least one nested clause matches
+ */
+export type ShowIfClause =
+  | { key: string; in: string[] }
+  | { all: ShowIfClause[] }
+  | { any: ShowIfClause[] };
+
+/** Domain overlay on top of `show_if`. Unanswered gates do not hide. */
+export interface KnowledgeWhen {
+  families?: string[];
+  systems?: string[];
+  require?: { key: string; in: string[] };
+  attachedPad?: "yes" | "no" | "any";
+  purpose?: QuestionPurpose;
+}
+
 export interface EstimateQuestionConfig {
   // product
   category?: string; // catalog category to bias the picker + billing unit
@@ -359,9 +394,20 @@ export interface EstimateQuestionConfig {
   labor_per_sqft?: number; // selflevel: self-leveling labor $/sq ft
   carpet_cost_per_yd?: number; // stairs: our cost per sq yd of stair carpet
   note?: boolean; // record the answer as a job condition on the work order
-  // Conditional visibility: show this question only when the answer to the
-  // question with `show_if.key` is one of `show_if.in`. Absent = always shown.
-  show_if?: { key: string; in: string[] } | null;
+  /**
+   * Conditional visibility. The common form is `{ key, in }` (show when that
+   * question's answer is one of the listed values). Compound `{ all }` / `{ any }`
+   * lets a question require more than one prior answer without a JSX maze.
+   * Absent = always shown (until the flooring-knowledge overlay hides it).
+   */
+  show_if?: ShowIfClause | null;
+  /**
+   * Flooring-domain gate (family / install system / purpose). Overlay only
+   * HIDES when prior answers prove the question is irrelevant.
+   */
+  knowledge_when?: KnowledgeWhen | null;
+  /** Why this question exists — unused questions should be challenged. */
+  purpose?: QuestionPurpose | null;
   // Per-room prep: answered once as the job default, with per-room overrides for
   // rooms flagged as "different prep" in the areas step.
   per_room?: boolean;

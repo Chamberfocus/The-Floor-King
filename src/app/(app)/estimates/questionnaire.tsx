@@ -48,6 +48,25 @@ import { lineTotal } from "@/lib/estimate-calc";
 import { bagsNeeded } from "@/lib/floor-prep";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { isRollGoodCategory } from "@/lib/types";
+import {
+  catalogCategoryForFamily,
+  computeMaterialTakeoff,
+  emptyInstallContext,
+  familyFromCatalogCategory,
+  formatDimensionPair,
+  formatMeasuredLabel,
+  formatSqft,
+  formatSqyd,
+  installContextFromValByKey,
+  installMethodOptionsForFamilies,
+  knowledgeHelpFor,
+  knowledgeWarnings,
+  questionApplies,
+  reviewToJobNotes,
+  buildSalespersonReview,
+  type InstallContext,
+  type ReviewRoom,
+} from "@/lib/flooring-knowledge";
 import { AreaCalculator } from "@/components/area-calculator";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
 import {
@@ -82,17 +101,33 @@ function rateFor(rate: number, productUnit: string | null, wantYd: boolean): num
 // --- Answer shapes ---------------------------------------------------------
 // A measured area: length × width in feet + inches. `override` (from the
 // multi-shape calculator) wins over L×W when set.
+interface AreaSection {
+  id: string;
+  name: string;
+  lf: string; li: string;
+  wf: string; wi: string;
+}
 interface AreaRow {
   id: string;
   name: string;
-  lf: string; li: string; // length feet / inches
+  lf: string; li: string; // length feet / inches (used when there are no extra sections)
   wf: string; wi: string; // width feet / inches
   override: string; // total sq ft from the area calculator (irregular rooms)
   differs: boolean; // this room needs different prep than the job default
+  sections?: AreaSection[];
 }
 const feetIn = (ft: string, inch: string) => numv(ft) + numv(inch) / 12;
-const rowSqft = (r: AreaRow): number =>
-  numv(r.override) > 0 ? numv(r.override) : r2(feetIn(r.lf, r.li) * feetIn(r.wf, r.wi));
+const sectionSqft = (s: Pick<AreaSection, "lf" | "li" | "wf" | "wi">): number =>
+  r2(feetIn(s.lf, s.li) * feetIn(s.wf, s.wi));
+const rowSqft = (r: AreaRow): number => {
+  if (numv(r.override) > 0) return numv(r.override);
+  const extra = (r.sections ?? []).filter((s) => sectionSqft(s) > 0);
+  if (extra.length) {
+    const primary = sectionSqft({ lf: r.lf, li: r.li, wf: r.wf, wi: r.wi });
+    return r2(primary + extra.reduce((t, s) => t + sectionSqft(s), 0));
+  }
+  return r2(feetIn(r.lf, r.li) * feetIn(r.wf, r.wi));
+};
 interface ProductAns {
   productId: string; label: string; unit: string;
   category: string | null;   // catalog category → per-product billing (yd vs ft)
@@ -239,7 +274,7 @@ function toProductAns(p: Product): ProductAns {
     source: "order",
     vendor: supplier ?? "",
     wastePct: "",
-    sqftPerBox: "",
+    sqftPerBox: p.sqft_per_box && p.sqft_per_box > 0 ? String(p.sqft_per_box) : "",
     pieceLengthIn: p.piece_length_in ?? null,
   };
 }
@@ -327,7 +362,7 @@ function nextRoomName(rooms: { name: string }[], label: string): string {
 }
 
 const newRow = (name = ""): AreaRow => ({
-  id: `a${rid++}`, name, lf: "", li: "", wf: "", wi: "", override: "", differs: false,
+  id: `a${rid++}`, name, lf: "", li: "", wf: "", wi: "", override: "", differs: false, sections: [],
 });
 /** A saved customer area → an editable questionnaire row (prefill). */
 const savedToRow = (sa: CustomerArea): AreaRow => {
@@ -341,6 +376,7 @@ const savedToRow = (sa: CustomerArea): AreaRow => {
     wi: sa.width_in ? String(Math.round(sa.width_in % 12)) : "",
     override: !hasLW && sa.sqft ? String(sa.sqft) : "",
     differs: !!sa.differs,
+    sections: [],
   };
 };
 
@@ -354,7 +390,14 @@ const savedToRow = (sa: CustomerArea): AreaRow => {
 function rekeyAnswer(a: Answer): Answer {
   switch (a.kind) {
     case "areas":
-      return { ...a, rooms: a.rooms.map((r) => ({ ...r, id: `a${rid++}` })) };
+      return {
+        ...a,
+        rooms: a.rooms.map((r) => ({
+          ...r,
+          id: `a${rid++}`,
+          sections: (r.sections ?? []).map((s) => ({ ...s, id: `sec${rid++}` })),
+        })),
+      };
     case "cuts":
       return {
         ...a,
@@ -576,8 +619,7 @@ export function Questionnaire({
       for (const q of questions) if (vis[q.id] && q.key) valByKey[q.key] = answerVal(q);
       let changed = false;
       for (const q of questions) {
-        const cond = q.config.show_if;
-        const show = !cond?.key ? true : (valByKey[cond.key] ?? []).some((v) => cond.in.includes(v));
+        const show = questionApplies(q, valByKey);
         if (vis[q.id] !== show) {
           vis[q.id] = show;
           changed = true;
@@ -593,6 +635,47 @@ export function Questionnaire({
     () => questions.filter((q) => visible[q.id]),
     [questions, visible],
   );
+
+  const flooringCtx = useMemo(() => {
+    const valByKey: Record<string, string[]> = {};
+    const valsOf = (a: Answer | undefined): string[] =>
+      a?.kind === "yesno"
+        ? [a.yes ? "Yes" : "No"]
+        : a?.kind === "choice"
+          ? a.selected
+          : a?.kind === "text"
+            ? [a.text]
+            : [];
+    for (const q of questions) {
+      if (!visible[q.id] || !q.key) continue;
+      const vals = new Set(valsOf(answers[q.id]));
+      for (const roomOv of Object.values(overrides)) {
+        const ov = roomOv[q.id];
+        if (ov) for (const v of valsOf(ov)) vals.add(v);
+      }
+      valByKey[q.key] = [...vals];
+    }
+    return installContextFromValByKey(valByKey);
+  }, [questions, answers, overrides, visible]);
+
+  const cutsSqft = useMemo(() => {
+    let s = 0;
+    for (const q of questions) {
+      if (q.kind !== "cuts" || !visible[q.id]) continue;
+      const a = answers[q.id];
+      if (a?.kind !== "cuts") continue;
+      for (const g of a.groups) {
+        s += carpetYardageFromCuts(
+          g.cuts.map((c) => ({
+            lengthFt: numv(c.lf),
+            lengthIn: numv(c.li),
+            rollWidthFt: numv(c.width),
+          })),
+        ).sqft;
+      }
+    }
+    return r2(s);
+  }, [questions, answers, visible]);
   // Prep questions that can vary by room (subfloor, demo, skim/level, moisture…).
   const perRoomQuestions = useMemo(
     () =>
@@ -640,11 +723,13 @@ export function Questionnaire({
         const sf = rowSqft(r);
         if (sf <= 0) continue;
         const usingCalc = numv(r.override) > 0;
+        const extra = (r.sections ?? []).filter((s) => sectionSqft(s) > 0);
+        const multi = extra.length > 0;
         out.push({
           name: r.name || "",
           sqft: sf,
-          lenIn: usingCalc ? null : Math.round(feetIn(r.lf, r.li) * 12) || null,
-          widIn: usingCalc ? null : Math.round(feetIn(r.wf, r.wi) * 12) || null,
+          lenIn: usingCalc || multi ? null : Math.round(feetIn(r.lf, r.li) * 12) || null,
+          widIn: usingCalc || multi ? null : Math.round(feetIn(r.wf, r.wi) * 12) || null,
         });
       }
     }
@@ -1418,7 +1503,7 @@ export function Questionnaire({
       w.push({ id: "ceramic_substrate", text: "Tearing up ceramic tile — confirm what's under it (mortar bed, backer board, or other substrate) and include removing it in the demo." });
       w.push({ id: "ceramic_base", text: "Ceramic removal usually takes the base with it — plan for shoe molding or quarter round." });
     }
-    const hardwoodOrGlue = has("surface_type", "Hardwood") || has("install_method", "Glue-down");
+    const hardwoodOrGlue = has("surface_type", "Hardwood") || has("surface_type", "Engineered hardwood") || has("install_method", "Glue-down");
     // AC and heat used to be two yes/no questions; they're one multi-select now.
     // Both readings are accepted so an estimate started before the change still
     // evaluates instead of firing a false acclimation warning.
@@ -1427,11 +1512,154 @@ export function Questionnaire({
       (has("ac_available", "Yes") && has("heat_available", "Yes"));
     if (hardwoodOrGlue && !climateOk)
       w.push({ id: "climate", text: "Hardwood / glue-down without confirmed AC and heat — acclimation & adhesion are at risk. Confirm climate control." });
-    return w;
-  }, [questions, answers, visible, overrides]);
+    if (has("moisture_test", "No") && (has("install_method", "Glue-down") || hardwoodOrGlue))
+      w.push({ id: "moisture-untested", text: "Glue-down / hardwood without a moisture test — record as field verify rather than assuming the slab is dry." });
+    const hasCuts = cutsSqft > 0;
+    w.push(
+      ...knowledgeWarnings(flooringCtx, {
+        hasCuts,
+        measuredSqft: totalSqft,
+        pickedLabels: picked,
+      }),
+    );
+    // Dedupe by id so overlay + local flags don't double.
+    const seen = new Set<string>();
+    return w.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
+  }, [questions, answers, visible, overrides, flooringCtx, cutsSqft, totalSqft]);
   const activeWarnings = warnings.filter((w) => !dismissed.has(w.id));
 
   const grand = lines.reduce((s, l) => s + lineTotal(smartLineToCalcLine(l)), 0);
+
+  const salespersonReview = useMemo(() => {
+    const rooms: ReviewRoom[] = [];
+    for (const qq of questions) {
+      if (qq.kind !== "areas" || !visible[qq.id]) continue;
+      const a = answers[qq.id];
+      if (a?.kind !== "areas") continue;
+      for (const r of a.rooms) {
+        const sf = rowSqft(r);
+        if (sf <= 0 && !r.name.trim()) continue;
+        const sections = [];
+        const primary = sectionSqft({ lf: r.lf, li: r.li, wf: r.wf, wi: r.wi });
+        if (primary > 0) {
+          sections.push({
+            name: "Section A",
+            length: formatDimensionPair(numv(r.lf), numv(r.li), 0, 0).replace(" × ", "") || `${r.lf}' ${r.li || "0"}"`,
+            width: `${r.wf || "0"}' ${r.wi || "0"}"`,
+            sqft: primary,
+          });
+          // Prefer the dedicated formatter when both sides exist.
+          const pair = formatDimensionPair(numv(r.lf), numv(r.li), numv(r.wf), numv(r.wi));
+          if (pair) {
+            sections[0].length = pair.split(" × ")[0] ?? sections[0].length;
+            sections[0].width = pair.split(" × ")[1] ?? sections[0].width;
+          }
+        }
+        for (const s of r.sections ?? []) {
+          const ssf = sectionSqft(s);
+          if (ssf <= 0) continue;
+          const pair = formatDimensionPair(numv(s.lf), numv(s.li), numv(s.wf), numv(s.wi));
+          const [len, wid] = pair ? pair.split(" × ") : ["", ""];
+          sections.push({ name: s.name || "Section", length: len, width: wid, sqft: ssf });
+        }
+        rooms.push({ name: r.name || "Room", measuredSqft: sf, sections });
+      }
+    }
+    const products: string[] = [];
+    const takeoffs = [];
+    const seenProd = new Set<string>();
+    const addProduct = (label: string, category: string | null, wastePct: string, sqftPerBox: string, cuts: number) => {
+      if (!label || seenProd.has(label)) return;
+      seenProd.add(label);
+      products.push(label);
+      const family = familyFromCatalogCategory(category);
+      if (family === "other") return;
+      const waste = wastePct.trim() !== "" ? numv(wastePct) : undefined;
+      takeoffs.push(
+        computeMaterialTakeoff({
+          family,
+          measuredSqft: totalSqft,
+          wastePct: waste,
+          cutsSqft: cuts > 0 ? cuts : null,
+          sqftPerBox: numv(sqftPerBox) > 0 ? numv(sqftPerBox) : null,
+        }),
+      );
+    };
+    for (const qq of questions) {
+      if (!visible[qq.id]) continue;
+      const a = answers[qq.id];
+      if (a?.kind === "product" && a.product) {
+        addProduct(a.product.label, a.product.category, a.product.wastePct, a.product.sqftPerBox, cutsSqft);
+      } else if (a?.kind === "cuts") {
+        const p = a.same !== false ? a.product : a.groups.map((g) => g.product).find(Boolean) ?? null;
+        if (p) addProduct(p.label, p.category || "carpet", p.wastePct, p.sqftPerBox, cutsSqft);
+        else if (cutsSqft > 0) {
+          takeoffs.push(
+            computeMaterialTakeoff({
+              family: "carpet",
+              measuredSqft: totalSqft,
+              cutsSqft,
+            }),
+          );
+        }
+      } else if (a?.kind === "floor_map") {
+        for (const p of Object.values(a.byRoom)) {
+          if (p) addProduct(p.label, p.category, p.wastePct, p.sqftPerBox, 0);
+        }
+      }
+    }
+    if (!takeoffs.length && totalSqft > 0) {
+      for (const f of flooringCtx.families) {
+        takeoffs.push(
+          computeMaterialTakeoff({
+            family: f,
+            measuredSqft: totalSqft,
+            cutsSqft: f === "carpet" || f === "vinyl" ? cutsSqft || null : null,
+          }),
+        );
+      }
+    }
+    const condValue = (q: EstimateQuestion, a: Answer | undefined): string => {
+      if (q.kind === "choice" && a?.kind === "choice")
+        return [a.selected.join(", "), a.note?.trim()].filter(Boolean).join(" — ");
+      if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
+      if (q.kind === "text" && a?.kind === "text") return a.text.trim();
+      return "";
+    };
+    const removal: string[] = [];
+    const installation: string[] = [];
+    const prep: string[] = [];
+    const accessories: string[] = [];
+    const specials: string[] = [];
+    for (const q of questions) {
+      if (!visible[q.id]) continue;
+      const v = condValue(q, answers[q.id]);
+      if (!v) continue;
+      const blob = `${q.key ?? ""} ${q.label} ${v}`.toLowerCase();
+      if (/demo|tear|removal|haul|dispos|pad remove/.test(blob)) removal.push(`${q.label}: ${v}`);
+      else if (/install|method|acclim|surface type|carpet_install/.test(blob) || q.key === "install_method" || q.key === "surface_type" || q.key === "carpet_install")
+        installation.push(`${q.label}: ${v}`);
+      else if (/prep|level|subfloor|moisture|vapor|substrate|skim|grind/.test(blob) || q.key === "prep_confidence")
+        prep.push(`${q.label}: ${v}`);
+      else if (/trim|metal|transition|quarter|nose|underlay|pad|adhesive/.test(blob))
+        accessories.push(`${q.label}: ${v}`);
+      else if (q.config.note) specials.push(`${q.label}: ${v}`);
+    }
+    if (flooringCtx.installLabels.length)
+      installation.unshift(`System: ${flooringCtx.installLabels.join(", ")}`);
+    return buildSalespersonReview({
+      rooms,
+      products,
+      takeoffs,
+      ctx: flooringCtx,
+      removal,
+      installation,
+      prep,
+      accessories,
+      specials,
+      extraWarnings: [],
+    });
+  }, [questions, answers, visible, totalSqft, cutsSqft, flooringCtx]);
 
   // Steps: the currently-visible questions (conditionals reveal as you answer),
   // plus a final Review step.
@@ -1533,7 +1761,8 @@ export function Questionnaire({
       const flagText = activeWarnings.length
         ? `Flags to confirm:\n${activeWarnings.map((w) => `⚠ ${w.text}`).join("\n")}`
         : "";
-      const jobDesc = [notes.trim(), flagText].filter(Boolean).join("\n\n");
+      const takeoffText = reviewToJobNotes(salespersonReview);
+      const jobDesc = [notes.trim(), takeoffText, flagText].filter(Boolean).join("\n\n");
       const res = await createSmartEstimate({
         customerId,
         title: `Flooring for ${customerName}`,
@@ -1668,6 +1897,9 @@ export function Questionnaire({
                 {q.label}
               </h2>
               {q.help ? <p className="mt-1 text-sm text-muted-foreground">{q.help}</p> : null}
+              {knowledgeHelpFor(q, flooringCtx) ? (
+                <p className="mt-1 text-sm text-primary/90">{knowledgeHelpFor(q, flooringCtx)}</p>
+              ) : null}
             </div>
 
             <QuestionBody
@@ -1683,6 +1915,7 @@ export function Questionnaire({
               setRoomOverride={setRoomOverride}
               jobAnswers={answers}
               floorRooms={allRooms}
+              flooringCtx={flooringCtx}
               goToAreas={() => {
                 const i = stepQuestions.findIndex((sq) => sq.kind === "areas");
                 if (i >= 0) goTo(i);
@@ -1708,7 +1941,37 @@ export function Questionnaire({
                 ))}
               </div>
             ) : null}
-            <div className="text-sm font-semibold">Here&apos;s your estimate</div>
+            <div className="text-sm font-semibold">Review before Builder</div>
+            <p className="text-xs text-muted-foreground">
+              Measured area is what you taped. Order quantity is what to buy. They are not the same
+              on roll goods, and carton counts appear only when the product has coverage on file.
+            </p>
+            {salespersonReview.sections.map((sec) => (
+              <div key={sec.id} className="rounded-lg border bg-muted/20 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {sec.title}
+                </div>
+                <dl className="mt-1.5 space-y-1 text-sm">
+                  {sec.rows.map((row, i) => (
+                    <div key={`${sec.id}-${i}`} className="flex items-start justify-between gap-3">
+                      <dt className="shrink-0 text-muted-foreground">{row.label}</dt>
+                      <dd
+                        className={
+                          row.tone === "warn"
+                            ? "text-right text-amber-800 dark:text-amber-200"
+                            : row.tone === "ok"
+                              ? "text-right font-medium"
+                              : "text-right"
+                        }
+                      >
+                        {row.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ))}
+            <div className="text-sm font-semibold">Estimate lines</div>
             {lines.length ? (
               <div className="divide-y text-sm">
                 {lines.map((l, i) => (
@@ -1717,6 +1980,12 @@ export function Questionnaire({
                       <span className="truncate">{l.description}</span>
                       <span className="ml-2 text-xs text-muted-foreground">
                         {l.quantity} {l.unit}
+                        {l.measure_unit === "sqyd" && l.sqft
+                          ? ` · measured ${l.sqft} sq ft`
+                          : l.sqft
+                            ? ` · measured ${l.sqft} sq ft`
+                            : ""}
+                        {l.waste_pct ? ` · ${l.waste_pct}% waste` : ""}
                         {l.from_stock ? " · from stock" : ""}
                         {l.category === "labor" ? " · labor" : ""}
                       </span>
@@ -1745,7 +2014,7 @@ export function Questionnaire({
               onClick={() => setPriceCheck(true)}
               disabled={saving}
             >
-              {saving ? "Building…" : "Build the estimate →"}
+              {saving ? "Building…" : "Continue to Builder →"}
             </Button>
           </CardContent>
         </Card>
@@ -1853,6 +2122,7 @@ function QuestionBody({
   jobAnswers = {},
   floorRooms = [],
   goToAreas,
+  flooringCtx = emptyInstallContext(),
 }: {
   q: EstimateQuestion;
   answer: Answer | undefined;
@@ -1871,6 +2141,7 @@ function QuestionBody({
   /** Jump to the areas step. The room-map step is useless without rooms, and
    *  telling someone to "go back" without taking them there is a wall. */
   goToAreas?: () => void;
+  flooringCtx?: InstallContext;
 }) {
   // "How many stairs?" quick-fill for the trims step (one tread + one riser per
   // stair). Declared unconditionally so hook order is stable across kinds.
@@ -1938,11 +2209,112 @@ function QuestionBody({
                 </div>
               </div>
 
+              {/* Extra sections (closet, offset) stay on the same room so product
+                  assignment and prep stay one room, while measured area sums. */}
+              {(r.sections ?? []).map((sec, si) => (
+                <div key={sec.id} className="flex flex-wrap items-end gap-x-3 gap-y-2 rounded-md border border-dashed bg-background p-2">
+                  <Input
+                    value={sec.name}
+                    onChange={(e) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, name: e.target.value } : s,
+                        ),
+                      })
+                    }
+                    placeholder={`Section ${String.fromCharCode(66 + si)}`}
+                    className="h-10 w-28 text-sm"
+                    disabled={usingCalc}
+                  />
+                  <FtInField
+                    label="Length"
+                    ft={sec.lf}
+                    inch={sec.li}
+                    disabled={usingCalc}
+                    onFt={(v) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, lf: v } : s,
+                        ),
+                      })
+                    }
+                    onIn={(v) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, li: v } : s,
+                        ),
+                      })
+                    }
+                  />
+                  <span className="pb-2.5 text-muted-foreground">×</span>
+                  <FtInField
+                    label="Width"
+                    ft={sec.wf}
+                    inch={sec.wi}
+                    disabled={usingCalc}
+                    onFt={(v) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, wf: v } : s,
+                        ),
+                      })
+                    }
+                    onIn={(v) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, wi: v } : s,
+                        ),
+                      })
+                    }
+                  />
+                  <span className="pb-2 text-xs tabular-nums text-muted-foreground">
+                    {formatSqft(sectionSqft(sec))}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Remove section"
+                    onClick={() =>
+                      patch(r.id, { sections: (r.sections ?? []).filter((s) => s.id !== sec.id) })
+                    }
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                onClick={() =>
+                  patch(r.id, {
+                    sections: [
+                      ...(r.sections ?? []),
+                      {
+                        id: `sec${Date.now()}`,
+                        name: `Section ${String.fromCharCode(66 + (r.sections?.length ?? 0))}`,
+                        lf: "",
+                        li: "",
+                        wf: "",
+                        wi: "",
+                      },
+                    ],
+                  })
+                }
+              >
+                + Add section (closet, offset)
+              </button>
+
               <div className="flex flex-wrap items-center gap-x-2 text-sm">
                 <span>
                   <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
-                  <span className="font-semibold tabular-nums">{r2(sf)}</span> sq ft
-                  <span className="ml-1 text-muted-foreground tabular-nums">· {r2(sf / 9)} sq yd</span>
+                  Measured{" "}
+                  <span className="font-semibold tabular-nums">{formatSqft(sf)}</span>
+                  {sf > 0 ? (
+                    <span className="ml-1 text-muted-foreground">
+                      ({formatSqyd(sf / 9)} equivalent area — not an order qty)
+                    </span>
+                  ) : null}
                   {usingCalc ? <span className="ml-1 text-xs text-primary">· added up</span> : null}
                 </span>
                 {r.differs ? (
@@ -1977,6 +2349,7 @@ function QuestionBody({
                           sellMat={sellMat}
                           sellLab={sellLab}
                           totalSqft={totalSqft}
+                          flooringCtx={flooringCtx}
                         />
                       </div>
                     ))}
@@ -2042,6 +2415,10 @@ function QuestionBody({
                       ...last,
                       id: `a${Date.now()}`,
                       name: nextRoomName(rooms, baseRoomName(last.name)),
+                      sections: (last.sections ?? []).map((s) => ({
+                        ...s,
+                        id: `sec${Date.now()}-${s.id}`,
+                      })),
                     },
                   ]);
                 }}
@@ -2051,8 +2428,12 @@ function QuestionBody({
             ) : null}
           </div>
           <span className="rounded-md bg-primary/10 px-3 py-1.5 text-sm">
-            Total <span className="font-bold tabular-nums">{r2(total)}</span> sq ft
-            <span className="ml-1 font-semibold text-primary tabular-nums">· {r2(total / 9)} sq yd</span>
+            Total measured <span className="font-bold tabular-nums">{formatSqft(total)}</span>
+            {total > 0 ? (
+              <span className="ml-1 text-muted-foreground tabular-nums">
+                ({formatSqyd(total / 9)} equivalent area)
+              </span>
+            ) : null}
           </span>
         </div>
       </div>
@@ -2158,7 +2539,7 @@ function QuestionBody({
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="font-medium">{rm.name || `Room ${i + 1}`}</span>
                 <span className="text-xs tabular-nums text-muted-foreground">
-                  {Math.round(rm.sqft)} sq ft
+                  measured {formatSqft(rm.sqft)}
                   {p ? (
                     <button
                       type="button"
@@ -2174,6 +2555,12 @@ function QuestionBody({
                 value={p?.productId ?? ""}
                 initialLabel={p?.label ?? ""}
                 label="Product for this room"
+                defaultCategory={
+                  (p?.category as string) ||
+                  (flooringCtx.families.length === 1
+                    ? catalogCategoryForFamily(flooringCtx.families[0])
+                    : undefined)
+                }
                 onPick={(prod) => setRoom(key, prod ? toProductAns(prod) : null)}
                 onCreated={(prod) => setRoom(key, toProductAns(prod))}
                 onUseOnce={(input) => setRoom(key, customToProductAns(input))}
@@ -2193,11 +2580,12 @@ function QuestionBody({
                       the ordered quantity at emit; editable per room. */}
                   {(() => {
                     const defWaste = profileFor(cat)?.waste ?? 0;
-                    const effWaste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
-                    const spb = numv(p.sqftPerBox);
-                    const adj = rm.sqft * (1 + effWaste / 100);
-                    const boxes = spb > 0 ? Math.ceil(adj / spb) : 0;
-                    const ordered = boxes > 0 ? boxes * spb : r2(adj);
+                    const takeoff = computeMaterialTakeoff({
+                      family: familyFromCatalogCategory(cat),
+                      measuredSqft: rm.sqft,
+                      wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste,
+                      sqftPerBox: !isRollGoodCategory(cat) && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                    });
                     return (
                       <div className="mt-2 space-y-1.5">
                         <div className="flex flex-wrap items-end gap-3">
@@ -2214,23 +2602,35 @@ function QuestionBody({
                               <span className="text-xs text-muted-foreground">%</span>
                             </div>
                           </div>
-                          <div>
-                            <label className="mb-1 block text-[11px] text-muted-foreground">Sq ft per box</label>
-                            <Input
-                              value={p.sqftPerBox}
-                              onChange={(e) => setRoom(key, { ...p, sqftPerBox: e.target.value })}
-                              inputMode="decimal"
-                              placeholder="e.g. 20"
-                              className="h-9 w-20 text-base"
-                            />
-                          </div>
+                          {!isRollGoodCategory(cat) ? (
+                            <div>
+                              <label className="mb-1 block text-[11px] text-muted-foreground">Sq ft per box</label>
+                              <Input
+                                value={p.sqftPerBox}
+                                onChange={(e) => setRoom(key, { ...p, sqftPerBox: e.target.value })}
+                                inputMode="decimal"
+                                placeholder="if known"
+                                className="h-9 w-20 text-base"
+                              />
+                            </div>
+                          ) : null}
                         </div>
                         {rm.sqft > 0 ? (
                           <p className="text-xs">
-                            Order <span className="font-semibold tabular-nums text-foreground">{ordered}</span> sq ft
-                            <span> (incl. {effWaste}% waste)</span>
-                            {boxes > 0 ? (
-                              <> · <span className="font-semibold tabular-nums text-primary">{boxes}</span> box{boxes === 1 ? "" : "es"}</>
+                            Measured {formatSqft(takeoff.measured.sqft)}
+                            {" · "}
+                            Order{" "}
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {takeoff.billingUnit === "sqyd"
+                                ? formatSqyd(takeoff.billingQty)
+                                : formatSqft(takeoff.orderSqft)}
+                            </span>
+                            {takeoff.cartons ? (
+                              <>
+                                {" "}
+                                · {takeoff.cartons.cartonCount} carton
+                                {takeoff.cartons.cartonCount === 1 ? "" : "s"}
+                              </>
                             ) : null}
                           </p>
                         ) : null}
@@ -2480,11 +2880,19 @@ function QuestionBody({
   if (q.kind === "product" && !q.config.trim_list && answer?.kind === "product") {
     const p = answer.product;
     const extras = answer.extras;
-    const cat = q.config.category || "other";
+    const familyCat =
+      flooringCtx.families.length === 1
+        ? catalogCategoryForFamily(flooringCtx.families[0])
+        : null;
+    const cat =
+      (q.config.category === "lvp" && familyCat && familyCat !== "other" ? familyCat : null) ||
+      q.config.category ||
+      "other";
     const b = billing(cat);
     const kindLabel = cat === "underlayment" ? "padding" : cat;
     // Waste + carton entry is for the flooring itself (not pad / trim / other).
     const isFlooring = ["carpet", "lvp", "vinyl", "laminate", "hardwood", "tile"].includes(cat);
+    const isRoll = isRollGoodCategory(cat);
     const defWasteForCat = profileFor(cat)?.waste ?? 0;
     const setMain = (product: ProductAns | null) => set({ kind: "product", product, extras });
     const setExtras = (xs: ExtraPad[]) => set({ kind: "product", product: p, extras: xs });
@@ -2509,19 +2917,20 @@ function QuestionBody({
                 {p.materialRate > 0
                   ? `${formatMoney(p.materialRate)}/${p.unit} → sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/${b.unitLabel}`
                   : PRICE_NEEDED}
-                {totalSqft > 0 ? ` · covers ${r2(b.wantYd ? totalSqft / 9 : totalSqft)} ${b.unitLabel}` : ""}
+                {totalSqft > 0
+                  ? ` · measured ${formatMeasuredLabel({ sqft: totalSqft, sqydEquivalent: r2(totalSqft / 9) }, { showEquivalentYd: b.wantYd })}`
+                  : ""}
               </div>
             </div>
             {q.config.ask_source ? <SourceToggle p={p} onChange={setMain} /> : null}
             {isFlooring ? (
               (() => {
-                const effWaste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWasteForCat;
-                const adj = totalSqft > 0 ? totalSqft * (1 + effWaste / 100) : 0;
-                const spb = numv(p.sqftPerBox);
-                const boxes = spb > 0 ? Math.ceil(adj / spb) : 0;
-                // What you actually order & charge for: full cartons when a box
-                // size is set, else the waste-adjusted area.
-                const ordered = boxes > 0 ? boxes * spb : r2(adj);
+                const takeoff = computeMaterialTakeoff({
+                  family: familyFromCatalogCategory(cat),
+                  measuredSqft: totalSqft,
+                  wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWasteForCat,
+                  sqftPerBox: !isRoll && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                });
                 return (
                   <div className="space-y-2 rounded-md border border-dashed p-2.5">
                     <div className="flex flex-wrap items-end gap-3">
@@ -2538,30 +2947,64 @@ function QuestionBody({
                           <span className="text-sm text-muted-foreground">%</span>
                         </div>
                       </div>
-                      <div>
-                        <label className="mb-1 block text-xs text-muted-foreground">Sq ft per box</label>
-                        <Input
-                          value={p.sqftPerBox}
-                          onChange={(e) => setMain({ ...p, sqftPerBox: e.target.value })}
-                          inputMode="decimal"
-                          placeholder="e.g. 20"
-                          className="h-10 w-24 text-base"
-                        />
-                      </div>
+                      {!isRoll ? (
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Sq ft per box</label>
+                          <Input
+                            value={p.sqftPerBox}
+                            onChange={(e) => setMain({ ...p, sqftPerBox: e.target.value })}
+                            inputMode="decimal"
+                            placeholder="from product, if known"
+                            className="h-10 w-28 text-base"
+                          />
+                        </div>
+                      ) : (
+                        <p className="pb-2 text-xs text-muted-foreground">
+                          Roll goods — carton coverage does not apply. Order quantity comes from cuts/layout.
+                        </p>
+                      )}
                     </div>
                     {totalSqft > 0 ? (
-                      <p className="text-sm">
-                        Order{" "}
-                        <span className="font-semibold tabular-nums">{ordered}</span> sq ft
-                        <span className="text-muted-foreground"> (incl. {effWaste}% waste)</span>
-                        {boxes > 0 ? (
-                          <>
-                            {" "}·{" "}
-                            <span className="font-semibold tabular-nums text-primary">{boxes}</span>{" "}
-                            box{boxes === 1 ? "" : "es"}
-                          </>
-                        ) : null}
-                      </p>
+                      <div className="space-y-0.5 text-sm">
+                        <p>
+                          Measured{" "}
+                          <span className="font-semibold tabular-nums">{formatSqft(takeoff.measured.sqft)}</span>
+                          {b.wantYd ? (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              ({formatSqyd(takeoff.measured.sqydEquivalent)} equivalent area)
+                            </span>
+                          ) : null}
+                        </p>
+                        <p>
+                          Waste{" "}
+                          <span className="font-semibold tabular-nums">{takeoff.wastePct}%</span>
+                          {takeoff.wasteSqft > 0 ? (
+                            <span className="text-muted-foreground"> ({formatSqft(takeoff.wasteSqft)})</span>
+                          ) : null}
+                        </p>
+                        <p>
+                          Order{" "}
+                          <span className="font-semibold tabular-nums">
+                            {b.wantYd ? formatSqyd(takeoff.billingQty) : formatSqft(takeoff.orderSqft)}
+                          </span>
+                          {takeoff.cartons ? (
+                            <>
+                              {" "}
+                              ·{" "}
+                              <span className="font-semibold tabular-nums text-primary">
+                                {takeoff.cartons.cartonCount}
+                              </span>{" "}
+                              carton{takeoff.cartons.cartonCount === 1 ? "" : "s"} ({formatSqft(takeoff.cartons.orderedCoverageSqft)})
+                            </>
+                          ) : null}
+                          {takeoff.orderBasis === "measured_plus_waste_estimated" ? (
+                            <span className="ml-1 text-xs text-amber-700 dark:text-amber-300">
+                              estimate — not a cut plan
+                            </span>
+                          ) : null}
+                        </p>
+                      </div>
                     ) : null}
                   </div>
                 );
@@ -2713,7 +3156,23 @@ function QuestionBody({
   }
 
   if (q.kind === "choice" && !q.config.per_area && answer?.kind === "choice") {
-    const opts = q.config.options ?? [];
+    const configured = q.config.options ?? [];
+    const knowledgeOpts =
+      q.key === "install_method"
+        ? installMethodOptionsForFamilies(flooringCtx.families, flooringCtx.hardwoodConstruction)
+        : [];
+    const opts =
+      q.key === "install_method" && knowledgeOpts.length
+        ? (() => {
+            const labels = new Set(knowledgeOpts.map((o) => o.label));
+            // Keep a selected-but-not-permitted option visible so old drafts don't vanish.
+            const extra = configured.filter(
+              (o) => answer.selected.includes(o.label) && !labels.has(o.label),
+            );
+            const merged = knowledgeOpts.map((o) => configured.find((c) => c.label === o.label) ?? { label: o.label });
+            return [...merged, ...extra];
+          })()
+        : configured;
     const multi = q.config.multi;
     const toggle = (label: string) => {
       const on = answer.selected.includes(label);

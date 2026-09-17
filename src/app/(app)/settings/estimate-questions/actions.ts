@@ -105,8 +105,19 @@ function readConfig(kind: EstimateQuestionKind, formData: FormData): EstimateQue
   }
 }
 
-/** "Show only if [question key] is [value1, value2]" → config.show_if. */
-function readShowIf(formData: FormData): { key: string; in: string[] } | null {
+/** "Show only if [question key] is [value1, value2]" → config.show_if.
+ *  Advanced JSON (`all` / `any`) wins when the textarea is filled so a
+ *  compound condition isn't wiped by the simple key/in fields. */
+function readShowIf(formData: FormData): EstimateQuestionConfig["show_if"] {
+  const rawJson = str(formData.get("show_if_json"));
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson) as EstimateQuestionConfig["show_if"];
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      /* fall through to simple fields */
+    }
+  }
   const key = str(formData.get("show_if_key"));
   if (!key) return null;
   const values = str(formData.get("show_if_in"))
@@ -176,6 +187,20 @@ export async function updateEstimateQuestion(
   const fields = readFields(formData);
   if (!fields.label) return { error: "Enter the question." };
   const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("estimate_questions")
+    .select("config")
+    .eq("id", id)
+    .maybeSingle();
+  const prev = ((existing?.config ?? {}) as EstimateQuestionConfig) || {};
+  // Settings form doesn't edit knowledge_when / purpose — keep them so a
+  // routine label tweak cannot strip the flooring overlay.
+  if (prev.knowledge_when && !fields.config.knowledge_when) {
+    fields.config.knowledge_when = prev.knowledge_when;
+  }
+  if (prev.purpose && !fields.config.purpose) {
+    fields.config.purpose = prev.purpose;
+  }
   const { error } = await supabase
     .from("estimate_questions")
     .update({ ...fields, active: on(formData.get("active")) })

@@ -44,6 +44,9 @@ export function QuestionForm({
   const e = c.emit ?? null;
   // Don't let a question reference itself in show_if.
   const refOptions = keyed.filter((k) => k.key !== question?.key);
+  const compoundShowIf =
+    c.show_if && ("all" in c.show_if || "any" in c.show_if) ? JSON.stringify(c.show_if, null, 2) : "";
+  const simpleShowIf = c.show_if && "key" in c.show_if ? c.show_if : null;
 
   useEffect(() => {
     if (state.ok) {
@@ -109,15 +112,22 @@ export function QuestionForm({
           <div>
             <label className={label}>Show only if…</label>
             <div className="flex gap-2">
-              <select name="show_if_key" defaultValue={c.show_if?.key ?? ""} className={field}>
+              <select name="show_if_key" defaultValue={simpleShowIf?.key ?? ""} className={field}>
                 <option value="">Always show</option>
                 {refOptions.map((k) => (
                   <option key={k.key} value={k.key}>{k.label} ({k.key})</option>
                 ))}
               </select>
             </div>
-            <Input name="show_if_in" defaultValue={(c.show_if?.in ?? []).join(", ")} placeholder="is: e.g. Laminate, Hardwood" className="mt-2" />
-            <p className="mt-1 text-xs text-muted-foreground">Comma-separated answer value(s) that reveal this question.</p>
+            <Input name="show_if_in" defaultValue={(simpleShowIf?.in ?? []).join(", ")} placeholder="is: e.g. Laminate, Hardwood" className="mt-2" />
+            <p className="mt-1 text-xs text-muted-foreground">Comma-separated answer value(s) that reveal this question. For AND/OR conditions, use the JSON field below — it wins on save.</p>
+            <textarea
+              name="show_if_json"
+              rows={compoundShowIf ? 6 : 2}
+              defaultValue={compoundShowIf}
+              placeholder='Advanced (optional): {"all":[{"key":"install_method","in":["Floating / click"]},{"key":"attached_pad","in":["No"]}]}'
+              className="mt-2 w-full rounded-md border border-input bg-transparent px-2 py-1.5 font-mono text-xs"
+            />
           </div>
           <label className="flex items-center gap-2 text-sm sm:col-span-2">
             <input type="checkbox" name="cfg_per_room" defaultChecked={c.per_room} className="size-4" />

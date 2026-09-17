@@ -1,0 +1,231 @@
+/**
+ * Salesperson review — the last guided step before Builder.
+ *
+ * Groups what the questionnaire derived so an experienced estimator can scan
+ * rooms, measured vs order, removal, install, prep, and specials without
+ * reading every line item first.
+ */
+
+import { formatMeasuredLabel, formatSqft, formatSqyd, type MaterialTakeoff } from "./quantities";
+import {
+  CONDITION_CONFIDENCE_LABELS,
+  familyLabel,
+  type ConditionConfidence,
+  type FlooringFamily,
+} from "./families";
+import type { InstallContext } from "./rules";
+
+export interface ReviewRoom {
+  name: string;
+  measuredSqft: number;
+  sections: { name: string; length: string; width: string; sqft: number }[];
+}
+
+export interface ReviewSection {
+  id: string;
+  title: string;
+  rows: { label: string; value: string; tone?: "muted" | "warn" | "ok" }[];
+}
+
+export interface SalespersonReview {
+  rooms: ReviewRoom[];
+  products: string[];
+  takeoffs: MaterialTakeoff[];
+  sections: ReviewSection[];
+  warnings: { id: string; text: string }[];
+  notes: string[];
+}
+
+export function confidenceFromLabel(raw: string | null | undefined): ConditionConfidence | null {
+  const t = (raw ?? "").toLowerCase();
+  if (!t) return null;
+  if (t.includes("field") || t.includes("tbd") || t.includes("verify")) return "field_verify";
+  if (t.includes("allow")) return "allowance";
+  if (t.includes("estimat")) return "estimated";
+  if (t.includes("known")) return "known";
+  return null;
+}
+
+export function formatFtIn(ft: number, inch: number): string {
+  const f = Math.floor(Math.max(0, ft));
+  const i = Math.round(inch * 100) / 100;
+  if (f <= 0 && i <= 0) return "";
+  if (i === 0) return `${f}'`;
+  return `${f}' ${i}"`;
+}
+
+export function formatDimensionPair(
+  lenFt: number,
+  lenIn: number,
+  widFt: number,
+  widIn: number,
+): string {
+  const a = formatFtIn(lenFt, lenIn);
+  const b = formatFtIn(widFt, widIn);
+  if (!a || !b) return "";
+  return `${a} × ${b}`;
+}
+
+function takeoffRows(t: MaterialTakeoff): ReviewSection["rows"] {
+  const rows: ReviewSection["rows"] = [
+    { label: "Measured", value: formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" }) },
+  ];
+  if (t.orderBasis === "cuts") {
+    rows.push({
+      label: "Order",
+      value: `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)} (from cuts)`,
+      tone: "ok",
+    });
+  } else if (t.orderBasis !== "none") {
+    rows.push({
+      label: "Waste",
+      value: t.wastePct ? `${t.wastePct}% (${formatSqft(t.wasteSqft)})` : "0%",
+    });
+    if (t.cartons) {
+      rows.push({
+        label: "Carton coverage",
+        value: `${t.cartons.coverageSqft} sq ft`,
+      });
+      rows.push({
+        label: "Required cartons",
+        value: String(t.cartons.cartonCount),
+      });
+      rows.push({
+        label: "Order",
+        value: `${formatSqft(t.cartons.orderedCoverageSqft)} (${t.cartons.cartonCount} cartons)`,
+        tone: "ok",
+      });
+    } else {
+      const order =
+        t.billingUnit === "sqyd"
+          ? `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)}`
+          : formatSqft(t.orderSqft);
+      rows.push({
+        label: "Order",
+        value:
+          t.orderBasis === "measured_plus_waste_estimated"
+            ? `${order} (estimate — not a cut plan)`
+            : order,
+        tone: t.orderBasis === "measured_plus_waste_estimated" ? "warn" : "ok",
+      });
+    }
+  }
+  for (const n of t.notes) rows.push({ label: "Note", value: n, tone: "muted" });
+  return rows;
+}
+
+export function buildSalespersonReview(args: {
+  rooms: ReviewRoom[];
+  products: string[];
+  takeoffs: MaterialTakeoff[];
+  ctx: InstallContext;
+  removal: string[];
+  installation: string[];
+  prep: string[];
+  accessories: string[];
+  specials: string[];
+  extraWarnings?: { id: string; text: string }[];
+}): SalespersonReview {
+  const sections: ReviewSection[] = [];
+
+  if (args.rooms.length) {
+    sections.push({
+      id: "rooms",
+      title: "Rooms",
+      rows: args.rooms.map((r) => {
+        const bits = r.sections
+          .filter((s) => s.sqft > 0)
+          .map((s) => (s.length && s.width ? `${s.name}: ${s.length} × ${s.width} (${formatSqft(s.sqft)})` : `${s.name}: ${formatSqft(s.sqft)}`));
+        return {
+          label: r.name || "Room",
+          value: bits.length ? `${formatSqft(r.measuredSqft)} — ${bits.join("; ")}` : formatSqft(r.measuredSqft),
+        };
+      }),
+    });
+  }
+
+  if (args.products.length) {
+    sections.push({
+      id: "products",
+      title: "Products",
+      rows: args.products.map((p) => ({ label: "Product", value: p })),
+    });
+  }
+
+  args.takeoffs.forEach((t, i) => {
+    sections.push({
+      id: `takeoff-${i}`,
+      title: `${familyLabel(t.family)} takeoff`,
+      rows: takeoffRows(t),
+    });
+  });
+
+  const pushList = (id: string, title: string, items: string[]) => {
+    if (!items.length) return;
+    sections.push({
+      id,
+      title,
+      rows: items.map((v) => ({ label: title.replace(/s$/, ""), value: v })),
+    });
+  };
+  pushList("removal", "Removal", args.removal);
+  pushList("installation", "Installation", args.installation);
+  pushList("prep", "Prep", args.prep);
+  pushList("accessories", "Accessories", args.accessories);
+  pushList("specials", "Special conditions", args.specials);
+
+  const conf = args.ctx.prepConfidence[0];
+  const c = confidenceFromLabel(conf);
+  if (c && c !== "known") {
+    sections.push({
+      id: "confidence",
+      title: "Uncertainty",
+      rows: [
+        {
+          label: "Prep",
+          value: CONDITION_CONFIDENCE_LABELS[c],
+          tone: "warn",
+        },
+      ],
+    });
+  }
+
+  const warnings = [...(args.extraWarnings ?? [])];
+  for (const t of args.takeoffs) {
+    t.warnings.forEach((text, i) => warnings.push({ id: `takeoff-${t.family}-${i}`, text }));
+  }
+
+  const notes: string[] = [];
+  if (args.ctx.occupancy.length) notes.push(`Occupancy: ${args.ctx.occupancy.join(", ")}`);
+  if (args.ctx.grade.length) notes.push(`Grade: ${args.ctx.grade.join(", ")}`);
+
+  return {
+    rooms: args.rooms,
+    products: args.products,
+    takeoffs: args.takeoffs,
+    sections,
+    warnings,
+    notes,
+  };
+}
+
+/** Compact block that rides to the work order / builder job description. */
+export function reviewToJobNotes(review: SalespersonReview): string {
+  const lines: string[] = ["Guided takeoff:"];
+  for (const s of review.sections) {
+    if (s.id.startsWith("takeoff") || s.id === "rooms" || s.id === "confidence") {
+      lines.push(`${s.title}:`);
+      for (const r of s.rows) lines.push(`• ${r.label}: ${r.value}`);
+    }
+  }
+  if (review.notes.length) {
+    lines.push("Conditions:");
+    for (const n of review.notes) lines.push(`• ${n}`);
+  }
+  return lines.join("\n");
+}
+
+export function familyListLabel(families: FlooringFamily[]): string {
+  if (!families.length) return "Flooring";
+  return families.map(familyLabel).join(" + ");
+}

@@ -58,6 +58,7 @@ import {
   DEFAULT_LABOR_PER_SQFT,
   DEFAULT_LABOR_PER_BAG,
 } from "@/lib/floor-prep";
+import { defaultWastePct } from "@/lib/flooring-profiles";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
 import { saveProductRate, createProductInline } from "../catalog/actions";
 import { writeScopeDescription } from "./ai-actions";
@@ -206,14 +207,9 @@ function isCountLine(l: LineState): boolean {
 }
 
 // Typical material waste by category (%), used as a smart default on pick.
-const WASTE_BY_CATEGORY: Record<string, number> = {
-  carpet: 10,
-  tile: 10,
-  hardwood: 7,
-  laminate: 5,
-  lvp: 5,
-  vinyl: 5,
-};
+// Typical material waste lives on flooring-profiles (the questionnaire uses
+// the same function). Do not keep a second table here — laminate 5 vs 7 and
+// vinyl-as-sqft were how measured/order units drifted apart.
 
 function inToFt(total: number | null | undefined): string {
   if (!total) return "";
@@ -1286,7 +1282,9 @@ export function EstimateBuilder({
                     : l.quantity
                       ? l.waste_pct
                       : l.waste_pct ||
-                        (WASTE_BY_CATEGORY[p.category] ? String(WASTE_BY_CATEGORY[p.category]) : ""),
+                        (defaultWastePct(p.category)
+                          ? String(defaultWastePct(p.category))
+                          : ""),
                   /**
                    * The line is now THIS product, and says so.
                    *
