@@ -139,6 +139,10 @@ export const DEFAULT_KNOWLEDGE_WHEN: Record<string, KnowledgeWhen> = {
   carpet_direction: { families: ["carpet"], purpose: "WAREHOUSE" },
   existing_pad: { families: ["carpet"], purpose: "LABOR" },
   carpet_install: { families: ["carpet"], purpose: "INSTALLATION" },
+  tack_strip: { families: ["carpet"], systems: ["stretch_in"], purpose: "ACCESSORY" },
+  laminate_expansion: { systems: ["floating"], purpose: "SCOPE" },
+  tile_setting: { families: ["tile"], purpose: "MATERIAL" },
+  vents_registers: { purpose: "ACCESSORY" },
   // Hard-surface / method
   surface_type: { purpose: "MATERIAL" },
   install_method: { purpose: "INSTALLATION" },
@@ -292,6 +296,21 @@ export function knowledgeHelpFor(
   }
   if (key === "existing_bond") {
     return "Glued-down LVP/laminate/vinyl is a different tear-out than floating. Scope note — existing demo rates stay.";
+  }
+  if (key === "tack_strip") {
+    return "Stretch-in needs tack strip. Glue-down and carpet tile do not. Capture keep vs replace — do not invent a linear-foot price unless a catalog item is added.";
+  }
+  if (key === "laminate_expansion") {
+    return "Floating floors need expansion at walls and transitions. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
+  }
+  if (key === "tile_setting") {
+    return "Thinset, grout, and backer come from the catalog in Builder. This records the need — bag counts stay TBD unless a product with coverage is actually picked.";
+  }
+  if (key === "vents_registers") {
+    return "Count of vents/registers to change, in EACH. Never square feet. Pick a catalog vent on Trims if Floor King sells it; otherwise this is a crew note.";
+  }
+  if (key === "substrate") {
+    return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete.";
   }
   return null;
 }

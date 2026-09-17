@@ -50,6 +50,8 @@ import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/li
 import { isRollGoodCategory } from "@/lib/types";
 import {
   catalogCategoryForFamily,
+  coerceTrimUnit,
+  accessoryUnitForType,
   computeMaterialTakeoff,
   emptyInstallContext,
   familyFromCatalogCategory,
@@ -59,6 +61,7 @@ import {
   formatSqyd,
   installContextFromValByKey,
   installMethodOptionsForFamilies,
+  isRollGoodsFamily,
   knowledgeHelpFor,
   knowledgeWarnings,
   questionApplies,
@@ -203,6 +206,9 @@ const TRIM_TYPES: { label: string; unit: string; cost: number; sized?: boolean }
   { label: "Reducer", unit: "each", cost: 28 },
   { label: "End cap", unit: "each", cost: 25 },
   { label: "Threshold", unit: "each", cost: 25 },
+  { label: "Metal transition", unit: "each", cost: 18 },
+  { label: "Carpet transition", unit: "each", cost: 18 },
+  { label: "Vent / register", unit: "each", cost: 0 },
 ];
 // A single carpet cut: length (ft + in) off a roll of the chosen width.
 interface CutRow { id: string; lf: string; li: string; width: string }
@@ -240,18 +246,21 @@ const newStairGroup = (type = "Waterfall"): StairGroup => ({ id: `s${sgid++}`, t
 let did = 0;
 const newDemoRow = (): DemoRow => ({ id: `d${did++}`, option: "", sqft: "" });
 let tid = 0;
-const newTrimRow = (t?: { label: string; unit: string; cost: number; sized?: boolean }): TrimRow => ({
-  id: `t${tid++}`,
-  type: t?.label ?? "",
-  qty: "",
-  unit: t?.unit ?? "lnft",
-  cost: t?.cost != null ? String(t.cost) : "",
-  color: "",
-  size: "",
-  sized: !!t?.sized,
-  source: "order",
-  product: null,
-});
+const newTrimRow = (t?: { label: string; unit: string; cost: number; sized?: boolean }): TrimRow => {
+  const type = t?.label ?? "";
+  return {
+    id: `t${tid++}`,
+    type,
+    qty: "",
+    unit: coerceTrimUnit(type, t?.unit ?? accessoryUnitForType(type)),
+    cost: t?.cost != null ? String(t.cost) : "",
+    color: "",
+    size: "",
+    sized: !!t?.sized,
+    source: "order",
+    product: null,
+  };
+};
 
 /** Stable key for a measured room in the floor-map (survives resume — the row
  *  id is regenerated each session, so key by name, falling back to position). */
@@ -852,6 +861,10 @@ export function Questionnaire({
           const p = a.byRoom[roomKey(rm.name, i)];
           if (!p || rm.sqft <= 0) return;
           const cat = p.category || "other";
+          const rollFam = familyFromCatalogCategory(cat);
+          // Mixed jobs: carpet/sheet vinyl ORDER comes from the cuts step.
+          // Do not also bill the taped room area as a second roll-goods line.
+          if (isRollGoodsFamily(rollFam) && (cutsSqftByCategory[rollFam] ?? 0) > 0) return;
           const b = billing(cat);
           const defWaste = profileFor(cat)?.waste ?? 0;
           const waste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
@@ -1070,6 +1083,7 @@ export function Questionnaire({
           const qty = numv(row.qty);
           if (qty <= 0 || (!row.type && !row.product)) continue;
           const p = row.product;
+          const unit = coerceTrimUnit(row.type || p?.label || "", row.unit || p?.unit);
           // R&R re-uses the existing piece — no new material, labor only (remove &
           // re-install per linear foot). A normal row charges material as entered.
           const rrLabor = row.rr ? numv(row.rrRate ?? "") || DEFAULT_RR_PER_LNFT : 0;
@@ -1089,7 +1103,7 @@ export function Questionnaire({
             quantity: r2(qty),
             length_in: null,
             width_in: null,
-            unit: row.unit || p?.unit || "lnft",
+            unit,
             material_rate: sellMat(matCost),
             labor_rate: sellLab(laborCost),
             material_cost: matCost,
@@ -1431,7 +1445,7 @@ export function Questionnaire({
           )
       : out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry]);
+  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry, cutsSqftByCategory]);
 
   const notes = useMemo(() => {
     // "Job conditions" — flagged choice / yes-no answers (subfloor, tackless…)
@@ -1651,6 +1665,12 @@ export function Questionnaire({
         return [a.selected.join(", "), a.note?.trim()].filter(Boolean).join(" — ");
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "text" && a?.kind === "text") return a.text.trim();
+      if (q.kind === "number" && a?.kind === "number") return a.value.trim();
+      if (q.kind === "product" && a?.kind === "trims")
+        return a.rows
+          .filter((r) => (r.type || r.product) && numv(r.qty) > 0)
+          .map((r) => `${r.type || r.product?.label}: ${r.qty} ${coerceTrimUnit(r.type, r.unit)}`)
+          .join("; ");
       return "";
     };
     const removal: string[] = [];
@@ -1663,14 +1683,14 @@ export function Questionnaire({
       const v = condValue(q, answers[q.id]);
       if (!v) continue;
       const blob = `${q.key ?? ""} ${q.label} ${v}`.toLowerCase();
-      if (/demo|tear|removal|haul|dispos|pad remove/.test(blob)) removal.push(`${q.label}: ${v}`);
+      if (/demo|tear|removal|haul|dispos|pad remove|existing_bond|existing_pad/.test(blob)) removal.push(`${q.label}: ${v}`);
       else if (/install|method|acclim|surface type|carpet_install/.test(blob) || q.key === "install_method" || q.key === "surface_type" || q.key === "carpet_install")
         installation.push(`${q.label}: ${v}`);
       else if (/prep|level|subfloor|moisture|vapor|substrate|skim|grind/.test(blob) || q.key === "prep_confidence")
         prep.push(`${q.label}: ${v}`);
-      else if (/trim|metal|transition|quarter|nose|underlay|pad|adhesive/.test(blob))
+      else if (/trim|metal|transition|quarter|nose|underlay|pad|adhesive|tack|vent|register|grout|thinset|backer|expansion/.test(blob) || q.key === "tack_strip" || q.key === "tile_setting" || q.key === "vents_registers" || q.key === "laminate_expansion")
         accessories.push(`${q.label}: ${v}`);
-      else if (q.config.note) specials.push(`${q.label}: ${v}`);
+      else if (q.config.note || q.config.trim_list) specials.push(`${q.label}: ${v}`);
     }
     if (flooringCtx.installLabels.length)
       installation.unshift(`System: ${flooringCtx.installLabels.join(", ")}`);
@@ -1943,6 +1963,7 @@ export function Questionnaire({
               jobAnswers={answers}
               floorRooms={allRooms}
               flooringCtx={flooringCtx}
+              cutsSqftByCategory={cutsSqftByCategory}
               goToAreas={() => {
                 const i = stepQuestions.findIndex((sq) => sq.kind === "areas");
                 if (i >= 0) goTo(i);
@@ -2150,6 +2171,7 @@ function QuestionBody({
   floorRooms = [],
   goToAreas,
   flooringCtx = emptyInstallContext(),
+  cutsSqftByCategory = {},
 }: {
   q: EstimateQuestion;
   answer: Answer | undefined;
@@ -2169,6 +2191,8 @@ function QuestionBody({
    *  telling someone to "go back" without taking them there is a wall. */
   goToAreas?: () => void;
   flooringCtx?: InstallContext;
+  /** Roll-goods cut totals by catalog family — floor-map order uses cuts when present. */
+  cutsSqftByCategory?: Record<string, number>;
 }) {
   // "How many stairs?" quick-fill for the trims step (one tread + one riser per
   // stair). Declared unconditionally so hook order is stable across kinds.
@@ -2607,10 +2631,13 @@ function QuestionBody({
                       the ordered quantity at emit; editable per room. */}
                   {(() => {
                     const defWaste = profileFor(cat)?.waste ?? 0;
+                    const family = familyFromCatalogCategory(cat);
+                    const cutSf = isRollGoodsFamily(family) ? (cutsSqftByCategory[family] ?? 0) : 0;
                     const takeoff = computeMaterialTakeoff({
-                      family: familyFromCatalogCategory(cat),
+                      family,
                       measuredSqft: rm.sqft,
                       wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste,
+                      cutsSqft: cutSf > 0 ? cutSf : null,
                       sqftPerBox: !isRollGoodCategory(cat) && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
                     });
                     return (
@@ -2645,8 +2672,11 @@ function QuestionBody({
                         {rm.sqft > 0 ? (
                           <p className="text-xs">
                             Measured {formatSqft(takeoff.measured.sqft)}
+                            {takeoff.billingUnit === "sqyd" ? (
+                              <> ({formatSqyd(takeoff.measured.sqydEquivalent)} equivalent area — not an order qty)</>
+                            ) : null}
                             {" · "}
-                            Order{" "}
+                            {takeoff.orderBasis === "cuts" ? "Order (from cuts) " : takeoff.orderBasis === "measured_plus_waste_estimated" ? "Order (estimate — not a cut plan) " : "Order "}
                             <span className="font-semibold tabular-nums text-foreground">
                               {takeoff.billingUnit === "sqyd"
                                 ? formatSqyd(takeoff.billingQty)
@@ -2747,7 +2777,10 @@ function QuestionBody({
             <div className="flex items-center justify-between gap-2">
               <Input
                 value={row.type}
-                onChange={(e) => patch(row.id, { type: e.target.value })}
+                onChange={(e) => {
+                  const type = e.target.value;
+                  patch(row.id, { type, unit: coerceTrimUnit(type, row.unit) });
+                }}
                 placeholder="Trim name"
                 className="h-10 max-w-[16rem] flex-1 text-base font-medium"
               />
@@ -2794,11 +2827,29 @@ function QuestionBody({
               ) : (
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">Unit</label>
-                  <select value={row.unit} onChange={(e) => patch(row.id, { unit: e.target.value })} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
-                    <option value="lnft">linear ft</option>
-                    <option value="each">each</option>
-                    <option value="pc">pieces</option>
+                  <select
+                    value={coerceTrimUnit(row.type, row.unit)}
+                    onChange={(e) => patch(row.id, { unit: coerceTrimUnit(row.type, e.target.value) })}
+                    className="h-10 rounded-md border border-input bg-transparent px-2 text-sm"
+                  >
+                    {accessoryUnitForType(row.type) === "lnft" ? (
+                      <>
+                        <option value="lnft">linear ft</option>
+                        <option value="each">each (sticks)</option>
+                        <option value="pc">pieces</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="each">each</option>
+                        <option value="pc">pieces</option>
+                      </>
+                    )}
                   </select>
+                  <p className="mt-0.5 max-w-[10rem] text-[10px] text-muted-foreground">
+                    {accessoryUnitForType(row.type) === "lnft"
+                      ? "Linear feet — never square feet."
+                      : "Each / pieces — never square feet."}
+                  </p>
                 </div>
               )}
               {row.sized ? (
@@ -2892,9 +2943,25 @@ function QuestionBody({
                   initialLabel={row.product?.label ?? (isStairnose(row.type) ? "Versatrim " : "")}
                   label="Search the catalog (or add a Versatrim / manufacturer item)"
                   defaultCategory="trim"
-                  onPick={(prod) => patch(row.id, { product: prod ? toProductAns(prod) : null, unit: prod?.unit || row.unit, type: row.type || (prod ? prod.name : row.type) })}
-                  onCreated={(prod) => patch(row.id, { product: toProductAns(prod), unit: prod.unit || row.unit })}
-                  onUseOnce={(input) => patch(row.id, { product: customToProductAns(input), unit: input.unit || row.unit })}
+                  onPick={(prod) =>
+                    patch(row.id, {
+                      product: prod ? toProductAns(prod) : null,
+                      unit: coerceTrimUnit(row.type || (prod ? prod.name : ""), prod?.unit || row.unit),
+                      type: row.type || (prod ? prod.name : row.type),
+                    })
+                  }
+                  onCreated={(prod) =>
+                    patch(row.id, {
+                      product: toProductAns(prod),
+                      unit: coerceTrimUnit(row.type || prod.name, prod.unit || row.unit),
+                    })
+                  }
+                  onUseOnce={(input) =>
+                    patch(row.id, {
+                      product: customToProductAns(input),
+                      unit: coerceTrimUnit(row.type || input.name, input.unit || row.unit),
+                    })
+                  }
                 />
               </div>
             </details>
@@ -3105,13 +3172,15 @@ function QuestionBody({
     const opts = q.config.rate_options ?? [];
     const emitUnit = q.config.emit?.unit;
     const amountUnit =
-      emitUnit === "sqft"
-        ? "sq ft"
-        : emitUnit === "sqyd"
-          ? "sq yd"
-          : emitUnit === "lnft"
-            ? "ln ft"
-            : emitUnit || "";
+      q.key === "vents_registers"
+        ? "each"
+        : emitUnit === "sqft"
+          ? "sq ft"
+          : emitUnit === "sqyd"
+            ? "sq yd"
+            : emitUnit === "lnft"
+              ? "ln ft"
+              : emitUnit || "";
     return (
       <div className="space-y-3">
         <label className="block text-xs text-muted-foreground">

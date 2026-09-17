@@ -68,13 +68,17 @@ export function formatDimensionPair(
 
 function takeoffRows(t: MaterialTakeoff): ReviewSection["rows"] {
   const rows: ReviewSection["rows"] = [
-    { label: "Measured", value: formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" }) },
+    { label: "Measured area", value: formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" }) },
   ];
   if (t.orderBasis === "cuts") {
     rows.push({
-      label: "Order",
-      value: `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)} (from cuts)`,
+      label: "Order quantity",
+      value: `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)} (from cuts — not sq ft ÷ 9)`,
       tone: "ok",
+    });
+    rows.push({
+      label: "Billing quantity",
+      value: formatSqyd(t.billingQty),
     });
   } else if (t.orderBasis !== "none") {
     rows.push({
@@ -91,7 +95,7 @@ function takeoffRows(t: MaterialTakeoff): ReviewSection["rows"] {
         value: String(t.cartons.cartonCount),
       });
       rows.push({
-        label: "Order",
+        label: "Order quantity",
         value: `${formatSqft(t.cartons.orderedCoverageSqft)} (${t.cartons.cartonCount} cartons)`,
         tone: "ok",
       });
@@ -101,12 +105,18 @@ function takeoffRows(t: MaterialTakeoff): ReviewSection["rows"] {
           ? `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)}`
           : formatSqft(t.orderSqft);
       rows.push({
-        label: "Order",
+        label: "Order quantity",
         value:
           t.orderBasis === "measured_plus_waste_estimated"
             ? `${order} (estimate — not a cut plan)`
             : order,
         tone: t.orderBasis === "measured_plus_waste_estimated" ? "warn" : "ok",
+      });
+    }
+    if (t.billingUnit === "sqyd") {
+      rows.push({
+        label: "Billing quantity",
+        value: `${formatSqyd(t.billingQty)} (this number is yards, not square feet)`,
       });
     }
   }
@@ -213,14 +223,16 @@ export function buildSalespersonReview(args: {
 export function reviewToJobNotes(review: SalespersonReview): string {
   const lines: string[] = ["Guided takeoff:"];
   for (const s of review.sections) {
-    if (s.id.startsWith("takeoff") || s.id === "rooms" || s.id === "confidence") {
-      lines.push(`${s.title}:`);
-      for (const r of s.rows) lines.push(`• ${r.label}: ${r.value}`);
-    }
+    lines.push(`${s.title}:`);
+    for (const r of s.rows) lines.push(`• ${r.label}: ${r.value}`);
   }
   if (review.notes.length) {
     lines.push("Conditions:");
     for (const n of review.notes) lines.push(`• ${n}`);
+  }
+  if (review.warnings.length) {
+    lines.push("Warnings:");
+    for (const w of review.warnings) lines.push(`• ${w.text}`);
   }
   return lines.join("\n");
 }

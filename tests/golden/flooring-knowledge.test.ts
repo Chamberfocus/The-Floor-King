@@ -7,9 +7,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import {
+  accessoryUnitForType,
   billsBySqydFamily,
   cartonTakeoff,
   catalogCategoryForFamily,
+  coerceTrimUnit,
   computeMaterialTakeoff,
   equivalentSqyd,
   familyFromCatalogCategory,
@@ -355,5 +357,108 @@ describe("sheet vinyl, tile, stairs, and existing-bond follow-ups", () => {
     expect(sql).toMatch(/existing_bond/);
     expect(sql).toMatch(/"widths":\[6,12\]/);
     expect(sql).toMatch(/position = 270/);
+  });
+});
+
+describe("trim / accessory units never mix with area", () => {
+  it("quarter round, shoe, and base are linear feet — never square feet", () => {
+    expect(accessoryUnitForType("Quarter round")).toBe("lnft");
+    expect(accessoryUnitForType("Shoe molding")).toBe("lnft");
+    expect(accessoryUnitForType("Baseboard")).toBe("lnft");
+    expect(coerceTrimUnit("Quarter round", "sqft")).toBe("lnft");
+    expect(coerceTrimUnit("Quarter round", "sq yd")).toBe("lnft");
+    expect(coerceTrimUnit("Quarter round", "")).toBe("lnft");
+  });
+
+  it("T-mold is each and is not classified as linear molding", () => {
+    expect(accessoryUnitForType("T-mold")).toBe("each");
+    expect(accessoryUnitForType("Reducer")).toBe("each");
+    expect(accessoryUnitForType("Vent / register")).toBe("each");
+    expect(coerceTrimUnit("T-mold", "sqft")).toBe("each");
+    expect(coerceTrimUnit("Vent / register", "lnft")).toBe("each");
+  });
+});
+
+describe("tack strip, expansion, and tile setting overlay", () => {
+  it("hides tack strip once carpet is glue-down", () => {
+    expect(
+      questionApplies(
+        {
+          key: "tack_strip",
+          config: { show_if: { key: "project_type", in: ["Carpet"] } },
+        },
+        { project_type: ["Carpet"], carpet_install: ["Glue-down"] },
+      ),
+    ).toBe(false);
+    expect(
+      questionApplies(
+        {
+          key: "tack_strip",
+          config: { show_if: { key: "project_type", in: ["Carpet"] } },
+        },
+        { project_type: ["Carpet"], carpet_install: ["Stretch-in"] },
+      ),
+    ).toBe(true);
+  });
+
+  it("hides floating expansion on glue-down LVP", () => {
+    expect(
+      questionApplies(
+        {
+          key: "laminate_expansion",
+          config: { show_if: { key: "install_method", in: ["Floating / click"] } },
+        },
+        {
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+        },
+      ),
+    ).toBe(false);
+    expect(
+      questionApplies(
+        {
+          key: "laminate_expansion",
+          config: { show_if: { key: "install_method", in: ["Floating / click"] } },
+        },
+        {
+          project_type: ["Hard surface"],
+          surface_type: ["Laminate"],
+          install_method: ["Floating / click"],
+        },
+      ),
+    ).toBe(true);
+  });
+
+  it("hides tile setting materials on laminate", () => {
+    expect(
+      questionApplies(
+        {
+          key: "tile_setting",
+          config: { show_if: { key: "surface_type", in: ["Tile"] } },
+        },
+        { project_type: ["Hard surface"], surface_type: ["Laminate"] },
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("migration 0192 closes remaining estimator gaps", () => {
+  it("keys tack strip, expansion, tile setting, vents without inventing prices", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0192_flooring_knowledge_estimator_gaps.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0192_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/tack_strip/);
+    expect(sql).toMatch(/laminate_expansion/);
+    expect(sql).toMatch(/tile_setting/);
+    expect(sql).toMatch(/vents_registers/);
+    expect(sql).toMatch(/Unknown \/ field verify/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/coerceTrimUnit/);
+    expect(q).toMatch(/never square feet/);
+    expect(q).toMatch(/Order \(estimate — not a cut plan\)/);
   });
 });

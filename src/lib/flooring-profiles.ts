@@ -59,7 +59,8 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     label: "Carpet",
     unit: "sqyd",
     waste: 10,
-    measureHint: "Carpet is priced by the square yard. Enter room L × W; we convert.",
+    measureHint:
+      "Carpet is priced by the square yard. Measured room area (sq ft ÷ 9) is equivalent area, not the order — cuts (roll width × length) are the order quantity.",
     companions: [
       { key: "pad", label: "Carpet pad", category: "underlayment", sizeBy: "area", unit: "sqyd", defaultOn: true, rollUnits: 30, hint: "Rounded up to full 30 sq yd rolls." },
       // Tackstrip & tear-out live in the carpet add-ons checklist (job-level).

@@ -52,6 +52,7 @@ const REQUIRED_FILES = [
   "0189_estimate_commission_override.sql",
   "0190_flooring_knowledge_engine.sql",
   "0191_flooring_knowledge_roll_tile_stairs.sql",
+  "0192_flooring_knowledge_estimator_gaps.sql",
 ];
 
 /**
@@ -740,6 +741,19 @@ const REQUIRED_MARKERS = [
       "hardwood_fasteners",
       "existing_bond",
       "stair_landings",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0192_flooring_knowledge_estimator_gaps.sql",
+    markers: [
+      "P0_0192_FLOORING_KNOWLEDGE",
+      "tack_strip",
+      "laminate_expansion",
+      "tile_setting",
+      "vents_registers",
+      "Unknown / field verify",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

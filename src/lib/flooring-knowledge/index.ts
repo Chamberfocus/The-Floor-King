@@ -46,6 +46,7 @@ export {
   formatMeasuredLabel,
   formatBillingQty,
   accessoryUnitForType,
+  coerceTrimUnit,
   billingUnitForCategory,
   type MeasuredArea,
   type CartonTakeoff,

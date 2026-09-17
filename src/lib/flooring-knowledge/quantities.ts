@@ -237,9 +237,42 @@ export function formatBillingQty(qty: number, unit: string): string {
   return `${r2(qty)} ${label}`;
 }
 
-/** Trim / accessory quantity unit — never area for linear goods. */
+/**
+ * Canonical accessory unit from the trim *type*.
+ * T-mold must not match generic "mold" and become linear feet.
+ * Quarter round / shoe / base are never square feet.
+ */
 export function accessoryUnitForType(type: string): "lnft" | "each" {
-  if (/base|shoe|quarter|cove|j-?channel|mold/i.test(type)) return "lnft";
+  const t = type || "";
+  if (
+    /t-?mold|reducer|end\s*cap|threshold|stair\s*nose|tread|riser|vent|register|transition|metal|gripper/i.test(
+      t,
+    )
+  ) {
+    return "each";
+  }
+  if (/base|shoe|quarter|cove|j-?channel|tack/i.test(t)) return "lnft";
+  if (/mold/i.test(t)) return "lnft";
+  return "each";
+}
+
+/**
+ * Force a trim line onto lnft / each / pc. Area units (sq ft / sq yd) are
+ * never valid for quarter round, shoe, base, or transitions.
+ */
+export function coerceTrimUnit(
+  type: string,
+  unit: string | null | undefined,
+): "lnft" | "each" | "pc" {
+  const locked = accessoryUnitForType(type);
+  const key = normalizeUnit(unit);
+  // Blank or area units are never valid on trim — lock to the type's unit.
+  if (!key || key === "sqft" || key === "sqyd") return locked;
+  if (locked === "lnft") {
+    if (key === "pc" || key === "each" || key === "lnft") return key;
+    return "lnft";
+  }
+  if (key === "pc") return "pc";
   return "each";
 }
 
