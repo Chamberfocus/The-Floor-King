@@ -43,6 +43,7 @@ import {
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
+  NEW_CONSTRUCTION_HIDES_KEYS,
   REMOVAL_QUESTION_KEYS,
   TILE_WALL_HIDES_KEYS,
 } from "./registry";
@@ -438,6 +439,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (NEW_CONSTRUCTION_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobIsNewConstruction(valByKey)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -585,7 +593,7 @@ export function knowledgeHelpFor(
     return "Tearing out carpet usually takes tack strip with it. Keep is unusual. This is not new stretch-in tack strip — that stays on the install step. Linear feet stay off until you add a catalog item. Do not invent a linear-foot price.";
   }
   if (key === "work_type") {
-    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, and disposal — substrate and prep still apply. Unknown / field verify keeps demo visible. Do not invent a demo charge on a new slab.";
+    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, disposal, and toilet pull/reset — substrate, prep, appliances, and door shaves still apply. Unknown / field verify keeps demo visible. Do not invent a demo charge on a new slab.";
   }
   if (key === "tack_strip") {
     return "Stretch-in needs tack strip. Glue-down and carpet tile do not. Capture keep vs replace — do not invent a linear-foot price unless a catalog item is added.";
@@ -654,7 +662,7 @@ export function knowledgeHelpFor(
     return "Stretch-in over pad is the residential default. Glue-down and carpet tile hide this — they do not use residential pad. Quantity follows carpet rooms. A pad SKU with no sold-by unit is TBD in Builder (How many / Unit TBD), not taped square feet.";
   }
   if (key === "toilets") {
-    return "Count in EACH. Uses Floor King's pull & reset labor when you enter a number — do not type square feet.";
+    return "Count in EACH. Uses Floor King's pull & reset labor when you enter a number — do not type square feet. New construction hides this — there is no toilet to pull. Appliances still ask.";
   }
   if (key === "appliances") {
     return "Count in EACH (fridge, stove, washer/dryer). Uses Floor King's disconnect/move labor when you enter a number.";

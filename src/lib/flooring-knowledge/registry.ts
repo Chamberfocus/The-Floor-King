@@ -431,6 +431,13 @@ export const REMOVAL_QUESTION_KEYS = [
 ] as const;
 
 /**
+ * Pull-and-reset is replacement work. New construction hides these.
+ * Unanswered and Unknown stay open. Do not SQL-gate toilets on work_type (0142).
+ * Appliances and door shaves stay — those can still apply on a new slab.
+ */
+export const NEW_CONSTRUCTION_HIDES_KEYS = ["toilets"] as const;
+
+/**
  * Floor-only follow-ups hidden once tile_application is exclusively Wall
  * and the job has no other floor-covering family (carpet / LVP / hardwood /
  * laminate / sheet vinyl). Unanswered and Unknown stay visible. Wet area,

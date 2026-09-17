@@ -80,6 +80,7 @@ import {
   jobIsExclusiveWallTile,
   FURNITURE_MOVING_KEYS,
   jobIsVacant,
+  NEW_CONSTRUCTION_HIDES_KEYS,
   KNOWLEDGE_QUESTIONS,
   sortEstimateQuestions,
   estimatorPhaseForQuestion,
@@ -4729,6 +4730,56 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(neu).toContain("adhesive");
     expect(neu).toContain("substrate");
     expect(neu).not.toContain("vinyl_skim");
+    expect(neu).not.toContain("hs_demo");
+  });
+
+  it("0258 new construction hides toilet pull/reset; appliances and door shaves stay", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0258_flooring_knowledge_new_build_toilets.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0258_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/toilet pull/);
+    expect(sql).toMatch(/Do NOT SQL-gate toilets on work_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*work_type.*toilets|toilets.*show_if.*work_type/);
+
+    expect([...NEW_CONSTRUCTION_HIDES_KEYS]).toEqual(["toilets"]);
+    expect(knowledgeHelpFor({ key: "toilets" }, emptyInstallContext())).toMatch(
+      /New construction hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(
+      /toilet pull/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(unanswered).toContain("work_type");
+    expect(unanswered).toContain("toilets");
+    expect(unanswered).toContain("appliances");
+    expect(unanswered).toContain("doors_shave");
+
+    const replacement = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      work_type: ["Replacement (tear-out)"],
+    });
+    expect(replacement).toContain("toilets");
+    expect(replacement).toContain("hs_demo");
+
+    const neu = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      work_type: ["New construction"],
+    });
+    expect(neu).toContain("work_type");
+    expect(neu).toContain("appliances");
+    expect(neu).toContain("doors_shave");
+    expect(neu).toContain("substrate");
+    expect(neu).not.toContain("toilets");
     expect(neu).not.toContain("hs_demo");
   });
 

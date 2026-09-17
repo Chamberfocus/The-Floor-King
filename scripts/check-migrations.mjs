@@ -118,6 +118,7 @@ const REQUIRED_FILES = [
   "0255_flooring_knowledge_wall_floor.sql",
   "0256_flooring_knowledge_vacant_furniture.sql",
   "0257_flooring_knowledge_new_build_skim.sql",
+  "0258_flooring_knowledge_new_build_toilets.sql",
 ];
 
 /**
@@ -1475,6 +1476,17 @@ const REQUIRED_MARKERS = [
       "vinyl_skim",
       "existing-vinyl skim",
       "Do NOT SQL-gate vinyl_skim on work_type",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0258_flooring_knowledge_new_build_toilets.sql",
+    markers: [
+      "P0_0258_FLOORING_KNOWLEDGE",
+      "toilets",
+      "toilet pull",
+      "Do NOT SQL-gate toilets on work_type",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
