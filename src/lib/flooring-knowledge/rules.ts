@@ -11,7 +11,7 @@
  * hasn't reached yet.
  */
 
-import type { EstimateQuestion, KnowledgeWhen, QuestionPurpose, ShowIfClause } from "@/lib/types";
+import type { KnowledgeWhen, QuestionPurpose, ShowIfClause } from "@/lib/types";
 import {
   familyFromSurfaceLabel,
   hardwoodConstructionFromLabel,
