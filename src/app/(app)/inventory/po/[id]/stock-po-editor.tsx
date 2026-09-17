@@ -90,7 +90,7 @@ export function StockPoEditor({
       product_id: p.id,
       label,
       description: label,
-      unit: cur?.unit && cur.unit !== "each" ? cur.unit : p.unit || "each",
+      unit: cur?.unit && cur.unit !== "each" ? cur.unit : p.unit || "",
       unit_cost:
         cur?.unit_cost ||
         (cost.missing || cost.amount == null ? "" : String(cost.amount)),

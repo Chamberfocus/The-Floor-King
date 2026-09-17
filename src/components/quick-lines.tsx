@@ -87,7 +87,7 @@ export function QuickLines({
     patch(key, {
       productId: p.id,
       description: productLabel(p),
-      unit: p.unit || "each",
+      unit: p.unit || "",
       rate: p.priceNeeded ? "" : String(p.rate),
     });
   };

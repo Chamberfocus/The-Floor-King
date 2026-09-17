@@ -371,10 +371,12 @@ export function formatMeasuredLabel(m: MeasuredArea, opts?: { showEquivalentYd?:
 
 export function formatBillingQty(qty: number, unit: string): string {
   const key = normalizeUnit(unit);
-  const label = unitLabel(unit) || unit || "each";
-  if (key === "sqyd") return `${r2(qty)} ${label}`;
-  if (key === "sqft") return `${r2(qty)} ${label}`;
-  return `${r2(qty)} ${label}`;
+  const label = unitLabel(unit) || (unit || "").trim();
+  const n = r2(qty);
+  if (!label) return `${n} (unit TBD)`;
+  if (key === "sqyd") return `${n} ${label}`;
+  if (key === "sqft") return `${n} ${label}`;
+  return `${n} ${label}`;
 }
 
 /**

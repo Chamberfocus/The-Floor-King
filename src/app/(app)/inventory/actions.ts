@@ -382,7 +382,7 @@ async function writeDraftLines(
       product_id: it.product_id || null,
       description: (it.description || "").trim() || "Item",
       quantity: Math.abs(Number(it.quantity) || 0),
-      unit: (it.unit || "each").trim() || "each",
+      unit: (it.unit || "").trim(),
       unit_cost: it.unit_cost === "" || it.unit_cost == null ? null : Number(it.unit_cost) || null,
     }))
     .filter((it) => it.product_id && it.quantity > 0);

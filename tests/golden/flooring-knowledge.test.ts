@@ -36,6 +36,7 @@ import {
   equivalentSqyd,
   formatTakeoffStrip,
   formatEquivalentSqyd,
+  formatBillingQty,
   rollGoodsOrderTbdDescription,
   familyFromCatalogCategory,
   familyFromSurfaceLabel,
@@ -3436,6 +3437,34 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/countUnitForTbd/);
     expect(q).toMatch(/unit TBD/);
     expect(q).not.toMatch(/\|\| "each"/);
+  });
+
+  it("0233 does not invent each as the default unit when metadata is missing", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0233_flooring_knowledge_unit_tbd.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0233_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/unit TBD/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(formatBillingQty(2, "each")).toBe("2 each");
+    expect(formatBillingQty(12, "lnft")).toBe("12 lnft");
+    expect(formatBillingQty(3, "")).toBe("3 (unit TBD)");
+
+    const emit = readFileSync(join(root, "src/lib/questionnaire-emit.ts"), "utf8");
+    expect(emit).not.toMatch(/\|\| "each"/);
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).not.toMatch(/\|\| "each"/);
+
+    const inv = readFileSync(join(root, "src/app/(app)/inventory/actions.ts"), "utf8");
+    expect(inv).not.toMatch(/\|\| "each"/);
+
+    const qty = readFileSync(join(root, "src/lib/flooring-knowledge/quantities.ts"), "utf8");
+    expect(qty).toMatch(/unit TBD/);
+    expect(qty).not.toMatch(/\|\| "each"/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

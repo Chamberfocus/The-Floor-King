@@ -724,7 +724,7 @@ export function EstimateBuilder({
       description: a.label,
       line_type: "mat_labor",
       category,
-      unit: a.unit || "each",
+      unit: a.unit || "",
       material_rate: isLabor ? "" : sell,
       labor_rate: isLabor ? sell : "",
       material_cost: isLabor ? "" : cost,
@@ -1499,7 +1499,7 @@ export function EstimateBuilder({
       const res = await createProductInline({
         name: l.description || "New product",
         category: l.category || "other",
-        unit: isCountLine(l) ? l.unit || "each" : lineUnitKey(l) === "sqyd" ? "sqyd" : "sqft",
+        unit: isCountLine(l) ? l.unit || "" : lineUnitKey(l) === "sqyd" ? "sqyd" : "sqft",
         material_rate: num(l.material_cost),
         labor_rate: num(l.labor_cost),
         manufacturer: l.manufacturer || undefined,

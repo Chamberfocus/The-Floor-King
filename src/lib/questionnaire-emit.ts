@@ -71,7 +71,7 @@ export function questionnaireEmitToLineQty(
     ? yd
       ? "sq yd"
       : "sq ft"
-    : unitLabel(args.emitUnit) || args.emitUnit || "each";
+    : unitLabel(args.emitUnit) || args.emitUnit || "";
   const measure_unit: "sqft" | "sqyd" = yd ? "sqyd" : "sqft";
 
   let sqft: number | null;

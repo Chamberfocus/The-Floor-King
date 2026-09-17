@@ -356,7 +356,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
       quantity: a.qty && a.qty > 0 ? a.qty : 1,
       length_in: null,
       width_in: null,
-      unit: a.unit || "each",
+      unit: a.unit || "",
       material_rate: isLabor ? 0 : sellMat(cost),
       labor_rate: isLabor ? sellLab(cost) : 0,
       material_cost: isLabor ? 0 : cost,

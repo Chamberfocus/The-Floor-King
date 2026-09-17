@@ -230,7 +230,7 @@ export function catalogToLineMeasure(product: {
       : "sqft";
   const factor = catalogUnitFactor(product.unit, measureUnit === "sqyd");
   const lineUnit = count
-    ? product.unit || "each"
+    ? product.unit || ""
     : measureUnit === "sqyd"
       ? "sq yd"
       : "sq ft";

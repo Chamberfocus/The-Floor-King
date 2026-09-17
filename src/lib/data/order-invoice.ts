@@ -54,7 +54,7 @@ export async function buildInvoiceFromOrder(
       [it.description, it.color, it.style].filter(Boolean).join(" · ") +
       (it.cut_notes ? ` (cuts: ${it.cut_notes})` : ""),
     quantity: it.quantity ?? 1,
-    unit: it.unit || "each",
+    unit: it.unit || "",
     rate: it.requested_price ?? it.retail_price ?? 0,
   }));
   if (rows.length) await db.from("invoice_items").insert(rows);
