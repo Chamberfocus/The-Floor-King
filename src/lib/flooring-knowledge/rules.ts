@@ -561,7 +561,7 @@ export function knowledgeHelpFor(
     return "Light / medium / heavy uses Floor King's furniture-moving labor. Specialty items (piano, pool table) stay on the next question as scope.";
   }
   if (key === "carpet_pad") {
-    return "Stretch-in over pad is the residential default. Glue-down and carpet tile hide this — they do not use residential pad.";
+    return "Stretch-in over pad is the residential default. Glue-down and carpet tile hide this — they do not use residential pad. Quantity follows carpet rooms. A pad SKU with no sold-by unit is TBD in Builder (How many / Unit TBD), not taped square feet.";
   }
   if (key === "toilets") {
     return "Count in EACH. Uses Floor King's pull & reset labor when you enter a number — do not type square feet.";

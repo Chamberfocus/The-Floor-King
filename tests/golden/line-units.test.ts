@@ -72,6 +72,23 @@ describe("lineUnitKey / lineDisplayUnit — count vs area", () => {
     expect(builder).toMatch(/Unit TBD — not square feet and not invented each/);
   });
 
+  it("pad TBD with leftover measure_unit sqft is COUNT, not square feet", () => {
+    const line = {
+      unit: "",
+      measure_unit: "sqft" as const,
+      sqft: null,
+      quantity: 4,
+    };
+    expect(isCountPricedLine(line)).toBe(true);
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/category === "underlayment"/);
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(/isCountPricedLine\(line\)/);
+  });
+
   it("stair labor with unit step does not fall back to sq ft", () => {
     const line = { unit: "step", measure_unit: "sqft" as const, sqft: null };
     expect(normalizeUnit("step")).toBe("step");

@@ -230,6 +230,20 @@ describe("lineQty — unit kind rules", () => {
     expect(lineQty(emptyBags)).toBe(0);
     expect(lineTotal(emptyBags)).toBe(0);
   });
+
+  it("empty unit with leftover measure_unit sqft and no taped area bills quantity, not sq ft", () => {
+    const padTbd: CalcLine = {
+      line_type: "mat_labor",
+      category: "underlayment",
+      unit: "",
+      measure_unit: "sqft",
+      sqft: null,
+      quantity: 4,
+      material_rate: 12,
+    };
+    expect(lineQty(padTbd)).toBe(4);
+    expect(lineTotal(padTbd)).toBe(48);
+  });
 });
 
 describe("waste — lineOrderQty and lineTotal (canonical)", () => {

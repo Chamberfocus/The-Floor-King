@@ -3758,6 +3758,26 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(knowledgeHelpFor({ key: "adhesive" }, emptyInstallContext())).toMatch(/Unit TBD/);
   });
 
+  it("0244 pad TBD and lineQty share isCountPricedLine — leftover sqft is not an order", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0244_flooring_knowledge_pad_count_ui.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0244_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/How many \/ Unit TBD/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(/isCountPricedLine\(line\)/);
+    expect(calc).not.toMatch(/const countUnit = line\.unit != null && line\.unit !== ""/);
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/category === "underlayment"/);
+
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(/Unit TBD/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

@@ -213,9 +213,15 @@ function isCountLine(l: LineState): boolean {
   if (isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) return false;
   if (isSubfloor(l)) return false;
   if ((l.unit ?? "").trim()) return !isAreaUnit(l.unit);
-  // Empty unit on a blank new line stays AREA (Sq ft). Other / labor / trim
-  // with no taped area is COUNT — adhesive TBD is gallons, not square feet.
-  if (l.category === "other" || l.category === "labor" || l.category === "trim") {
+  // Empty unit on a blank new line stays AREA (Sq ft). Other / labor / trim /
+  // underlayment with no taped area is COUNT — adhesive and pad TBD are not
+  // square feet.
+  if (
+    l.category === "other" ||
+    l.category === "labor" ||
+    l.category === "trim" ||
+    l.category === "underlayment"
+  ) {
     return isCountPricedLine({
       unit: l.unit,
       measure_unit: l.measure_unit,

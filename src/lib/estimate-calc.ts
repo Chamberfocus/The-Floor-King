@@ -5,7 +5,7 @@ import {
   type LineType,
   type MeasureUnit,
 } from "@/lib/types";
-import { isAreaUnit, normalizeUnit } from "@/lib/units";
+import { isCountPricedLine, normalizeUnit } from "@/lib/units";
 
 /** Signed square feet of one measured piece (subtract = a cutout). */
 export function measurementSqft(m: LineMeasurement): number {
@@ -105,8 +105,11 @@ export function rollGoodsLineHasCuts(line: CalcLine): boolean {
  *    — never sq ft ÷ 9.
  */
 export function lineQty(line: CalcLine): number {
-  const countUnit = line.unit != null && line.unit !== "" && !isAreaUnit(line.unit);
-  if (countUnit) return num(line.quantity);
+  // Count vs area is one decision (`isCountPricedLine`). Empty unit + leftover
+  // measure_unit "sqft" with no taped area is COUNT — toilets, adhesive, pad
+  // TBD — never square feet. Roll goods without cuts still bill from quantity
+  // only (sq ft ÷ 9 is not an order), including exclusive carpet tile.
+  if (isCountPricedLine(line)) return num(line.quantity);
   if (isRollGoodCategory(line.category) && line.category !== "labor" && !rollGoodsLineHasCuts(line)) {
     return num(line.quantity);
   }
