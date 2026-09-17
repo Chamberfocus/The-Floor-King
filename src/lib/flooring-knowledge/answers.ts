@@ -288,3 +288,13 @@ export function annotateRemovalDescription(
   if (!bits.length) return description;
   return `${description} (${bits.join("; ")})`;
 }
+
+export const WORK_TYPE_NEW_CONSTRUCTION = "New construction";
+
+export function labelsAreNewConstruction(labels: string[]): boolean {
+  return labels.some((l) => /^new construction$/i.test(l.trim()));
+}
+
+export function jobIsNewConstruction(valByKey: Record<string, string[]>): boolean {
+  return labelsAreNewConstruction(valByKey.work_type ?? []);
+}

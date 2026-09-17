@@ -1132,7 +1132,7 @@ describe("family → system asks the right keys (not every question)", () => {
       project_type: ["Carpet"],
       carpet_install: ["Stretch-in"],
     });
-    on(carpetStretch, ["carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat", "carpet_stairs"]);
+    on(carpetStretch, ["work_type", "carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat", "carpet_stairs"]);
     off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "carpet_tile_stairs"]);
 
     const carpetGlue = visibleKnowledgeKeys({
@@ -1681,6 +1681,11 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       key: "hs_direction",
       position: 214,
       show_if: { key: "surface_type", in: ["Laminate", "LVP / LVT", "Hardwood", "Engineered hardwood"] },
+    },
+    {
+      key: "work_type",
+      position: 268,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
     },
     {
       key: "hs_demo",
@@ -3925,6 +3930,97 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     })).toBe(0);
   });
 
+  it("0247 new construction hides tear-out; unanswered keeps demo visible", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0247_flooring_knowledge_work_type.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0247_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/work_type/);
+    expect(sql).toMatch(/New construction/);
+    expect(sql).toMatch(/Replacement \(tear-out\)/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(knowledgeQuestionByKey("work_type")?.purpose).toBe("SCOPE");
+    expect(knowledgeQuestionByKey("work_type")?.phase).toBe("existing");
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(/New construction hides tear-out/);
+
+    const unanswered = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(unanswered).toContain("work_type");
+    expect(unanswered).toContain("hs_demo");
+    expect(unanswered).toContain("existing_pad");
+
+    const replacement = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      work_type: ["Replacement (tear-out)"],
+    });
+    expect(replacement).toContain("hs_demo");
+    expect(replacement).toContain("existing_pad");
+    expect(replacement).toContain("demo_disposal");
+
+    const neu = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      work_type: ["New construction"],
+    });
+    expect(neu).toContain("work_type");
+    expect(neu).toContain("substrate");
+    expect(neu).toContain("hs_prep");
+    expect(neu).not.toContain("hs_demo");
+    expect(neu).not.toContain("existing_pad");
+    expect(neu).not.toContain("demo_disposal");
+    expect(neu).not.toContain("asbestos_risk");
+    expect(neu).not.toContain("existing_bond");
+
+    const walkNew = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      work_type: ["New construction"],
+    });
+    expect(walkNew).toContain("work_type");
+    expect(walkNew).toContain("substrate");
+    expect(walkNew).not.toContain("hs_demo");
+    expect(walkNew).not.toContain("demo_disposal");
+    expect(walkNew).not.toContain("existing_bond");
+    expect(walkNew.indexOf("work_type")).toBeLessThan(walkNew.indexOf("substrate")!);
+
+    const walkReplace = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      work_type: ["Replacement (tear-out)"],
+      hs_demo: ["Carpet"],
+    });
+    expect(walkReplace).toContain("hs_demo");
+    expect(walkReplace).toContain("demo_disposal");
+    expect(walkReplace).toContain("existing_pad");
+
+    const warn = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT"],
+        work_type: ["New construction"],
+      }),
+    );
+    expect(warn.some((w) => w.id === "new-construction")).toBe(true);
+    expect(warn.find((w) => w.id === "new-construction")?.text).toMatch(/Do not invent a demo charge/);
+
+    const ceramicNew = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["Tile"],
+        work_type: ["New construction"],
+        hs_demo: ["Ceramic WITH mortar bed"],
+      }),
+    );
+    expect(ceramicNew.some((w) => w.id === "mortar")).toBe(false);
+    expect(ceramicNew.some((w) => w.id === "new-construction")).toBe(true);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
@@ -4479,6 +4575,9 @@ describe("salesperson review buckets by purpose, not a level regex", () => {
 
   it("removal / accessories / stairs land in the right columns", () => {
     expect(reviewBucketForQuestion({ key: "hs_demo", label: "Existing flooring" })).toBe("removal");
+    expect(reviewBucketForQuestion({ key: "work_type", label: "New construction or replacement?" })).toBe(
+      "removal",
+    );
     expect(reviewBucketForQuestion({ key: "asbestos_risk", label: "Asbestos" })).toBe("removal");
     expect(reviewBucketForQuestion({ key: "tack_strip", label: "Tack strip" })).toBe("accessories");
     expect(reviewBucketForQuestion({ key: "hs_transitions", label: "Doorway transitions" })).toBe(

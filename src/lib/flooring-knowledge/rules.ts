@@ -32,8 +32,8 @@ import {
   type InstallSystem,
 } from "./families";
 import { matchesShowIf } from "./show-if";
-import { synthesizeStairGate } from "./answers";
-import { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS } from "./registry";
+import { jobIsNewConstruction, labelsAreNewConstruction, synthesizeStairGate } from "./answers";
+import { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS, REMOVAL_QUESTION_KEYS } from "./registry";
 
 export { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS } from "./registry";
 
@@ -51,6 +51,8 @@ export interface InstallContext {
   existingFlooring: string[];
   prepConfidence: string[];
   occupancy: string[];
+  /** Replacement vs new construction (work_type). */
+  workType: string[];
   /** Subfloor condition labels (flat / uneven / moisture / TBD). */
   subfloorCondition: string[];
   /** Floor prep / leveling choice (None / skim / self-level / …). */
@@ -87,6 +89,7 @@ export function emptyInstallContext(): InstallContext {
     existingFlooring: [],
     prepConfidence: [],
     occupancy: [],
+    workType: [],
     subfloorCondition: [],
     hsPrep: [],
     subfloorNeeded: [],
@@ -223,6 +226,7 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     existingFlooring: valByKey.hs_demo ?? [],
     prepConfidence: valByKey.prep_confidence ?? [],
     occupancy: valByKey.occupancy ?? [],
+    workType: valByKey.work_type ?? [],
     subfloorCondition: valByKey.subfloor_condition ?? [],
     hsPrep: valByKey.hs_prep ?? [],
     subfloorNeeded: valByKey.subfloor_needed ?? [],
@@ -384,6 +388,13 @@ export function questionApplies(
   }
   // Attached-pad Yes → hide separate-underlayment questions.
   if (q.key === "hs_underlayment" && install.attachedPad === "yes") return false;
+  if (
+    q.key &&
+    (REMOVAL_QUESTION_KEYS as readonly string[]).includes(q.key) &&
+    jobIsNewConstruction(valByKey)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -502,6 +513,9 @@ export function knowledgeHelpFor(
   }
   if (key === "existing_bond") {
     return "Glued-down LVP/laminate/vinyl is a different tear-out than floating. Scope note — existing demo rates stay.";
+  }
+  if (key === "work_type") {
+    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, asbestos, and disposal — substrate and prep still apply. Unknown / field verify keeps demo visible. Do not invent a demo charge on a new slab.";
   }
   if (key === "tack_strip") {
     return "Stretch-in needs tack strip. Glue-down and carpet tile do not. Capture keep vs replace — do not invent a linear-foot price unless a catalog item is added.";
@@ -693,6 +707,14 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   const w: { id: string; text: string }[] = [];
   const has = (arr: string[], re: RegExp) => arr.some((v) => re.test(v));
   const picked = extras?.pickedLabels ?? [];
+  const newBuild = labelsAreNewConstruction(ctx.workType);
+
+  if (newBuild) {
+    w.push({
+      id: "new-construction",
+      text: "New construction — no tear-out. Demo, pad removal, asbestos, and disposal stay off. Substrate and prep still apply. Do not invent a demo charge.",
+    });
+  }
 
   if (ctx.surfaceLabels.includes("LVP / Vinyl")) {
     w.push({
@@ -782,13 +804,13 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
       text: "Loose-lay is its own system — not glue-down and not floating/click. Confirm the product and substrate; do not assume adhesive or underlayment.",
     });
   }
-  if (ctx.existingFlooring.some((l) => /ceramic with mortar bed/i.test(l))) {
+  if (!newBuild && ctx.existingFlooring.some((l) => /ceramic with mortar bed/i.test(l))) {
     w.push({
       id: "mortar",
       text: "Ceramic WITH mortar bed demo — expect a floor-height change. Check transitions and door clearance.",
     });
   }
-  if (has(ctx.existingFlooring, /ceramic/i)) {
+  if (!newBuild && has(ctx.existingFlooring, /ceramic/i)) {
     w.push({
       id: "ceramic_substrate",
       text: "Tearing up ceramic tile — confirm what's under it (mortar bed, backer board, or other substrate) and include removing it in the demo.",

@@ -43,6 +43,7 @@ export interface SalespersonReview {
 export type ReviewBucket = "removal" | "installation" | "prep" | "accessories" | "specials";
 
 const REMOVAL_KEYS = new Set([
+  "work_type",
   "hs_demo",
   "existing_bond",
   "existing_pad",

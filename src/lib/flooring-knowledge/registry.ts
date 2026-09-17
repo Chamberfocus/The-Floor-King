@@ -85,6 +85,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   },
 
   // Existing
+  /**
+   * Replacement vs new construction. Positive "New construction" hides tear-out
+   * questions (demo, pad, bond, asbestos, disposal). Unanswered stays open.
+   */
+  { key: "work_type", purpose: "SCOPE", phase: "existing" },
   { key: "existing_pad", purpose: "LABOR", phase: "existing", families: ["carpet"] },
   { key: "hs_demo", purpose: "LABOR", phase: "existing" },
   /**
@@ -380,6 +385,15 @@ export function estimatorPhaseRank(phase: EstimatorPhase): number {
 export function estimatorPhaseLabel(phase: EstimatorPhase): string {
   return ESTIMATOR_PHASE_LABELS[phase];
 }
+
+/** Tear-out questions hidden once work_type is New construction. */
+export const REMOVAL_QUESTION_KEYS = [
+  "hs_demo",
+  "existing_bond",
+  "existing_pad",
+  "demo_disposal",
+  "asbestos_risk",
+] as const;
 
 export interface SortableEstimateQuestion {
   id: string;
