@@ -5442,6 +5442,67 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0266 exclusive wall tile hides furniture moving; appliances stay", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0266_flooring_knowledge_wall_furniture.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0266_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/a backsplash is not a furniture-moving job/);
+    expect(sql).toMatch(/Do NOT SQL-gate furniture on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*tile_application.*furniture|furniture.*show_if.*tile_application/);
+
+    const unanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(unanswered).toContain("furniture_level");
+    expect(unanswered).toContain("furniture_heavy");
+    expect(unanswered).toContain("appliances");
+
+    const wall = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+      occupancy: ["Occupied"],
+    });
+    expect(wall).toContain("occupancy");
+    expect(wall).not.toContain("furniture_level");
+    expect(wall).not.toContain("furniture_heavy");
+    expect(wall).toContain("appliances");
+    expect(wall).toContain("wet_area");
+
+    const floor = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Floor"],
+      occupancy: ["Occupied"],
+    });
+    expect(floor).toContain("furniture_level");
+    expect(floor).toContain("furniture_heavy");
+
+    const mixed = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+      tile_application: ["Wall"],
+      occupancy: ["Occupied"],
+    });
+    expect(mixed).toContain("furniture_level");
+    expect(mixed).toContain("furniture_heavy");
+
+    expect(knowledgeHelpFor({ key: "furniture_level" }, emptyInstallContext())).toMatch(
+      /Exclusive wall tile hides this too/,
+    );
+    expect(knowledgeHelpFor({ key: "occupancy" }, emptyInstallContext())).toMatch(
+      /Exclusive wall tile also hides it/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /Furniture moving hides too/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
