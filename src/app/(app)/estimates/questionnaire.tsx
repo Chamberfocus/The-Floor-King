@@ -55,6 +55,7 @@ import {
   cutWidthChoicesFt,
   defaultCutWidthFt,
   enteredCutWidthFt,
+  rollGoodsOrderTbdDescription,
   computeMaterialTakeoff,
   emptyInstallContext,
   familyFromCatalogCategory,
@@ -914,6 +915,40 @@ export function Questionnaire({
   const lines: SmartLine[] = useMemo(() => {
     const out: SmartLine[] = [];
     const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
+    // Roll-goods SKU with no cuts: keep the product, do not invent yardage.
+    // sqft / L×W stay null so Builder lineQty cannot price taped area as an order.
+    const rollGoodsTbdLine = (
+      p: ProductAns,
+      room: string | null,
+      measuredSqft?: number,
+    ): SmartLine => {
+      const cat = p.category || "carpet";
+      return {
+        room,
+        description: rollGoodsOrderTbdDescription(p.label || cat, measuredSqft),
+        category: cat,
+        measure_unit: "sqyd",
+        sqft: null,
+        quantity: null,
+        length_in: null,
+        width_in: null,
+        measurements: null,
+        unit: "sq yd",
+        material_rate: sellMat(rateFor(p.materialRate, p.unit, true)),
+        labor_rate: 0,
+        material_cost: rateFor(p.materialRate, p.unit, true),
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: p.productId || null,
+        manufacturer:
+          p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+        style: p.style,
+        color: p.color,
+        from_stock: p.source === "stock",
+        order_as_roll: false,
+        roll_width_ft: p.rollWidthFt && p.rollWidthFt > 0 ? p.rollWidthFt : null,
+      };
+    };
     // If a floor-map assigns products per room, the area that gets CARPET (billed
     // by the yard) drives padding — so a mixed job doesn't buy pad for the LVP.
     let carpetArea = 0;
@@ -948,6 +983,7 @@ export function Questionnaire({
           string,
           { p: ProductAns; wantYd: boolean; sqft: number }
         >();
+        const tbdRoll = new Map<string, { p: ProductAns; sqft: number; rooms: string[] }>();
         allRooms.forEach((rm, i) => {
           const p = a.byRoom[roomKey(rm.name, i)];
           if (!p || rm.sqft <= 0) return;
@@ -1006,6 +1042,13 @@ export function Questionnaire({
               from_stock: p.source === "stock",
               sqft_per_box: spb > 0 ? spb : null,
             });
+          else if (rollGoodsNeedCuts(rollFam, carpetSystems) && (p.productId || p.label)) {
+            const key = p.productId || p.label;
+            const rec = tbdRoll.get(key) ?? { p, sqft: 0, rooms: [] };
+            rec.sqft += rm.sqft;
+            if (rm.name && !rec.rooms.includes(rm.name)) rec.rooms.push(rm.name);
+            tbdRoll.set(key, rec);
+          }
           // Accumulate install labor per distinct product. Labor is measured
           // work even when roll-goods order quantity is still TBD.
           if (measuredInstallLaborAllowed(rollFam, cutSf, carpetSystems)) {
@@ -1015,6 +1058,9 @@ export function Questionnaire({
             byProd.set(key, agg);
           }
         });
+        for (const { p, sqft, rooms } of tbdRoll.values()) {
+          out.push(rollGoodsTbdLine(p, rooms.length === 1 ? rooms[0] ?? null : null, sqft));
+        }
         for (const { p, wantYd, sqft } of byProd.values()) {
           // Prefer the product's own labor rate if set, else the per-type default.
           const lr = rateFor(p.laborRate, p.unit, wantYd) || (wantYd ? instYd : instFt);
@@ -1150,6 +1196,13 @@ export function Questionnaire({
               // that is the cuts/layout step, and sq ft is not a cut plan.
               out.push(matLine(p, { sqft: coverSf }));
             }
+          } else if (
+            !floorMapActive &&
+            isRollGoodsFamily(fam) &&
+            rollGoodsNeedCuts(fam, carpetSystems) &&
+            (p.productId || p.label)
+          ) {
+            out.push(rollGoodsTbdLine(p, null, coverSf > 0 ? coverSf : undefined));
           } else if (!isRollGoodsFamily(fam) && (p.productId || p.label)) {
             const countUnit = unitLabel(p.unit) || p.unit || "each";
             out.push({
@@ -1180,7 +1233,15 @@ export function Questionnaire({
           // Without cuts, labor still follows measured area (install is work,
           // not an order quantity). Glue/count picks do not get fake sq-ft labor.
           const lr = rateFor(p.laborRate, p.unit, b.wantYd);
-          if (allowAreaMat && measuredInstallLaborAllowed(fam, cutSf, carpetSystems) && lr > 0 && coverSf > 0) {
+          const laborFromMeasured =
+            measuredInstallLaborAllowed(fam, cutSf, carpetSystems) && lr > 0 && coverSf > 0;
+          if (
+            laborFromMeasured &&
+            (allowAreaMat ||
+              (!floorMapActive &&
+                isRollGoodsFamily(fam) &&
+                rollGoodsNeedCuts(fam, carpetSystems)))
+          ) {
             const laborQty = b.wantYd ? Math.ceil(coverSf / 9) : Math.ceil(coverSf);
             out.push({
               room: null,
@@ -1462,10 +1523,90 @@ export function Questionnaire({
 
         if (sameCarpet) {
           // One carpet for the whole job → ONE line, every cut labeled by its area.
-          emitCarpet(a.product, a.groups.flatMap((g) => groupPieces(g, a.product)), null);
+          const pieces = a.groups.flatMap((g) => groupPieces(g, a.product));
+          if (pieces.length) emitCarpet(a.product, pieces, null);
+          else if (
+            !floorMapActive &&
+            a.product &&
+            (a.product.productId || a.product.label)
+          ) {
+            out.push(rollGoodsTbdLine(a.product, null, totalSqft > 0 ? totalSqft : undefined));
+          }
         } else {
           // Different carpet per area → one line per area (each with its cuts).
-          for (const g of a.groups) emitCarpet(g.product, groupPieces(g, g.product), g.area.trim() || null);
+          let anyPieces = false;
+          for (const g of a.groups) {
+            const pieces = groupPieces(g, g.product);
+            if (pieces.length) {
+              anyPieces = true;
+              emitCarpet(g.product, pieces, g.area.trim() || null);
+            } else if (
+              !floorMapActive &&
+              g.product &&
+              (g.product.productId || g.product.label)
+            ) {
+              out.push(rollGoodsTbdLine(g.product, g.area.trim() || null));
+            }
+          }
+          if (!anyPieces && !floorMapActive && totalSqft > 0) {
+            const p = a.groups.map((g) => g.product).find(Boolean) ?? a.product;
+            const instYd = (p ? rateFor(p.laborRate, p.unit, true) : 0) || (q.config.install_yd ?? 6);
+            if (instYd > 0 && p) {
+              out.push({
+                room: null,
+                description: `${rollLabel} installation`,
+                category: "labor",
+                measure_unit: "sqyd",
+                sqft: r2(totalSqft),
+                quantity: Math.ceil(totalSqft / 9),
+                length_in: null,
+                width_in: null,
+                unit: "sq yd",
+                material_rate: 0,
+                labor_rate: sellLab(instYd),
+                material_cost: 0,
+                labor_cost: instYd,
+                waste_pct: 0,
+                product_id: null,
+                manufacturer: null,
+                style: null,
+                color: null,
+                from_stock: false,
+              });
+            }
+          }
+        }
+        if (
+          sameCarpet &&
+          !floorMapActive &&
+          totalSqft > 0 &&
+          a.groups.flatMap((g) => groupPieces(g, a.product)).length === 0
+        ) {
+          const p = a.product;
+          const instYd = (p ? rateFor(p.laborRate, p.unit, true) : 0) || (q.config.install_yd ?? 6);
+          if (instYd > 0) {
+            out.push({
+              room: null,
+              description: `${rollLabel} installation`,
+              category: "labor",
+              measure_unit: "sqyd",
+              sqft: r2(totalSqft),
+              quantity: Math.ceil(totalSqft / 9),
+              length_in: null,
+              width_in: null,
+              unit: "sq yd",
+              material_rate: 0,
+              labor_rate: sellLab(instYd),
+              material_cost: 0,
+              labor_cost: instYd,
+              waste_pct: 0,
+              product_id: null,
+              manufacturer: null,
+              style: null,
+              color: null,
+              from_stock: false,
+            });
+          }
         }
         }
       } else if (q.kind === "stairs" && a.kind === "stairs") {

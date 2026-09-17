@@ -6,8 +6,9 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
-import { carpetCutList } from "@/lib/job-scope";
+import { carpetCutList, parseCutsFromText } from "@/lib/job-scope";
 import { carpetYardageFromCuts } from "@/lib/questionnaire-calc";
+import { lineQty } from "@/lib/estimate-calc";
 import {
   accessoryUnitForType,
   applyHardSurfaceStairTrimFill,
@@ -28,6 +29,7 @@ import {
   equivalentSqyd,
   formatTakeoffStrip,
   formatEquivalentSqyd,
+  rollGoodsOrderTbdDescription,
   familyFromCatalogCategory,
   familyFromSurfaceLabel,
   hardwoodConstructionFromLabel,
@@ -403,7 +405,7 @@ describe("measured area vs order quantity", () => {
   it("AI notes estimate does not order roll goods from taped sq ft ÷ 9", () => {
     const src = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
     expect(src).toMatch(/areaDerivedMaterialAllowed/);
-    expect(src).toMatch(/enter cuts — not sq ft ÷ 9/);
+    expect(src).toMatch(/rollGoodsOrderTbdDescription/);
     expect(src).not.toMatch(/Math\.ceil\(\(sqft \/ 9\) \* \(1 \+ profile\.waste/);
     expect(src).toMatch(/length_in: null/);
   });
@@ -2824,6 +2826,33 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/newCutRow = \(width = ""\)/);
     expect(carpetYardageFromCuts([{ lengthFt: 20, lengthIn: 0, rollWidthFt: "" }]).sqyd).toBe(0);
     expect(carpetYardageFromCuts([{ lengthFt: 20, lengthIn: 0, rollWidthFt: 12 }]).sqyd).toBe(26.67);
+  });
+
+  it("0216 keeps the roll-goods SKU as order TBD instead of dropping it or inventing yardage", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0216_flooring_knowledge_roll_tbd_sku.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0216_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/order TBD/);
+    expect(sql).toMatch(/sq ft ÷ 9/);
+    expect(sql).toMatch(/vinyl_layout/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const desc = rollGoodsOrderTbdDescription("Shaw Renovate", 450);
+    expect(desc).toMatch(/order TBD \(enter cuts — not sq ft ÷ 9\)/);
+    expect(desc).toMatch(/Measured 450 sq ft/);
+    expect(desc).toMatch(/equivalent area — not an order qty/);
+    expect(parseCutsFromText(desc)).toEqual([]);
+    expect(lineQty({ line_type: "mat_labor", unit: "sq yd", measure_unit: "sqyd", sqft: null, quantity: null })).toBe(0);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/rollGoodsTbdLine/);
+    expect(q).toMatch(/tbdRoll/);
+    expect(q).toMatch(/sqft: null/);
+    const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
+    expect(ai).toMatch(/rollGoodsOrderTbdDescription/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

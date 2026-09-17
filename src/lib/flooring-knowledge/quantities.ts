@@ -330,6 +330,24 @@ export function formatEquivalentSqyd(sqft: number): string {
   return `${formatSqyd(equivalentSqyd(sqft))} equivalent area — not an order qty`;
 }
 
+/**
+ * Builder line description when a roll-goods SKU is picked but cuts are not
+ * entered. Measured area may be noted in the text; it is never a warehouse
+ * cut and must not look like `12' × 14'` (legacy parseCutsFromText).
+ */
+export function rollGoodsOrderTbdDescription(
+  productLabel: string,
+  measuredSqft?: number | null,
+): string {
+  const name = (productLabel || "Roll goods").trim() || "Roll goods";
+  const base = `${name} — order TBD (enter cuts — not sq ft ÷ 9)`;
+  const n = Number(measuredSqft);
+  if (Number.isFinite(n) && n > 0) {
+    return `${base}. Measured ${formatSqft(n)} (${formatEquivalentSqyd(n)})`;
+  }
+  return base;
+}
+
 export function formatMeasuredLabel(m: MeasuredArea, opts?: { showEquivalentYd?: boolean }): string {
   if (!opts?.showEquivalentYd) return formatSqft(m.sqft);
   return `${formatSqft(m.sqft)} (${formatSqyd(m.sqydEquivalent)} equivalent area — not an order quantity)`;

@@ -18,8 +18,7 @@ import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
 import {
   areaDerivedMaterialAllowed,
   familyFromCatalogCategory,
-  formatEquivalentSqyd,
-  formatSqft,
+  rollGoodsOrderTbdDescription,
 } from "@/lib/flooring-knowledge";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
@@ -214,7 +213,10 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     } else if (sqft > 0 || productId) {
       lines.push({
         room: room.name || null,
-        description: `${needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc} — order TBD (enter cuts — not sq ft ÷ 9). Measured ${formatSqft(sqft)} (${formatEquivalentSqyd(sqft)})`,
+        description: rollGoodsOrderTbdDescription(
+          needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
+          sqft,
+        ),
         category: profile.category,
         measure_unit: profile.unit,
         sqft: null,

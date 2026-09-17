@@ -97,6 +97,7 @@ export {
   formatMeasuredLabel,
   formatBillingQty,
   formatTakeoffStrip,
+  rollGoodsOrderTbdDescription,
   accessoryUnitForType,
   coerceTrimUnit,
   defaultCutWidthFt,

@@ -76,6 +76,7 @@ const REQUIRED_FILES = [
   "0213_flooring_knowledge_carpet_tile.sql",
   "0214_flooring_knowledge_carpet_tile_stairs.sql",
   "0215_flooring_knowledge_cut_width.sql",
+  "0216_flooring_knowledge_roll_tbd_sku.sql",
 ];
 
 /**
@@ -1029,6 +1030,17 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0215_FLOORING_KNOWLEDGE",
       "empty width is not a 12-foot",
+      "vinyl_layout",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0216_flooring_knowledge_roll_tbd_sku.sql",
+    markers: [
+      "P0_0216_FLOORING_KNOWLEDGE",
+      "order TBD",
+      "sq ft ÷ 9",
       "vinyl_layout",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
