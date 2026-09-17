@@ -97,6 +97,7 @@ const REQUIRED_FILES = [
   "0234_flooring_knowledge_review_units.sql",
   "0235_flooring_knowledge_product_unit.sql",
   "0236_flooring_knowledge_other_unit.sql",
+  "0237_flooring_knowledge_stair_wrap.sql",
 ];
 
 /**
@@ -1247,6 +1248,15 @@ const REQUIRED_MARKERS = [
     file: "0236_flooring_knowledge_other_unit.sql",
     markers: [
       "P0_0236_FLOORING_KNOWLEDGE",
+      "does not plant LVP",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0237_flooring_knowledge_stair_wrap.sql",
+    markers: [
+      "P0_0237_FLOORING_KNOWLEDGE",
       "does not plant LVP",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",

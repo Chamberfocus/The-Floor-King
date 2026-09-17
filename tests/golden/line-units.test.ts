@@ -364,5 +364,7 @@ describe("measured sq ft is never labeled as a carpet order in sq yd", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/pickedProductUnit\(p\.unit, p\.category\)/);
     expect(q).not.toMatch(/p\.unit \|\| "sqft"/);
+    const picker = readFileSync(join(root, "src/app/(app)/estimates/product-picker.tsx"), "utf8");
+    expect(picker).not.toMatch(/initialCategory \|\| "lvp"/);
   });
 });

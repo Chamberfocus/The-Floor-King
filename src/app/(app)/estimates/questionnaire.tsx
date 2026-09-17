@@ -72,6 +72,7 @@ import {
   withProductFamilies,
   hardSurfaceInstallMethodOptions,
   jobNeedsMixedInstallMethodPicks,
+  isHardSurfaceFamily,
   isRollGoodsFamily,
   carpetInstallSystemsFromLabels,
   rollGoodsNeedCuts,
@@ -4450,6 +4451,10 @@ function QuestionBody({
     const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
     const lr = numv(a.laborRate) || (Number(q.config.labor_per_step) > 0 ? Number(q.config.labor_per_step) : 0);
     const p = a.product;
+    const hsWrapCat = (() => {
+      const hs = flooringCtx.families.filter(isHardSurfaceFamily);
+      return hs.length === 1 ? catalogCategoryForFamily(hs[0]) : undefined;
+    })();
     return (
       <div className="space-y-3">
         <div className="flex flex-wrap items-end gap-3">
@@ -4481,7 +4486,7 @@ function QuestionBody({
             value={p?.productId ?? ""}
             initialLabel={p?.label ?? ""}
             label=""
-            defaultCategory="lvp"
+            defaultCategory={hsWrapCat}
             onPick={(prod) => upd({ product: prod ? toProductAns(prod) : null })}
             onCreated={(prod) => upd({ product: toProductAns(prod) })}
             onUseOnce={(input) => upd({ product: customToProductAns(input) })}

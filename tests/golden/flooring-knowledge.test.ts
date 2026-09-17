@@ -3628,6 +3628,27 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(units).not.toMatch(/default:\s*return "sqft";/);
   });
 
+  it("0237 hard-surface stair wrap follows the job family, not planted LVP", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0237_flooring_knowledge_stair_wrap.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0237_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/does not plant LVP/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/hsWrapCat/);
+    expect(q).toMatch(/isHardSurfaceFamily/);
+    expect(q).toMatch(/defaultCategory=\{hsWrapCat\}/);
+    expect(q).not.toMatch(/defaultCategory="lvp"/);
+
+    const picker = readFileSync(join(root, "src/app/(app)/estimates/product-picker.tsx"), "utf8");
+    expect(picker).toMatch(/initialCategory \|\| ""/);
+    expect(picker).not.toMatch(/initialCategory \|\| "lvp"/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
