@@ -96,6 +96,7 @@ export {
   SOLID_HARDWOOD_HIDES_KEYS,
   tileWallHidesPrepOptionLabel,
   tileWallHidesDemoOptionLabel,
+  vaporBarrierHidesUnderlaymentOptionLabel,
   type KnowledgeQuestionDef,
   type EstimatorPhase,
   type SortableEstimateQuestion,
@@ -178,6 +179,7 @@ export {
   jobIsExclusiveWallTile,
   jobIsExclusiveCarpetTile,
   jobIsExclusiveSolidHardwood,
+  jobAllowsFloatingVaporUnderlayment,
   choiceOptionApplies,
   type InstallContext,
 } from "./rules";

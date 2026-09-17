@@ -51,6 +51,7 @@ import {
   TILE_WALL_HIDES_KEYS,
   tileWallHidesPrepOptionLabel,
   tileWallHidesDemoOptionLabel,
+  vaporBarrierHidesUnderlaymentOptionLabel,
 } from "./registry";
 
 export { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS } from "./registry";
@@ -580,7 +581,26 @@ export function choiceOptionApplies(
   if (q.key === "hs_demo" && jobIsExclusiveWallTile(install) && tileWallHidesDemoOptionLabel(optionLabel)) {
     return false;
   }
+  if (
+    q.key === "vapor_barrier" &&
+    vaporBarrierHidesUnderlaymentOptionLabel(optionLabel) &&
+    !jobAllowsFloatingVaporUnderlayment(install)
+  ) {
+    return false;
+  }
   return true;
+}
+
+/**
+ * "Included with underlayment" is a floating-floor vapor sheet. Hide it once
+ * we know the job is not floating. Exclusive solid hardwood hides it even
+ * before a method is picked — floating is not permitted. Unanswered LVP /
+ * engineered stay open (0142).
+ */
+export function jobAllowsFloatingVaporUnderlayment(install: InstallContext): boolean {
+  if (jobIsExclusiveSolidHardwood(install)) return false;
+  if (install.installPending || install.systems.length === 0) return true;
+  return install.systems.includes("floating");
 }
 
 /**
@@ -760,7 +780,7 @@ export function knowledgeHelpFor(
     return "Count of vents/registers to change, in EACH. Never square feet. Pick a catalog vent on Trims if Floor King sells it; otherwise this is a crew note.";
   }
   if (key === "vapor_barrier") {
-    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Mixed LVP or hardwood + tile still asks.";
+    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Mixed LVP or hardwood + tile still asks. Glue-down, carpet tile, nail-down, and stretch-in hide Included with underlayment — that is a floating-floor sheet, not an adhesive moisture system. Aqua bar stays on moisture mitigation. Unanswered LVP and floating still offer it.";
   }
   if (key === "substrate") {
     return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete.";

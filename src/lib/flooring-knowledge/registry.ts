@@ -535,6 +535,18 @@ export const SOLID_HARDWOOD_HIDES_KEYS = [
 export const TILE_THINSET_HIDES_KEYS = ["vapor_barrier"] as const;
 
 /**
+ * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,
+ * nail/staple, and stretch-in hide this chip — you cannot glue to 6-mil poly.
+ * Unanswered LVP / engineered still offer it (0142). Do not SQL-remove the
+ * option (mixed floating + glue still needs it).
+ */
+export function vaporBarrierHidesUnderlaymentOptionLabel(label: string): boolean {
+  const t = label.trim();
+  if (!t) return false;
+  return /included with underlayment/i.test(t);
+}
+
+/**
  * Floor-prep chips that pour or grind a floor. Exclusive wall keeps Patch / skim
  * and None — showers still skim. Do not SQL-remove these options (mixed and
  * unanswered floor-vs-wall still need them).

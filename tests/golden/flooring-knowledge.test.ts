@@ -86,9 +86,11 @@ import {
   jobIsExclusiveWallTile,
   jobIsExclusiveCarpetTile,
   jobIsExclusiveSolidHardwood,
+  jobAllowsFloatingVaporUnderlayment,
   choiceOptionApplies,
   tileWallHidesPrepOptionLabel,
   tileWallHidesDemoOptionLabel,
+  vaporBarrierHidesUnderlaymentOptionLabel,
   FURNITURE_MOVING_KEYS,
   jobIsVacant,
   NEW_CONSTRUCTION_HIDES_KEYS,
@@ -5749,6 +5751,103 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       substrate: ["Concrete"],
     });
     expect(hardwoodSlab).toContain("vapor_barrier");
+  });
+
+  it("0269 glue-down hides Included with underlayment; floating still offers it", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0269_flooring_knowledge_vapor_underlayment.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0269_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/floating-floor sheet, not an adhesive moisture system/);
+    expect(sql).toMatch(/Do NOT SQL-gate vapor_barrier options on install_method/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*install_method.*vapor_barrier|vapor_barrier.*show_if.*install_method/,
+    );
+
+    expect(vaporBarrierHidesUnderlaymentOptionLabel("Included with underlayment")).toBe(true);
+    expect(vaporBarrierHidesUnderlaymentOptionLabel("Required")).toBe(false);
+    expect(vaporBarrierHidesUnderlaymentOptionLabel("Not needed")).toBe(false);
+
+    const glue = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+    });
+    expect(jobAllowsFloatingVaporUnderlayment(glue)).toBe(false);
+    expect(choiceOptionApplies({ key: "vapor_barrier" }, "Included with underlayment", glue)).toBe(
+      false,
+    );
+    expect(choiceOptionApplies({ key: "vapor_barrier" }, "Required", glue)).toBe(true);
+
+    const floating = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    });
+    expect(jobAllowsFloatingVaporUnderlayment(floating)).toBe(true);
+    expect(
+      choiceOptionApplies({ key: "vapor_barrier" }, "Included with underlayment", floating),
+    ).toBe(true);
+
+    const unansweredLvp = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(jobAllowsFloatingVaporUnderlayment(unansweredLvp)).toBe(true);
+
+    const solid = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+    });
+    expect(jobAllowsFloatingVaporUnderlayment(solid)).toBe(false);
+
+    const engineered = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Engineered hardwood"],
+    });
+    expect(jobAllowsFloatingVaporUnderlayment(engineered)).toBe(true);
+
+    const nail = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Concrete"],
+    });
+    expect(jobAllowsFloatingVaporUnderlayment(nail)).toBe(false);
+    expect(choiceOptionApplies({ key: "vapor_barrier" }, "Included with underlayment", nail)).toBe(
+      false,
+    );
+    expect(choiceOptionApplies({ key: "vapor_barrier" }, "Required", nail)).toBe(true);
+
+    const stretch = installContextFromValByKey({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      substrate: ["Concrete"],
+    });
+    expect(jobAllowsFloatingVaporUnderlayment(stretch)).toBe(false);
+
+    const mixed = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT", "Laminate"],
+      install_method: ["Glue-down", "Floating / click"],
+    });
+    expect(jobAllowsFloatingVaporUnderlayment(mixed)).toBe(true);
+
+    const glueWalk = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+    });
+    expect(glueWalk).toContain("vapor_barrier");
+    expect(glueWalk).toContain("moisture_mitigation");
+    expect(glueWalk).not.toContain("attached_pad");
+
+    expect(knowledgeHelpFor({ key: "vapor_barrier" }, emptyInstallContext())).toMatch(
+      /hide Included with underlayment/,
+    );
   });
 
   it("pattern repeat only after pattern match is required", () => {

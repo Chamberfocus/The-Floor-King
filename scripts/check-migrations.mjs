@@ -129,6 +129,7 @@ const REQUIRED_FILES = [
   "0266_flooring_knowledge_wall_furniture.sql",
   "0267_flooring_knowledge_solid_floating.sql",
   "0268_flooring_knowledge_tile_vapor.sql",
+  "0269_flooring_knowledge_vapor_underlayment.sql",
 ];
 
 /**
@@ -1600,6 +1601,16 @@ const REQUIRED_MARKERS = [
       "P0_0268_FLOORING_KNOWLEDGE",
       "thinset is not a 6-mil click-floor vapor barrier",
       "Do NOT SQL-gate vapor_barrier on surface_type",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0269_flooring_knowledge_vapor_underlayment.sql",
+    markers: [
+      "P0_0269_FLOORING_KNOWLEDGE",
+      "floating-floor sheet, not an adhesive moisture system",
+      "Do NOT SQL-gate vapor_barrier options on install_method",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
