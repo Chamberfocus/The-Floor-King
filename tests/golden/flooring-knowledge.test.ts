@@ -298,3 +298,62 @@ describe("migration 0190 is the knowledge seed (not 0188)", () => {
     expect(migrations.some((f) => f.startsWith("0188"))).toBe(false);
   });
 });
+
+describe("sheet vinyl, tile, stairs, and existing-bond follow-ups", () => {
+  it("vinyl cuts are order quantity in sq yd, separate from carpet cuts", () => {
+    const t = computeMaterialTakeoff({
+      family: "vinyl",
+      measuredSqft: 180,
+      cutsSqft: 216,
+    });
+    expect(t.orderBasis).toBe("cuts");
+    expect(t.billingUnit).toBe("sqyd");
+    expect(t.billingQty).toBe(24);
+    expect(t.warnings).toEqual([]);
+  });
+
+  it("tile overlay hides tile_layout on LVP jobs once the surface is known", () => {
+    expect(
+      questionApplies(
+        { key: "tile_layout", config: { show_if: { key: "surface_type", in: ["Tile"] } } },
+        { project_type: ["Hard surface"], surface_type: ["LVP / LVT"] },
+      ),
+    ).toBe(false);
+    expect(
+      questionApplies(
+        { key: "tile_layout", config: { show_if: { key: "surface_type", in: ["Tile"] } } },
+        { project_type: ["Hard surface"], surface_type: ["Tile"] },
+      ),
+    ).toBe(true);
+  });
+
+  it("nail/staple fasteners hide on floating laminate", () => {
+    expect(
+      questionApplies(
+        {
+          key: "hardwood_fasteners",
+          config: { show_if: { key: "install_method", in: ["Nail-down", "Staple-down"] } },
+        },
+        {
+          project_type: ["Hard surface"],
+          surface_type: ["Laminate"],
+          install_method: ["Floating / click"],
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("0191 parks stair extras after HS stairs and adds vinyl layout", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0191_flooring_knowledge_roll_tile_stairs.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0191_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/position = 265/);
+    expect(sql).toMatch(/vinyl_layout/);
+    expect(sql).toMatch(/tile_layout/);
+    expect(sql).toMatch(/existing_bond/);
+    expect(sql).toMatch(/"widths":\[6,12\]/);
+    expect(sql).toMatch(/position = 270/);
+  });
+});

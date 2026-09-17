@@ -115,7 +115,10 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     substrate: valByKey.substrate ?? valByKey.subfloor_type ?? [],
     grade: valByKey.construction_grade ?? [],
     stairs,
-    existingFlooring: valByKey.existing_floor ?? [],
+    existingFlooring: [
+      ...(valByKey.existing_floor ?? []),
+      ...(valByKey.hs_demo ?? []),
+    ],
     prepConfidence: valByKey.prep_confidence ?? [],
     occupancy: valByKey.occupancy ?? [],
     surfacePending: hasHS && surfaceLabels.length === 0,
@@ -150,6 +153,10 @@ export const DEFAULT_KNOWLEDGE_WHEN: Record<string, KnowledgeWhen> = {
   construction_grade: { families: ["hardwood", "lvp", "laminate", "vinyl", "tile"], purpose: "INSTALLATION" },
   radiant_heat: { purpose: "WARNING" },
   hs_product: { purpose: "MATERIAL" },
+  vinyl_layout: { families: ["vinyl"], purpose: "WAREHOUSE" },
+  tile_layout: { families: ["tile"], purpose: "INSTALLATION" },
+  hardwood_fasteners: { systems: ["nail", "staple"], purpose: "MATERIAL" },
+  existing_bond: { purpose: "LABOR" },
   // Stairs extras
   stair_landings: { purpose: "MEASUREMENT" },
   stair_open_sides: { purpose: "MEASUREMENT" },
@@ -273,13 +280,25 @@ export function knowledgeHelpFor(
     return "Enter rooms in feet and inches. Add a section for closets and offsets. This is MEASURED area — order quantity is calculated next from the product and (for carpet) the cuts.";
   }
   if (q.kind === "cuts") {
-    return "Cuts are the order quantity. Converting room square feet into yards is not a cut plan.";
+    return q.config?.category === "vinyl"
+      ? "Sheet vinyl is roll goods. These cuts are the order quantity — converting room square feet into yards is not a layout."
+      : "Cuts are the order quantity. Converting room square feet into yards is not a cut plan.";
+  }
+  if (key === "tile_layout") {
+    return "Straight vs diagonal changes waste and labor. Capture it; do not auto-inflate waste without the salesperson.";
+  }
+  if (key === "hardwood_fasteners") {
+    return "Nail/staple jobs need fasteners. Pick the catalog item in Builder — this question only records the need.";
+  }
+  if (key === "existing_bond") {
+    return "Glued-down LVP/laminate/vinyl is a different tear-out than floating. Scope note — existing demo rates stay.";
   }
   return null;
 }
 
 export function knowledgeWarnings(ctx: InstallContext, extras?: {
   hasCuts?: boolean;
+  hasVinylCuts?: boolean;
   measuredSqft?: number;
   pickedLabels?: string[];
 }): { id: string; text: string }[] {
@@ -309,10 +328,22 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
       text: "Carpet measured by area only — converting sq ft ÷ 9 is equivalent area, not a cut plan. Enter cuts (roll width × length) before ordering.",
     });
   }
-  if (ctx.families.includes("vinyl") && extras?.hasCuts === false && (extras?.measuredSqft ?? 0) > 0) {
+  if (ctx.families.includes("vinyl") && extras?.hasVinylCuts === false && (extras?.measuredSqft ?? 0) > 0) {
     w.push({
       id: "vinyl-no-layout",
       text: "Sheet vinyl is roll goods. Measured area is not automatically the order quantity — seams and roll width can require more.",
+    });
+  }
+  if (ctx.surfaceLabels.includes("Tile") && picked.some((l) => /diagonal|herringbone|special/i.test(l))) {
+    w.push({
+      id: "tile-layout-waste",
+      text: "Diagonal / special tile layout usually needs more waste than a straight lay. Confirm waste with the salesperson — do not invent a percent.",
+    });
+  }
+  if (picked.some((l) => /glued down/i.test(l))) {
+    w.push({
+      id: "existing-glued",
+      text: "Existing floor is glued down — removal labor is not the same as floating click. Keep the demo line and flag it for the crew.",
     });
   }
   if (ctx.attachedPad === "yes" && ctx.systems.includes("glue")) {

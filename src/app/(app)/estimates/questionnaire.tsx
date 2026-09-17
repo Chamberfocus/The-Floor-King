@@ -593,13 +593,15 @@ export function Questionnaire({
         ? [a.yes ? "Yes" : "No"]
         : a?.kind === "choice"
           ? a.selected
-          : a?.kind === "text"
-            ? [a.text]
-            : a?.kind === "product"
-              ? a.product
-                ? [a.product.label]
-                : []
-              : [];
+          : a?.kind === "choice_areas"
+            ? a.rows.map((r) => r.option).filter(Boolean)
+            : a?.kind === "text"
+              ? [a.text]
+              : a?.kind === "product"
+                ? a.product
+                  ? [a.product.label]
+                  : []
+                : [];
     // A question's gating values = its job-level answer PLUS every per-room
     // override. So a value chosen for even ONE room counts — that's how a later
     // question "recognizes" per-room detail and stops re-asking (e.g. demo
@@ -643,9 +645,11 @@ export function Questionnaire({
         ? [a.yes ? "Yes" : "No"]
         : a?.kind === "choice"
           ? a.selected
-          : a?.kind === "text"
-            ? [a.text]
-            : [];
+          : a?.kind === "choice_areas"
+            ? a.rows.map((r) => r.option).filter(Boolean)
+            : a?.kind === "text"
+              ? [a.text]
+              : [];
     for (const q of questions) {
       if (!visible[q.id] || !q.key) continue;
       const vals = new Set(valsOf(answers[q.id]));
@@ -658,12 +662,14 @@ export function Questionnaire({
     return installContextFromValByKey(valByKey);
   }, [questions, answers, overrides, visible]);
 
-  const cutsSqft = useMemo(() => {
-    let s = 0;
+  const cutsSqftByCategory = useMemo(() => {
+    const out: Record<string, number> = {};
     for (const q of questions) {
       if (q.kind !== "cuts" || !visible[q.id]) continue;
       const a = answers[q.id];
       if (a?.kind !== "cuts") continue;
+      const cat = q.config.category === "vinyl" ? "vinyl" : "carpet";
+      let s = 0;
       for (const g of a.groups) {
         s += carpetYardageFromCuts(
           g.cuts.map((c) => ({
@@ -673,9 +679,11 @@ export function Questionnaire({
           })),
         ).sqft;
       }
+      out[cat] = r2((out[cat] ?? 0) + s);
     }
-    return r2(s);
+    return out;
   }, [questions, answers, visible]);
+  const cutsSqft = r2((cutsSqftByCategory.carpet ?? 0) + (cutsSqftByCategory.vinyl ?? 0));
   // Prep questions that can vary by room (subfloor, demo, skim/level, moisture…).
   const perRoomQuestions = useMemo(
     () =>
@@ -1114,8 +1122,8 @@ export function Questionnaire({
         // "Same carpet" → one shared line for the whole job; otherwise one line
         // per area.
         const sameCarpet = a.same !== false;
-
-        // Each cut → a measured PIECE (the same first-class shape the builder
+        const rollCategory = q.config.category === "vinyl" ? "vinyl" : "carpet";
+        const rollLabel = rollCategory === "vinyl" ? "Sheet vinyl" : "Carpet";
         // stores). Every add-piece is a cut off the roll (labeled with its area),
         // and the pieces sum to the line's yardage.
         type Piece = {
@@ -1158,8 +1166,8 @@ export function Questionnaire({
             room: roomLabel,
             // Product label ONLY — the cut sizes live in measurements (shown on
             // internal cut lists, kept off the customer estimate).
-            description: p?.label || "Carpet",
-            category: "carpet",
+            description: p?.label || rollLabel,
+            category: p?.category || rollCategory,
             measure_unit: "sqyd",
             sqft: totalSqft,
             quantity: totalSqyd,
@@ -1194,7 +1202,7 @@ export function Questionnaire({
           if (instYd > 0) {
             out.push({
               room: roomLabel,
-              description: `Carpet installation${roomLabel ? ` — ${roomLabel}` : ""}`,
+              description: `${rollLabel} installation${roomLabel ? ` — ${roomLabel}` : ""}`,
               category: "labor",
               measure_unit: "sqyd",
               sqft: r2(totalSqyd * 9),
@@ -1488,7 +1496,15 @@ export function Questionnaire({
       const a = answers[qq.id];
       if (qq.key)
         valByKey[qq.key] =
-          a?.kind === "yesno" ? [a.yes ? "Yes" : "No"] : a?.kind === "choice" ? a.selected : a?.kind === "text" ? [a.text] : [];
+          a?.kind === "yesno"
+            ? [a.yes ? "Yes" : "No"]
+            : a?.kind === "choice"
+              ? a.selected
+              : a?.kind === "choice_areas"
+                ? a.rows.map((r) => r.option).filter(Boolean)
+                : a?.kind === "text"
+                  ? [a.text]
+                  : [];
       if (a?.kind === "choice") picked.push(...a.selected);
       if (a?.kind === "choice_areas") picked.push(...a.rows.map((r) => r.option));
     }
@@ -1514,18 +1530,20 @@ export function Questionnaire({
       w.push({ id: "climate", text: "Hardwood / glue-down without confirmed AC and heat — acclimation & adhesion are at risk. Confirm climate control." });
     if (has("moisture_test", "No") && (has("install_method", "Glue-down") || hardwoodOrGlue))
       w.push({ id: "moisture-untested", text: "Glue-down / hardwood without a moisture test — record as field verify rather than assuming the slab is dry." });
-    const hasCuts = cutsSqft > 0;
+    const hasCarpetCuts = (cutsSqftByCategory.carpet ?? 0) > 0;
+    const hasVinylCuts = (cutsSqftByCategory.vinyl ?? 0) > 0;
     w.push(
       ...knowledgeWarnings(flooringCtx, {
-        hasCuts,
+        hasCuts: hasCarpetCuts,
         measuredSqft: totalSqft,
         pickedLabels: picked,
+        hasVinylCuts,
       }),
     );
     // Dedupe by id so overlay + local flags don't double.
     const seen = new Set<string>();
     return w.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
-  }, [questions, answers, visible, overrides, flooringCtx, cutsSqft, totalSqft]);
+  }, [questions, answers, visible, overrides, flooringCtx, cutsSqftByCategory, totalSqft]);
   const activeWarnings = warnings.filter((w) => !dismissed.has(w.id));
 
   const grand = lines.reduce((s, l) => s + lineTotal(smartLineToCalcLine(l)), 0);
@@ -1580,7 +1598,7 @@ export function Questionnaire({
           family,
           measuredSqft: totalSqft,
           wastePct: waste,
-          cutsSqft: cuts > 0 ? cuts : null,
+          cutsSqft: family === "carpet" ? cutsSqftByCategory.carpet ?? 0 : family === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : null,
           sqftPerBox: numv(sqftPerBox) > 0 ? numv(sqftPerBox) : null,
         }),
       );
@@ -1592,15 +1610,19 @@ export function Questionnaire({
         addProduct(a.product.label, a.product.category, a.product.wastePct, a.product.sqftPerBox, cutsSqft);
       } else if (a?.kind === "cuts") {
         const p = a.same !== false ? a.product : a.groups.map((g) => g.product).find(Boolean) ?? null;
-        if (p) addProduct(p.label, p.category || "carpet", p.wastePct, p.sqftPerBox, cutsSqft);
-        else if (cutsSqft > 0) {
-          takeoffs.push(
-            computeMaterialTakeoff({
-              family: "carpet",
-              measuredSqft: totalSqft,
-              cutsSqft,
-            }),
-          );
+        if (p) addProduct(p.label, p.category || qq.config.category || "carpet", p.wastePct, p.sqftPerBox, cutsSqft);
+        else {
+          const fam = qq.config.category === "vinyl" ? "vinyl" : "carpet";
+          const cutSf = fam === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : cutsSqftByCategory.carpet ?? 0;
+          if (cutSf > 0) {
+            takeoffs.push(
+              computeMaterialTakeoff({
+                family: fam,
+                measuredSqft: totalSqft,
+                cutsSqft: cutSf,
+              }),
+            );
+          }
         }
       } else if (a?.kind === "floor_map") {
         for (const p of Object.values(a.byRoom)) {
@@ -1614,7 +1636,12 @@ export function Questionnaire({
           computeMaterialTakeoff({
             family: f,
             measuredSqft: totalSqft,
-            cutsSqft: f === "carpet" || f === "vinyl" ? cutsSqft || null : null,
+            cutsSqft:
+              f === "carpet"
+                ? cutsSqftByCategory.carpet || null
+                : f === "vinyl"
+                  ? cutsSqftByCategory.vinyl || null
+                  : null,
           }),
         );
       }
@@ -1659,7 +1686,7 @@ export function Questionnaire({
       specials,
       extraWarnings: [],
     });
-  }, [questions, answers, visible, totalSqft, cutsSqft, flooringCtx]);
+  }, [questions, answers, visible, totalSqft, cutsSqft, cutsSqftByCategory, flooringCtx]);
 
   // Steps: the currently-visible questions (conditionals reveal as you answer),
   // plus a final Review step.
@@ -3244,11 +3271,14 @@ function QuestionBody({
       }));
     const addGroup = () => mutate((a) => ({ ...a, groups: [...a.groups, newCarpetGroup()] }));
     const removeGroup = (gid: string) => mutate((a) => ({ ...a, groups: a.groups.filter((g) => g.id !== gid) }));
+    const rollNoun = q.config.category === "vinyl" ? "sheet vinyl" : "carpet";
+    const rollNounCap = q.config.category === "vinyl" ? "Sheet vinyl" : "Carpet";
+    const defaultWidth = String((q.config.widths ?? [12])[0] ?? 12);
     const addCut = (gid: string) =>
       mutate((a) => ({
         ...a,
         groups: a.groups.map((g) =>
-          g.id === gid ? { ...g, cuts: [...g.cuts, newCutRow(g.cuts[g.cuts.length - 1]?.width || "12")] } : g,
+          g.id === gid ? { ...g, cuts: [...g.cuts, newCutRow(g.cuts[g.cuts.length - 1]?.width || defaultWidth)] } : g,
         ),
       }));
     const removeCut = (gid: string, cid: string) =>
@@ -3269,19 +3299,20 @@ function QuestionBody({
       <div className="space-y-3">
         {/* Same carpet everywhere vs a different carpet per area. */}
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">Carpet</span>
+          <span className="text-sm font-medium">{rollNounCap}</span>
           <div className="inline-flex rounded-md border p-0.5">
             <SegBtn on={same} onClick={() => setSame(true)} label="Same for all cuts" />
             <SegBtn on={!same} onClick={() => setSame(false)} label="Different per area" />
           </div>
         </div>
 
-        {/* Same mode: pick the carpet once — it applies to every cut below. */}
+        {/* Same mode: pick the product once — it applies to every cut below. */}
         {same ? (
           <ProductPicker
             value={answer.product?.productId ?? ""}
             initialLabel={answer.product?.label ?? ""}
-            label="Which carpet? (used for every cut)"
+            label={`Which ${rollNoun}? (used for every cut)`}
+            defaultCategory={q.config.category === "vinyl" ? "vinyl" : "carpet"}
             fullWidth
             onPick={(prod) => setShared(prod ? toProductAns(prod) : null)}
             onCreated={(prod) => setShared(toProductAns(prod))}
@@ -3295,7 +3326,7 @@ function QuestionBody({
             <div key={g.id} className="space-y-2.5 rounded-lg border bg-muted/20 p-3">
               <div className="flex items-center gap-2">
                 <Input value={g.area} onChange={(e) => patchGroup(g.id, { area: e.target.value })}
-                  placeholder={!same && groups.length > 1 ? `Carpet ${gi + 1} — area / room` : "Area / room (optional)"}
+                  placeholder={!same && groups.length > 1 ? `${rollNounCap} ${gi + 1} — area / room` : "Area / room (optional)"}
                   className="h-10 flex-1" />
                 {groups.length > 1 ? (
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove area" onClick={() => removeGroup(g.id)}>
@@ -3304,7 +3335,7 @@ function QuestionBody({
                 ) : null}
               </div>
               {!same ? (
-                <ProductPicker value={g.product?.productId ?? ""} initialLabel={g.product?.label ?? ""} label="Which carpet?" fullWidth
+                <ProductPicker value={g.product?.productId ?? ""} initialLabel={g.product?.label ?? ""} label={`Which ${rollNoun}?`} defaultCategory={q.config.category === "vinyl" ? "vinyl" : "carpet"} fullWidth
                   onPick={(prod) => patchGroup(g.id, { product: prod ? toProductAns(prod) : null })}
                   onCreated={(prod) => patchGroup(g.id, { product: toProductAns(prod) })}
                   onUseOnce={(input) => patchGroup(g.id, { product: customToProductAns(input) })} />
@@ -3332,17 +3363,19 @@ function QuestionBody({
                   className="text-xs font-medium text-primary hover:underline">+ Add cut</button>
               </div>
               <div className="text-sm">
-                {same ? "This area" : "This carpet"}: <span className="font-semibold tabular-nums">{y.sqyd}</span> sq yd
-                {!same && !g.product ? <span className="text-muted-foreground"> — pick the carpet to price it</span> : null}
+                {same ? "This area" : `This ${rollNoun}`}: <span className="font-semibold tabular-nums">{y.sqyd}</span> sq yd
+                <span className="text-muted-foreground"> to order</span>
+                {!same && !g.product ? <span className="text-muted-foreground"> — pick the {rollNoun} to price it</span> : null}
               </div>
             </div>
           );
         })}
         <Button type="button" variant="outline" size="sm" onClick={addGroup}>
-          <Plus className="size-3.5" /> {same ? "Add another area" : "Different carpet / area"}
+          <Plus className="size-3.5" /> {same ? "Add another area" : `Different ${rollNoun} / area`}
         </Button>
         <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold">
-          Total carpet to order: <span className="tabular-nums">{r2(grandY)}</span> sq yd
+          {rollNounCap} to order: <span className="tabular-nums">{r2(grandY)}</span> sq yd
+          <span className="ml-1 font-normal text-muted-foreground">(from cuts — not measured sq ft ÷ 9)</span>
         </div>
       </div>
     );

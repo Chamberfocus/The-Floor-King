@@ -51,6 +51,7 @@ const REQUIRED_FILES = [
   "0187_catalog_search_pricing_columns.sql",
   "0189_estimate_commission_override.sql",
   "0190_flooring_knowledge_engine.sql",
+  "0191_flooring_knowledge_roll_tile_stairs.sql",
 ];
 
 /**
@@ -726,6 +727,19 @@ const REQUIRED_MARKERS = [
       "Sheet vinyl",
       "Engineered hardwood",
       "Field verify / TBD",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0191_flooring_knowledge_roll_tile_stairs.sql",
+    markers: [
+      "P0_0191_FLOORING_KNOWLEDGE",
+      "vinyl_layout",
+      "tile_layout",
+      "hardwood_fasteners",
+      "existing_bond",
+      "stair_landings",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
