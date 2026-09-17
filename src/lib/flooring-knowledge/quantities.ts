@@ -457,8 +457,8 @@ export function coerceTrimUnit(
 
 /**
  * Width actually entered on a cut row. Empty / zero is not a 12' or 6' roll.
- * Chip defaults may pre-fill the input; they must not be re-applied at emit
- * when the salesperson cleared the field.
+ * Catalog `roll_width_ft` or a chip click may fill the input; family chips
+ * must not be re-applied at emit when the salesperson left the field empty.
  */
 export function enteredCutWidthFt(raw: number | string | null | undefined): number {
   const n = Number(raw);
@@ -466,9 +466,11 @@ export function enteredCutWidthFt(raw: number | string | null | undefined): numb
 }
 
 /**
- * Cut/roll width chips. Product `roll_width_ft` wins when it is actually on
- * the catalog row. Family 12'/6' values are editor chips only — never an
- * order quantity by themselves.
+ * Catalog roll width for a cut row, or 0.
+ *
+ * Product `roll_width_ft` wins when it is actually on the catalog row.
+ * Family 12'/6' values are editor chips only — never planted as the
+ * starting width or as an order quantity.
  */
 export function defaultCutWidthFt(opts: {
   family: FlooringFamily;
@@ -477,7 +479,7 @@ export function defaultCutWidthFt(opts: {
 }): number {
   const fromProduct = Number(opts.productWidthFt);
   if (Number.isFinite(fromProduct) && fromProduct > 0) return fromProduct;
-  return cutWidthChoicesFt({ ...opts, productWidthFt: null })[0]!;
+  return 0;
 }
 
 /** Width chips: question config + the product's real roll width when present. */

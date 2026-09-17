@@ -544,16 +544,13 @@ export function Questionnaire({
           ? { kind: "choice_areas", rows: [] }
           : { kind: "choice", selected: [] };
       else if (q.kind === "cuts") {
-        const chipW = defaultCutWidthFt({
-          family: q.config.category === "vinyl" ? "vinyl" : "carpet",
-          productWidthFt: null,
-          configWidths: q.config.widths ?? null,
-        });
+        // Width stays empty until catalog roll_width_ft or a chip/typed value.
+        // Do not plant 12' (carpet) or 6' (vinyl) as if it were measured.
         init[q.id] = {
           kind: "cuts",
           same: true,
           product: null,
-          groups: [newCarpetGroup(String(chipW))],
+          groups: [newCarpetGroup("")],
         };
       }
       else if (q.kind === "stairs")
@@ -4101,14 +4098,14 @@ function QuestionBody({
       a.same !== false ? a.product : g.product;
     const widthFromProduct = (p: ProductAns | null): number | null =>
       p?.rollWidthFt && p.rollWidthFt > 0 ? p.rollWidthFt : null;
-    const defaultWidthFor = (p: ProductAns | null) =>
-      String(
-        defaultCutWidthFt({
-          family: rollFamily,
-          productWidthFt: widthFromProduct(p),
-          configWidths: q.config.widths ?? null,
-        }),
-      );
+    const defaultWidthFor = (p: ProductAns | null) => {
+      const w = defaultCutWidthFt({
+        family: rollFamily,
+        productWidthFt: widthFromProduct(p),
+        configWidths: q.config.widths ?? null,
+      });
+      return w > 0 ? String(w) : "";
+    };
     const widthChoices = (p: ProductAns | null) =>
       cutWidthChoicesFt({
         family: rollFamily,
@@ -4326,7 +4323,7 @@ function QuestionBody({
                     <div>
                       {ci === 0 ? <label className="mb-1 block text-xs text-muted-foreground">Width (ft)</label> : null}
                       <Input value={c.width} onChange={(e) => patchCut(g.id, c.id, { width: e.target.value })}
-                        inputMode="decimal" placeholder={defaultWidthFor(productForWidth(answer, g))}
+                        inputMode="decimal" placeholder="Width TBD"
                         className="h-11 w-20 text-base md:h-10 md:w-16" />
                     </div>
                     <div className="flex flex-wrap gap-1 pb-2">

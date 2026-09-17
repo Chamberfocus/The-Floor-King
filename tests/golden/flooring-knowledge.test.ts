@@ -945,9 +945,11 @@ describe("product metadata overrides generic roll-width defaults", () => {
     ).toBe(15);
     expect(
       defaultCutWidthFt({ family: "vinyl", productWidthFt: null, configWidths: [6, 12] }),
-    ).toBe(6);
-    expect(defaultCutWidthFt({ family: "carpet" })).toBe(12);
-    expect(defaultCutWidthFt({ family: "vinyl" })).toBe(6);
+    ).toBe(0);
+    expect(defaultCutWidthFt({ family: "carpet" })).toBe(0);
+    expect(defaultCutWidthFt({ family: "vinyl" })).toBe(0);
+    expect(cutWidthChoicesFt({ family: "carpet" })).toEqual([12, 15]);
+    expect(cutWidthChoicesFt({ family: "vinyl" })).toEqual([6, 12]);
     expect(enteredCutWidthFt("")).toBe(0);
     expect(enteredCutWidthFt("0")).toBe(0);
     expect(enteredCutWidthFt(null)).toBe(0);
@@ -3384,6 +3386,31 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const rolls = readFileSync(join(root, "src/lib/data/stock-rolls.ts"), "utf8");
     expect(rolls).not.toMatch(/\|\| "sqyd"/);
+  });
+
+  it("0231 does not plant a 12-foot or 6-foot cut width before the salesperson enters one", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0231_flooring_knowledge_cut_width_init.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0231_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/does not plant 12/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(defaultCutWidthFt({ family: "carpet" })).toBe(0);
+    expect(defaultCutWidthFt({ family: "vinyl" })).toBe(0);
+    expect(defaultCutWidthFt({ family: "carpet", productWidthFt: 13.5 })).toBe(13.5);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/newCarpetGroup\(""\)/);
+    expect(q).not.toMatch(/String\(chipW\)/);
+    expect(q).toMatch(/placeholder="Width TBD"/);
+    expect(q).not.toMatch(/placeholder=\{defaultWidthFor/);
+
+    const qty = readFileSync(join(root, "src/lib/flooring-knowledge/quantities.ts"), "utf8");
+    expect(qty).toMatch(/return 0;/);
+    expect(qty).not.toMatch(/cutWidthChoicesFt\(\{ \.\.\.opts, productWidthFt: null \}\)\[0\]/);
   });
 
   it("pattern repeat only after pattern match is required", () => {
