@@ -217,7 +217,30 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
 
   // Details
   { key: "stairs", purpose: "MEASUREMENT", phase: "details" },
-  { key: "carpet_stairs", purpose: "MEASUREMENT", phase: "details", families: ["carpet"] },
+  {
+    key: "carpet_stairs",
+    purpose: "MEASUREMENT",
+    phase: "details",
+    families: ["carpet"],
+    require: { key: "carpet_install", in: ["Stretch-in", "Glue-down", "Unknown / field verify"] },
+  },
+  {
+    key: "carpet_tile_stairs",
+    purpose: "MEASUREMENT",
+    phase: "details",
+    families: ["carpet"],
+    systems: ["carpet_tile"],
+    require: { key: "carpet_install", in: ["Carpet tile"] },
+  },
+  {
+    key: "carpet_tile_stair_count",
+    purpose: "MEASUREMENT",
+    phase: "details",
+    families: ["carpet"],
+    systems: ["carpet_tile"],
+    quantityUnit: "each",
+    require: { key: "carpet_tile_stairs", in: ["Yes"] },
+  },
   { key: "hs_plank_stairs", purpose: "MEASUREMENT", phase: "details", families: ["lvp", "hardwood", "laminate", "vinyl", "tile"] },
   { key: "metals_needed", purpose: "ACCESSORY", phase: "details", families: ["carpet"] },
   {

@@ -84,6 +84,8 @@ import {
   emptyInstallContext,
 } from "@/lib/flooring-knowledge";
 import { billsBySquareYard } from "@/lib/units";
+import { installDaysForJob } from "@/lib/scheduling";
+import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import type { ShowIfClause } from "@/lib/types";
 
 const root = process.cwd();
@@ -1076,8 +1078,8 @@ describe("family → system asks the right keys (not every question)", () => {
       project_type: ["Carpet"],
       carpet_install: ["Stretch-in"],
     });
-    on(carpetStretch, ["carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat"]);
-    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test", "hs_direction"]);
+    on(carpetStretch, ["carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat", "carpet_stairs"]);
+    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "carpet_tile_stairs"]);
 
     const carpetGlue = visibleKnowledgeKeys({
       project_type: ["Carpet"],
@@ -1090,8 +1092,8 @@ describe("family → system asks the right keys (not every question)", () => {
       project_type: ["Carpet"],
       carpet_install: ["Carpet tile"],
     });
-    on(carpetTile, ["adhesive", "carpet_cuts"]);
-    off(carpetTile, ["tack_strip", "carpet_pad", "laminate_expansion"]);
+    on(carpetTile, ["adhesive", "carpet_cuts", "carpet_tile_stairs"]);
+    off(carpetTile, ["tack_strip", "carpet_pad", "laminate_expansion", "carpet_stairs"]);
 
     const lam = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
@@ -1566,6 +1568,16 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "appliances", position: 260, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "delivery_scope", position: 535, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "carpet_stairs", position: 250, show_if: { key: "project_type", in: ["Carpet"] } },
+    {
+      key: "carpet_tile_stairs",
+      position: 251,
+      show_if: { key: "carpet_install", in: ["Carpet tile"] },
+    },
+    {
+      key: "carpet_tile_stair_count",
+      position: 252,
+      show_if: { key: "carpet_tile_stairs", in: ["Yes"] },
+    },
     { key: "hs_plank_stairs", position: 250, show_if: { key: "project_type", in: ["Hard surface"] } },
     {
       key: "stair_landings",
@@ -1575,6 +1587,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
           { key: "stairs", in: ["Yes"] },
           { key: "carpet_stairs", in: ["Yes"] },
           { key: "hs_plank_stairs", in: ["Yes"] },
+          { key: "carpet_tile_stairs", in: ["Yes"] },
         ],
       },
     },
@@ -1586,6 +1599,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
           { key: "stairs", in: ["Yes"] },
           { key: "carpet_stairs", in: ["Yes"] },
           { key: "hs_plank_stairs", in: ["Yes"] },
+          { key: "carpet_tile_stairs", in: ["Yes"] },
         ],
       },
     },
@@ -2023,6 +2037,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(keys).toContain("adhesive");
     expect(keys).toContain("carpet_cuts");
+    expect(keys).toContain("carpet_tile_stairs");
+    expect(keys).not.toContain("carpet_stairs");
     expect(keys).not.toContain("tack_strip");
     expect(keys).not.toContain("carpet_pad");
     expect(keys).not.toContain("vapor_barrier");
@@ -2665,6 +2681,122 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/rollGoodsNeedCuts/);
     expect(q).toMatch(/order_as_roll: false/);
     expect(knowledgeQuestionByKey("carpet_cuts")?.purpose).toBe("WAREHOUSE");
+  });
+
+  it("0214 hides waterfall stairs on exclusive carpet tile and asks a step count in EACH", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0214_flooring_knowledge_carpet_tile_stairs.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0214_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/carpet_tile_stairs/);
+    expect(sql).toMatch(/carpet_tile_stair_count/);
+    expect(sql).toMatch(/waterfall/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/insert into public\.products/);
+
+    const unanswered = walk({ project_type: ["Carpet"] });
+    expect(unanswered).toContain("carpet_stairs");
+    expect(unanswered).not.toContain("carpet_tile_stairs");
+
+    const stretch = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("carpet_stairs");
+    expect(stretch).not.toContain("carpet_tile_stairs");
+    expect(stretch).not.toContain("carpet_tile_stair_count");
+
+    const tile = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(tile).toContain("carpet_tile_stairs");
+    expect(tile).not.toContain("carpet_stairs");
+    expect(tile).not.toContain("carpet_tile_stair_count");
+
+    const counted = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+      carpet_tile_stairs: ["Yes"],
+    });
+    expect(counted).toContain("carpet_tile_stair_count");
+    expect(counted).toContain("stair_landings");
+    expect(counted.indexOf("carpet_tile_stairs")).toBeLessThan(
+      counted.indexOf("carpet_tile_stair_count")!,
+    );
+    expect(amountUnitLabelForQuestion({ key: "carpet_tile_stair_count" })).toBe("each");
+    expect(synthesizeStairGate({ carpet_tile_stairs: ["Yes"] }).stairs).toEqual(["Yes"]);
+
+    const tbd = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+      carpet_tile_stairs: ["Field verify / TBD"],
+    });
+    expect(tbd).not.toContain("carpet_tile_stair_count");
+    expect(tbd).not.toContain("stair_landings");
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/Exclusive carpet tile is modular — do not emit wrap/);
+    expect(knowledgeQuestionByKey("carpet_stairs")?.require?.in).toEqual(
+      expect.arrayContaining(["Stretch-in", "Glue-down"]),
+    );
+
+    const glue = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(glue).toContain("carpet_stairs");
+    expect(glue).not.toContain("carpet_tile_stairs");
+  });
+
+  it("install-day labels distinguish LVP from sheet vinyl without inventing a second capacity", () => {
+    const line = (category: "lvp" | "vinyl") =>
+      ({
+        id: "1",
+        option_id: "o",
+        position: 0,
+        room: null,
+        description: category,
+        note: null,
+        line_type: "mat_labor" as const,
+        sqft: 250,
+        length_in: null,
+        width_in: null,
+        measure_unit: "sqft" as const,
+        material_rate: 0,
+        labor_rate: 0,
+        installed_rate: null,
+        flat_amount: null,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        item_no: null,
+        material_cost: 0,
+        labor_cost: 0,
+        quantity: 250,
+        unit: "sq ft",
+        category,
+        from_stock: false,
+        order_as_roll: false,
+        roll_width_ft: null,
+        sqft_per_box: null,
+        is_fill: false,
+        is_optional: false,
+        measurements: null,
+      });
+    const lvp = installDaysForJob([line("lvp")], SCHEDULING_DEFAULTS);
+    expect(lvp.breakdown.map((b) => b.label)).toEqual(["LVP / LVT"]);
+    expect(lvp.breakdown[0]?.unit).toBe("sq ft");
+    const vinyl = installDaysForJob([line("vinyl")], SCHEDULING_DEFAULTS);
+    expect(vinyl.breakdown.map((b) => b.label)).toEqual(["Sheet vinyl"]);
+    expect(vinyl.breakdown[0]?.unit).toBe("sq ft");
+    expect(vinyl.days).toBe(lvp.days);
+    const src = readFileSync(join(root, "src/lib/scheduling.ts"), "utf8");
+    expect(src).not.toMatch(/Luxury \/ sheet vinyl/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

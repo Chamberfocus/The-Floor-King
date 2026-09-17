@@ -78,7 +78,7 @@ export function answerGateValues(a: unknown): string[] {
   }
 }
 
-const STAIR_SOURCE_KEYS = ["stairs", "carpet_stairs", "hs_plank_stairs"] as const;
+const STAIR_SOURCE_KEYS = ["stairs", "carpet_stairs", "hs_plank_stairs", "carpet_tile_stairs"] as const;
 
 /**
  * The live stair questions are keyed `carpet_stairs` / `hs_plank_stairs`.

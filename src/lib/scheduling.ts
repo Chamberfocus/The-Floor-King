@@ -87,8 +87,12 @@ export function installDaysForJob(
         add("Carpet", sy, "sq yd", daysAt(sy, s.cap_carpet_yd));
         break;
       case "lvp":
+        add("LVP / LVT", sf, "sq ft", daysAt(sf, s.cap_lvt_sf));
+        break;
       case "vinyl":
-        add("Luxury / sheet vinyl", sf, "sq ft", daysAt(sf, s.cap_lvt_sf));
+        // Floor King settings only have one luxury/sheet daily capacity.
+        // Do not invent a second rate — label sheet vinyl as itself.
+        add("Sheet vinyl", sf, "sq ft", daysAt(sf, s.cap_lvt_sf));
         break;
       case "laminate":
         add("Laminate", sf, "sq ft", daysAt(sf, s.cap_laminate_sf));

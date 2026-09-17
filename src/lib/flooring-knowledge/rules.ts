@@ -582,7 +582,13 @@ export function knowledgeHelpFor(
     return "Embossed existing vinyl often needs a skim coat. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";
   }
   if (key === "carpet_stairs") {
-    return "Waterfall vs upholstered changes the per-step labor. This is not a hard-surface stair-nose takeoff.";
+    return "Waterfall vs upholstered is stretch-in / glue-down wrap labor. Exclusive carpet tile hides this — modular tile on stairs is not a waterfall cut plan.";
+  }
+  if (key === "carpet_tile_stairs") {
+    return "Carpet tile on stairs is not waterfall wrap. Capture whether stairs are in scope. Do not invent stair-nose or wrap labor — pick a catalog item in Builder if Floor King sells it.";
+  }
+  if (key === "carpet_tile_stair_count") {
+    return "Count of carpet-tile steps in EACH — never square feet. Notes for the crew. Field verify if you have not seen them.";
   }
   if (key === "hs_plank_stairs") {
     return "Hard-surface stairs are treads/risers and stair noses, not carpet waterfall. Matching stairnose stays on Trims.";

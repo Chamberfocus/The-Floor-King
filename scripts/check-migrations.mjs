@@ -74,6 +74,7 @@ const REQUIRED_FILES = [
   "0211_flooring_knowledge_tack_lnft.sql",
   "0212_flooring_knowledge_adhesive_qty.sql",
   "0213_flooring_knowledge_carpet_tile.sql",
+  "0214_flooring_knowledge_carpet_tile_stairs.sql",
 ];
 
 /**
@@ -1007,6 +1008,17 @@ const REQUIRED_MARKERS = [
       "carpet_cuts",
       "Carpet tile is modular",
       "do not invent a box size",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0214_flooring_knowledge_carpet_tile_stairs.sql",
+    markers: [
+      "P0_0214_FLOORING_KNOWLEDGE",
+      "carpet_tile_stairs",
+      "carpet_tile_stair_count",
+      "waterfall",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

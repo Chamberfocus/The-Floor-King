@@ -1459,8 +1459,11 @@ export function Questionnaire({
         }
         }
       } else if (q.kind === "stairs" && a.kind === "stairs") {
-        // Stairs → step LABOR + the CARPET the steps consume (waterfall vs
-        // upholstered use different per-step allowances, from the option config).
+        // Waterfall / upholstered wrap labor is stretch-in (and glue-down
+        // broadloom). Exclusive carpet tile is modular — do not emit wrap $.
+        if (rollGoodsNeedCuts("carpet", carpetSystems)) {
+        // Stairs → step LABOR. The carpet a staircase consumes is already
+        // in the cuts; do not add a second material line.
         const opts = q.config.options ?? [];
         for (const g of a.groups) {
           const n = Math.ceil(numv(g.count));
@@ -1500,6 +1503,7 @@ export function Questionnaire({
            * The step LABOUR above is still charged, per step: that's real work
            * the measurement doesn't cover.
            */
+        }
         }
       } else if (q.kind === "hs_stairs" && a.kind === "hs_stairs") {
         // Hard-surface stairs wrapped in plank: area = steps × sq ft/step
