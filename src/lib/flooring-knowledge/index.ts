@@ -189,6 +189,7 @@ export {
   jobIsExclusiveCarpetTileOnly,
   jobIsExclusiveSolidHardwood,
   jobIsExclusiveConcrete,
+  jobHasHardSurfaceInstallScope,
   jobHidesSlabMoistureOnWoodDeck,
   jobAllowsFloatingVaporUnderlayment,
   choiceOptionApplies,

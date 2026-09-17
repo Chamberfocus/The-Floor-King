@@ -134,6 +134,7 @@ const REQUIRED_FILES = [
   "0271_flooring_knowledge_carpet_tile_vapor.sql",
   "0272_flooring_knowledge_wood_moisture.sql",
   "0273_flooring_knowledge_sole_leftover.sql",
+  "0274_flooring_knowledge_carpet_hs_leftover.sql",
 ];
 
 /**
@@ -1655,6 +1656,16 @@ const REQUIRED_MARKERS = [
       "P0_0273_FLOORING_KNOWLEDGE",
       "do not switch follow-ups",
       "Do NOT SQL-gate adhesive on surface_type",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0274_flooring_knowledge_carpet_hs_leftover.sql",
+    markers: [
+      "P0_0274_FLOORING_KNOWLEDGE",
+      "does not open expansion, underlayment, or click-floor vapor",
+      "Do NOT SQL-gate vapor_barrier on install_method",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

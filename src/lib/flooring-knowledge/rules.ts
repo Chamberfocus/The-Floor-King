@@ -176,9 +176,11 @@ export function finalizeInstallContext(ctx: InstallContext): InstallContext {
   const carpetSystems = ctx.answeredCarpetInstall
     .map(installSystemFromLabel)
     .filter((s): s is InstallSystem => s !== "unknown");
-  const hsAnswered = ctx.answeredInstallMethod
-    .map(installSystemFromLabel)
-    .filter((s): s is InstallSystem => s !== "unknown");
+  const hsAnswered = jobHasHardSurfaceInstallScope(ctx)
+    ? ctx.answeredInstallMethod
+        .map(installSystemFromLabel)
+        .filter((s): s is InstallSystem => s !== "unknown")
+    : [];
   const coalesced = coalesceSoleInstallSystem(
     ctx.families,
     ctx.hardwoodConstruction,
@@ -571,6 +573,17 @@ export function jobIsExclusiveConcrete(install: InstallContext): boolean {
 }
 
 /**
+ * Hard-surface install_method chips apply only when a hard-surface family is
+ * in play (or HS is still unanswered). Carpet-only leftover Floating / Glue
+ * must not reopen click-floor follow-ups or undo exclusive carpet-tile vapor
+ * hide. Mixed Carpet + LVP keeps those chips. Unanswered HS stays open (0142).
+ */
+export function jobHasHardSurfaceInstallScope(install: InstallContext): boolean {
+  if (install.surfacePending) return true;
+  return install.families.some(isHardSurfaceFamily);
+}
+
+/**
  * Slab moisture test / Aqua bar on a wood deck. Glue-down, carpet tile, a
  * moisture-concern flag, mixed LVP, unanswered method, and unanswered
  * substrate stay open. Exclusive hardwood nail/staple/floating over
@@ -776,7 +789,7 @@ export function knowledgeHelpFor(
     }
   }
   if (key === "carpet_install") {
-    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Exclusive carpet tile hides pattern match, pattern repeat, and seam/direction notes — those are a roll cut plan, not modular layout. Mixed stretch-in + tile still asks them. Exclusive carpet tile also hides the 6-mil vapor-barrier question — modular tile uses adhesive, not a floating-floor sheet. Acclimation, moisture test, and Aqua bar still ask. Mixed LVP or hardwood + carpet tile still asks vapor barrier. Do not invent a box size.";
+    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Exclusive carpet tile hides pattern match, pattern repeat, and seam/direction notes — those are a roll cut plan, not modular layout. Mixed stretch-in + tile still asks them. Exclusive carpet tile also hides the 6-mil vapor-barrier question — modular tile uses adhesive, not a floating-floor sheet. Acclimation, moisture test, and Aqua bar still ask. Mixed LVP or hardwood + carpet tile still asks vapor barrier. Leftover Floating / Glue-down on a carpet-only job is a hard-surface chip — it does not open expansion, underlayment, or click-floor vapor. Mixed Carpet + LVP still asks those. Do not invent a box size.";
   }
   if (key === "prep_confidence") {
     return "If you cannot see the substrate until demo, leave this as Field verify / TBD rather than guessing a bag count.";
@@ -854,7 +867,7 @@ export function knowledgeHelpFor(
     return "AC and heat on site. The acclimation warning fires only for hardwood / glue-down / carpet tile, from this overlay — not a second questionnaire list. Stretch-in and floating still capture it as an install condition. Legacy AC/heat yes-no answers still count.";
   }
   if (key === "laminate_expansion") {
-    return "Floating floors need expansion at walls and transitions. Solid hardwood hides this — floating is not a permitted system. Exclusive laminate leftover Glue-down still asks this — laminate is floating. Exclusive tile leftover Floating hides this. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
+    return "Floating floors need expansion at walls and transitions. Solid hardwood hides this — floating is not a permitted system. Exclusive laminate leftover Glue-down still asks this — laminate is floating. Exclusive tile leftover Floating hides this. Carpet-only leftover Floating hides this — click-floor expansion is not a stretch-in question. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
   }
   if (key === "attached_pad") {
     return "Floating LVP / laminate / engineered may have an attached pad. Solid hardwood hides this — floating is not a permitted system. Glue-down hides this. Exclusive laminate leftover Glue-down still asks this. Exclusive tile leftover Floating hides this. Yes hides separate underlayment.";
@@ -872,7 +885,7 @@ export function knowledgeHelpFor(
     return "Count of vents/registers to change, in EACH. Never square feet. Pick a catalog vent on Trims if Floor King sells it; otherwise this is a crew note.";
   }
   if (key === "vapor_barrier") {
-    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Exclusive carpet tile hides this — modular tile uses adhesive, not a floating-floor sheet. Aqua bar stays on moisture mitigation. Mixed LVP or hardwood + tile or carpet tile still asks. Glue-down, carpet tile, nail-down, and stretch-in hide Included with underlayment — that is a floating-floor sheet, not an adhesive moisture system. Unanswered LVP and floating still offer it.";
+    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Exclusive carpet tile hides this — modular tile uses adhesive, not a floating-floor sheet. Aqua bar stays on moisture mitigation. Mixed LVP or hardwood + tile or carpet tile still asks. Leftover Floating on a carpet-only job does not reopen this. Glue-down, carpet tile, nail-down, and stretch-in hide Included with underlayment — that is a floating-floor sheet, not an adhesive moisture system. Unanswered LVP and floating still offer it.";
   }
   if (key === "substrate") {
     return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete. Exclusive Concrete hides 4×8 subfloor sheets — a slab is patch / self-level, not plywood overlay. Plywood / wood / existing flooring still ask.";
@@ -923,7 +936,7 @@ export function knowledgeHelpFor(
     return "Aqua bar / primer only when hardwood, glue-down, carpet tile, or a moisture-concern flag makes it relevant. Floating laminate and stretch-in without that flag hide this. Exclusive carpet tile asks this instead of 6-mil vapor barrier. Exclusive hardwood nail/staple/floating over plywood hides this — Aqua bar is a slab system; glue-down over wood still asks. Mixed LVP still asks. Unanswered substrate stays open. Existing catalog rates — do not invent a new product.";
   }
   if (key === "adhesive") {
-    return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this. Exclusive laminate leftover Glue-down does not show this — laminate is floating. Exclusive sheet vinyl leftover Floating still asks this — sheet vinyl is glue-down. Mixed LVP still asks. Quantity is gallons or kits in Builder — taped square feet is not a glue order. A line with no sold-by unit shows How many / Unit TBD, not Sq ft. Do not invent coverage.";
+    return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this. Exclusive laminate leftover Glue-down does not show this — laminate is floating. Exclusive sheet vinyl leftover Floating still asks this — sheet vinyl is glue-down. Carpet-only leftover Glue-down does not show this — carpet glue is on Carpet install. Mixed LVP still asks. Quantity is gallons or kits in Builder — taped square feet is not a glue order. A line with no sold-by unit shows How many / Unit TBD, not Sq ft. Do not invent coverage.";
   }
   if (key === "vinyl_skim") {
     return "Embossed existing vinyl often needs a skim coat. New construction hides this — there is no existing vinyl. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";
@@ -1127,6 +1140,19 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
         text: `${hs ? familyLabel(hs) : "This product"} is ${INSTALL_METHOD_LABELS[sole]}. Leftover “${leftover.join(" / ")}” does not switch follow-ups — adhesive, pad, and expansion follow the legal system. Confirm the product, or clear the leftover chip.`,
       });
     }
+  }
+  if (
+    ctx.families.includes("carpet") &&
+    !jobHasHardSurfaceInstallScope(ctx) &&
+    ctx.answeredInstallMethod.some((l) => installSystemFromLabel(l) !== "unknown")
+  ) {
+    const leftover = ctx.answeredInstallMethod.filter(
+      (l) => installSystemFromLabel(l) !== "unknown",
+    );
+    w.push({
+      id: "carpet-hs-leftover",
+      text: `This job is carpet only. Leftover “${leftover.join(" / ")}” is a hard-surface method and does not switch pad, adhesive, expansion, or 6-mil vapor follow-ups. Stretch-in / glue-down / carpet tile stay on Carpet install.`,
+    });
   }
   if (
     ctx.families.includes("carpet") &&

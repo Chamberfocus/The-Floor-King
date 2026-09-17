@@ -93,6 +93,7 @@ import {
   jobIsExclusiveCarpetTileOnly,
   jobIsExclusiveSolidHardwood,
   jobIsExclusiveConcrete,
+  jobHasHardSurfaceInstallScope,
   jobHidesSlabMoistureOnWoodDeck,
   labelsAreWoodDeckOnly,
   jobAllowsFloatingVaporUnderlayment,
@@ -6459,6 +6460,144 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     }))).toMatch(/Leftover Glue-down/);
     expect(knowledgeHelpFor({ key: "laminate_expansion" }, emptyInstallContext())).toMatch(
       /Exclusive laminate leftover Glue-down still asks this/,
+    );
+  });
+
+  it("0274 carpet-only leftover HS chips do not reopen click-floor follow-ups", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0274_flooring_knowledge_carpet_hs_leftover.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0274_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/does not open expansion, underlayment, or click-floor vapor/);
+    expect(sql).toMatch(/Do NOT SQL-gate vapor_barrier on install_method/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*install_method.*vapor_barrier|vapor_barrier.*show_if.*install_method/,
+    );
+
+    expect(
+      jobHasHardSurfaceInstallScope(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          install_method: ["Floating / click"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHasHardSurfaceInstallScope(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          surface_type: ["LVP / LVT"],
+          carpet_install: ["Stretch-in"],
+          install_method: ["Floating / click"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHasHardSurfaceInstallScope(
+        installContextFromValByKey({ project_type: ["Hard surface"] }),
+      ),
+    ).toBe(true);
+
+    const stretchFloat = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      install_method: ["Floating / click"],
+    });
+    expect(stretchFloat).toContain("tack_strip");
+    expect(stretchFloat).toContain("carpet_pad");
+    expect(stretchFloat).not.toContain("laminate_expansion");
+    expect(stretchFloat).not.toContain("hs_underlayment");
+    expect(stretchFloat).not.toContain("attached_pad");
+    expect(stretchFloat).not.toContain("adhesive");
+    expect(stretchFloat).not.toContain("vapor_barrier");
+
+    const overlayStretch = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      install_method: ["Floating / click"],
+    });
+    expect(overlayStretch).not.toContain("laminate_expansion");
+    expect(overlayStretch).toContain("tack_strip");
+
+    const tileFloat = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+      install_method: ["Floating / click"],
+      substrate: ["Concrete"],
+    });
+    expect(tileFloat).not.toContain("vapor_barrier");
+    expect(tileFloat).not.toContain("laminate_expansion");
+    expect(tileFloat).toContain("adhesive");
+    expect(tileFloat).toContain("moisture_test");
+    expect(
+      jobIsExclusiveCarpetTileOnly(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Carpet tile"],
+          install_method: ["Floating / click"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(true);
+
+    const stretchGlue = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      install_method: ["Glue-down"],
+    });
+    expect(stretchGlue).toContain("tack_strip");
+    expect(stretchGlue).not.toContain("adhesive");
+    expect(stretchGlue).not.toContain("acclimation");
+    expect(stretchGlue).not.toContain("moisture_test");
+
+    const unanswered = walk({
+      project_type: ["Carpet"],
+      install_method: ["Floating / click"],
+      substrate: ["Concrete"],
+    });
+    expect(unanswered).toContain("carpet_install");
+    expect(unanswered).toContain("vapor_barrier");
+
+    const mixed = walk({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+      carpet_install: ["Stretch-in"],
+      install_method: ["Floating / click"],
+    });
+    expect(mixed).toContain("laminate_expansion");
+    expect(mixed).toContain("attached_pad");
+    expect(mixed).toContain("tack_strip");
+    expect(mixed).toContain("vapor_barrier");
+
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          install_method: ["Floating / click"],
+        }),
+      ).some((w) => w.id === "carpet-hs-leftover"),
+    ).toBe(true);
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          surface_type: ["LVP / LVT"],
+          carpet_install: ["Stretch-in"],
+          install_method: ["Floating / click"],
+        }),
+      ).some((w) => w.id === "carpet-hs-leftover"),
+    ).toBe(false);
+
+    expect(knowledgeHelpFor({ key: "carpet_install" }, emptyInstallContext())).toMatch(
+      /Leftover Floating \/ Glue-down on a carpet-only job/,
+    );
+    expect(knowledgeHelpFor({ key: "vapor_barrier" }, emptyInstallContext())).toMatch(
+      /Leftover Floating on a carpet-only job does not reopen this/,
     );
   });
 
