@@ -41,6 +41,8 @@ import {
   ROLL_GOODS_CUTS_HEADER,
   ROLL_GOODS_CUTS_EMPTY_HINT,
   lineMeasurementsRollTotalLabel,
+  questionnaireCutGroupOrderLabel,
+  questionnaireCutsGrandOrderLabel,
   formatBillingQty,
   takeoffConceptRows,
   takeoffUnitKeyLabel,
@@ -4269,6 +4271,38 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(panel).not.toMatch(/Cuts & areas/);
     expect(panel).not.toMatch(/They add up to the sq yd/);
     expect(panel).not.toMatch(/width_ft: 12/);
+  });
+
+  it("0252 Guided Estimate cut totals are Order TBD when width × length is missing", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0252_flooring_knowledge_cuts_tbd.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0252_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/0 sq yd is not an order/);
+    expect(sql).toMatch(/Order TBD/);
+    expect(sql).toMatch(/do not plant 12/i);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(questionnaireCutGroupOrderLabel(0)).toBe(
+      "Order TBD — width × length, not measured sq ft ÷ 9",
+    );
+    expect(questionnaireCutGroupOrderLabel(40)).toBe("40 sq yd to order (from cuts)");
+    expect(questionnaireCutsGrandOrderLabel(0, "Carpet")).toEqual({
+      title: "Carpet order TBD",
+      note: "Enter cuts (width × length). Sq ft ÷ 9 is not an order.",
+    });
+    expect(questionnaireCutsGrandOrderLabel(60, "Sheet vinyl")).toEqual({
+      title: "Sheet vinyl to order: 60 sq yd",
+      note: "from cuts — not measured sq ft ÷ 9",
+    });
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/questionnaireCutGroupOrderLabel/);
+    expect(q).toMatch(/questionnaireCutsGrandOrderLabel/);
+    expect(q).not.toMatch(/\{rollNounCap\} to order: <span className="tabular-nums">\{r2\(grandY\)\}<\/span> sq yd/);
+    expect(q).not.toMatch(/width_ft: 12/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

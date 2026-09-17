@@ -103,6 +103,8 @@ export {
   ROLL_GOODS_CUTS_HEADER,
   ROLL_GOODS_CUTS_EMPTY_HINT,
   lineMeasurementsRollTotalLabel,
+  questionnaireCutGroupOrderLabel,
+  questionnaireCutsGrandOrderLabel,
   formatMeasuredLabel,
   formatBillingQty,
   formatTakeoffStrip,

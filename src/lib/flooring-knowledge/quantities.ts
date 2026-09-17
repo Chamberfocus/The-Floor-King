@@ -379,6 +379,34 @@ export function lineMeasurementsRollTotalLabel(totalSqft: number): string {
   return `${formatSqft(n)} · ${formatSqyd(equivalentSqyd(n))} from cuts (the order)`;
 }
 
+/** Per-group cuts total in Guided Estimate. Empty width is TBD, not 0 yards. */
+export function questionnaireCutGroupOrderLabel(orderSqyd: number): string {
+  const n = Number(orderSqyd);
+  if (!Number.isFinite(n) || n <= 0) {
+    return "Order TBD — width × length, not measured sq ft ÷ 9";
+  }
+  return `${r2(n)} sq yd to order (from cuts)`;
+}
+
+/** Grand cuts total in Guided Estimate. 0 yards is TBD, not an order of zero. */
+export function questionnaireCutsGrandOrderLabel(
+  orderSqyd: number,
+  productNoun: string,
+): { title: string; note: string } {
+  const n = Number(orderSqyd);
+  const noun = (productNoun || "Roll goods").trim() || "Roll goods";
+  if (!Number.isFinite(n) || n <= 0) {
+    return {
+      title: `${noun} order TBD`,
+      note: "Enter cuts (width × length). Sq ft ÷ 9 is not an order.",
+    };
+  }
+  return {
+    title: `${noun} to order: ${r2(n)} sq yd`,
+    note: "from cuts — not measured sq ft ÷ 9",
+  };
+}
+
 /**
  * Builder line description when a roll-goods SKU is picked but cuts are not
  * entered. Measured area may be noted in the text; it is never a warehouse

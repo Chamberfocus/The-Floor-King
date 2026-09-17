@@ -58,6 +58,8 @@ import {
   defaultCutWidthFt,
   enteredCutWidthFt,
   rollGoodsOrderTbdDescription,
+  questionnaireCutGroupOrderLabel,
+  questionnaireCutsGrandOrderLabel,
   computeMaterialTakeoff,
   emptyInstallContext,
   familyFromCatalogCategory,
@@ -4281,6 +4283,7 @@ function QuestionBody({
     const yardOf = (g: CarpetGroup) =>
       carpetYardageFromCuts(g.cuts.map((c) => ({ lengthFt: numv(c.lf), lengthIn: numv(c.li), rollWidthFt: numv(c.width) })));
     const grandY = groups.reduce((s, g) => s + yardOf(g).sqyd, 0);
+    const grandOrder = questionnaireCutsGrandOrderLabel(grandY, rollNounCap);
     const SegBtn = ({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) => (
       <button type="button" onClick={onClick}
         className={cn("rounded px-3 py-1.5 text-sm font-medium", on ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
@@ -4500,8 +4503,8 @@ function QuestionBody({
                   className="text-xs font-medium text-primary hover:underline">+ Add cut</button>
               </div>
               <div className="text-sm">
-                {same ? "This area" : `This ${rollNoun}`}: <span className="font-semibold tabular-nums">{y.sqyd}</span> sq yd
-                <span className="text-muted-foreground"> to order</span>
+                {same ? "This area" : `This ${rollNoun}`}:{" "}
+                <span className="font-semibold tabular-nums">{questionnaireCutGroupOrderLabel(y.sqyd)}</span>
                 {!same && !g.product ? <span className="text-muted-foreground"> — pick the {rollNoun} to price it</span> : null}
               </div>
             </div>
@@ -4511,8 +4514,10 @@ function QuestionBody({
           <Plus className="size-3.5" /> {same ? "Add another area" : `Different ${rollNoun} / area`}
         </Button>
         <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold">
-          {rollNounCap} to order: <span className="tabular-nums">{r2(grandY)}</span> sq yd
-          <span className="ml-1 font-normal text-muted-foreground">(from cuts — not measured sq ft ÷ 9)</span>
+          {grandOrder.title}
+          <span className="ml-1 font-normal text-muted-foreground">
+            ({grandOrder.note})
+          </span>
         </div>
       </div>
     );
