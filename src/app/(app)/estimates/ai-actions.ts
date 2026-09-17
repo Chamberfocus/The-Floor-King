@@ -15,6 +15,12 @@ import {
   sellMaterialFromTargetMargin,
 } from "@/lib/estimate-pricing";
 import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
+import {
+  areaDerivedMaterialAllowed,
+  familyFromCatalogCategory,
+  formatEquivalentSqyd,
+  formatSqft,
+} from "@/lib/flooring-knowledge";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
 export interface DraftQuoteResult {
@@ -138,6 +144,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     const isYd = profile.unit === "sqyd";
     const qty = round2(isYd ? sqft / 9 : sqft);
     const unit = isYd ? "sq yd" : "sq ft";
+    const family = familyFromCatalogCategory(profile.category);
 
     // Match to a REAL catalog product BY ID — same category only (a generic term
     // like "plush carpet" that hits nothing is NOT a match). Catalog rates are
@@ -179,34 +186,55 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
       if (!laborRate && cp) laborRate = rateFor(cp.labor_rate, cp.unit, isYd);
     }
 
-    // MATERIAL line — the quantity is what you actually order: area + waste,
-    // rounded up to whole units. No hidden waste % (it's in the quantity).
-    const matQty = isYd
-      ? Math.ceil((sqft / 9) * (1 + profile.waste / 100))
-      : Math.ceil(sqft * (1 + profile.waste / 100));
+    // MATERIAL line. Boxed hard surface can order from measured area + waste.
+    // Roll goods cannot: sq ft ÷ 9 is equivalent area, not a cut plan. Keep the
+    // product identity at $0 until cuts are entered in Builder.
     const baseDesc =
       [manufacturer, room.material].filter(Boolean).join(" ").trim() || profile.label;
-    lines.push({
-      room: room.name || null,
-      description: needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
-      category: profile.category,
-      measure_unit: profile.unit,
-      sqft: null,
-      quantity: matQty > 0 ? matQty : null,
-      // Keep the room cut size for the PO, even though the line bills by quantity.
-      length_in: lenIn > 0 ? lenIn : null,
-      width_in: widIn > 0 ? widIn : null,
-      unit,
-      material_rate: sellMat(cost),
-      labor_rate: 0,
-      material_cost: cost,
-      labor_cost: 0,
-      waste_pct: 0,
-      product_id: productId,
-      manufacturer,
-      style,
-      color,
-    });
+    if (areaDerivedMaterialAllowed(family)) {
+      const matQty = Math.ceil(sqft * (1 + profile.waste / 100));
+      lines.push({
+        room: room.name || null,
+        description: needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
+        category: profile.category,
+        measure_unit: profile.unit,
+        sqft: null,
+        quantity: matQty > 0 ? matQty : null,
+        length_in: lenIn > 0 ? lenIn : null,
+        width_in: widIn > 0 ? widIn : null,
+        unit,
+        material_rate: sellMat(cost),
+        labor_rate: 0,
+        material_cost: cost,
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: productId,
+        manufacturer,
+        style,
+        color,
+      });
+    } else if (sqft > 0 || productId) {
+      lines.push({
+        room: room.name || null,
+        description: `${needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc} — order TBD (enter cuts — not sq ft ÷ 9). Measured ${formatSqft(sqft)} (${formatEquivalentSqyd(sqft)})`,
+        category: profile.category,
+        measure_unit: profile.unit,
+        sqft: null,
+        quantity: null,
+        length_in: null,
+        width_in: null,
+        unit,
+        material_rate: sellMat(cost),
+        labor_rate: 0,
+        material_cost: cost,
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: productId,
+        manufacturer,
+        style,
+        color,
+      });
+    }
 
     // PAD — accumulate across all carpet rooms; bundled into ONE catalog-matched
     // material line below. Cost: written → saved "Carpet pad" default → catalog.

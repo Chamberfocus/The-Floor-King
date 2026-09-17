@@ -293,6 +293,14 @@ describe("measured area vs order quantity", () => {
     expect(measuredInstallLaborAllowed("lvp", 999)).toBe(true);
   });
 
+  it("AI notes estimate does not order roll goods from taped sq ft ÷ 9", () => {
+    const src = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
+    expect(src).toMatch(/areaDerivedMaterialAllowed/);
+    expect(src).toMatch(/enter cuts — not sq ft ÷ 9/);
+    expect(src).not.toMatch(/Math\.ceil\(\(sqft \/ 9\) \* \(1 \+ profile\.waste/);
+    expect(src).toMatch(/length_in: null/);
+  });
+
   it("boxed LVP uses waste and carton rounding only when coverage exists", () => {
     const withBox = computeMaterialTakeoff({
       family: "lvp",
