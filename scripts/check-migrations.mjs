@@ -72,6 +72,7 @@ const REQUIRED_FILES = [
   "0209_flooring_knowledge_mixed_install.sql",
   "0210_flooring_knowledge_metals_entry.sql",
   "0211_flooring_knowledge_tack_lnft.sql",
+  "0212_flooring_knowledge_adhesive_qty.sql",
 ];
 
 /**
@@ -984,6 +985,16 @@ const REQUIRED_MARKERS = [
       "P0_0211_FLOORING_KNOWLEDGE",
       "tack_strip_qty",
       "linear feet",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0212_flooring_knowledge_adhesive_qty.sql",
+    markers: [
+      "P0_0212_FLOORING_KNOWLEDGE",
+      "adhesive",
+      "taped square feet is not a glue order",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

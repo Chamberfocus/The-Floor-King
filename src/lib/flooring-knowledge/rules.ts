@@ -570,7 +570,7 @@ export function knowledgeHelpFor(
     return "Aqua bar / primer only when hardwood, glue-down, or a moisture-concern flag makes it relevant. Floating laminate without that flag hides this. Existing catalog rates — do not invent a new product.";
   }
   if (key === "adhesive") {
-    return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this.";
+    return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this. Quantity is gallons or kits in Builder — taped square feet is not a glue order. Do not invent coverage.";
   }
   if (key === "vinyl_skim") {
     return "Embossed existing vinyl often needs a skim coat. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";

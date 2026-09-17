@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { billsBySquareYard, catalogRateToBillingUnit, lineDisplayUnit } from "@/lib/units";
+import { billsBySquareYard, catalogRateToBillingUnit, lineDisplayUnit, unitLabel } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
@@ -961,6 +961,7 @@ export function Questionnaire({
             family: rollFam,
             measuredSqft: rm.sqft,
             billingUnit: b.wantYd ? "sqyd" : "sqft",
+            productUnit: p.unit,
           });
           if (qty != null && rm.sqft > 0)
             out.push({
@@ -1078,6 +1079,7 @@ export function Questionnaire({
             family: familyFromCatalogCategory(p.category || cat),
             measuredSqft: size?.sqft ?? 0,
             billingUnit: billing(p.category || cat).wantYd ? "sqyd" : "sqft",
+            productUnit: p.unit,
           }) ?? 0,
           // Roll goods: L×W on the line is a warehouse cut, so only explicit
           // cuts go here. Room dimensions stay on sqft (measured area).
@@ -1113,8 +1115,11 @@ export function Questionnaire({
           // other stay bundled to one line, but carry the total sq ft.
           const perRoomFloor =
             cat !== "underlayment" && cat !== "trim" && cat !== "other" && allRooms.length > 0 && !boxed;
+          const allowAreaMat =
+            areaDerivedMaterialAllowed(fam, p.unit) && q.key !== "adhesive";
           // Roll goods: taped area is never a material line. Cuts own the order.
-          if (areaDerivedMaterialAllowed(fam)) {
+          // Adhesive / gal / kit: taped sq ft is not a glue order.
+          if (allowAreaMat) {
             if (perRoomFloor) {
               for (const rm of allRooms) {
                 if (rm.sqft > 0) out.push(matLine(p, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
@@ -1124,13 +1129,37 @@ export function Questionnaire({
               // that is the cuts/layout step, and sq ft is not a cut plan.
               out.push(matLine(p, { sqft: coverSf }));
             }
+          } else if (!isRollGoodsFamily(fam) && (p.productId || p.label)) {
+            const countUnit = unitLabel(p.unit) || p.unit || "each";
+            out.push({
+              room: null,
+              description: `${p.label || cat} — qty TBD (${countUnit} — not taped sq ft)`,
+              category: p.category || cat,
+              measure_unit: "sqft",
+              sqft: null,
+              quantity: null,
+              length_in: null,
+              width_in: null,
+              unit: countUnit,
+              material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
+              labor_rate: 0,
+              material_cost: rateFor(p.materialRate, p.unit, false),
+              labor_cost: 0,
+              waste_pct: 0,
+              product_id: p.productId || null,
+              manufacturer:
+                p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+              style: p.style,
+              color: p.color,
+              from_stock: p.source === "stock",
+            });
           }
           // Install labor — bundled, with the total area recorded.
           // Cuts-owned roll goods emit install with the cut yardage instead.
           // Without cuts, labor still follows measured area (install is work,
-          // not an order quantity).
+          // not an order quantity). Glue/count picks do not get fake sq-ft labor.
           const lr = rateFor(p.laborRate, p.unit, b.wantYd);
-          if (measuredInstallLaborAllowed(fam, cutSf) && lr > 0 && coverSf > 0) {
+          if (allowAreaMat && measuredInstallLaborAllowed(fam, cutSf) && lr > 0 && coverSf > 0) {
             const laborQty = b.wantYd ? Math.ceil(coverSf / 9) : Math.ceil(coverSf);
             out.push({
               room: null,
@@ -1161,7 +1190,7 @@ export function Questionnaire({
         for (const ex of a.extras) {
           if (!ex.product || numv(ex.sqft) <= 0) continue;
           const exFam = familyFromCatalogCategory(ex.product.category || cat);
-          if (!areaDerivedMaterialAllowed(exFam)) continue;
+          if (!areaDerivedMaterialAllowed(exFam, ex.product.unit)) continue;
           out.push(matLine(ex.product, { sqft: numv(ex.sqft) }));
         }
       } else if (q.kind === "product" && a.kind === "trims") {

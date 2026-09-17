@@ -274,6 +274,19 @@ describe("measured area vs order quantity", () => {
     expect(areaDerivedMaterialAllowed("laminate")).toBe(true);
     expect(areaDerivedMaterialAllowed("tile")).toBe(true);
     expect(areaDerivedMaterialAllowed("other")).toBe(true);
+    expect(areaDerivedMaterialAllowed("other", "gal")).toBe(false);
+    expect(areaDerivedMaterialAllowed("other", "gallon")).toBe(false);
+    expect(areaDerivedMaterialAllowed("other", "kit")).toBe(false);
+    expect(areaDerivedMaterialAllowed("other", "each")).toBe(false);
+    expect(areaDerivedMaterialAllowed("lvp", "sqft")).toBe(true);
+    expect(
+      areaDerivedMaterialQty({
+        family: "other",
+        measuredSqft: 500,
+        billingUnit: "sqft",
+        productUnit: "gal",
+      }),
+    ).toBeNull();
     // 450 sq ft = 50 sq yd equivalent — that conversion is not an order.
     expect(
       areaDerivedMaterialQty({ family: "carpet", measuredSqft: 450, billingUnit: "sqyd" }),
@@ -2455,6 +2468,41 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(glue).not.toContain("tack_strip");
     expect(glue).not.toContain("tack_strip_qty");
+  });
+
+  it("0212 does not order adhesive from taped square feet", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0212_flooring_knowledge_adhesive_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0212_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/taped square feet is not a glue order/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/insert into public\.products/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/q\.key !== "adhesive"/);
+    expect(q).toMatch(/qty TBD \(\$\{countUnit\} — not taped sq ft\)/);
+    expect(q).toMatch(/productUnit: p\.unit/);
+
+    expect(areaDerivedMaterialAllowed("other", "gal")).toBe(false);
+    expect(
+      areaDerivedMaterialQty({
+        family: "other",
+        measuredSqft: 500,
+        billingUnit: "sqft",
+        productUnit: "kit",
+      }),
+    ).toBeNull();
+    expect(
+      areaDerivedMaterialQty({
+        family: "lvp",
+        measuredSqft: 500,
+        billingUnit: "sqft",
+        productUnit: "sqft",
+      }),
+    ).toBe(500);
   });
 
   it("pattern repeat only after pattern match is required", () => {

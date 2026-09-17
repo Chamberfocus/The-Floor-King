@@ -13,7 +13,7 @@
  * Carpet is roll goods. sqft ÷ 9 is never "the amount of carpet to order".
  */
 
-import { billsBySquareYard, normalizeUnit, unitLabel } from "@/lib/units";
+import { billsBySquareYard, isAreaUnit, normalizeUnit, unitLabel } from "@/lib/units";
 import {
   billsBySqydFamily,
   defaultWastePctForFamily,
@@ -92,23 +92,34 @@ export function rollGoodsHaveCuts(
 /**
  * Whether taped / measured area may become a Builder MATERIAL line.
  * Roll goods: never. sq ft ÷ 9 is equivalent area, not an order. The cuts
- * step owns carpet/sheet material. Boxed hard surface: yes.
+ * step owns carpet/sheet material. Count-unit catalog items (gal / each /
+ * bag / kit of adhesive): never — taped sq ft is not gallons of glue.
+ * Boxed hard surface billed by area: yes.
  */
-export function areaDerivedMaterialAllowed(family: FlooringFamily): boolean {
-  return !isRollGoodsFamily(family);
+export function areaDerivedMaterialAllowed(
+  family: FlooringFamily,
+  productUnit?: string | null,
+): boolean {
+  if (isRollGoodsFamily(family)) return false;
+  if (productUnit != null && String(productUnit).trim() !== "" && !isAreaUnit(productUnit)) {
+    return false;
+  }
+  return true;
 }
 
 /**
  * Quantity that would be written onto a Builder material line from taped area.
  * Returns null for roll goods so callers cannot accidentally store sqft ÷ 9
- * as the order.
+ * as the order. Returns null for count-unit products so gallons/kits are not
+ * invented from square feet.
  */
 export function areaDerivedMaterialQty(args: {
   family: FlooringFamily;
   measuredSqft: number;
   billingUnit: "sqyd" | "sqft";
+  productUnit?: string | null;
 }): number | null {
-  if (!areaDerivedMaterialAllowed(args.family)) return null;
+  if (!areaDerivedMaterialAllowed(args.family, args.productUnit)) return null;
   const n = Number(args.measuredSqft);
   if (!(n > 0) || !Number.isFinite(n)) return null;
   return args.billingUnit === "sqyd" ? r2(n / 9) : r2(n);
