@@ -147,3 +147,19 @@ export function applyHardSurfaceStairTrimFill<T extends { type: string; qty: str
   }
   return rs;
 }
+
+/** True when a trims answer already has a row matching `type` (e.g. stair nose). */
+export function answersHaveTrimType(
+  answers: Record<string, unknown> | unknown[] | null | undefined,
+  match: RegExp,
+): boolean {
+  if (!answers) return false;
+  const values = Array.isArray(answers) ? answers : Object.values(answers);
+  for (const a of values) {
+    if (!a || typeof a !== "object") continue;
+    const ans = a as { kind?: string; rows?: { type?: string }[] };
+    if (ans.kind !== "trims") continue;
+    if ((ans.rows ?? []).some((r) => match.test(r.type ?? ""))) return true;
+  }
+  return false;
+}

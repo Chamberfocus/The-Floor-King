@@ -16,6 +16,7 @@ import {
   familyFromSurfaceLabel,
   hardwoodConstructionFromLabel,
   installSystemFromLabel,
+  isHardSurfaceStairFamily,
   type FlooringFamily,
   type HardwoodConstruction,
   type InstallSystem,
@@ -435,6 +436,10 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   hasVinylCuts?: boolean;
   measuredSqft?: number;
   pickedLabels?: string[];
+  /** Hard-surface plank step count already entered. */
+  hsStairSteps?: number;
+  /** Trims already has a Stair nose row (each). */
+  hasStairNose?: boolean;
 }): { id: string; text: string }[] {
   const w: { id: string; text: string }[] = [];
   const has = (arr: string[], re: RegExp) => arr.some((v) => re.test(v));
@@ -540,6 +545,16 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     w.push({
       id: "prep-tbd",
       text: "Prep is Field verify / TBD — do not treat bag counts or leveler quantities as final until the crew sees the substrate.",
+    });
+  }
+  if (
+    (extras?.hsStairSteps ?? 0) > 0 &&
+    extras?.hasStairNose === false &&
+    ctx.families.some(isHardSurfaceStairFamily)
+  ) {
+    w.push({
+      id: "hs-stair-nose",
+      text: "Hard-surface stairs usually need a stair nose (each) per step. Add them on Trims or confirm none — do not invent a Versatrim SKU here.",
     });
   }
   return w;

@@ -47,6 +47,7 @@ export {
   stairStepCountFromAnswers,
   applyHardSurfaceStairTrimFill,
   HARD_SURFACE_STAIR_TRIM_LABELS,
+  answersHaveTrimType,
   type GateAnswer,
   type StairAnswerKind,
   type HardSurfaceStairTrimLabel,

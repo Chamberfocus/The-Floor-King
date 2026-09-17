@@ -88,6 +88,7 @@ import {
   stairStepCountFromAnswers,
   applyHardSurfaceStairTrimFill,
   jobNeedsHardSurfaceStairTrim,
+  answersHaveTrimType,
   type InstallContext,
   type ReviewRoom,
 } from "@/lib/flooring-knowledge";
@@ -1628,6 +1629,8 @@ export function Questionnaire({
         measuredSqft: totalSqft,
         pickedLabels: picked,
         hasVinylCuts,
+        hsStairSteps: stairStepCountFromAnswers(answers, ["hs_stairs"]),
+        hasStairNose: answersHaveTrimType(answers, /stair\s*nose/i),
       }),
     );
     // Dedupe by id so overlay + local flags don't double.

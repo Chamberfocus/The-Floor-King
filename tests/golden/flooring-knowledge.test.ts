@@ -10,6 +10,7 @@ import { carpetCutList } from "@/lib/job-scope";
 import {
   accessoryUnitForType,
   applyHardSurfaceStairTrimFill,
+  answersHaveTrimType,
   billsBySqydFamily,
   cartonTakeoff,
   catalogCategoryForFamily,
@@ -1408,6 +1409,41 @@ describe("stair extras and mixed-job measured area", () => {
     expect(q).toMatch(/jobNeedsHardSurfaceStairTrim/);
     expect(q).toMatch(/stairStepCountFromAnswers\(jobAnswers, \["hs_stairs"\]\)/);
     expect(q).not.toMatch(/ensure\(\/tread\/i, "Stair tread"\)/);
+  });
+
+  it("warns when hard-surface stairs have no stair-nose trim, and stays quiet once one exists", () => {
+    const ctx = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+    });
+    expect(
+      knowledgeWarnings(ctx, { hsStairSteps: 13, hasStairNose: false }).some((x) => x.id === "hs-stair-nose"),
+    ).toBe(true);
+    expect(
+      knowledgeWarnings(ctx, { hsStairSteps: 13, hasStairNose: true }).some((x) => x.id === "hs-stair-nose"),
+    ).toBe(false);
+    expect(
+      knowledgeWarnings(ctx, { hsStairSteps: 0, hasStairNose: false }).some((x) => x.id === "hs-stair-nose"),
+    ).toBe(false);
+    const carpet = installContextFromValByKey({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(
+      knowledgeWarnings(carpet, { hsStairSteps: 12, hasStairNose: false }).some((x) => x.id === "hs-stair-nose"),
+    ).toBe(false);
+    expect(
+      answersHaveTrimType(
+        { t: { kind: "trims", rows: [{ type: "Stair nose", qty: "13" }] } },
+        /stair\s*nose/i,
+      ),
+    ).toBe(true);
+    expect(answersHaveTrimType({ t: { kind: "trims", rows: [{ type: "Quarter round", qty: "40" }] } }, /stair\s*nose/i)).toBe(
+      false,
+    );
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/answersHaveTrimType\(answers, \/stair\\s\*nose\/i\)/);
   });
 });
 
