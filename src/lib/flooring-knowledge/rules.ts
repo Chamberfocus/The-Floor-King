@@ -530,6 +530,9 @@ export function knowledgeHelpFor(
   if (key === "existing_pad") {
     return "Tearing out carpet — to carpet or to hard surface — usually takes the pad with it. Reuse only when the salesperson explicitly allows it. This follows the existing floor, not only a new-carpet job. Do not invent a second demo rate; the tear-out line gets a pad note.";
   }
+  if (key === "existing_tack") {
+    return "Tearing out carpet usually takes tack strip with it. Keep is unusual. This is not new stretch-in tack strip — that stays on the install step. Linear feet stay off until you add a catalog item. Do not invent a linear-foot price.";
+  }
   if (key === "work_type") {
     return "Replacement asks what's coming up. New construction hides tear-out, pad removal, asbestos, and disposal — substrate and prep still apply. Unknown / field verify keeps demo visible. Do not invent a demo charge on a new slab.";
   }

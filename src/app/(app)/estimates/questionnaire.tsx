@@ -919,6 +919,7 @@ export function Questionnaire({
       description: annotateRemovalDescription(rawDesc, {
         bond: keyedChoiceSelections(questions, answers, "existing_bond"),
         pad: keyedChoiceSelections(questions, answers, "existing_pad"),
+        tack: keyedChoiceSelections(questions, answers, "existing_tack"),
       }),
       category: isLabor ? "labor" : emit.category || "other",
       measure_unit: mapped.measure_unit,

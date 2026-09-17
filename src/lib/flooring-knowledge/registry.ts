@@ -103,6 +103,17 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     phase: "existing",
     any: [{ families: ["carpet"] }, { demo: ["Carpet"] }],
   },
+  /**
+   * Old tack strip follows EXISTING carpet, not only new stretch-in.
+   * New stretch-in tack_strip stays on the install step. Sit after pad so
+   * the follow-up is not behind the salesperson (0142).
+   */
+  {
+    key: "existing_tack",
+    purpose: "LABOR",
+    phase: "existing",
+    any: [{ families: ["carpet"] }, { demo: ["Carpet"] }],
+  },
   { key: "hs_demo", purpose: "LABOR", phase: "existing" },
   /**
    * Glued vs floating only after demo is a click/glue hard surface.
@@ -408,6 +419,7 @@ export const REMOVAL_QUESTION_KEYS = [
   "hs_demo",
   "existing_bond",
   "existing_pad",
+  "existing_tack",
   "demo_disposal",
   "asbestos_risk",
 ] as const;

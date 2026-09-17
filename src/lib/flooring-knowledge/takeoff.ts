@@ -47,6 +47,7 @@ const REMOVAL_KEYS = new Set([
   "hs_demo",
   "existing_bond",
   "existing_pad",
+  "existing_tack",
   "demo_disposal",
   "asbestos_risk",
 ]);

@@ -267,7 +267,7 @@ export function keyedChoiceSelections(
  */
 export function annotateRemovalDescription(
   description: string,
-  opts: { bond?: string[]; pad?: string[] },
+  opts: { bond?: string[]; pad?: string[]; tack?: string[] },
 ): string {
   if (!/tear-?out|demo|removal/i.test(description)) return description;
   const bits: string[] = [];
@@ -284,6 +284,11 @@ export function annotateRemovalDescription(
     if (pad.some((l) => /reuse/i.test(l))) bits.push("reuse existing pad (explicit)");
     else if (pad.some((l) => /remove/i.test(l))) bits.push("pad removed with carpet");
     else if (pad.some((l) => /no pad/i.test(l))) bits.push("no pad");
+    const tack = opts.tack ?? [];
+    if (tack.some((l) => /keep/i.test(l))) bits.push("keep existing tack strip (unusual)");
+    else if (tack.some((l) => /remove/i.test(l))) bits.push("tack strip removed with carpet");
+    else if (tack.some((l) => /no tack/i.test(l))) bits.push("no tack strip");
+    else if (tack.some((l) => /unknown|field verify|tbd/i.test(l))) bits.push("tack strip field verify");
   }
   if (!bits.length) return description;
   return `${description} (${bits.join("; ")})`;

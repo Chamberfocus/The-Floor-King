@@ -113,6 +113,7 @@ const REQUIRED_FILES = [
   "0250_flooring_knowledge_existing_pad.sql",
   "0251_flooring_knowledge_cuts_panel.sql",
   "0252_flooring_knowledge_cuts_tbd.sql",
+  "0253_flooring_knowledge_existing_tack.sql",
 ];
 
 /**
@@ -1416,6 +1417,16 @@ const REQUIRED_MARKERS = [
       "P0_0252_FLOORING_KNOWLEDGE",
       "0 sq yd is not an order",
       "Order TBD",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0253_flooring_knowledge_existing_tack.sql",
+    markers: [
+      "P0_0253_FLOORING_KNOWLEDGE",
+      "existing_tack",
+      "Do not invent a linear-foot price",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

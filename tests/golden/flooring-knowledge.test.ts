@@ -1139,7 +1139,7 @@ describe("family → system asks the right keys (not every question)", () => {
       project_type: ["Carpet"],
       carpet_install: ["Stretch-in"],
     });
-    on(carpetStretch, ["work_type", "wet_area", "carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate", "radiant_heat", "carpet_stairs"]);
+    on(carpetStretch, ["work_type", "wet_area", "carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "existing_tack", "hs_demo", "substrate", "radiant_heat", "carpet_stairs"]);
     off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "carpet_tile_stairs"]);
 
     const carpetGlue = visibleKnowledgeKeys({
@@ -1643,6 +1643,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "tile_setting", position: 221, show_if: { key: "surface_type", in: ["Tile"] } },
     { key: "subfloor_condition", position: 352, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "existing_pad", position: 271, show_if: { any: [{ key: "project_type", in: ["Carpet"] }, { key: "hs_demo", in: ["Carpet"] }] } },
+    { key: "existing_tack", position: 272, show_if: { any: [{ key: "project_type", in: ["Carpet"] }, { key: "hs_demo", in: ["Carpet"] }] } },
     { key: "metals_needed", position: 112, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "carpet_pad", position: 110, show_if: { key: "carpet_install", in: ["Stretch-in"] } },
     {
@@ -1794,7 +1795,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     },
     {
       key: "existing_bond",
-      position: 272,
+      position: 273,
       show_if: { key: "hs_demo", in: ["LVP", "Laminate", "Sheet vinyl", "LVP / Vinyl"] },
     },
     {
@@ -3985,6 +3986,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(neu).toContain("hs_prep");
     expect(neu).not.toContain("hs_demo");
     expect(neu).not.toContain("existing_pad");
+    expect(neu).not.toContain("existing_tack");
     expect(neu).not.toContain("demo_disposal");
     expect(neu).not.toContain("asbestos_risk");
     expect(neu).not.toContain("existing_bond");
@@ -4237,6 +4239,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       hs_demo: ["Carpet"],
     });
     expect(neu).not.toContain("existing_pad");
+    expect(neu).not.toContain("existing_tack");
     expect(neu).not.toContain("hs_demo");
   });
 
@@ -4303,6 +4306,70 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/questionnaireCutsGrandOrderLabel/);
     expect(q).not.toMatch(/\{rollNounCap\} to order: <span className="tabular-nums">\{r2\(grandY\)\}<\/span> sq yd/);
     expect(q).not.toMatch(/width_ft: 12/);
+  });
+
+  it("0253 existing tack strip follows tearing out carpet, not only new stretch-in", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0253_flooring_knowledge_existing_tack.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0253_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/existing_tack/);
+    expect(sql).toMatch(/Do not invent a linear-foot price/);
+    expect(sql).toMatch(/Keep \(unusual\)/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(knowledgeQuestionByKey("existing_tack")?.any).toEqual([
+      { families: ["carpet"] },
+      { demo: ["Carpet"] },
+    ]);
+    expect(knowledgeQuestionByKey("existing_tack")?.purpose).toBe("LABOR");
+    expect(knowledgeHelpFor({ key: "existing_tack" }, emptyInstallContext())).toMatch(
+      /not new stretch-in tack strip/,
+    );
+
+    const carpet = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(carpet).toContain("existing_tack");
+    expect(carpet).toContain("tack_strip");
+    expect(carpet.indexOf("existing_pad")).toBeLessThan(carpet.indexOf("existing_tack")!);
+    expect(carpet.indexOf("hs_demo")).toBeLessThan(carpet.indexOf("existing_tack")!);
+
+    const glue = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(glue).toContain("existing_tack");
+    expect(glue).not.toContain("tack_strip");
+
+    const lvpQuiet = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+    });
+    expect(lvpQuiet).not.toContain("existing_tack");
+
+    const lvpOverCarpet = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      hs_demo: ["Carpet"],
+    });
+    expect(lvpOverCarpet).toContain("existing_tack");
+    expect(lvpOverCarpet).toContain("existing_pad");
+    expect(lvpOverCarpet).not.toContain("tack_strip");
+    expect(lvpOverCarpet.indexOf("existing_pad")).toBeLessThan(lvpOverCarpet.indexOf("existing_tack")!);
+
+    const neu = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      work_type: ["New construction"],
+      hs_demo: ["Carpet"],
+    });
+    expect(neu).not.toContain("existing_tack");
   });
 
   it("pattern repeat only after pattern match is required", () => {
@@ -4859,6 +4926,7 @@ describe("salesperson review buckets by purpose, not a level regex", () => {
 
   it("removal / accessories / stairs land in the right columns", () => {
     expect(reviewBucketForQuestion({ key: "hs_demo", label: "Existing flooring" })).toBe("removal");
+    expect(reviewBucketForQuestion({ key: "existing_tack", label: "Existing tack strip?" })).toBe("removal");
     expect(reviewBucketForQuestion({ key: "work_type", label: "New construction or replacement?" })).toBe(
       "removal",
     );
@@ -4981,6 +5049,12 @@ describe("removal descriptions distinguish glued vs floating without a second ra
     expect(
       annotateRemovalDescription("Tear-out — carpet", { pad: ["Remove with old carpet"] }),
     ).toBe("Tear-out — carpet (pad removed with carpet)");
+    expect(
+      annotateRemovalDescription("Tear-out — carpet", { tack: ["Remove with old carpet"] }),
+    ).toBe("Tear-out — carpet (tack strip removed with carpet)");
+    expect(
+      annotateRemovalDescription("Tear-out — carpet", { tack: ["Keep (unusual)"] }),
+    ).toBe("Tear-out — carpet (keep existing tack strip (unusual))");
     expect(annotateRemovalDescription("Furniture moving (light)", { bond: ["Glued down"] })).toBe(
       "Furniture moving (light)",
     );
