@@ -38,6 +38,9 @@ import {
   formatEquivalentSqyd,
   builderAreaFallbackLabel,
   ROLL_GOODS_CUTS_MISSING_CAPTION,
+  ROLL_GOODS_CUTS_HEADER,
+  ROLL_GOODS_CUTS_EMPTY_HINT,
+  lineMeasurementsRollTotalLabel,
   formatBillingQty,
   takeoffConceptRows,
   takeoffUnitKeyLabel,
@@ -4144,10 +4147,10 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     expect(
       knowledgeHelpFor({ kind: "cuts" }, emptyInstallContext()),
-    ).toMatch(/Builder labels leftover sq ft as measured area, not the order/);
+    ).toMatch(/Builder warehouse cuts show Order TBD/);
     expect(
       knowledgeHelpFor({ kind: "cuts", config: { category: "vinyl" } }, emptyInstallContext()),
-    ).toMatch(/Builder labels leftover sq ft as measured area, not the order/);
+    ).toMatch(/Builder warehouse cuts show Order TBD/);
 
     const builder = readFileSync(
       join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
@@ -4233,6 +4236,39 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(neu).not.toContain("existing_pad");
     expect(neu).not.toContain("hs_demo");
+  });
+
+  it("0251 Builder warehouse cuts panel is the order, not measured 0 sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0251_flooring_knowledge_cuts_panel.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0251_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Order TBD — not measured sq ft/);
+    expect(sql).toMatch(/warehouse cuts/);
+    expect(sql).toMatch(/do not plant 12/i);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(ROLL_GOODS_CUTS_HEADER).toBe("Warehouse cuts (the order)");
+    expect(lineMeasurementsRollTotalLabel(0)).toBe("Order TBD — not measured sq ft");
+    expect(lineMeasurementsRollTotalLabel(450)).toBe("450 sq ft · 50 sq yd from cuts (the order)");
+    expect(ROLL_GOODS_CUTS_EMPTY_HINT).toMatch(/we do not plant 12/);
+    expect(ROLL_GOODS_CUTS_EMPTY_HINT).toMatch(/Measured room sq ft is not a cut plan/);
+
+    expect(
+      knowledgeHelpFor({ kind: "cuts" }, emptyInstallContext()),
+    ).toMatch(/Builder warehouse cuts show Order TBD/);
+
+    const panel = readFileSync(
+      join(root, "src/app/(app)/estimates/line-measurements.tsx"),
+      "utf8",
+    );
+    expect(panel).toMatch(/ROLL_GOODS_CUTS_HEADER/);
+    expect(panel).toMatch(/lineMeasurementsRollTotalLabel/);
+    expect(panel).not.toMatch(/Cuts & areas/);
+    expect(panel).not.toMatch(/They add up to the sq yd/);
+    expect(panel).not.toMatch(/width_ft: 12/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

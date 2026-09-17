@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { num } from "@/lib/estimate-calc";
 import { isRollGoodCategory, isHardSurfaceCategory } from "@/lib/types";
+import {
+  ROLL_GOODS_CUTS_EMPTY_HINT,
+  ROLL_GOODS_CUTS_HEADER,
+  lineMeasurementsRollTotalLabel,
+} from "@/lib/flooring-knowledge";
 
 /** One measured piece as the builder edits it (feet+inches as strings). */
 export interface MeasureRow {
@@ -66,7 +71,6 @@ export function LineMeasurements({
 
   const total = rowsSqft(rows);
   const addCount = rows.filter((r) => r.op === "add").length;
-  const sqyd = Math.round((total / 9) * 100) / 100;
   const perBox = num(sqftPerBox);
   const cartons = perBox > 0 && total > 0 ? Math.ceil(total / perBox) : 0;
 
@@ -80,17 +84,14 @@ export function LineMeasurements({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <Ruler className="size-3.5" />
-          {isRoll ? "Cuts & areas" : "Measurements"}
+          {isRoll ? ROLL_GOODS_CUTS_HEADER : "Measurements"}
         </div>
         <div className="text-xs font-medium tabular-nums text-muted-foreground">
-          {total > 0 ? (
-            <>
-              {total.toFixed(total % 1 === 0 ? 0 : 1)} sq ft
-              {isRoll ? ` · ${sqyd.toFixed(1)} sq yd from cuts` : ""}
-            </>
-          ) : (
-            "0 sq ft"
-          )}
+          {isRoll
+            ? lineMeasurementsRollTotalLabel(total)
+            : total > 0
+              ? `${total.toFixed(total % 1 === 0 ? 0 : 1)} sq ft`
+              : "0 sq ft"}
         </div>
       </div>
 
@@ -173,7 +174,7 @@ export function LineMeasurements({
       ) : (
         <p className="px-0.5 text-xs text-muted-foreground">
           {isRoll
-            ? "Add each cut you'll pull off the roll (room + length × width). They add up to the sq yd, and each one prints on the warehouse cut sheet."
+            ? ROLL_GOODS_CUTS_EMPTY_HINT
             : "Add each area (length × width). They add up to the total square footage as you go — subtract a piece for a cutout."}
         </p>
       )}

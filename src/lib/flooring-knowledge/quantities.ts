@@ -367,6 +367,18 @@ export function builderAreaFallbackLabel(opts: {
 export const ROLL_GOODS_CUTS_MISSING_CAPTION =
   "Order TBD until you enter warehouse cuts (width × length). Sq ft ÷ 9 is equivalent area, not a cut plan.";
 
+/** Builder warehouse-cuts panel — this list is the ORDER, not taped room sq ft. */
+export const ROLL_GOODS_CUTS_HEADER = "Warehouse cuts (the order)";
+
+export const ROLL_GOODS_CUTS_EMPTY_HINT =
+  "Each cut (width × length) is the order. Measured room sq ft is not a cut plan. Width stays empty until you type it or tap a chip — we do not plant 12'.";
+
+export function lineMeasurementsRollTotalLabel(totalSqft: number): string {
+  const n = Number(totalSqft);
+  if (!Number.isFinite(n) || n <= 0) return "Order TBD — not measured sq ft";
+  return `${formatSqft(n)} · ${formatSqyd(equivalentSqyd(n))} from cuts (the order)`;
+}
+
 /**
  * Builder line description when a roll-goods SKU is picked but cuts are not
  * entered. Measured area may be noted in the text; it is never a warehouse

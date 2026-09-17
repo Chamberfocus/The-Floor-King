@@ -508,12 +508,12 @@ export function knowledgeHelpFor(
   }
   if (q.kind === "cuts") {
     if (q.config?.category === "vinyl") {
-      return "Sheet vinyl is roll goods. These cuts are the order quantity — converting room square feet into yards is not a layout and is not billed as an order. Builder labels leftover sq ft as measured area, not the order — Sq ft ÷ 9 is equivalent area. Width starts empty unless the catalog has roll_width_ft. 6'/12' chips are one tap — we do not plant 6'.";
+      return "Sheet vinyl is roll goods. These cuts are the order quantity — converting room square feet into yards is not a layout and is not billed as an order. Builder warehouse cuts show Order TBD until width × length is entered — leftover sq ft is measured area, not the order. Width starts empty unless the catalog has roll_width_ft. 6'/12' chips are one tap — we do not plant 6'.";
     }
     if (!rollGoodsNeedCuts("carpet", carpetInstallSystemsFromLabels(ctx.answeredCarpetInstall))) {
       return "Carpet tile is modular. Pick the product here; order is measured area plus waste. Carton count only if the product has coverage — we do not invent a box size. This is not a roll cut plan. Builder shows measured coverage and carton math, not Cuts vs Roll.";
     }
-    return "Cuts are the order quantity. Converting room square feet into yards is not a cut plan and is not billed as an order. Builder labels leftover sq ft as measured area, not the order — Sq ft ÷ 9 is equivalent area. Width starts empty unless the catalog has roll_width_ft. 12'/15' chips are one tap — we do not plant 12'. Carpet tile hides the cut list and uses measured area instead. Install labor uses this question's Settings $/sq yd — it does not invent $6.";
+    return "Cuts are the order quantity. Converting room square feet into yards is not a cut plan and is not billed as an order. Builder warehouse cuts show Order TBD until width × length is entered — leftover sq ft is measured area, not the order. Width starts empty unless the catalog has roll_width_ft. 12'/15' chips are one tap — we do not plant 12'. Carpet tile hides the cut list and uses measured area instead. Install labor uses this question's Settings $/sq yd — it does not invent $6.";
   }
   if (key === "tile_layout") {
     return "Straight vs diagonal changes waste and labor. Capture it; do not auto-inflate waste without the salesperson.";
