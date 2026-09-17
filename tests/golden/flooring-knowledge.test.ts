@@ -3706,6 +3706,22 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/questionPurpose/);
   });
 
+  it("0241 per-room prep uses this room's sq ft, not the whole mixed job", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0241_flooring_knowledge_room_prep.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0241_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/By-room/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/not the whole mixed job/);
+    expect(q).toMatch(/roomFamilySqft/);
+    expect(q).toMatch(/totalSqft=\{sf\}/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

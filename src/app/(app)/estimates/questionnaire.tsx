@@ -2982,11 +2982,19 @@ function QuestionBody({
     const patch = (id: string, p: Partial<AreaRow>) =>
       upd(rooms.map((x) => (x.id === id ? { ...x, ...p } : x)));
     const total = rooms.reduce((t, r) => t + rowSqft(r), 0);
+    const floorMap = Object.values(jobAnswers).find(
+      (a): a is Extract<Answer, { kind: "floor_map" }> => a?.kind === "floor_map",
+    );
+    const mixedRooms = flooringCtx.families.filter((f) => f !== "other").length > 1;
     return (
       <div className="space-y-3">
         {rooms.map((r, i) => {
           const usingCalc = numv(r.override) > 0;
           const sf = rowSqft(r);
+          const assigned = floorMap?.byRoom[roomKey(r.name, i)];
+          const roomFam = familyFromCatalogCategory(assigned?.category);
+          const roomFamilySqft: Partial<Record<FlooringFamily, number>> =
+            roomFam !== "other" && sf > 0 ? { [roomFam]: sf } : {};
           return (
             <div key={r.id} className="space-y-2 rounded-lg border bg-muted/20 p-2.5">
               <div className="flex items-center gap-2">
@@ -3165,6 +3173,9 @@ function QuestionBody({
                     <p className="text-xs text-muted-foreground">
                       Leveling, primer, moisture, subfloor & demo for {r.name || "this area"} only.
                       Leave blank for none.
+                      {sf > 0
+                        ? ` This room ${formatSqft(sf)}${mixedRooms ? " — not the whole mixed job" : ""}${roomFam !== "other" ? ` · ${familyLabel(roomFam)}` : ""}.`
+                        : ""}
                     </p>
                     {perRoom.map((pq) => (
                       <div key={pq.id} className="space-y-1">
@@ -3178,7 +3189,8 @@ function QuestionBody({
                           }
                           sellMat={sellMat}
                           sellLab={sellLab}
-                          totalSqft={totalSqft}
+                          totalSqft={sf}
+                          familySqft={roomFamilySqft}
                           flooringCtx={flooringCtx}
                         />
                       </div>

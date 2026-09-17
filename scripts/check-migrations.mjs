@@ -101,6 +101,7 @@ const REQUIRED_FILES = [
   "0238_flooring_knowledge_mixed_takeoff.sql",
   "0239_flooring_knowledge_mixed_emit.sql",
   "0240_flooring_knowledge_prep_area.sql",
+  "0241_flooring_knowledge_room_prep.sql",
 ];
 
 /**
@@ -1288,6 +1289,15 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0240_FLOORING_KNOWLEDGE",
       "prep labor",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0241_flooring_knowledge_room_prep.sql",
+    markers: [
+      "P0_0241_FLOORING_KNOWLEDGE",
+      "By-room",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
