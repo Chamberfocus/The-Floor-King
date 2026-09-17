@@ -96,6 +96,7 @@ import {
   presentTrimTypes,
   HS_TRANSITION_OPTION_TO_TRIM,
   HS_BASE_OPTION_TO_TRIM,
+  annotateRemovalDescription,
   type InstallContext,
   type ReviewRoom,
 } from "@/lib/flooring-knowledge";
@@ -820,9 +821,13 @@ export function Questionnaire({
     });
     if (!mapped) return null;
     const isLabor = emit.role === "labor";
+    const rawDesc = room ? `${emit.description} — ${room}` : emit.description;
     return {
       room,
-      description: room ? `${emit.description} — ${room}` : emit.description,
+      description: annotateRemovalDescription(rawDesc, {
+        bond: keyedChoiceSelections(questions, answers, "existing_bond"),
+        pad: keyedChoiceSelections(questions, answers, "existing_pad"),
+      }),
       category: isLabor ? "labor" : emit.category || "other",
       measure_unit: mapped.measure_unit,
       sqft: mapped.sqft,

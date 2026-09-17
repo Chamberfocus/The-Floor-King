@@ -239,3 +239,32 @@ export function keyedChoiceSelections(
   if (!q) return [];
   return answerGateValues(answers[q.id]);
 }
+
+/**
+ * Suffix a tear-out line with glued-vs-floating / pad-reuse notes.
+ * Does not change the catalog demo rate — Floor King prices LVP demo the same
+ * until a separate glued-demo item exists.
+ */
+export function annotateRemovalDescription(
+  description: string,
+  opts: { bond?: string[]; pad?: string[] },
+): string {
+  if (!/tear-?out|demo|removal/i.test(description)) return description;
+  const bits: string[] = [];
+  const isHsVinyl = /lvp|laminate|vinyl|sheet/i.test(description);
+  const isCarpet = /carpet/i.test(description) || /old floor/i.test(description);
+  if (isHsVinyl) {
+    const bond = opts.bond ?? [];
+    if (bond.some((l) => /floating/i.test(l))) bits.push("floating / click — not glued");
+    else if (bond.some((l) => /glued down/i.test(l))) bits.push("glued down — not floating");
+    else if (bond.some((l) => /unknown|field verify|tbd/i.test(l))) bits.push("bond field verify");
+  }
+  if (isCarpet) {
+    const pad = opts.pad ?? [];
+    if (pad.some((l) => /reuse/i.test(l))) bits.push("reuse existing pad (explicit)");
+    else if (pad.some((l) => /remove/i.test(l))) bits.push("pad removed with carpet");
+    else if (pad.some((l) => /no pad/i.test(l))) bits.push("no pad");
+  }
+  if (!bits.length) return description;
+  return `${description} (${bits.join("; ")})`;
+}

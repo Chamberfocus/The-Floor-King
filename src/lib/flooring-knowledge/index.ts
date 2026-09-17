@@ -57,6 +57,7 @@ export {
   applyTrimTypeSeed,
   presentTrimTypes,
   keyedChoiceSelections,
+  annotateRemovalDescription,
   type GateAnswer,
   type StairAnswerKind,
   type HardSurfaceStairTrimLabel,

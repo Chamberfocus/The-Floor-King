@@ -15,6 +15,7 @@ import {
   applyTrimTypeSeed,
   HS_TRANSITION_OPTION_TO_TRIM,
   HS_BASE_OPTION_TO_TRIM,
+  annotateRemovalDescription,
   billsBySqydFamily,
   cartonTakeoff,
   catalogCategoryForFamily,
@@ -1700,5 +1701,27 @@ describe("0199 hard-surface transitions and base trim without invented SKUs", ()
     expect(q).toMatch(/applyTrimTypeSeed/);
     expect(q).toMatch(/hsTransitionTrims/);
     expect(q).toMatch(/hsBaseTrims/);
+  });
+});
+
+describe("removal descriptions distinguish glued vs floating without a second rate", () => {
+  it("annotates LVP/laminate/vinyl tear-out with bond, carpet with pad, and leaves other lines alone", () => {
+    expect(
+      annotateRemovalDescription("Tear-out — LVP", { bond: ["Glued down"] }),
+    ).toBe("Tear-out — LVP (glued down — not floating)");
+    expect(
+      annotateRemovalDescription("Tear-out — laminate", { bond: ["Floating / click — not glued"] }),
+    ).toBe("Tear-out — laminate (floating / click — not glued)");
+    expect(
+      annotateRemovalDescription("Tear-out — carpet", { pad: ["Reuse (explicitly allowed)"] }),
+    ).toBe("Tear-out — carpet (reuse existing pad (explicit))");
+    expect(
+      annotateRemovalDescription("Tear-out — carpet", { pad: ["Remove with old carpet"] }),
+    ).toBe("Tear-out — carpet (pad removed with carpet)");
+    expect(annotateRemovalDescription("Furniture moving (light)", { bond: ["Glued down"] })).toBe(
+      "Furniture moving (light)",
+    );
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/annotateRemovalDescription/);
   });
 });
