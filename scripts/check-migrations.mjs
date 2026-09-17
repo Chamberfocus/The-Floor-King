@@ -103,6 +103,7 @@ const REQUIRED_FILES = [
   "0240_flooring_knowledge_prep_area.sql",
   "0241_flooring_knowledge_room_prep.sql",
   "0242_flooring_knowledge_mixed_unassigned.sql",
+  "0243_flooring_knowledge_adhesive_qty_ui.sql",
 ];
 
 /**
@@ -1308,6 +1309,15 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0242_FLOORING_KNOWLEDGE",
       "Unassigned rooms stay off the takeoff",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0243_flooring_knowledge_adhesive_qty_ui.sql",
+    markers: [
+      "P0_0243_FLOORING_KNOWLEDGE",
+      "How many / Unit TBD",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

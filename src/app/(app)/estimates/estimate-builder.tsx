@@ -45,6 +45,7 @@ import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import {
   catalogUnitFactor,
   isAreaUnit,
+  isCountPricedLine,
   lineDisplayUnit,
   lineUnitKey,
   normalizeUnit,
@@ -211,9 +212,17 @@ function isSubfloor(l: LineState): boolean {
 function isCountLine(l: LineState): boolean {
   if (isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) return false;
   if (isSubfloor(l)) return false;
-  // Empty unit stays AREA so a new blank line shows Sq ft, not Quantity.
-  // Count display for lines that forgot `unit` is lineDisplayUnit, not this.
-  return !isAreaUnit(l.unit);
+  if ((l.unit ?? "").trim()) return !isAreaUnit(l.unit);
+  // Empty unit on a blank new line stays AREA (Sq ft). Other / labor / trim
+  // with no taped area is COUNT — adhesive TBD is gallons, not square feet.
+  if (l.category === "other" || l.category === "labor" || l.category === "trim") {
+    return isCountPricedLine({
+      unit: l.unit,
+      measure_unit: l.measure_unit,
+      sqft: l.sqft,
+    });
+  }
+  return false;
 }
 
 // Typical material waste by category (%), used as a smart default on pick.
@@ -798,6 +807,20 @@ export function EstimateBuilder({
               ...o,
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
+                if (!(unitValue ?? "").trim()) {
+                  // Unit TBD — not square feet and not invented each.
+                  return {
+                    ...l,
+                    unit: "",
+                    quantity: "",
+                    sqft: "",
+                    len_ft: "",
+                    len_in: "",
+                    wid_ft: "",
+                    wid_in: "",
+                    waste_pct: "",
+                  };
+                }
                 if (isAreaUnit(unitValue)) {
                   // → area: let the measured area drive the quantity again.
                   return {
@@ -3120,6 +3143,7 @@ export function EstimateBuilder({
                                     className={cn(inputSm, "w-32")}
                                     aria-label="Pricing unit"
                                   >
+                                    <option value="">Unit TBD</option>
                                     <optgroup label="By area">
                                       {UNIT_OPTIONS.filter((u) => u.kind === "area").map((u) => (
                                         <option key={u.value} value={u.value}>{u.label}</option>

@@ -3740,6 +3740,24 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/mixed-unassigned|mixedUnassigned/);
   });
 
+  it("0243 adhesive TBD in Builder is How many / Unit TBD, not Sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0243_flooring_knowledge_adhesive_qty_ui.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0243_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/How many \/ Unit TBD/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/isCountPricedLine/);
+    expect(builder).toMatch(/category === "other"/);
+    expect(builder).toMatch(/Unit TBD/);
+    expect(builder).toMatch(/unitValue \?\? ""\)\.trim\(\)/);
+    expect(knowledgeHelpFor({ key: "adhesive" }, emptyInstallContext())).toMatch(/Unit TBD/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

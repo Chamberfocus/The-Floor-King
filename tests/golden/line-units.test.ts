@@ -53,6 +53,25 @@ describe("lineUnitKey / lineDisplayUnit — count vs area", () => {
     expect(isCountPricedLine(line)).toBe(true);
   });
 
+  it("adhesive TBD with leftover measure_unit sqft is still COUNT, not square feet", () => {
+    const line = {
+      unit: "",
+      measure_unit: "sqft" as const,
+      sqft: null,
+      quantity: null,
+    };
+    expect(isCountPricedLine(line)).toBe(true);
+    expect(lineUnitKey(line)).toBe("");
+    expect(lineDisplayUnit(line)).toBe("");
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/isCountPricedLine/);
+    expect(builder).toMatch(/category === "other"/);
+    expect(builder).toMatch(/Unit TBD — not square feet and not invented each/);
+  });
+
   it("stair labor with unit step does not fall back to sq ft", () => {
     const line = { unit: "step", measure_unit: "sqft" as const, sqft: null };
     expect(normalizeUnit("step")).toBe("step");
