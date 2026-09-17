@@ -65,12 +65,27 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     require: { key: "pattern_match", in: ["Pattern match required"] },
   },
   { key: "carpet_direction", purpose: "WAREHOUSE", phase: "measure", families: ["carpet"] },
+  {
+    key: "hs_direction",
+    purpose: "WAREHOUSE",
+    phase: "measure",
+    families: ["lvp", "laminate", "hardwood"],
+  },
 
   // Existing
   { key: "existing_pad", purpose: "LABOR", phase: "existing", families: ["carpet"] },
   { key: "hs_demo", purpose: "LABOR", phase: "existing" },
   { key: "existing_bond", purpose: "LABOR", phase: "existing" },
   { key: "demo_disposal", purpose: "LABOR", phase: "existing" },
+  {
+    key: "asbestos_risk",
+    purpose: "WARNING",
+    phase: "existing",
+    require: {
+      key: "hs_demo",
+      in: ["Ceramic WITH mortar bed", "Ceramic WITHOUT mortar bed", "Sheet vinyl"],
+    },
+  },
 
   // Install
   { key: "install_method", purpose: "INSTALLATION", phase: "install" },

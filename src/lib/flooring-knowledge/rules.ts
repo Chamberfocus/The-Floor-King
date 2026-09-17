@@ -396,6 +396,12 @@ export function knowledgeHelpFor(
   if (key === "stair_open_sides") {
     return "Open sides change wrapped carpet ends and hard-surface nosing. Capture the construction — pricing still uses existing stair labor.";
   }
+  if (key === "asbestos_risk") {
+    return "Old ceramic or sheet vinyl can hide asbestos. Possible / confirmed is a crew warning — do not invent an abatement dollar amount here.";
+  }
+  if (key === "hs_direction") {
+    return "Which way the planks run. Diagonal can need more waste — confirm with the salesperson; do not auto-inflate the percent.";
+  }
   return null;
 }
 
@@ -491,6 +497,18 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     w.push({
       id: "ceramic_base",
       text: "Ceramic removal usually takes the base with it — plan for shoe molding or quarter round.",
+    });
+  }
+  if (picked.some((l) => /possible — test|confirmed — abatement/i.test(l))) {
+    w.push({
+      id: "asbestos",
+      text: "Possible or confirmed asbestos in existing vinyl/ceramic — test before demo. Do not invent an abatement price here.",
+    });
+  }
+  if (ctx.families.some((f) => f === "lvp" || f === "laminate" || f === "hardwood") && picked.some((l) => /diagonal/i.test(l))) {
+    w.push({
+      id: "hs-diagonal",
+      text: "Diagonal / special plank layout usually needs more waste than a straight run. Confirm waste with the salesperson — do not invent a percent.",
     });
   }
   if (has(ctx.prepConfidence, /field|tbd|verify/i)) {

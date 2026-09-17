@@ -79,6 +79,20 @@ export function groupMeasuredSqftByLabel(
   return out;
 }
 
+/**
+ * Floor King Delivery add-on cost when the salesperson chose Include delivery
+ * AND Settings already has a positive cost. Null = note only; never invent fuel $.
+ */
+export function deliveryAddonCost(
+  selected: string[] | undefined,
+  cost: number | null | undefined,
+): number | null {
+  if (!selected?.includes("Include delivery")) return null;
+  const n = Number(cost);
+  if (!(n > 0)) return null;
+  return n;
+}
+
 function takeoffRows(t: MaterialTakeoff): ReviewSection["rows"] {
   const rows: ReviewSection["rows"] = [
     { label: "Measured area", value: formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" }) },

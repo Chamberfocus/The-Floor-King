@@ -45,6 +45,7 @@ import {
   answerGateValues,
   synthesizeStairGate,
   groupMeasuredSqftByLabel,
+  deliveryAddonCost,
 } from "@/lib/flooring-knowledge";
 import { billsBySquareYard } from "@/lib/units";
 import type { ShowIfClause } from "@/lib/types";
@@ -588,6 +589,7 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "laminate_expansion")).toBe(true);
     expect(has(keys, "attached_pad")).toBe(true);
     expect(has(keys, "hs_underlayment")).toBe(true);
+    expect(has(keys, "hs_direction")).toBe(true);
     expect(has(keys, "acclimation")).toBe(false);
     expect(has(keys, "moisture_test")).toBe(false);
   });
@@ -617,7 +619,7 @@ describe("family → system asks the right keys (not every question)", () => {
       carpet_install: ["Stretch-in"],
     });
     on(carpetStretch, ["carpet_install", "pattern_match", "tack_strip", "carpet_pad", "existing_pad"]);
-    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test"]);
+    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test", "hs_direction"]);
 
     const carpetGlue = visibleKnowledgeKeys({
       project_type: ["Carpet"],
@@ -637,7 +639,7 @@ describe("family → system asks the right keys (not every question)", () => {
       surface_type: ["Laminate"],
       install_method: ["Floating / click"],
     });
-    on(lam, ["attached_pad", "laminate_expansion"]);
+    on(lam, ["attached_pad", "laminate_expansion", "hs_direction"]);
     off(lam, ["adhesive", "hardwood_fasteners", "tile_setting", "vinyl_layout", "tack_strip", "acclimation", "moisture_test"]);
 
     const lvpGlue = visibleKnowledgeKeys({
@@ -670,7 +672,7 @@ describe("family → system asks the right keys (not every question)", () => {
       install_method: ["Thinset / mortar"],
     });
     on(tile, ["tile_application", "tile_layout", "tile_setting"]);
-    off(tile, ["adhesive", "attached_pad", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test"]);
+    off(tile, ["adhesive", "attached_pad", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test", "hs_direction"]);
   });
 
   it("stretch-in carpet: tack strip on, adhesive off", () => {
@@ -998,6 +1000,24 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         ],
       },
     },
+    {
+      key: "hs_direction",
+      position: 214,
+      show_if: { key: "surface_type", in: ["Laminate", "LVP / LVT", "Hardwood", "Engineered hardwood"] },
+    },
+    {
+      key: "hs_demo",
+      position: 270,
+      show_if: { key: "project_type", in: ["Hard surface"] },
+    },
+    {
+      key: "asbestos_risk",
+      position: 277,
+      show_if: {
+        key: "hs_demo",
+        in: ["Ceramic WITH mortar bed", "Ceramic WITHOUT mortar bed", "Sheet vinyl"],
+      },
+    },
   ];
   const catalog = catalogRows.map((row) => ({
     id: row.key,
@@ -1024,6 +1044,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys.indexOf("install_method")).toBeLessThan(keys.indexOf("attached_pad")!);
     expect(keys).toContain("laminate_expansion");
     expect(keys).toContain("hs_underlayment");
+    expect(keys).toContain("hs_direction");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("hardwood_fasteners");
     expect(keys).not.toContain("tack_strip");
@@ -1097,6 +1118,24 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).not.toContain("attached_pad");
     expect(keys).not.toContain("tile_application");
     expect(keys).not.toContain("carpet_pad");
+    expect(keys).not.toContain("hs_direction");
+  });
+
+  it("asbestos risk only after ceramic or sheet-vinyl demo", () => {
+    const without = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      hs_demo: ["LVP"],
+    });
+    expect(without).not.toContain("asbestos_risk");
+    const withVinyl = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      install_method: ["Glue-down"],
+      hs_demo: ["Sheet vinyl"],
+    });
+    expect(withVinyl).toContain("asbestos_risk");
   });
 
   it("tile: floor vs wall before layout, no floating follow-ups", () => {
@@ -1109,6 +1148,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("tile_setting");
     expect(keys).not.toContain("attached_pad");
     expect(keys).not.toContain("vinyl_skim");
+    expect(keys).not.toContain("hs_direction");
+    expect(keys).not.toContain("asbestos_risk");
   });
 
   it("pattern repeat only after pattern match is required", () => {
@@ -1249,5 +1290,42 @@ describe("stair extras and mixed-job measured area", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/answerGateValues/);
     expect(q).toMatch(/groupMeasuredSqftByLabel/);
+  });
+});
+
+describe("0197 scope notes and delivery charge", () => {
+  it("adds asbestos and plank direction without inventing prices", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0197_flooring_knowledge_scope_notes.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0197_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/asbestos_risk/);
+    expect(sql).toMatch(/hs_direction/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(knowledgeQuestionByKey("hs_direction")?.families).toEqual(["lvp", "laminate", "hardwood"]);
+    expect(knowledgeQuestionByKey("asbestos_risk")?.purpose).toBe("WARNING");
+  });
+
+  it("emits Delivery only when Settings already has a positive cost", () => {
+    expect(deliveryAddonCost(["Include delivery"], 75)).toBe(75);
+    expect(deliveryAddonCost(["Include delivery"], 0)).toBeNull();
+    expect(deliveryAddonCost(["Include delivery"], null)).toBeNull();
+    expect(deliveryAddonCost(["Customer pickup / will call"], 75)).toBeNull();
+    expect(deliveryAddonCost(["Field verify / TBD"], 75)).toBeNull();
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/deliveryAddonCost/);
+  });
+
+  it("warns on possible asbestos without inventing abatement dollars", () => {
+    const ctx = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      hs_demo: ["Sheet vinyl"],
+    });
+    const w = knowledgeWarnings(ctx, { pickedLabels: ["Possible — test before removal"] });
+    expect(w.some((x) => x.id === "asbestos")).toBe(true);
   });
 });

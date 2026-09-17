@@ -80,6 +80,7 @@ import {
   prepQuantitiesAreFinal,
   answerGateValues,
   groupMeasuredSqftByLabel,
+  deliveryAddonCost,
   prepQuantitySuffix,
   type InstallContext,
   type ReviewRoom,
@@ -482,6 +483,7 @@ export function Questionnaire({
   questions,
   savedAreas = [],
   draft = null,
+  addonDefaults = {},
 }: {
   customerId: string;
   customerName: string;
@@ -492,6 +494,8 @@ export function Questionnaire({
   questions: EstimateQuestion[];
   savedAreas?: CustomerArea[];
   draft?: EstimateDraft | null;
+  /** Settings → Default pricing. Delivery emits only when cost > 0. */
+  addonDefaults?: Record<string, { cost: number | null; unit?: string | null; labor?: boolean }>;
 }) {
   const goalRaw = targetMargin;
   const goal = goalRaw > 0 && goalRaw < 100 ? goalRaw : 40;
@@ -1441,6 +1445,34 @@ export function Questionnaire({
         }
       }
     }
+    for (const q of questions) {
+      if (!visible[q.id] || q.key !== "delivery_scope") continue;
+      const a = answers[q.id];
+      if (a?.kind !== "choice") continue;
+      const cost = deliveryAddonCost(a.selected, addonDefaults.Delivery?.cost);
+      if (cost == null) continue;
+      out.push({
+        room: null,
+        description: "Delivery",
+        category: "other",
+        measure_unit: "sqft",
+        sqft: null,
+        quantity: 1,
+        length_in: null,
+        width_in: null,
+        unit: "each",
+        material_rate: sellMat(cost),
+        labor_rate: 0,
+        material_cost: cost,
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        from_stock: false,
+      });
+    }
     // Cash & carry: strip ALL labor — drop dedicated labor lines, and zero any
     // labor embedded on a surviving material/trim line (e.g. trim R&R). The one
     // guarantee that a cash & carry quote is materials only.
@@ -1454,7 +1486,7 @@ export function Questionnaire({
           )
       : out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry, cutsSqftByCategory, flooringCtx]);
+  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry, cutsSqftByCategory, flooringCtx, addonDefaults]);
 
   const notes = useMemo(() => {
     // "Job conditions" — flagged choice / yes-no answers (subfloor, tackless…)
@@ -1748,7 +1780,8 @@ export function Questionnaire({
         q.key === "stair_landings" ||
         q.key === "stair_open_sides" ||
         q.key === "carpet_stairs" ||
-        q.key === "hs_plank_stairs"
+        q.key === "hs_plank_stairs" ||
+        q.key === "hs_direction"
       )
         installation.push(`${q.label}: ${v}`);
       else if (/prep|level|subfloor|moisture|vapor|substrate|skim|grind/.test(blob) || q.key === "prep_confidence" || q.key === "vinyl_skim")
@@ -1756,12 +1789,13 @@ export function Questionnaire({
       else if (/trim|metal|transition|quarter|nose|underlay|pad|adhesive|tack|vent|register|grout|thinset|backer|expansion/.test(blob) || q.key === "tack_strip" || q.key === "tile_setting" || q.key === "vents_registers" || q.key === "laminate_expansion" || q.key === "carpet_pad")
         accessories.push(`${q.label}: ${v}`);
       else if (
-        /toilet|appliance|furniture|door shav|occupancy|access|delivery/.test(blob) ||
+        /toilet|appliance|furniture|door shav|occupancy|access|delivery|asbestos/.test(blob) ||
         q.key === "toilets" ||
         q.key === "appliances" ||
         q.key === "furniture_level" ||
         q.key === "doors_shave" ||
-        q.key === "delivery_scope"
+        q.key === "delivery_scope" ||
+        q.key === "asbestos_risk"
       )
         specials.push(`${q.label}: ${v}`);
       else if (q.config.note || q.config.trim_list) specials.push(`${q.label}: ${v}`);

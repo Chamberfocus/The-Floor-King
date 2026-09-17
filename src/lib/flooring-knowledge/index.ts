@@ -103,6 +103,7 @@ export {
   formatDimensionPair,
   confidenceFromLabel,
   groupMeasuredSqftByLabel,
+  deliveryAddonCost,
   type ReviewRoom,
   type ReviewSection,
   type SalespersonReview,

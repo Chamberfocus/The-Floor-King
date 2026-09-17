@@ -13,6 +13,7 @@ import { listCustomerAreas } from "@/lib/data/customer-areas";
 import { formatServiceAddress } from "@/lib/types";
 import { getEstimateDraft } from "../smart-actions";
 import { GuidedEstimate } from "../guided-client";
+import { getAddonDefaults } from "@/lib/data/addon-defaults";
 
 export const metadata: Metadata = { title: "Guided estimate" };
 export const dynamic = "force-dynamic";
@@ -40,6 +41,7 @@ export default async function GuidedEstimatePage({
   const questions = await listEstimateQuestions({ activeOnly: true });
   const savedAreas = await listCustomerAreas(customer.id);
   const draft = await getEstimateDraft(customer.id);
+  const addonDefaults = await getAddonDefaults();
 
   return (
     <div className="mx-auto max-w-5xl pb-20">
@@ -63,6 +65,7 @@ export default async function GuidedEstimatePage({
         questions={questions}
         savedAreas={savedAreas}
         draft={draft}
+        addonDefaults={addonDefaults}
       />
     </div>
   );

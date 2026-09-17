@@ -57,6 +57,7 @@ const REQUIRED_FILES = [
   "0194_flooring_knowledge_job_conditions.sql",
   "0195_flooring_knowledge_pattern_delivery.sql",
   "0196_flooring_knowledge_stair_gates.sql",
+  "0197_flooring_knowledge_scope_notes.sql",
 ];
 
 /**
@@ -802,6 +803,16 @@ const REQUIRED_MARKERS = [
       "carpet_stairs",
       "hs_plank_stairs",
       "hs_underlayment",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0197_flooring_knowledge_scope_notes.sql",
+    markers: [
+      "P0_0197_FLOORING_KNOWLEDGE",
+      "asbestos_risk",
+      "hs_direction",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
