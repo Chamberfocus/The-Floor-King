@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { lineQty, lineOrderQty } from "@/lib/estimate-calc";
+import { lineUnitKey } from "@/lib/units";
 import { isMaterialLine } from "@/lib/job-scope";
 import {
   buildSupplierLookup,
@@ -153,7 +154,7 @@ export async function getEstimateOrderPlan(
       description: nameOf(l),
       productId: l.product_id ?? null,
       qty,
-      unit: l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft"),
+      unit: lineUnitKey(l),
       unitCost,
       lineTotal: Math.round(qty * unitCost * 100) / 100,
       fromStock: !!l.from_stock,

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
 import type { LineMeasurement, ProductCategory } from "@/lib/types";
+import { lineDisplayUnit } from "@/lib/units";
 import { sendEstimateById } from "./actions";
 
 /** Clear a saved flooring-type default. */
@@ -210,7 +211,7 @@ export async function createSmartEstimate(
     quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
     length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
     width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
-    unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+    unit: lineDisplayUnit(l),
     material_rate: Number(l.material_rate) || 0,
     labor_rate: Number(l.labor_rate) || 0,
     material_cost: Number(l.material_cost) || 0,

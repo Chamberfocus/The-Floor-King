@@ -1,5 +1,6 @@
 import { stripRoomFromName } from "@/lib/job-scope";
 import { lineOrderQty } from "@/lib/estimate-calc";
+import { lineUnitKey } from "@/lib/units";
 import type { EstimateLineItem } from "@/lib/types";
 
 /** A PO line row derived from estimate lines — the shape (minus po_id/position)
@@ -46,7 +47,7 @@ export function buildPoItemRows(
   // Combine the same product across rooms/areas into one collective PO line.
   const cutGroups = new Map<string, PoItemRow>();
   for (const l of cutLines) {
-    const unit = l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft");
+    const unit = lineUnitKey(l);
     // Room baked into the description ("<desc> — <room>") would split the same
     // product across rooms; strip it so it orders as one collective line.
     const name = stripRoomFromName(nameOf(l), l.room);

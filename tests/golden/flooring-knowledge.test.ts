@@ -343,6 +343,7 @@ describe("questionnaire is wired to the knowledge engine", () => {
     expect(q).toMatch(/Continue to Builder/);
     expect(q).toMatch(/formatTakeoffStrip/);
     expect(q).toMatch(/Running takeoff — measured is not order quantity/);
+    expect(q).toMatch(/lineDisplayUnit/);
   });
 });
 

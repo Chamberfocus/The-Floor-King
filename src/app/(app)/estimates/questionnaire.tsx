@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { billsBySquareYard } from "@/lib/units";
+import { billsBySquareYard, lineDisplayUnit } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
@@ -2179,12 +2179,10 @@ export function Questionnaire({
                     <span className="min-w-0">
                       <span className="truncate">{l.description}</span>
                       <span className="ml-2 text-xs text-muted-foreground">
-                        {l.quantity} {l.unit}
-                        {l.measure_unit === "sqyd" && l.sqft
+                        {l.quantity} {lineDisplayUnit(l)}
+                        {l.sqft
                           ? ` · measured ${l.sqft} sq ft`
-                          : l.sqft
-                            ? ` · measured ${l.sqft} sq ft`
-                            : ""}
+                          : ""}
                         {l.waste_pct ? ` · ${l.waste_pct}% waste` : ""}
                         {l.from_stock ? " · from stock" : ""}
                         {l.category === "labor" ? " · labor" : ""}

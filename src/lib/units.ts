@@ -25,6 +25,7 @@ export const COUNT_UNITS = [
   "gal",
   "roll",
   "sheet",
+  "step",
   "hour",
   "set",
   "kit",
@@ -41,6 +42,7 @@ const LABELS: Record<string, string> = {
   gal: "gallon",
   roll: "roll",
   sheet: "sheet",
+  step: "step",
   hour: "hour",
   set: "set",
   kit: "kit",
@@ -67,6 +69,7 @@ export function normalizeUnit(raw: string | null | undefined): string {
   if (u.startsWith("gal")) return "gal";
   if (u.startsWith("roll")) return "roll";
   if (u.startsWith("sheet") || u === "sht") return "sheet";
+  if (u === "step" || u.startsWith("step")) return "step";
   if (u === "hr" || u.startsWith("hour")) return "hour";
   if (u === "set") return "set";
   if (u === "kit") return "kit";
@@ -89,6 +92,59 @@ export function unitLabel(raw: string | null | undefined): string {
   const u = normalizeUnit(raw);
   if (!u) return "";
   return LABELS[u] ?? u;
+}
+
+function hasMeasuredArea(sqft: number | string | null | undefined): boolean {
+  const n = typeof sqft === "number" ? sqft : parseFloat(String(sqft ?? ""));
+  return Number.isFinite(n) && n > 0;
+}
+
+/**
+ * Canonical unit KEY for a line (sqft / sqyd / each / lnft / step…).
+ *
+ * `measure_unit` is area-only (sqft|sqyd). Count lines still store it as
+ * "sqft" with `sqft` null. Never treat that as square feet.
+ *
+ * Pricing still uses `isAreaUnit(unit)` (empty unit = area). This helper is
+ * for the printed unit next to a quantity, so toilets/stairs/delivery never
+ * render as "sq ft" just because MeasureUnit defaulted to sqft.
+ */
+export function lineUnitKey(line: {
+  unit?: string | null;
+  measure_unit?: string | null;
+  sqft?: number | string | null;
+}): string {
+  const raw = (line.unit ?? "").trim();
+  const fromUnit = normalizeUnit(raw);
+  if (fromUnit && !isAreaUnit(fromUnit)) return fromUnit;
+  if (fromUnit === "sqyd") return "sqyd";
+  if (fromUnit === "sqft") return "sqft";
+  if (hasMeasuredArea(line.sqft)) return line.measure_unit === "sqyd" ? "sqyd" : "sqft";
+  // No taped area and no count unit — do not print square feet.
+  return "each";
+}
+
+/** Unit printed next to a quantity. Count lines never fall back to sq ft. */
+export function lineDisplayUnit(line: {
+  unit?: string | null;
+  measure_unit?: string | null;
+  sqft?: number | string | null;
+}): string {
+  const key = lineUnitKey(line);
+  return unitLabel(key) || key;
+}
+
+/** True when the line is billed by count, not taped area. */
+export function isCountPricedLine(line: {
+  unit?: string | null;
+  measure_unit?: string | null;
+  sqft?: number | string | null;
+}): boolean {
+  const raw = (line.unit ?? "").trim();
+  if (raw) return !isAreaUnit(raw);
+  // No unit string: taped area is still AREA. No taped area is COUNT so we
+  // never print "sq ft" beside a toilet/stair/delivery quantity.
+  return !hasMeasuredArea(line.sqft);
 }
 
 export interface UnitOption {

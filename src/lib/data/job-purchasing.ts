@@ -4,6 +4,7 @@
  */
 import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
 import { lineQty, lineOrderQty, type CalcLine } from "@/lib/estimate-calc";
+import { lineDisplayUnit } from "@/lib/units";
 import { isMaterialLine } from "@/lib/job-scope";
 import { materialNeedQty } from "@/lib/job-operational-scope";
 import {
@@ -398,7 +399,7 @@ export async function syncJobPurchasingCoverage(
           (l.product_id ? pname.get(l.product_id) : "") ||
           "Item";
         const lineUnit = String(
-          l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+          lineDisplayUnit(l),
         );
         const catUnit = (l.product_id ? punit.get(l.product_id) : "")?.replace(
           /\s+/g,

@@ -40,6 +40,7 @@ import {
   lineTotal,
   lineQty,
 } from "@/lib/estimate-calc";
+import { lineDisplayUnit } from "@/lib/units";
 import { jobProfit } from "@/lib/job-profit";
 import { parseProjectDetails } from "@/lib/customer-scope";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -74,8 +75,7 @@ export async function generateMetadata({
 function lineMath(l: EstimateLineItem): string {
   if (l.line_type === "flat") return "Flat amount";
   const qty = lineQty(l);
-  const unit =
-    (l.unit && l.unit.trim()) || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+  const unit = lineDisplayUnit(l);
   const rate =
     l.line_type === "installed"
       ? (l.installed_rate ?? 0)

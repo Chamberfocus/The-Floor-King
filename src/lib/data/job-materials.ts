@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { type CalcLine } from "@/lib/estimate-calc";
+import { lineDisplayUnit } from "@/lib/units";
 import { isMaterialLine } from "@/lib/job-scope";
 import { materialNeedQty } from "@/lib/job-operational-scope";
 import {
@@ -256,7 +257,7 @@ export async function getJobMaterials(
       sqftArea: l.sqft == null || l.sqft === "" ? null : Number(l.sqft),
       measurements: l.measurements ?? null,
       qty,
-      unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+      unit: lineDisplayUnit(l),
       trackStock: canStock,
       onHand,
       available,

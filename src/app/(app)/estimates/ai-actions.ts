@@ -9,6 +9,7 @@ import { searchCatalog } from "@/lib/data/products";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getOrgSettings } from "@/lib/data/org";
 import { getRoomDefaults, getAddonDefaults } from "@/lib/data/addon-defaults";
+import { lineDisplayUnit } from "@/lib/units";
 import {
   sellLaborFromTargetMargin,
   sellMaterialFromTargetMargin,
@@ -435,7 +436,7 @@ export async function createEstimateFromNotes(
       quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
       length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
       width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
-      unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+      unit: lineDisplayUnit(l),
       material_rate: Number(l.material_rate) || 0,
       labor_rate: Number(l.labor_rate) || 0,
       material_cost: Number(l.material_cost) || 0,
@@ -649,7 +650,7 @@ export async function createDraftEstimateFromText(
     quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
     length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
     width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
-    unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+    unit: lineDisplayUnit(l),
     material_rate: Number(l.material_rate) || 0,
     labor_rate: Number(l.labor_rate) || 0,
     material_cost: Number(l.material_cost) || 0,

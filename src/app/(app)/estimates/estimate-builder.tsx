@@ -44,6 +44,7 @@ import {
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import {
   isAreaUnit,
+  lineDisplayUnit,
   normalizeUnit,
   unitLabel,
   UNIT_OPTIONS,
@@ -203,6 +204,8 @@ function isSubfloor(l: LineState): boolean {
 function isCountLine(l: LineState): boolean {
   if (isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) return false;
   if (isSubfloor(l)) return false;
+  // Empty unit stays AREA so a new blank line shows Sq ft, not Quantity.
+  // Count display for lines that forgot `unit` is lineDisplayUnit, not this.
   return !isAreaUnit(l.unit);
 }
 
@@ -1596,7 +1599,7 @@ export function EstimateBuilder({
         room: l.room || null,
         description: l.description,
         quantity: Number(l.quantity) || Number(l.sqft) || null,
-        unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+        unit: lineDisplayUnit(l),
       }));
     if (!lines.length) {
       toast.error("Add line items first.");
@@ -2203,7 +2206,7 @@ export function EstimateBuilder({
                     unit: line.unit,
                   };
                   const sQty = lineQty(summ);
-                  const sUnit = line.unit || (line.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+                  const sUnit = lineDisplayUnit(line);
                   const sSell = lineTotal(summ);
                   const sCost = lineOurCost(line);
                   const sMargin = sSell > 0 ? ((sSell - sCost) / sSell) * 100 : 0;
@@ -2578,7 +2581,7 @@ export function EstimateBuilder({
                         {line.line_type === "mat_labor" ? (
                           (() => {
                             const labor = isLaborLine(line);
-                            const unitLbl = line.unit || (line.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+                            const unitLbl = lineDisplayUnit(line);
                             const overriding = line.margin_pct.trim() !== "";
                             return (
                               <div className="w-full space-y-1.5 rounded-lg border bg-card p-3">
@@ -2739,7 +2742,7 @@ export function EstimateBuilder({
                             label={
                               isSubfloor(line)
                                 ? "$ / sheet (installed)"
-                                : `Installed /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`
+                                : `Installed /${line.measure_unit === "sqyd" ? "sq yd" : "sq ft"}`
                             }
                             prefix="$"
                             value={line.installed_rate}

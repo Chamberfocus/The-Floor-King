@@ -4,6 +4,7 @@ import {
   type EstimateLineItem,
 } from "@/lib/types";
 import { lineQty, type CalcLine } from "@/lib/estimate-calc";
+import { lineDisplayUnit } from "@/lib/units";
 
 // Carpet padding is bought by the roll; the shop's standard roll covers this
 // many square yards (matches the estimate builder's roll math).
@@ -53,7 +54,7 @@ export function lineSpec(l: {
   // area lines, count for count lines) — never the raw stored quantity, which
   // could be waste-baked or off by rounding and made the work order disagree.
   const q = lineQty(l as unknown as CalcLine);
-  const unit = l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+  const unit = lineDisplayUnit(l);
   const qty = q > 0 ? `${Math.round(q * 100) / 100} ${unit}` : l.sqft ? `${l.sqft} sq ft` : "";
   // Cuts only apply to roll goods (carpet / sheet vinyl). Hard surface is sold
   // by the square foot in cartons and never has a cut size.
