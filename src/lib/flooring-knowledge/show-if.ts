@@ -44,3 +44,12 @@ export function matchesShowIf(
   }
   return true;
 }
+
+/** Keys a `show_if` clause reads — used so dependents never sort before their gates. */
+export function showIfReferencedKeys(clause: ShowIfClause | null | undefined): string[] {
+  if (!clause) return [];
+  if ("all" in clause && clause.all) return clause.all.flatMap(showIfReferencedKeys);
+  if ("any" in clause && clause.any) return clause.any.flatMap(showIfReferencedKeys);
+  if ("key" in clause && clause.key) return [clause.key];
+  return [];
+}

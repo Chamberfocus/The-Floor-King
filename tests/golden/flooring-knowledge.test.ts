@@ -30,6 +30,10 @@ import {
   visibleKnowledgeKeys,
   knowledgeQuestionByKey,
   KNOWLEDGE_QUESTIONS,
+  sortEstimateQuestions,
+  estimatorPhaseForQuestion,
+  estimatorPhaseLabel,
+  showIfReferencedKeys,
 } from "@/lib/flooring-knowledge";
 import { billsBySquareYard } from "@/lib/units";
 
@@ -463,6 +467,7 @@ describe("migration 0192 closes remaining estimator gaps", () => {
     expect(sql).toMatch(/Unknown \/ field verify/);
     expect(sql).not.toMatch(/create table public\.products/);
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/sortEstimateQuestions/);
     expect(q).toMatch(/coerceTrimUnit/);
     expect(q).toMatch(/never square feet/);
     expect(q).toMatch(/Order \(estimate — not a cut plan\)/);
@@ -581,6 +586,88 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(sql).not.toMatch(/create table public\.products/);
     expect(has(visibleKnowledgeKeys({ project_type: ["Hard surface"] }), "subfloor_condition")).toBe(
       true,
+    );
+  });
+});
+
+describe("estimator conversation order (not SQL position)", () => {
+  const q = (row: {
+    key?: string;
+    kind?: string;
+    position: number;
+    id?: string;
+    section?: string;
+    show_if?: { key: string; in: string[] };
+    trim_list?: boolean;
+  }) => ({
+    id: row.id ?? row.key ?? `p${row.position}`,
+    key: row.key ?? null,
+    kind: row.kind ?? "choice",
+    section: row.section ?? "",
+    position: row.position,
+    config: {
+      ...(row.show_if ? { show_if: row.show_if } : {}),
+      ...(row.trim_list ? { trim_list: true } : {}),
+    },
+  });
+
+  it("walks area → product → measure → install even when SQL positions are inverted", () => {
+    const sorted = sortEstimateQuestions([
+      q({
+        key: "adhesive",
+        position: 1,
+        show_if: { key: "install_method", in: ["Glue-down"] },
+      }),
+      q({ key: "install_method", position: 2 }),
+      q({ key: "project_type", position: 50 }),
+      q({ key: "pattern_match", position: 3 }),
+      q({ key: "surface_type", position: 40 }),
+    ]);
+    expect(sorted.map((x) => x.key)).toEqual([
+      "project_type",
+      "surface_type",
+      "pattern_match",
+      "install_method",
+      "adhesive",
+    ]);
+  });
+
+  it("keeps a show_if gate ahead of its dependent inside the same phase", () => {
+    const sorted = sortEstimateQuestions([
+      q({
+        key: "adhesive",
+        position: 1,
+        show_if: { key: "install_method", in: ["Glue-down"] },
+      }),
+      q({ key: "install_method", position: 99 }),
+    ]);
+    expect(sorted.map((x) => x.key)).toEqual(["install_method", "adhesive"]);
+  });
+
+  it("places floor_map after rooms so mixed jobs assign product to measured areas", () => {
+    const sorted = sortEstimateQuestions([
+      q({ id: "map", kind: "floor_map", position: 10 }),
+      q({ id: "rooms", kind: "areas", position: 90, key: "rooms" }),
+      q({ key: "project_type", position: 5 }),
+    ]);
+    expect(sorted.map((x) => x.id)).toEqual(["project_type", "rooms", "map"]);
+  });
+
+  it("puts prep_scope with measure (after area, before rooms) not in front of project_type", () => {
+    expect(estimatorPhaseForQuestion(q({ key: "prep_scope", position: 4 }))).toBe("measure");
+    const sorted = sortEstimateQuestions([
+      q({ key: "prep_scope", position: 4 }),
+      q({ key: "project_type", position: 10 }),
+      q({ id: "rooms", kind: "areas", position: 20 }),
+    ]);
+    expect(sorted.map((x) => x.key ?? x.id)).toEqual(["project_type", "prep_scope", "rooms"]);
+  });
+
+  it("labels phases for the salesperson rail", () => {
+    expect(estimatorPhaseLabel("area")).toBe("Area");
+    expect(estimatorPhaseLabel("install")).toBe("Installation");
+    expect(showIfReferencedKeys({ all: [{ key: "install_method", in: ["Glue-down"] }, { key: "attached_pad", in: ["No"] }] })).toEqual(
+      ["install_method", "attached_pad"],
     );
   });
 });

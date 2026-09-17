@@ -34,12 +34,20 @@ export {
   type ConditionConfidence,
 } from "./families";
 
-export { matchesShowIf, isShowIfClause } from "./show-if";
+export { matchesShowIf, isShowIfClause, showIfReferencedKeys } from "./show-if";
 
 export {
   knowledgeQuestionByKey,
+  estimatorPhaseForQuestion,
+  estimatorPhaseRank,
+  estimatorPhaseLabel,
+  questionPhaseMap,
+  sortEstimateQuestions,
+  ESTIMATOR_PHASE_ORDER,
+  ESTIMATOR_PHASE_LABELS,
   type KnowledgeQuestionDef,
   type EstimatorPhase,
+  type SortableEstimateQuestion,
 } from "./registry";
 
 export {

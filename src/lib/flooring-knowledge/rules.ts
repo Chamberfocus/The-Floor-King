@@ -292,6 +292,12 @@ export function knowledgeHelpFor(
   if (key === "subfloor_condition") {
     return "Flat vs uneven vs cracks vs a height change. If demo hasn't happened, pick Unknown / field verify — do not invent a bag count.";
   }
+  if (key === "prep_scope") {
+    return "Same-for-the-job is faster. Set it by room when one room is a wet area or a different substrate — you'll fill prep on the rooms step.";
+  }
+  if (key === "furniture_heavy") {
+    return "Pianos, pool tables, and loaded cabinets are scope/schedule notes unless this job already has a furniture-moving labor line.";
+  }
   return null;
 }
 

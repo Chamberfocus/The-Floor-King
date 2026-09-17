@@ -70,6 +70,10 @@ import {
   questionApplies,
   reviewToJobNotes,
   buildSalespersonReview,
+  sortEstimateQuestions,
+  estimatorPhaseForQuestion,
+  estimatorPhaseLabel,
+  questionPhaseMap,
   type InstallContext,
   type ReviewRoom,
 } from "@/lib/flooring-knowledge";
@@ -655,9 +659,12 @@ export function Questionnaire({
     return vis;
   }, [questions, answers, overrides, cashCarry]);
   const visibleQuestions = useMemo(
-    () => questions.filter((q) => visible[q.id]),
+    () => sortEstimateQuestions(questions.filter((q) => visible[q.id])),
     [questions, visible],
   );
+  const phaseById = useMemo(() => questionPhaseMap(questions), [questions]);
+  const phaseName = (qq: EstimateQuestion | null | undefined) =>
+    qq ? estimatorPhaseLabel(phaseById.get(qq.id) ?? estimatorPhaseForQuestion(qq)) : "";
 
   const flooringCtx = useMemo(() => {
     const valByKey: Record<string, string[]> = {};
@@ -1776,16 +1783,27 @@ export function Questionnaire({
     });
   };
   const total = stepQuestions.length;
-  // The sections in play, in order, each with the step that starts it.
+  // Estimator phases in walk order — SQL section names mixed Carpet/Hard surface
+  // and did not match Area → Product → Measure → Existing → Installation → Prep.
   const sectionRail = useMemo(() => {
     const seen = new Map<string, number>();
     stepQuestions.forEach((sq, i) => {
-      if (sq.section && !seen.has(sq.section)) seen.set(sq.section, i);
+      const name = phaseName(sq);
+      if (name && !seen.has(name)) seen.set(name, i);
     });
     return [...seen.entries()].map(([name, firstIndex]) => ({ name, firstIndex }));
-  }, [stepQuestions]);
+  }, [stepQuestions, phaseById]);
   const atReview = step >= total;
   const q = atReview ? null : stepQuestions[step];
+  const currentQuestionIdRef = useRef<string | null>(null);
+  if (q) currentQuestionIdRef.current = q.id;
+  useEffect(() => {
+    if (step >= stepQuestions.length) return;
+    const id = currentQuestionIdRef.current;
+    if (!id) return;
+    const idx = stepQuestions.findIndex((sq) => sq.id === id);
+    if (idx >= 0 && idx !== step) setStep(idx);
+  }, [stepQuestions, step]);
   const answered = (qq: EstimateQuestion): boolean => {
     const a = answers[qq.id];
     if (qq.kind === "areas") return a?.kind === "areas" && a.rooms.some((r) => rowSqft(r) > 0);
@@ -1923,7 +1941,7 @@ export function Questionnaire({
       {sectionRail.length > 1 ? (
         <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
           {sectionRail.map((s) => {
-            const isCurrent = s.name === q?.section;
+            const isCurrent = s.name === phaseName(q);
             const reached = s.firstIndex <= step;
             return (
               <button
@@ -1981,7 +1999,7 @@ export function Questionnaire({
         >
           <CardContent className="space-y-4 p-4 sm:p-6">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">{q.section}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">{phaseName(q)}</div>
               <h2 className="text-lg font-semibold sm:text-xl">
                 {q.required ? <span className="text-amber-600">★ </span> : null}
                 {q.label}
@@ -2183,7 +2201,7 @@ export function Questionnaire({
               ? `${lines.length} line item${lines.length === 1 ? "" : "s"}`
               : !canNext
                 ? <span className="font-medium text-amber-600">Answer this one to carry on</span>
-                : q?.section}
+                : phaseName(q)}
           </span>
           {atReview ? (
             <span className="w-[5.5rem]" />
