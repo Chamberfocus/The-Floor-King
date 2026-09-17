@@ -301,3 +301,26 @@ describe("call sites no longer fall back measure_unit → sq ft on count lines",
     }
   });
 });
+
+describe("measured sq ft is never labeled as a carpet order in sq yd", () => {
+  it("customer areas card uses equivalent-area copy, not a bare sq yd order", () => {
+    const src = readFileSync(join(root, "src/app/(app)/customers/[id]/areas-card.tsx"), "utf8");
+    expect(src).toMatch(/formatMeasuredLabel/);
+    expect(src).toMatch(/showEquivalentYd/);
+    expect(src).not.toMatch(/total \/ 9\) \* 100\) \/ 100} sq yd/);
+  });
+
+  it("area calculator labels ÷ 9 as equivalent area, not Total sq yd (carpet)", () => {
+    const src = readFileSync(join(root, "src/components/area-calculator.tsx"), "utf8");
+    expect(src).toMatch(/formatEquivalentSqyd/);
+    expect(src).toMatch(/Equivalent sq yd — not an order/);
+    expect(src).not.toMatch(/Total sq yd \(carpet\)/);
+    expect(src).not.toMatch(/totalSqyd = totalSqft \/ 9/);
+  });
+
+  it("inventory roll receive uses unitIsSqyd, not includes(yd)", () => {
+    const src = readFileSync(join(root, "src/app/(app)/inventory/[id]/page.tsx"), "utf8");
+    expect(src).toMatch(/unitIsSqyd\(product\.unit\)/);
+    expect(src).not.toMatch(/product\.unit\?\.includes\(["']yd["']\)/);
+  });
+});

@@ -19,6 +19,7 @@ import { getProduct, listMovements } from "@/lib/data/inventory";
 import { listRolls } from "@/lib/data/stock-rolls";
 import { STOCK_MOVEMENT_LABELS } from "@/lib/types";
 import { formatMoney, formatDate } from "@/lib/format";
+import { unitIsSqyd } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import {
   receiveStock,
@@ -145,7 +146,7 @@ export default async function InventoryItemPage({
               </div>
               <div>
                 <Label htmlFor="rr-unit">Unit</Label>
-                <select id="rr-unit" name="unit" defaultValue={product.unit?.includes("yd") ? "sqyd" : product.unit === "lnft" ? "lnft" : "sqyd"} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
+                <select id="rr-unit" name="unit" defaultValue={unitIsSqyd(product.unit) ? "sqyd" : product.unit === "lnft" ? "lnft" : "sqyd"} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
                   <option value="sqyd">sq yd</option>
                   <option value="lnft">ln ft</option>
                 </select>

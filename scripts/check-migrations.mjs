@@ -70,6 +70,7 @@ const REQUIRED_FILES = [
   "0207_flooring_knowledge_bond_site.sql",
   "0208_flooring_knowledge_stretch_pad.sql",
   "0209_flooring_knowledge_mixed_install.sql",
+  "0210_flooring_knowledge_metals_entry.sql",
 ];
 
 /**
@@ -960,6 +961,18 @@ const REQUIRED_MARKERS = [
       "P0_0209_FLOORING_KNOWLEDGE",
       "install_method",
       "multi",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0210_flooring_knowledge_metals_entry.sql",
+    markers: [
+      "P0_0210_FLOORING_KNOWLEDGE",
+      "metals_qty",
+      "crew_entry",
+      "occupancy",
+      "climate_control",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

@@ -891,6 +891,7 @@ describe("family → system asks the right keys (not every question)", () => {
       "each",
     );
     expect(amountUnitLabelForQuestion({ key: "vents_registers" })).toBe("each");
+    expect(amountUnitLabelForQuestion({ key: "metals_qty" })).toBe("each");
     expect(amountUnitLabelForQuestion({ key: "pattern_repeat" })).toMatch(/inches of repeat/);
   });
 
@@ -1594,6 +1595,46 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       position: 510,
       show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
     },
+    {
+      key: "occupancy",
+      position: 505,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
+    {
+      key: "access_conditions",
+      position: 532,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
+    {
+      key: "furniture_heavy",
+      position: 512,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
+    {
+      key: "climate_control",
+      position: 520,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
+    {
+      key: "crew_entry",
+      position: 530,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
+    {
+      key: "metals_qty",
+      position: 113,
+      show_if: { key: "metals_needed", in: ["Yes"] },
+    },
+    {
+      key: "metal_type",
+      position: 114,
+      show_if: { key: "metals_needed", in: ["Yes"] },
+    },
+    {
+      key: "metal_color",
+      position: 115,
+      show_if: { key: "metals_needed", in: ["Yes"] },
+    },
   ];
   const catalog = catalogRows.map((row) => ({
     id: row.key,
@@ -1693,6 +1734,12 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("prep_scope");
     expect(keys).toContain("doors_shave");
     expect(keys).toContain("furniture_level");
+    expect(keys).toContain("occupancy");
+    expect(keys).toContain("access_conditions");
+    expect(keys).toContain("furniture_heavy");
+    expect(keys).toContain("climate_control");
+    expect(keys).toContain("crew_entry");
+    expect(keys).not.toContain("metals_qty");
     expect(keys).not.toContain("selflevel_needed");
     expect(keys).not.toContain("existing_bond");
     expect(keys).not.toContain("pattern_repeat");
@@ -2270,6 +2317,78 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(mixed).toContain("attached_pad");
     expect(mixed).toContain("hardwood_fasteners");
     expect(mixed).not.toContain("adhesive");
+    expect(mixed).toContain("occupancy");
+    expect(mixed).toContain("climate_control");
+    expect(mixed).toContain("crew_entry");
+    expect(mixed).not.toContain("metals_needed");
+    expect(mixed).not.toContain("metals_qty");
+  });
+
+  it("0210 counts carpet metals in EACH and keys crew entry", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0210_flooring_knowledge_metals_entry.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0210_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/metals_qty/);
+    expect(sql).toMatch(/crew_entry/);
+    expect(sql).toMatch(/occupancy/);
+    expect(sql).toMatch(/climate_control/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/insert into public\.products/);
+
+    expect(knowledgeQuestionByKey("metals_qty")?.quantityUnit).toBe("each");
+    expect(knowledgeQuestionByKey("metals_qty")?.families).toEqual(["carpet"]);
+    expect(knowledgeQuestionByKey("crew_entry")?.purpose).toBe("SCHEDULING");
+    expect(knowledgeQuestionByKey("metals_qty")?.require).toEqual({
+      key: "metals_needed",
+      in: ["Yes"],
+    });
+    expect(amountUnitLabelForQuestion({ key: "metals_qty" })).toBe("each");
+    expect(reviewBucketForQuestion({ key: "metals_qty", label: "How many metals" })).toBe(
+      "accessories",
+    );
+    expect(reviewBucketForQuestion({ key: "crew_entry", label: "Site access" })).toBe("specials");
+    expect(reviewBucketForQuestion({ key: "occupancy", label: "Occupied or vacant?" })).toBe(
+      "specials",
+    );
+    expect(reviewBucketForQuestion({ key: "climate_control", label: "Climate control on site?" })).toBe(
+      "installation",
+    );
+
+    const unanswered = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(unanswered).toContain("metals_needed");
+    expect(unanswered).toContain("occupancy");
+    expect(unanswered).toContain("access_conditions");
+    expect(unanswered).toContain("furniture_heavy");
+    expect(unanswered).toContain("climate_control");
+    expect(unanswered).toContain("crew_entry");
+    expect(unanswered).not.toContain("metals_qty");
+    expect(unanswered).not.toContain("metal_type");
+
+    const withMetals = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      metals_needed: ["Yes"],
+    });
+    expect(withMetals).toContain("metals_qty");
+    expect(withMetals).toContain("metal_type");
+    expect(withMetals).toContain("metal_color");
+    expect(withMetals.indexOf("metals_needed")).toBeLessThan(withMetals.indexOf("metals_qty")!);
+
+    const noMetals = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+      metals_needed: ["No"],
+    });
+    expect(noMetals).toContain("metals_needed");
+    expect(noMetals).not.toContain("metals_qty");
+    expect(noMetals).toContain("climate_control");
+    expect(noMetals).toContain("occupancy");
   });
 
   it("pattern repeat only after pattern match is required", () => {

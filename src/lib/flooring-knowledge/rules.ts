@@ -491,6 +491,27 @@ export function knowledgeHelpFor(
   if (key === "tack_strip") {
     return "Stretch-in needs tack strip. Glue-down and carpet tile do not. Capture keep vs replace — do not invent a linear-foot price unless a catalog item is added.";
   }
+  if (key === "metals_needed") {
+    return "Carpet-to-hard-surface doorways and edges. Yes opens the count (EACH) plus type/color. Do not invent a metal price here.";
+  }
+  if (key === "metals_qty") {
+    return "Count of metals / transitions in EACH — never square feet. Pick a catalog gripper or flat metal in Builder if Floor King sells it.";
+  }
+  if (key === "metal_type") {
+    return "Gripper vs flat. The count is the previous step — this does not add a second charge.";
+  }
+  if (key === "crew_entry") {
+    return "How the crew gets in (lockbox / homeowner / key). Upper floor, elevator, and long carry stay on Access conditions.";
+  }
+  if (key === "occupancy") {
+    return "Occupied vs vacant changes furniture and scheduling. Not a price by itself.";
+  }
+  if (key === "access_conditions") {
+    return "Upper floor, elevator, long carry, unusual access — scope/schedule notes unless a Floor King labor item is added in Builder.";
+  }
+  if (key === "climate_control") {
+    return "AC and heat on site. The acclimation warning fires only for hardwood / glue-down. Stretch-in and floating still capture it as an install condition.";
+  }
   if (key === "laminate_expansion") {
     return "Floating floors need expansion at walls and transitions. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";
   }

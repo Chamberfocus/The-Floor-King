@@ -58,6 +58,7 @@ const SPECIAL_KEYS = new Set([
   "carpet_curb",
   "occupancy",
   "access_conditions",
+  "crew_entry",
   "delivery_scope",
   "radiant_heat",
 ]);
@@ -70,6 +71,9 @@ const ACCESSORY_MATERIAL_KEYS = new Set([
   "tile_setting",
   "attached_pad",
   "metals_needed",
+  "metals_qty",
+  "metal_type",
+  "metal_color",
   "hs_transitions",
   "hs_base_trim",
   "vents_registers",
