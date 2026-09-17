@@ -26,9 +26,10 @@ ok(y.perCut.length === 2 && y.perCut[0].sqyd === 40 && y.perCut[1].sqyd === 20, 
 console.log("\nStairs → carpet:");
 const wf = stairsCarpet(13, "waterfall");
 const up = stairsCarpet(13, "upholstered");
-ok(wf.sqft === 78, "13 waterfall steps × 6 sqft = 78 sqft", String(wf.sqft));
-ok(up.sqft === 104, "13 upholstered steps × 8 sqft = 104 sqft (more than waterfall)", String(up.sqft));
-ok(up.sqft > wf.sqft, "upholstered uses MORE carpet than waterfall");
+ok(wf.sqft === 0, "13 waterfall steps with no Settings allowance → 0 (not invented 6 sqft)", String(wf.sqft));
+ok(up.sqft === 0, "13 upholstered steps with no Settings allowance → 0 (not invented 8 sqft)", String(up.sqft));
+ok(stairsCarpet(13, "waterfall", 6).sqft === 78, "explicit shop allowance 6 sqft × 13 = 78");
+ok(stairsCarpet(13, "upholstered", 8).sqft === 104, "explicit shop allowance 8 sqft × 13 = 104");
 ok(stairsCarpet(10, "waterfall", 7).sqft === 70, "config override: 10 × 7 = 70 sqft");
 
 // --- Subfloor → sheets (round up) ---

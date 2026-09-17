@@ -69,9 +69,8 @@ export function hasCoverage(coverageSf: number | string | null | undefined): boo
   return (Number(coverageSf) || 0) > 0;
 }
 
-// --- Defaults for the generic self-leveler the questionnaire / add-on paths
-// drop in when no specific product is picked. Real numbers get filled per
-// product in the catalog; these are just starting points.
+// Starting-point constants for Settings / catalog when a product has no coverage.
+// Do not plant these onto an estimate line as if they were shop rates.
 export const DEFAULT_SELFLEVELER_COVERAGE_SF = 50; // SF per 50 lb bag
 export const DEFAULT_REF_THICKNESS_IN = 0.125; // stated at 1/8"
 export const DEFAULT_BAG_COST = 84; // our cost per bag

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText } from "@/lib/job-scope";
-import { carpetYardageFromCuts } from "@/lib/questionnaire-calc";
+import { carpetYardageFromCuts, stairsCarpet } from "@/lib/questionnaire-calc";
 import { lineQty, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
 import {
   accessoryQuantity,
@@ -3191,6 +3191,41 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(ai).toMatch(/materialWastePctForEmit/);
     expect(ai).not.toMatch(/Math\.ceil\(sqft \* \(1 \+ profile\.waste/);
     expect(ai).toMatch(/sqft: round2\(sqft\)/);
+  });
+
+  it("0225 does not invent 6/8 sq ft of carpet per stair or $15/bag self-level labor", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0225_flooring_knowledge_stair_allowance.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0225_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/do not invent 6\/8 sq ft/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(stairsCarpet(13, "waterfall").sqft).toBe(0);
+    expect(stairsCarpet(13, "upholstered").sqft).toBe(0);
+    expect(stairsCarpet(13, "waterfall", 6).sqft).toBe(78);
+    expect(stairsCarpet(13, "upholstered", 8).sqft).toBe(104);
+
+    const calc = readFileSync(join(root, "src/lib/questionnaire-calc.ts"), "utf8");
+    expect(calc).not.toMatch(/waterfall: 6/);
+    expect(calc).not.toMatch(/STAIR_ALLOWANCE_SQFT/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/We do not invent yardage from step count/);
+    expect(q).not.toMatch(/Needs ≈/);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).not.toMatch(/DEFAULT_LABOR_PER_BAG/);
+    expect(builder).not.toMatch(/DEFAULT_LABOR_PER_SQFT/);
+    expect(builder).toMatch(/enter the shop rate/);
+
+    const rules = readFileSync(join(root, "src/lib/flooring-knowledge/rules.ts"), "utf8");
+    expect(rules).toMatch(/We do not invent 6\/8 sq ft of carpet per step as an order/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

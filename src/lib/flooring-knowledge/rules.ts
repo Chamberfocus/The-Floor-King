@@ -585,7 +585,7 @@ export function knowledgeHelpFor(
     return "Embossed existing vinyl often needs a skim coat. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";
   }
   if (key === "carpet_stairs") {
-    return "Waterfall vs upholstered is stretch-in / glue-down wrap labor. Exclusive carpet tile hides this — modular tile on stairs is not a waterfall cut plan.";
+    return "Waterfall vs upholstered is stretch-in / glue-down wrap labor. Exclusive carpet tile hides this — modular tile on stairs is not a waterfall cut plan. Step count is EACH. We do not invent 6/8 sq ft of carpet per step as an order — include stairs in your cuts.";
   }
   if (key === "carpet_tile_stairs") {
     return "Carpet tile on stairs is not waterfall wrap. Capture whether stairs are in scope. Do not invent stair-nose or wrap labor — pick a catalog item in Builder if Floor King sells it.";

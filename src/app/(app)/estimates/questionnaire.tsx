@@ -4386,6 +4386,7 @@ function QuestionBody({
           const opt = opts.find((o) => o.label === g.type);
           const n = Math.ceil(numv(g.count));
           const sc = stairsCarpet(n, g.type, opt?.carpet_sqft ?? null);
+          const shopAllowance = Number(opt?.carpet_sqft) > 0;
           return (
             <div key={g.id} className="space-y-2 rounded-lg border bg-muted/20 p-3">
               <div className="flex flex-wrap items-end gap-2">
@@ -4408,13 +4409,17 @@ function QuestionBody({
               </div>
               {n > 0 ? (
                 <div className="text-sm text-muted-foreground">
-                  {/* Shown so you can check your cuts cover the stairs — it is
-                      NOT added to the estimate. The stair carpet comes out of
-                      the roll you measured on the cuts screen; charging it here
-                      as well billed the material twice. */}
-                  Needs ≈{" "}
-                  <span className="font-medium text-foreground tabular-nums">{sc.sqyd} sq yd</span>{" "}
-                  of carpet — include it in your cuts
+                  {shopAllowance && sc.sqyd > 0 ? (
+                    <>
+                      Shop stair allowance{" "}
+                      <span className="font-medium text-foreground tabular-nums">{sc.sqyd} sq yd</span>
+                      {" "}equivalent ({n} × {opt?.carpet_sqft} sq ft) — include it in your cuts. This is not an order.
+                    </>
+                  ) : (
+                    <>
+                      Include these {n} step{n === 1 ? "" : "s"} in your cut list. We do not invent yardage from step count.
+                    </>
+                  )}
                   {opt?.cost ? <> · labor <span className="tabular-nums">{formatMoney(sellLab(opt.cost) * n)}</span></> : null}
                 </div>
               ) : null}

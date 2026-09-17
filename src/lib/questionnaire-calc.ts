@@ -36,25 +36,16 @@ export function carpetYardageFromCuts(cuts: CarpetCut[]): {
   return { sqft: r2(sqft), sqyd: r2(sqft / 9), perCut };
 }
 
-/** Per-step carpet allowance (sq ft of carpet per stair), by wrap style.
- *  Upholstered (cap & band) wraps the sides, so it uses more than a waterfall.
- *  Defaults — overridable per question via config.step_allowance_sqft. */
-export const STAIR_ALLOWANCE_SQFT: Record<string, number> = {
-  waterfall: 6, // ~ 2ft run × 3ft wide
-  upholstered: 8, // wraps the nosing + sides
-};
-
-/** Carpet (sq ft + sq yd) needed for stairs: count × per-step allowance by type. */
+/** Per-step carpet allowance (sq ft) only when Settings actually stores one.
+ *  Missing config is 0 — we do not invent 6/8 sq ft per step as an order. */
 export function stairsCarpet(
   count: number | string,
-  type: string,
+  _type: string,
   allowanceSqft: number | string | null = null,
 ): { sqft: number; sqyd: number } {
   const n = Math.max(0, Math.ceil(num(count)));
-  const per =
-    num(allowanceSqft) > 0
-      ? num(allowanceSqft)
-      : STAIR_ALLOWANCE_SQFT[(type || "").toLowerCase()] ?? STAIR_ALLOWANCE_SQFT.waterfall;
+  const per = num(allowanceSqft);
+  if (n <= 0 || !(per > 0)) return { sqft: 0, sqyd: 0 };
   const sqft = n * per;
   return { sqft: r2(sqft), sqyd: r2(sqft / 9) };
 }

@@ -58,8 +58,6 @@ import {
   hasCoverage,
   thicknessLabel,
   THICKNESS_OPTIONS,
-  DEFAULT_LABOR_PER_SQFT,
-  DEFAULT_LABOR_PER_BAG,
 } from "@/lib/floor-prep";
 import { defaultWastePct } from "@/lib/flooring-profiles";
 import {
@@ -964,7 +962,7 @@ export function EstimateBuilder({
           unit: "bag",
           measure_unit: "sqft",
           quantity: bags ? String(bags) : "",
-          labor_cost: String(DEFAULT_LABOR_PER_BAG),
+          labor_cost: "",
           prep_key: prepKey,
         };
         const priced = { ...laborLine, ...ratesFromMargin(laborLine, num(overallMargin), org?.freight_markup_pct ?? 0) };
@@ -2632,7 +2630,7 @@ export function EstimateBuilder({
                                         onClick={() => addSelfLevelingLabor(oi, li)}
                                         className="text-xs font-medium text-primary hover:underline"
                                       >
-                                        + Add self-leveling labor (separate line, auto-filled)
+                                        + Add self-leveling labor (separate line — enter the shop rate)
                                       </button>
                                     ) : (
                                       <div className="text-[11px] text-muted-foreground">
