@@ -837,6 +837,18 @@ describe("product metadata overrides generic roll-width defaults", () => {
     ]);
   });
 
+  it("PO and Builder do not invent a 12' roll when catalog width is missing", () => {
+    const po = readFileSync(join(root, "src/lib/po-build.ts"), "utf8");
+    expect(po).toMatch(/lineUnitKey/);
+    expect(po).toMatch(/roll width TBD/);
+    expect(po).not.toMatch(/: 12;/);
+    expect(po).not.toMatch(/measure_unit === "sqyd" \? orderQty : orderQty \/ 9/);
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/cutWidthChoicesFt/);
+    expect(builder).toMatch(/Width TBD/);
+    expect(builder).not.toMatch(/roll_width_ft: line\.roll_width_ft \|\| "12"/);
+  });
+
   it("reads engineered construction from catalog species text", () => {
     expect(hardwoodConstructionFromSpecies("White oak, engineered")).toBe("engineered");
     expect(hardwoodConstructionFromSpecies("Solid white oak")).toBe("solid");

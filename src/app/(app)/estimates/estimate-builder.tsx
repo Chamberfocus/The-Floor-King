@@ -60,7 +60,7 @@ import {
   DEFAULT_LABOR_PER_BAG,
 } from "@/lib/floor-prep";
 import { defaultWastePct } from "@/lib/flooring-profiles";
-import { formatEquivalentSqyd } from "@/lib/flooring-knowledge";
+import { cutWidthChoicesFt, familyFromCatalogCategory, formatEquivalentSqyd } from "@/lib/flooring-knowledge";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
 import { saveProductRate, createProductInline } from "../catalog/actions";
 import { writeScopeDescription } from "./ai-actions";
@@ -2969,7 +2969,7 @@ export function EstimateBuilder({
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => updateLine(oi, li, { order_as_roll: true, roll_width_ft: line.roll_width_ft || "12" })}
+                                      onClick={() => updateLine(oi, li, { order_as_roll: true })}
                                       className={cn("rounded px-2.5 py-1.5 font-medium", line.order_as_roll ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
                                     >
                                       Roll
@@ -2977,18 +2977,23 @@ export function EstimateBuilder({
                                   </div>
                                   {line.order_as_roll ? (
                                     <select
-                                      value={line.roll_width_ft || "12"}
+                                      value={line.roll_width_ft || ""}
                                       onChange={(e) => updateLine(oi, li, { roll_width_ft: e.target.value })}
                                       className="h-8 rounded-md border border-input bg-transparent px-1.5 text-xs"
                                       aria-label="Roll width"
                                     >
-                                      <option value="12">12 ft wide</option>
-                                      <option value="15">15 ft wide</option>
+                                      <option value="">Width TBD</option>
+                                      {cutWidthChoicesFt({
+                                        family: familyFromCatalogCategory(line.category),
+                                        productWidthFt: num(line.roll_width_ft) > 0 ? num(line.roll_width_ft) : null,
+                                      }).map((w) => (
+                                        <option key={w} value={String(w)}>{w} ft wide</option>
+                                      ))}
                                     </select>
                                   ) : null}
                                 </div>
                                 {line.order_as_roll ? (
-                                  <p className="mt-1 text-xs text-muted-foreground">PO orders one roll; the work order shows the cut sizes.</p>
+                                  <p className="mt-1 text-xs text-muted-foreground">PO orders one roll at the catalog width — do not assume 12&apos;. Work order still shows the cuts.</p>
                                 ) : (
                                   <p className="mt-1 text-xs text-muted-foreground">Each cut you add above prints on the warehouse cut sheet.</p>
                                 )}

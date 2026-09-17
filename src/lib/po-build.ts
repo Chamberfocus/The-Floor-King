@@ -83,28 +83,34 @@ export function buildPoItemRows(
   }
   const rows: PoItemRow[] = [...cutGroups.values()];
 
-  // Group roll lines by product + width → one roll line (linear ft + yardage).
+  // Group roll lines by product + catalog width → one roll line.
+  // Missing width is TBD — never invent 12'. `lineUnitKey` decides whether
+  // order qty is already yards (never divide a sq-yd line by 9 again).
   const rollGroups = new Map<
     string,
-    { product_id: string | null; width: number; sqyd: number; sample: EstimateLineItem }
+    { product_id: string | null; width: number | null; sqyd: number; sample: EstimateLineItem }
   >();
   for (const l of rollLines) {
-    const width = Number(l.roll_width_ft) > 0 ? Number(l.roll_width_ft) : 12;
-    const key = `${l.product_id ?? nameOf(l)}|${width}`;
+    const rawW = Number(l.roll_width_ft);
+    const width = Number.isFinite(rawW) && rawW > 0 ? rawW : null;
+    const key = `${l.product_id ?? nameOf(l)}|${width ?? "tbd"}`;
     const g = rollGroups.get(key) ?? { product_id: l.product_id ?? null, width, sqyd: 0, sample: l };
-    // Roll math is in square yards regardless of the line's billing unit.
-    // Use order qty (waste in) so the roll covers what was sold/staged.
     const orderQty = lineOrderQty(l);
-    const sqyd = l.measure_unit === "sqyd" ? orderQty : orderQty / 9;
+    const unit = lineUnitKey(l);
+    const sqyd = unit === "sqyd" ? orderQty : unit === "sqft" ? orderQty / 9 : orderQty;
     g.sqyd += sqyd;
     rollGroups.set(key, g);
   }
   for (const g of rollGroups.values()) {
     const sqyd = Math.round(g.sqyd * 100) / 100;
-    const linft = Math.round(((sqyd * 9) / g.width) * 10) / 10;
+    const name = nameOf(g.sample);
+    const description =
+      g.width != null
+        ? `Full roll — ${name} — ${Math.round(((sqyd * 9) / g.width) * 10) / 10} lin ft (${sqyd} sq yd) @ ${g.width} ft wide`
+        : `Full roll — ${name} — ${sqyd} sq yd (roll width TBD — not assumed 12')`;
     rows.push({
       product_id: g.product_id,
-      description: `Full roll — ${nameOf(g.sample)} — ${linft} lin ft (${sqyd} sq yd) @ ${g.width} ft wide`,
+      description,
       quantity: sqyd,
       unit: "sqyd",
       unit_cost: costOf(g.sample),
