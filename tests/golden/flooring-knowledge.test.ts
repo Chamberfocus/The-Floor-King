@@ -6980,6 +6980,28 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0277 unkeyed underlayment does not clone carpet sq ft onto mixed LVP foam", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0277_flooring_knowledge_underlayment_cover.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0277_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/cloning pad onto LVP/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_pad on surface_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*carpet_pad|carpet_pad.*show_if.*surface_type/,
+    );
+
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Quantity follows carpet rooms on a mixed job/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /Unkeyed extra underlayment on a mixed job stays 0/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
@@ -7156,6 +7178,43 @@ describe("stair extras and mixed-job measured area", () => {
         jobFamilies: ["carpet", "lvp"],
       }),
     ).toBe(350);
+    expect(
+      measuredSqftForQuestionCover({
+        key: "hs_underlayment",
+        kind: "product",
+        category: "underlayment",
+        totalSqft: 550,
+        byFamily: byFam,
+        jobFamilies: ["carpet", "lvp"],
+      }),
+    ).toBe(200);
+    expect(
+      measuredSqftForQuestionCover({
+        kind: "product",
+        category: "underlayment",
+        totalSqft: 550,
+        byFamily: byFam,
+        jobFamilies: ["carpet", "lvp"],
+      }),
+    ).toBe(0);
+    expect(
+      measuredSqftForQuestionCover({
+        kind: "product",
+        category: "underlayment",
+        totalSqft: 400,
+        byFamily: {},
+        jobFamilies: ["carpet"],
+      }),
+    ).toBe(400);
+    expect(
+      measuredSqftForQuestionCover({
+        kind: "product",
+        category: "underlayment",
+        totalSqft: 500,
+        byFamily: {},
+        jobFamilies: ["lvp"],
+      }),
+    ).toBe(500);
     expect(
       measuredSqftForQuestionCover({
         kind: "product",

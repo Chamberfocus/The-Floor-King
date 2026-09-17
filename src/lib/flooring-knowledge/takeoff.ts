@@ -219,6 +219,33 @@ export function measuredSqftForFamilyTakeoff(args: {
   return 0;
 }
 
+/**
+ * Legacy / unkeyed pad-or-foam product question.
+ * Carpet-only → carpet rooms. Hard-surface-only → HS prep rooms.
+ * Mixed → 0. Do not guess which family owns an unkeyed underlayment SKU.
+ */
+function measuredSqftForUnkeyedUnderlayment(args: {
+  totalSqft: number;
+  byFamily: Partial<Record<FlooringFamily, number>>;
+  jobFamilies: FlooringFamily[];
+}): number {
+  const flooring = args.jobFamilies.filter((f) => f !== "other");
+  const hasCarpet = flooring.includes("carpet");
+  const hasHs = flooring.some(isHardSurfaceFamily);
+  if (hasCarpet && !hasHs) {
+    return measuredSqftForFamilyTakeoff({
+      family: "carpet",
+      totalSqft: args.totalSqft,
+      byFamily: args.byFamily,
+      jobFamilies: args.jobFamilies,
+    });
+  }
+  if (hasHs && !hasCarpet) {
+    return measuredSqftForPrepTakeoff(args);
+  }
+  return 0;
+}
+
 /** Sum of several families — still 0 on an unassigned mixed job. */
 export function measuredSqftForFamiliesTakeoff(args: {
   families: FlooringFamily[];
@@ -271,6 +298,12 @@ export function measuredSqftForPrepTakeoff(args: {
  * Builder emit / running takeoff strip for one question.
  * Pad covers carpet rooms. Laminate underlayment and prep cover HS rooms.
  * A flooring product covers its own family — never the whole mixed job.
+ *
+ * Unkeyed product + category underlayment must not assume carpet rooms.
+ * Mixed carpet + LVP with no key stays 0 rather than cloning pad onto
+ * laminate foam (or foam onto carpet). Keyed carpet_pad / hs_underlayment
+ * already split. Exclusive carpet still uses carpet rooms; exclusive HS
+ * uses prep/HS rooms.
  */
 export function measuredSqftForQuestionCover(args: {
   kind?: string | null;
@@ -286,13 +319,16 @@ export function measuredSqftForQuestionCover(args: {
   if (kind === "selflevel" || kind === "subfloor" || key === "hs_underlayment") {
     return measuredSqftForPrepTakeoff(args);
   }
-  if (key === "carpet_pad" || (kind === "product" && cat === "underlayment")) {
+  if (key === "carpet_pad") {
     return measuredSqftForFamilyTakeoff({
       family: "carpet",
       totalSqft: args.totalSqft,
       byFamily: args.byFamily,
       jobFamilies: args.jobFamilies,
     });
+  }
+  if (kind === "product" && cat === "underlayment") {
+    return measuredSqftForUnkeyedUnderlayment(args);
   }
   const fam = familyFromCatalogCategory(cat || (kind === "cuts" ? "carpet" : "other"));
   if (fam !== "other") {

@@ -137,6 +137,7 @@ const REQUIRED_FILES = [
   "0274_flooring_knowledge_carpet_hs_leftover.sql",
   "0275_flooring_knowledge_glue_wood_vapor.sql",
   "0276_flooring_knowledge_glue_wood_aqua.sql",
+  "0277_flooring_knowledge_underlayment_cover.sql",
 ];
 
 /**
@@ -1688,6 +1689,16 @@ const REQUIRED_MARKERS = [
       "P0_0276_FLOORING_KNOWLEDGE",
       "Aqua bar is a slab coating",
       "Do NOT SQL-gate moisture_mitigation on substrate",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0277_flooring_knowledge_underlayment_cover.sql",
+    markers: [
+      "P0_0277_FLOORING_KNOWLEDGE",
+      "cloning pad onto LVP",
+      "Do NOT SQL-gate carpet_pad on surface_type",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
