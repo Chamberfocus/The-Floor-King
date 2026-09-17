@@ -100,6 +100,7 @@ export {
   accessoryUnitForType,
   coerceTrimUnit,
   defaultCutWidthFt,
+  enteredCutWidthFt,
   cutWidthChoicesFt,
   billingUnitForCategory,
   rollGoodsHaveCuts,

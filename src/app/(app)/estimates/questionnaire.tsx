@@ -54,6 +54,7 @@ import {
   accessoryUnitForType,
   cutWidthChoicesFt,
   defaultCutWidthFt,
+  enteredCutWidthFt,
   computeMaterialTakeoff,
   emptyInstallContext,
   familyFromCatalogCategory,
@@ -280,8 +281,8 @@ const STAIR_SQFT_TREAD_RISER = 8;
 const STAIR_SQFT_TREAD_ONLY = 4;
 
 let cgid = 0, ctid = 0, sgid = 0;
-const newCutRow = (width = "12"): CutRow => ({ id: `c${ctid++}`, lf: "", li: "", width });
-const newCarpetGroup = (): CarpetGroup => ({ id: `g${cgid++}`, area: "", product: null, cuts: [newCutRow()] });
+const newCutRow = (width = ""): CutRow => ({ id: `c${ctid++}`, lf: "", li: "", width });
+const newCarpetGroup = (width = ""): CarpetGroup => ({ id: `g${cgid++}`, area: "", product: null, cuts: [newCutRow(width)] });
 const newStairGroup = (type = "Waterfall"): StairGroup => ({ id: `s${sgid++}`, type, count: "" });
 
 let did = 0;
@@ -543,7 +544,19 @@ export function Questionnaire({
         init[q.id] = q.config.per_area
           ? { kind: "choice_areas", rows: [] }
           : { kind: "choice", selected: [] };
-      else if (q.kind === "cuts") init[q.id] = { kind: "cuts", same: true, product: null, groups: [newCarpetGroup()] };
+      else if (q.kind === "cuts") {
+        const chipW = defaultCutWidthFt({
+          family: q.config.category === "vinyl" ? "vinyl" : "carpet",
+          productWidthFt: null,
+          configWidths: q.config.widths ?? null,
+        });
+        init[q.id] = {
+          kind: "cuts",
+          same: true,
+          product: null,
+          groups: [newCarpetGroup(String(chipW))],
+        };
+      }
       else if (q.kind === "stairs")
         init[q.id] = { kind: "stairs", groups: [newStairGroup(q.config.options?.[0]?.label ?? "Waterfall")] };
       else if (q.kind === "hs_stairs")
@@ -1355,16 +1368,13 @@ export function Questionnaire({
           sqyd: number;
           widthFt: number;
         };
-        const groupPieces = (g: CarpetGroup, p: ProductAns | null): Piece[] => {
-          const fallback = defaultCutWidthFt({
-            family: rollCategory === "vinyl" ? "vinyl" : "carpet",
-            productWidthFt: p?.rollWidthFt && p.rollWidthFt > 0 ? p.rollWidthFt : null,
-            configWidths: q.config.widths ?? null,
-          });
+        const groupPieces = (g: CarpetGroup, _p: ProductAns | null): Piece[] => {
           const pieces: Piece[] = [];
           for (const c of g.cuts) {
             const lenIn = numv(c.lf) * 12 + numv(c.li);
-            const widFt = numv(c.width) || fallback;
+            // Catalog roll width may pre-fill the input. An empty width is not
+            // a 12' or 6' roll — skip the piece until a width is entered.
+            const widFt = enteredCutWidthFt(c.width);
             if (lenIn <= 0 || widFt <= 0) continue;
             const sqft = (lenIn / 12) * widFt;
             const sqyd = r2(sqft / 9);

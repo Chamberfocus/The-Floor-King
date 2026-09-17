@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import { carpetCutList } from "@/lib/job-scope";
+import { carpetYardageFromCuts } from "@/lib/questionnaire-calc";
 import {
   accessoryUnitForType,
   applyHardSurfaceStairTrimFill,
@@ -23,6 +24,7 @@ import {
   computeMaterialTakeoff,
   cutWidthChoicesFt,
   defaultCutWidthFt,
+  enteredCutWidthFt,
   equivalentSqyd,
   formatTakeoffStrip,
   formatEquivalentSqyd,
@@ -934,6 +936,11 @@ describe("product metadata overrides generic roll-width defaults", () => {
     ).toBe(6);
     expect(defaultCutWidthFt({ family: "carpet" })).toBe(12);
     expect(defaultCutWidthFt({ family: "vinyl" })).toBe(6);
+    expect(enteredCutWidthFt("")).toBe(0);
+    expect(enteredCutWidthFt("0")).toBe(0);
+    expect(enteredCutWidthFt(null)).toBe(0);
+    expect(enteredCutWidthFt("12")).toBe(12);
+    expect(enteredCutWidthFt(15)).toBe(15);
     expect(cutWidthChoicesFt({ family: "carpet", productWidthFt: 13.5 })).toEqual([12, 13.5, 15]);
     expect(cutWidthChoicesFt({ family: "vinyl", configWidths: [6, 12], productWidthFt: 12 })).toEqual([
       6, 12,
@@ -2797,6 +2804,26 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(vinyl.days).toBe(lvp.days);
     const src = readFileSync(join(root, "src/lib/scheduling.ts"), "utf8");
     expect(src).not.toMatch(/Luxury \/ sheet vinyl/);
+  });
+
+  it("0215 does not order a 12-foot roll when cut width is empty", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0215_flooring_knowledge_cut_width.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0215_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/empty width is not a 12-foot/);
+    expect(sql).toMatch(/vinyl_layout/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/enteredCutWidthFt/);
+    expect(q).not.toMatch(/numv\(c\.width\) \|\| fallback/);
+    expect(q).not.toMatch(/width = "12"/);
+    expect(q).toMatch(/newCutRow = \(width = ""\)/);
+    expect(carpetYardageFromCuts([{ lengthFt: 20, lengthIn: 0, rollWidthFt: "" }]).sqyd).toBe(0);
+    expect(carpetYardageFromCuts([{ lengthFt: 20, lengthIn: 0, rollWidthFt: 12 }]).sqyd).toBe(26.67);
   });
 
   it("pattern repeat only after pattern match is required", () => {

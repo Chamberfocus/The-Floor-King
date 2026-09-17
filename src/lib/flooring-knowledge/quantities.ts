@@ -422,9 +422,19 @@ export function coerceTrimUnit(
 }
 
 /**
- * Cut/roll width for carpet or sheet vinyl. Product `roll_width_ft` wins when
- * it is actually on the catalog row. Otherwise the first width chip from the
- * question config (or the family chip list) — not a third invented number.
+ * Width actually entered on a cut row. Empty / zero is not a 12' or 6' roll.
+ * Chip defaults may pre-fill the input; they must not be re-applied at emit
+ * when the salesperson cleared the field.
+ */
+export function enteredCutWidthFt(raw: number | string | null | undefined): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Cut/roll width chips. Product `roll_width_ft` wins when it is actually on
+ * the catalog row. Family 12'/6' values are editor chips only — never an
+ * order quantity by themselves.
  */
 export function defaultCutWidthFt(opts: {
   family: FlooringFamily;
