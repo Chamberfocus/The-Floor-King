@@ -98,7 +98,7 @@ import {
   mergeReviewWarnings,
   emptyInstallContext,
 } from "@/lib/flooring-knowledge";
-import { billsBySquareYard, rollReceiveUnit } from "@/lib/units";
+import { billsBySquareYard, pickedProductUnit, rollReceiveUnit } from "@/lib/units";
 import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import type { ShowIfClause } from "@/lib/types";
@@ -298,12 +298,19 @@ describe("measured area vs order quantity", () => {
     expect(areaDerivedMaterialAllowed("hardwood")).toBe(true);
     expect(areaDerivedMaterialAllowed("laminate")).toBe(true);
     expect(areaDerivedMaterialAllowed("tile")).toBe(true);
-    expect(areaDerivedMaterialAllowed("other")).toBe(true);
+    expect(areaDerivedMaterialAllowed("other")).toBe(false);
     expect(areaDerivedMaterialAllowed("other", "gal")).toBe(false);
     expect(areaDerivedMaterialAllowed("other", "gallon")).toBe(false);
     expect(areaDerivedMaterialAllowed("other", "kit")).toBe(false);
     expect(areaDerivedMaterialAllowed("other", "each")).toBe(false);
     expect(areaDerivedMaterialAllowed("lvp", "sqft")).toBe(true);
+    expect(
+      areaDerivedMaterialQty({
+        family: "other",
+        measuredSqft: 500,
+        billingUnit: "sqft",
+      }),
+    ).toBeNull();
     expect(
       areaDerivedMaterialQty({
         family: "other",
@@ -3554,6 +3561,44 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const takeoffSrc = readFileSync(join(root, "src/lib/flooring-knowledge/takeoff.ts"), "utf8");
     expect(takeoffSrc).toMatch(/takeoffConceptRows/);
     expect(takeoffSrc).not.toMatch(/if \(t\.billingUnit === "sqyd"\)/);
+  });
+
+  it("0235 does not plant square feet on a picked SKU that forgot its unit", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0235_flooring_knowledge_product_unit.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0235_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/does not plant sq ft/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(pickedProductUnit("gal", "other")).toBe("gal");
+    expect(pickedProductUnit("", "carpet")).toBe("sqyd");
+    expect(pickedProductUnit("", "vinyl")).toBe("sqyd");
+    expect(pickedProductUnit("", "lvp")).toBe("sqft");
+    expect(pickedProductUnit("", "hardwood")).toBe("sqft");
+    expect(pickedProductUnit("", "other")).toBe("");
+    expect(pickedProductUnit("", "trim")).toBe("");
+    expect(pickedProductUnit("", "underlayment")).toBe("");
+    expect(pickedProductUnit("SY", "carpet")).toBe("SY");
+
+    expect(areaDerivedMaterialAllowed("other")).toBe(false);
+    expect(areaDerivedMaterialAllowed("other", "sqyd")).toBe(true);
+    expect(areaDerivedMaterialAllowed("lvp", "")).toBe(true);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/pickedProductUnit/);
+    expect(q).not.toMatch(/\|\| "sqft"/);
+
+    const catalog = readFileSync(join(root, "src/app/(app)/catalog/actions.ts"), "utf8");
+    expect(catalog).toMatch(/pickedProductUnit/);
+    expect(catalog).not.toMatch(/\|\| "sqft"/);
+
+    const po = readFileSync(join(root, "src/app/(app)/purchase-orders/po-builder.tsx"), "utf8");
+    expect(po).toMatch(/pickedProductUnit/);
+    expect(po).not.toMatch(/\|\| "sqft"/);
+    expect(po).not.toMatch(/\|\| "lnft"/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

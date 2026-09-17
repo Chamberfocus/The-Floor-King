@@ -345,6 +345,30 @@ export function defaultUnitForCategory(category: string | null | undefined): str
 }
 
 /**
+ * Unit attached when a salesperson *picks* a catalog SKU.
+ *
+ * Trust the product's stored unit. If it is missing:
+ *   - carpet / sheet vinyl → sqyd (those families bill by the yard)
+ *   - boxed hard surface → sqft
+ *   - underlayment / trim / labor / other → empty (unit TBD)
+ *
+ * Never plant square feet on a gallon of adhesive or a stick of trim just
+ * because the SKU forgot to store a unit. Underlayment is mixed (pad by the
+ * yard, laminate underlayment by the foot) so we do not guess.
+ */
+export function pickedProductUnit(
+  unit: string | null | undefined,
+  category: string | null | undefined,
+): string {
+  const raw = (unit ?? "").trim();
+  if (raw) return raw;
+  const cat = (category ?? "").trim().toLowerCase();
+  if (cat === "carpet" || cat === "vinyl") return "sqyd";
+  if (cat === "lvp" || cat === "hardwood" || cat === "laminate" || cat === "tile") return "sqft";
+  return "";
+}
+
+/**
  * The units worth offering for a category — not all twelve.
  *
  * Adding a flooring product used to present every unit in the system: bag,

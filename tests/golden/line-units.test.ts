@@ -17,6 +17,7 @@ import {
   lineDisplayUnit,
   lineUnitKey,
   normalizeUnit,
+  pickedProductUnit,
   unitIsSqyd,
   unitLabel,
 } from "@/lib/units";
@@ -352,5 +353,14 @@ describe("measured sq ft is never labeled as a carpet order in sq yd", () => {
     expect(normUnit("hydronic")).toBe("sqft");
     expect(normUnit("lnft")).toBe("lnft");
     expect(normUnit("each")).toBe("each");
+  });
+
+  it("picking a catalog SKU does not plant sq ft when the unit is missing", () => {
+    expect(pickedProductUnit("", "other")).toBe("");
+    expect(pickedProductUnit("", "carpet")).toBe("sqyd");
+    expect(pickedProductUnit("gal", "other")).toBe("gal");
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/pickedProductUnit\(p\.unit, p\.category\)/);
+    expect(q).not.toMatch(/p\.unit \|\| "sqft"/);
   });
 });

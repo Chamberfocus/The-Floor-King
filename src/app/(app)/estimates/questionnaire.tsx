@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { billsBySquareYard, catalogRateToBillingUnit, lineDisplayUnit, unitLabel } from "@/lib/units";
+import { billsBySquareYard, catalogRateToBillingUnit, lineDisplayUnit, pickedProductUnit, unitLabel } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
@@ -319,7 +319,7 @@ function toProductAns(p: Product): ProductAns {
   return {
     productId: p.id,
     label: productLabel(p),
-    unit: p.unit || "sqft",
+    unit: pickedProductUnit(p.unit, p.category),
     category: p.category ?? null,
     materialRate: catalogUnitCost(p).amount ?? 0,
     laborRate: Number(p.labor_rate) || 0,
@@ -350,7 +350,7 @@ function customToProductAns(input: CustomProductInput): ProductAns {
   return {
     productId: "",
     label,
-    unit: input.unit.trim() || "sqft",
+    unit: pickedProductUnit(input.unit, input.category),
     category: input.category || null,
     materialRate: numOr0(input.material_rate),
     laborRate: numOr0(input.labor_rate),

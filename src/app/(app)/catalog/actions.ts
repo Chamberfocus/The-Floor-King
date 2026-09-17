@@ -18,7 +18,7 @@ import { assertRole } from "@/lib/auth";
 import { searchCatalog } from "@/lib/data/products";
 import { redactCatalogCost, roleMaySeeCatalogSell, hydrateCatalogPricing, type CatalogPricePurpose } from "@/lib/catalog-pricing";
 import { getProfile } from "@/lib/auth";
-import { catalogUnitFactor } from "@/lib/units";
+import { catalogUnitFactor, pickedProductUnit } from "@/lib/units";
 import type { Product, ProductCategory } from "@/lib/types";
 
 /** Live catalog search for the estimate material picker. Includes inactive
@@ -67,7 +67,7 @@ function readFields(formData: FormData) {
     error: null as string | null,
     name: str(formData.get("name")),
     category: (str(formData.get("category")) || "other") as ProductCategory,
-    unit: str(formData.get("unit")) || "sqft",
+    unit: pickedProductUnit(str(formData.get("unit")), str(formData.get("category"))),
     material_rate: material.value,
     labor_rate: labor.value,
     sku: str(formData.get("sku")) || null,
@@ -256,7 +256,7 @@ export async function createProductInline(input: {
   const row = {
     name,
     category: (input.category || "other") as ProductCategory,
-    unit: input.unit?.trim() || "sqft",
+    unit: pickedProductUnit(input.unit, input.category),
     material_rate: numOr0(input.material_rate),
     labor_rate: numOr0(input.labor_rate),
     sku: input.sku?.trim() || null,

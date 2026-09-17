@@ -105,6 +105,7 @@ export function rollGoodsHaveCuts(
  * Exclusive carpet tile is modular — measured area may become the material
  * line (carton only when coverage exists). Count-unit catalog items (gal /
  * each / bag / kit of adhesive): never — taped sq ft is not gallons of glue.
+ * Family "other" with no unit: never — missing metadata is TBD, not sq ft.
  * Boxed hard surface billed by area: yes.
  */
 export function areaDerivedMaterialAllowed(
@@ -113,9 +114,10 @@ export function areaDerivedMaterialAllowed(
   carpetInstallSystems?: InstallSystem[] | null,
 ): boolean {
   if (rollGoodsNeedCuts(family, carpetInstallSystems)) return false;
-  if (productUnit != null && String(productUnit).trim() !== "" && !isAreaUnit(productUnit)) {
-    return false;
-  }
+  const raw = productUnit == null ? "" : String(productUnit).trim();
+  if (raw && !isAreaUnit(raw)) return false;
+  // other/trim/labor SKUs with no unit are TBD, not taped square feet.
+  if (family === "other" && !raw) return false;
   return true;
 }
 

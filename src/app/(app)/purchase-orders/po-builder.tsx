@@ -23,7 +23,7 @@ import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { catalogUnitCost } from "@/lib/catalog-pricing";
-import { catalogRateToBillingUnit } from "@/lib/units";
+import { catalogRateToBillingUnit, pickedProductUnit } from "@/lib/units";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
   PO_SOURCE_BADGE,
@@ -199,8 +199,7 @@ export function PoBuilder({
     const cls = materialClass(p.category);
     if (cls === "roll") return { unit: "sq yd", unitCost: catalogRateToBillingUnit(base, p.unit, true) };
     if (cls === "hard") return { unit: "sq ft", unitCost: catalogRateToBillingUnit(base, p.unit, false) };
-    if (cls === "trim") return { unit: p.unit || "lnft", unitCost: base };
-    return { unit: p.unit || "sqft", unitCost: base };
+    return { unit: pickedProductUnit(p.unit, p.category), unitCost: base };
   };
 
   // Point the whole PO at a vendor (a PO is per-vendor) from a product's vendor row.
@@ -290,7 +289,7 @@ export function PoBuilder({
         it.description ||
         productLabel(it),
       quantity: it.quantity != null ? String(it.quantity) : "",
-      unit: it.unit || "sqft",
+      unit: it.unit || "",
       unit_cost: it.unit_cost != null ? String(it.unit_cost) : "",
       manufacturer: it.manufacturer ?? "",
       style: it.style ?? "",

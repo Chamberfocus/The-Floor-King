@@ -841,7 +841,7 @@ export async function savePurchaseOrder(
         product_id: it.product_id || null,
         description: it.description || "",
         quantity: toNumOrNull(it.quantity),
-        unit: it.unit || "sqft",
+        unit: it.unit || "",
         unit_cost: toNumOrNull(it.unit_cost),
         manufacturer: it.manufacturer || null,
         style: it.style || null,
