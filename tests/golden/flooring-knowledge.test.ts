@@ -774,14 +774,14 @@ describe("family → system asks the right keys (not every question)", () => {
       project_type: ["Carpet"],
       carpet_install: ["Stretch-in"],
     });
-    on(carpetStretch, ["carpet_install", "pattern_match", "tack_strip", "carpet_pad", "existing_pad"]);
+    on(carpetStretch, ["carpet_install", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "hs_demo", "substrate"]);
     off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "laminate_expansion", "acclimation", "moisture_test", "hs_direction"]);
 
     const carpetGlue = visibleKnowledgeKeys({
       project_type: ["Carpet"],
       carpet_install: ["Glue-down"],
     });
-    on(carpetGlue, ["adhesive"]);
+    on(carpetGlue, ["adhesive", "vapor_barrier"]);
     off(carpetGlue, ["tack_strip", "carpet_pad", "attached_pad", "tile_layout"]);
 
     const carpetTile = visibleKnowledgeKeys({
@@ -1190,6 +1190,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "tile_layout", position: 218, show_if: { key: "surface_type", in: ["Tile"] } },
     { key: "tile_setting", position: 219, show_if: { key: "surface_type", in: ["Tile"] } },
     { key: "subfloor_condition", position: 352, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
+    { key: "existing_pad", position: 108, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "carpet_pad", position: 110, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "toilets", position: 255, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "appliances", position: 260, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
@@ -1226,12 +1227,31 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     {
       key: "hs_demo",
       position: 270,
-      show_if: { key: "project_type", in: ["Hard surface"] },
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
+    {
+      key: "demo_disposal",
+      position: 275,
+      show_if: {
+        key: "hs_demo",
+        in: [
+          "Carpet",
+          "Ceramic WITH mortar bed",
+          "Ceramic WITHOUT mortar bed",
+          "Sheet vinyl",
+          "Luan",
+          "LVP",
+          "Laminate",
+          "Glue-down hardwood",
+          "Nailed hardwood",
+          "Other",
+        ],
+      },
     },
     {
       key: "substrate",
       position: 350,
-      show_if: { key: "project_type", in: ["Hard surface"] },
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
     },
     {
       key: "vapor_barrier",
@@ -1239,6 +1259,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: {
         any: [
           { key: "install_method", in: ["Floating / click", "Glue-down"] },
+          { key: "carpet_install", in: ["Glue-down"] },
           { key: "substrate", in: ["Concrete"] },
         ],
       },
@@ -1354,6 +1375,9 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("pattern_match");
     expect(keys).toContain("carpet_pad");
     expect(keys).toContain("toilets");
+    expect(keys).toContain("hs_demo");
+    expect(keys).toContain("substrate");
+    expect(keys).toContain("existing_pad");
     expect(keys).not.toContain("pattern_repeat");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("surface_type");
@@ -1361,6 +1385,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).not.toContain("hs_base_trim");
     expect(keys).not.toContain("stair_landings");
     expect(keys).not.toContain("stair_open_sides");
+    expect(keys).not.toContain("demo_disposal");
   });
 
   it("vapor_barrier: floating or concrete; not nail-down over plywood", () => {
@@ -1393,6 +1418,19 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         carpet_install: ["Stretch-in"],
       }),
     ).not.toContain("vapor_barrier");
+    expect(
+      walk({
+        project_type: ["Carpet"],
+        carpet_install: ["Stretch-in"],
+        substrate: ["Concrete"],
+      }),
+    ).toContain("vapor_barrier");
+    expect(
+      walk({
+        project_type: ["Carpet"],
+        carpet_install: ["Glue-down"],
+      }),
+    ).toContain("vapor_barrier");
   });
 
   it("glue-down carpet: overlay hides tack strip even though show_if is Carpet", () => {
@@ -1401,8 +1439,49 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       carpet_install: ["Glue-down"],
     });
     expect(keys).toContain("adhesive");
+    expect(keys).toContain("vapor_barrier");
     expect(keys).not.toContain("tack_strip");
     expect(keys).not.toContain("carpet_pad");
+  });
+
+  it("carpet-only walk uses shared typed demo (0142/0201), not a second $0.50 tear-out", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0201_flooring_knowledge_shared_demo.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0201_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/789950c7-06a2-4c4b-81ca-15b5a4a54f29/);
+    expect(sql).toMatch(/\["Carpet","Hard surface"\]/);
+    expect(sql).toMatch(/demo_disposal/);
+    expect(sql).toMatch(/vapor_barrier/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).toMatch(/retired the generic/);
+    expect(sql).not.toMatch(/insert into public\.estimate_questions/);
+
+    const beforeDemo = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(beforeDemo).toContain("hs_demo");
+    expect(beforeDemo).toContain("substrate");
+    expect(beforeDemo).not.toContain("demo_disposal");
+    expect(beforeDemo).not.toContain("existing_bond");
+    expect(beforeDemo).not.toContain("asbestos_risk");
+
+    const afterCarpetDemo = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Carpet"],
+    });
+    expect(afterCarpetDemo).toContain("demo_disposal");
+    expect(afterCarpetDemo).not.toContain("asbestos_risk");
+    expect(afterCarpetDemo).not.toContain("existing_bond");
+
+    const overlay = visibleKnowledgeKeys({ project_type: ["Carpet"] });
+    expect(overlay).toContain("hs_demo");
+    expect(overlay).toContain("substrate");
+    expect(overlay).toContain("demo_disposal");
   });
 
   it("attached pad Yes hides separate underlayment", () => {
@@ -1749,6 +1828,12 @@ describe("vapor_barrier overlay matches SQL any (floating/glue OR concrete)", ()
       carpet_install: ["Stretch-in"],
     });
     expect(stretch).not.toContain("vapor_barrier");
+
+    const carpetGlue = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(carpetGlue).toContain("vapor_barrier");
   });
 
   it("SQL walk: nail + concrete shows vapor_barrier; nail + plywood hides it", () => {
@@ -1944,6 +2029,33 @@ describe("salesperson review warnings are one source of truth for Builder notes"
     expect(notes.match(/sq ft ÷ 9/g)?.length).toBeGreaterThanOrEqual(1);
     const warningBlock = notes.split("Warnings:")[1] ?? "";
     expect(warningBlock.match(/cut plan/gi)?.length).toBe(1);
+    expect(notes).toMatch(/Occupancy: Occupied/);
+    expect(notes.match(/Occupancy:/g)?.length).toBe(1);
+    expect(notes).not.toMatch(/Conditions:/);
+  });
+
+  it("does not reprint occupancy or grade in Conditions when Review already listed them", () => {
+    const review = buildSalespersonReview({
+      rooms: [],
+      products: [],
+      takeoffs: [],
+      ctx: {
+        ...emptyInstallContext(),
+        occupancy: ["Occupied"],
+        grade: ["Above grade"],
+      },
+      removal: [],
+      installation: ["Construction grade?: Above grade"],
+      prep: [],
+      accessories: [],
+      specials: ["Occupancy: Occupied"],
+    });
+    expect(review.notes).toEqual([]);
+    const notes = reviewToJobNotes(review);
+    expect(notes.match(/Occupancy:/g)?.length).toBe(1);
+    expect(notes).toMatch(/Construction grade\?: Above grade/);
+    expect(notes).not.toMatch(/^Conditions:/m);
+    expect(notes).not.toMatch(/• Grade:/);
   });
 
   it("keeps the takeoff order warning when the questionnaire did not already raise it", () => {

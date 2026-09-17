@@ -337,9 +337,19 @@ export function buildSalespersonReview(args: {
     suppressIds: args.suppressedWarningIds,
   });
 
+  // Occupancy / grade already sit in Special conditions / Installation when the
+  // salesperson answered those questions. Only fall back here if ctx has them
+  // and the section lists did not already print the same fact.
+  const sectionBlob = sections
+    .flatMap((s) => s.rows.map((r) => `${r.label} ${r.value}`.toLowerCase()))
+    .join("\n");
   const notes: string[] = [];
-  if (args.ctx.occupancy.length) notes.push(`Occupancy: ${args.ctx.occupancy.join(", ")}`);
-  if (args.ctx.grade.length) notes.push(`Grade: ${args.ctx.grade.join(", ")}`);
+  if (args.ctx.occupancy.length && !/occupancy/.test(sectionBlob)) {
+    notes.push(`Occupancy: ${args.ctx.occupancy.join(", ")}`);
+  }
+  if (args.ctx.grade.length && !/\bgrade\b/.test(sectionBlob)) {
+    notes.push(`Grade: ${args.ctx.grade.join(", ")}`);
+  }
 
   return {
     rooms: args.rooms,

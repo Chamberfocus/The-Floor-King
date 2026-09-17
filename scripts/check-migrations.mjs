@@ -61,6 +61,7 @@ const REQUIRED_FILES = [
   "0198_flooring_knowledge_vapor_barrier.sql",
   "0199_flooring_knowledge_hs_trim.sql",
   "0200_flooring_knowledge_prep_gates.sql",
+  "0201_flooring_knowledge_shared_demo.sql",
 ];
 
 /**
@@ -848,6 +849,20 @@ const REQUIRED_MARKERS = [
       "moisture_test",
       "Moisture concerns",
       "subfloor_condition",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0201_flooring_knowledge_shared_demo.sql",
+    markers: [
+      "P0_0201_FLOORING_KNOWLEDGE",
+      "hs_demo",
+      "Carpet",
+      "Hard surface",
+      "substrate",
+      "demo_disposal",
+      "vapor_barrier",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
