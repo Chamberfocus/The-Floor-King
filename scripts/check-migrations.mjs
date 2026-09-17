@@ -116,6 +116,7 @@ const REQUIRED_FILES = [
   "0253_flooring_knowledge_existing_tack.sql",
   "0254_flooring_knowledge_wall_tile.sql",
   "0255_flooring_knowledge_wall_floor.sql",
+  "0256_flooring_knowledge_vacant_furniture.sql",
 ];
 
 /**
@@ -1451,6 +1452,17 @@ const REQUIRED_MARKERS = [
       "tile_application",
       "doorway T-molds",
       "Do NOT SQL-gate these on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0256_flooring_knowledge_vacant_furniture.sql",
+    markers: [
+      "P0_0256_FLOORING_KNOWLEDGE",
+      "occupancy",
+      "Vacant hides furniture moving",
+      "Do NOT SQL-gate furniture on occupancy",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

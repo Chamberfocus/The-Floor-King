@@ -34,12 +34,14 @@ import {
 import { matchesShowIf } from "./show-if";
 import {
   jobIsNewConstruction,
+  jobIsVacant,
   labelsAreNewConstruction,
   labelsAreWallOnly,
   synthesizeStairGate,
 } from "./answers";
 import {
   DEFAULT_KNOWLEDGE_WHEN,
+  FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
   REMOVAL_QUESTION_KEYS,
   TILE_WALL_HIDES_KEYS,
@@ -429,6 +431,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (FURNITURE_MOVING_KEYS as readonly string[]).includes(q.key) &&
+    jobIsVacant(valByKey)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -597,7 +606,7 @@ export function knowledgeHelpFor(
     return "How the crew gets in (lockbox / homeowner / key). Upper floor, elevator, and long carry stay on Access conditions.";
   }
   if (key === "occupancy") {
-    return "Occupied vs vacant changes furniture and scheduling. Not a price by itself.";
+    return "Occupied vs vacant. Vacant hides furniture moving — empty house, do not invent a furniture charge. Occupied and Unknown still ask light/medium/heavy. Unanswered stays open.";
   }
   if (key === "wet_area") {
     return "Bath, laundry, or mudroom. Confirm the selected product is rated for a wet area. Catalog has no waterproof column — do not invent a SKU or a ban. Field verify if you have not seen the space.";
@@ -636,10 +645,10 @@ export function knowledgeHelpFor(
     return "Same-for-the-job is faster. Set it by room when one room is a wet area or a different substrate — you'll fill prep on the rooms step.";
   }
   if (key === "furniture_heavy") {
-    return "Pianos, pool tables, and loaded cabinets are scope/schedule notes unless this job already has a furniture-moving labor line.";
+    return "Pianos, pool tables, and loaded cabinets are scope/schedule notes unless this job already has a furniture-moving labor line. Vacant jobs hide this.";
   }
   if (key === "furniture_level") {
-    return "Light / medium / heavy uses Floor King's furniture-moving labor. Specialty items (piano, pool table) stay on the next question as scope.";
+    return "Light / medium / heavy uses Floor King's furniture-moving labor. Vacant jobs hide this. Specialty items (piano, pool table) stay on the next question as scope.";
   }
   if (key === "carpet_pad") {
     return "Stretch-in over pad is the residential default. Glue-down and carpet tile hide this — they do not use residential pad. Quantity follows carpet rooms. A pad SKU with no sold-by unit is TBD in Builder (How many / Unit TBD), not taped square feet.";

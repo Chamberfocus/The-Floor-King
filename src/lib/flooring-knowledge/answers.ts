@@ -314,3 +314,13 @@ export function labelsAreWallOnly(labels: string[]): boolean {
 export function tileJobIsWallOnly(valByKey: Record<string, string[]>): boolean {
   return labelsAreWallOnly(valByKey.tile_application ?? []);
 }
+
+export function labelsAreVacant(labels: string[]): boolean {
+  const cleaned = labels.map((l) => l.trim()).filter(Boolean);
+  if (!cleaned.length) return false;
+  return cleaned.every((l) => /^vacant$/i.test(l));
+}
+
+export function jobIsVacant(valByKey: Record<string, string[]>): boolean {
+  return labelsAreVacant(valByKey.occupancy ?? []);
+}

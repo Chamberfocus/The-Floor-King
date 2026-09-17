@@ -450,6 +450,12 @@ export const TILE_WALL_HIDES_KEYS = [
   "moisture_mitigation",
 ] as const;
 
+/**
+ * Furniture moving is for occupied homes. Vacant hides these. Unanswered
+ * and Unknown stay open (0142). Do not SQL-gate furniture on occupancy.
+ */
+export const FURNITURE_MOVING_KEYS = ["furniture_level", "furniture_heavy"] as const;
+
 export interface SortableEstimateQuestion {
   id: string;
   key?: string | null;

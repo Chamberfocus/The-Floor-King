@@ -78,6 +78,8 @@ import {
   TILE_WALL_HIDES_KEYS,
   jobHasNonTileFloorFamily,
   jobIsExclusiveWallTile,
+  FURNITURE_MOVING_KEYS,
+  jobIsVacant,
   KNOWLEDGE_QUESTIONS,
   sortEstimateQuestions,
   estimatorPhaseForQuestion,
@@ -4622,6 +4624,64 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/jobIsExclusiveWallTile\(flooringCtx\)/);
+  });
+
+  it("0256 vacant occupancy hides furniture moving; unanswered and occupied still ask", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0256_flooring_knowledge_vacant_furniture.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0256_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Vacant hides furniture moving/);
+    expect(sql).toMatch(/Do NOT SQL-gate furniture on occupancy/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*occupancy.*furniture|furniture.*show_if.*occupancy/);
+
+    expect([...FURNITURE_MOVING_KEYS]).toEqual(["furniture_level", "furniture_heavy"]);
+    expect(jobIsVacant({})).toBe(false);
+    expect(jobIsVacant({ occupancy: ["Vacant"] })).toBe(true);
+    expect(jobIsVacant({ occupancy: ["Occupied"] })).toBe(false);
+    expect(jobIsVacant({ occupancy: ["Unknown"] })).toBe(false);
+    expect(knowledgeHelpFor({ key: "occupancy" }, emptyInstallContext())).toMatch(
+      /Vacant hides furniture moving/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(unanswered).toContain("occupancy");
+    expect(unanswered).toContain("furniture_level");
+    expect(unanswered).toContain("furniture_heavy");
+    expect(unanswered.indexOf("occupancy")).toBeLessThan(unanswered.indexOf("furniture_level")!);
+
+    const occupied = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      occupancy: ["Occupied"],
+    });
+    expect(occupied).toContain("furniture_level");
+    expect(occupied).toContain("furniture_heavy");
+
+    const vacant = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      occupancy: ["Vacant"],
+    });
+    expect(vacant).toContain("occupancy");
+    expect(vacant).not.toContain("furniture_level");
+    expect(vacant).not.toContain("furniture_heavy");
+    expect(vacant).toContain("toilets");
+    expect(vacant).toContain("appliances");
+
+    const unknown = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      occupancy: ["Unknown"],
+    });
+    expect(unknown).toContain("furniture_level");
+    expect(unknown).toContain("furniture_heavy");
   });
 
   it("pattern repeat only after pattern match is required", () => {
