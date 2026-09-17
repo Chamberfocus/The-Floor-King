@@ -143,6 +143,7 @@ export {
   questionPurpose,
   knowledgeHelpFor,
   knowledgeWarnings,
+  mixedJobAssignmentGaps,
   visibleKnowledgeKeys,
   resolveQuestionVisibility,
   substrateLabelMatches,

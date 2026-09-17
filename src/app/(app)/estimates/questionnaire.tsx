@@ -879,6 +879,9 @@ export function Questionnaire({
       byFamily: groupMeasuredSqftByFamily(
         rooms.map((r) => ({ category: r.category, measuredSqft: r.room.sqft })),
       ),
+      unassignedRoomSqft: rooms
+        .filter((r) => !r.family || r.family === "other")
+        .reduce((s, r) => s + (r.room.sqft > 0 ? r.room.sqft : 0), 0),
     };
   }, [questions, answers, visible, allRooms]);
 
@@ -2108,6 +2111,8 @@ export function Questionnaire({
       ...knowledgeWarnings(flooringCtx, {
         hasCuts: hasCarpetCuts,
         measuredSqft: totalSqft,
+        byFamily: floorMapAssignments.byFamily,
+        unassignedRoomSqft: floorMapAssignments.unassignedRoomSqft,
         pickedLabels: picked,
         hasVinylCuts,
         hsStairSteps: stairStepCountFromAnswers(answers, ["hs_stairs"]),
@@ -2197,7 +2202,7 @@ export function Questionnaire({
     // Dedupe by id so overlay + local flags don't double.
     const seen = new Set<string>();
     return w.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
-  }, [questions, answers, visible, overrides, flooringCtx, cutsSqftByCategory, totalSqft, hsTransitionTrims, hsBaseTrims, allRooms]);
+  }, [questions, answers, visible, overrides, flooringCtx, cutsSqftByCategory, totalSqft, hsTransitionTrims, hsBaseTrims, allRooms, floorMapAssignments]);
 
   const grand = lines.reduce((s, l) => s + lineTotal(smartLineToCalcLine(l)), 0);
 

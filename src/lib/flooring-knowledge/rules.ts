@@ -479,6 +479,9 @@ export function knowledgeHelpFor(
   if (q.kind === "areas") {
     return "Enter rooms in feet and inches. Add a section for closets and offsets. This is MEASURED area — order quantity is calculated next from the product and (for carpet) the cuts. Leftover sq ft on a sq-yd line is not a billing unit and must not 9× a catalog SY rate.";
   }
+  if (q.kind === "floor_map") {
+    return "Assign a catalog product to each room. Mixed jobs keep measured area per family — 300 sq ft of carpet is not also 300 sq ft of LVP. Unassigned rooms stay off the takeoff rather than cloning whole-job sq ft.";
+  }
   if (q.kind === "cuts") {
     if (q.config?.category === "vinyl") {
       return "Sheet vinyl is roll goods. These cuts are the order quantity — converting room square feet into yards is not a layout and is not billed as an order. Width starts empty unless the catalog has roll_width_ft. 6'/12' chips are one tap — we do not plant 6'.";
@@ -638,10 +641,40 @@ export function knowledgeHelpFor(
   return null;
 }
 
+/**
+ * Mixed jobs without a per-room assignment stay at 0 takeoff (0238).
+ * This lists the flooring families that still need rooms, plus blank-room sq ft.
+ */
+export function mixedJobAssignmentGaps(args: {
+  jobFamilies: FlooringFamily[];
+  byFamily?: Partial<Record<FlooringFamily, number>>;
+  measuredSqft: number;
+  unassignedRoomSqft?: number;
+}): { unassignedFamilies: FlooringFamily[]; unassignedRoomSqft: number } {
+  const flooring = args.jobFamilies.filter((f) => f !== "other");
+  if (!(args.measuredSqft > 0) || flooring.length < 2) {
+    return { unassignedFamilies: [], unassignedRoomSqft: 0 };
+  }
+  const by = args.byFamily ?? {};
+  const unassignedFamilies = flooring.filter((f) => {
+    const n = by[f];
+    return !(typeof n === "number" && n > 0);
+  });
+  const unassignedRoomSqft =
+    typeof args.unassignedRoomSqft === "number" && args.unassignedRoomSqft > 0
+      ? args.unassignedRoomSqft
+      : 0;
+  return { unassignedFamilies, unassignedRoomSqft };
+}
+
 export function knowledgeWarnings(ctx: InstallContext, extras?: {
   hasCuts?: boolean;
   hasVinylCuts?: boolean;
   measuredSqft?: number;
+  /** Floor-map measured sq ft per family — empty on an unassigned mixed job. */
+  byFamily?: Partial<Record<FlooringFamily, number>>;
+  /** Rooms on the floor map with no flooring product. */
+  unassignedRoomSqft?: number;
   pickedLabels?: string[];
   /** Hard-surface plank step count already entered. */
   hsStairSteps?: number;
@@ -855,6 +888,33 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
       id: "unscoped-products",
       text: `Assigned products include ${labels}, but the job type / surface pick does not. Add that flooring type (project type is multi-select) so pad, cuts, fasteners, and the right follow-ups appear — do not guess.`,
     });
+  }
+  const mixedGaps = mixedJobAssignmentGaps({
+    jobFamilies: ctx.families,
+    byFamily: extras?.byFamily,
+    measuredSqft: extras?.measuredSqft ?? 0,
+    unassignedRoomSqft: extras?.unassignedRoomSqft,
+  });
+  if (mixedGaps.unassignedFamilies.length || mixedGaps.unassignedRoomSqft > 0) {
+    const job = ctx.families.filter((f) => f !== "other").map(familyLabel).join(" + ");
+    const missing = mixedGaps.unassignedFamilies.map(familyLabel).join(" + ");
+    const flooringCount = ctx.families.filter((f) => f !== "other").length;
+    const allUnassigned = mixedGaps.unassignedFamilies.length === flooringCount;
+    let text: string;
+    if (mixedGaps.unassignedFamilies.length && mixedGaps.unassignedRoomSqft > 0) {
+      const verb = mixedGaps.unassignedFamilies.length === 1 ? "has" : "have";
+      text = `This job has ${job}. Assign each room on the floor map (${missing} ${verb} no product, and some rooms are blank). Mixed jobs do not clone whole-job sq ft.`;
+    } else if (mixedGaps.unassignedFamilies.length) {
+      if (allUnassigned) {
+        text = `This job has ${job}. Assign each room to a product on the floor map — mixed jobs do not clone whole-job sq ft onto every family.`;
+      } else {
+        const verb = mixedGaps.unassignedFamilies.length === 1 ? "has" : "have";
+        text = `This job has ${job}. ${missing} ${verb} no rooms on the floor map — mixed jobs do not clone whole-job sq ft onto unassigned products.`;
+      }
+    } else {
+      text = `This job has ${job}. Some rooms have no product on the floor map — mixed jobs drop those rooms from the takeoff rather than cloning whole-job sq ft.`;
+    }
+    w.push({ id: "mixed-unassigned", text });
   }
   if (has(ctx.subfloorCondition, /uneven|height difference/i) && ctx.hsPrep.length && !has(ctx.hsPrep, /self-?level/i)) {
     w.push({

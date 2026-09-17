@@ -63,6 +63,8 @@ import {
   knowledgeQuestionByKey,
   amountUnitLabelForQuestion,
   knowledgeWarnings,
+  mixedJobAssignmentGaps,
+  knowledgeHelpFor,
   knowledgeWhenApplies,
   jobNeedsAcclimationClimate,
   KNOWLEDGE_QUESTIONS,
@@ -3722,6 +3724,22 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/totalSqft=\{sf\}/);
   });
 
+  it("0242 mixed jobs without a floor-map assignment warn instead of cloning sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0242_flooring_knowledge_mixed_unassigned.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0242_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Unassigned rooms stay off the takeoff/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/unassignedRoomSqft/);
+    expect(q).toMatch(/byFamily: floorMapAssignments.byFamily/);
+    expect(q).toMatch(/mixed-unassigned|mixedUnassigned/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
@@ -3984,6 +4002,82 @@ describe("stair extras and mixed-job measured area", () => {
         jobFamilies: ["carpet", "vinyl"],
       }),
     ).toBe(180);
+  });
+
+  it("0242 mixed unassigned jobs warn instead of cloning whole-job sq ft", () => {
+    const mixed = installContextFromValByKey({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(
+      mixedJobAssignmentGaps({
+        jobFamilies: mixed.families,
+        measuredSqft: 550,
+        byFamily: {},
+      }).unassignedFamilies.sort(),
+    ).toEqual(["carpet", "lvp"]);
+    expect(
+      mixedJobAssignmentGaps({
+        jobFamilies: mixed.families,
+        measuredSqft: 550,
+        byFamily: { carpet: 350, lvp: 200 },
+      }).unassignedFamilies,
+    ).toEqual([]);
+    expect(
+      mixedJobAssignmentGaps({
+        jobFamilies: mixed.families,
+        measuredSqft: 550,
+        byFamily: { carpet: 350 },
+      }).unassignedFamilies,
+    ).toEqual(["lvp"]);
+    expect(
+      mixedJobAssignmentGaps({
+        jobFamilies: ["lvp"],
+        measuredSqft: 500,
+        byFamily: {},
+      }).unassignedFamilies,
+    ).toEqual([]);
+    expect(
+      mixedJobAssignmentGaps({
+        jobFamilies: ["carpet", "lvp"],
+        measuredSqft: 0,
+        byFamily: {},
+      }).unassignedFamilies,
+    ).toEqual([]);
+
+    const none = knowledgeWarnings(mixed, { measuredSqft: 550, byFamily: {} });
+    expect(none.some((w) => w.id === "mixed-unassigned")).toBe(true);
+    expect(none.find((w) => w.id === "mixed-unassigned")?.text).toMatch(/do not clone whole-job sq ft/);
+    expect(none.find((w) => w.id === "mixed-unassigned")?.text).toMatch(/Assign each room/);
+
+    const assigned = knowledgeWarnings(mixed, {
+      measuredSqft: 550,
+      byFamily: { carpet: 350, lvp: 200 },
+    });
+    expect(assigned.some((w) => w.id === "mixed-unassigned")).toBe(false);
+
+    const partial = knowledgeWarnings(mixed, {
+      measuredSqft: 550,
+      byFamily: { carpet: 350 },
+    });
+    expect(partial.some((w) => w.id === "mixed-unassigned")).toBe(true);
+    expect(partial.find((w) => w.id === "mixed-unassigned")?.text).toMatch(/LVP \/ LVT has no rooms/);
+
+    const blankRooms = knowledgeWarnings(mixed, {
+      measuredSqft: 550,
+      byFamily: { carpet: 350, lvp: 150 },
+      unassignedRoomSqft: 50,
+    });
+    expect(blankRooms.some((w) => w.id === "mixed-unassigned")).toBe(true);
+    expect(blankRooms.find((w) => w.id === "mixed-unassigned")?.text).toMatch(/Some rooms have no product/);
+
+    const carpetOnly = knowledgeWarnings(
+      installContextFromValByKey({ project_type: ["Carpet"] }),
+      { measuredSqft: 450, byFamily: {}, hasCuts: false },
+    );
+    expect(carpetOnly.some((w) => w.id === "mixed-unassigned")).toBe(false);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, mixed)).toMatch(/Unassigned rooms stay off the takeoff/);
   });
 
   it("0196 re-gates stair extras and floating underlayment without inventing prices", () => {
