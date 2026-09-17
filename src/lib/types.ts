@@ -330,7 +330,7 @@ export interface EstimateEmit {
   category: string; // ProductCategory for material, "labor" for labor
   description: string; // the line label on the estimate
   unit: string; // "sqft" | "sqyd" | "lnft" | "each" | "step" | "flat"
-  per?: "area" | "flat" | "each"; // area → qty from measurements; else qty = 1
+  per?: "area" | "flat" | "each"; // area → qty from measurements; flat → 1 charge; each → typed Amount
   cost: number; // our per-unit cost (sells at the target margin)
 }
 

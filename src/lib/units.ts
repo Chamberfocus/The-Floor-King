@@ -139,8 +139,8 @@ export function lineUnitKey(line: {
   if (fromUnit === "sqyd") return "sqyd";
   if (fromUnit === "sqft") return "sqft";
   if (hasMeasuredArea(line.sqft)) return line.measure_unit === "sqyd" ? "sqyd" : "sqft";
-  // No taped area and no count unit — do not print square feet.
-  return "each";
+  // No taped area and no count unit — unknown, not square feet and not "each".
+  return "";
 }
 
 /** Unit printed next to a quantity. Count lines never fall back to sq ft. */

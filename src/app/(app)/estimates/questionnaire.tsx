@@ -230,6 +230,12 @@ const pieceLenFor = (row: TrimRow): number | null => {
   return resolvedPieceLengthIn(row.product.pieceLengthIn);
 };
 
+/** Count-unit label on TBD identity lines. Missing unit is TBD, not invented "each". */
+const countUnitForTbd = (raw: string | null | undefined): { unit: string; phrase: string } => {
+  const u = unitLabel(raw) || (raw ?? "").trim();
+  return u ? { unit: u, phrase: u } : { unit: "", phrase: "unit TBD" };
+};
+
 /** Capture a measured run in linear feet for each-unit moldings/transitions.
  *  Conversion to pieces happens only when stick length is known. */
 const showTrimLinearFt = (row: TrimRow): boolean => {
@@ -1206,10 +1212,10 @@ export function Questionnaire({
           ) {
             out.push(rollGoodsTbdLine(p, null, coverSf > 0 ? coverSf : undefined));
           } else if (!isRollGoodsFamily(fam) && (p.productId || p.label)) {
-            const countUnit = unitLabel(p.unit) || p.unit || "each";
+            const { unit: countUnit, phrase: countPhrase } = countUnitForTbd(p.unit);
             out.push({
               room: null,
-              description: `${p.label || cat} — qty TBD (${countUnit} — not taped sq ft)`,
+              description: `${p.label || cat} — qty TBD (${countPhrase} — not taped sq ft)`,
               category: p.category || cat,
               measure_unit: "sqft",
               sqft: null,
@@ -1289,10 +1295,10 @@ export function Questionnaire({
             continue;
           }
           if (ex.product.productId || ex.product.label) {
-            const countUnit = unitLabel(ex.product.unit) || ex.product.unit || "each";
+            const { unit: countUnit, phrase: countPhrase } = countUnitForTbd(ex.product.unit);
             out.push({
               room: null,
-              description: `${ex.product.label || cat} — qty TBD (${countUnit} — not taped sq ft)`,
+              description: `${ex.product.label || cat} — qty TBD (${countPhrase} — not taped sq ft)`,
               category: ex.product.category || cat,
               measure_unit: "sqft",
               sqft: null,
@@ -1723,7 +1729,7 @@ export function Questionnaire({
           const p = a.product;
           if (p && (p.productId || p.label)) {
             const matCost = rateFor(p.materialRate, p.unit, false);
-            const countUnit = unitLabel(p.unit) || p.unit || "each";
+            const { unit: countUnit } = countUnitForTbd(p.unit);
             out.push({
               room: null,
               description: `${p.label || "Stair wrap"} — wrap qty TBD (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel} — not an automatic sq ft/step order)`,

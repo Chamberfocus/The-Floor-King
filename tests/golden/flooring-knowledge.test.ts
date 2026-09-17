@@ -2624,7 +2624,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/q\.key !== "adhesive"/);
-    expect(q).toMatch(/qty TBD \(\$\{countUnit\} — not taped sq ft\)/);
+    expect(q).toMatch(/qty TBD \(\$\{countPhrase\} — not taped sq ft\)/);
     expect(q).toMatch(/productUnit: p\.unit/);
 
     expect(areaDerivedMaterialAllowed("other", "gal")).toBe(false);
@@ -3054,7 +3054,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).not.toMatch(/DEFAULT_RR_PER_LNFT/);
     expect(q).toMatch(/catalog or type — do not invent/);
     expect(q).toMatch(/rollGoodsTbdLine\(ex\.product/);
-    expect(q).toMatch(/qty TBD \(\$\{countUnit\} — not taped sq ft\)/);
+    expect(q).toMatch(/qty TBD \(\$\{countPhrase\} — not taped sq ft\)/);
 
     const rules = readFileSync(join(root, "src/lib/flooring-knowledge/rules.ts"), "utf8");
     expect(rules).toMatch(/Clicking a chip does not invent \$1\/lnft or \$45\/nose/);
@@ -3411,6 +3411,31 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const qty = readFileSync(join(root, "src/lib/flooring-knowledge/quantities.ts"), "utf8");
     expect(qty).toMatch(/return 0;/);
     expect(qty).not.toMatch(/cutWidthChoicesFt\(\{ \.\.\.opts, productWidthFt: null \}\)\[0\]/);
+  });
+
+  it("0232 does not invent a count of 1 on per=each without Amount, or label unknown units as each", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0232_flooring_knowledge_each_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0232_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/do not invent 1/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const emit = readFileSync(join(root, "src/lib/questionnaire-emit.ts"), "utf8");
+    expect(emit).toMatch(/per === "flat"/);
+    expect(emit).toMatch(/Do not invent 1 T-mold/);
+    expect(emit).not.toMatch(/else \{\s*qty = 1;/);
+
+    const units = readFileSync(join(root, "src/lib/units.ts"), "utf8");
+    expect(units).toMatch(/unknown, not square feet and not "each"/);
+    expect(units).toMatch(/return "";/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/countUnitForTbd/);
+    expect(q).toMatch(/unit TBD/);
+    expect(q).not.toMatch(/\|\| "each"/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

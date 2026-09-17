@@ -184,17 +184,34 @@ describe("questionnaire Amount → builder line fields", () => {
     });
   });
 
-  it("yes/no per=each (qty 1) is unchanged — not an Amount override", () => {
+  it("yes/no per=each without Amount does not invent a count of 1", () => {
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "each",
+        per: "each",
+        areaSqft: 500,
+      }),
+    ).toBeNull();
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "lnft",
+        per: "each",
+        areaSqft: 80,
+      }),
+    ).toBeNull();
+  });
+
+  it("yes/no per=flat is one job charge, not an item count", () => {
     const mapped = questionnaireEmitToLineQty({
-      emitUnit: "each",
-      per: "each",
+      emitUnit: "flat",
+      per: "flat",
       areaSqft: 500,
     });
     expect(mapped).toEqual({
       measure_unit: "sqft",
       sqft: null,
       quantity: 1,
-      unit: "each",
+      unit: "flat",
     });
   });
 

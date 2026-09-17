@@ -92,6 +92,7 @@ const REQUIRED_FILES = [
   "0229_flooring_knowledge_tile_bags.sql",
   "0230_flooring_knowledge_count_qty.sql",
   "0231_flooring_knowledge_cut_width_init.sql",
+  "0232_flooring_knowledge_each_qty.sql",
 ];
 
 /**
@@ -1198,6 +1199,15 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0231_FLOORING_KNOWLEDGE",
       "does not plant 12",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0232_flooring_knowledge_each_qty.sql",
+    markers: [
+      "P0_0232_FLOORING_KNOWLEDGE",
+      "do not invent 1",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

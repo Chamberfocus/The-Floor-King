@@ -58,8 +58,12 @@ export function questionnaireEmitToLineQty(
     // Number questions pass qtyOverride; count+area without an Amount is not an order.
     if (!area) return null;
     qty = yd ? Math.ceil(args.areaSqft / 9) : Math.ceil(args.areaSqft);
-  } else {
+  } else if (per === "flat") {
+    // One flat job charge (delivery / furniture moving / curb) — not an item count.
     qty = 1;
+  } else {
+    // per:each without Amount: type the count. Do not invent 1 T-mold / 1 lnft.
+    return null;
   }
   if (!(qty > 0) || !Number.isFinite(qty)) return null;
 

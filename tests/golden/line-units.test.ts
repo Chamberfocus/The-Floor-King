@@ -39,15 +39,15 @@ describe("lineUnitKey / lineDisplayUnit — count vs area", () => {
     expect(isCountPricedLine(line)).toBe(true);
   });
 
-  it("toilets that forgot unit still display each, not sq ft", () => {
+  it("toilets that forgot unit do not invent each or print sq ft", () => {
     const line = {
       unit: null,
       measure_unit: "sqft" as const,
       sqft: null,
       quantity: 2,
     };
-    expect(lineUnitKey(line)).toBe("each");
-    expect(lineDisplayUnit(line)).toBe("each");
+    expect(lineUnitKey(line)).toBe("");
+    expect(lineDisplayUnit(line)).toBe("");
     expect(isCountPricedLine(line)).toBe(true);
   });
 
@@ -192,7 +192,7 @@ describe("work-order lineSpec follows the same display unit", () => {
       width_in: null,
       category: "labor",
     });
-    expect(spec.unit).toBe("each");
+    expect(spec.unit).toBe("");
     expect(spec.qty).not.toMatch(/sq ft/);
   });
 
@@ -335,10 +335,12 @@ describe("measured sq ft is never labeled as a carpet order in sq yd", () => {
     expect(src).not.toMatch(/totalSqyd = totalSqft \/ 9/);
   });
 
-  it("inventory roll receive uses unitIsSqyd, not includes(yd)", () => {
+  it("inventory roll receive uses rollReceiveUnit, not includes(yd) or invented sq yd", () => {
     const src = readFileSync(join(root, "src/app/(app)/inventory/[id]/page.tsx"), "utf8");
-    expect(src).toMatch(/unitIsSqyd\(product\.unit\)/);
+    expect(src).toMatch(/rollReceiveUnit\(product\.unit\)/);
+    expect(src).toMatch(/Unit TBD/);
     expect(src).not.toMatch(/product\.unit\?\.includes\(["']yd["']\)/);
+    expect(src).not.toMatch(/unitIsSqyd\(product\.unit\)/);
   });
 
   it("catalog CSV import maps SY via normalizeUnit, not includes(yd)", () => {
