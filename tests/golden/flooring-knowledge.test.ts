@@ -63,6 +63,10 @@ import {
   formatMeasuredLabel,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
+  buildSalespersonReview,
+  reviewToJobNotes,
+  mergeReviewWarnings,
+  emptyInstallContext,
 } from "@/lib/flooring-knowledge";
 import { billsBySquareYard } from "@/lib/units";
 import type { ShowIfClause } from "@/lib/types";
@@ -1723,5 +1727,66 @@ describe("removal descriptions distinguish glued vs floating without a second ra
     );
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/annotateRemovalDescription/);
+  });
+});
+
+describe("salesperson review warnings are one source of truth for Builder notes", () => {
+  it("reviewToJobNotes includes extraWarnings and does not invent a second Flags block", () => {
+    const takeoff = computeMaterialTakeoff({
+      family: "carpet",
+      measuredSqft: 450,
+    });
+    const review = buildSalespersonReview({
+      rooms: [],
+      products: ["Berber sample — catalog name only"],
+      takeoffs: [takeoff],
+      ctx: emptyInstallContext(),
+      removal: [],
+      installation: [],
+      prep: [],
+      accessories: [],
+      specials: ["Occupancy: Occupied"],
+      extraWarnings: [
+        {
+          id: "carpet-no-cuts",
+          text: "Carpet measured by area only — converting sq ft ÷ 9 is equivalent area, not a cut plan. Enter cuts (roll width × length) before ordering.",
+        },
+        { id: "radiant", text: "Radiant heat present — confirm the selected flooring is rated for radiant heat before ordering." },
+      ],
+    });
+    expect(review.warnings.map((w) => w.id).sort()).toEqual(["carpet-no-cuts", "radiant"]);
+    const notes = reviewToJobNotes(review);
+    expect(notes).toMatch(/Warnings:/);
+    expect(notes).toMatch(/Carpet measured by area only/);
+    expect(notes).toMatch(/Radiant heat present/);
+    expect(notes).toMatch(/Order quantity: TBD — enter cuts/);
+    expect(notes).not.toMatch(/Flags to confirm/);
+    // Takeoff's similar "no cut list" message must not duplicate the knowledge flag.
+    expect(notes.match(/sq ft ÷ 9/g)?.length).toBeGreaterThanOrEqual(1);
+    const warningBlock = notes.split("Warnings:")[1] ?? "";
+    expect(warningBlock.match(/cut plan/gi)?.length).toBe(1);
+  });
+
+  it("keeps the takeoff order warning when the questionnaire did not already raise it", () => {
+    const takeoff = computeMaterialTakeoff({ family: "vinyl", measuredSqft: 180 });
+    const merged = mergeReviewWarnings([], [takeoff]);
+    expect(merged.some((w) => w.id === "vinyl-no-layout")).toBe(true);
+    expect(merged).toHaveLength(1);
+  });
+
+  it("does not resurrect a dismissed carpet-no-cuts flag from takeoff text", () => {
+    const takeoff = computeMaterialTakeoff({ family: "carpet", measuredSqft: 450 });
+    const merged = mergeReviewWarnings([], [takeoff], { suppressIds: ["carpet-no-cuts"] });
+    expect(merged.some((w) => w.id === "carpet-no-cuts")).toBe(false);
+    expect(merged).toEqual([]);
+  });
+
+  it("questionnaire feeds active flags into the review and drops the duplicate flagText join", () => {
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/extraWarnings:\s*warnings\.filter/);
+    expect(q).toMatch(/suppressedWarningIds:\s*dismissed/);
+    expect(q).not.toMatch(/Flags to confirm:/);
+    expect(q).not.toMatch(/flagText/);
+    expect(q).toMatch(/salespersonReview\.warnings\.map/);
   });
 });

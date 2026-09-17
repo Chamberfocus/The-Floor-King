@@ -1671,7 +1671,6 @@ export function Questionnaire({
     const seen = new Set<string>();
     return w.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
   }, [questions, answers, visible, overrides, flooringCtx, cutsSqftByCategory, totalSqft, hsTransitionTrims, hsBaseTrims]);
-  const activeWarnings = warnings.filter((w) => !dismissed.has(w.id));
 
   const grand = lines.reduce((s, l) => s + lineTotal(smartLineToCalcLine(l)), 0);
 
@@ -1850,9 +1849,10 @@ export function Questionnaire({
       prep,
       accessories,
       specials,
-      extraWarnings: [],
+      extraWarnings: warnings.filter((w) => !dismissed.has(w.id)),
+      suppressedWarningIds: dismissed,
     });
-  }, [questions, answers, visible, totalSqft, cutsSqft, cutsSqftByCategory, flooringCtx, allRooms]);
+  }, [questions, answers, visible, totalSqft, cutsSqft, cutsSqftByCategory, flooringCtx, allRooms, warnings, dismissed]);
 
   // Steps: the currently-visible questions (conditionals reveal as you answer),
   // plus a final Review step.
@@ -1962,12 +1962,10 @@ export function Questionnaire({
           }),
         );
       }
-      // Active (non-dismissed) risk flags ride along as work-order notes.
-      const flagText = activeWarnings.length
-        ? `Flags to confirm:\n${activeWarnings.map((w) => `⚠ ${w.text}`).join("\n")}`
-        : "";
+      // Active flags ride inside salespersonReview.warnings → reviewToJobNotes.
+      // Do not concatenate a second "Flags to confirm" block.
       const takeoffText = reviewToJobNotes(salespersonReview);
-      const jobDesc = [notes.trim(), takeoffText, flagText].filter(Boolean).join("\n\n");
+      const jobDesc = [notes.trim(), takeoffText].filter(Boolean).join("\n\n");
       const res = await createSmartEstimate({
         customerId,
         title: `Flooring for ${customerName}`,
@@ -2167,9 +2165,9 @@ export function Questionnaire({
         // Review
         <Card>
           <CardContent className="space-y-3 p-4">
-            {activeWarnings.length ? (
+            {salespersonReview.warnings.length ? (
               <div className="space-y-2">
-                {activeWarnings.map((w) => (
+                {salespersonReview.warnings.map((w) => (
                   <div key={w.id} className="flex items-start gap-2 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm dark:border-amber-500/40 dark:bg-amber-950/30">
                     <span className="shrink-0 text-amber-600">⚠</span>
                     <span className="min-w-0 flex-1 text-amber-800 dark:text-amber-200">{w.text}</span>

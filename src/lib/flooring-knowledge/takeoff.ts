@@ -266,6 +266,8 @@ export function buildSalespersonReview(args: {
   accessories: string[];
   specials: string[];
   extraWarnings?: { id: string; text: string }[];
+  /** Ids the salesperson dismissed — do not resurrect them from takeoff text. */
+  suppressedWarningIds?: Iterable<string>;
 }): SalespersonReview {
   const sections: ReviewSection[] = [];
 
@@ -331,10 +333,9 @@ export function buildSalespersonReview(args: {
     });
   }
 
-  const warnings = [...(args.extraWarnings ?? [])];
-  for (const t of args.takeoffs) {
-    t.warnings.forEach((text, i) => warnings.push({ id: `takeoff-${t.family}-${i}`, text }));
-  }
+  const warnings = mergeReviewWarnings(args.extraWarnings ?? [], args.takeoffs, {
+    suppressIds: args.suppressedWarningIds,
+  });
 
   const notes: string[] = [];
   if (args.ctx.occupancy.length) notes.push(`Occupancy: ${args.ctx.occupancy.join(", ")}`);
@@ -348,6 +349,39 @@ export function buildSalespersonReview(args: {
     warnings,
     notes,
   };
+}
+
+/**
+ * One list for Review + Builder notes.
+ *
+ * Questionnaire flags (`extraWarnings`) win on id. Takeoff engine messages
+ * still ride along when the questionnaire did not already raise the same
+ * carpet/vinyl "order is not sq ft ÷ 9" flag.
+ */
+export function mergeReviewWarnings(
+  extra: { id: string; text: string }[],
+  takeoffs: MaterialTakeoff[],
+  opts?: { suppressIds?: Iterable<string> },
+): { id: string; text: string }[] {
+  const out = [...extra];
+  const ids = new Set(out.map((w) => w.id));
+  for (const id of opts?.suppressIds ?? []) ids.add(id);
+  const texts = new Set(out.map((w) => w.text));
+  for (const t of takeoffs) {
+    t.warnings.forEach((text, i) => {
+      const id =
+        t.family === "carpet" && /cut plan|sq ft ÷ 9/i.test(text)
+          ? "carpet-no-cuts"
+          : t.family === "vinyl" && /sheet layout|order quantity|roll goods/i.test(text)
+            ? "vinyl-no-layout"
+            : `takeoff-${t.family}-${i}`;
+      if (ids.has(id) || texts.has(text)) return;
+      ids.add(id);
+      texts.add(text);
+      out.push({ id, text });
+    });
+  }
+  return out;
 }
 
 /** Compact block that rides to the work order / builder job description. */

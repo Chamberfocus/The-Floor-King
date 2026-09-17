@@ -125,6 +125,7 @@ export {
 export {
   buildSalespersonReview,
   reviewToJobNotes,
+  mergeReviewWarnings,
   familyListLabel,
   formatFtIn,
   formatDimensionPair,
