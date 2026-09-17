@@ -48,6 +48,8 @@ import {
   deliveryAddonCost,
   reviewBucketForQuestion,
   formatMeasuredLabel,
+  materialWastePctForEmit,
+  rollGoodsHaveCuts,
 } from "@/lib/flooring-knowledge";
 import { billsBySquareYard } from "@/lib/units";
 import type { ShowIfClause } from "@/lib/types";
@@ -122,11 +124,18 @@ describe("measured area vs order quantity", () => {
     });
     expect(t.measured.sqft).toBe(450);
     expect(t.measured.sqydEquivalent).toBe(50);
-    expect(t.orderBasis).toBe("measured_plus_waste_estimated");
+    expect(t.orderBasis).toBe("none");
     expect(t.billingUnit).toBe("sqyd");
+    expect(t.orderSqft).toBe(0);
+    expect(t.billingQty).toBe(0);
+    expect(t.wastePct).toBe(0);
     expect(t.warnings.some((w) => /not a professional carpet cut plan/i.test(w))).toBe(true);
-    expect(t.billingQty).not.toBe(50); // 10% waste on 450 sf = 495 sf = 55 yd
-    expect(t.billingQty).toBe(55);
+    expect(materialWastePctForEmit({ family: "carpet", requestedWastePct: 10 })).toBe(0);
+    const strip = formatTakeoffStrip(t);
+    expect(strip).toMatch(/Measured 450 sq ft \(50 sq yd equivalent area — not an order quantity\)/);
+    expect(strip).toMatch(/Order TBD \(enter cuts — not sq ft ÷ 9\)/);
+    expect(strip).not.toMatch(/Order 50 sq yd/);
+    expect(strip).not.toMatch(/Order 55/);
   });
 
   it("carpet cuts ARE the order quantity (no second waste factor)", () => {
@@ -152,7 +161,11 @@ describe("measured area vs order quantity", () => {
     expect(profileFor("vinyl")?.unit).toBe("sqyd");
     const t = computeMaterialTakeoff({ family: "vinyl", measuredSqft: 180 });
     expect(t.billingUnit).toBe("sqyd");
-    expect(t.orderBasis).toBe("measured_plus_waste_estimated");
+    expect(t.orderBasis).toBe("none");
+    expect(t.billingQty).toBe(0);
+    expect(t.measured.sqydEquivalent).toBe(20);
+    expect(materialWastePctForEmit({ family: "vinyl", requestedWastePct: 8 })).toBe(0);
+    expect(materialWastePctForEmit({ family: "lvp", requestedWastePct: 10 })).toBe(10);
   });
 
   it("boxed LVP uses waste and carton rounding only when coverage exists", () => {
@@ -348,6 +361,8 @@ describe("questionnaire is wired to the knowledge engine", () => {
     expect(q).toMatch(/lineDisplayUnit/);
     expect(q).toMatch(/reviewBucketForQuestion/);
     expect(q).toMatch(/formatMeasuredLabel/);
+    expect(q).toMatch(/materialWastePctForEmit/);
+    expect(q).toMatch(/order TBD \(enter cuts/);
   });
 });
 

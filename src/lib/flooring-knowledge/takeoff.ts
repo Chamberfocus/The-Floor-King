@@ -10,6 +10,7 @@ import { formatMeasuredLabel, formatSqft, formatSqyd, type MaterialTakeoff } fro
 import {
   CONDITION_CONFIDENCE_LABELS,
   familyLabel,
+  isRollGoodsFamily,
   type ConditionConfidence,
   type FlooringFamily,
 } from "./families";
@@ -190,7 +191,15 @@ function takeoffRows(t: MaterialTakeoff): ReviewSection["rows"] {
   const rows: ReviewSection["rows"] = [
     { label: "Measured area", value: formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" }) },
   ];
-  if (t.orderBasis === "cuts") {
+  if (t.orderBasis === "none") {
+    if (isRollGoodsFamily(t.family) && t.measured.sqft > 0) {
+      rows.push({
+        label: "Order quantity",
+        value: "TBD — enter cuts (sq ft ÷ 9 is not an order)",
+        tone: "warn",
+      });
+    }
+  } else if (t.orderBasis === "cuts") {
     rows.push({
       label: "Order quantity",
       value: `${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)} (from cuts — not sq ft ÷ 9)`,
@@ -200,7 +209,7 @@ function takeoffRows(t: MaterialTakeoff): ReviewSection["rows"] {
       label: "Billing quantity",
       value: formatSqyd(t.billingQty),
     });
-  } else if (t.orderBasis !== "none") {
+  } else {
     rows.push({
       label: "Waste",
       value: t.wastePct ? `${t.wastePct}% (${formatSqft(t.wasteSqft)})` : "0%",

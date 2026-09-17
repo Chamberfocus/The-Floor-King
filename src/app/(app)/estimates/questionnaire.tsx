@@ -67,6 +67,8 @@ import {
   installContextFromValByKey,
   installMethodOptionsForFamilies,
   isRollGoodsFamily,
+  materialWastePctForEmit,
+  rollGoodsHaveCuts,
   knowledgeHelpFor,
   knowledgeWarnings,
   amountUnitLabelForQuestion,
@@ -883,10 +885,16 @@ export function Questionnaire({
           const rollFam = familyFromCatalogCategory(cat);
           // Mixed jobs: carpet/sheet vinyl ORDER comes from the cuts step.
           // Do not also bill the taped room area as a second roll-goods line.
-          if (isRollGoodsFamily(rollFam) && (cutsSqftByCategory[rollFam] ?? 0) > 0) return;
+          const cutSf = isRollGoodsFamily(rollFam) ? (cutsSqftByCategory[rollFam] ?? 0) : 0;
+          if (rollGoodsHaveCuts(rollFam, cutSf)) return;
           const b = billing(cat);
           const defWaste = profileFor(cat)?.waste ?? 0;
-          const waste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
+          const requested = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
+          const waste = materialWastePctForEmit({
+            family: rollFam,
+            cutsSqft: cutSf,
+            requestedWastePct: requested,
+          });
           const spb = numv(p.sqftPerBox);
           // Flooring is AREA-billed: the builder prices area × material_cost ×
           // (1 + waste_pct/100) and shows an editable Waste % field. So pass the
@@ -960,7 +968,15 @@ export function Questionnaire({
         // it (the same bug that was fixed on the per-room path). Box count is
         // derived from sqft ÷ sqft_per_box in the builder, display-only.
         const defWaste = profileFor(cat)?.waste ?? 0;
-        const wasteOf = (p: ProductAns) => (p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste);
+        const fam = familyFromCatalogCategory(cat);
+        const cutSf = isRollGoodsFamily(fam) ? (cutsSqftByCategory[fam] ?? 0) : 0;
+        const cutsOwnMaterial = rollGoodsHaveCuts(fam, cutSf);
+        const wasteOf = (p: ProductAns) =>
+          materialWastePctForEmit({
+            family: fam,
+            cutsSqft: cutSf,
+            requestedWastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste,
+          });
         const matLine = (
           p: ProductAns,
           size?: {
@@ -1030,18 +1046,21 @@ export function Questionnaire({
           // other stay bundled to one line, but carry the total sq ft.
           const perRoomFloor =
             cat !== "underlayment" && cat !== "trim" && cat !== "other" && allRooms.length > 0 && !boxed;
-          if (perRoomFloor) {
-            for (const rm of allRooms) {
-              if (rm.sqft > 0) out.push(matLine(p, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
+          if (!cutsOwnMaterial) {
+            if (perRoomFloor) {
+              for (const rm of allRooms) {
+                if (rm.sqft > 0) out.push(matLine(p, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
+              }
+            } else if (coverSf > 0) {
+              // Measured area only. Do not turn room L×W into a warehouse cut list —
+              // that is the cuts/layout step, and sq ft is not a cut plan.
+              out.push(matLine(p, { sqft: coverSf }));
             }
-          } else if (coverSf > 0) {
-            // Measured area only. Do not turn room L×W into a warehouse cut list —
-            // that is the cuts/layout step, and sq ft is not a cut plan.
-            out.push(matLine(p, { sqft: coverSf }));
           }
           // Install labor — bundled, with the total area recorded.
+          // Cuts-owned roll goods emit install with the cut yardage instead.
           const lr = rateFor(p.laborRate, p.unit, b.wantYd);
-          if (lr > 0 && coverSf > 0) {
+          if (!cutsOwnMaterial && lr > 0 && coverSf > 0) {
             const laborQty = b.wantYd ? Math.ceil(coverSf / 9) : Math.ceil(coverSf);
             out.push({
               room: null,
@@ -2153,16 +2172,20 @@ export function Questionnaire({
             <div className="text-sm font-semibold">Estimate lines</div>
             {lines.length ? (
               <div className="divide-y text-sm">
-                {lines.map((l, i) => (
+                {lines.map((l, i) => {
+                  const fam = familyFromCatalogCategory(l.category);
+                  const rollOrderTbd =
+                    isRollGoodsFamily(fam) && !(l.measurements && l.measurements.length);
+                  return (
                   <div key={i} className="flex items-center justify-between gap-3 py-1.5">
                     <span className="min-w-0">
                       <span className="truncate">{l.description}</span>
                       <span className="ml-2 text-xs text-muted-foreground">
-                        {l.quantity} {lineDisplayUnit(l)}
-                        {l.sqft
-                          ? ` · measured ${l.sqft} sq ft`
-                          : ""}
-                        {l.waste_pct ? ` · ${l.waste_pct}% waste` : ""}
+                        {rollOrderTbd
+                          ? `${l.sqft ? `measured ${l.sqft} sq ft` : ""} · order TBD (enter cuts — not sq ft ÷ 9)`
+                          : `${l.quantity} ${lineDisplayUnit(l)}${
+                              l.sqft ? ` · measured ${l.sqft} sq ft` : ""
+                            }${l.waste_pct ? ` · ${l.waste_pct}% waste` : ""}`}
                         {l.from_stock ? " · from stock" : ""}
                         {l.category === "labor" ? " · labor" : ""}
                       </span>
@@ -2171,7 +2194,8 @@ export function Questionnaire({
                       {formatMoney(lineTotal(smartLineToCalcLine(l)))}
                     </span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">No line items yet — go back and add areas and a product.</p>
@@ -2763,8 +2787,8 @@ function QuestionBody({
                       <SourceToggle p={p} compact onChange={(np) => setRoom(key, np)} />
                     </span>
                   ) : null}
-                  {/* Waste factor + carton size for this room's material. Baked into
-                      the ordered quantity at emit; editable per room. */}
+                  {/* Measured vs order for this room. Roll goods do not take a
+                      waste % — layout waste lives in the cut list. */}
                   {(() => {
                     const defWaste = profileFor(cat)?.waste ?? 0;
                     const family = familyFromCatalogCategory(cat);
@@ -2779,6 +2803,7 @@ function QuestionBody({
                     return (
                       <div className="mt-2 space-y-1.5">
                         <div className="flex flex-wrap items-end gap-3">
+                          {!isRollGoodsFamily(family) ? (
                           <div>
                             <label className="mb-1 block text-[11px] text-muted-foreground">Waste factor</label>
                             <div className="flex items-center gap-1">
@@ -2792,6 +2817,7 @@ function QuestionBody({
                               <span className="text-xs text-muted-foreground">%</span>
                             </div>
                           </div>
+                          ) : null}
                           {!isRollGoodCategory(cat) ? (
                             <div>
                               <label className="mb-1 block text-[11px] text-muted-foreground">Sq ft per box</label>
@@ -2812,11 +2838,19 @@ function QuestionBody({
                               <> ({formatSqyd(takeoff.measured.sqydEquivalent)} equivalent area — not an order qty)</>
                             ) : null}
                             {" · "}
-                            {takeoff.orderBasis === "cuts" ? "Order (from cuts) " : takeoff.orderBasis === "measured_plus_waste_estimated" ? "Order (estimate — not a cut plan) " : "Order "}
+                            {takeoff.orderBasis === "cuts"
+                              ? "Order (from cuts) "
+                              : takeoff.orderBasis === "none" && isRollGoodsFamily(family)
+                                ? "Order TBD — enter cuts "
+                                : takeoff.orderBasis === "measured_plus_waste_estimated"
+                                  ? "Order (estimate — not a cut plan) "
+                                  : "Order "}
                             <span className="font-semibold tabular-nums text-foreground">
-                              {takeoff.billingUnit === "sqyd"
-                                ? formatSqyd(takeoff.billingQty)
-                                : formatSqft(takeoff.orderSqft)}
+                              {takeoff.orderBasis === "none" && isRollGoodsFamily(family)
+                                ? ""
+                                : takeoff.billingUnit === "sqyd"
+                                  ? formatSqyd(takeoff.billingQty)
+                                  : formatSqft(takeoff.orderSqft)}
                             </span>
                             {takeoff.cartons ? (
                               <>
@@ -3159,11 +3193,15 @@ function QuestionBody({
                   family: familyFromCatalogCategory(cat),
                   measuredSqft: totalSqft,
                   wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWasteForCat,
+                  cutsSqft: isRoll
+                    ? (cutsSqftByCategory[familyFromCatalogCategory(cat)] ?? 0)
+                    : null,
                   sqftPerBox: !isRoll && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
                 });
                 return (
                   <div className="space-y-2 rounded-md border border-dashed p-2.5">
                     <div className="flex flex-wrap items-end gap-3">
+                      {!isRoll ? (
                       <div>
                         <label className="mb-1 block text-xs text-muted-foreground">Waste factor</label>
                         <div className="flex items-center gap-1">
@@ -3177,6 +3215,7 @@ function QuestionBody({
                           <span className="text-sm text-muted-foreground">%</span>
                         </div>
                       </div>
+                      ) : null}
                       {!isRoll ? (
                         <div>
                           <label className="mb-1 block text-xs text-muted-foreground">Sq ft per box</label>
@@ -3202,10 +3241,11 @@ function QuestionBody({
                           {b.wantYd ? (
                             <span className="text-muted-foreground">
                               {" "}
-                              ({formatSqyd(takeoff.measured.sqydEquivalent)} equivalent area)
+                              ({formatSqyd(takeoff.measured.sqydEquivalent)} equivalent area — not an order quantity)
                             </span>
                           ) : null}
                         </p>
+                        {!isRoll ? (
                         <p>
                           Waste{" "}
                           <span className="font-semibold tabular-nums">{takeoff.wastePct}%</span>
@@ -3213,7 +3253,17 @@ function QuestionBody({
                             <span className="text-muted-foreground"> ({formatSqft(takeoff.wasteSqft)})</span>
                           ) : null}
                         </p>
+                        ) : null}
                         <p>
+                          {takeoff.orderBasis === "none" && isRoll ? (
+                            <>
+                              Order{" "}
+                              <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
+                                TBD — enter cuts (not sq ft ÷ 9)
+                              </span>
+                            </>
+                          ) : (
+                            <>
                           Order{" "}
                           <span className="font-semibold tabular-nums">
                             {b.wantYd ? formatSqyd(takeoff.billingQty) : formatSqft(takeoff.orderSqft)}
@@ -3233,6 +3283,8 @@ function QuestionBody({
                               estimate — not a cut plan
                             </span>
                           ) : null}
+                            </>
+                          )}
                         </p>
                       </div>
                     ) : null}

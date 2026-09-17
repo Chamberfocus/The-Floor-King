@@ -80,6 +80,30 @@ export function sqydToSqft(sqyd: number): number {
   return r2(n * 9);
 }
 
+/** True when this roll-goods family has entered cuts that own the order qty. */
+export function rollGoodsHaveCuts(
+  family: FlooringFamily,
+  cutsSqft: number | null | undefined,
+): boolean {
+  const cuts = Number(cutsSqft);
+  return isRollGoodsFamily(family) && Number.isFinite(cuts) && cuts > 0;
+}
+
+/**
+ * Waste that may ride onto an emitted material LINE.
+ * Roll goods without cuts: 0 — layout waste lives in the cut list, not a %.
+ */
+export function materialWastePctForEmit(args: {
+  family: FlooringFamily;
+  cutsSqft?: number | null;
+  requestedWastePct: number;
+}): number {
+  if (rollGoodsHaveCuts(args.family, args.cutsSqft)) return 0;
+  if (isRollGoodsFamily(args.family)) return 0;
+  const n = Number(args.requestedWastePct);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 /**
  * Carton math. Returns null when coverage is missing or non-positive —
  * we do not invent a box size.
@@ -125,7 +149,7 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
   const billingUnit = billsBySqydFamily(family) ? "sqyd" : "sqft";
 
   const cuts = Number(input.cutsSqft);
-  const hasCuts = isRollGoodsFamily(family) && Number.isFinite(cuts) && cuts > 0;
+  const hasCuts = rollGoodsHaveCuts(family, input.cutsSqft);
 
   let wastePct: number;
   let orderSqft: number;
@@ -162,17 +186,17 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
       );
     }
   } else if (isRollGoodsFamily(family)) {
-    wastePct =
-      input.wastePct != null && Number.isFinite(Number(input.wastePct))
-        ? Number(input.wastePct)
-        : defaultWastePctForFamily(family);
-    orderSqft = r2(measured.sqft * (1 + wastePct / 100));
-    orderBasis = "measured_plus_waste_estimated";
+    // sq ft ÷ 9 is equivalent area, not an order. Do not invent layout waste
+    // or a purchase quantity until cuts exist.
+    wastePct = 0;
+    orderSqft = 0;
+    orderBasis = "none";
     warnings.push(
       family === "carpet"
-        ? "No cut list yet — this order quantity is an area estimate, not a professional carpet cut plan. Roll width, seams, direction, and pattern matching can require more material."
-        : "No sheet layout yet — this order quantity is an area estimate. Roll width, seams, and pattern can require more material than the measured area.",
+        ? "No cut list yet — converting sq ft ÷ 9 is equivalent area, not a professional carpet cut plan. Enter cuts (roll width × length) before ordering."
+        : "No sheet layout yet — measured area is not the order quantity. Enter cuts (roll width × length) before ordering.",
     );
+    notes.push("Order quantity stays TBD until cuts are entered.");
   } else {
     wastePct =
       input.wasteAlreadyInQuantity
@@ -184,8 +208,9 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
     orderBasis = "measured_plus_waste";
   }
 
-  // When cuts are the basis, "waste sq ft" is not a separate add-on.
-  const wasteSqftOut = hasCuts ? 0 : r2(orderSqft - measured.sqft);
+  // When cuts are the basis, or roll goods have no cuts yet, waste sq ft is
+  // not a separate add-on on the takeoff.
+  const wasteSqftOut = orderBasis === "measured_plus_waste" ? r2(orderSqft - measured.sqft) : 0;
 
   const cartons = isBoxedFamily(family) ? cartonTakeoff(orderSqft, input.sqftPerBox) : null;
   if (isBoxedFamily(family) && !(Number(input.sqftPerBox) > 0)) {
@@ -245,7 +270,12 @@ export function formatTakeoffStrip(t: MaterialTakeoff): string {
   const bits: string[] = [
     `Measured ${formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" })}`,
   ];
-  if (t.orderBasis === "none") return bits.join(" · ");
+  if (t.orderBasis === "none") {
+    if (isRollGoodsFamily(t.family) && t.measured.sqft > 0) {
+      bits.push("Order TBD (enter cuts — not sq ft ÷ 9)");
+    }
+    return bits.join(" · ");
+  }
   if (t.orderBasis === "cuts") {
     bits.push(
       `Order ${formatSqft(t.orderSqft)} · ${formatSqyd(t.billingQty)} (from cuts — not sq ft ÷ 9)`,

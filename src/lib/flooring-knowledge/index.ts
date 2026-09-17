@@ -71,6 +71,8 @@ export {
   defaultCutWidthFt,
   cutWidthChoicesFt,
   billingUnitForCategory,
+  rollGoodsHaveCuts,
+  materialWastePctForEmit,
   type MeasuredArea,
   type CartonTakeoff,
   type MaterialTakeoff,
