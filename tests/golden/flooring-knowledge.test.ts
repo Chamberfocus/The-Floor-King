@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { defaultWastePct, profileFor } from "@/lib/flooring-profiles";
-import { carpetCutList, parseCutsFromText } from "@/lib/job-scope";
+import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText } from "@/lib/job-scope";
 import { carpetYardageFromCuts } from "@/lib/questionnaire-calc";
 import { lineQty } from "@/lib/estimate-calc";
 import {
@@ -2911,6 +2911,74 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/order_as_roll: isRollGoodCategory\(cat\) \? false/);
     const scope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
     expect(scope).toMatch(/order_as_roll === false && !measured\.length/);
+  });
+
+  it("0219 Builder treats exclusive carpet tile as modular coverage, not Cuts vs Roll", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0219_flooring_knowledge_builder_tile_coverage.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0219_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Cuts vs Roll/);
+    expect(sql).toMatch(/measured coverage/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    expect(
+      carpetLineIsModularCoverage({
+        category: "carpet",
+        order_as_roll: false,
+        sqft: 450,
+        quantity: 50,
+        length_in: null,
+        width_in: null,
+        measurements: null,
+      }),
+    ).toBe(true);
+    expect(
+      carpetLineIsModularCoverage({
+        category: "carpet",
+        order_as_roll: false,
+        sqft: null,
+        quantity: null,
+      }),
+    ).toBe(false);
+    expect(
+      carpetLineIsModularCoverage({
+        category: "carpet",
+        order_as_roll: true,
+        sqft: 450,
+        quantity: 50,
+      }),
+    ).toBe(false);
+    expect(
+      carpetLineIsModularCoverage({
+        category: "carpet",
+        order_as_roll: false,
+        sqft: 450,
+        measurements: [{ op: "add", length_in: 144, width_in: 168 }],
+      }),
+    ).toBe(false);
+    expect(
+      carpetLineIsModularCoverage({
+        category: "vinyl",
+        order_as_roll: false,
+        sqft: 450,
+      }),
+    ).toBe(false);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/modularCarpet/);
+    expect(builder).toMatch(/Carpet tile is modular/);
+    expect(builder).toMatch(/isRollGoodCategory\(line\.category\) && !modularCarpet/);
+    expect(builder).toMatch(/carpetSystems: \["carpet_tile"\]/);
+    expect(builder).toMatch(/Switch to warehouse cut plan/);
+
+    const rules = readFileSync(join(root, "src/lib/flooring-knowledge/rules.ts"), "utf8");
+    expect(rules).toMatch(/Builder shows measured coverage and carton math, not Cuts vs Roll/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

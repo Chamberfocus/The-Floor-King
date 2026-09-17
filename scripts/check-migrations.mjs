@@ -79,6 +79,7 @@ const REQUIRED_FILES = [
   "0216_flooring_knowledge_roll_tbd_sku.sql",
   "0217_flooring_knowledge_hs_stair_units.sql",
   "0218_flooring_knowledge_tile_not_room_cut.sql",
+  "0219_flooring_knowledge_builder_tile_coverage.sql",
 ];
 
 /**
@@ -1065,6 +1066,16 @@ const REQUIRED_MARKERS = [
       "P0_0218_FLOORING_KNOWLEDGE",
       "warehouse cut",
       "order_as_roll",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0219_flooring_knowledge_builder_tile_coverage.sql",
+    markers: [
+      "P0_0219_FLOORING_KNOWLEDGE",
+      "Cuts vs Roll",
+      "measured coverage",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

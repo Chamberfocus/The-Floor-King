@@ -28,7 +28,7 @@ import {
   resolveCommission,
 } from "@/lib/estimate-commission";
 import { ratesFromTargetMargin, landedMaterialForTarget } from "@/lib/estimate-pricing";
-import { parseCutsFromText } from "@/lib/job-scope";
+import { parseCutsFromText, carpetLineIsModularCoverage } from "@/lib/job-scope";
 import {
   type Estimate,
   type EstimateLineItem,
@@ -60,7 +60,13 @@ import {
   DEFAULT_LABOR_PER_BAG,
 } from "@/lib/floor-prep";
 import { defaultWastePct } from "@/lib/flooring-profiles";
-import { cutWidthChoicesFt, familyFromCatalogCategory, formatEquivalentSqyd } from "@/lib/flooring-knowledge";
+import {
+  computeMaterialTakeoff,
+  cutWidthChoicesFt,
+  familyFromCatalogCategory,
+  formatEquivalentSqyd,
+  formatTakeoffStrip,
+} from "@/lib/flooring-knowledge";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
 import { saveProductRate, createProductInline } from "../catalog/actions";
 import { writeScopeDescription } from "./ai-actions";
@@ -471,6 +477,7 @@ export function EstimateBuilder({
         // the cut back as structured data (and drops the leaked size text).
         const legacyCut =
           l.length_in == null && l.width_in == null && isRollGoodCategory(l.category)
+            && !carpetLineIsModularCoverage(l)
             ? parseCutsFromText(l.description, l.roll_width_ft)[0]
             : null;
         const lenIn = l.length_in ?? legacyCut?.lengthIn ?? null;
@@ -2212,6 +2219,26 @@ export function EstimateBuilder({
                   const sCost = lineOurCost(line);
                   const sMargin = sSell > 0 ? ((sSell - sCost) / sSell) * 100 : 0;
                   const isOpen = activeLine === line.key;
+                  const cutPlanOpen = line.measurements.length > 0;
+                  const modularCarpet =
+                    carpetLineIsModularCoverage({
+                      category: line.category,
+                      order_as_roll: line.order_as_roll,
+                      sqft: line.sqft,
+                      quantity: line.quantity,
+                      length_in: ftInToIn(line.len_ft, line.len_in) || null,
+                      width_in: ftInToIn(line.wid_ft, line.wid_in) || null,
+                      measurements: line.measurements.map(rowToMeasurement),
+                    }) && !cutPlanOpen;
+                  const tileTakeoff = modularCarpet
+                    ? computeMaterialTakeoff({
+                        family: "carpet",
+                        measuredSqft: num(line.sqft),
+                        wastePct: line.waste_pct.trim() === "" ? null : num(line.waste_pct),
+                        sqftPerBox: num(line.sqft_per_box) > 0 ? num(line.sqft_per_box) : null,
+                        carpetSystems: ["carpet_tile"],
+                      })
+                    : null;
                   // Flooring (roll goods / hard surface) — color is part of its
                   // at-a-glance identity, so it stays an essential for these.
                   const isFlooring =
@@ -2416,7 +2443,59 @@ export function EstimateBuilder({
                         ) : null}
 
                         {line.line_type !== "flat" && !isSubfloor(line) ? (
-                          isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category) ? (
+                          modularCarpet ? (
+                            /* Exclusive carpet tile — measured coverage + carton
+                               math. Do not open a warehouse cut list: adding
+                               room rectangles here would become cuts. */
+                            <div className="w-full space-y-2 rounded-lg border bg-card p-3">
+                              <p className="text-xs text-muted-foreground">
+                                Carpet tile is modular — measured coverage, not a warehouse cut plan.
+                                Carton count only if coverage is on the product. Do not invent a box size.
+                              </p>
+                              {tileTakeoff ? (
+                                <p className="text-xs font-medium tabular-nums">
+                                  {formatTakeoffStrip(tileTakeoff)}
+                                </p>
+                              ) : null}
+                              <div className="flex flex-wrap items-end gap-3">
+                                <LabeledNumber
+                                  label="Measured sq ft"
+                                  width="w-28"
+                                  value={line.sqft}
+                                  onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
+                                />
+                                {num(line.sqft) > 0 ? (
+                                  <div className="pb-2 text-xs text-muted-foreground">
+                                    {formatEquivalentSqyd(num(line.sqft))}
+                                  </div>
+                                ) : null}
+                                <div>
+                                  <label className="mb-1 block text-xs text-muted-foreground">
+                                    Sq ft / box
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    inputMode="decimal"
+                                    value={line.sqft_per_box}
+                                    onChange={(e) =>
+                                      updateLine(oi, li, { sqft_per_box: e.target.value })
+                                    }
+                                    placeholder="if known"
+                                    className="h-9 w-24 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  />
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setLineMeasurements(oi, li, [newMeasureRow()])}
+                                className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                              >
+                                Switch to warehouse cut plan
+                              </button>
+                            </div>
+                          ) : isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category) ? (
                             /* FLOORING — build the area up from measured pieces.
                                Carpet/vinyl: each add-piece is a cut off the roll
                                (→ staging sheet). Hard surface: pieces sum to SF. */
@@ -2955,7 +3034,7 @@ export function EstimateBuilder({
 
                             {/* Order as roll — PO shows one roll; work order keeps the
                                 cuts. Roll goods only (carpet / sheet vinyl). */}
-                            {line.line_type !== "flat" && line.category !== "labor" && !line.from_stock && isRollGoodCategory(line.category) ? (
+                            {line.line_type !== "flat" && line.category !== "labor" && !line.from_stock && isRollGoodCategory(line.category) && !modularCarpet ? (
                               <div>
                                 <label className="mb-1 block text-xs text-muted-foreground">Order as</label>
                                 <div className="flex items-center gap-2">

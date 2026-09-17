@@ -481,7 +481,7 @@ export function knowledgeHelpFor(
       return "Sheet vinyl is roll goods. These cuts are the order quantity — converting room square feet into yards is not a layout.";
     }
     if (!rollGoodsNeedCuts("carpet", carpetInstallSystemsFromLabels(ctx.answeredCarpetInstall))) {
-      return "Carpet tile is modular. Pick the product here; order is measured area plus waste. Carton count only if the product has coverage — we do not invent a box size. This is not a roll cut plan.";
+      return "Carpet tile is modular. Pick the product here; order is measured area plus waste. Carton count only if the product has coverage — we do not invent a box size. This is not a roll cut plan. Builder shows measured coverage and carton math, not Cuts vs Roll.";
     }
     return "Cuts are the order quantity. Converting room square feet into yards is not a cut plan. Carpet tile hides the cut list and uses measured area instead.";
   }

@@ -163,6 +163,33 @@ export function parseCutsFromText(
 }
 
 /**
+ * Exclusive carpet tile (and other modular carpet coverage): billed area
+ * without warehouse pieces and not marked as a roll. Builder must not show
+ * Cuts/Roll or treat room rectangles as a cut plan. Broadloom waiting for
+ * cuts (order TBD, no sqft/qty yet) returns false so the cut UI stays.
+ */
+export function carpetLineIsModularCoverage(l: {
+  category?: string | null;
+  order_as_roll?: boolean | null;
+  sqft?: number | string | null;
+  quantity?: number | string | null;
+  length_in?: number | string | null;
+  width_in?: number | string | null;
+  measurements?: CutSource["measurements"];
+}): boolean {
+  if ((l.category ?? "") !== "carpet") return false;
+  if (l.order_as_roll === true) return false;
+  const pieces = (l.measurements ?? []).filter(
+    (m) => m.op !== "subtract" && Number(m.length_in) > 0 && Number(m.width_in) > 0,
+  );
+  if (pieces.length) return false;
+  if (Number(l.length_in) > 0 && Number(l.width_in) > 0) return false;
+  const sf = Number(l.sqft);
+  const qty = Number(l.quantity);
+  return (Number.isFinite(sf) && sf > 0) || (Number.isFinite(qty) && qty > 0);
+}
+
+/**
  * Build the carpet cut list from any line source: every roll-good piece with a
  * measured W×L, grouped for display and summed per roll. Each cut is read from
  * the line's OWN data — structured length_in/width_in when present, else the size
