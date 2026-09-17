@@ -67,6 +67,8 @@ export {
   annotateRemovalDescription,
   jobIsNewConstruction,
   labelsAreNewConstruction,
+  tileJobIsWallOnly,
+  labelsAreWallOnly,
   WORK_TYPE_NEW_CONSTRUCTION,
   type GateAnswer,
   type StairAnswerKind,
@@ -84,6 +86,7 @@ export {
   ESTIMATOR_PHASE_ORDER,
   ESTIMATOR_PHASE_LABELS,
   REMOVAL_QUESTION_KEYS,
+  TILE_WALL_HIDES_KEYS,
   type KnowledgeQuestionDef,
   type EstimatorPhase,
   type SortableEstimateQuestion,
@@ -159,6 +162,7 @@ export {
   resolveQuestionVisibility,
   substrateLabelMatches,
   jobNeedsAcclimationClimate,
+  jobHasNonTileFloorFamily,
   type InstallContext,
 } from "./rules";
 

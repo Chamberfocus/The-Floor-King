@@ -32,8 +32,18 @@ import {
   type InstallSystem,
 } from "./families";
 import { matchesShowIf } from "./show-if";
-import { jobIsNewConstruction, labelsAreNewConstruction, synthesizeStairGate } from "./answers";
-import { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS, REMOVAL_QUESTION_KEYS } from "./registry";
+import {
+  jobIsNewConstruction,
+  labelsAreNewConstruction,
+  synthesizeStairGate,
+  tileJobIsWallOnly,
+} from "./answers";
+import {
+  DEFAULT_KNOWLEDGE_WHEN,
+  KNOWLEDGE_QUESTIONS,
+  REMOVAL_QUESTION_KEYS,
+  TILE_WALL_HIDES_KEYS,
+} from "./registry";
 
 export { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS } from "./registry";
 
@@ -408,7 +418,24 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (TILE_WALL_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    tileJobIsWallOnly(valByKey) &&
+    !install.surfacePending &&
+    !jobHasNonTileFloorFamily(install)
+  ) {
+    return false;
+  }
   return true;
+}
+
+/**
+ * Carpet, LVP, hardwood, laminate, or sheet vinyl still need floor questions
+ * even when a tile room is Wall (backsplash + LVP floors, carpet + wall tile).
+ */
+export function jobHasNonTileFloorFamily(install: InstallContext): boolean {
+  return install.families.some((f) => f === "carpet" || (isHardSurfaceFamily(f) && f !== "tile"));
 }
 
 /**
@@ -612,7 +639,7 @@ export function knowledgeHelpFor(
     return "Count of doors to undercut, in EACH. Never square feet.";
   }
   if (key === "tile_application") {
-    return "Floor vs wall. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
+    return "Floor vs wall. Exclusive wall tile hides toilets, vents, door shaves, floor stairs, construction grade, and radiant heat — those are floor work. Mixed carpet or LVP + wall tile still asks them. Unanswered and Unknown stay open. Keep wet area, appliances, floor prep, and setting materials. Wall tile is only priced from catalog items you pick in Builder — this does not invent wall-tile labor.";
   }
   if (key === "tile_body") {
     return "Ceramic vs porcelain vs natural stone. Still the tile catalog — capture the body for setting notes. Do not invent a waste percent or a second category.";

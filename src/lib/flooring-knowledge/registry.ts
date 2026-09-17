@@ -171,6 +171,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   },
   { key: "radiant_heat", purpose: "WARNING", phase: "install" },
   { key: "laminate_expansion", purpose: "SCOPE", phase: "install", systems: ["floating"] },
+  /**
+   * Floor vs wall. Exclusive Wall hides floor-only follow-ups in
+   * questionApplies (TILE_WALL_HIDES_KEYS) — not via SQL show_if, so
+   * unanswered and mixed carpet/LVP + wall tile stay open (0142).
+   */
   { key: "tile_application", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_body", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
   { key: "tile_format", purpose: "INSTALLATION", phase: "install", families: ["tile"] },
@@ -422,6 +427,22 @@ export const REMOVAL_QUESTION_KEYS = [
   "existing_tack",
   "demo_disposal",
   "asbestos_risk",
+] as const;
+
+/**
+ * Floor-only follow-ups hidden once tile_application is exclusively Wall
+ * and the job has no other floor-covering family (carpet / LVP / hardwood /
+ * laminate / sheet vinyl). Unanswered and Unknown stay visible. Wet area,
+ * appliances, floor prep, and tile setting stay — showers and backsplashes
+ * still need them. Do not SQL-gate toilets on tile_application (0142).
+ */
+export const TILE_WALL_HIDES_KEYS = [
+  "toilets",
+  "vents_registers",
+  "doors_shave",
+  "hs_plank_stairs",
+  "construction_grade",
+  "radiant_heat",
 ] as const;
 
 export interface SortableEstimateQuestion {

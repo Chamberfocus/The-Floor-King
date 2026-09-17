@@ -114,6 +114,7 @@ const REQUIRED_FILES = [
   "0251_flooring_knowledge_cuts_panel.sql",
   "0252_flooring_knowledge_cuts_tbd.sql",
   "0253_flooring_knowledge_existing_tack.sql",
+  "0254_flooring_knowledge_wall_tile.sql",
 ];
 
 /**
@@ -1427,6 +1428,17 @@ const REQUIRED_MARKERS = [
       "P0_0253_FLOORING_KNOWLEDGE",
       "existing_tack",
       "Do not invent a linear-foot price",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0254_flooring_knowledge_wall_tile.sql",
+    markers: [
+      "P0_0254_FLOORING_KNOWLEDGE",
+      "tile_application",
+      "Exclusive wall tile hides toilets",
+      "Do NOT SQL-gate toilets on tile_application",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

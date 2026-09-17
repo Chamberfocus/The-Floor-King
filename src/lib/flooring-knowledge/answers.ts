@@ -303,3 +303,14 @@ export function labelsAreNewConstruction(labels: string[]): boolean {
 export function jobIsNewConstruction(valByKey: Record<string, string[]>): boolean {
   return labelsAreNewConstruction(valByKey.work_type ?? []);
 }
+
+/** Exclusive Wall — Floor / Both / Unknown / unanswered are not wall-only. */
+export function labelsAreWallOnly(labels: string[]): boolean {
+  const cleaned = labels.map((l) => l.trim()).filter(Boolean);
+  if (!cleaned.length) return false;
+  return cleaned.every((l) => /^wall$/i.test(l));
+}
+
+export function tileJobIsWallOnly(valByKey: Record<string, string[]>): boolean {
+  return labelsAreWallOnly(valByKey.tile_application ?? []);
+}

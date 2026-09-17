@@ -74,6 +74,9 @@ import {
   knowledgeHelpFor,
   knowledgeWhenApplies,
   jobNeedsAcclimationClimate,
+  tileJobIsWallOnly,
+  TILE_WALL_HIDES_KEYS,
+  jobHasNonTileFloorFamily,
   KNOWLEDGE_QUESTIONS,
   sortEstimateQuestions,
   estimatorPhaseForQuestion,
@@ -1652,6 +1655,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
     },
     { key: "toilets", position: 255, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
+    { key: "vents_registers", position: 602, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "appliances", position: 260, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "delivery_scope", position: 535, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "carpet_stairs", position: 250, show_if: { key: "project_type", in: ["Carpet"] } },
@@ -4370,6 +4374,151 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       hs_demo: ["Carpet"],
     });
     expect(neu).not.toContain("existing_tack");
+  });
+
+  it("0254 exclusive wall tile hides floor-only questions; mixed carpet/LVP still asks them", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0254_flooring_knowledge_wall_tile.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0254_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/tile_application/);
+    expect(sql).toMatch(/Exclusive wall tile hides toilets/);
+    expect(sql).toMatch(/Do NOT SQL-gate toilets on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*tile_application.*toilets|toilets.*show_if.*tile_application/);
+
+    expect([...TILE_WALL_HIDES_KEYS]).toEqual([
+      "toilets",
+      "vents_registers",
+      "doors_shave",
+      "hs_plank_stairs",
+      "construction_grade",
+      "radiant_heat",
+    ]);
+    expect(tileJobIsWallOnly({})).toBe(false);
+    expect(tileJobIsWallOnly({ tile_application: ["Wall"] })).toBe(true);
+    expect(tileJobIsWallOnly({ tile_application: ["Floor"] })).toBe(false);
+    expect(tileJobIsWallOnly({ tile_application: ["Both"] })).toBe(false);
+    expect(tileJobIsWallOnly({ tile_application: ["Unknown / field verify"] })).toBe(false);
+    expect(tileJobIsWallOnly({ tile_application: ["Wall", "Floor"] })).toBe(false);
+    expect(
+      jobHasNonTileFloorFamily(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Tile"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHasNonTileFloorFamily(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Tile", "LVP / LVT"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHasNonTileFloorFamily(
+        installContextFromValByKey({ project_type: ["Carpet", "Hard surface"], surface_type: ["Tile"] }),
+      ),
+    ).toBe(true);
+
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /Exclusive wall tile hides toilets/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(unanswered).toContain("tile_application");
+    expect(unanswered).toContain("toilets");
+    expect(unanswered).toContain("vents_registers");
+    expect(unanswered).toContain("doors_shave");
+    expect(unanswered).toContain("hs_plank_stairs");
+    expect(unanswered).toContain("construction_grade");
+    expect(unanswered).toContain("radiant_heat");
+    expect(unanswered).toContain("wet_area");
+    expect(unanswered).toContain("appliances");
+    expect(unanswered).toContain("hs_prep");
+    expect(unanswered).toContain("tile_setting");
+
+    const wall = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(wall).toContain("tile_application");
+    expect(wall).not.toContain("toilets");
+    expect(wall).not.toContain("vents_registers");
+    expect(wall).not.toContain("doors_shave");
+    expect(wall).not.toContain("hs_plank_stairs");
+    expect(wall).not.toContain("construction_grade");
+    expect(wall).not.toContain("radiant_heat");
+    expect(wall).toContain("wet_area");
+    expect(wall).toContain("appliances");
+    expect(wall).toContain("hs_prep");
+    expect(wall).toContain("tile_setting");
+
+    const floor = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Floor"],
+    });
+    expect(floor).toContain("toilets");
+    expect(floor).toContain("hs_plank_stairs");
+    expect(floor).toContain("radiant_heat");
+
+    const both = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Both"],
+    });
+    expect(both).toContain("toilets");
+    expect(both).toContain("doors_shave");
+
+    const unknown = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Unknown / field verify"],
+    });
+    expect(unknown).toContain("toilets");
+    expect(unknown).toContain("radiant_heat");
+
+    const mixedCarpet = walk({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(mixedCarpet).toContain("toilets");
+    expect(mixedCarpet).toContain("vents_registers");
+    expect(mixedCarpet).toContain("doors_shave");
+    expect(mixedCarpet).toContain("radiant_heat");
+    expect(mixedCarpet).toContain("hs_plank_stairs");
+
+    const mixedLvp = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+      tile_application: ["Wall"],
+    });
+    expect(mixedLvp).toContain("toilets");
+    expect(mixedLvp).toContain("doors_shave");
+    expect(mixedLvp).toContain("hs_plank_stairs");
+    expect(mixedLvp).toContain("construction_grade");
+    expect(mixedLvp).toContain("radiant_heat");
+
+    const overlayWall = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(overlayWall).not.toContain("toilets");
+    expect(overlayWall).not.toContain("vents_registers");
+    expect(overlayWall).toContain("wet_area");
+    expect(overlayWall).toContain("appliances");
   });
 
   it("pattern repeat only after pattern match is required", () => {
