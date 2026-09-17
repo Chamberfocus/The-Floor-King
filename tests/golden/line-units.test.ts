@@ -11,10 +11,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   billedQtyToSqyd,
+  catalogRateToBillingUnit,
   isCountPricedLine,
   lineDisplayUnit,
   lineUnitKey,
   normalizeUnit,
+  unitIsSqyd,
   unitLabel,
 } from "@/lib/units";
 import { lineSpec, padRollCount, PAD_ROLL_SQYD } from "@/lib/job-scope";
@@ -121,6 +123,29 @@ describe("billedQtyToSqyd — never invent yards from count units", () => {
     expect(billedQtyToSqyd(20, "lnft")).toBeNull();
     expect(billedQtyToSqyd(2, "roll")).toBeNull();
     expect(billedQtyToSqyd(0, "sqyd")).toBeNull();
+  });
+});
+
+describe("catalogRateToBillingUnit — SY is yards, never ×9", () => {
+  it("a $20/SY carpet rate stays $20 on a sq-yd line", () => {
+    expect(catalogRateToBillingUnit(20, "SY", true)).toBe(20);
+    expect(catalogRateToBillingUnit(20, "sy", true)).toBe(20);
+    expect(catalogRateToBillingUnit(20, "sq yd", true)).toBe(20);
+    expect(unitIsSqyd("SY")).toBe(true);
+  });
+
+  it("a $2/sq ft carpet rate becomes $18 on a sq-yd line", () => {
+    expect(catalogRateToBillingUnit(2, "sqft", true)).toBe(18);
+    expect(catalogRateToBillingUnit(2, "sq ft", true)).toBe(18);
+  });
+
+  it("a $18/sq yd hardwood rate becomes $2 on a sq-ft line", () => {
+    expect(catalogRateToBillingUnit(18, "sqyd", false)).toBe(2);
+  });
+
+  it("count units stay 1:1 even on a sq-yd job", () => {
+    expect(catalogRateToBillingUnit(45.62, "each", true)).toBe(45.62);
+    expect(catalogRateToBillingUnit(12, "roll", true)).toBe(12);
   });
 });
 

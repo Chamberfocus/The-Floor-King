@@ -167,6 +167,30 @@ export function billedQtyToSqyd(qty: number, unitKey: string): number | null {
   return null;
 }
 
+/** True when the unit string is square yards (SY / sq yd / yard / …). */
+export function unitIsSqyd(raw: string | null | undefined): boolean {
+  return normalizeUnit(raw) === "sqyd";
+}
+
+/**
+ * Convert a catalog per-unit rate into the line's billing unit.
+ *
+ * Catalog SY is yards — never a 9× surprise just because the letters "yd"
+ * are missing. Count units (each / box / lnft / roll) stay 1:1.
+ */
+export function catalogRateToBillingUnit(
+  rate: number,
+  productUnit: string | null | undefined,
+  billingIsSqyd: boolean,
+): number {
+  const key = normalizeUnit(productUnit);
+  const r = Number(rate) || 0;
+  if (key && !isAreaUnit(key)) return Math.round(r * 100) / 100;
+  const productIsSqyd = key === "sqyd";
+  const factor = productIsSqyd === billingIsSqyd ? 1 : billingIsSqyd ? 9 : 1 / 9;
+  return Math.round(r * factor * 100) / 100;
+}
+
 /** True when the line is billed by count, not taped area. */
 export function isCountPricedLine(line: {
   unit?: string | null;

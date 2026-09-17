@@ -23,6 +23,7 @@ import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { catalogUnitCost } from "@/lib/catalog-pricing";
+import { catalogRateToBillingUnit } from "@/lib/units";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
   PO_SOURCE_BADGE,
@@ -196,10 +197,8 @@ export function PoBuilder({
   // price used) — shared so a vendor's cost converts identically.
   const convertCost = (p: Product, base: number): { unit: string; unitCost: number } => {
     const cls = materialClass(p.category);
-    const catUnit = (p.unit || "").toLowerCase();
-    const r2 = (n: number) => Math.round(n * 100) / 100;
-    if (cls === "roll") return { unit: "sq yd", unitCost: catUnit.includes("yd") ? base : r2(base * 9) };
-    if (cls === "hard") return { unit: "sq ft", unitCost: catUnit.includes("yd") ? r2(base / 9) : base };
+    if (cls === "roll") return { unit: "sq yd", unitCost: catalogRateToBillingUnit(base, p.unit, true) };
+    if (cls === "hard") return { unit: "sq ft", unitCost: catalogRateToBillingUnit(base, p.unit, false) };
     if (cls === "trim") return { unit: p.unit || "lnft", unitCost: base };
     return { unit: p.unit || "sqft", unitCost: base };
   };

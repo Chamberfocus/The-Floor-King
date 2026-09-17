@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { billsBySquareYard, lineDisplayUnit } from "@/lib/units";
+import { billsBySquareYard, catalogRateToBillingUnit, lineDisplayUnit } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
@@ -134,9 +134,7 @@ function billing(category: string) {
 }
 /** Convert a catalog product's per-unit rate to the line's billing unit. */
 function rateFor(rate: number, productUnit: string | null, wantYd: boolean): number {
-  const isYd = (productUnit || "").toLowerCase().includes("yd");
-  const factor = isYd === wantYd ? 1 : wantYd ? 9 : 1 / 9;
-  return r2((rate || 0) * factor);
+  return catalogRateToBillingUnit(rate, productUnit, wantYd);
 }
 // --- Answer shapes ---------------------------------------------------------
 // A measured area: length × width in feet + inches. `override` (from the

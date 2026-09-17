@@ -21,6 +21,7 @@ import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
 import { primaryCatalogCostByProductIds } from "@/lib/data/products";
 import { buildPoItemRows, carpetSignature, type PoItemRow } from "@/lib/po-build";
 import { isRollGoodCategory } from "@/lib/types";
+import { unitIsSqyd } from "@/lib/units";
 import type { EstimateLineItem, PoSourceType, PoStatus } from "@/lib/types";
 
 type PoDb = Awaited<ReturnType<typeof createClient>>;
@@ -305,7 +306,7 @@ export async function syncPoCarpetFromEstimate(
     .eq("po_id", poId)
     .order("position", { ascending: true });
   const isCarpet = (it: { category?: string | null; unit?: string | null; roll_width_ft?: number | null }) =>
-    isRollGoodCategory(it.category ?? null) || (it.unit ?? "").toLowerCase().includes("yd") || !!it.roll_width_ft;
+    isRollGoodCategory(it.category ?? null) || unitIsSqyd(it.unit) || !!it.roll_width_ft;
   const existingCarpet = (existing ?? []).filter(isCarpet);
   const nonCarpet = (existing ?? []).filter((it) => !isCarpet(it));
 

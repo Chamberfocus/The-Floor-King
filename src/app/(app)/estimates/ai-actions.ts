@@ -9,7 +9,7 @@ import { searchCatalog } from "@/lib/data/products";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getOrgSettings } from "@/lib/data/org";
 import { getRoomDefaults, getAddonDefaults } from "@/lib/data/addon-defaults";
-import { lineDisplayUnit } from "@/lib/units";
+import { catalogRateToBillingUnit, lineDisplayUnit } from "@/lib/units";
 import {
   sellLaborFromTargetMargin,
   sellMaterialFromTargetMargin,
@@ -36,9 +36,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * ÷9). Mirrors the guided builder's pickProduct/pickPad conversion.
  */
 function rateFor(rate: number, productUnit: string | null, wantYd: boolean): number {
-  const isYd = (productUnit || "").toLowerCase().includes("yd");
-  const factor = isYd === wantYd ? 1 : wantYd ? 9 : 1 / 9;
-  return round2((rate || 0) * factor);
+  return catalogRateToBillingUnit(rate, productUnit, wantYd);
 }
 
 /** Map a free-text flooring type onto one of the builder's profile keys. */

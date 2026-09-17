@@ -30,6 +30,7 @@ import { reportOrderStock } from "../orders/actions";
 import { CutList } from "@/components/cut-list";
 import { DateNeeded } from "@/components/date-needed";
 import { cutsTotalSqYd } from "@/lib/order-cuts";
+import { unitIsSqyd } from "@/lib/units";
 import {
   JOB_DELIVERY_LABELS,
   WAREHOUSE_STATUS_LABELS,
@@ -451,7 +452,7 @@ export default async function WarehousePage() {
                       : null;
                     const needed = cutsTotalSqYd(it) ?? it.quantity ?? null;
                     const comparable =
-                      avail != null && needed != null && (s?.unit ?? "").includes("yd");
+                      avail != null && needed != null && unitIsSqyd(s?.unit);
                     const product = [it.description, s?.name].filter(Boolean)[0] || "Item";
                     const manufacturer = s?.manufacturer || null;
                     const style = it.style || s?.style || null;

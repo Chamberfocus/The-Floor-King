@@ -14,6 +14,7 @@ import {
   type PoItem,
   type PurchaseOrder,
 } from "@/lib/types";
+import { unitIsSqyd } from "@/lib/units";
 
 function itemLabel(it: PoItem): string {
   const spec = productSpec(it);
@@ -32,8 +33,8 @@ function poLineIsHard(it: PoItem): boolean {
 }
 function poLineIsRoll(it: PoItem): boolean {
   if (it.category) return isRollGoodCategory(it.category);
-  return (it.roll_width_ft != null && it.roll_width_ft > 0) ||
-    (it.unit || "").toLowerCase().includes("yd");
+  return     (it.roll_width_ft != null && it.roll_width_ft > 0) ||
+    unitIsSqyd(it.unit);
 }
 
 /**

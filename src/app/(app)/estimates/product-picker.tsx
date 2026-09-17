@@ -39,6 +39,7 @@ import {
   defaultUnitForCategory,
   unitsForCategory,
   billsBySquareYard,
+  catalogRateToBillingUnit,
   unitLabel,
   isAreaUnit,
 } from "@/lib/units";
@@ -396,9 +397,7 @@ export function ProductPicker({
                         : null;
                     const perSqyd =
                       isCarpet && !money.needed && money.primary.amount != null
-                        ? (p.unit || "").toLowerCase().includes("yd")
-                          ? money.primary.amount
-                          : money.primary.amount * 9
+                        ? catalogRateToBillingUnit(money.primary.amount, p.unit, true)
                         : null;
                     return (
                       <button

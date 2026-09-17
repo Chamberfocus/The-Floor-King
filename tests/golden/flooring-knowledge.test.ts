@@ -2539,6 +2539,15 @@ describe("salesperson review buckets by purpose, not a level regex", () => {
       formatMeasuredLabel({ sqft: 270, sqydEquivalent: 30 }, { showEquivalentYd: true }),
     ).toMatch(/equivalent area — not an order quantity/);
   });
+
+  it("Guided Estimate converts catalog SY rates without a 9× surprise", () => {
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/catalogRateToBillingUnit/);
+    expect(q).not.toMatch(/productUnit \|\| ""\)\.toLowerCase\(\)\.includes\(["']yd["']\)/);
+    const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
+    expect(ai).toMatch(/catalogRateToBillingUnit/);
+    expect(ai).not.toMatch(/productUnit \|\| ""\)\.toLowerCase\(\)\.includes\(["']yd["']\)/);
+  });
 });
 
 describe("0199 hard-surface transitions and base trim without invented SKUs", () => {

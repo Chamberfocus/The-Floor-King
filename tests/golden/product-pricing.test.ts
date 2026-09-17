@@ -183,6 +183,16 @@ describe("unit conversion does not corrupt price", () => {
     expect(catalogCostInLineUnit(p).amount).toBe(18);
   });
 
+  it("does not ×9 when the catalog unit is SY (square yards)", () => {
+    const p = product({
+      category: "carpet",
+      unit: "SY",
+      material_rate: 18,
+    });
+    expect(catalogToLineMeasure(p).factor).toBe(1);
+    expect(catalogCostInLineUnit(p).amount).toBe(18);
+  });
+
   it("leaves count units 1:1 (box / each / lnft)", () => {
     const p = product({ category: "other", unit: "box", material_rate: 45.62 });
     expect(catalogToLineMeasure(p).count).toBe(true);
