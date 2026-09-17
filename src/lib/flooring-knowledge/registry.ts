@@ -69,6 +69,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * and order follows measured area + waste. Catalog category stays `carpet`.
    */
   { key: "carpet_cuts", purpose: "WAREHOUSE", phase: "measure", families: ["carpet"] },
+  /**
+   * Roll-goods seam matching. Exclusive carpet tile hides this via
+   * CARPET_TILE_HIDES_KEYS — modular tiles are not a seam plan.
+   * Stretch-in / glue-down keep it. Unanswered stays open (0142).
+   */
   { key: "pattern_match", purpose: "WAREHOUSE", phase: "measure", families: ["carpet"] },
   {
     key: "pattern_repeat",
@@ -77,6 +82,10 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     families: ["carpet"],
     require: { key: "pattern_match", in: ["Pattern match required"] },
   },
+  /**
+   * Roll direction / seam notes. Exclusive carpet tile hides this — there is
+   * no roll to run. Glue-down broadloom still asks.
+   */
   { key: "carpet_direction", purpose: "WAREHOUSE", phase: "measure", families: ["carpet"] },
   {
     key: "hs_direction",
@@ -464,6 +473,18 @@ export const TILE_WALL_HIDES_KEYS = [
  * and Unknown stay open (0142). Do not SQL-gate furniture on occupancy.
  */
 export const FURNITURE_MOVING_KEYS = ["furniture_level", "furniture_heavy"] as const;
+
+/**
+ * Roll-goods layout follow-ups hidden once carpet_install is exclusively
+ * Carpet tile. Unanswered stays visible. Stretch-in / glue-down mixed with
+ * tile still ask them — those rooms still need a cut plan. Do not SQL-gate
+ * pattern_match on carpet_install (0142).
+ */
+export const CARPET_TILE_HIDES_KEYS = [
+  "pattern_match",
+  "pattern_repeat",
+  "carpet_direction",
+] as const;
 
 /**
  * Floor-prep chips that pour or grind a floor. Exclusive wall keeps Patch / skim

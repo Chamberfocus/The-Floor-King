@@ -78,8 +78,10 @@ import {
   climateControlConfirmed,
   tileJobIsWallOnly,
   TILE_WALL_HIDES_KEYS,
+  CARPET_TILE_HIDES_KEYS,
   jobHasNonTileFloorFamily,
   jobIsExclusiveWallTile,
+  jobIsExclusiveCarpetTile,
   choiceOptionApplies,
   tileWallHidesPrepOptionLabel,
   FURNITURE_MOVING_KEYS,
@@ -1165,7 +1167,7 @@ describe("family → system asks the right keys (not every question)", () => {
       carpet_install: ["Carpet tile"],
     });
     on(carpetTile, ["adhesive", "carpet_cuts", "carpet_tile_stairs"]);
-    off(carpetTile, ["tack_strip", "carpet_pad", "laminate_expansion", "carpet_stairs"]);
+    off(carpetTile, ["tack_strip", "carpet_pad", "laminate_expansion", "carpet_stairs", "pattern_match", "pattern_repeat", "carpet_direction"]);
 
     const lam = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
@@ -1569,6 +1571,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       position: 107,
       show_if: { key: "pattern_match", in: ["Pattern match required"] },
     },
+    { key: "carpet_direction", position: 108, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "tack_strip", position: 109, show_if: { key: "carpet_install", in: ["Stretch-in"] } },
     {
       key: "tack_strip_qty",
@@ -2149,6 +2152,9 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).not.toContain("tack_strip");
     expect(keys).not.toContain("carpet_pad");
     expect(keys).not.toContain("vapor_barrier");
+    expect(keys).not.toContain("pattern_match");
+    expect(keys).not.toContain("carpet_direction");
+    expect(keys).not.toContain("pattern_repeat");
   });
 
   it("0202 gates moisture mitigation and adds tile body without inventing a category", () => {
@@ -5023,6 +5029,139 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/choiceOptionApplies/);
+  });
+
+  it("0262 exclusive carpet tile hides roll-goods layout; stretch-in and glue-down keep it", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0262_flooring_knowledge_carpet_tile_layout.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0262_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Exclusive carpet tile hides this/);
+    expect(sql).toMatch(/Do NOT SQL-gate pattern_match on carpet_install/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*carpet_install.*pattern_match|pattern_match.*show_if.*carpet_install/,
+    );
+
+    expect(CARPET_TILE_HIDES_KEYS).toEqual([
+      "pattern_match",
+      "pattern_repeat",
+      "carpet_direction",
+    ]);
+    expect(
+      jobIsExclusiveCarpetTile(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Carpet tile"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobIsExclusiveCarpetTile(
+        installContextFromValByKey({ project_type: ["Carpet"] }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveCarpetTile(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveCarpetTile(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Glue-down"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveCarpetTile(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in", "Carpet tile"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveCarpetTile(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          surface_type: ["LVP / LVT"],
+          carpet_install: ["Carpet tile"],
+        }),
+      ),
+    ).toBe(true);
+
+    const unanswered = walk({ project_type: ["Carpet"] });
+    expect(unanswered).toContain("pattern_match");
+    expect(unanswered).toContain("carpet_direction");
+    expect(unanswered).not.toContain("pattern_repeat");
+
+    const stretch = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("pattern_match");
+    expect(stretch).toContain("carpet_direction");
+
+    const glue = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(glue).toContain("pattern_match");
+    expect(glue).toContain("carpet_direction");
+
+    const tile = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(tile).toContain("carpet_cuts");
+    expect(tile).toContain("adhesive");
+    expect(tile).toContain("carpet_tile_stairs");
+    expect(tile).not.toContain("pattern_match");
+    expect(tile).not.toContain("carpet_direction");
+    expect(tile).not.toContain("pattern_repeat");
+
+    const leftover = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+      pattern_match: ["Pattern match required"],
+    });
+    expect(leftover).not.toContain("pattern_repeat");
+    expect(leftover).not.toContain("pattern_match");
+
+    const mixed = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in", "Carpet tile"],
+    });
+    expect(mixed).toContain("pattern_match");
+    expect(mixed).toContain("carpet_direction");
+    expect(mixed).toContain("carpet_stairs");
+    expect(mixed).toContain("carpet_tile_stairs");
+
+    const mixedLvp = walk({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(mixedLvp).not.toContain("pattern_match");
+    expect(mixedLvp).not.toContain("carpet_direction");
+    expect(mixedLvp).toContain("hs_direction");
+
+    expect(knowledgeHelpFor({ key: "pattern_match" }, emptyInstallContext())).toMatch(
+      /Exclusive carpet tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_install" }, emptyInstallContext())).toMatch(
+      /hides pattern match/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_direction" }, emptyInstallContext())).toMatch(
+      /there is no roll/,
+    );
   });
 
   it("pattern repeat only after pattern match is required", () => {

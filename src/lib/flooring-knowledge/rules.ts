@@ -40,6 +40,7 @@ import {
   synthesizeStairGate,
 } from "./answers";
 import {
+  CARPET_TILE_HIDES_KEYS,
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
@@ -480,6 +481,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (CARPET_TILE_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobIsExclusiveCarpetTile(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -501,6 +509,19 @@ export function jobIsExclusiveWallTile(install: InstallContext): boolean {
     labelsAreWallOnly(install.tileApplication) &&
     !install.surfacePending &&
     !jobHasNonTileFloorFamily(install)
+  );
+}
+
+/**
+ * Exclusive carpet tile — every answered carpet-install system is carpet_tile.
+ * Same evidence as rollGoodsNeedCuts: unanswered stays optimistic (layout
+ * questions remain). Stretch-in or glue mixed with tile still asks pattern
+ * match. Mixed LVP + exclusive tile hides it — LVP is not a carpet roll.
+ */
+export function jobIsExclusiveCarpetTile(install: InstallContext): boolean {
+  return !rollGoodsNeedCuts(
+    "carpet",
+    carpetInstallSystemsFromLabels(install.answeredCarpetInstall),
   );
 }
 
@@ -601,7 +622,7 @@ export function knowledgeHelpFor(
     }
   }
   if (key === "carpet_install") {
-    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Do not invent a box size.";
+    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Exclusive carpet tile hides pattern match, pattern repeat, and seam/direction notes — those are a roll cut plan, not modular layout. Mixed stretch-in + tile still asks them. Do not invent a box size.";
   }
   if (key === "prep_confidence") {
     return "If you cannot see the substrate until demo, leave this as Field verify / TBD rather than guessing a bag count.";
@@ -762,8 +783,14 @@ export function knowledgeHelpFor(
   if (key === "hs_base_trim") {
     return "Base, quarter round, and shoe are linear feet — never square feet. Add footage on Trims. Keep existing or Field verify if demo has not happened.";
   }
+  if (key === "pattern_match") {
+    return "Pattern match and roll direction are for broadloom. Exclusive carpet tile hides this — modular tiles are not a seam plan. Stretch-in and glue-down keep it. Unanswered stays open. This does not generate a cut plan.";
+  }
+  if (key === "carpet_direction") {
+    return "Where seams should fall and which way the roll runs. Exclusive carpet tile hides this — there is no roll. Glue-down broadloom still asks. For the cut list — not a generated plan.";
+  }
   if (key === "pattern_repeat") {
-    return "Inches of pattern repeat for purchasing and layout notes. This does not generate a cut plan.";
+    return "Inches of pattern repeat for purchasing and layout notes. Exclusive carpet tile hides this with pattern match. This does not generate a cut plan.";
   }
   if (key === "delivery_scope") {
     return "Floor King has a Delivery add-on. Record whether to include it — pick the catalog line in Builder rather than inventing a fuel charge here.";
