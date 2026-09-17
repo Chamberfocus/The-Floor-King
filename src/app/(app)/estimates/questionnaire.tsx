@@ -78,6 +78,7 @@ import {
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
   measuredInstallLaborAllowed,
+  configuredInstallRate,
   rollGoodsSeamWarnings,
   measuredRectsFromRooms,
   knowledgeHelpFor,
@@ -972,8 +973,8 @@ export function Questionnaire({
         // priced from a per-type install rate (carpet by the yard, hard surface by
         // the foot) since catalog flooring carries no labor rate of its own.
         const fcfg = q.config as { install_yd?: number; install_ft?: number };
-        const instYd = fcfg.install_yd != null ? fcfg.install_yd : 6;
-        const instFt = fcfg.install_ft != null ? fcfg.install_ft : 2;
+        const instYd = configuredInstallRate({ billing: "yd", config: fcfg });
+        const instFt = configuredInstallRate({ billing: "ft", config: fcfg });
         const byProd = new Map<
           string,
           { p: ProductAns; wantYd: boolean; sqft: number }
@@ -1061,7 +1062,8 @@ export function Questionnaire({
           out.push(rollGoodsTbdLine(p, rooms.length === 1 ? rooms[0] ?? null : null, sqft));
         }
         for (const { p, wantYd, sqft } of byProd.values()) {
-          // Prefer the product's own labor rate if set, else the per-type default.
+          // Prefer the product's own labor rate if set, else the per-type
+          // Settings rate. Missing config does not invent $6/yd or $2/ft.
           const lr = rateFor(p.laborRate, p.unit, wantYd) || (wantYd ? instYd : instFt);
           if (lr <= 0 || sqft <= 0) continue;
           out.push({
@@ -1386,7 +1388,11 @@ export function Questionnaire({
                 roll_width_ft: null,
                 sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
               });
-              const instYd = rateFor(p.laborRate, p.unit, true) || (q.config.install_yd ?? 6);
+              const instYd = configuredInstallRate({
+                billing: "yd",
+                config: q.config,
+                productLabor: rateFor(p.laborRate, p.unit, true),
+              });
               if (instYd > 0) {
                 out.push({
                   room: roomLabel,
@@ -1490,11 +1496,13 @@ export function Questionnaire({
               op: "add" as const,
             })),
           });
-          // Carpet INSTALL labor — its own line, from the install rate × total
-          // yardage. Prefer the carpet product's own labor rate; else the
-          // question's configured per-sq-yd install rate; else a sane default —
-          // so carpet labor is ALWAYS generated.
-          const instYd = (p ? rateFor(p.laborRate, p.unit, true) : 0) || (q.config.install_yd ?? 6);
+          // Carpet INSTALL labor — product labor rate, else this question's
+          // Settings $/sq yd. Missing config does not invent $6.
+          const instYd = configuredInstallRate({
+            billing: "yd",
+            config: q.config,
+            productLabor: p ? rateFor(p.laborRate, p.unit, true) : 0,
+          });
           if (instYd > 0) {
             out.push({
               room: roomLabel,
@@ -1549,7 +1557,11 @@ export function Questionnaire({
           }
           if (!anyPieces && !floorMapActive && totalSqft > 0) {
             const p = a.groups.map((g) => g.product).find(Boolean) ?? a.product;
-            const instYd = (p ? rateFor(p.laborRate, p.unit, true) : 0) || (q.config.install_yd ?? 6);
+            const instYd = configuredInstallRate({
+              billing: "yd",
+              config: q.config,
+              productLabor: p ? rateFor(p.laborRate, p.unit, true) : 0,
+            });
             if (instYd > 0 && p) {
               out.push({
                 room: null,
@@ -1582,7 +1594,11 @@ export function Questionnaire({
           a.groups.flatMap((g) => groupPieces(g, a.product)).length === 0
         ) {
           const p = a.product;
-          const instYd = (p ? rateFor(p.laborRate, p.unit, true) : 0) || (q.config.install_yd ?? 6);
+          const instYd = configuredInstallRate({
+            billing: "yd",
+            config: q.config,
+            productLabor: p ? rateFor(p.laborRate, p.unit, true) : 0,
+          });
           if (instYd > 0) {
             out.push({
               room: null,

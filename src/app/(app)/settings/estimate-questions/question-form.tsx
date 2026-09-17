@@ -283,9 +283,16 @@ export function QuestionForm({
         {kind === "cuts" ? (
           <div>
             <label className={label}>Carpet install labor — our cost per sq&nbsp;yd</label>
-            <Input name="cfg_install_yd" type="number" step="0.01" min="0" defaultValue={c.install_yd ?? 6} />
+            <Input
+              name="cfg_install_yd"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={c.install_yd != null ? String(c.install_yd) : ""}
+              placeholder="shop rate — do not invent"
+            />
             <p className="mt-1 text-xs text-muted-foreground">
-              The questionnaire adds a carpet labor line automatically = this rate × the yardage from the cuts (a product&apos;s own labor rate, if set, overrides this).
+              Adds a carpet labor line at this rate × cut yardage when the product has no labor rate of its own. Leave blank rather than inventing $6.
             </p>
           </div>
         ) : null}
@@ -294,14 +301,28 @@ export function QuestionForm({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className={label}>Carpet install — our cost per sq&nbsp;yd</label>
-              <Input name="cfg_install_yd" type="number" step="0.01" min="0" defaultValue={c.install_yd ?? 6} />
+              <Input
+                name="cfg_install_yd"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={c.install_yd != null ? String(c.install_yd) : ""}
+                placeholder="shop rate — do not invent"
+              />
             </div>
             <div>
               <label className={label}>Hard-surface install — our cost per sq&nbsp;ft</label>
-              <Input name="cfg_install_ft" type="number" step="0.01" min="0" defaultValue={c.install_ft ?? 2} />
+              <Input
+                name="cfg_install_ft"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={c.install_ft != null ? String(c.install_ft) : ""}
+                placeholder="shop rate — do not invent"
+              />
             </div>
             <p className="sm:col-span-2 text-xs text-muted-foreground">
-              Used to add install labor automatically when a mapped product carries no labor rate of its own.
+              Used to add install labor when a mapped product carries no labor rate of its own. Leave blank rather than inventing $6/yd or $2/ft.
             </p>
           </div>
         ) : null}

@@ -155,6 +155,22 @@ export function measuredInstallLaborAllowed(
 }
 
 /**
+ * Install labor $/yd or $/ft from the product, else the question's Settings
+ * rate. Missing config is 0 — never invent $6/yd or $2/ft.
+ */
+export function configuredInstallRate(args: {
+  billing: "yd" | "ft";
+  config?: { install_yd?: number | null; install_ft?: number | null } | null;
+  productLabor?: number | null;
+}): number {
+  const fromProduct = Number(args.productLabor);
+  if (Number.isFinite(fromProduct) && fromProduct > 0) return fromProduct;
+  const raw = args.billing === "yd" ? args.config?.install_yd : args.config?.install_ft;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
  * Waste that may ride onto an emitted material LINE.
  * Roll goods without cuts: 0 — layout waste lives in the cut list, not a %.
  * Exclusive carpet tile uses the requested / family waste like boxed goods.

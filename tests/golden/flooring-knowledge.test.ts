@@ -79,6 +79,7 @@ import {
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
   measuredInstallLaborAllowed,
+  configuredInstallRate,
   rollGoodsSeamWarnings,
   measuredRectsFromRooms,
   seamImplication,
@@ -2979,6 +2980,50 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const rules = readFileSync(join(root, "src/lib/flooring-knowledge/rules.ts"), "utf8");
     expect(rules).toMatch(/Builder shows measured coverage and carton math, not Cuts vs Roll/);
+  });
+
+  it("0220 does not invent $6/yd or $2/ft install labor", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0220_flooring_knowledge_install_rate.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0220_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/\$6\/yd/);
+    expect(sql).toMatch(/install_yd/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/install_yd',\s*6/);
+
+    expect(configuredInstallRate({ billing: "yd", config: { install_yd: 6 } })).toBe(6);
+    expect(configuredInstallRate({ billing: "yd", config: {} })).toBe(0);
+    expect(configuredInstallRate({ billing: "ft", config: {} })).toBe(0);
+    expect(configuredInstallRate({ billing: "yd", config: { install_yd: 0 } })).toBe(0);
+    expect(
+      configuredInstallRate({ billing: "yd", config: { install_yd: 6 }, productLabor: 8 }),
+    ).toBe(8);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/configuredInstallRate/);
+    expect(q).not.toMatch(/install_yd \?\? 6/);
+    expect(q).not.toMatch(/install_ft \?\? 2/);
+    expect(q).not.toMatch(/: 6;/);
+    expect(q).not.toMatch(/: 2;/);
+
+    const form = readFileSync(
+      join(root, "src/app/(app)/settings/estimate-questions/question-form.tsx"),
+      "utf8",
+    );
+    expect(form).toMatch(/shop rate — do not invent/);
+    expect(form).not.toMatch(/install_yd \?\? 6/);
+    expect(form).not.toMatch(/install_ft \?\? 2/);
+
+    const actions = readFileSync(
+      join(root, "src/app/(app)/settings/estimate-questions/actions.ts"),
+      "utf8",
+    );
+    expect(actions).toMatch(/optionalRate/);
+    expect(actions).not.toMatch(/numOr\(formData\.get\("cfg_install_yd"\), 6\)/);
+    expect(actions).not.toMatch(/numOr\(formData\.get\("cfg_install_ft"\), 2\)/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

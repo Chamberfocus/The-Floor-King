@@ -21,6 +21,13 @@ function numOr(v: FormDataEntryValue | null, fallback: number): number {
   const n = parseFloat(str(v));
   return Number.isFinite(n) ? n : fallback;
 }
+/** Positive-or-zero rate from the form. Empty means omit — do not invent $6/$2. */
+function optionalRate(v: FormDataEntryValue | null): number | undefined {
+  const s = str(v);
+  if (!s) return undefined;
+  const n = parseFloat(s);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
 function on(v: FormDataEntryValue | null): boolean {
   return str(v) === "on";
 }
@@ -91,16 +98,19 @@ function readConfig(kind: EstimateQuestionKind, formData: FormData): EstimateQue
       return { emit: readEmit(formData), rate_options: readRateOptions(formData.get("rate_options")) };
     case "choice":
       return { multi: on(formData.get("cfg_multi")), options: readChoiceOptions(formData.get("options")), note: on(formData.get("cfg_note")) };
-    case "cuts":
-      // Carpet cuts → yardage; carry the install labor rate ($/sq yd) so the
-      // questionnaire generates carpet labor automatically.
-      return { install_yd: numOr(formData.get("cfg_install_yd"), 6) };
-    case "floor_map":
-      // Per-room product map: carpet install ($/sq yd) + hard-surface ($/sq ft).
+    case "cuts": {
+      // Carpet cuts → yardage. Install labor is the Settings rate, not a hidden $6.
+      const install_yd = optionalRate(formData.get("cfg_install_yd"));
+      return install_yd != null ? { install_yd } : {};
+    }
+    case "floor_map": {
+      const install_yd = optionalRate(formData.get("cfg_install_yd"));
+      const install_ft = optionalRate(formData.get("cfg_install_ft"));
       return {
-        install_yd: numOr(formData.get("cfg_install_yd"), 6),
-        install_ft: numOr(formData.get("cfg_install_ft"), 2),
+        ...(install_yd != null ? { install_yd } : {}),
+        ...(install_ft != null ? { install_ft } : {}),
       };
+    }
     default:
       return {};
   }
@@ -196,13 +206,29 @@ export async function updateEstimateQuestion(
     .eq("id", id)
     .maybeSingle();
   const prev = ((existing?.config ?? {}) as EstimateQuestionConfig) || {};
-  // Settings form doesn't edit knowledge_when / purpose — keep them so a
-  // routine label tweak cannot strip the flooring overlay.
+  // Settings form doesn't edit knowledge_when / purpose / roll widths / category
+  // — keep them so a routine label tweak cannot strip the flooring overlay or
+  // plant a hidden $6 install rate.
   if (prev.knowledge_when && !fields.config.knowledge_when) {
     fields.config.knowledge_when = prev.knowledge_when;
   }
   if (prev.purpose && !fields.config.purpose) {
     fields.config.purpose = prev.purpose;
+  }
+  if (prev.widths && !fields.config.widths) {
+    fields.config.widths = prev.widths;
+  }
+  if (prev.category && !fields.config.category) {
+    fields.config.category = prev.category;
+  }
+  if (fields.config.ask_source == null && prev.ask_source != null) {
+    fields.config.ask_source = prev.ask_source;
+  }
+  if (fields.config.install_yd == null && prev.install_yd != null) {
+    fields.config.install_yd = prev.install_yd;
+  }
+  if (fields.config.install_ft == null && prev.install_ft != null) {
+    fields.config.install_ft = prev.install_ft;
   }
   const { error } = await supabase
     .from("estimate_questions")

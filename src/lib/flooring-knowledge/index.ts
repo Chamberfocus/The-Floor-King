@@ -108,6 +108,7 @@ export {
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
   measuredInstallLaborAllowed,
+  configuredInstallRate,
   materialWastePctForEmit,
   type MeasuredArea,
   type CartonTakeoff,
