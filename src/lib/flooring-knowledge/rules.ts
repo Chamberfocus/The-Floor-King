@@ -441,7 +441,7 @@ export function questionPurpose(q: {
 
 /** Extra help under a question — experienced estimator sitting beside you. */
 export function knowledgeHelpFor(
-  q: { key?: string | null; kind?: string; config?: { category?: string } },
+  q: { key?: string | null; kind?: string; config?: { category?: string; trim_list?: boolean } },
   ctx: InstallContext,
 ): string | null {
   const key = q.key ?? "";
@@ -472,6 +472,9 @@ export function knowledgeHelpFor(
   }
   if (key === "prep_confidence") {
     return "If you cannot see the substrate until demo, leave this as Field verify / TBD rather than guessing a bag count.";
+  }
+  if (q.config?.trim_list) {
+    return "Quarter round, shoe, and base are linear feet; stair noses, T-molds, and reducers are EACH — never square feet. Pick a catalog item or type a rate. Clicking a chip does not invent $1/lnft or $45/nose.";
   }
   if (q.kind === "areas") {
     return "Enter rooms in feet and inches. Add a section for closets and offsets. This is MEASURED area — order quantity is calculated next from the product and (for carpet) the cuts.";

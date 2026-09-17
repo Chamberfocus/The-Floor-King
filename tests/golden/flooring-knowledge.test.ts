@@ -3026,6 +3026,29 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(actions).not.toMatch(/numOr\(formData\.get\("cfg_install_ft"\), 2\)/);
   });
 
+  it("0221 does not invent trim chip prices and keeps extra roll goods as order TBD", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0221_flooring_knowledge_trim_price.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0221_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/\$1\/lnft/);
+    expect(sql).toMatch(/order TBD/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).not.toMatch(/cost: 2\.6/);
+    expect(q).not.toMatch(/cost: 45/);
+    expect(q).not.toMatch(/DEFAULT_RR_PER_LNFT/);
+    expect(q).toMatch(/catalog or type — do not invent/);
+    expect(q).toMatch(/rollGoodsTbdLine\(ex\.product/);
+    expect(q).toMatch(/qty TBD \(\$\{countUnit\} — not taped sq ft\)/);
+
+    const rules = readFileSync(join(root, "src/lib/flooring-knowledge/rules.ts"), "utf8");
+    expect(rules).toMatch(/Clicking a chip does not invent \$1\/lnft or \$45\/nose/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

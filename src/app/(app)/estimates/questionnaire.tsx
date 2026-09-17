@@ -198,7 +198,7 @@ interface TrimRow {
   type: string; // e.g. "Baseboard", "J-channel"
   qty: string;
   unit: string; // lnft | each | pc
-  cost: string; // raw input — material $/unit (default from the type; overridable)
+  cost: string; // raw input — material $/unit (catalog or typed; never a hidden chip price)
   color: string;
   size: string;
   sized: boolean; // show the size field (J-channel, stair nose, baseboard…)
@@ -206,11 +206,9 @@ interface TrimRow {
   product: ProductAns | null; // set only when you attach a specific catalog item
   linearFt?: string; // piece-sold accessories: the run you measured, before rounding to sticks
   rr?: boolean; // baseboard / shoe: remove & re-install existing (adds labor per ln ft)
-  rrRate?: string; // raw input — R&R labor $/ln ft (default DEFAULT_RR_PER_LNFT)
+  rrRate?: string; // raw input — R&R labor $/ln ft (typed; do not invent $1.50)
 }
 
-// Remove & re-install labor for base/shoe, per linear foot (editable per line).
-const DEFAULT_RR_PER_LNFT = 1.5;
 // R&R applies to wall base that gets pulled and re-set during a floor job.
 const isRnREligible = (type: string): boolean => /base|shoe/i.test(type);
 // A matching stairnose: source Versatrim first, else the flooring manufacturer.
@@ -236,24 +234,24 @@ const pieceLenFor = (row: TrimRow): number | null => {
   return row.product.pieceLengthIn || DEFAULT_PIECE_LENGTH_IN;
 };
 
-/** The trims you click to add — with sensible default material rates you can
- *  tweak per line. Sizes/colors are typed on the line. */
-const TRIM_TYPES: { label: string; unit: string; cost: number; sized?: boolean }[] = [
-  { label: "Baseboard", unit: "lnft", cost: 2.6, sized: true },
-  { label: "Shoe molding", unit: "lnft", cost: 1.0 },
-  { label: "Quarter round", unit: "lnft", cost: 1.0 },
-  { label: "Cove base", unit: "lnft", cost: 1.5, sized: true },
-  { label: "Stair nose", unit: "each", cost: 45, sized: true },
-  { label: "Stair tread", unit: "each", cost: 169, sized: true },
-  { label: "Stair riser", unit: "each", cost: 95, sized: true },
-  { label: "J-channel", unit: "lnft", cost: 1.2, sized: true },
-  { label: "T-mold", unit: "each", cost: 25 },
-  { label: "Reducer", unit: "each", cost: 28 },
-  { label: "End cap", unit: "each", cost: 25 },
-  { label: "Threshold", unit: "each", cost: 25 },
-  { label: "Metal transition", unit: "each", cost: 18 },
-  { label: "Carpet transition", unit: "each", cost: 18 },
-  { label: "Vent / register", unit: "each", cost: 0 },
+/** The trims you click to add. Units are real (lnft / each) — prices are not.
+ *  Pick a catalog item or type a rate; do not invent $1/lnft or $45/nose. */
+const TRIM_TYPES: { label: string; unit: string; sized?: boolean }[] = [
+  { label: "Baseboard", unit: "lnft", sized: true },
+  { label: "Shoe molding", unit: "lnft" },
+  { label: "Quarter round", unit: "lnft" },
+  { label: "Cove base", unit: "lnft", sized: true },
+  { label: "Stair nose", unit: "each", sized: true },
+  { label: "Stair tread", unit: "each", sized: true },
+  { label: "Stair riser", unit: "each", sized: true },
+  { label: "J-channel", unit: "lnft", sized: true },
+  { label: "T-mold", unit: "each" },
+  { label: "Reducer", unit: "each" },
+  { label: "End cap", unit: "each" },
+  { label: "Threshold", unit: "each" },
+  { label: "Metal transition", unit: "each" },
+  { label: "Carpet transition", unit: "each" },
+  { label: "Vent / register", unit: "each" },
 ];
 // A single carpet cut: length (ft + in) off a roll of the chosen width.
 interface CutRow { id: string; lf: string; li: string; width: string }
@@ -285,14 +283,14 @@ const newStairGroup = (type = "Waterfall"): StairGroup => ({ id: `s${sgid++}`, t
 let did = 0;
 const newDemoRow = (): DemoRow => ({ id: `d${did++}`, option: "", sqft: "" });
 let tid = 0;
-const newTrimRow = (t?: { label: string; unit: string; cost: number; sized?: boolean }): TrimRow => {
+const newTrimRow = (t?: { label: string; unit: string; sized?: boolean }): TrimRow => {
   const type = t?.label ?? "";
   return {
     id: `t${tid++}`,
     type,
     qty: "",
     unit: coerceTrimUnit(type, t?.unit ?? accessoryUnitForType(type)),
-    cost: t?.cost != null ? String(t.cost) : "",
+    cost: "",
     color: "",
     size: "",
     sized: !!t?.sized,
@@ -1269,12 +1267,51 @@ export function Questionnaire({
         }
         // Additional products for specific areas (e.g. upgraded pad on the
         // stairs) — each its own material line, quantity from its own area.
-        // Extra carpet/sheet still cannot be ordered from a taped sqft.
+        // Extra carpet/sheet cannot be ordered from taped sqft — keep the SKU
+        // as order TBD, same as the main roll-goods path. Count-unit extras
+        // (gal/kit) also stay TBD rather than inheriting room square feet.
         for (const ex of a.extras) {
           if (!ex.product || numv(ex.sqft) <= 0) continue;
           const exFam = familyFromCatalogCategory(ex.product.category || cat);
-          if (!areaDerivedMaterialAllowed(exFam, ex.product.unit, carpetSystems)) continue;
-          out.push(matLine(ex.product, { sqft: numv(ex.sqft) }));
+          if (areaDerivedMaterialAllowed(exFam, ex.product.unit, carpetSystems)) {
+            out.push(matLine(ex.product, { sqft: numv(ex.sqft) }));
+            continue;
+          }
+          if (
+            isRollGoodsFamily(exFam) &&
+            rollGoodsNeedCuts(exFam, carpetSystems) &&
+            (ex.product.productId || ex.product.label)
+          ) {
+            out.push(rollGoodsTbdLine(ex.product, null, numv(ex.sqft)));
+            continue;
+          }
+          if (ex.product.productId || ex.product.label) {
+            const countUnit = unitLabel(ex.product.unit) || ex.product.unit || "each";
+            out.push({
+              room: null,
+              description: `${ex.product.label || cat} — qty TBD (${countUnit} — not taped sq ft)`,
+              category: ex.product.category || cat,
+              measure_unit: "sqft",
+              sqft: null,
+              quantity: null,
+              length_in: null,
+              width_in: null,
+              unit: countUnit,
+              material_rate: sellMat(rateFor(ex.product.materialRate, ex.product.unit, false)),
+              labor_rate: 0,
+              material_cost: rateFor(ex.product.materialRate, ex.product.unit, false),
+              labor_cost: 0,
+              waste_pct: 0,
+              product_id: ex.product.productId || null,
+              manufacturer:
+                ex.product.source === "order" && ex.product.vendor.trim()
+                  ? ex.product.vendor.trim()
+                  : ex.product.manufacturer,
+              style: ex.product.style,
+              color: ex.product.color,
+              from_stock: ex.product.source === "stock",
+            });
+          }
         }
       } else if (q.kind === "product" && a.kind === "trims") {
         // Trims / moldings — each row is a quick-picked type (with color/size) or
@@ -1287,7 +1324,7 @@ export function Questionnaire({
           const unit = coerceTrimUnit(row.type || p?.label || "", row.unit || p?.unit);
           // R&R re-uses the existing piece — no new material, labor only (remove &
           // re-install per linear foot). A normal row charges material as entered.
-          const rrLabor = row.rr ? numv(row.rrRate ?? "") || DEFAULT_RR_PER_LNFT : 0;
+          const rrLabor = row.rr ? numv(row.rrRate ?? "") : 0;
           const matCost = row.rr ? 0 : p ? p.materialRate : numv(row.cost);
           const laborCost = (p && !row.rr ? p.laborRate : 0) + rrLabor;
           const desc =
@@ -3539,7 +3576,7 @@ function QuestionBody({
                     value={row.cost}
                     onChange={(e) => patch(row.id, { cost: e.target.value })}
                     inputMode="decimal"
-                    placeholder="0"
+                    placeholder="catalog or type — do not invent"
                     className="h-10 w-20 text-base"
                   />
                 </div>
@@ -3571,7 +3608,7 @@ function QuestionBody({
                     onChange={(e) =>
                       patch(row.id, {
                         rr: e.target.checked,
-                        rrRate: row.rrRate || (e.target.checked ? String(DEFAULT_RR_PER_LNFT) : row.rrRate),
+                        rrRate: row.rrRate,
                       })
                     }
                     className="size-4 accent-primary"
@@ -3585,7 +3622,7 @@ function QuestionBody({
                       value={row.rrRate ?? ""}
                       onChange={(e) => patch(row.id, { rrRate: e.target.value })}
                       inputMode="decimal"
-                      placeholder={String(DEFAULT_RR_PER_LNFT)}
+                      placeholder="if known"
                       className="h-9 w-20 text-base"
                     />
                   </span>

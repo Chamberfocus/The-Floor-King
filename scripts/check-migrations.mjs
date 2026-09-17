@@ -81,6 +81,7 @@ const REQUIRED_FILES = [
   "0218_flooring_knowledge_tile_not_room_cut.sql",
   "0219_flooring_knowledge_builder_tile_coverage.sql",
   "0220_flooring_knowledge_install_rate.sql",
+  "0221_flooring_knowledge_trim_price.sql",
 ];
 
 /**
@@ -1087,6 +1088,16 @@ const REQUIRED_MARKERS = [
       "P0_0220_FLOORING_KNOWLEDGE",
       "$6/yd",
       "install_yd",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0221_flooring_knowledge_trim_price.sql",
+    markers: [
+      "P0_0221_FLOORING_KNOWLEDGE",
+      "$1/lnft",
+      "order TBD",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
