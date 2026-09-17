@@ -745,7 +745,7 @@ export function EstimateBuilder({
       unit: "sheet",
       line_type: "installed",
       description: confirm ? "Subfloor — confirm thickness & sheets on site" : `Subfloor — ${label}`,
-      quantity: confirm ? "" : "1",
+      quantity: "",
     };
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
@@ -788,7 +788,8 @@ export function EstimateBuilder({
 
   // Switch a line's pricing unit. Area units (sq ft / sq yd) keep the area math;
   // a count unit (each / bag / lnft…) flips the line to price by quantity × the
-  // per-unit rate, seeds a qty of 1, and drops any area waste %.
+  // per-unit rate and drops any area waste %. Count qty stays empty until typed
+  // — never carry 1693 sq ft as 1693 each, and never invent a count of 1.
   const setLineUnit = (oi: number, li: number, unitValue: string) =>
     setOptions((prev) =>
       prev.map((o, i) =>
@@ -806,14 +807,13 @@ export function EstimateBuilder({
                     quantity: "",
                   };
                 }
-                // → count: a FRESH count of 1 — never carry over the old square
-                // footage (that's the "1693 each" bug), and drop area waste + dims.
+                // → count: drop area waste + dims. Do not seed qty 1.
                 // A PREP line keeps its area (sqft) — the bag calculator uses it.
                 const prepLine = !!l.coverage_sqft;
                 return {
                   ...l,
                   unit: unitValue,
-                  quantity: prepLine ? l.quantity : "1",
+                  quantity: prepLine ? l.quantity : "",
                   sqft: prepLine ? l.sqft : "",
                   len_ft: "",
                   len_in: "",
@@ -1286,8 +1286,9 @@ export function EstimateBuilder({
                   prep_thickness_in:
                     prep && p.coverage_thickness_in != null ? String(p.coverage_thickness_in) : "",
                   // Prep lines get their quantity from the calculator (area drives
-                  // bags); plain count items default to 1 so they price at once.
-                  quantity: prep ? l.quantity : count ? l.quantity || "1" : l.quantity,
+                  // bags). Switching an area line onto a count SKU does not invent
+                  // a count of 1 or keep taped square footage as the count.
+                  quantity: prep ? l.quantity : count && !isCountLine(l) ? "" : l.quantity,
                   // Only suggest waste when the quantity is area-driven (no
                   // explicit qty) — avoids double-counting a qty that already
                   // includes waste (e.g. from the questionnaire). Never on count.
@@ -1299,6 +1300,9 @@ export function EstimateBuilder({
                         (defaultWastePct(p.category)
                           ? String(defaultWastePct(p.category))
                           : ""),
+                  ...(count && !prep
+                    ? { sqft: "", len_ft: "", len_in: "", wid_ft: "", wid_in: "" }
+                    : {}),
                   /**
                    * The line is now THIS product, and says so.
                    *
@@ -1366,10 +1370,13 @@ export function EstimateBuilder({
                   coverage_sqft: prep ? String(num(input.coverage_sqft)) : "",
                   coverage_thickness_in: prep && input.coverage_thickness_in ? String(num(input.coverage_thickness_in)) : "",
                   prep_thickness_in: prep && input.coverage_thickness_in ? String(num(input.coverage_thickness_in)) : "",
-                  // Count items price by quantity — default to 1, no area waste.
+                  // Count items price by quantity — no invented 1, no area waste.
                   // Prep lines get their quantity from the bag calculator (area).
-                  quantity: prep ? l.quantity : count ? l.quantity || "1" : l.quantity,
+                  quantity: prep ? l.quantity : count && !isCountLine(l) ? "" : l.quantity,
                   waste_pct: count ? "" : l.waste_pct,
+                  ...(count && !prep
+                    ? { sqft: "", len_ft: "", len_in: "", wid_ft: "", wid_in: "" }
+                    : {}),
                   description: input.name || l.description,
                 };
                 return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin)), org?.freight_markup_pct ?? 0) };

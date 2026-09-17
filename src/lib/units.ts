@@ -172,6 +172,19 @@ export function unitIsSqyd(raw: string | null | undefined): boolean {
 }
 
 /**
+ * Unit the warehouse roll-receive form may pre-select.
+ *
+ * Only sq yd or linear ft — those are the two receive options. Missing or
+ * unknown product.unit is empty (Unit TBD), never an invented sq yd.
+ */
+export function rollReceiveUnit(raw: string | null | undefined): "sqyd" | "lnft" | "" {
+  const u = normalizeUnit(raw);
+  if (u === "sqyd") return "sqyd";
+  if (u === "lnft") return "lnft";
+  return "";
+}
+
+/**
  * Convert a catalog per-unit rate into the line's billing unit.
  *
  * Catalog SY is yards — never a 9× surprise just because the letters "yd"

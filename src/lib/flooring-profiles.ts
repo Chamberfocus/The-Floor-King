@@ -167,7 +167,8 @@ export function companionQty(
   sqft: number,
   perimeterLnft: number,
 ): number {
-  if (c.sizeBy === "each") return 1;
+  // Transitions / T-molds are EACH. Room square footage is not "1 transition".
+  if (c.sizeBy === "each") return 0;
   if (c.sizeBy === "perimeter") return Math.round(perimeterLnft);
   // Taped sq ft is not bags of thinset or gallons of adhesive.
   if (c.unit && !isAreaUnit(c.unit)) return 0;

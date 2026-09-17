@@ -95,7 +95,7 @@ import {
   mergeReviewWarnings,
   emptyInstallContext,
 } from "@/lib/flooring-knowledge";
-import { billsBySquareYard } from "@/lib/units";
+import { billsBySquareYard, rollReceiveUnit } from "@/lib/units";
 import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import type { ShowIfClause } from "@/lib/types";
@@ -3340,6 +3340,50 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const inv = readFileSync(join(root, "src/app/(app)/inventory/[id]/page.tsx"), "utf8");
     expect(inv).not.toMatch(/placeholder="12"/);
+  });
+
+  it("0230 does not invent a count of 1 or sq yd on unknown roll units", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0230_flooring_knowledge_count_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0230_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/quantity of 1/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+
+    const lvp = profileFor("lvp")!;
+    const transitions = lvp.companions.find((c) => c.key === "transitions")!;
+    expect(transitions.sizeBy).toBe("each");
+    expect(companionQty(transitions, 500, 80)).toBe(0);
+
+    expect(rollReceiveUnit("sq yd")).toBe("sqyd");
+    expect(rollReceiveUnit("SY")).toBe("sqyd");
+    expect(rollReceiveUnit("lnft")).toBe("lnft");
+    expect(rollReceiveUnit("lf")).toBe("lnft");
+    expect(rollReceiveUnit("")).toBe("");
+    expect(rollReceiveUnit(null)).toBe("");
+    expect(rollReceiveUnit("bag")).toBe("");
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).not.toMatch(/quantity: prepLine \? l\.quantity : "1"/);
+    expect(builder).not.toMatch(/l\.quantity \|\| "1"/);
+    expect(builder).toMatch(/never invent a count of 1/);
+    expect(builder).not.toMatch(/quantity: confirm \? "" : "1"/);
+    expect(builder).toMatch(/description: confirm \? "Subfloor/);
+    expect(builder).toMatch(/quantity: "",\n    \};/);
+
+    const invPage = readFileSync(join(root, "src/app/(app)/inventory/[id]/page.tsx"), "utf8");
+    expect(invPage).toMatch(/Unit TBD/);
+    expect(invPage).toMatch(/rollReceiveUnit/);
+    expect(invPage).not.toMatch(/: "sqyd"\}/);
+
+    const invActions = readFileSync(join(root, "src/app/(app)/inventory/actions.ts"), "utf8");
+    expect(invActions).not.toMatch(/\|\| "sqyd"/);
+    expect(invActions).toMatch(/if \(!unit\) return/);
+
+    const rolls = readFileSync(join(root, "src/lib/data/stock-rolls.ts"), "utf8");
+    expect(rolls).not.toMatch(/\|\| "sqyd"/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

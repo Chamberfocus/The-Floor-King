@@ -171,7 +171,8 @@ export async function receiveRoll(formData: FormData): Promise<void> {
   const qty = Math.abs(numv(formData.get("qty")));
   if (!productId || qty <= 0) return;
   const { db, actorId } = await stockCtx();
-  const unit = str(formData.get("unit")) || "sqyd";
+  const unit = str(formData.get("unit"));
+  if (!unit) return;
   const width = numv(formData.get("width_ft"));
   const poId = str(formData.get("po_id")) || null;
   const location = str(formData.get("location")) || null;
@@ -484,7 +485,7 @@ export async function receiveStockPOLine(formData: FormData): Promise<void> {
 
   const { data: prod } = await db
     .from("products")
-    .select("on_order, on_hand, stock_kind")
+    .select("on_order, on_hand, stock_kind, unit")
     .eq("id", productId)
     .maybeSingle();
   const rolled = prod?.stock_kind === "rolled";
@@ -505,7 +506,7 @@ export async function receiveStockPOLine(formData: FormData): Promise<void> {
       p_created_by: actorId,
       p_create_roll: true,
       p_roll_kind: "roll",
-      p_roll_unit: (it.unit as string) || "sqyd",
+      p_roll_unit: ((it.unit as string) || (prod?.unit as string) || "").trim(),
       p_roll_width_ft: numv(formData.get("width_ft")) || null,
       p_roll_location: str(formData.get("location")) || null,
     });

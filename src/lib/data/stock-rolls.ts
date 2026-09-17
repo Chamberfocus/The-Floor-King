@@ -211,7 +211,7 @@ export async function reorderAlertFor(
       .filter((r) => !(r.kind === "remnant" && r.usable === false))
       .map((r) => ({
         qty: round(Number(r.remaining_qty) || 0),
-        unit: (r.unit as string) || "sqyd",
+        unit: (r.unit as string) || "",
         location: (r.location as string) ?? null,
         kind: r.kind as string,
       }));
@@ -254,7 +254,7 @@ export async function reorderAlertsFor(
     for (const [pid, rolls] of byProduct) {
       const items = rolls.map((r) => ({
         qty: round(r.remaining_qty),
-        unit: r.unit || "sqyd",
+        unit: r.unit || "",
         location: r.location ?? null,
         kind: r.kind,
       }));
