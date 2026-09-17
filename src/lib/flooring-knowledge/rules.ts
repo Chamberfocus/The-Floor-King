@@ -354,6 +354,12 @@ export function knowledgeHelpFor(
   if (key === "hs_plank_stairs") {
     return "Hard-surface stairs are treads/risers and stair noses, not carpet waterfall. Matching stairnose stays on Trims.";
   }
+  if (key === "pattern_repeat") {
+    return "Inches of pattern repeat for purchasing and layout notes. This does not generate a cut plan.";
+  }
+  if (key === "delivery_scope") {
+    return "Floor King has a Delivery add-on. Record whether to include it — pick the catalog line in Builder rather than inventing a fuel charge here.";
+  }
   return null;
 }
 

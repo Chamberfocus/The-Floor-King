@@ -55,6 +55,7 @@ const REQUIRED_FILES = [
   "0192_flooring_knowledge_estimator_gaps.sql",
   "0193_flooring_knowledge_subfloor_condition.sql",
   "0194_flooring_knowledge_job_conditions.sql",
+  "0195_flooring_knowledge_pattern_delivery.sql",
 ];
 
 /**
@@ -778,6 +779,16 @@ const REQUIRED_MARKERS = [
       "tile_application",
       "vinyl_skim",
       "toilets",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0195_flooring_knowledge_pattern_delivery.sql",
+    markers: [
+      "P0_0195_FLOORING_KNOWLEDGE",
+      "pattern_repeat",
+      "delivery_scope",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

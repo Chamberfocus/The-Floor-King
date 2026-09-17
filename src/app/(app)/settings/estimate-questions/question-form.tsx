@@ -10,7 +10,8 @@ import {
   updateEstimateQuestion,
   type EQFormState,
 } from "./actions";
-import type { EstimateQuestion, EstimateQuestionKind } from "@/lib/types";
+import type { EstimateQuestion, EstimateQuestionKind, QuestionPurpose } from "@/lib/types";
+import { knowledgeQuestionByKey } from "@/lib/flooring-knowledge";
 
 const initial: EQFormState = { error: null };
 
@@ -24,6 +25,20 @@ const KINDS: { value: EstimateQuestionKind; label: string; hint: string }[] = [
 ];
 const CATEGORIES = ["carpet", "underlayment", "lvp", "hardwood", "laminate", "tile", "vinyl", "trim", "other"];
 const UNITS = ["sqft", "sqyd", "lnft", "each", "step", "flat"];
+const PURPOSES: { value: QuestionPurpose; hint: string }[] = [
+  { value: "MEASUREMENT", hint: "Size, counts, dimensions" },
+  { value: "MATERIAL", hint: "What to buy" },
+  { value: "LABOR", hint: "Install / demo / moving" },
+  { value: "PREP", hint: "Substrate and leveling" },
+  { value: "ACCESSORY", hint: "Trim, transitions, pad extras" },
+  { value: "PRICE", hint: "Rate or allowance" },
+  { value: "SCOPE", hint: "Job note, not a line" },
+  { value: "SCHEDULING", hint: "Access, occupancy, timing" },
+  { value: "PURCHASING", hint: "What warehouse / PO needs" },
+  { value: "WAREHOUSE", hint: "Cuts, layout, roll goods" },
+  { value: "INSTALLATION", hint: "How it goes down" },
+  { value: "WARNING", hint: "Risk the salesperson must see" },
+];
 
 const label = "mb-1 block text-xs font-medium text-muted-foreground";
 const field = "h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm";
@@ -47,6 +62,8 @@ export function QuestionForm({
   const compoundShowIf =
     c.show_if && ("all" in c.show_if || "any" in c.show_if) ? JSON.stringify(c.show_if, null, 2) : "";
   const simpleShowIf = c.show_if && "key" in c.show_if ? c.show_if : null;
+  const defaultPurpose =
+    c.purpose ?? (question?.key ? knowledgeQuestionByKey(question.key)?.purpose : undefined) ?? "";
 
   useEffect(() => {
     if (state.ok) {
@@ -108,6 +125,20 @@ export function QuestionForm({
             <label className={label}>Key (for conditional logic)</label>
             <Input name="key" defaultValue={question?.key ?? ""} placeholder="e.g. surface_type" />
             <p className="mt-1 text-xs text-muted-foreground">A short slug so other questions can branch off this one&apos;s answer.</p>
+          </div>
+          <div>
+            <label className={label}>Why this question exists</label>
+            <select name="purpose" defaultValue={defaultPurpose} className={field}>
+              <option value="">Unset</option>
+              {PURPOSES.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.value} — {p.hint}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              If a question has no downstream purpose, it probably does not belong. The flooring overlay uses this plus family/system gates.
+            </p>
           </div>
           <div>
             <label className={label}>Show only if…</label>

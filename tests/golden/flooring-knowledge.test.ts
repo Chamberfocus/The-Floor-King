@@ -526,6 +526,7 @@ describe("family → system asks the right keys (not every question)", () => {
       "each",
     );
     expect(amountUnitLabelForQuestion({ key: "vents_registers" })).toBe("each");
+    expect(amountUnitLabelForQuestion({ key: "pattern_repeat" })).toMatch(/inches of repeat/);
   });
 
   it("floating laminate: no adhesive, no fasteners, no tack, expansion on", () => {
@@ -568,6 +569,26 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "pattern_match")).toBe(true);
     expect(has(keys, "carpet_pad")).toBe(true);
     expect(has(keys, "tile_setting")).toBe(false);
+    expect(
+      has(
+        visibleKnowledgeKeys({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          pattern_match: ["Pattern match required"],
+        }),
+        "pattern_repeat",
+      ),
+    ).toBe(true);
+    expect(
+      has(
+        visibleKnowledgeKeys({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          pattern_match: ["No pattern / no match"],
+        }),
+        "pattern_repeat",
+      ),
+    ).toBe(false);
   });
 
   it("glue-down carpet: tack strip off, adhesive on", () => {
@@ -773,6 +794,11 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "install_method", position: 205, show_if: { key: "project_type", in: ["Hard surface"] } },
     { key: "carpet_install", position: 105, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "pattern_match", position: 106, show_if: { key: "project_type", in: ["Carpet"] } },
+    {
+      key: "pattern_repeat",
+      position: 107,
+      show_if: { key: "pattern_match", in: ["Pattern match required"] },
+    },
     { key: "tack_strip", position: 109, show_if: { key: "project_type", in: ["Carpet"] } },
     {
       key: "attached_pad",
@@ -818,6 +844,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "carpet_pad", position: 110, show_if: { key: "project_type", in: ["Carpet"] } },
     { key: "toilets", position: 255, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "appliances", position: 260, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
+    { key: "delivery_scope", position: 535, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
   ];
   const catalog = catalogRows.map((row) => ({
     id: row.key,
@@ -872,6 +899,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("pattern_match");
     expect(keys).toContain("carpet_pad");
     expect(keys).toContain("toilets");
+    expect(keys).not.toContain("pattern_repeat");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("surface_type");
   });
@@ -922,6 +950,22 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).not.toContain("attached_pad");
     expect(keys).not.toContain("vinyl_skim");
   });
+
+  it("pattern repeat only after pattern match is required", () => {
+    const without = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      pattern_match: ["No pattern / no match"],
+    });
+    expect(without).not.toContain("pattern_repeat");
+    const withMatch = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      pattern_match: ["Pattern match required"],
+    });
+    expect(withMatch).toContain("pattern_repeat");
+    expect(withMatch.indexOf("pattern_match")).toBeLessThan(withMatch.indexOf("pattern_repeat")!);
+  });
 });
 
 describe("0194 keys live questions without inventing prices", () => {
@@ -950,5 +994,22 @@ describe("0194 keys live questions without inventing prices", () => {
     });
     const w = knowledgeWarnings(ctx, { pickedLabels: ["Wall"] });
     expect(w.some((x) => x.id === "tile-wall")).toBe(true);
+  });
+});
+
+describe("0195 captures pattern repeat and delivery without inventing a cut plan", () => {
+  it("adds pattern_repeat and delivery_scope as notes", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0195_flooring_knowledge_pattern_delivery.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0195_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/pattern_repeat/);
+    expect(sql).toMatch(/delivery_scope/);
+    expect(sql).toMatch(/does not generate a cut plan|not a cut plan/i);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(knowledgeQuestionByKey("pattern_repeat")?.purpose).toBe("WAREHOUSE");
+    expect(knowledgeQuestionByKey("delivery_scope")?.purpose).toBe("PURCHASING");
   });
 });

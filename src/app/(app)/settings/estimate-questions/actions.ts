@@ -6,6 +6,7 @@ import type {
   EstimateEmit,
   EstimateQuestionConfig,
   EstimateQuestionKind,
+  QuestionPurpose,
 } from "@/lib/types";
 
 export interface EQFormState {
@@ -138,6 +139,8 @@ function readFields(formData: FormData) {
   // Conditional + per-room apply to any kind.
   config.show_if = readShowIf(formData);
   config.per_room = on(formData.get("cfg_per_room"));
+  const purpose = str(formData.get("purpose")) as QuestionPurpose | "";
+  if (purpose) config.purpose = purpose;
   return {
     label: str(formData.get("label")),
     help: str(formData.get("help")) || null,

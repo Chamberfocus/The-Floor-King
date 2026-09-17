@@ -35,6 +35,8 @@ export interface KnowledgeQuestionDef {
   attachedPad?: "yes" | "no" | "any";
   /** When the answer is a quantity, the only valid unit. */
   quantityUnit?: KnowledgeQtyUnit;
+  /** Overlay require — hide once the gate is answered with something else. */
+  require?: { key: string; in: string[] };
 }
 
 export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
@@ -50,6 +52,13 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   // Measure / layout (after the product is in play)
   { key: "vinyl_layout", purpose: "WAREHOUSE", phase: "measure", families: ["vinyl"] },
   { key: "pattern_match", purpose: "WAREHOUSE", phase: "measure", families: ["carpet"] },
+  {
+    key: "pattern_repeat",
+    purpose: "WAREHOUSE",
+    phase: "measure",
+    families: ["carpet"],
+    require: { key: "pattern_match", in: ["Pattern match required"] },
+  },
   { key: "carpet_direction", purpose: "WAREHOUSE", phase: "measure", families: ["carpet"] },
 
   // Existing
@@ -106,6 +115,7 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "toilets", purpose: "LABOR", phase: "details", quantityUnit: "each" },
   { key: "appliances", purpose: "LABOR", phase: "details", quantityUnit: "each" },
   { key: "doors_shave", purpose: "LABOR", phase: "details", quantityUnit: "each" },
+  { key: "delivery_scope", purpose: "PURCHASING", phase: "details" },
   { key: "carpet_curb", purpose: "LABOR", phase: "details", families: ["carpet"] },
 ];
 
@@ -116,6 +126,7 @@ export const DEFAULT_KNOWLEDGE_WHEN: Record<string, KnowledgeWhen> = Object.from
       ...(q.families ? { families: q.families } : {}),
       ...(q.systems ? { systems: q.systems } : {}),
       ...(q.attachedPad ? { attachedPad: q.attachedPad } : {}),
+      ...(q.require ? { require: q.require } : {}),
       purpose: q.purpose,
     } satisfies KnowledgeWhen,
   ]),
@@ -133,6 +144,7 @@ export function amountUnitLabelForQuestion(q: {
   key?: string | null;
   config?: { emit?: { unit?: string } | null };
 }): string {
+  if (q.key === "pattern_repeat") return "inches of repeat — not an order qty";
   const keyed = q.key ? knowledgeQuestionByKey(q.key)?.quantityUnit : undefined;
   const raw = keyed || q.config?.emit?.unit || "";
   if (!raw) return "";

@@ -1729,11 +1729,12 @@ export function Questionnaire({
       else if (/trim|metal|transition|quarter|nose|underlay|pad|adhesive|tack|vent|register|grout|thinset|backer|expansion/.test(blob) || q.key === "tack_strip" || q.key === "tile_setting" || q.key === "vents_registers" || q.key === "laminate_expansion" || q.key === "carpet_pad")
         accessories.push(`${q.label}: ${v}`);
       else if (
-        /toilet|appliance|furniture|door shav|occupancy|access/.test(blob) ||
+        /toilet|appliance|furniture|door shav|occupancy|access|delivery/.test(blob) ||
         q.key === "toilets" ||
         q.key === "appliances" ||
         q.key === "furniture_level" ||
-        q.key === "doors_shave"
+        q.key === "doors_shave" ||
+        q.key === "delivery_scope"
       )
         specials.push(`${q.label}: ${v}`);
       else if (q.config.note || q.config.trim_list) specials.push(`${q.label}: ${v}`);
@@ -1813,6 +1814,7 @@ export function Questionnaire({
     return true; // yesno/number/choice/text are always "answerable"
   };
   const canNext = !q || !q.required || answered(q);
+  const requiredDone = stepQuestions.every((sq) => !sq.required || answered(sq));
 
   const save = (blankCatalogPrices = false) =>
     startSave(async () => {
@@ -1958,6 +1960,21 @@ export function Questionnaire({
               </button>
             );
           })}
+          <button
+            type="button"
+            disabled={!requiredDone}
+            onClick={() => goTo(total)}
+            className={cn(
+              "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+              atReview
+                ? "bg-primary text-primary-foreground"
+                : requiredDone
+                  ? "bg-muted text-foreground hover:bg-muted/70"
+                  : "text-muted-foreground/50",
+            )}
+          >
+            Review
+          </button>
         </div>
       ) : null}
 
@@ -2202,9 +2219,16 @@ export function Questionnaire({
           {atReview ? (
             <span className="w-[5.5rem]" />
           ) : (
-            <Button type="button" onClick={() => goTo(step + 1)} disabled={!canNext}>
-              {step === total - 1 ? "Review" : "Next"} <ArrowRight className="size-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {requiredDone ? (
+                <Button type="button" variant="ghost" onClick={() => goTo(total)}>
+                  Review
+                </Button>
+              ) : null}
+              <Button type="button" onClick={() => goTo(step + 1)} disabled={!canNext}>
+                {step === total - 1 ? "Review" : "Next"} <ArrowRight className="size-4" />
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -2539,7 +2563,7 @@ function QuestionBody({
             Total measured <span className="font-bold tabular-nums">{formatSqft(total)}</span>
             {total > 0 ? (
               <span className="ml-1 text-muted-foreground tabular-nums">
-                ({formatSqyd(total / 9)} equivalent area)
+                ({formatSqyd(total / 9)} equivalent area — not an order qty)
               </span>
             ) : null}
           </span>
