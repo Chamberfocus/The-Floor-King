@@ -88,6 +88,7 @@ import {
   questionPhaseMap,
   prepQuantitiesAreFinal,
   answerGateValues,
+  coerceYesNoChoiceAnswer,
   groupMeasuredSqftByLabel,
   deliveryAddonCost,
   reviewBucketForQuestion,
@@ -561,7 +562,10 @@ export function Questionnaire({
     // questions that still exist, so a changed question set can't corrupt it).
     if (draft?.answers) {
       for (const [k, v] of Object.entries(draft.answers)) {
-        if (init[k] !== undefined && v) init[k] = rekeyAnswer(v as Answer);
+        if (init[k] === undefined || !v) continue;
+        const q = questions.find((x) => x.id === k);
+        const coerced = q ? coerceYesNoChoiceAnswer(q.kind, v) : v;
+        init[k] = rekeyAnswer(coerced as Answer);
       }
     }
     return init;
@@ -579,9 +583,19 @@ export function Questionnaire({
   const set = (id: string, a: Answer) => setAnswers((p) => ({ ...p, [id]: a }));
 
   // Per-room prep overrides: overrides[roomId][questionId] = that room's answer.
-  const [overrides, setOverrides] = useState<Record<string, Record<string, Answer>>>(
-    (draft?.overrides as Record<string, Record<string, Answer>>) ?? {},
-  );
+  const [overrides, setOverrides] = useState<Record<string, Record<string, Answer>>>(() => {
+    const raw = (draft?.overrides as Record<string, Record<string, Answer>> | undefined) ?? {};
+    const out: Record<string, Record<string, Answer>> = {};
+    for (const [roomId, byQ] of Object.entries(raw)) {
+      const next: Record<string, Answer> = {};
+      for (const [qid, ans] of Object.entries(byQ ?? {})) {
+        const q = questions.find((x) => x.id === qid);
+        next[qid] = (q ? coerceYesNoChoiceAnswer(q.kind, ans) : ans) as Answer;
+      }
+      out[roomId] = next;
+    }
+    return out;
+  });
 
   // Auto-save progress (debounced) so it can be resumed from any device. The
   // first render is skipped so simply opening the page doesn't overwrite a draft.
@@ -1579,6 +1593,7 @@ export function Questionnaire({
         // Selected option(s) plus any typed prep instructions.
         return [a.selected.join(", "), a.note?.trim()].filter(Boolean).join(" — ");
       }
+      if (q.kind === "choice" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "number" && a?.kind === "number") return a.value.trim();
       if (q.kind === "stairs" && a?.kind === "stairs")
@@ -1900,6 +1915,7 @@ export function Questionnaire({
     const condValue = (q: EstimateQuestion, a: Answer | undefined): string => {
       if (q.kind === "choice" && a?.kind === "choice")
         return [a.selected.join(", "), a.note?.trim()].filter(Boolean).join(" — ");
+      if (q.kind === "choice" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "text" && a?.kind === "text") return a.text.trim();
       if (q.kind === "number" && a?.kind === "number") return a.value.trim();
@@ -3612,7 +3628,14 @@ function QuestionBody({
     );
   }
 
-  if (q.kind === "choice" && !q.config.per_area && answer?.kind === "choice") {
+  if (q.kind === "choice" && !q.config.per_area) {
+    const answerChoice: Extract<Answer, { kind: "choice" }> | null =
+      answer?.kind === "choice"
+        ? answer
+        : answer?.kind === "yesno"
+          ? { kind: "choice", selected: [answer.yes ? "Yes" : "No"] }
+          : null;
+    if (!answerChoice) return null;
     const configured = q.config.options ?? [];
     const knowledgeOpts =
       q.key === "install_method"
@@ -3624,7 +3647,7 @@ function QuestionBody({
             const labels = new Set(knowledgeOpts.map((o) => o.label));
             // Keep a selected-but-not-permitted option visible so old drafts don't vanish.
             const extra = configured.filter(
-              (o) => answer.selected.includes(o.label) && !labels.has(o.label),
+              (o) => answerChoice.selected.includes(o.label) && !labels.has(o.label),
             );
             const merged = knowledgeOpts.map((o) => configured.find((c) => c.label === o.label) ?? { label: o.label });
             return [...merged, ...extra];
@@ -3634,14 +3657,14 @@ function QuestionBody({
     const soleInstall =
       q.key === "install_method" && opts.length === 1 && !multi ? opts[0].label : null;
     const selected =
-      soleInstall && !answer.selected.length ? [soleInstall] : answer.selected;
+      soleInstall && !answerChoice.selected.length ? [soleInstall] : answerChoice.selected;
     const toggle = (label: string) => {
       const on = selected.includes(label);
       if (soleInstall && on) return; // laminate / tile / sheet vinyl have one legal method
       const next = multi
         ? (on ? selected.filter((x) => x !== label) : [...selected, label])
         : (on ? [] : [label]);
-      set({ kind: "choice", selected: next, note: answer.note });
+      set({ kind: "choice", selected: next, note: answerChoice.note });
     };
     return (
       <div className="space-y-3">
@@ -3661,8 +3684,8 @@ function QuestionBody({
               Instructions / details (optional)
             </label>
             <textarea
-              value={answer.note ?? ""}
-              onChange={(e) => set({ kind: "choice", selected: answer.selected, note: e.target.value })}
+              value={answerChoice.note ?? ""}
+              onChange={(e) => set({ kind: "choice", selected: answerChoice.selected, note: e.target.value })}
               rows={3}
               placeholder="Describe what's needed — areas, materials, how much, anything the crew should know…"
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

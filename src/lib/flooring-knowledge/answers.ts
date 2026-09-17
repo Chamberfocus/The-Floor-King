@@ -23,6 +23,26 @@ function positiveCount(raw: string | undefined): number {
   return Number.isFinite(n) && n > 0 ? Math.ceil(n) : 0;
 }
 
+/**
+ * yesno ↔ choice Yes/No so a kind change (subfloor Field verify in 0206)
+ * does not drop in-flight drafts. Field verify / other choice labels are
+ * left alone — never coerced into a fake No.
+ */
+export function coerceYesNoChoiceAnswer(questionKind: string, a: unknown): unknown {
+  if (!a || typeof a !== "object") return a;
+  const ans = a as GateAnswer & { note?: string };
+  if (questionKind === "choice" && ans.kind === "yesno") {
+    const selected = [ans.yes ? "Yes" : "No"];
+    return ans.note ? { kind: "choice", selected, note: ans.note } : { kind: "choice", selected };
+  }
+  if (questionKind === "yesno" && ans.kind === "choice") {
+    const s = (ans.selected ?? [])[0] ?? "";
+    if (/^yes$/i.test(s)) return { kind: "yesno", yes: true };
+    if (/^no$/i.test(s)) return { kind: "yesno", yes: false };
+  }
+  return a;
+}
+
 /** Values a keyed answer contributes to `valByKey`. */
 export function answerGateValues(a: unknown): string[] {
   if (!a || typeof a !== "object") return [];

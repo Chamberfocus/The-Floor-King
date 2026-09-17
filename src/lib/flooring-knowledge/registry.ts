@@ -175,7 +175,17 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   },
   { key: "prep_confidence", purpose: "PREP", phase: "prep" },
   { key: "hs_prep", purpose: "PREP", phase: "prep" },
-  { key: "selflevel_needed", purpose: "PREP", phase: "prep" },
+  /**
+   * Bag-count yes/no. SQL show_if is hs_prep Self-leveling (0120/0206).
+   * Overlay require matches so a leftover Hard-surface-only show_if cannot
+   * hide bags on a carpet job that actually self-levels — and None still hides.
+   */
+  {
+    key: "selflevel_needed",
+    purpose: "PREP",
+    phase: "prep",
+    require: { key: "hs_prep", in: ["Self-leveling"] },
+  },
   { key: "subfloor_needed", purpose: "PREP", phase: "prep" },
   { key: "vinyl_skim", purpose: "PREP", phase: "prep", families: ["vinyl"] },
 

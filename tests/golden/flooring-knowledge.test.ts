@@ -58,6 +58,7 @@ import {
   prepQuantitiesAreFinal,
   prepQuantitySuffix,
   answerGateValues,
+  coerceYesNoChoiceAnswer,
   synthesizeStairGate,
   stairStepCountFromAnswers,
   jobNeedsHardSurfaceStairTrim,
@@ -1012,7 +1013,30 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(has(keys, "adhesive")).toBe(false);
     expect(has(keys, "pattern_match")).toBe(true);
     expect(has(keys, "carpet_pad")).toBe(true);
+    expect(has(keys, "hs_prep")).toBe(true);
+    expect(has(keys, "subfloor_needed")).toBe(true);
+    expect(has(keys, "selflevel_needed")).toBe(true); // unanswered hs_prep does not hide
     expect(has(keys, "tile_setting")).toBe(false);
+    expect(
+      has(
+        visibleKnowledgeKeys({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_prep: ["None"],
+        }),
+        "selflevel_needed",
+      ),
+    ).toBe(false);
+    expect(
+      has(
+        visibleKnowledgeKeys({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_prep: ["Self-leveling"],
+        }),
+        "selflevel_needed",
+      ),
+    ).toBe(true);
     expect(
       has(
         visibleKnowledgeKeys({
@@ -1131,6 +1155,15 @@ describe("family → system asks the right keys (not every question)", () => {
     expect(
       knowledgeWarnings(
         installContextFromValByKey({
+          project_type: ["Carpet"],
+          subfloor_condition: ["Damage / soft spots"],
+          subfloor_needed: ["Field verify / TBD"],
+        }),
+      ).some((w) => w.id === "subfloor-damage"),
+    ).toBe(false);
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
           project_type: ["Hard surface"],
           subfloor_condition: ["Unknown / field verify"],
           prep_confidence: ["Known"],
@@ -1238,6 +1271,10 @@ describe("unknown conditions stay unknown", () => {
     expect(knowledgeQuestionByKey("stairs")?.phase).toBe("details");
     expect(knowledgeQuestionByKey("hs_prep")?.phase).toBe("prep");
     expect(knowledgeQuestionByKey("selflevel_needed")?.purpose).toBe("PREP");
+    expect(knowledgeQuestionByKey("selflevel_needed")?.require).toEqual({
+      key: "hs_prep",
+      in: ["Self-leveling"],
+    });
     expect(knowledgeQuestionByKey("subfloor_needed")?.purpose).toBe("PREP");
     expect(knowledgeQuestionByKey("climate_control")?.phase).toBe("install");
     expect(knowledgeQuestionByKey("hs_product")).toBeUndefined();
@@ -1489,6 +1526,26 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       position: 292,
       show_if: { key: "project_type", in: ["Hard surface"] },
     },
+    {
+      key: "prep_scope",
+      position: 300,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
+    {
+      key: "hs_prep",
+      position: 310,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
+    {
+      key: "selflevel_needed",
+      position: 320,
+      show_if: { key: "hs_prep", in: ["Self-leveling"] },
+    },
+    {
+      key: "subfloor_needed",
+      position: 340,
+      show_if: { key: "project_type", in: ["Carpet", "Hard surface"] },
+    },
   ];
   const catalog = catalogRows.map((row) => ({
     id: row.key,
@@ -1582,6 +1639,10 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).toContain("substrate");
     expect(keys).toContain("existing_pad");
     expect(keys).toContain("radiant_heat");
+    expect(keys).toContain("hs_prep");
+    expect(keys).toContain("subfloor_needed");
+    expect(keys).toContain("prep_scope");
+    expect(keys).not.toContain("selflevel_needed");
     expect(keys).not.toContain("pattern_repeat");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("surface_type");
@@ -1959,6 +2020,55 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(glue).not.toContain("tack_strip");
   });
 
+  it("0206 shares Floor prep and subfloor on carpet, bags only after Self-leveling", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0206_flooring_knowledge_shared_prep.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0206_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/subfloor_needed/);
+    expect(sql).toMatch(/hs_prep/);
+    expect(sql).toMatch(/selflevel_needed/);
+    expect(sql).toMatch(/prep_scope/);
+    expect(sql).toMatch(/Field verify \/ TBD/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/insert into public\.estimate_questions/);
+
+    const stretch = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("hs_prep");
+    expect(stretch).toContain("subfloor_needed");
+    expect(stretch).toContain("prep_scope");
+    expect(stretch).not.toContain("selflevel_needed");
+
+    const selfLevel = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_prep: ["Self-leveling"],
+    });
+    expect(selfLevel).toContain("selflevel_needed");
+    expect(selfLevel.indexOf("hs_prep")).toBeLessThan(selfLevel.indexOf("selflevel_needed")!);
+
+    const tbd = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      subfloor_needed: ["Field verify / TBD"],
+    });
+    expect(tbd).toContain("subfloor_needed");
+    expect(tbd).toContain("hs_prep");
+
+    const lam = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+    });
+    expect(lam).toContain("hs_prep");
+    expect(lam).toContain("subfloor_needed");
+    expect(lam).not.toContain("selflevel_needed");
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
@@ -2058,6 +2168,21 @@ describe("stair extras and mixed-job measured area", () => {
     expect(answerGateValues({ kind: "hs_stairs", steps: "8" })).toEqual(["Yes"]);
     expect(answerGateValues({ kind: "hs_stairs", steps: "0" })).toEqual([]);
     expect(answerGateValues({ kind: "number", value: "2" })).toEqual(["2"]);
+    expect(coerceYesNoChoiceAnswer("choice", { kind: "yesno", yes: true })).toEqual({
+      kind: "choice",
+      selected: ["Yes"],
+    });
+    expect(coerceYesNoChoiceAnswer("choice", { kind: "yesno", yes: false })).toEqual({
+      kind: "choice",
+      selected: ["No"],
+    });
+    expect(
+      coerceYesNoChoiceAnswer("yesno", { kind: "choice", selected: ["Field verify / TBD"] }),
+    ).toEqual({ kind: "choice", selected: ["Field verify / TBD"] });
+    expect(coerceYesNoChoiceAnswer("yesno", { kind: "choice", selected: ["Yes"] })).toEqual({
+      kind: "yesno",
+      yes: true,
+    });
   });
 
   it("copies carpet_stairs Yes onto the stairs key the extras still read", () => {

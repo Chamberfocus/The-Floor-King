@@ -66,6 +66,7 @@ const REQUIRED_FILES = [
   "0203_flooring_knowledge_radiant_tile_format.sql",
   "0204_flooring_knowledge_grade_carpet.sql",
   "0205_flooring_knowledge_carpet_glue_climate.sql",
+  "0206_flooring_knowledge_shared_prep.sql",
 ];
 
 /**
@@ -911,6 +912,19 @@ const REQUIRED_MARKERS = [
       "moisture_test",
       "moisture_mitigation",
       "carpet_install",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0206_flooring_knowledge_shared_prep.sql",
+    markers: [
+      "P0_0206_FLOORING_KNOWLEDGE",
+      "subfloor_needed",
+      "hs_prep",
+      "selflevel_needed",
+      "prep_scope",
+      "Field verify / TBD",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

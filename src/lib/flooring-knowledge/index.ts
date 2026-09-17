@@ -48,6 +48,7 @@ export { matchesShowIf, isShowIfClause, showIfReferencedKeys } from "./show-if";
 
 export {
   answerGateValues,
+  coerceYesNoChoiceAnswer,
   synthesizeStairGate,
   stairStepCountFromAnswer,
   stairStepCountFromAnswers,
