@@ -635,6 +635,13 @@ export interface Product {
   accessory_origin?: AccessoryOrigin | null;
   price_override?: number | null; // when set, regeneration leaves material_rate alone
   piece_length_in?: number | null; // unit='each': stick length, for lnft → pieces
+  /** Catalog spec columns — optional because older loads may omit them. */
+  species?: string | null;
+  wear_rating?: string | null;
+  fiber?: string | null;
+  wear_layer_mil?: number | null;
+  thickness_mm?: number | null;
+  face_weight_oz?: number | null;
   last_movement_at: string | null;
   created_at: string;
   updated_at: string;

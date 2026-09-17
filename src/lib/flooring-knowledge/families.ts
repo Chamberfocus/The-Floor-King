@@ -141,6 +141,16 @@ export function hardwoodConstructionFromLabel(
   return "unknown";
 }
 
+/**
+ * Product `species` text (e.g. "White oak, engineered") overrides the
+ * questionnaire surface-type construction when it actually says.
+ */
+export function hardwoodConstructionFromSpecies(
+  species: string | null | undefined,
+): HardwoodConstruction {
+  return hardwoodConstructionFromLabel(species);
+}
+
 export function catalogCategoryForFamily(family: FlooringFamily): ProductCategory {
   if (family === "other") return "other";
   return family;

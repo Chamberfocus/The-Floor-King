@@ -13,10 +13,13 @@ import {
   catalogCategoryForFamily,
   coerceTrimUnit,
   computeMaterialTakeoff,
+  cutWidthChoicesFt,
+  defaultCutWidthFt,
   equivalentSqyd,
   familyFromCatalogCategory,
   familyFromSurfaceLabel,
   hardwoodConstructionFromLabel,
+  hardwoodConstructionFromSpecies,
   installContextFromValByKey,
   installMethodOptionsFor,
   installSystemFromLabel,
@@ -460,5 +463,29 @@ describe("migration 0192 closes remaining estimator gaps", () => {
     expect(q).toMatch(/coerceTrimUnit/);
     expect(q).toMatch(/never square feet/);
     expect(q).toMatch(/Order \(estimate — not a cut plan\)/);
+    expect(q).toMatch(/rollWidthFt/);
+    expect(q).toMatch(/defaultCutWidthFt/);
+  });
+});
+
+describe("product metadata overrides generic roll-width defaults", () => {
+  it("uses the catalog roll width when present, and does not invent one", () => {
+    expect(
+      defaultCutWidthFt({ family: "carpet", productWidthFt: 15, configWidths: [12, 15] }),
+    ).toBe(15);
+    expect(
+      defaultCutWidthFt({ family: "vinyl", productWidthFt: null, configWidths: [6, 12] }),
+    ).toBe(6);
+    expect(defaultCutWidthFt({ family: "carpet" })).toBe(12);
+    expect(cutWidthChoicesFt({ family: "carpet", productWidthFt: 13.5 })).toEqual([12, 13.5, 15]);
+    expect(cutWidthChoicesFt({ family: "vinyl", configWidths: [6, 12], productWidthFt: 12 })).toEqual([
+      6, 12,
+    ]);
+  });
+
+  it("reads engineered construction from catalog species text", () => {
+    expect(hardwoodConstructionFromSpecies("White oak, engineered")).toBe("engineered");
+    expect(hardwoodConstructionFromSpecies("Solid white oak")).toBe("solid");
+    expect(hardwoodConstructionFromSpecies(null)).toBe("unknown");
   });
 });

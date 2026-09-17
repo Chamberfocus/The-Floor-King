@@ -52,6 +52,8 @@ import {
   catalogCategoryForFamily,
   coerceTrimUnit,
   accessoryUnitForType,
+  cutWidthChoicesFt,
+  defaultCutWidthFt,
   computeMaterialTakeoff,
   emptyInstallContext,
   familyFromCatalogCategory,
@@ -59,6 +61,7 @@ import {
   formatMeasuredLabel,
   formatSqft,
   formatSqyd,
+  hardwoodConstructionFromSpecies,
   installContextFromValByKey,
   installMethodOptionsForFamilies,
   isRollGoodsFamily,
@@ -141,6 +144,10 @@ interface ProductAns {
   wastePct: string;   // raw input; "" = use the category default waste
   sqftPerBox: string; // raw input; sq ft per carton → box count (display)
   pieceLengthIn: number | null; // accessories sold by the piece: stick length → lnft ÷ this = pieces
+  /** Catalog roll width in feet — drives cut defaults when present. */
+  rollWidthFt: number | null;
+  /** Hardwood species/construction text from the catalog, when present. */
+  species: string | null;
 }
 /** An extra material for a specific area (e.g. an upgraded pad for the stairs). */
 interface ExtraPad { id: string; product: ProductAns | null; sqft: string }
@@ -285,6 +292,8 @@ function toProductAns(p: Product): ProductAns {
     wastePct: "",
     sqftPerBox: p.sqft_per_box && p.sqft_per_box > 0 ? String(p.sqft_per_box) : "",
     pieceLengthIn: p.piece_length_in ?? null,
+    rollWidthFt: p.roll_width_ft && p.roll_width_ft > 0 ? p.roll_width_ft : null,
+    species: p.species?.trim() || null,
   };
 }
 /** A one-off product typed in the picker — used on this estimate only, never
@@ -312,13 +321,16 @@ function customToProductAns(input: CustomProductInput): ProductAns {
     source: "order",
     vendor: "",
     wastePct: "",
-    sqftPerBox: "",
+    sqftPerBox:
+      numOr0(input.specs?.sqft_per_box) > 0 ? String(numOr0(input.specs.sqft_per_box)) : "",
     // A one-off trim needs its stick length too, or the run you measure can't
     // be turned into pieces.
     pieceLengthIn:
       input.unit === "each" || input.unit === "pc"
         ? numOr0(input.piece_length_in) || DEFAULT_PIECE_LENGTH_IN
         : null,
+    rollWidthFt: numOr0(input.specs?.roll_width_ft) > 0 ? numOr0(input.specs.roll_width_ft) : null,
+    species: input.specs?.species?.trim() || null,
   };
 }
 let xpid = 0;
@@ -668,7 +680,32 @@ export function Questionnaire({
       }
       valByKey[q.key] = [...vals];
     }
-    return installContextFromValByKey(valByKey);
+    const ctx = installContextFromValByKey(valByKey);
+    const species: string[] = [];
+    const take = (p: ProductAns | null | undefined) => {
+      if (p?.species) species.push(p.species);
+    };
+    for (const q of questions) {
+      if (!visible[q.id]) continue;
+      const a = answers[q.id];
+      if (a?.kind === "product") {
+        take(a.product);
+        for (const x of a.extras) take(x.product);
+      } else if (a?.kind === "cuts") {
+        take(a.product);
+        for (const g of a.groups) take(g.product);
+      } else if (a?.kind === "floor_map") {
+        for (const p of Object.values(a.byRoom)) take(p);
+      }
+    }
+    for (const s of species) {
+      const c = hardwoodConstructionFromSpecies(s);
+      if (c !== "unknown") {
+        ctx.hardwoodConstruction = c;
+        break;
+      }
+    }
+    return ctx;
   }, [questions, answers, overrides, visible]);
 
   const cutsSqftByCategory = useMemo(() => {
@@ -1148,11 +1185,17 @@ export function Questionnaire({
           sqyd: number;
           widthFt: number;
         };
-        const groupPieces = (g: CarpetGroup): Piece[] => {
+        const groupPieces = (g: CarpetGroup, p: ProductAns | null): Piece[] => {
+          const fallback =
+            p?.rollWidthFt && p.rollWidthFt > 0
+              ? p.rollWidthFt
+              : q.config.category === "vinyl"
+                ? 12
+                : 12;
           const pieces: Piece[] = [];
           for (const c of g.cuts) {
             const lenIn = numv(c.lf) * 12 + numv(c.li);
-            const widFt = numv(c.width) || 12;
+            const widFt = numv(c.width) || fallback;
             if (lenIn <= 0 || widFt <= 0) continue;
             const sqft = (lenIn / 12) * widFt;
             const sqyd = r2(sqft / 9);
@@ -1200,7 +1243,7 @@ export function Questionnaire({
             color: p?.color ?? null,
             from_stock: p?.source === "stock",
             order_as_roll: true, // PO consolidates these cuts into one roll per product+width
-            roll_width_ft: first.widthFt,
+            roll_width_ft: p?.rollWidthFt && p.rollWidthFt > 0 ? p.rollWidthFt : first.widthFt,
             measurements: pieces.map((x) => ({
               label: x.label,
               length_in: x.lenIn,
@@ -1240,10 +1283,10 @@ export function Questionnaire({
 
         if (sameCarpet) {
           // One carpet for the whole job → ONE line, every cut labeled by its area.
-          emitCarpet(a.product, a.groups.flatMap(groupPieces), null);
+          emitCarpet(a.product, a.groups.flatMap((g) => groupPieces(g, a.product)), null);
         } else {
           // Different carpet per area → one line per area (each with its cuts).
-          for (const g of a.groups) emitCarpet(g.product, groupPieces(g), g.area.trim() || null);
+          for (const g of a.groups) emitCarpet(g.product, groupPieces(g, g.product), g.area.trim() || null);
         }
       } else if (q.kind === "stairs" && a.kind === "stairs") {
         // Stairs → step LABOR + the CARPET the steps consume (waterfall vs
@@ -3328,7 +3371,6 @@ function QuestionBody({
     const mutate = (fn: (a: CutsA) => CutsA) =>
       update((prev) => (prev && prev.kind === "cuts" ? fn(prev) : answer));
     const setSame = (v: boolean) => mutate((a) => ({ ...a, same: v }));
-    const setShared = (p: ProductAns | null) => mutate((a) => ({ ...a, product: p }));
     const patchGroup = (gid: string, p: Partial<CarpetGroup>) =>
       mutate((a) => ({ ...a, groups: a.groups.map((g) => (g.id === gid ? { ...g, ...p } : g)) }));
     const patchCut = (gid: string, cid: string, p: Partial<CutRow>) =>
@@ -3338,18 +3380,55 @@ function QuestionBody({
           g.id === gid ? { ...g, cuts: g.cuts.map((c) => (c.id === cid ? { ...c, ...p } : c)) } : g,
         ),
       }));
-    const addGroup = () => mutate((a) => ({ ...a, groups: [...a.groups, newCarpetGroup()] }));
+    const addGroup = () =>
+      mutate((a) => {
+        const w = defaultWidthFor(a.same !== false ? a.product : null);
+        return { ...a, groups: [...a.groups, { ...newCarpetGroup(), cuts: [newCutRow(w)] }] };
+      });
     const removeGroup = (gid: string) => mutate((a) => ({ ...a, groups: a.groups.filter((g) => g.id !== gid) }));
     const rollNoun = q.config.category === "vinyl" ? "sheet vinyl" : "carpet";
     const rollNounCap = q.config.category === "vinyl" ? "Sheet vinyl" : "Carpet";
-    const defaultWidth = String((q.config.widths ?? [12])[0] ?? 12);
-    const addCut = (gid: string) =>
-      mutate((a) => ({
-        ...a,
-        groups: a.groups.map((g) =>
-          g.id === gid ? { ...g, cuts: [...g.cuts, newCutRow(g.cuts[g.cuts.length - 1]?.width || defaultWidth)] } : g,
+    const rollFamily = q.config.category === "vinyl" ? "vinyl" : "carpet";
+    const productForWidth = (a: CutsA, g: CarpetGroup): ProductAns | null =>
+      a.same !== false ? a.product : g.product;
+    const widthFromProduct = (p: ProductAns | null): number | null =>
+      p?.rollWidthFt && p.rollWidthFt > 0 ? p.rollWidthFt : null;
+    const defaultWidthFor = (p: ProductAns | null) =>
+      String(
+        defaultCutWidthFt({
+          family: rollFamily,
+          productWidthFt: widthFromProduct(p),
+          configWidths: q.config.widths ?? null,
+        }),
+      );
+    const widthChoices = (p: ProductAns | null) =>
+      cutWidthChoicesFt({
+        family: rollFamily,
+        productWidthFt: widthFromProduct(p),
+        configWidths: q.config.widths ?? null,
+      });
+    const applyProductWidth = (groups: CarpetGroup[], p: ProductAns | null, prevWidth: string) => {
+      const next = defaultWidthFor(p);
+      return groups.map((g) => ({
+        ...g,
+        cuts: g.cuts.map((c) =>
+          !c.width || c.width === prevWidth || c.width === defaultWidthFor(null)
+            ? { ...c, width: next }
+            : c,
         ),
       }));
+    };
+    const addCut = (gid: string) =>
+      mutate((a) => {
+        const g = a.groups.find((x) => x.id === gid);
+        const w = g?.cuts[g.cuts.length - 1]?.width || defaultWidthFor(productForWidth(a, g ?? newCarpetGroup()));
+        return {
+          ...a,
+          groups: a.groups.map((gg) =>
+            gg.id === gid ? { ...gg, cuts: [...gg.cuts, newCutRow(w)] } : gg,
+          ),
+        };
+      });
     const removeCut = (gid: string, cid: string) =>
       mutate((a) => ({
         ...a,
@@ -3383,9 +3462,27 @@ function QuestionBody({
             label={`Which ${rollNoun}? (used for every cut)`}
             defaultCategory={q.config.category === "vinyl" ? "vinyl" : "carpet"}
             fullWidth
-            onPick={(prod) => setShared(prod ? toProductAns(prod) : null)}
-            onCreated={(prod) => setShared(toProductAns(prod))}
-            onUseOnce={(input) => setShared(customToProductAns(input))}
+            onPick={(prod) =>
+              mutate((a) => {
+                const p = prod ? toProductAns(prod) : null;
+                const prev = defaultWidthFor(a.product);
+                return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
+              })
+            }
+            onCreated={(prod) =>
+              mutate((a) => {
+                const p = toProductAns(prod);
+                const prev = defaultWidthFor(a.product);
+                return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
+              })
+            }
+            onUseOnce={(input) =>
+              mutate((a) => {
+                const p = customToProductAns(input);
+                const prev = defaultWidthFor(a.product);
+                return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
+              })
+            }
           />
         ) : null}
 
@@ -3405,9 +3502,48 @@ function QuestionBody({
               </div>
               {!same ? (
                 <ProductPicker value={g.product?.productId ?? ""} initialLabel={g.product?.label ?? ""} label={`Which ${rollNoun}?`} defaultCategory={q.config.category === "vinyl" ? "vinyl" : "carpet"} fullWidth
-                  onPick={(prod) => patchGroup(g.id, { product: prod ? toProductAns(prod) : null })}
-                  onCreated={(prod) => patchGroup(g.id, { product: toProductAns(prod) })}
-                  onUseOnce={(input) => patchGroup(g.id, { product: customToProductAns(input) })} />
+                  onPick={(prod) => {
+                    const p = prod ? toProductAns(prod) : null;
+                    mutate((a) => {
+                      const prev = defaultWidthFor(g.product);
+                      return {
+                        ...a,
+                        groups: a.groups.map((gg) =>
+                          gg.id === g.id
+                            ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
+                            : gg,
+                        ),
+                      };
+                    });
+                  }}
+                  onCreated={(prod) => {
+                    const p = toProductAns(prod);
+                    mutate((a) => {
+                      const prev = defaultWidthFor(g.product);
+                      return {
+                        ...a,
+                        groups: a.groups.map((gg) =>
+                          gg.id === g.id
+                            ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
+                            : gg,
+                        ),
+                      };
+                    });
+                  }}
+                  onUseOnce={(input) => {
+                    const p = customToProductAns(input);
+                    mutate((a) => {
+                      const prev = defaultWidthFor(g.product);
+                      return {
+                        ...a,
+                        groups: a.groups.map((gg) =>
+                          gg.id === g.id
+                            ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
+                            : gg,
+                        ),
+                      };
+                    });
+                  }} />
               ) : null}
               <div className="space-y-1.5">
                 {g.cuts.map((c, ci) => (
@@ -3418,8 +3554,28 @@ function QuestionBody({
                     <div>
                       {ci === 0 ? <label className="mb-1 block text-xs text-muted-foreground">Width (ft)</label> : null}
                       <Input value={c.width} onChange={(e) => patchCut(g.id, c.id, { width: e.target.value })}
-                        inputMode="decimal" placeholder="12"
+                        inputMode="decimal" placeholder={defaultWidthFor(productForWidth(answer, g))}
                         className="h-11 w-20 text-base md:h-10 md:w-16" />
+                    </div>
+                    <div className="flex flex-wrap gap-1 pb-2">
+                      {widthChoices(productForWidth(answer, g)).map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => patchCut(g.id, c.id, { width: String(w) })}
+                          className={cn(
+                            "rounded-full border px-2 py-1 text-[11px] font-medium",
+                            numv(c.width) === w
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:border-primary",
+                          )}
+                        >
+                          {w}&apos;
+                        </button>
+                      ))}
+                      {ci === 0 && widthFromProduct(productForWidth(answer, g)) ? (
+                        <span className="self-center text-[11px] text-muted-foreground">catalog roll</span>
+                      ) : null}
                     </div>
                     {g.cuts.length > 1 ? (
                       <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove cut" onClick={() => removeCut(g.id, c.id)}>

@@ -277,6 +277,40 @@ export function coerceTrimUnit(
 }
 
 /**
+ * Cut/roll width for carpet or sheet vinyl. Product `roll_width_ft` wins when
+ * it is actually on the catalog row — we do not invent 12' or 15'.
+ */
+export function defaultCutWidthFt(opts: {
+  family: FlooringFamily;
+  productWidthFt?: number | null;
+  configWidths?: number[] | null;
+}): number {
+  const fromProduct = Number(opts.productWidthFt);
+  if (Number.isFinite(fromProduct) && fromProduct > 0) return fromProduct;
+  const cfg = (opts.configWidths ?? []).filter((n) => Number.isFinite(n) && n > 0);
+  if (cfg.length) return cfg[0]!;
+  return opts.family === "vinyl" ? 12 : 12;
+}
+
+/** Width chips: question config + the product's real roll width when present. */
+export function cutWidthChoicesFt(opts: {
+  family: FlooringFamily;
+  productWidthFt?: number | null;
+  configWidths?: number[] | null;
+}): number[] {
+  const base =
+    opts.configWidths && opts.configWidths.length
+      ? opts.configWidths.filter((n) => Number.isFinite(n) && n > 0)
+      : opts.family === "vinyl"
+        ? [6, 12]
+        : [12, 15];
+  const extra = Number(opts.productWidthFt);
+  const out = [...base];
+  if (Number.isFinite(extra) && extra > 0 && !out.includes(extra)) out.push(extra);
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+
+/**
  * Billing unit for a catalog category — delegates to units.ts so sheet vinyl
  * cannot drift back to square feet.
  */

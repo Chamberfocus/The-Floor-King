@@ -338,6 +338,16 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
     });
   }
   if (
+    ctx.hardwoodConstruction === "engineered" &&
+    ctx.surfaceLabels.includes("Hardwood") &&
+    !ctx.surfaceLabels.some((s) => /engineered/i.test(s))
+  ) {
+    w.push({
+      id: "species-engineered",
+      text: "Catalog species reads engineered while the surface pick is solid hardwood — install methods follow the product. Confirm before nailing or gluing.",
+    });
+  }
+  if (
     ctx.families.includes("carpet") &&
     (extras?.measuredSqft ?? 0) > 0 &&
     extras?.hasCuts === false
