@@ -66,6 +66,19 @@ export function formatDimensionPair(
   return `${a} × ${b}`;
 }
 
+/** Measured area per product label — mixed jobs must not share whole-job sq ft. */
+export function groupMeasuredSqftByLabel(
+  rows: { label: string; measuredSqft: number }[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    const label = r.label.trim();
+    if (!label || !(r.measuredSqft > 0)) continue;
+    out[label] = Math.round(((out[label] ?? 0) + r.measuredSqft) * 100) / 100;
+  }
+  return out;
+}
+
 function takeoffRows(t: MaterialTakeoff): ReviewSection["rows"] {
   const rows: ReviewSection["rows"] = [
     { label: "Measured area", value: formatMeasuredLabel(t.measured, { showEquivalentYd: t.billingUnit === "sqyd" }) },

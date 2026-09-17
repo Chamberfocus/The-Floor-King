@@ -21,6 +21,7 @@ import {
   type InstallSystem,
 } from "./families";
 import { matchesShowIf } from "./show-if";
+import { synthesizeStairGate } from "./answers";
 import { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS } from "./registry";
 
 export { DEFAULT_KNOWLEDGE_WHEN, KNOWLEDGE_QUESTIONS } from "./registry";
@@ -99,7 +100,11 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
   const attachedPad: InstallContext["attachedPad"] =
     padAns === "yes" ? "yes" : padAns === "no" || padAns === "unknown" ? (padAns === "no" ? "no" : "unknown") : padAns ? "unknown" : "unknown";
 
-  const stairsRaw = valByKey.stairs ?? [];
+  const stairsRaw = [
+    ...(valByKey.stairs ?? []),
+    ...(valByKey.carpet_stairs ?? []),
+    ...(valByKey.hs_plank_stairs ?? []),
+  ];
   const stairs = stairsRaw.length
     ? stairsRaw.some((v) => v === "Yes" || /yes/i.test(v))
     : null;
@@ -229,9 +234,10 @@ export function questionApplies(
  * family/system branching without a live estimate_questions table.
  */
 export function visibleKnowledgeKeys(valByKey: Record<string, string[]>): string[] {
-  const ctx = installContextFromValByKey(valByKey);
+  const keys = synthesizeStairGate(valByKey);
+  const ctx = installContextFromValByKey(keys);
   return KNOWLEDGE_QUESTIONS.filter((def) =>
-    questionApplies({ key: def.key, config: {} }, valByKey, ctx),
+    questionApplies({ key: def.key, config: {} }, keys, ctx),
   ).map((def) => def.key);
 }
 
@@ -249,8 +255,9 @@ export function resolveQuestionVisibility<
   const vis: Record<string, boolean> = {};
   for (const q of questions) vis[q.id] = true;
   for (let iter = 0; iter <= questions.length; iter++) {
-    const valByKey: Record<string, string[]> = {};
+    let valByKey: Record<string, string[]> = {};
     for (const q of questions) if (vis[q.id] && q.key) valByKey[q.key] = valsFor(q);
+    valByKey = synthesizeStairGate(valByKey);
     let changed = false;
     for (const q of questions) {
       const show = questionApplies(q, valByKey);
@@ -382,6 +389,12 @@ export function knowledgeHelpFor(
   }
   if (key === "moisture_test") {
     return "Glue-down and hardwood over concrete often need a moisture reading. If you cannot test yet, pick Field verify — do not invent a number.";
+  }
+  if (key === "stair_landings") {
+    return "Count of landings in EACH. Measured with the rooms when they are floored the same; this flags extra pieces and noses.";
+  }
+  if (key === "stair_open_sides") {
+    return "Open sides change wrapped carpet ends and hard-surface nosing. Capture the construction — pricing still uses existing stair labor.";
   }
   return null;
 }

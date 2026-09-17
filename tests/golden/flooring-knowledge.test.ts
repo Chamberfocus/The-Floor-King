@@ -42,6 +42,9 @@ import {
   showIfReferencedKeys,
   prepQuantitiesAreFinal,
   prepQuantitySuffix,
+  answerGateValues,
+  synthesizeStairGate,
+  groupMeasuredSqftByLabel,
 } from "@/lib/flooring-knowledge";
 import { billsBySquareYard } from "@/lib/units";
 import type { ShowIfClause } from "@/lib/types";
@@ -929,12 +932,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     {
       key: "hs_underlayment",
       position: 220,
-      show_if: {
-        all: [
-          { key: "install_method", in: ["Floating / click"] },
-          { key: "attached_pad", in: ["No", "Unknown", "Not sure"] },
-        ],
-      },
+      show_if: { key: "install_method", in: ["Floating / click"] },
     },
     {
       key: "laminate_expansion",
@@ -976,6 +974,30 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     { key: "toilets", position: 255, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "appliances", position: 260, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
     { key: "delivery_scope", position: 535, show_if: { key: "project_type", in: ["Carpet", "Hard surface"] } },
+    { key: "carpet_stairs", position: 250, show_if: { key: "project_type", in: ["Carpet"] } },
+    { key: "hs_plank_stairs", position: 250, show_if: { key: "project_type", in: ["Hard surface"] } },
+    {
+      key: "stair_landings",
+      position: 265,
+      show_if: {
+        any: [
+          { key: "stairs", in: ["Yes"] },
+          { key: "carpet_stairs", in: ["Yes"] },
+          { key: "hs_plank_stairs", in: ["Yes"] },
+        ],
+      },
+    },
+    {
+      key: "stair_open_sides",
+      position: 266,
+      show_if: {
+        any: [
+          { key: "stairs", in: ["Yes"] },
+          { key: "carpet_stairs", in: ["Yes"] },
+          { key: "hs_plank_stairs", in: ["Yes"] },
+        ],
+      },
+    },
   ];
   const catalog = catalogRows.map((row) => ({
     id: row.key,
@@ -1001,6 +1023,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys.indexOf("surface_type")).toBeLessThan(keys.indexOf("install_method")!);
     expect(keys.indexOf("install_method")).toBeLessThan(keys.indexOf("attached_pad")!);
     expect(keys).toContain("laminate_expansion");
+    expect(keys).toContain("hs_underlayment");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("hardwood_fasteners");
     expect(keys).not.toContain("tack_strip");
@@ -1037,6 +1060,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(keys).not.toContain("pattern_repeat");
     expect(keys).not.toContain("adhesive");
     expect(keys).not.toContain("surface_type");
+    expect(keys).not.toContain("stair_landings");
+    expect(keys).not.toContain("stair_open_sides");
   });
 
   it("glue-down carpet: overlay hides tack strip even though show_if is Carpet", () => {
@@ -1101,6 +1126,32 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(withMatch).toContain("pattern_repeat");
     expect(withMatch.indexOf("pattern_match")).toBeLessThan(withMatch.indexOf("pattern_repeat")!);
   });
+
+  it("stair landings appear after a carpet step count, not on the dead stairs yes/no", () => {
+    const before = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(before).toContain("carpet_stairs");
+    expect(before).not.toContain("stair_landings");
+    const after = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      carpet_stairs: ["Yes"],
+    });
+    expect(after).toContain("stair_landings");
+    expect(after).toContain("stair_open_sides");
+    expect(after.indexOf("carpet_stairs")).toBeLessThan(after.indexOf("stair_landings")!);
+  });
+
+  it("unanswered attached pad still shows underlayment on a floating job", () => {
+    const keys = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    });
+    expect(keys).toContain("hs_underlayment");
+  });
 });
 
 describe("0194 keys live questions without inventing prices", () => {
@@ -1146,5 +1197,57 @@ describe("0195 captures pattern repeat and delivery without inventing a cut plan
     expect(sql).toMatch(/Does NOT enable accounting/);
     expect(knowledgeQuestionByKey("pattern_repeat")?.purpose).toBe("WAREHOUSE");
     expect(knowledgeQuestionByKey("delivery_scope")?.purpose).toBe("PURCHASING");
+  });
+});
+
+describe("stair extras and mixed-job measured area", () => {
+  it("a stair step count is Yes for landings/open-sides; empty count is not", () => {
+    expect(answerGateValues({ kind: "stairs", groups: [{ type: "Waterfall", count: "12" }] })).toEqual([
+      "Yes",
+      "Waterfall",
+    ]);
+    expect(answerGateValues({ kind: "stairs", groups: [{ type: "Waterfall", count: "" }] })).toEqual([]);
+    expect(answerGateValues({ kind: "hs_stairs", steps: "8" })).toEqual(["Yes"]);
+    expect(answerGateValues({ kind: "hs_stairs", steps: "0" })).toEqual([]);
+    expect(answerGateValues({ kind: "number", value: "2" })).toEqual(["2"]);
+  });
+
+  it("copies carpet_stairs Yes onto the stairs key the extras still read", () => {
+    expect(synthesizeStairGate({ carpet_stairs: ["Yes"] }).stairs).toEqual(["Yes"]);
+    expect(synthesizeStairGate({ carpet_install: ["Stretch-in"] }).stairs).toBeUndefined();
+  });
+
+  it("mixed floor-map rooms keep their own measured sq ft per product", () => {
+    const by = groupMeasuredSqftByLabel([
+      { label: "Mohawk carpet", measuredSqft: 300 },
+      { label: "LVP click", measuredSqft: 200 },
+      { label: "Mohawk carpet", measuredSqft: 50 },
+    ]);
+    expect(by["Mohawk carpet"]).toBe(350);
+    expect(by["LVP click"]).toBe(200);
+    const carpet = computeMaterialTakeoff({ family: "carpet", measuredSqft: by["Mohawk carpet"], cutsSqft: 432 });
+    const lvp = computeMaterialTakeoff({ family: "lvp", measuredSqft: by["LVP click"], wastePct: 10 });
+    expect(carpet.measured.sqft).toBe(350);
+    expect(lvp.measured.sqft).toBe(200);
+    expect(lvp.orderSqft).toBe(220);
+    expect(carpet.measured.sqft).not.toBe(lvp.measured.sqft);
+  });
+
+  it("0196 re-gates stair extras and floating underlayment without inventing prices", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0196_flooring_knowledge_stair_gates.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0196_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/carpet_stairs/);
+    expect(sql).toMatch(/hs_plank_stairs/);
+    expect(sql).toMatch(/hs_underlayment/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(knowledgeQuestionByKey("stair_landings")?.quantityUnit).toBe("each");
+    expect(knowledgeQuestionByKey("stair_landings")?.require).toEqual({ key: "stairs", in: ["Yes"] });
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/answerGateValues/);
+    expect(q).toMatch(/groupMeasuredSqftByLabel/);
   });
 });

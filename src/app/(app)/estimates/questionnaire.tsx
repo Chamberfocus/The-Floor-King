@@ -78,6 +78,8 @@ import {
   estimatorPhaseLabel,
   questionPhaseMap,
   prepQuantitiesAreFinal,
+  answerGateValues,
+  groupMeasuredSqftByLabel,
   prepQuantitySuffix,
   type InstallContext,
   type ReviewRoom,
@@ -617,20 +619,7 @@ export function Questionnaire({
   // point, so a gate can sit anywhere relative to the questions it reveals (a
   // hidden question's answer never counts toward another condition).
   const visible = useMemo(() => {
-    const valsOf = (a: Answer | undefined): string[] =>
-      a?.kind === "yesno"
-        ? [a.yes ? "Yes" : "No"]
-        : a?.kind === "choice"
-          ? a.selected
-          : a?.kind === "choice_areas"
-            ? a.rows.map((r) => r.option).filter(Boolean)
-            : a?.kind === "text"
-              ? [a.text]
-              : a?.kind === "product"
-                ? a.product
-                  ? [a.product.label]
-                  : []
-                : [];
+    const valsOf = (a: Answer | undefined): string[] => answerGateValues(a);
     // A question's gating values = its job-level answer PLUS every per-room
     // override. So a value chosen for even ONE room counts — that's how a later
     // question "recognizes" per-room detail and stops re-asking (e.g. demo
@@ -658,16 +647,7 @@ export function Questionnaire({
 
   const flooringCtx = useMemo(() => {
     const valByKey: Record<string, string[]> = {};
-    const valsOf = (a: Answer | undefined): string[] =>
-      a?.kind === "yesno"
-        ? [a.yes ? "Yes" : "No"]
-        : a?.kind === "choice"
-          ? a.selected
-          : a?.kind === "choice_areas"
-            ? a.rows.map((r) => r.option).filter(Boolean)
-            : a?.kind === "text"
-              ? [a.text]
-              : [];
+    const valsOf = (a: Answer | undefined): string[] => answerGateValues(a);
     for (const q of questions) {
       if (!visible[q.id] || !q.key) continue;
       const vals = new Set(valsOf(answers[q.id]));
@@ -1489,6 +1469,16 @@ export function Questionnaire({
       }
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "number" && a?.kind === "number") return a.value.trim();
+      if (q.kind === "stairs" && a?.kind === "stairs")
+        return a.groups
+          .filter((g) => numv(g.count) > 0)
+          .map((g) => `${g.count} ${g.type || "steps"}`)
+          .join("; ");
+      if (q.kind === "hs_stairs" && a?.kind === "hs_stairs") {
+        const n = Math.ceil(numv(a.steps));
+        if (n <= 0) return "";
+        return `${n} step${n === 1 ? "" : "s"} (${a.treadRiser ? "tread + riser" : "tread only"})`;
+      }
       return "";
     };
     for (const q of questions) {
@@ -1549,16 +1539,7 @@ export function Questionnaire({
       if (!visible[qq.id]) continue;
       const a = answers[qq.id];
       if (qq.key)
-        valByKey[qq.key] =
-          a?.kind === "yesno"
-            ? [a.yes ? "Yes" : "No"]
-            : a?.kind === "choice"
-              ? a.selected
-              : a?.kind === "choice_areas"
-                ? a.rows.map((r) => r.option).filter(Boolean)
-                : a?.kind === "text"
-                  ? [a.text]
-                  : [];
+        valByKey[qq.key] = answerGateValues(a);
       if (a?.kind === "choice") picked.push(...a.selected);
       if (a?.kind === "choice_areas") picked.push(...a.rows.map((r) => r.option));
     }
@@ -1640,7 +1621,14 @@ export function Questionnaire({
     const products: string[] = [];
     const takeoffs = [];
     const seenProd = new Set<string>();
-    const addProduct = (label: string, category: string | null, wastePct: string, sqftPerBox: string, cuts: number) => {
+    const addProduct = (
+      label: string,
+      category: string | null,
+      wastePct: string,
+      sqftPerBox: string,
+      cuts: number,
+      measuredSqft = totalSqft,
+    ) => {
       if (!label || seenProd.has(label)) return;
       seenProd.add(label);
       products.push(label);
@@ -1650,7 +1638,7 @@ export function Questionnaire({
       takeoffs.push(
         computeMaterialTakeoff({
           family,
-          measuredSqft: totalSqft,
+          measuredSqft,
           wastePct: waste,
           cutsSqft: family === "carpet" ? cutsSqftByCategory.carpet ?? 0 : family === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : null,
           sqftPerBox: numv(sqftPerBox) > 0 ? numv(sqftPerBox) : null,
@@ -1679,8 +1667,25 @@ export function Questionnaire({
           }
         }
       } else if (a?.kind === "floor_map") {
-        for (const p of Object.values(a.byRoom)) {
-          if (p) addProduct(p.label, p.category, p.wastePct, p.sqftPerBox, 0);
+        const assigned = allRooms
+          .map((rm, i) => {
+            const p = a.byRoom[roomKey(rm.name, i)];
+            if (!p || rm.sqft <= 0) return null;
+            return {
+              label: p.label,
+              category: p.category,
+              wastePct: p.wastePct,
+              sqftPerBox: p.sqftPerBox,
+              measuredSqft: rm.sqft,
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => !!x);
+        const sqftByLabel = groupMeasuredSqftByLabel(assigned);
+        const seen = new Set<string>();
+        for (const p of assigned) {
+          if (seen.has(p.label)) continue;
+          seen.add(p.label);
+          addProduct(p.label, p.category, p.wastePct, p.sqftPerBox, 0, sqftByLabel[p.label] ?? p.measuredSqft);
         }
       }
     }
@@ -1706,6 +1711,16 @@ export function Questionnaire({
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "text" && a?.kind === "text") return a.text.trim();
       if (q.kind === "number" && a?.kind === "number") return a.value.trim();
+      if (q.kind === "stairs" && a?.kind === "stairs")
+        return a.groups
+          .filter((g) => numv(g.count) > 0)
+          .map((g) => `${g.count} ${g.type || "steps"}`)
+          .join("; ");
+      if (q.kind === "hs_stairs" && a?.kind === "hs_stairs") {
+        const n = Math.ceil(numv(a.steps));
+        if (n <= 0) return "";
+        return `${n} step${n === 1 ? "" : "s"} (${a.treadRiser ? "tread + riser" : "tread only"})`;
+      }
       if (q.kind === "product" && a?.kind === "trims")
         return a.rows
           .filter((r) => (r.type || r.product) && numv(r.qty) > 0)
@@ -1724,7 +1739,17 @@ export function Questionnaire({
       if (!v) continue;
       const blob = `${q.key ?? ""} ${q.label} ${v}`.toLowerCase();
       if (/demo|tear|removal|haul|dispos|pad remove|existing_bond|existing_pad/.test(blob)) removal.push(`${q.label}: ${v}`);
-      else if (/install|method|acclim|surface type|carpet_install|tile_application/.test(blob) || q.key === "install_method" || q.key === "surface_type" || q.key === "carpet_install" || q.key === "tile_application")
+      else if (
+        /install|method|acclim|surface type|carpet_install|tile_application|stair/.test(blob) ||
+        q.key === "install_method" ||
+        q.key === "surface_type" ||
+        q.key === "carpet_install" ||
+        q.key === "tile_application" ||
+        q.key === "stair_landings" ||
+        q.key === "stair_open_sides" ||
+        q.key === "carpet_stairs" ||
+        q.key === "hs_plank_stairs"
+      )
         installation.push(`${q.label}: ${v}`);
       else if (/prep|level|subfloor|moisture|vapor|substrate|skim|grind/.test(blob) || q.key === "prep_confidence" || q.key === "vinyl_skim")
         prep.push(`${q.label}: ${v}`);
@@ -1755,7 +1780,7 @@ export function Questionnaire({
       specials,
       extraWarnings: [],
     });
-  }, [questions, answers, visible, totalSqft, cutsSqft, cutsSqftByCategory, flooringCtx]);
+  }, [questions, answers, visible, totalSqft, cutsSqft, cutsSqftByCategory, flooringCtx, allRooms]);
 
   // Steps: the currently-visible questions (conditionals reveal as you answer),
   // plus a final Review step.

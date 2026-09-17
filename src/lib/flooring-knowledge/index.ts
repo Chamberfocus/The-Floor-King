@@ -38,6 +38,8 @@ export {
 
 export { matchesShowIf, isShowIfClause, showIfReferencedKeys } from "./show-if";
 
+export { answerGateValues, synthesizeStairGate, type GateAnswer } from "./answers";
+
 export {
   knowledgeQuestionByKey,
   amountUnitLabelForQuestion,
@@ -100,6 +102,7 @@ export {
   formatFtIn,
   formatDimensionPair,
   confidenceFromLabel,
+  groupMeasuredSqftByLabel,
   type ReviewRoom,
   type ReviewSection,
   type SalespersonReview,
