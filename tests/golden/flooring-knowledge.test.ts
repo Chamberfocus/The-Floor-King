@@ -10,7 +10,7 @@ import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText, padRollC
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { cutLabel, cutSqYd } from "@/lib/order-cuts";
-import { lineQty, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
+import { lineQty, lineIsBoxedCartonTbd, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
 import {
   accessoryQuantity,
   piecesForLinearFeet,
@@ -11348,6 +11348,124 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0315 Builder carton-coverage TBD is How many / Unit TBD, never taped sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0315_flooring_knowledge_carton_tbd_builder.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0315_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Builder carton-coverage TBD is How many \/ Unit TBD, never taped square feet/);
+    expect(sql).toMatch(/not How many boxes from leftover taped sq ft/);
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "lvp",
+        productUnit: "box",
+        label: "Lifeproof Oak",
+      }),
+    ).toBe("Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)");
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "lvp",
+        productUnit: "box",
+        sqftPerBox: 23.64,
+        label: "Lifeproof Oak",
+      }),
+    ).toBe(null);
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      extraCountReviewLine({
+        family: "lvp",
+        productUnit: "box",
+        qty: 4,
+        label: "Lifeproof Oak wrap",
+      }),
+    ).toBe("Lifeproof Oak wrap: 4 box — not taped square feet and not a 30-yard roll");
+
+    const carton = {
+      line_type: "mat_labor" as const,
+      category: "lvp",
+      unit: "sqft",
+      measure_unit: "sqft" as const,
+      sqft: 500,
+      quantity: null,
+      description:
+        "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+    };
+    expect(lineIsBoxedCartonTbd(carton)).toBe(true);
+    expect(lineQty(carton)).toBe(0);
+    expect(
+      lineQty({
+        ...carton,
+        quantity: 22,
+        unit: "box",
+      }),
+    ).toBe(22);
+    expect(
+      lineQty({
+        ...carton,
+        description: "Lifeproof Oak living room",
+      }),
+    ).toBe(500);
+
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(/lineIsBoxedCartonTbd/);
+    expect(calc).toMatch(/if \(lineIsBoxedCartonTbd\(line\)\) return num\(line\.quantity\)/);
+    expect(calc).toMatch(/if \(lineIsStairWrapTbd\(line\)\) return num\(line\.quantity\)/);
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/lineIsBoxedCartonTbd/);
+    expect(builder).toMatch(/boxedCartonTbd/);
+    expect(builder).toMatch(/flooringAreaUi/);
+    expect(builder).toMatch(/Builder carton-coverage TBD is How many \/ Unit TBD, never taped square feet/);
+    expect(builder).toMatch(/description: l\.description/);
+    expect(builder).toMatch(/description: line\.description/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/Builder carton-coverage TBD is How many \/ Unit TBD, never taped square feet/);
+    expect(q).toMatch(/Review does not print taped square feet as the order when carton coverage is missing/);
+    expect(q).toMatch(/boxedCartonCoverageTbdDescription/);
+    expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
+    expect(ai).toMatch(/Builder carton-coverage TBD is How many \/ Unit TBD, never taped square feet/);
+    expect(ai).toMatch(/boxedCartonCoverageTbdDescription/);
+    expect(ai).toMatch(/isAreaUnit/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Builder carton-coverage TBD is How many \/ Unit TBD, never taped square feet/,
+    );
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Review does not print taped square feet as the order when carton coverage is missing/,
+    );
+    const exclusiveTileCuts = installContextFromValByKey({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(knowledgeHelpFor({ kind: "cuts" }, exclusiveTileCuts)).toMatch(
+      /Builder carton-coverage TBD is How many \/ Unit TBD, never taped square feet/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /How many \/ Unit TBD/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

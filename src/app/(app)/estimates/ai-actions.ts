@@ -9,7 +9,7 @@ import { searchCatalog } from "@/lib/data/products";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getOrgSettings } from "@/lib/data/org";
 import { getRoomDefaults, getAddonDefaults } from "@/lib/data/addon-defaults";
-import { catalogRateToBillingUnit, lineDisplayUnit } from "@/lib/units";
+import { catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit } from "@/lib/units";
 import {
   sellLaborFromTargetMargin,
   sellMaterialFromTargetMargin,
@@ -264,7 +264,12 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
         quantity: null,
         length_in: null,
         width_in: null,
-        unit,
+        // Builder carton-coverage TBD is How many / Unit TBD, never taped square feet.
+        unit: cartonTbd
+          ? productUnit && !isAreaUnit(productUnit)
+            ? productUnit
+            : ""
+          : unit,
         material_rate: sellMat(cost),
         labor_rate: 0,
         material_cost: cost,

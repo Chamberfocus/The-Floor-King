@@ -1154,6 +1154,8 @@ export function Questionnaire({
             carpetInstallSystems: carpetSystems,
           });
           if (!desc) continue;
+          // Builder carton-coverage TBD is How many / Unit TBD, never taped square feet.
+          const { unit: countUnit } = countUnitForTbd(isAreaUnit(p.unit) ? "" : p.unit);
           out.push({
             room: rooms.length === 1 ? rooms[0] ?? null : null,
             description: desc,
@@ -1164,7 +1166,7 @@ export function Questionnaire({
             length_in: null,
             width_in: null,
             measurements: null,
-            unit: "sq ft",
+            unit: countUnit,
             material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
             labor_rate: 0,
             material_cost: rateFor(p.materialRate, p.unit, false),
@@ -1623,6 +1625,8 @@ export function Questionnaire({
                   carpetInstallSystems: carpetSystems,
                 });
                 if (!tbd) return;
+                // Builder carton-coverage TBD is How many / Unit TBD, never taped square feet.
+                const { unit: countUnit } = countUnitForTbd(isAreaUnit(p.unit) ? "" : p.unit);
                 out.push({
                   room: roomLabel,
                   description: tbd,
@@ -1633,7 +1637,7 @@ export function Questionnaire({
                   length_in: null,
                   width_in: null,
                   measurements: null,
-                  unit: "sq yd",
+                  unit: countUnit,
                   material_rate: sellMat(rateFor(p.materialRate, p.unit, true)),
                   labor_rate: 0,
                   material_cost: rateFor(p.materialRate, p.unit, true),

@@ -18,6 +18,7 @@ import {
   lineProfit,
   lineQty,
   lineIsStairWrapTbd,
+  lineIsBoxedCartonTbd,
   lineTotal,
   marginPct,
   markupPct,
@@ -219,6 +220,37 @@ describe("lineQty — unit kind rules", () => {
         description: "Lifeproof Oak living room",
       }),
     ).toBe(104);
+  });
+
+  it("does not bill carton-coverage TBD from leftover taped sq ft", () => {
+    const carton: CalcLine = {
+      line_type: "mat_labor",
+      category: "lvp",
+      unit: "sqft",
+      measure_unit: "sqft",
+      sqft: 500,
+      quantity: null,
+      description:
+        "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+      material_rate: 3.49,
+    };
+    expect(lineIsBoxedCartonTbd(carton)).toBe(true);
+    expect(lineIsStairWrapTbd(carton)).toBe(false);
+    expect(lineQty(carton)).toBe(0);
+    expect(lineTotal(carton)).toBe(0);
+    expect(
+      lineQty({
+        ...carton,
+        quantity: 22,
+        unit: "box",
+      }),
+    ).toBe(22);
+    expect(
+      lineQty({
+        ...carton,
+        description: "Lifeproof Oak living room",
+      }),
+    ).toBe(500);
   });
 
   it("prices count units from quantity and ignores sqft (old $33,600 bug)", () => {

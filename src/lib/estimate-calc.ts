@@ -44,7 +44,7 @@ export interface CalcLine {
   category?: string | null;
   /** Warehouse cut pieces. Roll-goods order comes from these, not taped sq ft. */
   measurements?: LineMeasurement[] | null;
-  /** Stair wrap TBD is identified from the questionnaire description. */
+  /** Stair wrap TBD / carton-coverage TBD are identified from the description. */
   description?: string | null;
 }
 
@@ -90,6 +90,15 @@ export function lineIsStairWrapTbd(line: { description?: string | null }): boole
 }
 
 /**
+ * Boxed LVP / hardwood / exclusive carpet-tile sold by the carton when
+ * coverage is missing. How many / Unit TBD — never leftover taped sq ft
+ * as the order, and never an invented box size.
+ */
+export function lineIsBoxedCartonTbd(line: { description?: string | null }): boolean {
+  return /carton coverage TBD/i.test((line.description ?? "").trim());
+}
+
+/**
  * Warehouse pieces that make a roll-goods ORDER. Taped room square feet are
  * measured area, not these.
  */
@@ -122,6 +131,8 @@ export function lineQty(line: CalcLine): number {
   // only (sq ft ÷ 9 is not an order), including exclusive carpet tile.
   // Stair wrap TBD is extra boxes, even when the wrap SKU is sold by the sq ft.
   if (lineIsStairWrapTbd(line)) return num(line.quantity);
+  // Builder carton-coverage TBD is How many / Unit TBD, never taped square feet.
+  if (lineIsBoxedCartonTbd(line)) return num(line.quantity);
   if (isCountPricedLine(line)) return num(line.quantity);
   if (isRollGoodCategory(line.category) && line.category !== "labor" && !rollGoodsLineHasCuts(line)) {
     return num(line.quantity);

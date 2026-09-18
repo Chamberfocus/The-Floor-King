@@ -15,6 +15,7 @@ import {
   lineTotal,
   lineQty,
   lineIsStairWrapTbd,
+  lineIsBoxedCartonTbd,
   rollGoodsLineHasCuts,
   optionTotalsWithDiscount,
   marginPct,
@@ -216,6 +217,8 @@ function isSubfloor(l: LineState): boolean {
 function isCountLine(l: LineState): boolean {
   // Stair wrap TBD is extra boxes / EACH, even when the wrap SKU is LVP/hardwood.
   if (lineIsStairWrapTbd(l)) return true;
+  // Builder carton-coverage TBD is How many / Unit TBD, never taped square feet.
+  if (lineIsBoxedCartonTbd(l)) return true;
   if (isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) return false;
   if (isSubfloor(l)) return false;
   if ((l.unit ?? "").trim()) return !isAreaUnit(l.unit);
@@ -2289,8 +2292,10 @@ export function EstimateBuilder({
                       })
                     : null;
                   const wrapTbd = lineIsStairWrapTbd(line);
+                  const boxedCartonTbd = lineIsBoxedCartonTbd(line);
                   const flooringAreaUi =
                     !wrapTbd &&
+                    !boxedCartonTbd &&
                     (isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category));
                   const rollCutsMissing =
                     isRollGoodCategory(line.category) &&

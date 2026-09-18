@@ -170,6 +170,12 @@ const REQUIRED_FILES = [
   "0307_flooring_knowledge_extra_count_review.sql",
   "0308_flooring_knowledge_main_pad_count.sql",
   "0309_flooring_knowledge_main_count_qty.sql",
+  "0310_flooring_knowledge_stair_wrap_qty.sql",
+  "0311_flooring_knowledge_prep_count_review.sql",
+  "0312_flooring_knowledge_boxed_carton_area.sql",
+  "0313_flooring_knowledge_carpet_tile_carton.sql",
+  "0314_flooring_knowledge_carton_tbd_review.sql",
+  "0315_flooring_knowledge_carton_tbd_builder.sql",
 ];
 
 /**
@@ -2077,6 +2083,18 @@ const REQUIRED_MARKERS = [
       "Do NOT SQL-gate carpet_pad on surface_type",
       "Do NOT SQL-gate adhesive on surface_type",
       "Do NOT drop underlayment from SQYD_CATEGORIES",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0315_flooring_knowledge_carton_tbd_builder.sql",
+    markers: [
+      "P0_0315_FLOORING_KNOWLEDGE",
+      "Builder carton-coverage TBD is How many / Unit TBD, never taped square feet",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
