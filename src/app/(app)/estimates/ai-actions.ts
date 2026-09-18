@@ -18,6 +18,8 @@ import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
 import {
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
+  boxedCartonAreaTakeoffAllowed,
+  boxedCartonCoverageTbdDescription,
   familyFromCatalogCategory,
   materialWastePctForEmit,
   rollGoodsOrderTbdDescription,
@@ -157,6 +159,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     let color: string | null = null;
     let laborRate = 0;
     let productUnit: string | null = null;
+    let sqftPerBox: number | null = null;
     if (room.material) {
       try {
         const hits = await searchCatalog(room.material, { activeOnly: true, limit: 5 });
@@ -164,6 +167,8 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
         if (match) {
           productId = match.id;
           productUnit = match.unit;
+          const cov = Number(match.sqft_per_box);
+          sqftPerBox = Number.isFinite(cov) && cov > 0 ? cov : null;
           if (!cost) cost = rateFor(Number(match.material_rate) || 0, match.unit, isYd);
           laborRate = rateFor(Number(match.labor_rate) || 0, match.unit, isYd);
           manufacturer = match.manufacturer;
@@ -190,15 +195,25 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
 
     // MATERIAL line. Boxed hard surface: measured sqft + waste_pct — do not bake
     // waste into quantity and null out sqft (Builder would then bill L×W and
-    // drop waste). Roll goods cannot order from taped sq ft ÷ 9.
+    // drop waste). A boxed SKU sold by the carton with coverage still takeoffs
+    // from measured area — not How many boxes from leftover taped sq ft.
+    // Roll goods cannot order from taped sq ft ÷ 9.
     const baseDesc =
       [manufacturer, room.material].filter(Boolean).join(" ").trim() || profile.label;
-    if (areaDerivedMaterialAllowed(family, productUnit)) {
+    const allowAreaMat =
+      areaDerivedMaterialAllowed(family, productUnit) ||
+      boxedCartonAreaTakeoffAllowed({
+        family,
+        productUnit,
+        sqftPerBox,
+      });
+    if (allowAreaMat) {
       const billingQty = areaDerivedMaterialQty({
         family,
         measuredSqft: sqft,
         billingUnit: isYd ? "sqyd" : "sqft",
         productUnit,
+        sqftPerBox,
       });
       const waste = materialWastePctForEmit({
         family,
@@ -225,15 +240,24 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
           manufacturer,
           style,
           color,
+          sqft_per_box: sqftPerBox,
         });
       }
     } else if (sqft > 0 || productId) {
+      const cartonTbd = boxedCartonCoverageTbdDescription({
+        family,
+        productUnit,
+        sqftPerBox,
+        label: needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
+      });
       lines.push({
         room: room.name || null,
-        description: rollGoodsOrderTbdDescription(
-          needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
-          sqft,
-        ),
+        description:
+          cartonTbd ??
+          rollGoodsOrderTbdDescription(
+            needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
+            sqft,
+          ),
         category: profile.category,
         measure_unit: profile.unit,
         sqft: null,

@@ -171,6 +171,8 @@ export {
   billingUnitForArea,
   rollGoodsHaveCuts,
   areaDerivedMaterialAllowed,
+  boxedCartonAreaTakeoffAllowed,
+  boxedCartonCoverageTbdDescription,
   areaDerivedMaterialQty,
   extraMeasuredSqftForTakeoff,
   extraAsksCountQty,

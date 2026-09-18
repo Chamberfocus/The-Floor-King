@@ -91,6 +91,8 @@ import {
   rollGoodsHaveCuts,
   areaBillsBySquareYard,
   areaDerivedMaterialAllowed,
+  boxedCartonAreaTakeoffAllowed,
+  boxedCartonCoverageTbdDescription,
   areaDerivedMaterialQty,
   extraMeasuredSqftForTakeoff,
   extraAsksCountQty,
@@ -1044,6 +1046,7 @@ export function Questionnaire({
           { p: ProductAns; wantYd: boolean; sqft: number }
         >();
         const tbdRoll = new Map<string, { p: ProductAns; sqft: number; rooms: string[] }>();
+        const tbdBoxed = new Map<string, { p: ProductAns; sqft: number; rooms: string[] }>();
         allRooms.forEach((rm, i) => {
           const p = a.byRoom[roomKey(rm.name, i)];
           if (!p || rm.sqft <= 0) return;
@@ -1077,6 +1080,7 @@ export function Questionnaire({
             billingUnit: b.wantYd ? "sqyd" : "sqft",
             productUnit: p.unit,
             carpetInstallSystems: carpetSystems,
+            sqftPerBox: spb > 0 ? spb : null,
           });
           if (qty != null && rm.sqft > 0)
             out.push({
@@ -1112,6 +1116,22 @@ export function Questionnaire({
             rec.sqft += rm.sqft;
             if (rm.name && !rec.rooms.includes(rm.name)) rec.rooms.push(rm.name);
             tbdRoll.set(key, rec);
+          } else if (
+            boxedCartonCoverageTbdDescription({
+              family: rollFam,
+              productUnit: p.unit,
+              sqftPerBox: spb > 0 ? spb : null,
+              label: p.label,
+              carpetInstallSystems: carpetSystems,
+            }) &&
+            (p.productId || p.label)
+          ) {
+            // Missing carton coverage stays TBD — do not invent a box size and not How many boxes from leftover taped sq ft.
+            const key = p.productId || p.label;
+            const rec = tbdBoxed.get(key) ?? { p, sqft: 0, rooms: [] };
+            rec.sqft += rm.sqft;
+            if (rm.name && !rec.rooms.includes(rm.name)) rec.rooms.push(rm.name);
+            tbdBoxed.set(key, rec);
           }
           // Accumulate install labor per distinct product. Labor is measured
           // work even when roll-goods order quantity is still TBD.
@@ -1124,6 +1144,39 @@ export function Questionnaire({
         });
         for (const { p, sqft, rooms } of tbdRoll.values()) {
           out.push(rollGoodsTbdLine(p, rooms.length === 1 ? rooms[0] ?? null : null, sqft));
+        }
+        for (const { p, rooms } of tbdBoxed.values()) {
+          const cat = p.category || "other";
+          const desc = boxedCartonCoverageTbdDescription({
+            family: familyFromCatalogCategory(cat),
+            productUnit: p.unit,
+            label: p.label,
+            carpetInstallSystems: carpetSystems,
+          });
+          if (!desc) continue;
+          out.push({
+            room: rooms.length === 1 ? rooms[0] ?? null : null,
+            description: desc,
+            category: cat,
+            measure_unit: "sqft",
+            sqft: null,
+            quantity: null,
+            length_in: null,
+            width_in: null,
+            measurements: null,
+            unit: "sq ft",
+            material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
+            labor_rate: 0,
+            material_cost: rateFor(p.materialRate, p.unit, false),
+            labor_cost: 0,
+            waste_pct: 0,
+            product_id: p.productId || null,
+            manufacturer:
+              p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+            style: p.style,
+            color: p.color,
+            from_stock: p.source === "stock",
+          });
         }
         for (const { p, wantYd, sqft } of byProd.values()) {
           // Prefer the product's own labor rate if set, else the per-type
@@ -1217,6 +1270,7 @@ export function Questionnaire({
             billingUnit: pb.wantYd ? "sqyd" : "sqft",
             productUnit: p.unit,
             carpetInstallSystems: carpetSystems,
+            sqftPerBox: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
           }) ?? 0,
           // Roll goods: L×W on the line is a warehouse cut, so only explicit
           // cuts go here. Room dimensions stay on sqft (measured area).
@@ -1262,7 +1316,14 @@ export function Questionnaire({
             !floorMapOwnsFlooring &&
             cat !== "underlayment" && cat !== "trim" && cat !== "other" && coverRooms.length > 0 && !boxed;
           const allowAreaMat =
-            areaDerivedMaterialAllowed(fam, p.unit, carpetSystems) && q.key !== "adhesive";
+            (areaDerivedMaterialAllowed(fam, p.unit, carpetSystems) ||
+              boxedCartonAreaTakeoffAllowed({
+                family: fam,
+                productUnit: p.unit,
+                sqftPerBox: numv(p.sqftPerBox),
+                carpetInstallSystems: carpetSystems,
+              })) &&
+            q.key !== "adhesive";
           // Roll goods: taped area is never a material line. Cuts own the order.
           // Adhesive / gal / kit: taped sq ft is not a glue order.
           if (floorMapOwnsFlooring) {

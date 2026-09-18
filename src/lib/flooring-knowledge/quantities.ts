@@ -125,10 +125,51 @@ export function areaDerivedMaterialAllowed(
 }
 
 /**
+ * Boxed LVP / hardwood / laminate / tile sold by the carton WITH catalog
+ * coverage may still takeoff from measured area. Carton math uses
+ * `sqft_per_box` — we do not invent a box size and we do not treat leftover
+ * taped sq ft as How many boxes. Wrap extras stay on extraAsksCountQty
+ * (lvp + box without this coverage gate).
+ */
+export function boxedCartonAreaTakeoffAllowed(args: {
+  family: FlooringFamily;
+  productUnit?: string | null;
+  sqftPerBox?: number | null;
+  carpetInstallSystems?: InstallSystem[] | null;
+}): boolean {
+  if (rollGoodsNeedCuts(args.family, args.carpetInstallSystems)) return false;
+  if (!isBoxedFamily(args.family)) return false;
+  if (normalizeUnit(args.productUnit) !== "box") return false;
+  const cov = Number(args.sqftPerBox);
+  return Number.isFinite(cov) && cov > 0;
+}
+
+/**
+ * Floor-map / AI identity line when a boxed SKU is sold by the carton but
+ * coverage is missing. Not How many boxes from leftover taped sq ft, and
+ * not an invented box size.
+ */
+export function boxedCartonCoverageTbdDescription(args: {
+  family: FlooringFamily;
+  productUnit?: string | null;
+  sqftPerBox?: number | null;
+  label?: string | null;
+  carpetInstallSystems?: InstallSystem[] | null;
+}): string | null {
+  if (boxedCartonAreaTakeoffAllowed(args)) return null;
+  if (rollGoodsNeedCuts(args.family, args.carpetInstallSystems)) return null;
+  if (!isBoxedFamily(args.family)) return null;
+  if (normalizeUnit(args.productUnit) !== "box") return null;
+  const name = (args.label ?? "").trim() || "Flooring";
+  return `${name} — carton coverage TBD (not How many boxes from leftover taped sq ft)`;
+}
+
+/**
  * Quantity that would be written onto a Builder material line from taped area.
  * Returns null for roll goods so callers cannot accidentally store sqft ÷ 9
  * as the order. Returns null for count-unit products so gallons/kits are not
- * invented from square feet.
+ * invented from square feet. Boxed carton SKUs WITH coverage are area-billed
+ * (carton count is derived from sqft ÷ sqft_per_box) — pass sqftPerBox.
  */
 export function areaDerivedMaterialQty(args: {
   family: FlooringFamily;
@@ -136,10 +177,12 @@ export function areaDerivedMaterialQty(args: {
   billingUnit: "sqyd" | "sqft";
   productUnit?: string | null;
   carpetInstallSystems?: InstallSystem[] | null;
+  sqftPerBox?: number | null;
 }): number | null {
-  if (!areaDerivedMaterialAllowed(args.family, args.productUnit, args.carpetInstallSystems)) {
-    return null;
-  }
+  const allowed =
+    areaDerivedMaterialAllowed(args.family, args.productUnit, args.carpetInstallSystems) ||
+    boxedCartonAreaTakeoffAllowed(args);
+  if (!allowed) return null;
   const n = Number(args.measuredSqft);
   if (!(n > 0) || !Number.isFinite(n)) return null;
   return args.billingUnit === "sqyd" ? r2(n / 9) : r2(n);

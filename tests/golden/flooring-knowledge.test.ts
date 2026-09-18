@@ -183,6 +183,8 @@ import {
   billingUnitForArea,
   billingUnitForCategory,
   areaDerivedMaterialAllowed,
+  boxedCartonAreaTakeoffAllowed,
+  boxedCartonCoverageTbdDescription,
   areaDerivedMaterialQty,
   extraMeasuredSqftForTakeoff,
   extraAsksCountQty,
@@ -10905,6 +10907,209 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0312 boxed carton SKU with coverage takeoffs from measured area, not How many boxes", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0312_flooring_knowledge_boxed_carton_area.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0312_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/not How many boxes from leftover taped sq ft/);
+    expect(sql).toMatch(/Missing coverage stays TBD; do not invent a box size/);
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "lvp",
+        productUnit: "box",
+        sqftPerBox: 23.64,
+      }),
+    ).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "lvp",
+        productUnit: "carton",
+        sqftPerBox: 20,
+      }),
+    ).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "hardwood",
+        productUnit: "box",
+        sqftPerBox: 20,
+      }),
+    ).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "laminate",
+        productUnit: "box",
+        sqftPerBox: 18,
+      }),
+    ).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "tile",
+        productUnit: "ctn",
+        sqftPerBox: 15,
+      }),
+    ).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({ family: "lvp", productUnit: "box", sqftPerBox: 0 }),
+    ).toBe(false);
+    expect(boxedCartonAreaTakeoffAllowed({ family: "lvp", productUnit: "box" })).toBe(false);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "lvp",
+        productUnit: "sqft",
+        sqftPerBox: 23.64,
+      }),
+    ).toBe(false);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "lvp",
+        productUnit: "each",
+        sqftPerBox: 23.64,
+      }),
+    ).toBe(false);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "other",
+        productUnit: "box",
+        sqftPerBox: 30,
+      }),
+    ).toBe(false);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "box",
+        sqftPerBox: 20,
+      }),
+    ).toBe(false);
+
+    expect(
+      areaDerivedMaterialQty({
+        family: "lvp",
+        measuredSqft: 500,
+        billingUnit: "sqft",
+        productUnit: "box",
+      }),
+    ).toBeNull();
+    expect(
+      areaDerivedMaterialQty({
+        family: "lvp",
+        measuredSqft: 500,
+        billingUnit: "sqft",
+        productUnit: "box",
+        sqftPerBox: 23.64,
+      }),
+    ).toBe(500);
+    expect(
+      areaDerivedMaterialQty({
+        family: "hardwood",
+        measuredSqft: 450,
+        billingUnit: "sqft",
+        productUnit: "carton",
+        sqftPerBox: 20,
+      }),
+    ).toBe(450);
+    expect(
+      areaDerivedMaterialQty({
+        family: "lvp",
+        measuredSqft: 500,
+        billingUnit: "sqft",
+        productUnit: "each",
+        sqftPerBox: 23.64,
+      }),
+    ).toBeNull();
+    expect(
+      extraMeasuredSqftForTakeoff({
+        family: "lvp",
+        productUnit: "box",
+        measuredSqft: 500,
+      }),
+    ).toBeNull();
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(extraAsksCountQty({ family: "hardwood", productUnit: "box" })).toBe(true);
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "sqft" })).toBe(false);
+
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "lvp",
+        productUnit: "box",
+        label: "Lifeproof Oak",
+      }),
+    ).toBe("Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)");
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "lvp",
+        productUnit: "box",
+        sqftPerBox: 23.64,
+        label: "Lifeproof Oak",
+      }),
+    ).toBe(null);
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "lvp",
+        productUnit: "sqft",
+        label: "Lifeproof Oak",
+      }),
+    ).toBe(null);
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "lvp",
+        productUnit: "each",
+        label: "Lifeproof Oak",
+      }),
+    ).toBe(null);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/boxedCartonAreaTakeoffAllowed/);
+    expect(q).toMatch(/boxedCartonCoverageTbdDescription/);
+    expect(q).toMatch(/tbdBoxed/);
+    expect(q).toMatch(/sqftPerBox: spb > 0 \? spb : null/);
+    expect(q).toMatch(/not How many boxes from leftover taped sq ft/);
+    expect(q).toMatch(/do not invent a box size/);
+    expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
+    expect(ai).toMatch(/boxedCartonAreaTakeoffAllowed/);
+    expect(ai).toMatch(/boxedCartonCoverageTbdDescription/);
+    expect(ai).toMatch(/sqftPerBox/);
+    expect(ai).toMatch(/not How many boxes from leftover taped sq ft/);
+    expect(ai).toMatch(/rollGoodsOrderTbdDescription/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /A boxed LVP \/ hardwood SKU sold by the carton with coverage still takeoffs from measured area/,
+    );
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /not How many boxes from leftover taped sq ft/,
+    );
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Missing coverage stays TBD; do not invent a box size/,
+    );
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Unassigned rooms stay off the takeoff/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Additional pad for a specific area is MEASURED sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "selflevel_needed" }, emptyInstallContext())).toMatch(
+      /Review prints the bag count — taped square feet is not a bag order/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,
