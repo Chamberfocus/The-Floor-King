@@ -157,6 +157,7 @@ const REQUIRED_FILES = [
   "0294_flooring_knowledge_pad_takeoff.sql",
   "0295_flooring_knowledge_existing_floor_aqua.sql",
   "0296_flooring_knowledge_new_build_furniture.sql",
+  "0297_flooring_knowledge_loose_lay_vapor.sql",
 ];
 
 /**
@@ -1924,6 +1925,16 @@ const REQUIRED_MARKERS = [
       "P0_0296_FLOORING_KNOWLEDGE",
       "no furniture to move",
       "Do NOT SQL-gate furniture on work_type",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0297_flooring_knowledge_loose_lay_vapor.sql",
+    markers: [
+      "P0_0297_FLOORING_KNOWLEDGE",
+      "not a click-floor",
+      "Do NOT SQL-gate vapor_barrier on install_method",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

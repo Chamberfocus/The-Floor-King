@@ -265,14 +265,17 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * hides via GLUE_EXISTING_VAPOR_HIDES_KEYS — you glue to the existing floor
    * or tear it out. Exclusive existing flooring (floating, glue, or mixed)
    * also hides via EXISTING_FLOOR_VAPOR_HIDES_KEYS — 6-mil is a slab sheet,
-   * not an existing-floor underlayment. Exclusive glue / carpet tile over
-   * plywood also hides Aqua bar via WOOD_DECK_AQUA_HIDES_KEYS; exclusive
-   * glue / carpet tile over existing flooring hides Aqua bar via
-   * EXISTING_FLOOR_AQUA_HIDES_KEYS — Aqua bar is a slab system. Glue over
-   * concrete still asks both. Mixed plywood + concrete still asks vapor.
-   * Mixed existing + concrete still asks vapor. Unanswered substrate stays
-   * open. Do not SQL-gate vapor_barrier on surface_type, carpet_install, or
-   * substrate (0142).
+   * not an existing-floor underlayment. Exclusive loose-lay hides via
+   * LOOSE_LAY_VAPOR_HIDES_KEYS — loose-lay is not a click-floor 6-mil sheet.
+   * Mixed floating + loose-lay still asks. Mixed Carpet + LVP loose-lay
+   * still asks. Exclusive glue / carpet tile over plywood also hides Aqua
+   * bar via WOOD_DECK_AQUA_HIDES_KEYS; exclusive glue / carpet tile over
+   * existing flooring hides Aqua bar via EXISTING_FLOOR_AQUA_HIDES_KEYS —
+   * Aqua bar is a slab system. Glue over concrete still asks both. Mixed
+   * plywood + concrete still asks vapor. Mixed existing + concrete still
+   * asks vapor. Unanswered substrate stays open. Do not SQL-gate
+   * vapor_barrier on surface_type, carpet_install, substrate, or
+   * install_method (0142).
    */
   {
     key: "vapor_barrier",
@@ -767,6 +770,20 @@ export const EXISTING_FLOOR_AQUA_HIDES_KEYS = ["moisture_mitigation"] as const;
  * substrate.
  */
 export const EXISTING_FLOOR_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
+
+/**
+ * 6-mil click-floor vapor hidden once the only install system is loose-lay.
+ * Loose-lay is not a click-floor sheet and not glue-down — do not ask for
+ * 6-mil poly, including over concrete. Mixed floating + loose-lay stays
+ * open. Mixed glue + loose-lay stays open. Mixed Carpet + LVP loose-lay
+ * stays open so stretch / glue over concrete still asks. Leftover Loose-lay
+ * on exclusive carpet does not hide (carpet scope). Leftover Loose-lay on
+ * laminate / vinyl / tile coalesces to the legal system and still asks over
+ * concrete. Leftover Loose-lay on hardwood does not hide (0142 leftover
+ * chips do not gate). Unanswered LVP stays open. Do not SQL-gate
+ * vapor_barrier on install_method.
+ */
+export const LOOSE_LAY_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,

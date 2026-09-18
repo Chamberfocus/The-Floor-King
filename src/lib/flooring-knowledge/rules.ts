@@ -59,6 +59,7 @@ import {
   GLUE_EXISTING_VAPOR_HIDES_KEYS,
   EXISTING_FLOOR_AQUA_HIDES_KEYS,
   EXISTING_FLOOR_VAPOR_HIDES_KEYS,
+  LOOSE_LAY_VAPOR_HIDES_KEYS,
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
@@ -650,6 +651,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (LOOSE_LAY_VAPOR_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobHidesVaporOnLooseLay(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -848,6 +856,26 @@ export function jobHidesAquaBarOnExistingFloor(install: InstallContext): boolean
   if (!labelsAreExistingFlooringOnly(install.substrate)) return false;
   if (install.surfacePending || install.installPending) return false;
   if (install.subfloorCondition.some((l) => /moisture concerns/i.test(l))) return false;
+  return true;
+}
+
+/**
+ * 6-mil click-floor vapor on exclusive loose-lay. Loose-lay is not a
+ * click-floor sheet and not glue-down — including over concrete. Mixed
+ * floating + loose-lay stays open. Mixed glue + loose-lay stays open.
+ * Mixed Carpet + LVP loose-lay stays open so stretch / glue over concrete
+ * still asks a moisture barrier under pad. Leftover Loose-lay on exclusive
+ * carpet does not hide. Leftover Loose-lay on laminate / vinyl / tile
+ * coalesces away from loose-lay. Leftover Loose-lay on hardwood is not
+ * LVP and does not hide (0142). Unanswered LVP stays open.
+ */
+export function jobHidesVaporOnLooseLay(install: InstallContext): boolean {
+  if (install.surfacePending || install.installPending) return false;
+  if (!install.systems.includes("loose_lay")) return false;
+  if (install.systems.some((s) => s !== "loose_lay")) return false;
+  if (jobHasCarpetInstallScope(install)) return false;
+  if (!install.families.includes("lvp")) return false;
+  if (install.families.some((f) => f !== "lvp" && isHardSurfaceFamily(f))) return false;
   return true;
 }
 
@@ -1169,7 +1197,7 @@ export function knowledgeHelpFor(
     return "Count of vents/registers to change, in EACH. Never square feet. Pick a catalog vent on Trims if Floor King sells it; otherwise this is a crew note.";
   }
   if (key === "vapor_barrier") {
-    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Exclusive carpet tile hides this — modular tile uses adhesive, not a floating-floor sheet. Aqua bar stays on moisture mitigation except exclusive glue or carpet tile over plywood — Aqua bar is a slab system. Mixed LVP or hardwood + tile or carpet tile still asks. Leftover Floating on a carpet-only job does not reopen this. Exclusive glue-down over plywood hides this — you cannot glue to 6-mil poly. Exclusive plywood also hides this for floating and mixed floating + glue — 6-mil is a slab sheet, not a wood-deck underlayment. Exclusive glue-down over existing flooring hides this — you glue to the existing floor or tear it out, not to 6-mil poly. Exclusive existing flooring also hides this for floating and mixed floating + glue — 6-mil is a slab sheet, not an existing-floor underlayment. Glue over concrete still asks. Floating over concrete still asks. Mixed plywood + concrete still asks. Mixed existing + concrete still asks. Unanswered substrate stays open. Glue-down, carpet tile, nail-down, and stretch-in hide Included with underlayment — that is a floating-floor sheet, not an adhesive moisture system. Unanswered LVP and floating still offer it.";
+    return "Often required over concrete on floating or glue-down. Nail-down over a slab still asks — capture the need, do not invent a product if it is not in the catalog. Field verify is allowed. Exclusive tile hides this — thinset is not a 6-mil click-floor vapor barrier. Membranes stay on Tile setting. Exclusive carpet tile hides this — modular tile uses adhesive, not a floating-floor sheet. Aqua bar stays on moisture mitigation except exclusive glue or carpet tile over plywood — Aqua bar is a slab system. Mixed LVP or hardwood + tile or carpet tile still asks. Leftover Floating on a carpet-only job does not reopen this. Exclusive glue-down over plywood hides this — you cannot glue to 6-mil poly. Exclusive plywood also hides this for floating and mixed floating + glue — 6-mil is a slab sheet, not a wood-deck underlayment. Exclusive glue-down over existing flooring hides this — you glue to the existing floor or tear it out, not to 6-mil poly. Exclusive existing flooring also hides this for floating and mixed floating + glue — 6-mil is a slab sheet, not an existing-floor underlayment. Exclusive loose-lay hides this — loose-lay is not a click-floor 6-mil sheet, including over concrete. Mixed floating + loose-lay still asks. Mixed Carpet + LVP loose-lay still asks. Leftover Loose-lay on exclusive carpet still asks over concrete. Leftover Loose-lay on laminate coalesces to floating and still asks over concrete. Unanswered LVP stays open. Glue over concrete still asks. Floating over concrete still asks. Mixed plywood + concrete still asks. Mixed existing + concrete still asks. Unanswered substrate stays open. Glue-down, carpet tile, nail-down, and stretch-in hide Included with underlayment — that is a floating-floor sheet, not an adhesive moisture system. Unanswered LVP and floating still offer it.";
   }
   if (key === "substrate") {
     return "If you cannot see the substrate until demo, pick Unknown / field verify rather than guessing plywood vs concrete. Exclusive Concrete hides 4×8 subfloor sheets — a slab is patch / self-level, not plywood overlay. Plywood / wood / existing flooring still ask.";

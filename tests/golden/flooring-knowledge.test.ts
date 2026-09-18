@@ -97,6 +97,7 @@ import {
   GLUE_EXISTING_VAPOR_HIDES_KEYS,
   EXISTING_FLOOR_AQUA_HIDES_KEYS,
   EXISTING_FLOOR_VAPOR_HIDES_KEYS,
+  LOOSE_LAY_VAPOR_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
@@ -119,6 +120,7 @@ import {
   jobHidesVaporOnExistingFloor,
   jobHidesAquaBarOnGlueExistingFloor,
   jobHidesAquaBarOnExistingFloor,
+  jobHidesVaporOnLooseLay,
   labelsAreWoodDeckOnly,
   labelsAreExistingFlooringOnly,
   jobAllowsFloatingVaporUnderlayment,
@@ -9235,6 +9237,175 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(walkNew).not.toContain("furniture_level");
     expect(walkNew).not.toContain("furniture_heavy");
     expect(walkNew).toContain("appliances");
+  });
+
+  it("0297 exclusive loose-lay hides 6-mil vapor, including over concrete", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0297_flooring_knowledge_loose_lay_vapor.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0297_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/not a click-floor/);
+    expect(sql).toMatch(/Do NOT SQL-gate vapor_barrier on install_method/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*install_method.*vapor_barrier|vapor_barrier.*show_if.*install_method/,
+    );
+
+    expect([...LOOSE_LAY_VAPOR_HIDES_KEYS]).toEqual(["vapor_barrier"]);
+    expect(
+      jobHidesVaporOnLooseLay(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Loose-lay"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVaporOnLooseLay(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Loose-lay", "Floating / click"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnLooseLay(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnLooseLay(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Loose-lay"],
+          carpet_install: ["Stretch-in"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnLooseLay(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          install_method: ["Loose-lay"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnLooseLay(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Laminate"],
+          install_method: ["Loose-lay"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnLooseLay(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Loose-lay"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+
+    const looseConcrete = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Loose-lay"],
+      substrate: ["Concrete"],
+    });
+    expect(looseConcrete).not.toContain("vapor_barrier");
+    expect(looseConcrete).not.toContain("adhesive");
+    expect(looseConcrete).not.toContain("attached_pad");
+    expect(looseConcrete).not.toContain("moisture_test");
+
+    const mixedFloat = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Loose-lay", "Floating / click"],
+      substrate: ["Concrete"],
+    });
+    expect(mixedFloat).toContain("vapor_barrier");
+
+    const unanswered = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      substrate: ["Concrete"],
+    });
+    expect(unanswered).toContain("vapor_barrier");
+
+    const leftoverCarpet = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      install_method: ["Loose-lay"],
+      substrate: ["Concrete"],
+    });
+    expect(leftoverCarpet).toContain("vapor_barrier");
+
+    const leftoverLam = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Loose-lay"],
+      substrate: ["Concrete"],
+    });
+    expect(leftoverLam).toContain("vapor_barrier");
+    expect(leftoverLam).toContain("attached_pad");
+
+    const leftoverVinyl = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      install_method: ["Loose-lay"],
+      substrate: ["Concrete"],
+    });
+    expect(leftoverVinyl).toContain("vapor_barrier");
+
+    const mixedCarpetLvp = visibleKnowledgeKeys({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Loose-lay"],
+      carpet_install: ["Stretch-in"],
+      substrate: ["Concrete"],
+    });
+    expect(mixedCarpetLvp).toContain("vapor_barrier");
+
+    const leftoverHardwood = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Loose-lay"],
+      substrate: ["Concrete"],
+    });
+    expect(leftoverHardwood).toContain("vapor_barrier");
+
+    expect(knowledgeHelpFor({ key: "vapor_barrier" }, emptyInstallContext())).toMatch(
+      /Exclusive loose-lay hides this/,
+    );
+
+    const walkLoose = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Loose-lay"],
+      substrate: ["Concrete"],
+    });
+    expect(walkLoose).not.toContain("vapor_barrier");
+    expect(walkLoose).not.toContain("adhesive");
   });
 
   it("pattern repeat only after pattern match is required", () => {
