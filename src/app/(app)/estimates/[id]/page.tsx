@@ -39,6 +39,7 @@ import {
   optionTotalsWithDiscount,
   lineTotal,
   lineQty,
+  hardSurfaceAreaCartonCount,
 } from "@/lib/estimate-calc";
 import { lineDisplayUnit } from "@/lib/units";
 import { jobProfit } from "@/lib/job-profit";
@@ -80,7 +81,10 @@ function lineMath(l: EstimateLineItem): string {
     l.line_type === "installed"
       ? (l.installed_rate ?? 0)
       : (l.material_rate ?? 0) + (l.labor_rate ?? 0);
-  return `${qty.toFixed(2)} ${unit} × ${formatMoney(rate)}`;
+  // Exclusive carpet-tile estimate office carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface estimate office carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const cartons = hardSurfaceAreaCartonCount(l, qty);
+  return `${qty.toFixed(2)} ${unit} × ${formatMoney(rate)}${cartons ? ` · 📦 ${cartons} carton(s)` : ""}`;
 }
 
 export default async function EstimatePage({
@@ -585,6 +589,8 @@ export default async function EstimatePage({
                             ) : null}
                           </div>
                           <div className="text-xs text-muted-foreground">
+                            {/* Exclusive carpet-tile estimate office carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                            {/* Hard-surface estimate office carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                             {lineMath(l)}
                           </div>
                         </div>
