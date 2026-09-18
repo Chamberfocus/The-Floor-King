@@ -517,6 +517,14 @@ export function ProductPicker({
                               false,
                             )
                           : costAmount;
+                    // Hard-surface catalog picker cost line boxed rate onto sq ft shows /sq ft, not native /box 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+                    // Exclusive carpet-tile catalog picker cost line boxed rate onto sq yd shows /sq yd, not native /box 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    const costUnit =
+                      isCarpet && boxedArea && costAmount != null
+                        ? "sq yd"
+                        : !isCarpet && boxedArea && costAmount != null
+                          ? "sq ft"
+                          : p.unit;
                     // Hard-surface catalog picker clearance badge boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
                     // Exclusive carpet-tile catalog picker clearance badge boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                     const clearanceAmount = p.clearance_price;
@@ -638,7 +646,8 @@ export function ProductPicker({
                               ) : null}
                               {showCost && !money.cost.missing ? (
                                 <span className="block text-xs tabular-nums text-muted-foreground">
-                                  cost {formatMoney(costLine ?? 0)}
+                                  cost {formatMoney(costLine ?? 0)}/
+                                  {costUnit}
                                   {showMargin && margin != null
                                     ? ` · ${Math.round(margin)}% gm`
                                     : ""}

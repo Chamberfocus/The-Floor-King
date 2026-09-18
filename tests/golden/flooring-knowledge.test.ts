@@ -17282,6 +17282,152 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0367 Catalog picker cost line boxed rate onto sq ft / exclusive-tile sq yd shows /sq ft and /sq yd, not native /box 1:1", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0367_flooring_knowledge_picker_cost_unit.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0367_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Hard-surface catalog picker cost line boxed rate onto sq ft shows \/sq ft, not native \/box 1:1. Wrap \/ count How many stays 1:1. Do not invent coverage/,
+    );
+    expect(sql).toMatch(
+      /Exclusive carpet-tile catalog picker cost line boxed rate onto sq yd shows \/sq yd, not native \/box 1:1 — mixed stretch-in \+ tile and unanswered carpet stay 1:1. Wrap \/ count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(
+      catalogCarpetInstallSystemsForBoxedRate({
+        category: "carpet",
+        sqft_per_box: 23.64,
+      }),
+    ).toEqual(["carpet_tile"]);
+    expect(
+      catalogCarpetInstallSystemsForBoxedRate({ category: "carpet" }),
+    ).toBeUndefined();
+    expect(
+      catalogCarpetInstallSystemsForBoxedRate({
+        category: "carpet",
+        sqft_per_box: 23.64,
+        roll_width_ft: 12,
+      }),
+    ).toBeUndefined();
+
+    const boxedHs = {
+      category: "lvp" as const,
+      unit: "box",
+      sqft_per_box: 23.64,
+    };
+    expect(catalogRateInLineUnit(45.62, boxedHs, false)).toBe(
+      Math.round((45.62 / 23.64) * 100) / 100,
+    );
+    expect(catalogRateInLineUnit(45.62, { ...boxedHs, sqft_per_box: null }, false)).toBe(45.62);
+
+    const boxed = {
+      category: "carpet" as const,
+      unit: "box",
+      sqft_per_box: 23.64,
+    };
+    expect(catalogRateInLineUnit(45.62, boxed, true)).toBe(45.62);
+    expect(
+      catalogRateInLineUnit(
+        45.62,
+        {
+          ...boxed,
+          carpetInstallSystems: catalogCarpetInstallSystemsForBoxedRate(boxed),
+        },
+        true,
+      ),
+    ).toBe(Math.round(((45.62 * 9) / 23.64) * 100) / 100);
+    expect(
+      catalogRateInLineUnit(
+        45.62,
+        {
+          ...boxed,
+          sqft_per_box: null,
+          carpetInstallSystems: catalogCarpetInstallSystemsForBoxedRate({
+            category: "carpet",
+            sqft_per_box: null,
+          }),
+        },
+        true,
+      ),
+    ).toBe(45.62);
+
+    const picker = readFileSync(
+      join(root, "src/app/(app)/estimates/product-picker.tsx"),
+      "utf8",
+    );
+    expect(picker).toMatch(/const costUnit =/);
+    expect(picker).toMatch(/isCarpet && boxedArea && costAmount != null/);
+    expect(picker).toMatch(/!isCarpet && boxedArea && costAmount != null/);
+    expect(picker).toMatch(/formatMoney\(costLine \?\? 0\)/);
+    expect(picker).toMatch(
+      /Hard-surface catalog picker cost line boxed rate onto sq ft is \$\/coverage, not 1:1/,
+    );
+    expect(picker).toMatch(
+      /Exclusive carpet-tile catalog picker cost line boxed rate onto sq yd is \$\/coverage, not 1:1/,
+    );
+    expect(picker).toMatch(
+      /Hard-surface catalog picker cost line boxed rate onto sq ft shows \/sq ft, not native \/box 1:1/,
+    );
+    expect(picker).toMatch(
+      /Exclusive carpet-tile catalog picker cost line boxed rate onto sq yd shows \/sq yd, not native \/box 1:1/,
+    );
+    expect(picker).not.toMatch(/catalogRateToBillingUnit/);
+    expect(picker).not.toMatch(/category === ["']carpet_tile["']/);
+    expect(picker).not.toMatch(/formatMoney\(money\.cost\.amount \?\? 0\)/);
+
+    const catalogForm = readFileSync(
+      join(root, "src/app/(app)/catalog/product-form.tsx"),
+      "utf8",
+    );
+    expect(catalogForm).toMatch(/\$ \/ unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Hard-surface catalog picker cost line boxed rate onto sq ft shows \/sq ft, not native \/box 1:1/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile catalog picker cost line boxed rate onto sq yd shows \/sq yd, not native \/box 1:1/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile estimate order boxed rate onto sq yd is \$\/coverage, not 1:1/,
+    );
+
+    const help =
+      /Exclusive carpet-tile catalog picker cost line boxed rate onto sq yd shows \/sq yd, not native \/box 1:1 — mixed stretch-in \+ tile and unanswered carpet stay 1:1. Wrap \/ count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Hard-surface catalog picker cost line boxed rate onto sq ft shows \/sq ft, not native \/box 1:1. Wrap \/ count How many stays 1:1. Do not invent coverage/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /cost line boxed rate onto sq (ft|yd) shows/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /shows \/sq (ft|yd), not native \/box/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
