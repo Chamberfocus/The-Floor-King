@@ -1,10 +1,9 @@
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
-import { lineTotal } from "@/lib/estimate-calc";
+import { hardSurfaceAreaCartonCount, lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney, to12 } from "@/lib/format";
 import {
   JOB_STATUS_LABELS,
   JOB_DELIVERY_LABELS,
-  isHardSurfaceCategory,
   type EstimateLineItem,
   type OrgSettings,
 } from "@/lib/types";
@@ -26,11 +25,10 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
   const spec = lineSpec(l);
   // Hard surface installs by the carton — show the box count so the crew knows
   // how many to open, with the sq-ft basis. Use the SAME billed area as the
-  // estimate (spec.qtyNum), not the raw stored quantity.
+  // estimate (spec.qtyNum), not the raw stored quantity. Wrap / carton TBD /
+  // qty TBD How many is already the order — do not divide by coverage.
   const spb = Number(l.sqft_per_box) || 0;
-  const sf = spec.qtyNum || Number(l.sqft) || 0;
-  const cartons =
-    isHardSurfaceCategory(l.category) && spb > 0 && sf > 0 ? Math.ceil(sf / spb) : 0;
+  const cartons = hardSurfaceAreaCartonCount(l, spec.qtyNum || Number(l.sqft) || 0);
   return (
     <tr className="border-b border-gray-200 align-top">
       <td className="py-1 pr-2">

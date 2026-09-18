@@ -178,6 +178,7 @@ const REQUIRED_FILES = [
   "0315_flooring_knowledge_carton_tbd_builder.sql",
   "0316_flooring_knowledge_count_tbd_builder.sql",
   "0317_flooring_knowledge_pick_boxed_area.sql",
+  "0318_flooring_knowledge_po_carton_count.sql",
 ];
 
 /**
@@ -2118,6 +2119,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0317_FLOORING_KNOWLEDGE",
       "Picking a boxed SKU with coverage still takeoffs from measured area — catalog unit box is not How many boxes",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0318_flooring_knowledge_po_carton_count.sql",
+    markers: [
+      "P0_0318_FLOORING_KNOWLEDGE",
+      "PO / warehouse / work-order carton math from sq ft ÷ coverage does not apply to wrap / carton-coverage TBD / qty TBD How many — those are already the order, not taped square feet",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

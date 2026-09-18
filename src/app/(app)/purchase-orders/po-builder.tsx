@@ -23,7 +23,8 @@ import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { catalogUnitCost } from "@/lib/catalog-pricing";
-import { catalogRateToBillingUnit, pickedProductUnit } from "@/lib/units";
+import { knowledgePickDescription, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
+import { catalogRateToBillingUnit, isAreaUnit, pickedProductUnit } from "@/lib/units";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
   PO_SOURCE_BADGE,
@@ -128,7 +129,7 @@ export function PoBuilder({
       product_id: it.product_id ?? "",
       description: it.description ?? "",
       quantity: it.quantity?.toString() ?? "",
-      unit: it.unit ?? "sqft",
+      unit: it.unit ?? (lineSkipsAreaCartonMath(it) ? "" : "sqft"),
       unit_cost: it.unit_cost?.toString() ?? "",
       manufacturer: it.manufacturer ?? "",
       style: it.style ?? "",
@@ -228,11 +229,22 @@ export function PoBuilder({
       vendors: vRow ? [vRow] : vs,
     });
     const base = cost.amount ?? 0;
-    const { unit, unitCost } = convertCost(p, base);
+    const skip = lineSkipsAreaCartonMath(items[i] ?? {});
+    const converted = convertCost(p, base);
+    // Wrap / carton TBD / qty TBD How many stays How many — catalog coverage
+    // does not plant sq ft or reopen carton math from leftover taped sq ft.
+    const unit = skip
+      ? isAreaUnit(p.unit)
+        ? items[i]?.unit || ""
+        : p.unit || items[i]?.unit || ""
+      : converted.unit;
+    const unitCost = skip ? base : converted.unitCost;
 
     updateItem(i, {
       product_id: p.id,
-      description: p.name,
+      description: knowledgePickDescription(items[i]?.description ?? "", p.name, {
+        dropTbd: false,
+      }),
       manufacturer: p.manufacturer ?? "",
       style: p.style ?? "",
       color: p.color ?? "",
@@ -240,7 +252,11 @@ export function PoBuilder({
       category: p.category ?? "",
       unit,
       unit_cost: cost.missing ? "" : String(unitCost),
-      sqft_per_box: p.sqft_per_box != null ? String(p.sqft_per_box) : "",
+      sqft_per_box: skip
+        ? items[i]?.sqft_per_box ?? ""
+        : p.sqft_per_box != null
+          ? String(p.sqft_per_box)
+          : "",
       roll_width_ft: p.roll_width_ft != null ? String(p.roll_width_ft) : "",
     });
 
@@ -682,13 +698,13 @@ export function PoBuilder({
                 </Button>
               </div>
 
-              {/* Vendor-unit helper: hard surface → cartons from sq ft/box;
-                  reminds you to set sq ft/box if it wasn't in the catalog. */}
-              {isHardSurfaceCategory(it.category) ? (
+              {/* Vendor-unit helper: hard surface → cartons from sq ft/box.
+                  Wrap / carton TBD / qty TBD How many is already the order. */}
+              {isHardSurfaceCategory(it.category) && !lineSkipsAreaCartonMath(it) ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs">
                   {Number(it.sqft_per_box) > 0 && Number(it.quantity) > 0 ? (
                     <span className="font-semibold text-primary">
-                      = {Math.ceil(Number(it.quantity) / Number(it.sqft_per_box))} cartons
+                      = {hardSurfaceAreaCartonCount(it, Number(it.quantity))} cartons
                       <span className="font-normal text-muted-foreground">
                         {" "}({it.sqft_per_box} sq ft/box · {formatMoney((Number(it.unit_cost) || 0) * Number(it.sqft_per_box))}/carton)
                       </span>

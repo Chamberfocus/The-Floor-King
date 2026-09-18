@@ -1,11 +1,12 @@
 import {
+  isHardSurfaceCategory,
   isRollGoodCategory,
   type EstimatePresentation,
   type LineMeasurement,
   type LineType,
   type MeasureUnit,
 } from "@/lib/types";
-import { isCountPricedLine, normalizeUnit } from "@/lib/units";
+import { isAreaUnit, isCountPricedLine, normalizeUnit } from "@/lib/units";
 
 /** Signed square feet of one measured piece (subtract = a cutout). */
 export function measurementSqft(m: LineMeasurement): number {
@@ -107,6 +108,48 @@ export function lineIsBoxedCartonTbd(line: { description?: string | null }): boo
  */
 export function lineIsCountNotTapedSqft(line: { description?: string | null }): boolean {
   return /not taped sq ft/i.test((line.description ?? "").trim());
+}
+
+/**
+ * Wrap / carton-coverage TBD / qty TBD How many is already the order.
+ * A count unit (box / each / roll) is already How many. Do not divide
+ * leftover taped sq ft — or a box count — by sq ft/box.
+ */
+export function lineSkipsAreaCartonMath(line: {
+  description?: string | null;
+  unit?: string | null;
+}): boolean {
+  if (
+    lineIsStairWrapTbd(line) ||
+    lineIsBoxedCartonTbd(line) ||
+    lineIsCountNotTapedSqft(line)
+  ) {
+    return true;
+  }
+  const u = (line.unit ?? "").trim();
+  return !!u && !isAreaUnit(u);
+}
+
+/**
+ * Hard-surface carton count from MEASURED area ÷ coverage.
+ * PO / warehouse / work-order carton math from sq ft ÷ coverage does not apply to wrap / carton-coverage TBD / qty TBD How many — those are already the order, not taped square feet.
+ */
+export function hardSurfaceAreaCartonCount(
+  line: {
+    description?: string | null;
+    category?: string | null;
+    unit?: string | null;
+    sqft_per_box?: number | string | null;
+  },
+  areaSqft: number,
+): number {
+  if (lineSkipsAreaCartonMath(line)) return 0;
+  const spb = Number(line.sqft_per_box);
+  if (!Number.isFinite(spb) || !(spb > 0)) return 0;
+  if (line.category ? !isHardSurfaceCategory(line.category) : !(spb > 0)) return 0;
+  const sf = Number(areaSqft);
+  if (!Number.isFinite(sf) || !(sf > 0)) return 0;
+  return Math.ceil(sf / spb);
 }
 
 /**

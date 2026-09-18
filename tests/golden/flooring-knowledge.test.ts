@@ -10,7 +10,7 @@ import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText, padRollC
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { cutLabel, cutSqYd } from "@/lib/order-cuts";
-import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, knowledgePickDescription, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
+import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, knowledgePickDescription, rollGoodsLineHasCuts, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
 import {
   accessoryQuantity,
   piecesForLinearFeet,
@@ -11659,6 +11659,115 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Picking a wrap SKU keeps How many/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0318 PO / warehouse / work-order carton math skips wrap and qty TBD How many", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0318_flooring_knowledge_po_carton_count.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0318_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /PO \/ warehouse \/ work-order carton math from sq ft ÷ coverage does not apply to wrap \/ carton-coverage TBD \/ qty TBD How many — those are already the order, not taped square feet/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      lineSkipsAreaCartonMath({
+        description:
+          "Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+        unit: "box",
+      }),
+    ).toBe(true);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description:
+            "Lifeproof Oak — 8 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+          category: "lvp",
+          unit: "box",
+          sqft_per_box: 23.64,
+        },
+        8,
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+          category: "lvp",
+          unit: "",
+          sqft_per_box: 23.64,
+        },
+        300,
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Lifeproof Oak — qty TBD (box — not taped sq ft)",
+          category: "lvp",
+          unit: "box",
+          sqft_per_box: 23.64,
+        },
+        10,
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Living room — Lifeproof Oak",
+          category: "lvp",
+          unit: "sq ft",
+          sqft_per_box: 23.64,
+        },
+        300,
+      ),
+    ).toBe(13);
+
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(/export function lineSkipsAreaCartonMath/);
+    expect(calc).toMatch(/export function hardSurfaceAreaCartonCount/);
+    expect(calc).toMatch(
+      /PO \/ warehouse \/ work-order carton math from sq ft ÷ coverage does not apply to wrap \/ carton-coverage TBD \/ qty TBD How many — those are already the order, not taped square feet/,
+    );
+
+    const scope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(scope).toMatch(/lineSkipsAreaCartonMath/);
+
+    const po = readFileSync(join(root, "src/app/(app)/purchase-orders/po-builder.tsx"), "utf8");
+    expect(po).toMatch(/lineSkipsAreaCartonMath/);
+    expect(po).toMatch(/hardSurfaceAreaCartonCount/);
+    expect(po).toMatch(/dropTbd: false/);
+    expect(po).toMatch(/knowledgePickDescription/);
+
+    const print = readFileSync(join(root, "src/app/(app)/purchase-orders/[id]/po-print.tsx"), "utf8");
+    expect(print).toMatch(/hardSurfaceAreaCartonCount/);
+    expect(print).toMatch(/lineSkipsAreaCartonMath/);
+
+    const staging = readFileSync(join(root, "src/app/(app)/warehouse/staging-sheet-doc.tsx"), "utf8");
+    expect(staging).toMatch(/hardSurfaceAreaCartonCount/);
+    expect(staging).toMatch(/lineSkipsAreaCartonMath/);
+
+    const wo = readFileSync(join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"), "utf8");
+    expect(wo).toMatch(/hardSurfaceAreaCartonCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /PO \/ warehouse \/ work-order carton math from sq ft ÷ coverage does not apply to wrap \/ carton-coverage TBD \/ qty TBD How many — those are already the order, not taped square feet/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /PO \/ warehouse \/ work-order carton math from sq ft ÷ coverage does not apply to wrap \/ carton-coverage TBD \/ qty TBD How many — those are already the order, not taped square feet/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

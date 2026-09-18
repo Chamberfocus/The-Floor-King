@@ -15,6 +15,7 @@ import {
   type PurchaseOrder,
 } from "@/lib/types";
 import { unitIsSqyd } from "@/lib/units";
+import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
 
 function itemLabel(it: PoItem): string {
   const spec = productSpec(it);
@@ -126,15 +127,18 @@ export function PoPrintDoc({
             const isHard = poLineIsHard(it);
             const isRoll = poLineIsRoll(it);
             const spb = it.sqft_per_box ?? 0;
-            // Hard surface: order in whole cartons; show the sq-ft basis so the
-            // count is verifiable. Carpet: yards + broadloom roll width.
-            const cartons = isHard && spb > 0 ? Math.ceil(qty / spb) : 0;
+            // Hard surface: order in whole cartons from measured sq ft ÷ coverage.
+            // Wrap / carton TBD / qty TBD How many is already the order.
+            const cartons = hardSurfaceAreaCartonCount(it, qty);
+            const skipCarton = lineSkipsAreaCartonMath(it);
             const orderQty = cartons
               ? `${cartons} carton${cartons === 1 ? "" : "s"}`
               : `${Math.round(qty * 100) / 100} ${it.unit ?? ""}`.trim();
             const basis = cartons
               ? `${Math.round(qty * 100) / 100} sq ft ÷ ${spb}/box`
-              : isHard
+              : skipCarton
+                ? ""
+                : isHard
                 ? "⚠ set sq ft/box for carton count"
                 : isRoll && it.roll_width_ft
                   ? `${it.roll_width_ft} ft broadloom roll`

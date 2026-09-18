@@ -297,6 +297,23 @@ describe("work-order lineSpec follows the same display unit", () => {
     expect(padRollCount("underlayment", 270, "sqft")).toBe(0);
     expect(padRollCount("underlayment", 50, "sqyd")).toBe(2);
   });
+
+  it("wrap qty TBD leftover taped sq ft is not a work-order quantity", () => {
+    const spec = lineSpec({
+      quantity: null,
+      unit: "box",
+      measure_unit: "sqft",
+      sqft: 300,
+      length_in: null,
+      width_in: null,
+      category: "lvp",
+      description:
+        "Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+    });
+    expect(spec.qtyNum).toBe(0);
+    expect(spec.qty).not.toMatch(/sq ft/);
+    expect(spec.qty).toBe("");
+  });
 });
 
 describe("questionnaire emit still maps Amount onto the right unit", () => {

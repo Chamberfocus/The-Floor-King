@@ -7,6 +7,7 @@ import {
   type OrgSettings,
 } from "@/lib/types";
 import { stripRoomFromName, PAD_ROLL_SQYD, padRollCount, type CutSource } from "@/lib/job-scope";
+import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
 import { normalizeUnit } from "@/lib/units";
 import { CarpetCutList } from "@/components/carpet-cut-list";
 import type { WarehouseJob } from "@/lib/data/jobs";
@@ -194,12 +195,21 @@ export function StagingSheetDoc({
                 // Use the canonical unit key — never parse "yd" out of a label.
                 const unitKey = normalizeUnit(g.unit);
                 const padRolls = padRollCount(g.category, g.qty, unitKey);
-                // Hard surface pulls by the CARTON; show the sq-ft basis so the
-                // count is verifiable. Roll goods show the total + broadloom width.
-                const cartons =
-                  isHard && g.sqftPerBox && g.sqftPerBox > 0
-                    ? Math.ceil(g.qty / g.sqftPerBox)
-                    : 0;
+                // Hard surface pulls by the CARTON from measured sq ft ÷ coverage.
+                // Wrap / carton TBD / qty TBD How many is already the order.
+                const cartons = hardSurfaceAreaCartonCount(
+                  {
+                    description: g.name,
+                    category: g.category,
+                    unit: g.unit,
+                    sqft_per_box: g.sqftPerBox,
+                  },
+                  g.qty,
+                );
+                const skipCarton = lineSkipsAreaCartonMath({
+                  description: g.name,
+                  unit: g.unit,
+                });
                 const qtyMain = cartons
                   ? `${cartons} carton${cartons === 1 ? "" : "s"}`
                   : padRolls
@@ -209,7 +219,9 @@ export function StagingSheetDoc({
                       : "";
                 const qtySub = cartons
                   ? `${Math.round(g.qty * 100) / 100} sq ft ÷ ${g.sqftPerBox}/box`
-                  : isHard
+                  : skipCarton
+                    ? ""
+                    : isHard
                     ? "⚠ set sq ft/box"
                     : padRolls && unitKey === "sqyd"
                       ? `${Math.round(g.qty * 100) / 100} sq yd ÷ ${PAD_ROLL_SQYD}/roll`
