@@ -86,6 +86,7 @@ import {
   isHardSurfaceFamily,
   isRollGoodsFamily,
   carpetInstallSystemsFromLabels,
+  type InstallSystem,
   rollGoodsNeedCuts,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
@@ -171,13 +172,18 @@ function billing(args: { category: string; key?: string | null; productUnit?: st
 }
 /** Convert a catalog product's per-unit rate to the line's billing unit.
  * Catalog box rate onto an area line is $/coverage, not 1:1.
- * Wrap / count How many stays 1:1 — omit boxedProduct.
+ * Exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 —
+ * mixed stretch-in + tile still waits for cuts. Wrap / count How many stays 1:1 — omit boxedProduct.
  * Do not invent coverage. */
 function rateFor(
   rate: number,
   productUnit: string | null,
   wantYd: boolean,
-  boxedProduct?: { category?: string | null; sqft_per_box?: number | string | null } | null,
+  boxedProduct?: {
+    category?: string | null;
+    sqft_per_box?: number | string | null;
+    carpetInstallSystems?: InstallSystem[] | null;
+  } | null,
 ): number {
   if (boxedProduct) {
     return catalogRateInLineUnit(
@@ -186,6 +192,7 @@ function rateFor(
         unit: productUnit,
         category: boxedProduct.category,
         sqft_per_box: boxedProduct.sqft_per_box,
+        carpetInstallSystems: boxedProduct.carpetInstallSystems,
       },
       wantYd,
     );
@@ -1119,12 +1126,14 @@ export function Questionnaire({
                 rateFor(p.materialRate, p.unit, b.wantYd, {
                   category: cat,
                   sqft_per_box: spb > 0 ? spb : null,
+                  carpetInstallSystems: carpetSystems,
                 }),
               ),
               labor_rate: 0,
               material_cost: rateFor(p.materialRate, p.unit, b.wantYd, {
                 category: cat,
                 sqft_per_box: spb > 0 ? spb : null,
+                carpetInstallSystems: carpetSystems,
               }),
               labor_cost: 0,
               waste_pct: waste,
@@ -1311,12 +1320,14 @@ export function Questionnaire({
             rateFor(p.materialRate, p.unit, pb.wantYd, {
               category: p.category || cat,
               sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+              carpetInstallSystems: carpetSystems,
             }),
           ),
           labor_rate: 0,
           material_cost: rateFor(p.materialRate, p.unit, pb.wantYd, {
             category: p.category || cat,
             sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+            carpetInstallSystems: carpetSystems,
           }),
           labor_cost: 0,
           waste_pct: wasteOf(p),
@@ -1713,12 +1724,14 @@ export function Questionnaire({
                   rateFor(p.materialRate, p.unit, true, {
                     category: p.category || "carpet",
                     sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                    carpetInstallSystems: carpetSystems,
                   }),
                 ),
                 labor_rate: 0,
                 material_cost: rateFor(p.materialRate, p.unit, true, {
                   category: p.category || "carpet",
                   sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                  carpetInstallSystems: carpetSystems,
                 }),
                 labor_cost: 0,
                 waste_pct: waste,
@@ -3889,6 +3902,8 @@ function QuestionBody({
           const p = byRoom[key] ?? null;
           const cat = p?.category || "other";
           const b = billing({ category: cat, productUnit: p?.unit });
+          const family = familyFromCatalogCategory(cat);
+          const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
           return (
             <div key={key} className="rounded-lg border p-3">
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
@@ -3921,7 +3936,7 @@ function QuestionBody({
                 <div className="mt-1.5 text-xs text-muted-foreground">
                   {p.label} ·{" "}
                   {p.materialRate > 0
-                    ? `sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd, { category: p.category, sqft_per_box: p.sqftPerBox })))}/${b.unitLabel}`
+                    ? `sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd, { category: p.category, sqft_per_box: p.sqftPerBox, carpetInstallSystems: carpetSystems })))}/${b.unitLabel}`
                     : PRICE_NEEDED}
                   {q.config.ask_source ? (
                     <span className="mt-1.5 block">
@@ -3932,8 +3947,6 @@ function QuestionBody({
                       waste % — layout waste lives in the cut list. */}
                   {(() => {
                     const defWaste = profileFor(cat)?.waste ?? 0;
-                    const family = familyFromCatalogCategory(cat);
-                    const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
                     const needCuts = rollGoodsNeedCuts(family, carpetSystems);
                     const cutSf = needCuts ? (cutsSqftByCategory[family] ?? 0) : 0;
                     const takeoff = computeMaterialTakeoff({
@@ -4419,7 +4432,7 @@ function QuestionBody({
               <div className="font-medium">{p.label}</div>
               <div className="text-xs text-muted-foreground">
                 {p.materialRate > 0
-                  ? `${formatMoney(p.materialRate)}/${p.unit} → sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd, { category: p.category, sqft_per_box: p.sqftPerBox })))}/${b.unitLabel}`
+                  ? `${formatMoney(p.materialRate)}/${p.unit} → sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd, { category: p.category, sqft_per_box: p.sqftPerBox, carpetInstallSystems: carpetSystems })))}/${b.unitLabel}`
                   : PRICE_NEEDED}
                 {mainAsksCount
                   ? ""

@@ -220,6 +220,34 @@ describe("unit conversion does not corrupt price", () => {
     expect(catalogToLineMeasure({ ...p, category: "other" }).count).toBe(true);
     expect(catalogToLineMeasure({ ...p, category: "other" }).factor).toBe(1);
   });
+
+  it("exclusive carpet-tile boxed coverage converts box rate onto sq yd, mixed stays 1:1", () => {
+    const p = product({
+      category: "carpet",
+      unit: "box",
+      sqft_per_box: 23.64,
+      material_rate: 45.62,
+    });
+    expect(catalogToLineMeasure(p).count).toBe(true);
+    expect(catalogToLineMeasure(p).factor).toBe(1);
+    expect(catalogRateInLineUnit(45.62, p, true)).toBe(45.62);
+
+    const mixed = { ...p, carpetInstallSystems: ["stretch_in", "carpet_tile"] as import("@/lib/flooring-knowledge").InstallSystem[] };
+    expect(catalogToLineMeasure(mixed).count).toBe(true);
+    expect(catalogToLineMeasure(mixed).factor).toBe(1);
+    expect(catalogRateInLineUnit(45.62, mixed, true)).toBe(45.62);
+
+    const tile = { ...p, carpetInstallSystems: ["carpet_tile"] as import("@/lib/flooring-knowledge").InstallSystem[] };
+    const conv = catalogToLineMeasure(tile);
+    expect(conv.count).toBe(false);
+    expect(conv.lineUnit).toBe("sq yd");
+    expect(conv.factor).toBeCloseTo(9 / 23.64, 10);
+    expect(catalogCostInLineUnit(tile).amount).toBe(cents((45.62 * 9) / 23.64));
+    expect(catalogRateInLineUnit(45.62, tile, true)).toBe(cents((45.62 * 9) / 23.64));
+    expect(catalogToLineMeasure({ ...tile, sqft_per_box: null }).count).toBe(true);
+    expect(catalogToLineMeasure({ ...tile, sqft_per_box: null }).factor).toBe(1);
+    expect(catalogRateInLineUnit(45.62, { ...tile, sqft_per_box: null }, true)).toBe(45.62);
+  });
 });
 
 describe("ACL / price privacy", () => {

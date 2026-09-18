@@ -211,6 +211,7 @@ const REQUIRED_FILES = [
   "0348_flooring_knowledge_customer_trail_ft.sql",
   "0349_flooring_knowledge_customer_trail_qty.sql",
   "0350_flooring_knowledge_boxed_rate.sql",
+  "0351_flooring_knowledge_tile_rate.sql",
 ];
 
 /**
@@ -2547,6 +2548,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0350_FLOORING_KNOWLEDGE",
       "Catalog box rate onto an area line is $/coverage, not 1:1 — wrap / count How many stays 1:1. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0351_flooring_knowledge_tile_rate.sql",
+    markers: [
+      "P0_0351_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 — mixed stretch-in + tile still waits for cuts. Wrap / count How many stays 1:1. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

@@ -39,8 +39,9 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * pad bill per sq yd; hard surface bills per sq ft. Catalog products are stored
  * in EITHER unit, so a sq-ft rate on a sq-yd line must be ×9 (and vice-versa
  * ÷9). Catalog box rate onto an area line is $/coverage, not 1:1.
- * Wrap / count How many stays 1:1 — omit boxedProduct.
- * Do not invent coverage.
+ * Exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 —
+ * mixed stretch-in + tile still waits for cuts. Wrap / count How many stays 1:1 — omit boxedProduct.
+ * Do not invent coverage. AI notes have no exclusive-tile evidence — do not pass carpetInstallSystems.
  */
 function rateFor(
   rate: number,

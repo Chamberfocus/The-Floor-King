@@ -23,6 +23,7 @@ import { isRollGoodCategory } from "@/lib/types";
 import {
   boxedCartonAreaTakeoffAllowed,
   familyFromCatalogCategory,
+  type InstallSystem,
 } from "@/lib/flooring-knowledge";
 import type { Product, ProductVendor, UserRole } from "@/lib/types";
 
@@ -216,12 +217,14 @@ export function roleMaySeeCatalogMargin(role: UserRole | null | undefined): bool
  * Same unit conversion the estimate builder uses when a product is picked:
  * count units 1:1; carpet/sheet vinyl bill per sq yd (×9 from per-sq-ft cost).
  * Catalog box rate onto an area line is $/coverage, not 1:1 — wrap / count How many stays 1:1.
- * Do not invent coverage.
+ * Exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 —
+ * mixed stretch-in + tile still waits for cuts. Do not invent coverage.
  */
 export function catalogToLineMeasure(product: {
   unit?: string | null;
   category?: string | null;
   sqft_per_box?: number | string | null;
+  carpetInstallSystems?: InstallSystem[] | null;
 }): {
   count: boolean;
   measureUnit: "sqft" | "sqyd";
@@ -234,6 +237,7 @@ export function catalogToLineMeasure(product: {
     family: familyFromCatalogCategory(product.category ?? "other"),
     productUnit: product.unit,
     sqftPerBox: Number(product.sqft_per_box) > 0 ? Number(product.sqft_per_box) : null,
+    carpetInstallSystems: product.carpetInstallSystems,
   });
   const count = boxedArea ? false : !isAreaUnit(product.unit);
   const measureUnit: "sqft" | "sqyd" = isRollGoodCategory(product.category)
@@ -260,7 +264,8 @@ export function catalogToLineMeasure(product: {
 /**
  * Catalog per-unit rate in the line's billing unit.
  * Count units 1:1. Boxed carton WITH coverage that takeoffs as area is $/coverage, not 1:1.
- * Wrap / count How many stays 1:1 — omit sqft_per_box.
+ * Exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 —
+ * mixed stretch-in + tile still waits for cuts. Wrap / count How many stays 1:1 — omit sqft_per_box.
  * Do not invent coverage.
  */
 export function catalogRateInLineUnit(
@@ -269,6 +274,7 @@ export function catalogRateInLineUnit(
     unit?: string | null;
     category?: string | null;
     sqft_per_box?: number | string | null;
+    carpetInstallSystems?: InstallSystem[] | null;
   },
   billingIsSqyd: boolean,
 ): number {
@@ -277,6 +283,7 @@ export function catalogRateInLineUnit(
     family: familyFromCatalogCategory(product.category ?? "other"),
     productUnit: product.unit,
     sqftPerBox: Number(product.sqft_per_box) > 0 ? Number(product.sqft_per_box) : null,
+    carpetInstallSystems: product.carpetInstallSystems,
   });
   if (boxedArea) {
     return Math.round(r * catalogToLineMeasure(product).factor * 100) / 100;
@@ -291,6 +298,7 @@ export function catalogCostInLineUnit(product: {
   material_rate?: number | string | null;
   vendors?: ProductVendor[] | null;
   sqft_per_box?: number | string | null;
+  carpetInstallSystems?: InstallSystem[] | null;
 }): CatalogCost {
   const base = catalogUnitCost(product);
   if (base.missing || base.amount == null) return base;
@@ -305,7 +313,11 @@ export function catalogCostInLineUnit(product: {
  * wins when flagged. Missing catalog cost → both null (PRICE NEEDED).
  */
 export function catalogLineSnapshot(
-  product: CatalogSellInput & { unit?: string | null; sqft_per_box?: number | string | null },
+  product: CatalogSellInput & {
+    unit?: string | null;
+    sqft_per_box?: number | string | null;
+    carpetInstallSystems?: InstallSystem[] | null;
+  },
   opts: { targetMarginPct: number; freightMarkupPct: number },
 ): {
   lineUnit: string;
