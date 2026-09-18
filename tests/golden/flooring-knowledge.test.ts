@@ -108,6 +108,7 @@ import {
   FURNITURE_MOVING_KEYS,
   jobIsVacant,
   NEW_CONSTRUCTION_HIDES_KEYS,
+  REMOVAL_QUESTION_KEYS,
   KNOWLEDGE_QUESTIONS,
   sortEstimateQuestions,
   estimatorPhaseForQuestion,
@@ -1800,6 +1801,11 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
           "Other",
         ],
       },
+    },
+    {
+      key: "bulk_pickup",
+      position: 276,
+      show_if: { key: "demo_disposal", in: ["Placed at curb"] },
     },
     {
       key: "substrate",
@@ -7104,6 +7110,73 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const units = readFileSync(join(root, "src/lib/units.ts"), "utf8");
     expect(units).toMatch(/areaBillsBySquareYard/);
     expect(units).toMatch(/SQYD_CATEGORIES = \["carpet", "vinyl", "underlayment"\]/);
+  });
+
+  it("0279 keys bulk pickup so overlay can hide it on new construction", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0279_flooring_knowledge_bulk_pickup.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0279_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Key it as bulk_pickup/);
+    expect(sql).toMatch(/Do NOT SQL-gate bulk_pickup on work_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate bulk_pickup on demo_disposal/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*work_type.*bulk_pickup|bulk_pickup.*show_if.*work_type/,
+    );
+
+    expect(knowledgeQuestionByKey("bulk_pickup")?.purpose).toBe("SCHEDULING");
+    expect(knowledgeQuestionByKey("bulk_pickup")?.phase).toBe("existing");
+    expect(knowledgeQuestionByKey("bulk_pickup")?.require).toEqual({
+      key: "demo_disposal",
+      in: ["Placed at curb"],
+    });
+    expect(REMOVAL_QUESTION_KEYS).toContain("bulk_pickup");
+    expect(reviewBucketForQuestion({ key: "bulk_pickup" })).toBe("removal");
+    expect(knowledgeHelpFor({ key: "bulk_pickup" }, emptyInstallContext())).toMatch(
+      /Municipal bulk pickup day/,
+    );
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(
+      /bulk pickup day/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Carpet"],
+    });
+    expect(unanswered).toContain("demo_disposal");
+    expect(unanswered).not.toContain("bulk_pickup");
+
+    const curb = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Carpet"],
+      demo_disposal: ["Placed at curb"],
+    });
+    expect(curb).toContain("bulk_pickup");
+    expect(curb.indexOf("demo_disposal")).toBeLessThan(curb.indexOf("bulk_pickup")!);
+
+    const haul = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Carpet"],
+      demo_disposal: ["Haul away"],
+    });
+    expect(haul).toContain("demo_disposal");
+    expect(haul).not.toContain("bulk_pickup");
+
+    const neu = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      work_type: ["New construction"],
+      hs_demo: ["Carpet"],
+      demo_disposal: ["Placed at curb"],
+    });
+    expect(neu).not.toContain("bulk_pickup");
+    expect(neu).not.toContain("demo_disposal");
   });
 
   it("pattern repeat only after pattern match is required", () => {

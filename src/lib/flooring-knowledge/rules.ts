@@ -877,8 +877,11 @@ export function knowledgeHelpFor(
   if (key === "existing_tack") {
     return "Tearing out carpet usually takes tack strip with it. Keep is unusual. This is not new stretch-in tack strip — that stays on the install step. Linear feet stay off until you add a catalog item. Do not invent a linear-foot price.";
   }
+  if (key === "bulk_pickup") {
+    return "Municipal bulk pickup day so the old floor is at the curb on time. New construction hides this. Haul-away / dumpster hides this. Unanswered disposal stays open in overlay. Do not invent a disposal charge here.";
+  }
   if (key === "work_type") {
-    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, disposal, and toilet pull/reset — substrate, prep, appliances, and door shaves still apply. Unknown / field verify keeps demo visible. The overlay warning names those hides; do not invent a demo charge on a new slab.";
+    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, disposal, bulk pickup day, and toilet pull/reset — substrate, prep, appliances, and door shaves still apply. Unknown / field verify keeps demo visible. The overlay warning names those hides; do not invent a demo charge on a new slab.";
   }
   if (key === "tack_strip") {
     return "Stretch-in needs tack strip. Glue-down and carpet tile do not. Capture keep vs replace — do not invent a linear-foot price unless a catalog item is added.";
@@ -1096,7 +1099,7 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   if (newBuild) {
     w.push({
       id: "new-construction",
-      text: "New construction — no tear-out. Demo, pad removal, existing-vinyl skim, asbestos, disposal, and toilet pull/reset stay off. Substrate, prep, appliances, and door shaves still apply. Do not invent a demo charge.",
+      text: "New construction — no tear-out. Demo, pad removal, existing-vinyl skim, asbestos, disposal, bulk pickup day, and toilet pull/reset stay off. Substrate, prep, appliances, and door shaves still apply. Do not invent a demo charge.",
     });
   }
   const wet = picked.some(

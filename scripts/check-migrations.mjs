@@ -139,6 +139,7 @@ const REQUIRED_FILES = [
   "0276_flooring_knowledge_glue_wood_aqua.sql",
   "0277_flooring_knowledge_underlayment_cover.sql",
   "0278_flooring_knowledge_underlayment_units.sql",
+  "0279_flooring_knowledge_bulk_pickup.sql",
 ];
 
 /**
@@ -1712,6 +1713,17 @@ const REQUIRED_MARKERS = [
       "Do not invent a 30-yard foam roll",
       "Do NOT SQL-gate carpet_pad on surface_type",
       "Do NOT drop underlayment from SQYD_CATEGORIES",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0279_flooring_knowledge_bulk_pickup.sql",
+    markers: [
+      "P0_0279_FLOORING_KNOWLEDGE",
+      "Key it as bulk_pickup",
+      "Do NOT SQL-gate bulk_pickup on work_type",
+      "Do NOT SQL-gate bulk_pickup on demo_disposal",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

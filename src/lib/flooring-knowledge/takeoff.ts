@@ -49,6 +49,7 @@ const REMOVAL_KEYS = new Set([
   "existing_pad",
   "existing_tack",
   "demo_disposal",
+  "bulk_pickup",
   "asbestos_risk",
   "vinyl_skim",
 ]);

@@ -135,6 +135,19 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     require: { key: "hs_demo", in: ["LVP", "Laminate", "Sheet vinyl", "LVP / Vinyl"] },
   },
   { key: "demo_disposal", purpose: "LABOR", phase: "existing" },
+  /**
+   * Municipal pickup day after the old floor is going to the curb.
+   * Keyless in 0142 (UUID only) so overlay/review could not attach.
+   * New construction hides this with the other tear-out questions.
+   * Unanswered disposal stays open in overlay require; live SQL show_if
+   * still waits for Placed at curb (0142). Do not invent a dumpster fee.
+   */
+  {
+    key: "bulk_pickup",
+    purpose: "SCHEDULING",
+    phase: "existing",
+    require: { key: "demo_disposal", in: ["Placed at curb"] },
+  },
   {
     key: "asbestos_risk",
     purpose: "WARNING",
@@ -474,6 +487,7 @@ export const REMOVAL_QUESTION_KEYS = [
   "existing_pad",
   "existing_tack",
   "demo_disposal",
+  "bulk_pickup",
   "asbestos_risk",
   "vinyl_skim",
 ] as const;
