@@ -4,7 +4,7 @@ import { Plus, Trash2, Minus, Ruler } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { num } from "@/lib/estimate-calc";
+import { hardSurfaceAreaCartonCount, num } from "@/lib/estimate-calc";
 import { isRollGoodCategory, isHardSurfaceCategory } from "@/lib/types";
 import {
   ROLL_GOODS_CUTS_EMPTY_HINT,
@@ -58,12 +58,33 @@ export function LineMeasurements({
   onChange,
   sqftPerBox,
   onSqftPerBoxChange,
+  cartonLine,
+  billedQty,
 }: {
   category: string;
   rows: MeasureRow[];
   onChange: (rows: MeasureRow[]) => void;
   sqftPerBox: string;
   onSqftPerBoxChange: (v: string) => void;
+  cartonLine?: {
+    description?: string | null;
+    category?: string | null;
+    unit?: string | null;
+    measure_unit?: string | null;
+    sqft?: number | string | null;
+    quantity?: number | string | null;
+    sqft_per_box?: number | string | null;
+    roll_width_ft?: number | string | null;
+    order_as_roll?: boolean | null;
+    length_in?: number | string | null;
+    width_in?: number | string | null;
+    measurements?: {
+      length_in?: number | string | null;
+      width_in?: number | string | null;
+      op?: string | null;
+    }[] | null;
+  };
+  billedQty?: number;
 }) {
   const isRoll = isRollGoodCategory(category);
   const isHard = isHardSurfaceCategory(category);
@@ -71,8 +92,16 @@ export function LineMeasurements({
 
   const total = rowsSqft(rows);
   const addCount = rows.filter((r) => r.op === "add").length;
-  const perBox = num(sqftPerBox);
-  const cartons = perBox > 0 && total > 0 ? Math.ceil(total / perBox) : 0;
+  // Exclusive carpet-tile Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const cartons = hardSurfaceAreaCartonCount(
+    {
+      ...cartonLine,
+      category,
+      sqft_per_box: sqftPerBox,
+    },
+    billedQty ?? 0,
+  );
 
   const update = (id: string, patch: Partial<MeasureRow>) =>
     onChange(rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));

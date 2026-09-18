@@ -2683,12 +2683,16 @@ export function EstimateBuilder({
                                Carpet/vinyl: each add-piece is a cut off the roll
                                (→ staging sheet). Hard surface: pieces sum to SF. */
                             <div className="w-full space-y-2">
+                              {/* Exclusive carpet-tile Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                              {/* Hard-surface Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                               <LineMeasurements
                                 category={line.category}
                                 rows={line.measurements}
                                 onChange={(rows) => setLineMeasurements(oi, li, rows)}
                                 sqftPerBox={line.sqft_per_box}
                                 onSqftPerBoxChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
+                                cartonLine={summ}
+                                billedQty={sQty}
                               />
                               {/* Fallback when there are no warehouse pieces yet.
                                   Roll goods: leftover sq ft is MEASURED area, not
