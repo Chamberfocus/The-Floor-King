@@ -53,6 +53,7 @@ import {
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
+  MERGED_CLIMATE_HIDES_KEYS,
   NEW_CONSTRUCTION_HIDES_KEYS,
   REMOVAL_QUESTION_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
@@ -481,6 +482,12 @@ export function questionApplies(
   if (when?.require?.key) {
     const have = valByKey[when.require.key] ?? [];
     if (have.length && !listHas(have, when.require.in)) return false;
+  }
+  if (
+    q.key &&
+    (MERGED_CLIMATE_HIDES_KEYS as readonly string[]).includes(q.key)
+  ) {
+    return false;
   }
   // Attached-pad Yes → hide separate-underlayment questions.
   if (q.key === "hs_underlayment" && install.attachedPad === "yes") return false;
@@ -911,7 +918,7 @@ export function knowledgeHelpFor(
     return "Upper floor, elevator, long carry, unusual access — scope/schedule notes unless a Floor King labor item is added in Builder.";
   }
   if (key === "climate_control") {
-    return "AC and heat on site. The acclimation warning fires only for hardwood / glue-down / carpet tile, from this overlay — not a second questionnaire list. Stretch-in and floating still capture it as an install condition. Exclusive wall tile hides this — a backsplash is not a hardwood acclimation job. Mixed LVP or hardwood + wall still asks. Unanswered and Unknown stay open. Legacy AC/heat yes-no answers still count.";
+    return "AC and heat on site. The acclimation warning fires only for hardwood / glue-down / carpet tile, from this overlay — not a second questionnaire list. Stretch-in and floating still capture it as an install condition. Exclusive wall tile hides this — a backsplash is not a hardwood acclimation job. Mixed LVP or hardwood + wall still asks. Unanswered and Unknown stay open. Legacy AC/heat yes-no answers still count. Leftover AC available / Heat available questions stay off the overlay — climate_control is the source of truth.";
   }
   if (key === "laminate_expansion") {
     return "Floating floors need expansion at walls and transitions. Solid hardwood hides this — floating is not a permitted system. Exclusive laminate leftover Glue-down still asks this — laminate is floating. Exclusive tile leftover Floating hides this. Carpet-only leftover Floating hides this — click-floor expansion is not a stretch-in question. Record it as scope; add catalog reducers / T-molds / quarter round on the trim step rather than inventing a charge here.";

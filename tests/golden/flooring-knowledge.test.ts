@@ -80,6 +80,7 @@ import {
   climateControlConfirmed,
   tileJobIsWallOnly,
   TILE_WALL_HIDES_KEYS,
+  MERGED_CLIMATE_HIDES_KEYS,
   TILE_THINSET_HIDES_KEYS,
   CARPET_TILE_VAPOR_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
@@ -7245,6 +7246,108 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(mixed).toContain("climate_control");
     expect(mixed).toContain("acclimation");
+  });
+
+  it("0281 leftover AC/heat yes-no stay off the overlay; climate_control is SOT", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0281_flooring_knowledge_legacy_climate.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0281_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/climate_control is the source of truth/);
+    expect(sql).toMatch(/Do NOT SQL-gate climate_control on install_method/);
+    expect(sql).toMatch(/Do NOT SQL-gate climate_control on tile_application/);
+    expect(sql).toMatch(/Do NOT drop legacy Yes reading from climateControlConfirmed/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*install_method.*climate_control|climate_control.*show_if.*install_method/,
+    );
+    expect(sql).not.toMatch(
+      /show_if.*tile_application.*climate_control|climate_control.*show_if.*tile_application/,
+    );
+    expect(sql).toMatch(/e3bcf27d-cddd-44ee-8fef-70ff38056649/);
+    expect(sql).not.toMatch(/4f2ec418-e4bf-4019-bf99-65dbc5de025f/);
+
+    expect([...MERGED_CLIMATE_HIDES_KEYS]).toEqual(["ac_available", "heat_available"]);
+    expect(knowledgeQuestionByKey("ac_available")?.key).toBe("ac_available");
+    expect(knowledgeQuestionByKey("heat_available")?.key).toBe("heat_available");
+    expect(knowledgeHelpFor({ key: "climate_control" }, emptyInstallContext())).toMatch(
+      /climate_control is the source of truth/,
+    );
+    expect(knowledgeHelpFor({ key: "climate_control" }, emptyInstallContext())).toMatch(
+      /Legacy AC\/heat yes-no answers still count/,
+    );
+
+    expect(
+      questionApplies({ key: "ac_available", config: {} }, {}, emptyInstallContext()),
+    ).toBe(false);
+    expect(
+      questionApplies({ key: "heat_available", config: {} }, {}, emptyInstallContext()),
+    ).toBe(false);
+    expect(
+      questionApplies({ key: "climate_control", config: {} }, {}, emptyInstallContext()),
+    ).toBe(true);
+
+    const stretch = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("climate_control");
+    expect(stretch).not.toContain("ac_available");
+    expect(stretch).not.toContain("heat_available");
+
+    const lam = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Floating / click"],
+    });
+    expect(lam).toContain("climate_control");
+    expect(lam).not.toContain("ac_available");
+    expect(lam).not.toContain("heat_available");
+
+    const hardwood = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+    });
+    expect(hardwood).toContain("climate_control");
+    expect(hardwood).not.toContain("ac_available");
+    expect(hardwood).not.toContain("heat_available");
+
+    const unanswered = visibleKnowledgeKeys({ project_type: ["Hard surface"] });
+    expect(unanswered).toContain("climate_control");
+    expect(unanswered).not.toContain("ac_available");
+    expect(unanswered).not.toContain("heat_available");
+
+    const wall = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+    });
+    expect(wall).not.toContain("climate_control");
+    expect(wall).not.toContain("ac_available");
+    expect(wall).not.toContain("heat_available");
+
+    expect(
+      climateControlConfirmed(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          ac_available: ["Yes"],
+          heat_available: ["Yes"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          ac_available: ["Yes"],
+          heat_available: ["Yes"],
+        }),
+      ).some((w) => w.id === "climate"),
+    ).toBe(false);
   });
 
   it("pattern repeat only after pattern match is required", () => {

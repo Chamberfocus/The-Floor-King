@@ -221,6 +221,12 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     require: { key: "tack_strip", in: ["Replace / new tack strip"] },
   },
   { key: "climate_control", purpose: "INSTALLATION", phase: "install" },
+  /**
+   * Leftover yes/no from before 0142 merged AC + heat into climate_control.
+   * Kept so climateControlConfirmed still reads old Yes answers. Overlay
+   * always hides them (MERGED_CLIMATE_HIDES_KEYS) — climate_control is SOT.
+   * Do not SQL-gate climate_control on install_method or tile_application.
+   */
   { key: "ac_available", purpose: "INSTALLATION", phase: "install" },
   { key: "heat_available", purpose: "INSTALLATION", phase: "install" },
 
@@ -498,6 +504,14 @@ export const REMOVAL_QUESTION_KEYS = [
  * Appliances and door shaves stay — those can still apply on a new slab.
  */
 export const NEW_CONSTRUCTION_HIDES_KEYS = ["toilets"] as const;
+
+/**
+ * Leftover AC / heat yes-no merged into climate_control (0142). Always hide —
+ * no family/system gate. climateControlConfirmed still reads Yes answers so
+ * old estimates do not lose the acclimation warning. Do not SQL-gate
+ * climate_control on install_method or tile_application (0142).
+ */
+export const MERGED_CLIMATE_HIDES_KEYS = ["ac_available", "heat_available"] as const;
 
 /**
  * Floor-only follow-ups hidden once tile_application is exclusively Wall

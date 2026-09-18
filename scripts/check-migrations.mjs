@@ -141,6 +141,7 @@ const REQUIRED_FILES = [
   "0278_flooring_knowledge_underlayment_units.sql",
   "0279_flooring_knowledge_bulk_pickup.sql",
   "0280_flooring_knowledge_wall_climate.sql",
+  "0281_flooring_knowledge_legacy_climate.sql",
 ];
 
 /**
@@ -1736,6 +1737,18 @@ const REQUIRED_MARKERS = [
       "a backsplash is not a hardwood acclimation job",
       "Do NOT SQL-gate climate_control on tile_application",
       "Do NOT SQL-gate acclimation on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0281_flooring_knowledge_legacy_climate.sql",
+    markers: [
+      "P0_0281_FLOORING_KNOWLEDGE",
+      "climate_control is the source of truth",
+      "Do NOT SQL-gate climate_control on install_method",
+      "Do NOT SQL-gate climate_control on tile_application",
+      "Do NOT drop legacy Yes reading from climateControlConfirmed",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
