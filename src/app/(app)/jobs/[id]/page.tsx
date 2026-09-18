@@ -903,6 +903,15 @@ export default async function JobPage({
                   quantity: l.quantity ?? null,
                   unit: l.unit ?? null,
                   note: (l as { note?: string | null }).note ?? null,
+                  // Exclusive carpet-tile work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  category: l.category ?? null,
+                  sqft_per_box: l.sqft_per_box ?? null,
+                  roll_width_ft: l.roll_width_ft ?? null,
+                  order_as_roll: l.order_as_roll ?? null,
+                  length_in: l.length_in ?? null,
+                  width_in: l.width_in ?? null,
+                  measurements: l.measurements ?? null,
                 }))}
               />
             </CardContent>

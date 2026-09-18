@@ -13,6 +13,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
+import type { LineMeasurement } from "@/lib/types";
 import { addJobLine, updateJobLine, removeJobLine } from "./scope-actions";
 
 export interface ScopeLine {
@@ -23,6 +25,34 @@ export interface ScopeLine {
   quantity: number | null;
   unit: string | null;
   note: string | null;
+  category: string | null;
+  sqft_per_box: number | null;
+  roll_width_ft: number | null;
+  order_as_roll: boolean | null;
+  length_in: number | null;
+  width_in: number | null;
+  measurements: LineMeasurement[] | null;
+}
+
+function cartonCountFor(l: ScopeLine): number {
+  // Exclusive carpet-tile work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  return hardSurfaceAreaCartonCount(
+    {
+      description: l.description,
+      category: l.category,
+      unit: l.unit,
+      sqft: l.sqft,
+      quantity: l.quantity,
+      sqft_per_box: l.sqft_per_box,
+      roll_width_ft: l.roll_width_ft,
+      order_as_roll: l.order_as_roll,
+      length_in: l.length_in,
+      width_in: l.width_in,
+      measurements: l.measurements,
+    },
+    Number(l.quantity) || Number(l.sqft) || 0,
+  );
 }
 
 /**
@@ -105,15 +135,22 @@ export function EditScope({
             Nothing on this work order yet.
           </li>
         ) : (
-          lines.map((l) => (
+          lines.map((l) => {
+            const cartons = cartonCountFor(l);
+            return (
             <li key={l.id} className="flex items-start justify-between gap-3 px-3 py-2.5">
               <div className="min-w-0">
                 <div className="text-sm font-medium">{l.description || "Line"}</div>
                 <div className="text-xs text-muted-foreground">
+                  {/* Exclusive carpet-tile work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                  {/* Hard-surface work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                   {[
                     l.room,
                     l.sqft != null ? `${l.sqft} sq ft` : null,
                     l.quantity != null ? `${l.quantity} ${l.unit ?? ""}`.trim() : null,
+                    cartons
+                      ? `📦 ${cartons} carton${cartons === 1 ? "" : "s"}`
+                      : null,
                   ]
                     .filter(Boolean)
                     .join(" · ")}
@@ -149,7 +186,8 @@ export function EditScope({
                 </form>
               </div>
             </li>
-          ))
+            );
+          })
         )}
       </ul>
 

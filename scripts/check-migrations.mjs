@@ -233,6 +233,7 @@ const REQUIRED_FILES = [
   "0370_flooring_knowledge_job_scope_carton.sql",
   "0371_flooring_knowledge_order_carton.sql",
   "0372_flooring_knowledge_job_materials_carton.sql",
+  "0373_flooring_knowledge_wo_editor_carton.sql",
 ];
 
 /**
@@ -2841,6 +2842,19 @@ const REQUIRED_MARKERS = [
       "P0_0372_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile job materials carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Hard-surface job materials carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0373_flooring_knowledge_wo_editor_carton.sql",
+    markers: [
+      "P0_0373_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Hard-surface work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
