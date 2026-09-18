@@ -8,6 +8,8 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { EmptyState } from "@/components/empty-state";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { padRollCount } from "@/lib/job-scope";
+import { normalizeUnit } from "@/lib/units";
 import { createPOsFromEstimateSelection } from "@/app/(app)/purchase-orders/actions";
 import type { EstimateOrderPlan, OrderPlanLine } from "@/lib/data/po-plan";
 
@@ -26,6 +28,10 @@ function Row({
   onToggle: () => void;
   right?: React.ReactNode;
 }) {
+  const unitKey = normalizeUnit(line.unit);
+  // Exclusive carpet-tile estimate order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Underlayment estimate order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+  const padRolls = padRollCount(line.category, line.qty, unitKey);
   return (
     <div className="flex items-center gap-3 border-t px-3 py-2 first:border-t-0">
       <input
@@ -44,6 +50,11 @@ function Row({
           {/* Hard-surface estimate order carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
           {line.cartons
             ? ` · 📦 ${line.cartons} carton${line.cartons === 1 ? "" : "s"}`
+            : ""}
+          {/* Exclusive carpet-tile estimate order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+          {/* Underlayment estimate order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+          {padRolls
+            ? ` · ${padRolls} roll${padRolls === 1 ? "" : "s"}`
             : ""}
           {line.unitCost > 0 ? ` · ${formatMoney(line.unitCost)}/${line.unit}` : ""}
         </div>
