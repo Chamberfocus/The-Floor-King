@@ -19,6 +19,7 @@ import {
   lineQty,
   lineIsStairWrapTbd,
   lineIsBoxedCartonTbd,
+  lineIsCountNotTapedSqft,
   lineTotal,
   marginPct,
   markupPct,
@@ -251,6 +252,50 @@ describe("lineQty — unit kind rules", () => {
         description: "Lifeproof Oak living room",
       }),
     ).toBe(500);
+  });
+
+  it("does not bill count SKU / qty TBD flooring from leftover taped sq ft", () => {
+    const tbd: CalcLine = {
+      line_type: "mat_labor",
+      category: "lvp",
+      unit: "",
+      measure_unit: "sqft",
+      sqft: 500,
+      quantity: null,
+      description: "Lifeproof Oak — qty TBD (unit TBD — not taped sq ft)",
+      material_rate: 3.49,
+    };
+    expect(lineIsCountNotTapedSqft(tbd)).toBe(true);
+    expect(lineIsBoxedCartonTbd(tbd)).toBe(false);
+    expect(lineQty(tbd)).toBe(0);
+    expect(lineTotal(tbd)).toBe(0);
+    expect(
+      lineQty({
+        ...tbd,
+        quantity: 12,
+        unit: "box",
+        description: "Lifeproof Oak — 12 box (not taped sq ft)",
+      }),
+    ).toBe(12);
+    expect(
+      lineQty({
+        ...tbd,
+        description: "Lifeproof Oak living room",
+      }),
+    ).toBe(500);
+    const wrapCounted: CalcLine = {
+      line_type: "mat_labor",
+      category: "lvp",
+      unit: "box",
+      measure_unit: "sqft",
+      sqft: 104,
+      quantity: 4,
+      description:
+        "Lifeproof Oak — 4 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+      material_rate: 4.5,
+    };
+    expect(lineIsStairWrapTbd(wrapCounted)).toBe(true);
+    expect(lineQty(wrapCounted)).toBe(4);
   });
 
   it("prices count units from quantity and ignores sqft (old $33,600 bug)", () => {

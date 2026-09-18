@@ -1349,6 +1349,7 @@ export function Questionnaire({
             out.push(rollGoodsTbdLine(p, null, coverSf > 0 ? coverSf : undefined));
           } else if (!isRollGoodsFamily(fam) && (p.productId || p.label)) {
             // Main count SKU emits How many in that unit — not leftover sq ft and not a 30-yard roll. Empty unit stays TBD.
+            // Builder count SKU / qty TBD lines are How many / Unit TBD, never taped square feet.
             const counted = extraCountQtyForEmit({
               family: fam,
               productUnit: p.unit,
@@ -1472,6 +1473,7 @@ export function Questionnaire({
             continue;
           }
           // Count extras with a sold-by unit emit How many in that unit — not leftover sq ft and not a 30-yard roll. Empty unit stays TBD.
+          // Builder count SKU / qty TBD lines are How many / Unit TBD, never taped square feet.
           if (ex.product.productId || ex.product.label) {
             const counted = extraCountQtyForEmit({
               family: exFam,

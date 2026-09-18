@@ -176,6 +176,7 @@ const REQUIRED_FILES = [
   "0313_flooring_knowledge_carpet_tile_carton.sql",
   "0314_flooring_knowledge_carton_tbd_review.sql",
   "0315_flooring_knowledge_carton_tbd_builder.sql",
+  "0316_flooring_knowledge_count_tbd_builder.sql",
 ];
 
 /**
@@ -2092,6 +2093,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0315_FLOORING_KNOWLEDGE",
       "Builder carton-coverage TBD is How many / Unit TBD, never taped square feet",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0316_flooring_knowledge_count_tbd_builder.sql",
+    markers: [
+      "P0_0316_FLOORING_KNOWLEDGE",
+      "Builder count SKU / qty TBD lines are How many / Unit TBD, never taped square feet",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

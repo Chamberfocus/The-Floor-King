@@ -10,7 +10,7 @@ import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText, padRollC
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { cutLabel, cutSqYd } from "@/lib/order-cuts";
-import { lineQty, lineIsBoxedCartonTbd, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
+import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
 import {
   accessoryQuantity,
   piecesForLinearFeet,
@@ -11463,6 +11463,116 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /How many \/ Unit TBD/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0316 Builder count SKU / qty TBD is How many / Unit TBD, never taped sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0316_flooring_knowledge_count_tbd_builder.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0316_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Builder count SKU \/ qty TBD lines are How many \/ Unit TBD, never taped square feet/);
+    expect(sql).toMatch(/not How many boxes from leftover taped sq ft/);
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      extraCountReviewLine({
+        family: "lvp",
+        productUnit: "box",
+        qty: 4,
+        label: "Lifeproof Oak wrap",
+      }),
+    ).toBe("Lifeproof Oak wrap: 4 box — not taped square feet and not a 30-yard roll");
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "lvp",
+        productUnit: "box",
+        label: "Lifeproof Oak",
+      }),
+    ).toBe("Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)");
+
+    const tbd = {
+      line_type: "mat_labor" as const,
+      category: "lvp",
+      unit: "",
+      measure_unit: "sqft" as const,
+      sqft: 500,
+      quantity: null,
+      description: "Lifeproof Oak — qty TBD (unit TBD — not taped sq ft)",
+    };
+    expect(lineIsCountNotTapedSqft(tbd)).toBe(true);
+    expect(lineQty(tbd)).toBe(0);
+    expect(
+      lineQty({
+        ...tbd,
+        quantity: 12,
+        unit: "box",
+        description: "Lifeproof Oak — 12 box (not taped sq ft)",
+      }),
+    ).toBe(12);
+    expect(
+      lineQty({
+        ...tbd,
+        description: "Lifeproof Oak living room",
+      }),
+    ).toBe(500);
+
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(/lineIsCountNotTapedSqft/);
+    expect(calc).toMatch(/if \(lineIsCountNotTapedSqft\(line\)\) return num\(line\.quantity\)/);
+    expect(calc).toMatch(/if \(lineIsStairWrapTbd\(line\)\) return num\(line\.quantity\)/);
+    expect(calc).toMatch(/if \(lineIsBoxedCartonTbd\(line\)\) return num\(line\.quantity\)/);
+    expect(calc).toMatch(/wrap qty TBD\|not an automatic sq ft\\\/step order/);
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/lineIsCountNotTapedSqft/);
+    expect(builder).toMatch(/countNotTaped/);
+    expect(builder).toMatch(/boxedCartonTbd/);
+    expect(builder).toMatch(/flooringAreaUi/);
+    expect(builder).toMatch(/Builder count SKU \/ qty TBD lines are How many \/ Unit TBD, never taped square feet/);
+    expect(builder).toMatch(/description: l\.description/);
+    expect(builder).toMatch(/description: line\.description/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/Builder count SKU \/ qty TBD lines are How many \/ Unit TBD, never taped square feet/);
+    expect(q).toMatch(/qty TBD \(\$\{countPhrase\} — not taped sq ft\)/);
+    expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Builder count SKU \/ qty TBD lines are How many \/ Unit TBD, never taped square feet/,
+    );
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Builder carton-coverage TBD is How many \/ Unit TBD, never taped square feet/,
+    );
+    const exclusiveTileCuts = installContextFromValByKey({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(knowledgeHelpFor({ kind: "cuts" }, exclusiveTileCuts)).toMatch(
+      /Builder count SKU \/ qty TBD lines are How many \/ Unit TBD, never taped square feet/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Builder count SKU \/ qty TBD lines are How many \/ Unit TBD, never taped square feet/,
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /How many \/ Unit TBD/,

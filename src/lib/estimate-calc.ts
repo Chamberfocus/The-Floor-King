@@ -86,7 +86,10 @@ export function lineAreaSqyd(line: CalcLine): number {
  * "wrap qty TBD" so leftover product unit sqft cannot reopen that order.
  */
 export function lineIsStairWrapTbd(line: { description?: string | null }): boolean {
-  return /wrap qty TBD/i.test((line.description ?? "").trim());
+  const d = (line.description ?? "").trim();
+  // Typed How many wrap omits "wrap qty TBD" but still stamps the step-order
+  // phrase so leftover taped sq ft cannot reopen 8 sq ft/step.
+  return /wrap qty TBD|not an automatic sq ft\/step order/i.test(d);
 }
 
 /**
@@ -96,6 +99,14 @@ export function lineIsStairWrapTbd(line: { description?: string | null }): boole
  */
 export function lineIsBoxedCartonTbd(line: { description?: string | null }): boolean {
   return /carton coverage TBD/i.test((line.description ?? "").trim());
+}
+
+/**
+ * Main / extra count SKU identity from Guided Estimate. How many / Unit TBD
+ * — leftover taped sq ft is not the order, and not a 30-yard roll.
+ */
+export function lineIsCountNotTapedSqft(line: { description?: string | null }): boolean {
+  return /not taped sq ft/i.test((line.description ?? "").trim());
 }
 
 /**
@@ -133,6 +144,8 @@ export function lineQty(line: CalcLine): number {
   if (lineIsStairWrapTbd(line)) return num(line.quantity);
   // Builder carton-coverage TBD is How many / Unit TBD, never taped square feet.
   if (lineIsBoxedCartonTbd(line)) return num(line.quantity);
+  // Builder count SKU / qty TBD lines are How many / Unit TBD, never taped square feet.
+  if (lineIsCountNotTapedSqft(line)) return num(line.quantity);
   if (isCountPricedLine(line)) return num(line.quantity);
   if (isRollGoodCategory(line.category) && line.category !== "labor" && !rollGoodsLineHasCuts(line)) {
     return num(line.quantity);
