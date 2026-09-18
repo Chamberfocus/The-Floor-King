@@ -176,8 +176,10 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   /**
    * Hard-surface method picker. Exclusive carpet hides this via
    * CARPET_ONLY_HIDES_KEYS — stretch-in / glue / tile stay on carpet_install.
-   * Mixed Carpet + LVP still asks. Unanswered HS stays open (0142).
-   * Do not SQL-gate install_method on carpet_install.
+   * Exclusive tile hides this via EXCLUSIVE_TILE_METHOD_HIDES_KEYS — thinset
+   * stays on tile_setting, not Floating / Glue-down / Nail-down. Mixed LVP +
+   * tile still asks. Unanswered HS stays open (0142). Do not SQL-gate
+   * install_method on carpet_install or surface_type.
    */
   { key: "install_method", purpose: "INSTALLATION", phase: "install" },
   { key: "carpet_install", purpose: "INSTALLATION", phase: "install", families: ["carpet"] },
@@ -855,6 +857,15 @@ export const NON_CARPET_DEMO_PAD_HIDES_KEYS = ["existing_pad", "existing_tack"] 
  * already hides. Do not SQL-gate demo_disposal or bulk_pickup on hs_demo.
  */
 export const NONE_DEMO_DISPOSAL_HIDES_KEYS = ["demo_disposal", "bulk_pickup"] as const;
+
+/**
+ * Hard-surface Install method hidden once the job is exclusive tile.
+ * Thinset lives on tile_setting — not a floating / glue / nail picker.
+ * Mixed LVP + tile still asks. Unanswered HS stays open (0142). Exclusive
+ * wall and exclusive floor both hide. Do not SQL-gate install_method on
+ * surface_type or tile_application.
+ */
+export const EXCLUSIVE_TILE_METHOD_HIDES_KEYS = ["install_method"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,

@@ -163,6 +163,7 @@ const REQUIRED_FILES = [
   "0300_flooring_knowledge_lvp_fasteners.sql",
   "0301_flooring_knowledge_non_carpet_pad.sql",
   "0302_flooring_knowledge_none_disposal.sql",
+  "0303_flooring_knowledge_tile_install_method.sql",
 ];
 
 /**
@@ -1992,6 +1993,17 @@ const REQUIRED_MARKERS = [
       "nothing is coming up",
       "Do NOT SQL-gate demo_disposal on hs_demo",
       "Do NOT SQL-gate bulk_pickup on hs_demo",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0303_flooring_knowledge_tile_install_method.sql",
+    markers: [
+      "P0_0303_FLOORING_KNOWLEDGE",
+      "thinset stays on Tile setting",
+      "Do NOT SQL-gate install_method on surface_type",
+      "Do NOT SQL-gate install_method on tile_application",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

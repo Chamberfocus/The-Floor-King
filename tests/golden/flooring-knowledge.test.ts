@@ -103,6 +103,7 @@ import {
   NON_HARDWOOD_FASTENER_HIDES_KEYS,
   NON_CARPET_DEMO_PAD_HIDES_KEYS,
   NONE_DEMO_DISPOSAL_HIDES_KEYS,
+  EXCLUSIVE_TILE_METHOD_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
@@ -10203,6 +10204,155 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       hs_demo: ["Carpet"],
     });
     expect(walkCarpet).toContain("demo_disposal");
+  });
+
+  it("0303 exclusive tile hides hard-surface Install method; mixed LVP + tile still asks", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0303_flooring_knowledge_tile_install_method.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0303_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/thinset stays on Tile setting/);
+    expect(sql).toMatch(/Do NOT SQL-gate install_method on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate install_method on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*install_method|install_method.*show_if.*surface_type/,
+    );
+    expect(sql).not.toMatch(
+      /show_if.*tile_application.*install_method|install_method.*show_if.*tile_application/,
+    );
+
+    expect([...EXCLUSIVE_TILE_METHOD_HIDES_KEYS]).toEqual(["install_method"]);
+
+    const liveHsShowIf = {
+      show_if: { key: "project_type", in: ["Hard surface"] },
+    };
+    expect(
+      questionApplies(
+        { key: "install_method", config: liveHsShowIf },
+        { project_type: ["Hard surface"], surface_type: ["Tile"] },
+      ),
+    ).toBe(false);
+    expect(
+      questionApplies(
+        { key: "install_method", config: liveHsShowIf },
+        {
+          project_type: ["Hard surface"],
+          surface_type: ["Tile"],
+          tile_application: ["Wall"],
+          install_method: ["Floating / click"],
+        },
+      ),
+    ).toBe(false);
+    expect(
+      questionApplies(
+        { key: "install_method", config: liveHsShowIf },
+        { project_type: ["Hard surface"] },
+      ),
+    ).toBe(true);
+    expect(
+      questionApplies(
+        { key: "install_method", config: liveHsShowIf },
+        { project_type: ["Hard surface"], surface_type: ["Tile", "LVP / LVT"] },
+      ),
+    ).toBe(true);
+
+    expect(
+      jobIsExclusiveTile(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Tile"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobIsExclusiveTile(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Tile", "LVP / LVT"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobIsExclusiveTile(
+        installContextFromValByKey({ project_type: ["Hard surface"] }),
+      ),
+    ).toBe(false);
+
+    const floor = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Floor"],
+    });
+    expect(floor).not.toContain("install_method");
+    expect(floor).toContain("tile_setting");
+    expect(floor).toContain("tile_application");
+
+    const wall = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+      install_method: ["Floating / click"],
+    });
+    expect(wall).not.toContain("install_method");
+    expect(wall).toContain("tile_setting");
+    expect(wall).not.toContain("attached_pad");
+
+    const unansweredHs = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+    });
+    expect(unansweredHs).toContain("install_method");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+    });
+    expect(mixed).toContain("install_method");
+    expect(mixed).toContain("tile_setting");
+    expect(mixed).toContain("attached_pad");
+
+    const laminate = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+    });
+    expect(laminate).toContain("install_method");
+
+    expect(
+      knowledgeHelpFor(
+        { key: "install_method" },
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Tile"],
+        }),
+      ),
+    ).toMatch(/Exclusive tile hides this hard-surface method picker/);
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the hard-surface Install method picker/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /Exclusive floor tile also hides the 6-mil/,
+    );
+
+    const walkTile = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Floor"],
+    });
+    expect(walkTile).not.toContain("install_method");
+    expect(walkTile).toContain("tile_setting");
+
+    const walkMixed = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+      install_method: ["Floating / click"],
+    });
+    expect(walkMixed).toContain("install_method");
   });
 
   it("pattern repeat only after pattern match is required", () => {
