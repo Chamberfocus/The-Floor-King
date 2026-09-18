@@ -226,6 +226,7 @@ const REQUIRED_FILES = [
   "0363_flooring_knowledge_po_tile_carton_cost.sql",
   "0364_flooring_knowledge_picker_clearance.sql",
   "0365_flooring_knowledge_po_print_carton_cost.sql",
+  "0366_flooring_knowledge_order_plan_boxed.sql",
 ];
 
 /**
@@ -2743,6 +2744,19 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0365_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile PO print carton helper boxed rate onto $/carton is sq ft coverage, not sq yd × coverage 1:1. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0366_flooring_knowledge_order_plan_boxed.sql",
+    markers: [
+      "P0_0366_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile estimate order boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Hard-surface estimate order boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

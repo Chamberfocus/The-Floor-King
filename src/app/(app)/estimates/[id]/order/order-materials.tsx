@@ -39,6 +39,7 @@ function Row({
         <div className="truncate text-sm font-medium">{line.description}</div>
         <div className="text-xs text-muted-foreground tabular-nums">
           {line.qty} {line.unit}
+          {/* Exclusive carpet-tile estimate order boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. Hard-surface estimate order boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage. */}
           {line.unitCost > 0 ? ` · ${formatMoney(line.unitCost)}/${line.unit}` : ""}
         </div>
       </div>

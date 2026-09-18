@@ -19,7 +19,7 @@ const STAGE_MATERIALS_RECEIVED = /material.*received|received.*material/;
 const STAGE_AWAITING_MATERIALS = /wait.*material|await.*material/;
 import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
 import { primaryCatalogCostByProductIds } from "@/lib/data/products";
-import { buildPoItemRows, carpetSignature, type PoItemRow } from "@/lib/po-build";
+import { buildPoItemRows, carpetSignature, poCostOfEstimateLine, type PoCatalogSnapshot, type PoItemRow } from "@/lib/po-build";
 import { isRollGoodCategory } from "@/lib/types";
 import { unitIsSqyd } from "@/lib/units";
 import type { EstimateLineItem, PoSourceType, PoStatus } from "@/lib/types";
@@ -263,15 +263,22 @@ export async function syncPoCarpetFromEstimate(
   const productName = new Map<string, string>();
   const productSupplier = new Map<string, string | null>();
   const productSupplierId = new Map<string, string | null>();
+  const productCatalog = new Map<string, PoCatalogSnapshot>();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, material_rate, supplier, supplier_id")
+      .select("id, name, material_rate, supplier, supplier_id, unit, category, sqft_per_box, roll_width_ft")
       .in("id", productIds);
     for (const p of prods ?? []) {
       productName.set(p.id as string, p.name as string);
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
+      productCatalog.set(p.id as string, {
+        unit: (p.unit as string) ?? null,
+        category: (p.category as string) ?? null,
+        sqft_per_box: p.sqft_per_box as number | null,
+        roll_width_ft: p.roll_width_ft as number | null,
+      });
     }
     const costs = await primaryCatalogCostByProductIds(supabase, productIds);
     for (const [id, c] of costs) productCost.set(id, c);
@@ -292,7 +299,11 @@ export async function syncPoCarpetFromEstimate(
   });
 
   const costOf = (l: EstimateLineItem) =>
-    (l.material_cost ?? 0) > 0 ? (l.material_cost ?? 0) : l.product_id ? (productCost.get(l.product_id) ?? 0) : 0;
+    poCostOfEstimateLine(
+      l,
+      l.product_id ? (productCost.get(l.product_id) ?? 0) : 0,
+      l.product_id ? productCatalog.get(l.product_id) : null,
+    );
   const nameOf = (l: EstimateLineItem) =>
     l.description || (l.product_id ? productName.get(l.product_id) : null) || l.room || "Material";
 
@@ -448,15 +459,22 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
   const productName = new Map<string, string>();
   const productSupplier = new Map<string, string | null>();
   const productSupplierId = new Map<string, string | null>();
+  const productCatalog = new Map<string, PoCatalogSnapshot>();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, material_rate, supplier, supplier_id")
+      .select("id, name, material_rate, supplier, supplier_id, unit, category, sqft_per_box, roll_width_ft")
       .in("id", productIds);
     for (const p of prods ?? []) {
       productName.set(p.id as string, p.name as string);
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
+      productCatalog.set(p.id as string, {
+        unit: (p.unit as string) ?? null,
+        category: (p.category as string) ?? null,
+        sqft_per_box: p.sqft_per_box as number | null,
+        roll_width_ft: p.roll_width_ft as number | null,
+      });
     }
     const costs = await primaryCatalogCostByProductIds(supabase, productIds);
     for (const [id, c] of costs) productCost.set(id, c);
@@ -543,11 +561,11 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
     if (!firstPoId) firstPoId = po.id as string;
 
     const costOf = (l: EstimateLineItem) =>
-      (l.material_cost ?? 0) > 0
-        ? (l.material_cost ?? 0)
-        : l.product_id
-          ? (productCost.get(l.product_id) ?? 0)
-          : 0;
+      poCostOfEstimateLine(
+        l,
+        l.product_id ? (productCost.get(l.product_id) ?? 0) : 0,
+        l.product_id ? productCatalog.get(l.product_id) : null,
+      );
     const nameOf = (l: EstimateLineItem) =>
       l.description || (l.product_id ? productName.get(l.product_id) : null) || l.room || "Material";
 
@@ -626,15 +644,22 @@ export async function createPOsFromEstimateSelection(
   const productName = new Map<string, string>();
   const productSupplier = new Map<string, string | null>();
   const productSupplierId = new Map<string, string | null>();
+  const productCatalog = new Map<string, PoCatalogSnapshot>();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, material_rate, supplier, supplier_id")
+      .select("id, name, material_rate, supplier, supplier_id, unit, category, sqft_per_box, roll_width_ft")
       .in("id", productIds);
     for (const p of prods ?? []) {
       productName.set(p.id as string, (p.name as string) ?? "");
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
+      productCatalog.set(p.id as string, {
+        unit: (p.unit as string) ?? null,
+        category: (p.category as string) ?? null,
+        sqft_per_box: p.sqft_per_box as number | null,
+        roll_width_ft: p.roll_width_ft as number | null,
+      });
     }
     const costs = await primaryCatalogCostByProductIds(supabase, productIds);
     for (const [id, c] of costs) productCost.set(id, c);
@@ -698,11 +723,11 @@ export async function createPOsFromEstimateSelection(
   }
 
   const costOf = (l: EstimateLineItem) =>
-    (l.material_cost ?? 0) > 0
-      ? (l.material_cost as number)
-      : l.product_id
-        ? (productCost.get(l.product_id) ?? 0)
-        : 0;
+    poCostOfEstimateLine(
+      l,
+      l.product_id ? (productCost.get(l.product_id) ?? 0) : 0,
+      l.product_id ? productCatalog.get(l.product_id) : null,
+    );
   const nameOf = (l: EstimateLineItem) =>
     l.description ||
     (l.product_id ? productName.get(l.product_id) : null) ||

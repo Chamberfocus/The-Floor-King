@@ -1,7 +1,73 @@
-import { stripRoomFromName } from "@/lib/job-scope";
-import { lineOrderQty } from "@/lib/estimate-calc";
-import { billedQtyToSqyd, lineUnitKey } from "@/lib/units";
+import { poCarpetInstallSystemsForBoxedRate, stripRoomFromName } from "@/lib/job-scope";
+import { lineOrderQty, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
+import { catalogRateInLineUnit } from "@/lib/catalog-pricing";
+import { billedQtyToSqyd, lineUnitKey, unitIsSqyd } from "@/lib/units";
 import type { EstimateLineItem } from "@/lib/types";
+
+/** Catalog fields needed to convert a boxed $/box onto the estimate line unit. */
+export type PoCatalogSnapshot = {
+  unit?: string | null;
+  category?: string | null;
+  sqft_per_box?: number | string | null;
+  roll_width_ft?: number | string | null;
+};
+
+/**
+ * OUR cost on an estimate line for PO / order-plan rows.
+ * Stored material_cost (already in the billed unit) wins. Catalog fallback
+ * boxed carton WITH coverage that takeoffs as area is $/coverage, not 1:1.
+ * Exclusive carpet-tile estimate order boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+ * Hard-surface estimate order boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+ */
+export function poCostOfEstimateLine(
+  line: {
+    description?: string | null;
+    category?: string | null;
+    unit?: string | null;
+    material_cost?: number | string | null;
+    quantity?: number | string | null;
+    sqft?: number | string | null;
+    sqft_per_box?: number | string | null;
+    roll_width_ft?: number | string | null;
+    order_as_roll?: boolean | null;
+    length_in?: number | string | null;
+    width_in?: number | string | null;
+    measurements?: EstimateLineItem["measurements"];
+  },
+  catalogCost: number,
+  catalog?: PoCatalogSnapshot | null,
+): number {
+  const stored = Number(line.material_cost) || 0;
+  if (stored > 0) return stored;
+  const cost = Number(catalogCost) || 0;
+  if (!(cost > 0)) return 0;
+  if (lineSkipsAreaCartonMath(line)) return cost;
+  const category = catalog?.category ?? line.category;
+  const sqft_per_box =
+    Number(catalog?.sqft_per_box) > 0 ? catalog!.sqft_per_box : line.sqft_per_box;
+  const roll_width_ft =
+    Number(catalog?.roll_width_ft) > 0 ? catalog!.roll_width_ft : line.roll_width_ft;
+  const carpetInstallSystems = poCarpetInstallSystemsForBoxedRate({
+    category,
+    roll_width_ft,
+    quantity: line.quantity,
+    sqft: line.sqft,
+    order_as_roll: line.order_as_roll,
+    length_in: line.length_in,
+    width_in: line.width_in,
+    measurements: line.measurements,
+  });
+  return catalogRateInLineUnit(
+    cost,
+    {
+      unit: catalog?.unit ?? null,
+      category,
+      sqft_per_box,
+      carpetInstallSystems,
+    },
+    unitIsSqyd(lineUnitKey(line)),
+  );
+}
 
 /** A PO line row derived from estimate lines — the shape (minus po_id/position)
  *  that both PO creation and the carpet re-sync insert. */

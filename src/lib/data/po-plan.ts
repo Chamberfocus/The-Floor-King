@@ -8,6 +8,7 @@ import {
   listActiveSuppliers,
 } from "@/lib/data/suppliers";
 import { primaryCatalogCostByProductIds } from "@/lib/data/products";
+import { poCostOfEstimateLine, type PoCatalogSnapshot } from "@/lib/po-build";
 import type { EstimateLineItem, Supplier } from "@/lib/types";
 
 /** One material line as it appears on the ordering review. */
@@ -102,15 +103,22 @@ export async function getEstimateOrderPlan(
   const productName = new Map<string, string>();
   const productSupplier = new Map<string, string | null>();
   const productSupplierId = new Map<string, string | null>();
+  const productCatalog = new Map<string, PoCatalogSnapshot>();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, material_rate, supplier, supplier_id")
+      .select("id, name, material_rate, supplier, supplier_id, unit, category, sqft_per_box, roll_width_ft")
       .in("id", productIds);
     for (const p of prods ?? []) {
       productName.set(p.id as string, (p.name as string) ?? "");
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
+      productCatalog.set(p.id as string, {
+        unit: (p.unit as string) ?? null,
+        category: (p.category as string) ?? null,
+        sqft_per_box: p.sqft_per_box as number | null,
+        roll_width_ft: p.roll_width_ft as number | null,
+      });
     }
     const costs = await primaryCatalogCostByProductIds(supabase, productIds);
     for (const [id, c] of costs) productCost.set(id, c);
@@ -133,12 +141,14 @@ export async function getEstimateOrderPlan(
       poBySupplierName.set((p.supplier as string).trim().toLowerCase(), rec);
   }
 
+  // Exclusive carpet-tile estimate order boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface estimate order boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
   const costOf = (l: EstimateLineItem) =>
-    (l.material_cost ?? 0) > 0
-      ? (l.material_cost as number)
-      : l.product_id
-        ? (productCost.get(l.product_id) ?? 0)
-        : 0;
+    poCostOfEstimateLine(
+      l,
+      l.product_id ? (productCost.get(l.product_id) ?? 0) : 0,
+      l.product_id ? productCatalog.get(l.product_id) : null,
+    );
   const nameOf = (l: EstimateLineItem) =>
     l.description ||
     (l.product_id ? productName.get(l.product_id) : null) ||
