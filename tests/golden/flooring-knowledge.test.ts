@@ -14030,6 +14030,150 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0342 Customer copy keeps 12' product names", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0342_flooring_knowledge_customer_product_ft.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0342_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print keep 12' product names — leftover dimension How many is a complete room \/ cut size, not a catalog name. Wrap How many and Self-leveler bag How many stay. 5mm product names stay/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(isCrewUnlabeledCountHowManyLine("4 roll")).toBe(true);
+    expect(isCrewUnlabeledCountHowManyLine("8 box")).toBe(true);
+    expect(isCrewUnlabeledCountHowManyLine("12' Shaw")).toBe(false);
+    expect(isCrewDimensionHowManyLine("12' × 14'")).toBe(true);
+    expect(isCrewDimensionHowManyLine("12' Shaw")).toBe(false);
+    expect(isCrewLabeledCountHowManyLine("Name: 12' Shaw")).toBe(false);
+    expect(isCrewLabeledCountHowManyLine("Living: 12' × 14'")).toBe(false);
+    expect(isCrewDimensionHowManyLine("Living: 12' × 14'")).toBe(true);
+    expect(isCrewUnlabeledCountHowManyLine("Lifeproof Oak 5mm")).toBe(false);
+    expect(isCrewLabeledCountHowManyLine("Stair wrap: 8 box")).toBe(false);
+    expect(isCrewLabeledCountHowManyLine("Self-leveler: 15 bag")).toBe(false);
+
+    expect(stripCrewIdentityFromCustomerLabel("Lifeproof Oak — 8 box")).toBe("Lifeproof Oak");
+    expect(stripCrewIdentityFromCustomerLabel("Rebond pad — 4 roll")).toBe("Rebond pad");
+    expect(stripCrewIdentityFromCustomerLabel("Living room — 12' × 14'")).toBe("Living room");
+    expect(stripCrewIdentityFromCustomerLabel("12' Shaw")).toBe("12' Shaw");
+    expect(stripCrewIdentityFromCustomerLabel("Pad — 12' Shaw")).toBe("Pad — 12' Shaw");
+    expect(stripCrewIdentityFromCustomerLabel("Lifeproof Oak — 5mm")).toBe("Lifeproof Oak — 5mm");
+    expect(stripCrewIdentityFromCustomerLabel("Stair wrap: 8 box")).toBe("Stair wrap: 8 box");
+
+    expect(customerFacingLineNote("12' Shaw")).toBe("12' Shaw");
+    expect(customerFacingLineNote("12' × 14'")).toBe("");
+    expect(customerFacingLineNote("Living: 12' × 14'")).toBe("");
+    expect(customerFacingLineNote("Stair wrap: 8 box")).toBe("Stair wrap: 8 box");
+    expect(customerFacingLineNote("Self-leveler: 15 bag")).toBe("Self-leveler: 15 bag");
+    expect(customerFacingLineNote("Lifeproof Oak 5mm")).toBe("Lifeproof Oak 5mm");
+
+    const asLine = (description: string, extra: Partial<EstimateLineItem> = {}) =>
+      ({
+        id: "l1",
+        option_id: "o1",
+        position: 0,
+        room: null,
+        description,
+        note: null,
+        line_type: "mat_labor",
+        sqft: null,
+        length_in: null,
+        width_in: null,
+        measure_unit: "sqft",
+        material_rate: 40,
+        labor_rate: 0,
+        installed_rate: null,
+        flat_amount: null,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        item_no: null,
+        material_cost: 40,
+        labor_cost: 0,
+        quantity: 4,
+        unit: "roll",
+        category: "carpet",
+        ...extra,
+      }) as EstimateLineItem;
+
+    expect(customerLineLabel(asLine("12' Shaw"))).toBe("12' Shaw");
+    expect(customerLineLabel(asLine("Living room — 12' × 14'"))).toBe("Living room");
+    expect(customerLineLabel(asLine("Lifeproof Oak — 8 box", { category: "lvp" }))).toBe(
+      "Lifeproof Oak",
+    );
+
+    const review = buildSalespersonReview({
+      rooms: [],
+      products: ["12' Shaw", "Lifeproof Oak 5mm"],
+      takeoffs: [],
+      ctx: emptyInstallContext(),
+      removal: [],
+      installation: ["Run: 12' × 14'"],
+      prep: ["Self-leveler: 15 bag — not taped square feet"],
+      accessories: ["Stair wrap: 8 box — not taped square feet and not a 30-yard roll"],
+      specials: ["Occupancy: Occupied"],
+    });
+    const stored = reviewToJobNotes(review);
+    expect(stored).toMatch(/12' Shaw/);
+    expect(stored).toMatch(/Run: 12'/);
+    const shown = customerFacingJobNotes(stored);
+    expect(shown).toMatch(/Guided takeoff:/);
+    expect(shown).toMatch(/12' Shaw/);
+    expect(shown).toMatch(/Lifeproof Oak 5mm/);
+    expect(shown).toMatch(/Stair wrap: 8 box/);
+    expect(shown).toMatch(/Self-leveler: 15 bag/);
+    expect(shown).not.toMatch(/12'\s*[×x]\s*14'/i);
+    expect(shown).not.toMatch(/not taped square feet/i);
+
+    const parsed = parseProjectDetails(stored);
+    expect(parsed.details).toContain("12' Shaw");
+    expect(parsed.details).toContain("Stair wrap: 8 box");
+    expect(parsed.details.join("\n")).not.toMatch(/12'\s*[×x]\s*14'/i);
+    expect(parsed.flags.join("\n")).toMatch(/12'\s*[×x]\s*14'/i);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/reviewToJobNotes/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).toMatch(/customerFacingJobNotes/);
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).toMatch(/parseProjectDetails/);
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"),
+      "utf8",
+    );
+    expect(wo).not.toMatch(/customerFacingJobNotes/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print keep 12' product names — leftover dimension How many is a complete room \/ cut size, not a catalog name. Wrap How many and Self-leveler bag How many stay. 5mm product names stay/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print keep 12' product names — leftover dimension How many is a complete room \/ cut size, not a catalog name. Wrap How many and Self-leveler bag How many stay. 5mm product names stay/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
