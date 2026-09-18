@@ -211,6 +211,7 @@ import {
   customerFacingLineNote,
   customerLineLabel,
   isCrewPrepConfidenceLine,
+  isCrewReviewSectionHeader,
   isCrewStairStepHowManyLine,
   isGuidedTakeoffMathLine,
   parseProjectDetails,
@@ -13141,6 +13142,82 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Customer print \/ portal itemized line notes strip leftover stair-install step How many and crew prep confidence — those stay on stored lines so Builder still prices per step and the crew still sees Field verify \/ TBD vs Known bag counts/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0334 Customer copy strips Guided takeoff Review section headers", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0334_flooring_knowledge_customer_review_headers.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0334_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff Review section headers — those stay in stored job_description so the crew still sees Removal \/ Prep \/ Accessories grouping. Product names, accessory How many, and job conditions stay/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(isCrewReviewSectionHeader("Prep:")).toBe(true);
+    expect(isCrewReviewSectionHeader("Accessories:")).toBe(true);
+    expect(isCrewReviewSectionHeader("Removal:")).toBe(true);
+    expect(isCrewReviewSectionHeader("Installation:")).toBe(true);
+    expect(isCrewReviewSectionHeader("Special conditions:")).toBe(true);
+    expect(isCrewReviewSectionHeader("Conditions:")).toBe(true);
+    expect(isCrewReviewSectionHeader("Guided takeoff:")).toBe(false);
+    expect(isCrewReviewSectionHeader("Self-leveler: 15 bag")).toBe(false);
+    expect(isCrewReviewSectionHeader("Stair wrap: 8 box")).toBe(false);
+    expect(isCrewReviewSectionHeader("Prep: Field verify / TBD")).toBe(false);
+
+    const notes = [
+      "Guided takeoff:",
+      "Prep:",
+      "• Self-leveler: 15 bag — not taped square feet",
+      "Accessories:",
+      "• Stair wrap: 8 box — not taped square feet and not a 30-yard roll",
+      "Special conditions:",
+      "Conditions:",
+      "• Occupancy: Occupied",
+    ].join("\n");
+    const shown = customerFacingJobNotes(notes);
+    expect(shown).toMatch(/Guided takeoff:/);
+    expect(shown).toMatch(/Self-leveler: 15 bag/);
+    expect(shown).toMatch(/Stair wrap: 8 box/);
+    expect(shown).toMatch(/Occupancy: Occupied/);
+    expect(shown).not.toMatch(/^Prep:/m);
+    expect(shown).not.toMatch(/^Accessories:/m);
+    expect(shown).not.toMatch(/^Special conditions:/m);
+    expect(shown).not.toMatch(/^Conditions:/m);
+    expect(shown).not.toMatch(/not taped square feet/i);
+
+    const parsed = parseProjectDetails(notes);
+    expect(parsed.details).toContain("Self-leveler: 15 bag");
+    expect(parsed.details).toContain("Stair wrap: 8 box");
+    expect(parsed.details).toContain("Occupancy: Occupied");
+    expect(parsed.details.join("\n")).not.toMatch(/^Prep:/m);
+    expect(parsed.details.join("\n")).not.toMatch(/^Accessories:/m);
+    expect(parsed.details.join("\n")).not.toMatch(/^Guided takeoff:/m);
+    expect(parsed.details.join("\n")).not.toMatch(/not taped square feet/i);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/reviewToJobNotes/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff Review section headers — those stay in stored job_description so the crew still sees Removal \/ Prep \/ Accessories grouping. Product names, accessory How many, and job conditions stay/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff Review section headers — those stay in stored job_description so the crew still sees Removal \/ Prep \/ Accessories grouping. Product names, accessory How many, and job conditions stay/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

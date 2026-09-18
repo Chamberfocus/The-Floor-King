@@ -74,6 +74,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print line labels strip stair-install step How many — those stay on stored lines so Builder still prices per step.
  * Customer / portal / print line labels strip prep estimated / allowance suffix — those stay on stored lines so the crew still sees Field verify / TBD vs Known bag counts.
  * Customer print / portal itemized line notes strip leftover stair-install step How many and crew prep confidence — those stay on stored lines so Builder still prices per step and the crew still sees Field verify / TBD vs Known bag counts.
+ * Customer / portal / print strip Guided takeoff Review section headers — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?)/i;
@@ -135,8 +136,15 @@ function isCrewFlagsHeader(s: string): boolean {
 }
 
 function isNonFlagSectionHeader(s: string): boolean {
-  return /^(guided takeoff|conditions|job conditions|per-room prep)\s*:?\s*$/i.test(
-    s.trim(),
+  return (
+    /^guided takeoff\s*:?\s*$/i.test(s.trim()) || isCrewReviewSectionHeader(s)
+  );
+}
+
+/** Crew Review grouping chrome. Stored job_description keeps Removal / Prep / Accessories. */
+export function isCrewReviewSectionHeader(raw: string): boolean {
+  return /^(removal|installation|prep|accessories|special conditions|products|conditions|job conditions|per-room prep)\s*:?\s*$/i.test(
+    (raw ?? "").trim(),
   );
 }
 
@@ -185,6 +193,7 @@ export function customerFacingJobNotes(text: string | null | undefined): string 
       }
       if (isNonFlagSectionHeader(trimmed)) inFlags = false;
       if (inFlags) return "";
+      if (isCrewReviewSectionHeader(trimmed)) return "";
       const body = stripCrewIdentityFromCustomerLabel(raw);
       if (!body || isCrewOnlyCustomerText(body)) return "";
       return `${indent}${body}`;
@@ -313,16 +322,13 @@ export function parseProjectDetails(
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
-    if (/^(flags to confirm|warnings|uncertainty)\s*:?\s*$/i.test(line)) {
+    if (isCrewFlagsHeader(line)) {
       inFlags = true;
       continue;
     }
-    if (/^(job conditions|per-room prep)\s*:?$/i.test(line)) {
+    if (isNonFlagSectionHeader(line)) {
       inFlags = false;
       continue;
-    }
-    if (/^(guided takeoff|conditions)\s*:?\s*$/i.test(line)) {
-      inFlags = false;
     }
     if (inFlags || line.startsWith("⚠")) {
       flags.push(line.replace(/^⚠\s*/, ""));
