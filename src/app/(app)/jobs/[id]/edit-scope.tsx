@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
+import { hardSurfaceAreaCartonCount, lineOrderQty, type CalcLine } from "@/lib/estimate-calc";
 import type { LineMeasurement } from "@/lib/types";
 import { addJobLine, updateJobLine, removeJobLine } from "./scope-actions";
 
@@ -32,11 +32,16 @@ export interface ScopeLine {
   length_in: number | null;
   width_in: number | null;
   measurements: LineMeasurement[] | null;
+  waste_pct: number | null;
+  line_type: string | null;
 }
 
 function cartonCountFor(l: ScopeLine): number {
   // Exclusive carpet-tile work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
   // Hard-surface work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  // Exclusive carpet-tile work-order editor order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface work-order editor order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const orderQ = lineOrderQty(l as unknown as CalcLine);
   return hardSurfaceAreaCartonCount(
     {
       description: l.description,
@@ -51,7 +56,7 @@ function cartonCountFor(l: ScopeLine): number {
       width_in: l.width_in,
       measurements: l.measurements,
     },
-    Number(l.quantity) || Number(l.sqft) || 0,
+    orderQ || Number(l.sqft) || 0,
   );
 }
 
@@ -144,6 +149,8 @@ export function EditScope({
                 <div className="text-xs text-muted-foreground">
                   {/* Exclusive carpet-tile work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                   {/* Hard-surface work-order editor carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                  {/* Exclusive carpet-tile work-order editor order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                  {/* Hard-surface work-order editor order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                   {[
                     l.room,
                     l.sqft != null ? `${l.sqft} sq ft` : null,
