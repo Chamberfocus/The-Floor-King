@@ -69,6 +69,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print strip Guided takeoff MEASURED / WASTE / ORDER / BILLING math — those stay in stored job_description so the crew still sees measured vs order.
  * Customer print / portal itemized line notes strip wrap / carton-coverage TBD / qty TBD / room MEASURED sq ft identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
  * Customer / portal / print strip Guided takeoff crew Uncertainty — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
+ * Customer / portal / print strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\))/i;
@@ -127,6 +128,18 @@ function isNonFlagSectionHeader(s: string): boolean {
   );
 }
 
+/** Crew prep-confidence stamp. Stored job_description keeps Field verify / TBD. */
+export function isCrewPrepConfidenceLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").replace(/\?:/g, ":").trim(),
+  );
+  if (!stripped) return false;
+  if (/how sure are we about the prep/i.test(stripped)) return true;
+  if (/^prep confidence\s*:/i.test(stripped)) return true;
+  if (/^prep:\s*(known|estimated|allowance|field verify)\b/i.test(stripped)) return true;
+  return false;
+}
+
 /** Customer print / portal narrative. Stored job_description keeps crew stamps. */
 export function customerFacingJobNotes(text: string | null | undefined): string {
   if (!text) return "";
@@ -144,7 +157,7 @@ export function customerFacingJobNotes(text: string | null | undefined): string 
       if (isNonFlagSectionHeader(trimmed)) inFlags = false;
       if (inFlags) return "";
       const body = stripCrewIdentityFromCustomerLabel(raw);
-      if (!body || isGuidedTakeoffMathLine(body)) return "";
+      if (!body || isGuidedTakeoffMathLine(body) || isCrewPrepConfidenceLine(body)) return "";
       return `${indent}${body}`;
     })
     .join("\n")
@@ -284,6 +297,10 @@ export function parseProjectDetails(
     const cleaned = stripCrewIdentityFromCustomerLabel(
       line.replace(/^[•\-]\s*/, "").replace(/\?:/g, ":"),
     );
+    if (cleaned && isCrewPrepConfidenceLine(cleaned)) {
+      flags.push(cleaned);
+      continue;
+    }
     if (cleaned && !isGuidedTakeoffMathLine(cleaned)) details.push(cleaned);
   }
   return { details, flags };
