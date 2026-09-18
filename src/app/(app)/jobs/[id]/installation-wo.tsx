@@ -1,5 +1,5 @@
 import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
-import { hardSurfaceAreaCartonCount, lineTotal } from "@/lib/estimate-calc";
+import { hardSurfaceAreaCartonCount, lineOrderQty, lineTotal } from "@/lib/estimate-calc";
 import { formatDate, formatMoney, to12 } from "@/lib/format";
 import {
   JOB_STATUS_LABELS,
@@ -29,7 +29,9 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
   // before ÷ coverage. Wrap / carton TBD / qty TBD How many is already the
   // order — do not divide by coverage. Mixed stretch-in + tile stays cuts.
   const spb = Number(l.sqft_per_box) || 0;
-  const cartons = hardSurfaceAreaCartonCount(l, spec.qtyNum || Number(l.sqft) || 0);
+  // Exclusive carpet-tile installation-wo order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface installation-wo order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const cartons = hardSurfaceAreaCartonCount(l, lineOrderQty(l) || Number(l.sqft) || 0);
   return (
     <tr className="border-b border-gray-200 align-top">
       <td className="py-1 pr-2">
