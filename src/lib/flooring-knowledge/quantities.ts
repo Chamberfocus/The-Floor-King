@@ -551,10 +551,10 @@ export const EXTRA_AREA_MEASURED_PLACEHOLDER = "measured sq ft";
 export const EXTRA_AREA_MEASURED_HINT =
   "This is taped area for that extra pad — not a 30-yard roll and not the billing unit. Carpet pad bills in square yards unless the SKU is feet.";
 export const EXTRA_AREA_COUNT_TBD_HINT =
-  "Qty TBD in Builder (How many / Unit TBD) — not taped square feet. Do not plant leftover sq ft. Review takeoff ignores leftover taped sq ft — not pad yards.";
+  "Qty TBD in Builder (How many / Unit TBD) — not taped square feet. Do not plant leftover sq ft. Review takeoff ignores leftover taped sq ft — not pad yards. Typed How many rides onto Review as that count.";
 export const EXTRA_AREA_COUNT_QTY_LABEL = "How many";
 export const EXTRA_AREA_COUNT_QTY_HINT =
-  "Order quantity in the SKU unit — not taped square feet and not a 30-yard roll.";
+  "Order quantity in the SKU unit — not taped square feet and not a 30-yard roll. Review prints that count — leftover taped sq ft is still not pad yards.";
 
 export function formatBillingQty(qty: number, unit: string): string {
   const key = normalizeUnit(unit);
@@ -564,6 +564,24 @@ export function formatBillingQty(qty: number, unit: string): string {
   if (key === "sqyd") return `${n} ${label}`;
   if (key === "sqft") return `${n} ${label}`;
   return `${n} ${label}`;
+}
+
+/**
+ * Review / job-notes line for a typed extra count. Leftover taped sq ft
+ * is not pad yards and not a 30-yard roll. Missing qty stays off Review
+ * (Builder still emits TBD). Do not call computeMaterialTakeoff.
+ */
+export function extraCountReviewLine(args: {
+  family: FlooringFamily;
+  productUnit?: string | null;
+  qty: number;
+  label?: string | null;
+  carpetInstallSystems?: InstallSystem[] | null;
+}): string | null {
+  const counted = extraCountQtyForEmit(args);
+  if (!counted) return null;
+  const name = (args.label ?? "").trim() || "Extra";
+  return `${name}: ${formatBillingQty(counted.quantity, counted.unit)} — not taped square feet and not a 30-yard roll`;
 }
 
 /** Printed unit key — never labels a sq ft number as sq yd or the reverse. */

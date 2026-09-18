@@ -95,6 +95,7 @@ import {
   extraMeasuredSqftForTakeoff,
   extraAsksCountQty,
   extraCountQtyForEmit,
+  extraCountReviewLine,
   measuredInstallLaborAllowed,
   configuredInstallRate,
   rollGoodsSeamWarnings,
@@ -2286,6 +2287,7 @@ export function Questionnaire({
       }
     }
     const products: string[] = [];
+    const extraCountReview: string[] = [];
     const takeoffs = [];
     const seenProd = new Set<string>();
     const familySqft = floorMapAssignments.byFamily;
@@ -2360,8 +2362,9 @@ export function Questionnaire({
           qq.key,
           a.product.unit,
         );
-        // Count / TBD extras skip Review takeoff — leftover measured sq ft
+        // Count / TBD extras skip area Review takeoff — leftover measured sq ft
         // is not pad yards and not an order. Do not plant leftover sq ft.
+        // Typed How many rides onto Review as that count — not leftover sq ft and not a 30-yard roll.
         for (const ex of a.extras) {
           if (!ex.product?.label) continue;
           const exFam = familyFromCatalogCategory(
@@ -2375,16 +2378,33 @@ export function Questionnaire({
               flooringCtx.answeredCarpetInstall,
             ),
           });
-          if (extraSf == null) continue;
-          addProduct(
-            ex.product.label,
-            ex.product.category || qq.config.category || a.product.category,
-            ex.product.wastePct,
-            ex.product.sqftPerBox,
-            extraSf,
-            qq.key,
-            ex.product.unit,
-          );
+          if (extraSf != null) {
+            addProduct(
+              ex.product.label,
+              ex.product.category || qq.config.category || a.product.category,
+              ex.product.wastePct,
+              ex.product.sqftPerBox,
+              extraSf,
+              qq.key,
+              ex.product.unit,
+            );
+            continue;
+          }
+          const countedLine = extraCountReviewLine({
+            family: exFam,
+            productUnit: ex.product.unit,
+            qty: numv(ex.qty ?? ""),
+            label: ex.product.label,
+            carpetInstallSystems: carpetInstallSystemsFromLabels(
+              flooringCtx.answeredCarpetInstall,
+            ),
+          });
+          if (!countedLine) continue;
+          if (!seenProd.has(ex.product.label)) {
+            seenProd.add(ex.product.label);
+            products.push(ex.product.label);
+          }
+          extraCountReview.push(countedLine);
         }
       } else if (a?.kind === "cuts") {
         const p = a.same !== false ? a.product : a.groups.map((g) => g.product).find(Boolean) ?? null;
@@ -2489,6 +2509,7 @@ export function Questionnaire({
     }
     if (flooringCtx.installLabels.length)
       installation.unshift(`System: ${flooringCtx.installLabels.join(", ")}`);
+    accessories.push(...extraCountReview);
     return buildSalespersonReview({
       rooms,
       products,
@@ -4209,6 +4230,17 @@ function QuestionBody({
                     <span className="text-xs text-muted-foreground">
                       {countUnitForTbd(ex.product?.unit).phrase}
                     </span>
+                    {numv(ex.qty ?? "") > 0 ? (
+                      <span className="w-full text-xs text-muted-foreground tabular-nums">
+                        {extraCountReviewLine({
+                          family: extraFam,
+                          productUnit: ex.product?.unit,
+                          qty: numv(ex.qty ?? ""),
+                          label: ex.product?.label,
+                          carpetInstallSystems: carpetSystems,
+                        })}
+                      </span>
+                    ) : null}
                     <p className="w-full text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_HINT}</p>
                     {ex.product && q.config.ask_source ? (
                       <SourceToggle p={ex.product} compact onChange={(np) => setExtraProduct(ex.id, np, ex)} />

@@ -175,6 +175,7 @@ export {
   extraMeasuredSqftForTakeoff,
   extraAsksCountQty,
   extraCountQtyForEmit,
+  extraCountReviewLine,
   measuredInstallLaborAllowed,
   configuredInstallRate,
   materialWastePctForEmit,

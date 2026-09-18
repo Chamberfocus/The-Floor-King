@@ -187,6 +187,7 @@ import {
   extraMeasuredSqftForTakeoff,
   extraAsksCountQty,
   extraCountQtyForEmit,
+  extraCountReviewLine,
   measuredInstallLaborAllowed,
   configuredInstallRate,
   rollGoodsSeamWarnings,
@@ -10553,6 +10554,90 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
       /without typing measured sq ft/,
+    );
+  });
+
+  it("0307 extra count How many rides onto Review, not leftover sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0307_flooring_knowledge_extra_count_review.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0307_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Typed How many rides onto Review as that count/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_pad on surface_type/);
+    expect(sql).toMatch(/Do NOT drop underlayment from SQYD_CATEGORIES/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*carpet_pad|carpet_pad.*show_if.*surface_type/,
+    );
+
+    expect(
+      extraCountReviewLine({
+        family: "other",
+        productUnit: "roll",
+        qty: 2,
+        label: "Stair pad",
+      }),
+    ).toBe("Stair pad: 2 roll — not taped square feet and not a 30-yard roll");
+    expect(
+      extraCountReviewLine({
+        family: "other",
+        productUnit: "gal",
+        qty: 1.5,
+        label: "Foam kit",
+      }),
+    ).toBe("Foam kit: 1.5 gallon — not taped square feet and not a 30-yard roll");
+    expect(
+      extraCountReviewLine({ family: "other", productUnit: "roll", qty: 0, label: "Stair pad" }),
+    ).toBe(null);
+    expect(
+      extraCountReviewLine({ family: "other", productUnit: "", qty: 2, label: "Stair pad" }),
+    ).toBe(null);
+    expect(
+      extraCountReviewLine({ family: "other", productUnit: "sqyd", qty: 50, label: "Pad" }),
+    ).toBe(null);
+    expect(
+      extraCountReviewLine({
+        family: "other",
+        productUnit: "roll",
+        qty: 2,
+        label: "Stair pad",
+      }),
+    ).not.toMatch(/450|50 sq yd|pad yards/);
+    expect(
+      extraMeasuredSqftForTakeoff({ family: "other", productUnit: "roll", measuredSqft: 450 }),
+    ).toBe(null);
+    expect(EXTRA_AREA_COUNT_QTY_HINT).toMatch(/Review prints that count/);
+    expect(EXTRA_AREA_COUNT_TBD_HINT).toMatch(/Typed How many rides onto Review as that count/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/extraCountReviewLine/);
+    expect(q).toMatch(/Typed How many rides onto Review as that count/);
+    expect(q).toMatch(/leftover measured sq ft/);
+    expect(q).toMatch(/is not pad yards/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+    expect(q).toMatch(/accessories\.push\(\.\.\.extraCountReview\)/);
+
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Typed How many rides onto Review as that count/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Additional pad for a specific area is MEASURED sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /Typed How many rides onto Review as that count/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /without typing measured sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /leftover measured sq ft on a count or TBD extra/,
     );
   });
 
