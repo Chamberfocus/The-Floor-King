@@ -206,7 +206,9 @@ import { billsBySquareYard, defaultUnitForCategory, isCountPricedLine, lineDispl
 import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import {
+  customerFacingJobNotes,
   customerLineLabel,
+  parseProjectDetails,
   stripCrewIdentityFromCustomerLabel,
 } from "@/lib/customer-scope";
 import { invoiceItemFromSnapshotLine } from "@/lib/invoice-from-approval";
@@ -12165,6 +12167,88 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Pricing does not treat leftover planted sqft as measured area on Unit TBD \(empty unit\) count lines — leftover quantity is How many, not taped square feet/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0323 Customer project details strip Guided takeoff How many identity", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0323_flooring_knowledge_customer_notes.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0323_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print project details strip wrap \/ carton-coverage TBD \/ qty TBD \/ not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(
+      stripCrewIdentityFromCustomerLabel(
+        "Rebond pad: 4 roll — not taped square feet and not a 30-yard roll",
+      ),
+    ).toBe("Rebond pad: 4 roll");
+    expect(
+      stripCrewIdentityFromCustomerLabel(
+        "Stair wrap: 8 box — not taped square feet and not a 30-yard roll",
+      ),
+    ).toBe("Stair wrap: 8 box");
+    expect(stripCrewIdentityFromCustomerLabel("Living room — Lifeproof Oak")).toBe(
+      "Living room — Lifeproof Oak",
+    );
+
+    const notes = [
+      "Guided takeoff:",
+      "Accessories:",
+      "• Stair wrap: 8 box — not taped square feet and not a 30-yard roll",
+      "• Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+    ].join("\n");
+    expect(customerFacingJobNotes(notes)).toMatch(/Guided takeoff:/);
+    expect(customerFacingJobNotes(notes)).toMatch(/Stair wrap: 8 box/);
+    expect(customerFacingJobNotes(notes)).not.toMatch(/not taped square feet/i);
+    expect(customerFacingJobNotes(notes)).not.toMatch(/wrap qty TBD/i);
+    expect(parseProjectDetails(notes).details.join("\n")).not.toMatch(/not taped square feet/i);
+    expect(parseProjectDetails(notes).details).toContain("Stair wrap: 8 box");
+
+    const scope = readFileSync(join(root, "src/lib/customer-scope.ts"), "utf8");
+    expect(scope).toMatch(/export function customerFacingJobNotes/);
+    expect(scope).toMatch(/not taped square feet/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).toMatch(/customerFacingJobNotes/);
+    expect(print).not.toMatch(
+      /\{estimate\.job_description \? \(/,
+    );
+
+    const view = readFileSync(join(root, "src/components/customer-scope-view.tsx"), "utf8");
+    expect(view).toMatch(/customerFacingJobNotes/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).toMatch(/extraCountReviewLine/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const qty = readFileSync(join(root, "src/lib/flooring-knowledge/quantities.ts"), "utf8");
+    expect(qty).toMatch(/not taped square feet and not a 30-yard roll/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print project details strip wrap \/ carton-coverage TBD \/ qty TBD \/ not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print project details strip wrap \/ carton-coverage TBD \/ qty TBD \/ not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

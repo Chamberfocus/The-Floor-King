@@ -1,5 +1,5 @@
 import type { CustomerScope, ScopeItem } from "@/lib/customer-scope";
-import { flooringHighlights, scopeIsEmpty } from "@/lib/customer-scope";
+import { customerFacingJobNotes, flooringHighlights, scopeIsEmpty } from "@/lib/customer-scope";
 
 /**
  * Renders a customer-facing scope: every room, product, and piece of work
@@ -21,7 +21,8 @@ export function CustomerScopeView({
   variant?: "full" | "condensed";
   narrative?: string | null;
 }) {
-  const hasNarrative = !!narrative && narrative.trim().length > 0;
+  const shownNarrative = customerFacingJobNotes(narrative);
+  const hasNarrative = shownNarrative.length > 0;
   const highlights = flooringHighlights(scope);
   const empty = scopeIsEmpty(scope);
 
@@ -38,7 +39,7 @@ export function CustomerScopeView({
       ) : (
         <>
           {hasNarrative ? (
-            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{narrative}</p>
+            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{shownNarrative}</p>
           ) : null}
           {empty ? (
             !hasNarrative && highlights.length === 0 ? (

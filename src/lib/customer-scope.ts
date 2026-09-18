@@ -55,7 +55,7 @@ export interface CustomerScope {
  *  description holds the product name (e.g. "OVF Del Mar - JETCORE 7.25\""), so
  *  it leads; brand/category are only fallbacks when there's no description. */
 function productItem(l: EstimateLineItem): ScopeItem {
-  const note = (l.note ?? "").trim();
+  const note = stripCrewIdentityFromCustomerLabel((l.note ?? "").trim());
   return { title: customerLineLabel(l), detail: note || undefined };
 }
 
@@ -65,15 +65,16 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * WO / hydrate skip leftover taped sq ft. Customer copy is the product name.
  *
  * Customer / invoice / portal copy strips wrap / carton-coverage TBD / qty TBD / order TBD identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
+ * Customer / portal / print project details strip wrap / carton-coverage TBD / qty TBD / not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft.
  */
 const CREW_IDENTITY_TAIL =
-  /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\))/i;
+  /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\))/i;
 
 export function stripCrewIdentityFromCustomerLabel(raw: string): string {
   const s = (raw ?? "").trim();
   if (!s) return s;
   if (
-    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not an automatic sq ft\/step order|order TBD/i.test(
+    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD/i.test(
       s,
     )
   ) {
@@ -89,6 +90,21 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
     .replace(/\s*(?:wrap qty TBD|qty TBD|carton coverage TBD|order TBD)\b.*$/i, "")
     .trim();
   return fallback || s;
+}
+
+/** Customer print / portal narrative. Stored job_description keeps crew stamps. */
+export function customerFacingJobNotes(text: string | null | undefined): string {
+  if (!text) return "";
+  return text
+    .split("\n")
+    .map((line) => {
+      const indent = line.match(/^\s*/)?.[0] ?? "";
+      const body = stripCrewIdentityFromCustomerLabel(line.trimStart());
+      return body ? `${indent}${body}` : "";
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 /**
@@ -110,7 +126,7 @@ export function customerLineLabel(l: EstimateLineItem): string {
 /** A labor / prep line described as work performed — no hours, no area. */
 function workItem(l: EstimateLineItem): ScopeItem {
   const desc = stripCrewIdentityFromCustomerLabel((l.description ?? "").trim());
-  const note = (l.note ?? "").trim();
+  const note = stripCrewIdentityFromCustomerLabel((l.note ?? "").trim());
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
   return { title: desc || catLabel || "Included work", detail: note || undefined };
 }
@@ -152,8 +168,10 @@ export function buildCustomerScope(
         ...scope.wholeJob.labor.map(workItem),
       ],
     },
-    conditions: scope.conditions,
-    notes: scope.freeText,
+    conditions: scope.conditions
+      .map((c) => stripCrewIdentityFromCustomerLabel(c))
+      .filter(Boolean),
+    notes: customerFacingJobNotes(scope.freeText),
   };
 }
 
@@ -199,7 +217,10 @@ export function parseProjectDetails(
     }
     // A captured answer bullet ("• Label: value") or a free line — tidy the
     // leftover "?:" from question labels so it reads as a clean detail.
-    details.push(line.replace(/^[•\-]\s*/, "").replace(/\?:/g, ":"));
+    const cleaned = stripCrewIdentityFromCustomerLabel(
+      line.replace(/^[•\-]\s*/, "").replace(/\?:/g, ":"),
+    );
+    if (cleaned) details.push(cleaned);
   }
   return { details, flags };
 }
