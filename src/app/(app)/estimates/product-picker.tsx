@@ -491,6 +491,20 @@ export function ProductPicker({
                             false,
                           )
                         : null;
+                    // Hard-surface catalog picker cost line boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+                    const costAmount = money.cost.amount;
+                    const costLine =
+                      !isCarpet && boxedArea && costAmount != null
+                        ? catalogRateInLineUnit(
+                            costAmount,
+                            {
+                              unit: p.unit,
+                              category: p.category,
+                              sqft_per_box: p.sqft_per_box,
+                            },
+                            false,
+                          )
+                        : costAmount;
                     return (
                       <button
                         key={p.id}
@@ -580,7 +594,7 @@ export function ProductPicker({
                               ) : null}
                               {showCost && !money.cost.missing ? (
                                 <span className="block text-xs tabular-nums text-muted-foreground">
-                                  cost {formatMoney(money.cost.amount ?? 0)}
+                                  cost {formatMoney(costLine ?? 0)}
                                   {showMargin && margin != null
                                     ? ` · ${Math.round(margin)}% gm`
                                     : ""}
