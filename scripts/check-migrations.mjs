@@ -204,6 +204,7 @@ const REQUIRED_FILES = [
   "0341_flooring_knowledge_customer_dimensions.sql",
   "0342_flooring_knowledge_customer_product_ft.sql",
   "0343_flooring_knowledge_customer_paren_ft.sql",
+  "0344_flooring_knowledge_customer_paren_qty.sql",
 ];
 
 /**
@@ -2456,6 +2457,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0343_FLOORING_KNOWLEDGE",
       "Customer / portal / print strip leftover parenthetical dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0344_flooring_knowledge_customer_paren_qty.sql",
+    markers: [
+      "P0_0344_FLOORING_KNOWLEDGE",
+      "Customer / portal / print strip leftover parenthetical count How many — those stay in stored job_description so the crew still sees pad rolls. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
