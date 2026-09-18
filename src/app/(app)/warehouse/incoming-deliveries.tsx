@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
+import { hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
 import { receivePoLines, unreceivePoLine } from "./receiving-actions";
 
 import type { IncomingPoRow, IncomingPoItem } from "./receiving-actions";
@@ -27,6 +28,22 @@ function itemLabel(i: IncomingItem): string {
   return (
     [i.manufacturer, i.description, i.style, i.color].filter(Boolean).join(" · ") ||
     "Item"
+  );
+}
+
+function cartonCountFor(i: IncomingItem, billedQty: number): number {
+  // Exclusive carpet-tile warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  return hardSurfaceAreaCartonCount(
+    {
+      description: i.description,
+      category: i.category,
+      unit: i.unit,
+      quantity: i.quantity,
+      sqft_per_box: i.sqft_per_box,
+      roll_width_ft: i.roll_width_ft,
+    },
+    billedQty,
   );
 }
 
@@ -145,6 +162,7 @@ function PoCard({ po }: { po: IncomingPo }) {
               const entered = num(counts[i.id] ?? "0");
               const ordered = Number(i.quantity ?? 0);
               const differs = Math.abs(entered - ordered) > 0.005;
+              const orderedCartons = cartonCountFor(i, ordered);
               return (
                 <div
                   key={i.id}
@@ -158,6 +176,11 @@ function PoCard({ po }: { po: IncomingPo }) {
                       <p className="text-sm font-medium">{itemLabel(i)}</p>
                       <p className="text-xs text-muted-foreground">
                         Ordered {ordered} {i.unit}
+                        {/* Exclusive carpet-tile warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                        {/* Hard-surface warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                        {orderedCartons
+                          ? ` · 📦 ${orderedCartons} carton${orderedCartons === 1 ? "" : "s"}`
+                          : ""}
                         {i.item_no ? ` · item ${i.item_no}` : ""}
                         {i.received_at ? ` · checked ${formatDate(i.received_at)}` : ""}
                       </p>

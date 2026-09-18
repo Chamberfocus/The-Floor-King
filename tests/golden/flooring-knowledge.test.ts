@@ -18450,6 +18450,147 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0375 Exclusive carpet-tile warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0375_flooring_knowledge_incoming_delivery_carton.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0375_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive carpet-tile warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(
+      /Hard-surface warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap \/ count How many stays off carton math. Do not invent coverage/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Living room — Lifeproof Oak",
+          category: "lvp",
+          unit: "sq ft",
+          sqft_per_box: 23.64,
+        },
+        300,
+      ),
+    ).toBe(13);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Living room — Interface carpet tile",
+          category: "carpet",
+          unit: "sq yd",
+          sqft_per_box: 23.64,
+          order_as_roll: false,
+          quantity: 22.22,
+        },
+        22.22,
+      ),
+    ).toBe(9);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Stair wrap — wrap qty TBD",
+          category: "lvp",
+          unit: "box",
+          sqft_per_box: 23.64,
+          quantity: 8,
+        },
+        8,
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          category: "carpet",
+          unit: "sq yd",
+          sqft_per_box: 23.64,
+          roll_width_ft: 12,
+          quantity: 50,
+        },
+        50,
+      ),
+    ).toBe(0);
+
+    const incoming = readFileSync(
+      join(root, "src/app/(app)/warehouse/incoming-deliveries.tsx"),
+      "utf8",
+    );
+    expect(incoming).toMatch(/hardSurfaceAreaCartonCount/);
+    expect(incoming).toMatch(/cartonCountFor/);
+    expect(incoming).toMatch(/orderedCartons/);
+    expect(incoming).toMatch(
+      /Exclusive carpet-tile warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(incoming).toMatch(
+      /Hard-surface warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(incoming).not.toMatch(/billedRateToCartonCost/);
+    expect(incoming).not.toMatch(/category === ["']carpet_tile["']/);
+    expect(incoming).not.toMatch(/formatMoney/);
+
+    const receiving = readFileSync(
+      join(root, "src/app/(app)/warehouse/receiving-actions.ts"),
+      "utf8",
+    );
+    expect(receiving).toMatch(/sqft_per_box/);
+    expect(receiving).toMatch(/roll_width_ft/);
+    expect(receiving).toMatch(
+      /Exclusive carpet-tile warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(receiving).toMatch(
+      /Hard-surface warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(receiving).not.toMatch(/billedRateToCartonCost/);
+    expect(receiving).not.toMatch(/category === ["']carpet_tile["']/);
+
+    const catalogForm = readFileSync(
+      join(root, "src/app/(app)/catalog/product-form.tsx"),
+      "utf8",
+    );
+    expect(catalogForm).toMatch(/\$ \/ unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface job materials purchasing-gap carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+
+    const help =
+      /Exclusive carpet-tile warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Hard-surface warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap \/ count How many stays off carton math. Do not invent coverage/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /incoming-delivery carton/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
