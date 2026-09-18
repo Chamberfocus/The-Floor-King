@@ -13635,6 +13635,152 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0339 Customer line labels strip leftover em-dash How many", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0339_flooring_knowledge_customer_dash_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0339_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print line labels strip leftover em-dash How many — those stay on stored lines so Builder still prices How many. Wrap How many and Self-leveler bag How many stay in job notes/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(stripCrewIdentityFromCustomerLabel("Rebond pad — 4 roll")).toBe("Rebond pad");
+    expect(stripCrewIdentityFromCustomerLabel("Rebond pad — 4 roll (not taped sq ft)")).toBe(
+      "Rebond pad",
+    );
+    expect(stripCrewIdentityFromCustomerLabel("Lifeproof Oak — 8 box")).toBe("Lifeproof Oak");
+    expect(stripCrewIdentityFromCustomerLabel("Self-leveler — 15 bag")).toBe("Self-leveler");
+    expect(stripCrewIdentityFromCustomerLabel("Living room — Lifeproof Oak")).toBe(
+      "Living room — Lifeproof Oak",
+    );
+    expect(stripCrewIdentityFromCustomerLabel("Stair wrap: 8 box")).toBe("Stair wrap: 8 box");
+    expect(stripCrewIdentityFromCustomerLabel("Self-leveler: 15 bag")).toBe("Self-leveler: 15 bag");
+
+    const asLine = (description: string, extra: Partial<EstimateLineItem> = {}) =>
+      ({
+        id: "l1",
+        option_id: "o1",
+        position: 0,
+        room: null,
+        description,
+        note: null,
+        line_type: "mat_labor",
+        sqft: null,
+        length_in: null,
+        width_in: null,
+        measure_unit: "sqft",
+        material_rate: 40,
+        labor_rate: 0,
+        installed_rate: null,
+        flat_amount: null,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        item_no: null,
+        material_cost: 40,
+        labor_cost: 0,
+        quantity: 4,
+        unit: "roll",
+        category: "underlayment",
+        ...extra,
+      }) as EstimateLineItem;
+
+    const pad = asLine("Rebond pad — 4 roll");
+    expect(customerLineLabel(pad)).toBe("Rebond pad");
+    expect(customerLineLabel(pad)).not.toMatch(/\d+\s+roll/i);
+    expect(customerFacingLineNote("Rebond pad — 4 roll")).toBe("Rebond pad");
+
+    const wrap = asLine("Lifeproof Oak — 8 box", {
+      category: "lvp",
+      unit: "box",
+      quantity: 8,
+    });
+    expect(customerLineLabel(wrap)).toBe("Lifeproof Oak");
+    expect(customerFacingLineNote("Stair wrap: 8 box")).toBe("Stair wrap: 8 box");
+    expect(customerFacingLineNote("Self-leveler: 15 bag")).toBe("Self-leveler: 15 bag");
+
+    const padLine = extraCountReviewLine({
+      family: "other",
+      productUnit: "roll",
+      qty: 4,
+      label: "Rebond pad",
+    });
+    expect(padLine).toMatch(/Rebond pad: 4 roll/);
+    const review = buildSalespersonReview({
+      rooms: [],
+      products: ["Lifeproof Oak"],
+      takeoffs: [],
+      ctx: emptyInstallContext(),
+      removal: [],
+      installation: [],
+      prep: ["Self-leveler: 15 bag — not taped square feet"],
+      accessories: [
+        "Stair wrap: 8 box — not taped square feet and not a 30-yard roll",
+        padLine!,
+      ],
+      specials: ["Occupancy: Occupied"],
+    });
+    const stored = reviewToJobNotes(review);
+    expect(stored).toMatch(/Rebond pad: 4 roll/);
+    expect(stored).toMatch(/Accessorie: Stair wrap: 8 box/);
+    const shown = customerFacingJobNotes(stored);
+    expect(shown).toMatch(/Guided takeoff:/);
+    expect(shown).toMatch(/Stair wrap: 8 box/);
+    expect(shown).toMatch(/Self-leveler: 15 bag/);
+    expect(shown).toMatch(/Occupancy: Occupied/);
+    expect(shown).toMatch(/Lifeproof Oak/);
+    expect(shown).not.toMatch(/4\s+roll/i);
+    expect(shown).not.toMatch(/not taped square feet/i);
+
+    const parsed = parseProjectDetails(stored);
+    expect(parsed.details).toContain("Stair wrap: 8 box");
+    expect(parsed.details).toContain("Self-leveler: 15 bag");
+    expect(parsed.details.join("\n")).not.toMatch(/4\s+roll/i);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/reviewToJobNotes/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).toMatch(/customerFacingJobNotes/);
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).toMatch(/parseProjectDetails/);
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"),
+      "utf8",
+    );
+    expect(wo).not.toMatch(/customerFacingJobNotes/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print line labels strip leftover em-dash How many — those stay on stored lines so Builder still prices How many. Wrap How many and Self-leveler bag How many stay in job notes/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print line labels strip leftover em-dash How many — those stay on stored lines so Builder still prices How many. Wrap How many and Self-leveler bag How many stay in job notes/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

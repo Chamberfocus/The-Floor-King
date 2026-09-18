@@ -79,9 +79,10 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print strip Guided takeoff stair-install step How many — those stay in stored job_description so Builder still prices per step. Wrap How many still stays.
  * Customer / portal / print strip Guided takeoff waterfall / upholstered stair How many — those stay in stored job_description so Builder still prices wrap labor. Wrap How many still stays.
  * Customer / portal / print strip Guided takeoff labeled count How many — those stay in stored job_description so the crew still sees toilets / trim / metals counts. Wrap How many and Self-leveler bag How many stay.
+ * Customer / portal / print line labels strip leftover em-dash How many — those stay on stored lines so Builder still prices How many. Wrap How many and Self-leveler bag How many stay in job notes.
  */
 const CREW_IDENTITY_TAIL =
-  /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?)/i;
+  /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?|\d+(?:\.\d+)?\s+[A-Za-z][A-Za-z./-]*\s*$)/i;
 
 const GUIDED_TAKEOFF_MATH_LABEL =
   /^(?:measured area|waste|order quantity|billing quantity|unit of measure|carton coverage|required cartons)\s*:/i;
@@ -116,7 +117,7 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
   const s = (raw ?? "").trim();
   if (!s) return s;
   if (
-    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD|\d+\s+steps?\b/i.test(
+    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD|\d+\s+steps?\b|[—–-]\s*\d+(?:\.\d+)?\s+[A-Za-z]/i.test(
       s,
     )
   ) {
@@ -131,6 +132,7 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
     )
     .replace(/\s*(?:wrap qty TBD|qty TBD|carton coverage TBD|order TBD)\b.*$/i, "")
     .replace(/\s*[—–-]\s*\d+\s+steps?\b.*$/i, "")
+    .replace(/\s*[—–-]\s*\d+(?:\.\d+)?\s+[A-Za-z][A-Za-z./-]*\s*$/i, "")
     .trim();
   return stripPrepConfidenceSuffix(fallback || s);
 }
