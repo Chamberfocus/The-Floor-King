@@ -24,8 +24,10 @@ import {
   familyFromCatalogCategory,
   materialWastePctForEmit,
   rollGoodsOrderTbdDescription,
+  type InstallSystem,
 } from "@/lib/flooring-knowledge";
 import { isRollGoodCategory } from "@/lib/types";
+import { notesCarpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
 export interface DraftQuoteResult {
@@ -41,13 +43,18 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * ÷9). Catalog box rate onto an area line is $/coverage, not 1:1.
  * Exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 —
  * mixed stretch-in + tile still waits for cuts. Wrap / count How many stays 1:1 — omit boxedProduct.
- * Do not invent coverage. AI notes have no exclusive-tile evidence — do not pass carpetInstallSystems.
+ * Do not invent coverage. AI notes exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 —
+ * mixed stretch-in + tile and unanswered carpet stay 1:1. Do not infer exclusive tile from unit=box.
  */
 function rateFor(
   rate: number,
   productUnit: string | null,
   wantYd: boolean,
-  boxedProduct?: { category?: string | null; sqft_per_box?: number | string | null } | null,
+  boxedProduct?: {
+    category?: string | null;
+    sqft_per_box?: number | string | null;
+    carpetInstallSystems?: InstallSystem[] | null;
+  } | null,
 ): number {
   if (boxedProduct) {
     return catalogRateInLineUnit(
@@ -56,6 +63,7 @@ function rateFor(
         unit: productUnit,
         category: boxedProduct.category,
         sqft_per_box: boxedProduct.sqft_per_box,
+        carpetInstallSystems: boxedProduct.carpetInstallSystems,
       },
       wantYd,
     );
@@ -167,6 +175,16 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     const qty = round2(isYd ? sqft / 9 : sqft);
     const unit = isYd ? "sq yd" : "sq ft";
     const family = familyFromCatalogCategory(profile.category);
+    // Exclusive-tile boxed rate: only when the parsed room type / notes / material
+    // positively say carpet tile. Do not infer exclusive tile from unit=box.
+    const notesSystems =
+      family === "carpet"
+        ? notesCarpetInstallSystemsForBoxedRate({
+            type: room.type,
+            notes: room.notes,
+            material: room.material,
+          })
+        : undefined;
 
     // Match to a REAL catalog product BY ID — same category only (a generic term
     // like "plush carpet" that hits nothing is NOT a match). Catalog rates are
@@ -193,6 +211,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
             cost = rateFor(Number(match.material_rate) || 0, match.unit, isYd, {
               category: match.category,
               sqft_per_box: sqftPerBox,
+              carpetInstallSystems: notesSystems,
             });
           laborRate = rateFor(Number(match.labor_rate) || 0, match.unit, isYd);
           manufacturer = match.manufacturer;
@@ -225,11 +244,12 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     const baseDesc =
       [manufacturer, room.material].filter(Boolean).join(" ").trim() || profile.label;
     const allowAreaMat =
-      areaDerivedMaterialAllowed(family, productUnit) ||
+      areaDerivedMaterialAllowed(family, productUnit, notesSystems) ||
       boxedCartonAreaTakeoffAllowed({
         family,
         productUnit,
         sqftPerBox,
+        carpetInstallSystems: notesSystems,
       });
     if (allowAreaMat) {
       const billingQty = areaDerivedMaterialQty({
@@ -238,6 +258,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
         billingUnit: isYd ? "sqyd" : "sqft",
         productUnit,
         sqftPerBox,
+        carpetInstallSystems: notesSystems,
       });
       const waste = materialWastePctForEmit({
         family,
@@ -273,6 +294,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
         productUnit,
         sqftPerBox,
         label: needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
+        carpetInstallSystems: notesSystems,
       });
       lines.push({
         room: room.name || null,

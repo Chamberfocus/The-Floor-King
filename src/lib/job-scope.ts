@@ -211,6 +211,31 @@ export function carpetInstallSystemsForBoxedRate(
   return carpetLineIsModularCoverage(l) ? ["carpet_tile"] : undefined;
 }
 
+const NOTES_CARPET_TILE_RE = /carpet[\s-]*tiles?|modular\s+carpet/i;
+const NOTES_STRETCH_IN_RE = /stretch[\s-]*in|broadloom/i;
+
+/**
+ * Exclusive-tile evidence for boxed catalog rate conversion on the AI notes
+ * path. Only when the parsed room type / notes / material positively say
+ * carpet tile or modular carpet. Mixed stretch-in + tile and unanswered /
+ * plain carpet stay 1:1. Do not infer exclusive tile from unit=box.
+ */
+export function notesCarpetInstallSystemsForBoxedRate(args: {
+  type?: string | null;
+  notes?: string | null;
+  material?: string | null;
+}): Array<"carpet_tile"> | undefined {
+  const text = [args.type, args.notes, args.material]
+    .map((s) => (s ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+  if (!text) return undefined;
+  if (!NOTES_CARPET_TILE_RE.test(text)) return undefined;
+  // Mixed stretch-in + tile is 0142 — still waits for cuts / 1:1.
+  if (NOTES_STRETCH_IN_RE.test(text)) return undefined;
+  return ["carpet_tile"];
+}
+
 /**
  * Build the carpet cut list from any line source: every roll-good piece with a
  * measured W×L, grouped for display and summed per roll. Each cut is read from

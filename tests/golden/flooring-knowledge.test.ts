@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { companionQty, defaultWastePct, profileFor } from "@/lib/flooring-profiles";
-import { carpetCutList, carpetLineIsModularCoverage, carpetInstallSystemsForBoxedRate, parseCutsFromText, padRollCount } from "@/lib/job-scope";
+import { carpetCutList, carpetLineIsModularCoverage, carpetInstallSystemsForBoxedRate, notesCarpetInstallSystemsForBoxedRate, parseCutsFromText, padRollCount } from "@/lib/job-scope";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
 import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
@@ -15512,7 +15512,6 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
     expect(ai).toMatch(/catalogRateInLineUnit/);
     expect(ai).toMatch(/catalogRateToBillingUnit/);
-    expect(ai).not.toMatch(/carpetInstallSystems:/);
 
     const builder = readFileSync(
       join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
@@ -15650,9 +15649,6 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       /Exclusive carpet-tile Builder boxed rate onto that area line is \$\/coverage, not 1:1/,
     );
 
-    const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
-    expect(ai).not.toMatch(/carpetInstallSystems:/);
-
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Exclusive carpet-tile Builder boxed rate onto that area line is \$\/coverage, not 1:1 — mixed stretch-in \+ tile and unanswered carpet stay How many. Wrap \/ count How many stays 1:1. Do not invent coverage/,
     );
@@ -15664,6 +15660,140 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
       /Exclusive carpet-tile Builder boxed rate/,
+    );
+  });
+
+  it("0353 AI notes exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0353_flooring_knowledge_ai_tile_rate.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0353_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /AI notes exclusive carpet-tile catalog box rate onto that area line is \$\/coverage, not 1:1 — mixed stretch-in \+ tile and unanswered carpet stay 1:1. Wrap \/ count How many stays 1:1. Do not invent coverage. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(notesCarpetInstallSystemsForBoxedRate({ type: "carpet tile" })).toEqual(["carpet_tile"]);
+    expect(notesCarpetInstallSystemsForBoxedRate({ type: "carpet-tile" })).toEqual(["carpet_tile"]);
+    expect(notesCarpetInstallSystemsForBoxedRate({ type: "carpet tiles" })).toEqual(["carpet_tile"]);
+    expect(
+      notesCarpetInstallSystemsForBoxedRate({ type: "carpet", notes: "modular carpet" }),
+    ).toEqual(["carpet_tile"]);
+    expect(
+      notesCarpetInstallSystemsForBoxedRate({
+        type: "carpet",
+        material: "Interface carpet tile",
+      }),
+    ).toEqual(["carpet_tile"]);
+    expect(notesCarpetInstallSystemsForBoxedRate({ type: "carpet" })).toBeUndefined();
+    expect(notesCarpetInstallSystemsForBoxedRate({ type: "broadloom" })).toBeUndefined();
+    expect(notesCarpetInstallSystemsForBoxedRate({ type: "tile" })).toBeUndefined();
+    expect(
+      notesCarpetInstallSystemsForBoxedRate({
+        type: "carpet tile",
+        notes: "stretch-in living room",
+      }),
+    ).toBeUndefined();
+    expect(
+      notesCarpetInstallSystemsForBoxedRate({
+        type: "carpet",
+        notes: "stretch in + carpet tile",
+      }),
+    ).toBeUndefined();
+    expect(
+      notesCarpetInstallSystemsForBoxedRate({ type: "carpet", material: "Shaw 20 box" }),
+    ).toBeUndefined();
+
+    const boxed = {
+      category: "carpet" as const,
+      unit: "box",
+      sqft_per_box: 23.64,
+      material_rate: 45.62,
+    };
+    expect(catalogToLineMeasure(boxed).count).toBe(true);
+    expect(catalogToLineMeasure(boxed).factor).toBe(1);
+    expect(catalogRateInLineUnit(45.62, boxed, true)).toBe(45.62);
+
+    const onNotesTile = {
+      ...boxed,
+      carpetInstallSystems: notesCarpetInstallSystemsForBoxedRate({ type: "carpet tile" }),
+    };
+    const conv = catalogToLineMeasure(onNotesTile);
+    expect(conv.count).toBe(false);
+    expect(conv.lineUnit).toBe("sq yd");
+    expect(conv.factor).toBeCloseTo(9 / 23.64, 10);
+    expect(catalogRateInLineUnit(45.62, onNotesTile, true)).toBe(
+      Math.round((45.62 * 9) / 23.64 * 100) / 100,
+    );
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "box",
+        sqftPerBox: 23.64,
+        carpetInstallSystems: notesCarpetInstallSystemsForBoxedRate({ type: "carpet tile" }),
+      }),
+    ).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "box",
+        sqftPerBox: 23.64,
+        carpetInstallSystems: notesCarpetInstallSystemsForBoxedRate({ type: "carpet" }),
+      }),
+    ).toBe(false);
+
+    const lvp = {
+      category: "lvp" as const,
+      unit: "box",
+      sqft_per_box: 23.64,
+    };
+    expect(catalogToLineMeasure(lvp).count).toBe(false);
+    expect(catalogToLineMeasure(lvp).factor).toBeCloseTo(1 / 23.64, 10);
+
+    const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
+    expect(ai).toMatch(/notesCarpetInstallSystemsForBoxedRate/);
+    expect(ai).toMatch(/carpetInstallSystems: notesSystems/);
+    expect(ai).toMatch(/catalogRateInLineUnit/);
+    expect(ai).toMatch(/catalogRateToBillingUnit/);
+    expect(ai).toMatch(
+      /laborRate = rateFor\(Number\(match\.labor_rate\) \|\| 0, match\.unit, isYd\)/,
+    );
+    expect(ai).not.toMatch(/Do not pass carpetInstallSystems/);
+    expect(ai).toMatch(/Do not infer exclusive tile from unit=box/);
+
+    const extract = readFileSync(join(root, "src/lib/extract.ts"), "utf8");
+    expect(extract).toMatch(/carpet tile \/ modular carpet→carpet/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /AI notes exclusive carpet-tile catalog box rate onto that area line is \$\/coverage, not 1:1/,
+    );
+
+    const help =
+      /AI notes exclusive carpet-tile catalog box rate onto that area line is \$\/coverage, not 1:1 — mixed stretch-in \+ tile and unanswered carpet stay 1:1. Wrap \/ count How many stays 1:1. Do not invent coverage. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /AI notes exclusive carpet-tile catalog box rate/,
     );
   });
 
