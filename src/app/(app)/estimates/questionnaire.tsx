@@ -3150,6 +3150,16 @@ export function Questionnaire({
                 <span className="font-semibold">{takeoffDisplayTitle(t)}</span>
                 {" · "}
                 {formatTakeoffStrip(t)}
+                {/* Exclusive carpet-tile Guided Estimate running takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                {/* Hard-surface Guided Estimate running takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                {t.cartons ? (
+                  <>
+                    {" · "}
+                    <span className="font-medium tabular-nums">
+                      = {t.cartons.cartonCount} carton{t.cartons.cartonCount === 1 ? "" : "s"}
+                    </span>
+                  </>
+                ) : null}
               </p>
             ) : null,
           )}
