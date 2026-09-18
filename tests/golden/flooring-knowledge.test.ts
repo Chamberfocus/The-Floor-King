@@ -12,6 +12,7 @@ import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
 import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { cutLabel, cutSqYd } from "@/lib/order-cuts";
 import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, lineIsStairWrapTbd, knowledgePickDescription, rollGoodsLineHasCuts, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
+import { catalogCostInLineUnit, catalogRateInLineUnit, catalogToLineMeasure } from "@/lib/catalog-pricing";
 import {
   accessoryQuantity,
   piecesForLinearFeet,
@@ -15348,6 +15349,83 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0350 Catalog box rate onto an area line is $/coverage, not 1:1", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0350_flooring_knowledge_boxed_rate.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0350_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Catalog box rate onto an area line is \$\/coverage, not 1:1 — wrap \/ count How many stays 1:1. Do not invent coverage/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    const boxed = {
+      category: "lvp" as const,
+      unit: "box",
+      sqft_per_box: 23.64,
+      material_rate: 45.62,
+    };
+    const conv = catalogToLineMeasure(boxed);
+    expect(conv.count).toBe(false);
+    expect(conv.lineUnit).toBe("sq ft");
+    expect(conv.factor).toBeCloseTo(1 / 23.64, 10);
+    expect(catalogCostInLineUnit(boxed).amount).toBe(Math.round((45.62 / 23.64) * 100) / 100);
+    expect(catalogRateInLineUnit(45.62, boxed, false)).toBe(
+      Math.round((45.62 / 23.64) * 100) / 100,
+    );
+    expect(catalogToLineMeasure({ ...boxed, sqft_per_box: null }).count).toBe(true);
+    expect(catalogToLineMeasure({ ...boxed, sqft_per_box: null }).factor).toBe(1);
+    expect(catalogRateInLineUnit(45.62, { ...boxed, sqft_per_box: null }, false)).toBe(45.62);
+    expect(catalogToLineMeasure({ ...boxed, category: "other" }).count).toBe(true);
+    expect(catalogToLineMeasure({ ...boxed, category: "other" }).factor).toBe(1);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Catalog box rate onto an area line is \$\/coverage, not 1:1/,
+    );
+    expect(pricing).toMatch(/catalogRateInLineUnit/);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/wrap \? \{ \.\.\.p, sqft_per_box: null \} : p/);
+    expect(builder).toMatch(/catalogUnitFactor\(d\.unit, lineUnitKey\(l\) === "sqyd"\)/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/catalogRateInLineUnit/);
+    expect(q).toMatch(/catalogRateToBillingUnit/);
+    const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
+    expect(ai).toMatch(/catalogRateInLineUnit/);
+    expect(ai).toMatch(/catalogRateToBillingUnit/);
+
+    const catalog = readFileSync(join(root, "src/app/(app)/catalog/actions.ts"), "utf8");
+    expect(catalog).toMatch(/catalogUnitFactor\(p\.unit/);
+    expect(catalog).toMatch(/Wrap \/ count How many stays 1:1/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Catalog box rate onto an area line is \$\/coverage, not 1:1 — wrap \/ count How many stays 1:1. Do not invent coverage/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Catalog box rate onto an area line is \$\/coverage, not 1:1 — wrap \/ count How many stays 1:1. Do not invent coverage/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /Catalog box rate onto an area line/,
     );
   });
 

@@ -380,7 +380,16 @@ export function EstimateBuilder({
   productUnits?: Record<string, string>;
   /** Saved catalog default rate + unit per linked product id — powers the
    *  "standard vs one-off" badge and the "use always" write-back. */
-  productDefaults?: Record<string, { material_rate: number; labor_rate: number; unit: string }>;
+  productDefaults?: Record<
+    string,
+    {
+      material_rate: number;
+      labor_rate: number;
+      unit: string;
+      category?: string | null;
+      sqft_per_box?: number | string | null;
+    }
+  >;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -1281,13 +1290,9 @@ export function EstimateBuilder({
     // (sq ft / sq yd) keep the area math; carpet is quoted by the square yard, so
     // its catalog rate converts ×9 if the catalog priced it per sq ft.
     // Vendor cost wins over products.material_rate (OUR COST, never customer sell).
-    const snap = catalogLineSnapshot(p, {
-      targetMarginPct: num(overallMargin),
-      freightMarkupPct: org?.freight_markup_pct ?? 0,
-    });
+    // Catalog box rate onto an area line is $/coverage, not 1:1.
+    // Wrap / count How many stays 1:1 (snapshot omits sqft_per_box).
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
-    // Prep goods (self-leveler / patch) carry coverage → the bag calculator
-    // sizes the quantity from area + thickness instead of a plain count.
 
     setOptions((prev) =>
       prev.map((o, i) =>
@@ -1297,6 +1302,13 @@ export function EstimateBuilder({
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
                 const wrap = lineIsStairWrapTbd(l);
+                const snap = catalogLineSnapshot(
+                  wrap ? { ...p, sqft_per_box: null } : p,
+                  {
+                    targetMarginPct: num(overallMargin),
+                    freightMarkupPct: org?.freight_markup_pct ?? 0,
+                  },
+                );
                 const boxedArea = boxedCartonAreaTakeoffAllowed({
                   family: familyFromCatalogCategory(p.category ?? l.category),
                   productUnit: p.unit,
@@ -1415,11 +1427,6 @@ export function EstimateBuilder({
   // dropped onto THIS estimate line only (no product_id, nothing saved).
   const useOnceProduct = (oi: number, li: number, input: CustomProductInput) => {
     const specBox = num(input.specs?.sqft_per_box);
-    const snap = catalogToLineMeasure({
-      unit: input.unit,
-      category: input.category,
-      sqft_per_box: specBox > 0 ? specBox : null,
-    });
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
     setOptions((prev) =>
       prev.map((o, i) =>
@@ -1434,6 +1441,11 @@ export function EstimateBuilder({
                   productUnit: input.unit,
                   sqftPerBox: specBox > 0 ? specBox : null,
                 });
+                const snap = catalogToLineMeasure({
+                  unit: input.unit,
+                  category: input.category,
+                  sqft_per_box: wrap ? null : specBox > 0 ? specBox : null,
+                });
                 let count = wrap ? true : snap.count;
                 let lineUnit = snap.lineUnit;
                 if (wrap) {
@@ -1441,11 +1453,14 @@ export function EstimateBuilder({
                 }
                 const measure_unit: MeasureUnit = snap.measureUnit;
                 const prep = count && hasCoverage(input.coverage_sqft);
+                const boxFactor = wrap || !boxedArea ? 1 : snap.factor;
                 const base: LineState = {
                   ...l,
                   product_id: "",
                   category: input.category || l.category,
-                  material_cost: input.material_rate ? round2(num(input.material_rate)) : l.material_cost,
+                  material_cost: input.material_rate
+                    ? round2(num(input.material_rate) * boxFactor)
+                    : l.material_cost,
                   labor_cost: input.labor_rate ? round2(num(input.labor_rate)) : l.labor_cost,
                   manufacturer: input.manufacturer || l.manufacturer,
                   style: input.style || l.style,
@@ -1561,7 +1576,21 @@ export function EstimateBuilder({
     const d = l.product_id ? productDefaults[l.product_id] : undefined;
     if (!d) return null;
     const rate = labor ? d.labor_rate : d.material_rate;
-    return Math.round(rate * catalogUnitFactor(d.unit, lineUnitKey(l) === "sqyd") * 100) / 100;
+    const wrap = lineIsStairWrapTbd(l);
+    const boxedArea = boxedCartonAreaTakeoffAllowed({
+      family: familyFromCatalogCategory(d.category ?? l.category),
+      productUnit: d.unit,
+      sqftPerBox: Number(d.sqft_per_box) > 0 ? Number(d.sqft_per_box) : null,
+    });
+    const factor =
+      labor || wrap || !boxedArea
+        ? catalogUnitFactor(d.unit, lineUnitKey(l) === "sqyd")
+        : catalogToLineMeasure({
+            unit: d.unit,
+            category: d.category ?? l.category,
+            sqft_per_box: d.sqft_per_box,
+          }).factor;
+    return Math.round(rate * factor * 100) / 100;
   };
   // On save, push every "Save as my default" line's cost back to its product's
   // saved rate (one write per product). "Use once" lines never reach here.
@@ -1576,6 +1605,7 @@ export function EstimateBuilder({
           materialCost: num(l.material_cost),
           laborCost: num(l.labor_cost),
           measureUnit: lineUnitKey(l) === "sqyd" ? "sqyd" : "sqft",
+          count: isCountLine(l) || lineIsStairWrapTbd(l),
         });
       }
   };

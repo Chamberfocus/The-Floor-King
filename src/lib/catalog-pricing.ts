@@ -18,7 +18,7 @@
  */
 import { marginPct, priceFromMargin } from "@/lib/estimate-calc";
 import { sellMaterialFromTargetMargin } from "@/lib/estimate-pricing";
-import { catalogUnitFactor, isAreaUnit, normalizeUnit } from "@/lib/units";
+import { catalogRateToBillingUnit, catalogUnitFactor, isAreaUnit, normalizeUnit } from "@/lib/units";
 import { isRollGoodCategory } from "@/lib/types";
 import {
   boxedCartonAreaTakeoffAllowed,
@@ -215,6 +215,8 @@ export function roleMaySeeCatalogMargin(role: UserRole | null | undefined): bool
 /**
  * Same unit conversion the estimate builder uses when a product is picked:
  * count units 1:1; carpet/sheet vinyl bill per sq yd (×9 from per-sq-ft cost).
+ * Catalog box rate onto an area line is $/coverage, not 1:1 — wrap / count How many stays 1:1.
+ * Do not invent coverage.
  */
 export function catalogToLineMeasure(product: {
   unit?: string | null;
@@ -239,7 +241,14 @@ export function catalogToLineMeasure(product: {
     : catUnit === "sqyd"
       ? "sqyd"
       : "sqft";
-  const factor = catalogUnitFactor(product.unit, measureUnit === "sqyd");
+  let factor = catalogUnitFactor(product.unit, measureUnit === "sqyd");
+  if (boxedArea) {
+    const cov = Number(product.sqft_per_box);
+    // Catalog box rate onto an area line is $/coverage, not 1:1.
+    // Wrap / count How many stays 1:1 (callers pass sqft_per_box null).
+    // Do not invent coverage — boxedArea already requires cov > 0.
+    factor = catalogUnitFactor("sqft", measureUnit === "sqyd") / cov;
+  }
   const lineUnit = count
     ? product.unit || ""
     : measureUnit === "sqyd"
@@ -248,12 +257,40 @@ export function catalogToLineMeasure(product: {
   return { count, measureUnit, factor, lineUnit };
 }
 
+/**
+ * Catalog per-unit rate in the line's billing unit.
+ * Count units 1:1. Boxed carton WITH coverage that takeoffs as area is $/coverage, not 1:1.
+ * Wrap / count How many stays 1:1 — omit sqft_per_box.
+ * Do not invent coverage.
+ */
+export function catalogRateInLineUnit(
+  rate: number,
+  product: {
+    unit?: string | null;
+    category?: string | null;
+    sqft_per_box?: number | string | null;
+  },
+  billingIsSqyd: boolean,
+): number {
+  const r = Number(rate) || 0;
+  const boxedArea = boxedCartonAreaTakeoffAllowed({
+    family: familyFromCatalogCategory(product.category ?? "other"),
+    productUnit: product.unit,
+    sqftPerBox: Number(product.sqft_per_box) > 0 ? Number(product.sqft_per_box) : null,
+  });
+  if (boxedArea) {
+    return Math.round(r * catalogToLineMeasure(product).factor * 100) / 100;
+  }
+  return catalogRateToBillingUnit(r, product.unit, billingIsSqyd);
+}
+
 /** Catalog unit cost converted into the estimate line's billing unit. */
 export function catalogCostInLineUnit(product: {
   unit?: string | null;
   category?: string | null;
   material_rate?: number | string | null;
   vendors?: ProductVendor[] | null;
+  sqft_per_box?: number | string | null;
 }): CatalogCost {
   const base = catalogUnitCost(product);
   if (base.missing || base.amount == null) return base;
@@ -268,7 +305,7 @@ export function catalogCostInLineUnit(product: {
  * wins when flagged. Missing catalog cost → both null (PRICE NEEDED).
  */
 export function catalogLineSnapshot(
-  product: CatalogSellInput & { unit?: string | null },
+  product: CatalogSellInput & { unit?: string | null; sqft_per_box?: number | string | null },
   opts: { targetMarginPct: number; freightMarkupPct: number },
 ): {
   lineUnit: string;

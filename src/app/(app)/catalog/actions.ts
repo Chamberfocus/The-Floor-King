@@ -16,7 +16,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { searchCatalog } from "@/lib/data/products";
-import { redactCatalogCost, roleMaySeeCatalogSell, hydrateCatalogPricing, type CatalogPricePurpose } from "@/lib/catalog-pricing";
+import { catalogToLineMeasure, redactCatalogCost, roleMaySeeCatalogSell, hydrateCatalogPricing, type CatalogPricePurpose } from "@/lib/catalog-pricing";
+import { boxedCartonAreaTakeoffAllowed, familyFromCatalogCategory } from "@/lib/flooring-knowledge";
 import { getProfile } from "@/lib/auth";
 import { catalogUnitFactor, pickedProductUnit } from "@/lib/units";
 import type { Product, ProductCategory } from "@/lib/types";
@@ -355,6 +356,8 @@ export async function saveProductRate(input: {
   materialCost: number | string;
   laborCost: number | string;
   measureUnit: "sqft" | "sqyd";
+  /** Wrap / count How many stays 1:1 — catalog box rate onto an area line is $/coverage, not 1:1. */
+  count?: boolean;
 }): Promise<{ error: string | null }> {
   if (!input.productId) return { error: "Missing product." };
   let actor: string | null = null;
@@ -371,7 +374,7 @@ export async function saveProductRate(input: {
   }
   const { data: p } = await admin
     .from("products")
-    .select("unit, material_rate")
+    .select("unit, material_rate, category, sqft_per_box")
     .eq("id", input.productId)
     .maybeSingle();
   if (!p) return { error: "Product not found." };
@@ -383,9 +386,24 @@ export async function saveProductRate(input: {
   const r2 = (n: number) => Math.round(n * 100) / 100;
   // Convert using the line's printed billing unit, not leftover measure_unit.
   // Count catalog units stay 1:1. SY catalog vs sq-yd line is 1, not ÷9.
-  const factor = catalogUnitFactor(p.unit as string, input.measureUnit === "sqyd");
-  const material_rate = r2(num(input.materialCost) / factor);
-  const labor_rate = r2(num(input.laborCost) / factor);
+  // Catalog box rate onto an area line is $/coverage, not 1:1.
+  // Wrap / count How many stays 1:1. Do not invent coverage.
+  const boxedArea = boxedCartonAreaTakeoffAllowed({
+    family: familyFromCatalogCategory((p.category as string) ?? "other"),
+    productUnit: p.unit as string,
+    sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
+  });
+  const countFactor = catalogUnitFactor(p.unit as string, input.measureUnit === "sqyd");
+  const materialFactor =
+    input.count || !boxedArea
+      ? countFactor
+      : catalogToLineMeasure({
+          unit: p.unit as string,
+          category: p.category as string,
+          sqft_per_box: p.sqft_per_box,
+        }).factor;
+  const material_rate = r2(num(input.materialCost) / materialFactor);
+  const labor_rate = r2(num(input.laborCost) / countFactor);
 
   const { error } = await admin
     .from("products")

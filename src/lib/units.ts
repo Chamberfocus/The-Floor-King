@@ -200,6 +200,9 @@ export function rollReceiveUnit(raw: string | null | undefined): "sqyd" | "lnft"
  *
  * Catalog SY is yards — never a 9× surprise just because the letters "yd"
  * are missing. Count units (each / box / lnft / roll) stay 1:1.
+ * Boxed carton WITH coverage that takeoffs as area is $/coverage in
+ * catalogToLineMeasure — not this helper, and not 1:1. Wrap / count How many
+ * stays 1:1. Do not invent coverage.
  *
  * The billing unit is the printed line unit (`lineUnitKey`), not leftover
  * `measure_unit`. Count lines and leftover "sqft" on a sq-yd carpet line

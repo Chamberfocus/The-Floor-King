@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, pickedProductUnit, unitLabel } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
-import { catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
+import { catalogRateInLineUnit, catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -169,8 +169,27 @@ function billing(args: { category: string; key?: string | null; productUnit?: st
   const wantYd = areaBillsBySquareYard(args);
   return { wantYd, measureUnit: wantYd ? ("sqyd" as const) : ("sqft" as const), unitLabel: wantYd ? "sq yd" : "sq ft" };
 }
-/** Convert a catalog product's per-unit rate to the line's billing unit. */
-function rateFor(rate: number, productUnit: string | null, wantYd: boolean): number {
+/** Convert a catalog product's per-unit rate to the line's billing unit.
+ * Catalog box rate onto an area line is $/coverage, not 1:1.
+ * Wrap / count How many stays 1:1 — omit boxedProduct.
+ * Do not invent coverage. */
+function rateFor(
+  rate: number,
+  productUnit: string | null,
+  wantYd: boolean,
+  boxedProduct?: { category?: string | null; sqft_per_box?: number | string | null } | null,
+): number {
+  if (boxedProduct) {
+    return catalogRateInLineUnit(
+      rate,
+      {
+        unit: productUnit,
+        category: boxedProduct.category,
+        sqft_per_box: boxedProduct.sqft_per_box,
+      },
+      wantYd,
+    );
+  }
   return catalogRateToBillingUnit(rate, productUnit, wantYd);
 }
 // --- Answer shapes ---------------------------------------------------------
@@ -1096,9 +1115,17 @@ export function Questionnaire({
               length_in: isRollGoodCategory(cat) ? null : rm.lenIn,
               width_in: isRollGoodCategory(cat) ? null : rm.widIn,
               unit: b.unitLabel,
-              material_rate: sellMat(rateFor(p.materialRate, p.unit, b.wantYd)),
+              material_rate: sellMat(
+                rateFor(p.materialRate, p.unit, b.wantYd, {
+                  category: cat,
+                  sqft_per_box: spb > 0 ? spb : null,
+                }),
+              ),
               labor_rate: 0,
-              material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
+              material_cost: rateFor(p.materialRate, p.unit, b.wantYd, {
+                category: cat,
+                sqft_per_box: spb > 0 ? spb : null,
+              }),
               labor_cost: 0,
               waste_pct: waste,
               product_id: p.productId || null,
@@ -1280,9 +1307,17 @@ export function Questionnaire({
           width_in: measurements?.[0]?.width_in ?? (roll ? null : size?.widIn ?? null),
           measurements,
           unit: pb.unitLabel,
-          material_rate: sellMat(rateFor(p.materialRate, p.unit, pb.wantYd)),
+          material_rate: sellMat(
+            rateFor(p.materialRate, p.unit, pb.wantYd, {
+              category: p.category || cat,
+              sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+            }),
+          ),
           labor_rate: 0,
-          material_cost: rateFor(p.materialRate, p.unit, pb.wantYd),
+          material_cost: rateFor(p.materialRate, p.unit, pb.wantYd, {
+            category: p.category || cat,
+            sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+          }),
           labor_cost: 0,
           waste_pct: wasteOf(p),
           product_id: p.productId || null,
@@ -1674,9 +1709,17 @@ export function Questionnaire({
                 width_in: null,
                 measurements: null,
                 unit: "sq yd",
-                material_rate: sellMat(rateFor(p.materialRate, p.unit, true)),
+                material_rate: sellMat(
+                  rateFor(p.materialRate, p.unit, true, {
+                    category: p.category || "carpet",
+                    sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                  }),
+                ),
                 labor_rate: 0,
-                material_cost: rateFor(p.materialRate, p.unit, true),
+                material_cost: rateFor(p.materialRate, p.unit, true, {
+                  category: p.category || "carpet",
+                  sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                }),
                 labor_cost: 0,
                 waste_pct: waste,
                 product_id: p.productId || null,
@@ -3878,7 +3921,7 @@ function QuestionBody({
                 <div className="mt-1.5 text-xs text-muted-foreground">
                   {p.label} ·{" "}
                   {p.materialRate > 0
-                    ? `sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/${b.unitLabel}`
+                    ? `sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd, { category: p.category, sqft_per_box: p.sqftPerBox })))}/${b.unitLabel}`
                     : PRICE_NEEDED}
                   {q.config.ask_source ? (
                     <span className="mt-1.5 block">
@@ -4376,7 +4419,7 @@ function QuestionBody({
               <div className="font-medium">{p.label}</div>
               <div className="text-xs text-muted-foreground">
                 {p.materialRate > 0
-                  ? `${formatMoney(p.materialRate)}/${p.unit} → sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/${b.unitLabel}`
+                  ? `${formatMoney(p.materialRate)}/${p.unit} → sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd, { category: p.category, sqft_per_box: p.sqftPerBox })))}/${b.unitLabel}`
                   : PRICE_NEEDED}
                 {mainAsksCount
                   ? ""

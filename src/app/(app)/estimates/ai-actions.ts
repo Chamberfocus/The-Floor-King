@@ -10,6 +10,7 @@ import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getOrgSettings } from "@/lib/data/org";
 import { getRoomDefaults, getAddonDefaults } from "@/lib/data/addon-defaults";
 import { catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit } from "@/lib/units";
+import { catalogRateInLineUnit } from "@/lib/catalog-pricing";
 import {
   sellLaborFromTargetMargin,
   sellMaterialFromTargetMargin,
@@ -37,9 +38,27 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * Convert a catalog product's per-unit rate to a line's billing unit. Carpet &
  * pad bill per sq yd; hard surface bills per sq ft. Catalog products are stored
  * in EITHER unit, so a sq-ft rate on a sq-yd line must be ×9 (and vice-versa
- * ÷9). Mirrors the guided builder's pickProduct/pickPad conversion.
+ * ÷9). Catalog box rate onto an area line is $/coverage, not 1:1.
+ * Wrap / count How many stays 1:1 — omit boxedProduct.
+ * Do not invent coverage.
  */
-function rateFor(rate: number, productUnit: string | null, wantYd: boolean): number {
+function rateFor(
+  rate: number,
+  productUnit: string | null,
+  wantYd: boolean,
+  boxedProduct?: { category?: string | null; sqft_per_box?: number | string | null } | null,
+): number {
+  if (boxedProduct) {
+    return catalogRateInLineUnit(
+      rate,
+      {
+        unit: productUnit,
+        category: boxedProduct.category,
+        sqft_per_box: boxedProduct.sqft_per_box,
+      },
+      wantYd,
+    );
+  }
   return catalogRateToBillingUnit(rate, productUnit, wantYd);
 }
 
@@ -169,7 +188,11 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
           productUnit = match.unit;
           const cov = Number(match.sqft_per_box);
           sqftPerBox = Number.isFinite(cov) && cov > 0 ? cov : null;
-          if (!cost) cost = rateFor(Number(match.material_rate) || 0, match.unit, isYd);
+          if (!cost)
+            cost = rateFor(Number(match.material_rate) || 0, match.unit, isYd, {
+              category: match.category,
+              sqft_per_box: sqftPerBox,
+            });
           laborRate = rateFor(Number(match.labor_rate) || 0, match.unit, isYd);
           manufacturer = match.manufacturer;
           style = match.style;

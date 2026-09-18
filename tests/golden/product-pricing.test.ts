@@ -8,6 +8,7 @@ import {
   catalogSellPrice,
   catalogToLineMeasure,
   catalogUnitCost,
+  catalogRateInLineUnit,
   formatCatalogPrice,
   hydrateCatalogPricing,
   redactCatalogCost,
@@ -210,9 +211,14 @@ describe("unit conversion does not corrupt price", () => {
     const conv = catalogToLineMeasure(p);
     expect(conv.count).toBe(false);
     expect(conv.lineUnit).toBe("sq ft");
-    expect(conv.factor).toBe(1);
+    expect(conv.factor).toBeCloseTo(1 / 23.64, 10);
+    expect(catalogCostInLineUnit(p).amount).toBe(cents(45.62 / 23.64));
+    expect(catalogRateInLineUnit(45.62, p, false)).toBe(cents(45.62 / 23.64));
     expect(catalogToLineMeasure({ ...p, sqft_per_box: null }).count).toBe(true);
+    expect(catalogToLineMeasure({ ...p, sqft_per_box: null }).factor).toBe(1);
+    expect(catalogRateInLineUnit(45.62, { ...p, sqft_per_box: null }, false)).toBe(45.62);
     expect(catalogToLineMeasure({ ...p, category: "other" }).count).toBe(true);
+    expect(catalogToLineMeasure({ ...p, category: "other" }).factor).toBe(1);
   });
 });
 
