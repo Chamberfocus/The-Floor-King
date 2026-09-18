@@ -303,6 +303,12 @@ export function parseCoverage(
  * Goods that come off a roll and are sold by the SQUARE YARD: carpet, sheet
  * vinyl, and carpet pad.
  *
+ * Catalog category `underlayment` stays on this list because carpet pad is
+ * yards. Laminate / LVP foam shares that category but bills by the square
+ * foot. Guided Estimate must call `areaBillsBySquareYard` (question key +
+ * product unit) so foam is not converted to yards. Do not drop underlayment
+ * from this list to "fix" foam — pad would then plant square feet.
+ *
  * This one list is the rule. It was written out three times and one copy
  * disagreed: the questionnaire billed sheet vinyl per square yard (correct — 149
  * of the 151 sheet-vinyl products in the catalog are priced that way), while

@@ -140,6 +140,8 @@ export {
   enteredCutWidthFt,
   cutWidthChoicesFt,
   billingUnitForCategory,
+  areaBillsBySquareYard,
+  billingUnitForArea,
   rollGoodsHaveCuts,
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,

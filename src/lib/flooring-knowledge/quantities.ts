@@ -16,7 +16,7 @@
  * `carpet` — we do not invent a carpet-tile category.
  */
 
-import { billsBySquareYard, isAreaUnit, normalizeUnit, unitLabel } from "@/lib/units";
+import { billsBySquareYard, isAreaUnit, normalizeUnit, unitIsSqyd, unitLabel } from "@/lib/units";
 import {
   billsBySqydFamily,
   defaultWastePctForFamily,
@@ -703,9 +703,43 @@ export function cutWidthChoicesFt(opts: {
 /**
  * Billing unit for a catalog category — delegates to units.ts so sheet vinyl
  * cannot drift back to square feet.
+ *
+ * Underlayment is mixed (pad yards, foam feet). Prefer `areaBillsBySquareYard`
+ * when the question key or SKU unit is known. Do not drop underlayment from
+ * SQYD_CATEGORIES to "fix" foam — that would plant square feet on carpet pad.
  */
 export function billingUnitForCategory(category: string | null | undefined): "sqft" | "sqyd" {
   return billsBySquareYard(category) ? "sqyd" : "sqft";
+}
+
+/**
+ * Whether this line bills taped area in square yards.
+ *
+ * Product area unit wins when the SKU actually stores sq yd or sq ft.
+ * `hs_underlayment` (laminate / LVP foam) is square feet unless the SKU is yards.
+ * `carpet_pad` is square yards unless the SKU is feet.
+ * Unkeyed underlayment still follows SQYD_CATEGORIES (pad yards) — do not
+ * invent a 30-yard foam roll, and do not guess mixed-job unkeyed SKUs.
+ */
+export function areaBillsBySquareYard(args: {
+  category?: string | null;
+  key?: string | null;
+  productUnit?: string | null;
+}): boolean {
+  if (unitIsSqyd(args.productUnit)) return true;
+  if (normalizeUnit(args.productUnit) === "sqft") return false;
+  const key = (args.key ?? "").trim();
+  if (key === "hs_underlayment") return false;
+  if (key === "carpet_pad") return true;
+  return billsBySquareYard(args.category);
+}
+
+export function billingUnitForArea(args: {
+  category?: string | null;
+  key?: string | null;
+  productUnit?: string | null;
+}): "sqft" | "sqyd" {
+  return areaBillsBySquareYard(args) ? "sqyd" : "sqft";
 }
 
 export { r2 as round2 };

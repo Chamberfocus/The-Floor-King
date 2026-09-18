@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { billsBySquareYard, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, pickedProductUnit, unitLabel } from "@/lib/units";
+import { catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, pickedProductUnit, unitLabel } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
@@ -80,6 +80,7 @@ import {
   rollGoodsNeedCuts,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
+  areaBillsBySquareYard,
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
   measuredInstallLaborAllowed,
@@ -145,11 +146,11 @@ const numv = (v: string) => {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 // Which categories bill by the square yard is decided in ONE place now
-// (src/lib/units.ts). This file used to carry its own copy of the list, and the
-// copy in units.ts disagreed about sheet vinyl — so the questionnaire priced it
-// per square yard while the catalog created it per square foot.
-function billing(category: string) {
-  const wantYd = billsBySquareYard(category);
+// (src/lib/units.ts). Underlayment is mixed — pad yards, foam feet — so
+// Guided Estimate asks areaBillsBySquareYard (question key + SKU unit)
+// instead of treating every pad/foam SKU as square yards.
+function billing(args: { category: string; key?: string | null; productUnit?: string | null }) {
+  const wantYd = areaBillsBySquareYard(args);
   return { wantYd, measureUnit: wantYd ? ("sqyd" as const) : ("sqft" as const), unitLabel: wantYd ? "sq yd" : "sq ft" };
 }
 /** Convert a catalog product's per-unit rate to the line's billing unit. */
@@ -1038,7 +1039,7 @@ export function Questionnaire({
           // material line. Do not also bill a second roll-goods line from cuts.
           const cutSf = isRollGoodsFamily(rollFam) ? (cutsSqftByCategory[rollFam] ?? 0) : 0;
           if (rollGoodsHaveCuts(rollFam, cutSf, carpetSystems)) return;
-          const b = billing(cat);
+          const b = billing({ category: cat, productUnit: p.unit });
           const defWaste = profileFor(cat)?.waste ?? 0;
           const requested = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
           const waste = materialWastePctForEmit({
@@ -1138,7 +1139,7 @@ export function Questionnaire({
         }
       } else if (q.kind === "product" && a.kind === "product") {
         const cat = q.config.category || "other";
-        const b = billing(cat);
+        const b = billing({ category: cat, key: q.key });
         // Editable waste per product (falls back to the category default).
         // Flooring is AREA-billed: the builder prices measured area ×
         // material_cost × (1 + waste_pct/100) and IGNORES the stored quantity,
@@ -1169,6 +1170,11 @@ export function Questionnaire({
           // Roll-goods warehouse cuts come from the cuts editor only.
           // Room L×W is measured area, not a fabricated cut off a 12' roll.
           const roll = isRollGoodCategory(cat);
+          const pb = billing({
+            category: p.category || cat,
+            key: q.key,
+            productUnit: p.unit,
+          });
           let measurements: SmartLine["measurements"] = null;
           if (roll) {
             const pieces = (size?.cuts ?? []).filter((c) => c.lenIn > 0 && c.widIn > 0);
@@ -1185,7 +1191,7 @@ export function Questionnaire({
           room: size?.room ?? null,
           description: p.label || cat,
           category: cat,
-          measure_unit: b.measureUnit,
+          measure_unit: pb.measureUnit,
           sqft: size?.sqft ?? null, // the measurement, carried for confirmation
           // Raw measured area in the billing unit (no waste, no box snap) — the
           // waste is applied via waste_pct so area pricing charges it.
@@ -1193,7 +1199,7 @@ export function Questionnaire({
           quantity: areaDerivedMaterialQty({
             family: familyFromCatalogCategory(p.category || cat),
             measuredSqft: size?.sqft ?? 0,
-            billingUnit: billing(p.category || cat).wantYd ? "sqyd" : "sqft",
+            billingUnit: pb.wantYd ? "sqyd" : "sqft",
             productUnit: p.unit,
             carpetInstallSystems: carpetSystems,
           }) ?? 0,
@@ -1202,10 +1208,10 @@ export function Questionnaire({
           length_in: measurements?.[0]?.length_in ?? (roll ? null : size?.lenIn ?? null),
           width_in: measurements?.[0]?.width_in ?? (roll ? null : size?.widIn ?? null),
           measurements,
-          unit: b.unitLabel,
-          material_rate: sellMat(rateFor(p.materialRate, p.unit, b.wantYd)),
+          unit: pb.unitLabel,
+          material_rate: sellMat(rateFor(p.materialRate, p.unit, pb.wantYd)),
           labor_rate: 0,
-          material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
+          material_cost: rateFor(p.materialRate, p.unit, pb.wantYd),
           labor_cost: 0,
           waste_pct: wasteOf(p),
           product_id: p.productId || null,
@@ -3368,7 +3374,7 @@ function QuestionBody({
           const key = roomKey(rm.name, i);
           const p = byRoom[key] ?? null;
           const cat = p?.category || "other";
-          const b = billing(cat);
+          const b = billing({ category: cat, productUnit: p?.unit });
           return (
             <div key={key} className="rounded-lg border p-3">
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
@@ -3814,8 +3820,9 @@ function QuestionBody({
       (q.config.category === "lvp" && familyCat && familyCat !== "other" ? familyCat : null) ||
       q.config.category ||
       "other";
-    const b = billing(cat);
-    const kindLabel = cat === "underlayment" ? "padding" : cat;
+    const b = billing({ category: cat, key: q.key, productUnit: p?.unit });
+    const kindLabel =
+      q.key === "hs_underlayment" ? "underlayment" : cat === "underlayment" ? "padding" : cat;
     // Waste + carton entry is for the flooring itself (not pad / trim / other).
     const isFlooring = ["carpet", "lvp", "vinyl", "laminate", "hardwood", "tile"].includes(cat);
     const family = familyFromCatalogCategory(cat);
@@ -3998,7 +4005,13 @@ function QuestionBody({
                     <span className="text-xs text-muted-foreground tabular-nums">
                       {formatMeasuredLabel(
                         { sqft: numv(ex.sqft), sqydEquivalent: r2(numv(ex.sqft) / 9) },
-                        { showEquivalentYd: b.wantYd },
+                        {
+                          showEquivalentYd: billing({
+                            category: cat,
+                            key: q.key,
+                            productUnit: ex.product.unit,
+                          }).wantYd,
+                        },
                       )}
                     </span>
                   ) : null}

@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { companionQty, defaultWastePct, profileFor } from "@/lib/flooring-profiles";
-import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText } from "@/lib/job-scope";
+import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText, padRollCount } from "@/lib/job-scope";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import { selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { cutLabel, cutSqYd } from "@/lib/order-cuts";
@@ -137,6 +137,9 @@ import {
   rollGoodsHaveCuts,
   rollGoodsNeedCuts,
   carpetInstallSystemsFromLabels,
+  areaBillsBySquareYard,
+  billingUnitForArea,
+  billingUnitForCategory,
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
   measuredInstallLaborAllowed,
@@ -149,7 +152,7 @@ import {
   mergeReviewWarnings,
   emptyInstallContext,
 } from "@/lib/flooring-knowledge";
-import { billsBySquareYard, defaultUnitForCategory, pickedProductUnit, rollReceiveUnit } from "@/lib/units";
+import { billsBySquareYard, defaultUnitForCategory, pickedProductUnit, rollReceiveUnit, SQYD_CATEGORIES } from "@/lib/units";
 import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import type { ShowIfClause } from "@/lib/types";
@@ -7000,6 +7003,107 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
       /Unkeyed extra underlayment on a mixed job stays 0/,
     );
+  });
+
+  it("0278 hard-surface foam bills square feet, not pad yards", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0278_flooring_knowledge_underlayment_units.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0278_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/hs_underlayment is not converted to yards/);
+    expect(sql).toMatch(/Do not invent a 30-yard foam roll/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_pad on surface_type/);
+    expect(sql).toMatch(/Do NOT drop underlayment from SQYD_CATEGORIES/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*carpet_pad|carpet_pad.*show_if.*surface_type/,
+    );
+
+    expect([...SQYD_CATEGORIES]).toEqual(["carpet", "vinyl", "underlayment"]);
+    expect(billsBySquareYard("underlayment")).toBe(true);
+    expect(billingUnitForCategory("underlayment")).toBe("sqyd");
+
+    expect(areaBillsBySquareYard({ category: "underlayment", key: "hs_underlayment" })).toBe(false);
+    expect(areaBillsBySquareYard({ category: "underlayment", key: "carpet_pad" })).toBe(true);
+    expect(areaBillsBySquareYard({ category: "underlayment" })).toBe(true);
+    expect(areaBillsBySquareYard({ category: "lvp" })).toBe(false);
+    expect(areaBillsBySquareYard({ category: "carpet" })).toBe(true);
+    expect(
+      areaBillsBySquareYard({
+        category: "underlayment",
+        key: "hs_underlayment",
+        productUnit: "sqyd",
+      }),
+    ).toBe(true);
+    expect(
+      areaBillsBySquareYard({
+        category: "underlayment",
+        key: "carpet_pad",
+        productUnit: "sqft",
+      }),
+    ).toBe(false);
+    expect(
+      areaBillsBySquareYard({
+        category: "underlayment",
+        key: "hs_underlayment",
+        productUnit: "SY",
+      }),
+    ).toBe(true);
+    expect(billingUnitForArea({ category: "underlayment", key: "hs_underlayment" })).toBe("sqft");
+    expect(billingUnitForArea({ category: "underlayment", key: "carpet_pad" })).toBe("sqyd");
+
+    expect(
+      areaDerivedMaterialQty({
+        family: "other",
+        measuredSqft: 270,
+        billingUnit: billingUnitForArea({
+          category: "underlayment",
+          key: "hs_underlayment",
+          productUnit: "sqft",
+        }),
+        productUnit: "sqft",
+      }),
+    ).toBe(270);
+    expect(
+      areaDerivedMaterialQty({
+        family: "other",
+        measuredSqft: 270,
+        billingUnit: billingUnitForArea({
+          category: "underlayment",
+          key: "carpet_pad",
+          productUnit: "sqyd",
+        }),
+        productUnit: "sqyd",
+      }),
+    ).toBe(30);
+
+    expect(padRollCount("underlayment", 270, "sqft")).toBe(0);
+    expect(padRollCount("underlayment", 30, "sqyd")).toBe(1);
+
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Billed in square yards unless the SKU itself is sold by the square foot/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Do not invent a 30-yard foam roll/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /Billed in square feet unless the SKU itself is sold by the square yard/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /this question is foam/,
+    );
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/areaBillsBySquareYard/);
+    expect(q).not.toMatch(/function billing\(category: string\)/);
+    expect(q).toMatch(/q\.key === "hs_underlayment"/);
+    expect(q).toMatch(/key: q\.key/);
+
+    const units = readFileSync(join(root, "src/lib/units.ts"), "utf8");
+    expect(units).toMatch(/areaBillsBySquareYard/);
+    expect(units).toMatch(/SQYD_CATEGORIES = \["carpet", "vinyl", "underlayment"\]/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

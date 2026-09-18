@@ -917,7 +917,7 @@ export function knowledgeHelpFor(
     return "Floating LVP / laminate / engineered may have an attached pad. Solid hardwood hides this — floating is not a permitted system. Glue-down hides this. Exclusive laminate leftover Glue-down still asks this. Exclusive tile leftover Floating hides this. Yes hides separate underlayment.";
   }
   if (key === "hs_underlayment") {
-    return "Separate underlayment for a floating floor. Attached pad Yes hides this. Solid hardwood hides this. Glue-down hides this. Exclusive laminate leftover Glue-down still asks this. Exclusive tile leftover Floating hides this. Quantity follows hard-surface rooms on a mixed job — carpet pad is the padding step, not this foam. Unkeyed extra underlayment on a mixed job stays 0 rather than cloning carpet sq ft. Do not invent a roll count.";
+    return "Separate underlayment for a floating floor. Attached pad Yes hides this. Solid hardwood hides this. Glue-down hides this. Exclusive laminate leftover Glue-down still asks this. Exclusive tile leftover Floating hides this. Quantity follows hard-surface rooms on a mixed job — carpet pad is the padding step, not this foam. Unkeyed extra underlayment on a mixed job stays 0 rather than cloning carpet sq ft. Billed in square feet unless the SKU itself is sold by the square yard. Catalog category underlayment is still pad yards — this question is foam. Do not invent a 30-yard roll.";
   }
   if (key === "selflevel_needed") {
     return "Bag count uses Settings coverage at the chosen pour. Pour is the shop default, else the coverage reference — we do not invent 1/4 inch. Field verify withholds bags.";
@@ -950,7 +950,7 @@ export function knowledgeHelpFor(
     return "Light / medium / heavy uses Floor King's furniture-moving labor. Vacant jobs hide this. Exclusive wall tile hides this too — a backsplash is not a furniture-moving job. Specialty items (piano, pool table) stay on the next question as scope.";
   }
   if (key === "carpet_pad") {
-    return "Stretch-in over pad is the residential default. Glue-down and carpet tile hide this — they do not use residential pad. Quantity follows carpet rooms on a mixed job — laminate foam is the underlayment step, not this pad. A pad SKU with no sold-by unit is TBD in Builder (How many / Unit TBD), not taped square feet.";
+    return "Stretch-in over pad is the residential default. Glue-down and carpet tile hide this — they do not use residential pad. Quantity follows carpet rooms on a mixed job — laminate foam is the underlayment step, not this pad. Billed in square yards unless the SKU itself is sold by the square foot. A pad SKU with no sold-by unit is TBD in Builder (How many / Unit TBD), not taped square feet. Do not invent a 30-yard foam roll.";
   }
   if (key === "toilets") {
     return "Count in EACH. Uses Floor King's pull & reset labor when you enter a number — do not type square feet. New construction hides this — there is no toilet to pull. Appliances still ask.";

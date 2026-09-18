@@ -138,6 +138,7 @@ const REQUIRED_FILES = [
   "0275_flooring_knowledge_glue_wood_vapor.sql",
   "0276_flooring_knowledge_glue_wood_aqua.sql",
   "0277_flooring_knowledge_underlayment_cover.sql",
+  "0278_flooring_knowledge_underlayment_units.sql",
 ];
 
 /**
@@ -1699,6 +1700,18 @@ const REQUIRED_MARKERS = [
       "P0_0277_FLOORING_KNOWLEDGE",
       "cloning pad onto LVP",
       "Do NOT SQL-gate carpet_pad on surface_type",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0278_flooring_knowledge_underlayment_units.sql",
+    markers: [
+      "P0_0278_FLOORING_KNOWLEDGE",
+      "hs_underlayment is not converted to yards",
+      "Do not invent a 30-yard foam roll",
+      "Do NOT SQL-gate carpet_pad on surface_type",
+      "Do NOT drop underlayment from SQYD_CATEGORIES",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
