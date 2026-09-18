@@ -3,7 +3,7 @@ import {
   isHardSurfaceCategory,
   type EstimateLineItem,
 } from "@/lib/types";
-import { hardSurfaceAreaCartonCount, lineQty, lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
+import { hardSurfaceAreaCartonCount, lineQty, lineOrderQty, lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
 import { billedQtyToSqyd, lineDisplayUnit, lineUnitKey } from "@/lib/units";
 
 // Carpet padding is bought by the roll; the shop's standard roll covers this
@@ -73,6 +73,8 @@ export function lineSpec(l: {
   sqft_per_box?: number | string | null;
   roll_width_ft?: number | string | null;
   order_as_roll?: boolean | null;
+  waste_pct?: number | string | null;
+  line_type?: string | null;
   measurements?: {
     length_in?: number | string | null;
     width_in?: number | string | null;
@@ -111,9 +113,12 @@ export function lineSpec(l: {
       ? `${ftIn(l.width_in)} × ${ftIn(l.length_in)}`
       : "";
   const rolls = padRollCount(l.category, q, unitKey);
+  const orderQ = lineOrderQty(l as unknown as CalcLine);
   // Exclusive carpet-tile job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
   // Hard-surface job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
-  const cartons = hardSurfaceAreaCartonCount(l, q || Number(l.sqft) || 0);
+  // Exclusive carpet-tile job scope order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface job scope order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const cartons = hardSurfaceAreaCartonCount(l, orderQ || Number(l.sqft) || 0);
   return { qty, qtyNum: q, unit, cut, rolls, cartons, isFill: isRoll && !!l.is_fill };
 }
 
