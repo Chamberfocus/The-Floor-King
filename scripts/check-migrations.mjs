@@ -156,6 +156,7 @@ const REQUIRED_FILES = [
   "0293_flooring_knowledge_dead_stair_followups.sql",
   "0294_flooring_knowledge_pad_takeoff.sql",
   "0295_flooring_knowledge_existing_floor_aqua.sql",
+  "0296_flooring_knowledge_new_build_furniture.sql",
 ];
 
 /**
@@ -1913,6 +1914,16 @@ const REQUIRED_MARKERS = [
       "P0_0295_FLOORING_KNOWLEDGE",
       "not an existing-floor primer",
       "Do NOT SQL-gate moisture_mitigation on substrate",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0296_flooring_knowledge_new_build_furniture.sql",
+    markers: [
+      "P0_0296_FLOORING_KNOWLEDGE",
+      "no furniture to move",
+      "Do NOT SQL-gate furniture on work_type",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

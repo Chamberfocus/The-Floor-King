@@ -632,8 +632,10 @@ export const TILE_WALL_HIDES_KEYS = [
 /**
  * Furniture moving is for occupied floor jobs. Vacant hides these. Exclusive
  * wall tile hides them too (a backsplash is not a furniture-moving job).
- * Unanswered and Unknown stay open (0142). Do not SQL-gate furniture on
- * occupancy or tile_application.
+ * Exclusive new construction hides them — a new slab has no furniture to
+ * move. Mixed Replacement + New construction stays open. Unanswered and
+ * Unknown stay open (0142). Do not SQL-gate furniture on occupancy,
+ * tile_application, or work_type.
  */
 export const FURNITURE_MOVING_KEYS = ["furniture_level", "furniture_heavy"] as const;
 

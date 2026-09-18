@@ -128,6 +128,8 @@ import {
   vaporBarrierHidesUnderlaymentOptionLabel,
   FURNITURE_MOVING_KEYS,
   jobIsVacant,
+  jobIsNewConstruction,
+  jobIsExclusiveNewConstruction,
   NEW_CONSTRUCTION_HIDES_KEYS,
   REMOVAL_QUESTION_KEYS,
   KNOWLEDGE_QUESTIONS,
@@ -9143,6 +9145,96 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(walkNail).not.toContain("moisture_mitigation");
     expect(walkNail).toContain("moisture_test");
+  });
+
+  it("0296 exclusive new construction hides furniture moving", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0296_flooring_knowledge_new_build_furniture.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0296_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/no furniture to move/);
+    expect(sql).toMatch(/Do NOT SQL-gate furniture on work_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*work_type.*furniture|furniture.*show_if.*work_type/);
+
+    expect([...FURNITURE_MOVING_KEYS]).toEqual(["furniture_level", "furniture_heavy"]);
+    expect(jobIsExclusiveNewConstruction({})).toBe(false);
+    expect(jobIsExclusiveNewConstruction({ work_type: ["New construction"] })).toBe(true);
+    expect(
+      jobIsExclusiveNewConstruction({
+        work_type: ["New construction", "Replacement (tear-out)"],
+      }),
+    ).toBe(false);
+    expect(jobIsNewConstruction({ work_type: ["New construction", "Replacement (tear-out)"] })).toBe(
+      true,
+    );
+
+    const neu = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      work_type: ["New construction"],
+    });
+    expect(neu).not.toContain("furniture_level");
+    expect(neu).not.toContain("furniture_heavy");
+    expect(neu).toContain("occupancy");
+    expect(neu).toContain("appliances");
+    expect(neu).toContain("doors_shave");
+    expect(neu).not.toContain("toilets");
+
+    const occupiedNew = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      work_type: ["New construction"],
+      occupancy: ["Occupied"],
+    });
+    expect(occupiedNew).not.toContain("furniture_level");
+    expect(occupiedNew).not.toContain("furniture_heavy");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      work_type: ["New construction", "Replacement (tear-out)"],
+    });
+    expect(mixed).toContain("furniture_level");
+    expect(mixed).toContain("furniture_heavy");
+
+    const unanswered = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(unanswered).toContain("furniture_level");
+    expect(unanswered).toContain("work_type");
+
+    const replacement = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      work_type: ["Replacement (tear-out)"],
+      occupancy: ["Occupied"],
+    });
+    expect(replacement).toContain("furniture_level");
+    expect(replacement).toContain("furniture_heavy");
+
+    expect(knowledgeHelpFor({ key: "furniture_level" }, emptyInstallContext())).toMatch(
+      /Exclusive new construction hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "furniture_heavy" }, emptyInstallContext())).toMatch(
+      /Exclusive new construction hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(
+      /furniture moving/,
+    );
+
+    const walkNew = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      work_type: ["New construction"],
+    });
+    expect(walkNew).not.toContain("furniture_level");
+    expect(walkNew).not.toContain("furniture_heavy");
+    expect(walkNew).toContain("appliances");
   });
 
   it("pattern repeat only after pattern match is required", () => {

@@ -304,6 +304,21 @@ export function jobIsNewConstruction(valByKey: Record<string, string[]>): boolea
   return labelsAreNewConstruction(valByKey.work_type ?? []);
 }
 
+/**
+ * Every work-type pick is New construction. Mixed Replacement + New
+ * construction stays open — the replacement rooms still have furniture.
+ * Unanswered stays open (0142).
+ */
+export function labelsAreNewConstructionOnly(labels: string[]): boolean {
+  const cleaned = labels.map((l) => l.trim()).filter(Boolean);
+  if (!cleaned.length) return false;
+  return cleaned.every((l) => /^new construction$/i.test(l));
+}
+
+export function jobIsExclusiveNewConstruction(valByKey: Record<string, string[]>): boolean {
+  return labelsAreNewConstructionOnly(valByKey.work_type ?? []);
+}
+
 /** Exclusive Wall — Floor / Both / Unknown / unanswered are not wall-only. */
 export function labelsAreWallOnly(labels: string[]): boolean {
   const cleaned = labels.map((l) => l.trim()).filter(Boolean);

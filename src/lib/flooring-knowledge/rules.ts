@@ -36,6 +36,7 @@ import {
 import { matchesShowIf } from "./show-if";
 import {
   jobIsNewConstruction,
+  jobIsExclusiveNewConstruction,
   jobIsVacant,
   labelsAreNewConstruction,
   labelsAreWallOnly,
@@ -554,7 +555,7 @@ export function questionApplies(
   if (
     q.key &&
     (FURNITURE_MOVING_KEYS as readonly string[]).includes(q.key) &&
-    (jobIsVacant(valByKey) || jobIsExclusiveWallTile(install))
+    (jobIsVacant(valByKey) || jobIsExclusiveWallTile(install) || jobIsExclusiveNewConstruction(valByKey))
   ) {
     return false;
   }
@@ -1114,7 +1115,7 @@ export function knowledgeHelpFor(
     return "Municipal bulk pickup day so the old floor is at the curb on time. New construction hides this. Haul-away / dumpster hides this. Unanswered disposal stays open in overlay. Leftover Placed-on-the-curb yes-no is not this question — Placed at curb on demo_disposal is. Do not invent a disposal charge here.";
   }
   if (key === "work_type") {
-    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, disposal, bulk pickup day, and toilet pull/reset — substrate, prep, appliances, and door shaves still apply. Unknown / field verify keeps demo visible. The overlay warning names those hides; do not invent a demo charge on a new slab.";
+    return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, disposal, bulk pickup day, toilet pull/reset, and furniture moving — substrate, prep, appliances, and door shaves still apply. Mixed Replacement + New construction still asks furniture. Unknown / field verify keeps demo visible. The overlay warning names those hides; do not invent a demo charge on a new slab.";
   }
   if (key === "tack_strip") {
     return "Stretch-in needs tack strip. Glue-down and carpet tile do not. Capture keep vs replace — do not invent a linear-foot price unless a catalog item is added.";
@@ -1138,7 +1139,7 @@ export function knowledgeHelpFor(
     return "How the crew gets in (lockbox / homeowner / key). Upper floor, elevator, and long carry stay on Access conditions.";
   }
   if (key === "occupancy") {
-    return "Occupied vs vacant. Vacant hides furniture moving — empty house, do not invent a furniture charge. Exclusive wall tile also hides it — a backsplash is not a furniture-moving job. Occupied and Unknown still ask light/medium/heavy. Unanswered stays open.";
+    return "Occupied vs vacant. Vacant hides furniture moving — empty house, do not invent a furniture charge. Exclusive wall tile also hides it — a backsplash is not a furniture-moving job. Exclusive new construction also hides it — a new slab has no furniture to move. Occupied and Unknown still ask light/medium/heavy. Unanswered stays open.";
   }
   if (key === "wet_area") {
     return "Bath, laundry, or mudroom. Confirm the selected product is rated for a wet area. Catalog has no waterproof column — do not invent a SKU or a ban. Field verify if you have not seen the space.";
@@ -1183,10 +1184,10 @@ export function knowledgeHelpFor(
     return "Same-for-the-job is faster. Set it by room when one room is a wet area or a different substrate — you'll fill prep on the rooms step.";
   }
   if (key === "furniture_heavy") {
-    return "Pianos, pool tables, and loaded cabinets are scope/schedule notes unless this job already has a furniture-moving labor line. Vacant jobs hide this. Exclusive wall tile hides this too — a backsplash is not a furniture-moving job.";
+    return "Pianos, pool tables, and loaded cabinets are scope/schedule notes unless this job already has a furniture-moving labor line. Vacant jobs hide this. Exclusive wall tile hides this too — a backsplash is not a furniture-moving job. Exclusive new construction hides this — a new slab has no furniture to move. Mixed Replacement + New construction still asks.";
   }
   if (key === "furniture_level") {
-    return "Light / medium / heavy uses Floor King's furniture-moving labor. Vacant jobs hide this. Exclusive wall tile hides this too — a backsplash is not a furniture-moving job. Specialty items (piano, pool table) stay on the next question as scope.";
+    return "Light / medium / heavy uses Floor King's furniture-moving labor. Vacant jobs hide this. Exclusive wall tile hides this too — a backsplash is not a furniture-moving job. Exclusive new construction hides this — a new slab has no furniture to move. Mixed Replacement + New construction still asks. Specialty items (piano, pool table) stay on the next question as scope.";
   }
   if (key === "carpet_pad") {
     return "Stretch-in over pad is the residential default. Glue-down and carpet tile hide this — they do not use residential pad. Quantity follows carpet rooms on a mixed job — laminate foam is the underlayment step, not this pad. Additional pad for a specific area is MEASURED sq ft — not a 30-yard roll and not the billing unit. Billed in square yards unless the SKU itself is sold by the square foot. A pad SKU with no sold-by unit is TBD in Builder (How many / Unit TBD), not taped square feet. Review takeoff shows measured area vs billing yards — not a 30-yard roll. Do not invent a 30-yard foam roll.";
@@ -1335,7 +1336,7 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
   if (newBuild) {
     w.push({
       id: "new-construction",
-      text: "New construction — no tear-out. Demo, pad removal, existing-vinyl skim, asbestos, disposal, bulk pickup day, and toilet pull/reset stay off. Substrate, prep, appliances, and door shaves still apply. Do not invent a demo charge.",
+      text: "New construction — no tear-out. Demo, pad removal, existing-vinyl skim, asbestos, disposal, bulk pickup day, toilet pull/reset, and furniture moving stay off. Substrate, prep, appliances, and door shaves still apply. Do not invent a demo charge.",
     });
   }
   const wet = picked.some(
