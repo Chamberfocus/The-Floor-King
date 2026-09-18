@@ -191,6 +191,7 @@ const REQUIRED_FILES = [
   "0328_flooring_knowledge_mixed_new_build.sql",
   "0329_flooring_knowledge_customer_prep_confidence.sql",
   "0330_flooring_knowledge_customer_site_prep.sql",
+  "0331_flooring_knowledge_customer_stair_steps.sql",
 ];
 
 /**
@@ -2287,6 +2288,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0330_FLOORING_KNOWLEDGE",
       "Customer / portal / print Site preparation strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0331_flooring_knowledge_customer_stair_steps.sql",
+    markers: [
+      "P0_0331_FLOORING_KNOWLEDGE",
+      "Customer / portal / print line labels strip stair-install step How many — those stay on stored lines so Builder still prices per step",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

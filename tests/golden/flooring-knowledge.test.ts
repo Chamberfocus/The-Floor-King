@@ -12821,6 +12821,100 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0331 Customer line labels strip stair-install step How many", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0331_flooring_knowledge_customer_stair_steps.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0331_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print line labels strip stair-install step How many — those stay on stored lines so Builder still prices per step/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(stripCrewIdentityFromCustomerLabel("Stair install — 8 steps (tread + riser)")).toBe(
+      "Stair install",
+    );
+    expect(stripCrewIdentityFromCustomerLabel("Stair install — 1 step (tread only)")).toBe(
+      "Stair install",
+    );
+    expect(
+      stripCrewIdentityFromCustomerLabel(
+        "Lifeproof Oak — 8 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+      ),
+    ).toBe("Lifeproof Oak");
+    expect(stripCrewIdentityFromCustomerLabel("Living room — Lifeproof Oak")).toBe(
+      "Living room — Lifeproof Oak",
+    );
+
+    const asLine = (description: string, extra: Partial<EstimateLineItem> = {}) =>
+      ({
+        id: "l1",
+        option_id: "o1",
+        position: 0,
+        room: null,
+        description,
+        note: null,
+        line_type: "mat_labor",
+        sqft: null,
+        length_in: null,
+        width_in: null,
+        measure_unit: "sqft",
+        material_rate: 0,
+        labor_rate: 45,
+        installed_rate: null,
+        flat_amount: null,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        item_no: null,
+        material_cost: 0,
+        labor_cost: 45,
+        quantity: 8,
+        unit: "step",
+        category: "labor",
+        ...extra,
+      }) as EstimateLineItem;
+
+    const labor = asLine("Stair install — 8 steps (tread + riser)");
+    expect(customerLineLabel(labor)).toBe("Stair install");
+    expect(customerLineLabel(labor)).not.toMatch(/\d+\s+steps?/i);
+    expect(lineQty(labor)).toBe(8);
+
+    const wrap = asLine(
+      "Lifeproof Oak — 8 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+      { category: "lvp", unit: "box", labor_rate: 0, labor_cost: 0, material_rate: 40, material_cost: 320 },
+    );
+    expect(customerLineLabel(wrap)).toBe("Lifeproof Oak");
+    expect(lineQty(wrap)).toBe(8);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/Stair install — \$\{steps\} step/);
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print line labels strip stair-install step How many — those stay on stored lines so Builder still prices per step/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print line labels strip stair-install step How many — those stay on stored lines so Builder still prices per step/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

@@ -71,9 +71,10 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print strip Guided takeoff crew Uncertainty — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
  * Customer / portal / print strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
  * Customer / portal / print Site preparation strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
+ * Customer / portal / print line labels strip stair-install step How many — those stay on stored lines so Builder still prices per step.
  */
 const CREW_IDENTITY_TAIL =
-  /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\))/i;
+  /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?)/i;
 
 const GUIDED_TAKEOFF_MATH_LABEL =
   /^(?:measured area|waste|order quantity|billing quantity|unit of measure|carton coverage|required cartons)\s*:/i;
@@ -101,7 +102,7 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
   const s = (raw ?? "").trim();
   if (!s) return s;
   if (
-    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD/i.test(
+    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD|\d+\s+steps?\b/i.test(
       s,
     )
   ) {
@@ -115,6 +116,7 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
       "",
     )
     .replace(/\s*(?:wrap qty TBD|qty TBD|carton coverage TBD|order TBD)\b.*$/i, "")
+    .replace(/\s*[—–-]\s*\d+\s+steps?\b.*$/i, "")
     .trim();
   return fallback || s;
 }
