@@ -10,6 +10,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { cn } from "@/lib/utils";
 import type { JobMaterials, JobMaterialLine } from "@/lib/data/job-materials";
+import { hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
 import {
   prepareJobMaterials,
   setLineSource,
@@ -23,6 +24,27 @@ function ftIn(inches: number): string {
   const ft = Math.floor(inches / 12);
   const inch = Math.round(inches % 12);
   return inch > 0 ? `${ft}'${inch}"` : `${ft}'`;
+}
+
+function cartonCountFor(l: JobMaterialLine): number {
+  // Exclusive carpet-tile job materials carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface job materials carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  return hardSurfaceAreaCartonCount(
+    {
+      description: l.description || l.productName,
+      category: l.category,
+      unit: l.unit,
+      sqft: l.sqftArea,
+      quantity: l.qty,
+      sqft_per_box: l.sqftPerBox,
+      roll_width_ft: l.rollWidthFt,
+      order_as_roll: l.orderAsRoll,
+      length_in: l.lengthIn,
+      width_in: l.widthIn,
+      measurements: l.measurements,
+    },
+    l.qty,
+  );
 }
 
 function StatusBadge({ line }: { line: JobMaterialLine }) {
@@ -95,7 +117,9 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
           </p>
         ) : null}
         <div className="divide-y rounded-md border">
-          {data.lines.map((l) => (
+          {data.lines.map((l) => {
+            const cartons = cartonCountFor(l);
+            return (
             <div
               key={l.lineId}
               className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 text-sm"
@@ -107,6 +131,11 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                 <div className="text-xs text-muted-foreground">
                   {l.room ? `${l.room} · ` : ""}
                   {l.qty} {l.unit}
+                  {/* Exclusive carpet-tile job materials carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                  {/* Hard-surface job materials carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                  {cartons
+                    ? ` · 📦 ${cartons} carton${cartons === 1 ? "" : "s"}`
+                    : ""}
                   {l.widthIn && l.lengthIn
                     ? ` · cut ${ftIn(l.widthIn)} × ${ftIn(l.lengthIn)}`
                     : ""}
@@ -182,7 +211,8 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                 </form>
               ) : null}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {data.hasOrder ? (
