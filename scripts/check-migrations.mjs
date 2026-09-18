@@ -162,6 +162,7 @@ const REQUIRED_FILES = [
   "0299_flooring_knowledge_illegal_leftover.sql",
   "0300_flooring_knowledge_lvp_fasteners.sql",
   "0301_flooring_knowledge_non_carpet_pad.sql",
+  "0302_flooring_knowledge_none_disposal.sql",
 ];
 
 /**
@@ -1980,6 +1981,17 @@ const REQUIRED_MARKERS = [
       "that demo is not old carpet",
       "Do NOT SQL-gate existing_pad on hs_demo",
       "Do NOT SQL-gate existing_tack on hs_demo",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0302_flooring_knowledge_none_disposal.sql",
+    markers: [
+      "P0_0302_FLOORING_KNOWLEDGE",
+      "nothing is coming up",
+      "Do NOT SQL-gate demo_disposal on hs_demo",
+      "Do NOT SQL-gate bulk_pickup on hs_demo",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

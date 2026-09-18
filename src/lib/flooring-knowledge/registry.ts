@@ -150,8 +150,11 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * Municipal pickup day after the old floor is going to the curb.
    * Keyless in 0142 (UUID only) so overlay/review could not attach.
    * New construction hides this with the other tear-out questions.
-   * Unanswered disposal stays open in overlay require; live SQL show_if
-   * still waits for Placed at curb (0142). Do not invent a dumpster fee.
+   * Exclusive None demo hides this with demo_disposal via
+   * NONE_DEMO_DISPOSAL_HIDES_KEYS — nothing is coming up, so nothing goes
+   * to the curb. Unanswered disposal stays open in overlay require; live
+   * SQL show_if still waits for Placed at curb (0142). Do not invent a
+   * dumpster fee. Do not SQL-gate bulk_pickup on hs_demo.
    */
   {
     key: "bulk_pickup",
@@ -843,6 +846,15 @@ export const NON_HARDWOOD_FASTENER_HIDES_KEYS = ["hardwood_fasteners"] as const;
  * or existing_tack on hs_demo.
  */
 export const NON_CARPET_DEMO_PAD_HIDES_KEYS = ["existing_pad", "existing_tack"] as const;
+
+/**
+ * Haul-away / dumpster / curb and bulk pickup hidden once every demo pick
+ * is None. Nothing is coming up, so there is nothing to dispose. Carpet /
+ * LVP / ceramic demo still asks. Mixed None + Carpet stays open. Other /
+ * Unknown stay open. Unanswered stays open (0142). New construction
+ * already hides. Do not SQL-gate demo_disposal or bulk_pickup on hs_demo.
+ */
+export const NONE_DEMO_DISPOSAL_HIDES_KEYS = ["demo_disposal", "bulk_pickup"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,

@@ -64,6 +64,7 @@ import {
   NON_VINYL_DEMO_SKIM_HIDES_KEYS,
   NON_HARDWOOD_FASTENER_HIDES_KEYS,
   NON_CARPET_DEMO_PAD_HIDES_KEYS,
+  NONE_DEMO_DISPOSAL_HIDES_KEYS,
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
@@ -687,6 +688,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (NONE_DEMO_DISPOSAL_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobHidesDisposalOnNoDemo(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -980,6 +988,22 @@ export function jobHidesPadOnNonCarpetDemo(install: InstallContext): boolean {
   return true;
 }
 
+function demoLabelIsNone(label: string): boolean {
+  return /^none$/i.test(label.trim());
+}
+
+/**
+ * Haul-away / dumpster / curb and bulk pickup on exclusive None demo.
+ * Nothing is coming up, so there is nothing to dispose. Carpet / LVP /
+ * ceramic demo still asks. Mixed None + Carpet stays open. Other /
+ * Unknown stay open. Unanswered stays open (0142).
+ */
+export function jobHidesDisposalOnNoDemo(install: InstallContext): boolean {
+  const have = install.existingFlooring.map((l) => l.trim()).filter(Boolean);
+  if (!have.length) return false;
+  return have.every(demoLabelIsNone);
+}
+
 /**
  * Slab moisture test / Aqua bar on a wood deck. Glue-down, carpet tile, a
  * moisture-concern flag, mixed LVP, unanswered method, and unanswered
@@ -1226,7 +1250,7 @@ export function knowledgeHelpFor(
     return "Prefinished vs unfinished (site finish) changes sanding, finishing, and acclimation notes. Floor King has no sand/finish labor in the catalog — capture it as scope. Field verify if the SKU is not in front of you. Do not invent a sand-and-finish dollar amount.";
   }
   if (key === "hs_demo") {
-    return "What's coming up. Exclusive wall tile hides floor demo chips (carpet / LVP / hardwood / sheet vinyl / luan) — those are not a backsplash. Ceramic with/without mortar, None, and Other stay. Mixed LVP + wall still shows floor demo. Exclusive carpet / LVP / hardwood / ceramic / luan tear-out hides existing-vinyl skim — that demo is not embossed vinyl. None still asks skim when installing sheet vinyl. Exclusive LVP / hardwood / ceramic / luan / sheet vinyl tear-out hides existing pad and tack — that demo is not old carpet. Carpet demo still asks pad and tack. Mixed Carpet + LVP still asks. Do not invent a second tear-out rate.";
+    return "What's coming up. Exclusive wall tile hides floor demo chips (carpet / LVP / hardwood / sheet vinyl / luan) — those are not a backsplash. Ceramic with/without mortar, None, and Other stay. Mixed LVP + wall still shows floor demo. Exclusive carpet / LVP / hardwood / ceramic / luan tear-out hides existing-vinyl skim — that demo is not embossed vinyl. None still asks skim when installing sheet vinyl. Exclusive LVP / hardwood / ceramic / luan / sheet vinyl tear-out hides existing pad and tack — that demo is not old carpet. Carpet demo still asks pad and tack. Mixed Carpet + LVP still asks. Exclusive None hides haul-away and bulk pickup — nothing is coming up. Other / Unknown still ask disposal. Unanswered stays open. Do not invent a second tear-out rate.";
   }
   if (key === "existing_bond") {
     return "Glued-down LVP/laminate/vinyl is a different tear-out than floating. Scope note — existing demo rates stay. Exclusive wall tile hides this — that is floor demo.";
@@ -1238,10 +1262,10 @@ export function knowledgeHelpFor(
     return "Tearing out carpet usually takes tack strip with it. Keep is unusual. This is not new stretch-in tack strip — that stays on the install step. Exclusive LVP / hardwood / ceramic / luan / sheet vinyl tear-out hides this with existing pad — that demo is not old carpet. None / Other / Unknown stay open. Mixed Carpet + LVP still asks. Unanswered stays open. Linear feet stay off until you add a catalog item. Do not invent a linear-foot price.";
   }
   if (key === "demo_disposal") {
-    return "Haul away, dumpster, or placed at curb. Placed at curb opens bulk pickup day. Leftover Placed-on-the-curb yes-no stays off the overlay — demo_disposal is the source of truth. New construction hides this. Unanswered stays open. Do not invent a dumpster fee.";
+    return "Haul away, dumpster, or placed at curb. Placed at curb opens bulk pickup day. Leftover Placed-on-the-curb yes-no stays off the overlay — demo_disposal is the source of truth. New construction hides this. Exclusive None demo hides this — nothing is coming up, so there is nothing to haul. Other / Unknown still ask. Unanswered stays open. Do not invent a dumpster fee.";
   }
   if (key === "bulk_pickup") {
-    return "Municipal bulk pickup day so the old floor is at the curb on time. New construction hides this. Haul-away / dumpster hides this. Unanswered disposal stays open in overlay. Leftover Placed-on-the-curb yes-no is not this question — Placed at curb on demo_disposal is. Do not invent a disposal charge here.";
+    return "Municipal bulk pickup day so the old floor is at the curb on time. New construction hides this. Haul-away / dumpster hides this. Exclusive None demo hides this with haul-away — nothing is coming up. Unanswered disposal stays open in overlay. Leftover Placed-on-the-curb yes-no is not this question — Placed at curb on demo_disposal is. Do not invent a disposal charge here.";
   }
   if (key === "work_type") {
     return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, disposal, bulk pickup day, toilet pull/reset, and furniture moving — substrate, prep, appliances, and door shaves still apply. Mixed Replacement + New construction still asks furniture. Unknown / field verify keeps demo visible. The overlay warning names those hides; do not invent a demo charge on a new slab.";

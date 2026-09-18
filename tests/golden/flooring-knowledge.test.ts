@@ -102,6 +102,7 @@ import {
   NON_VINYL_DEMO_SKIM_HIDES_KEYS,
   NON_HARDWOOD_FASTENER_HIDES_KEYS,
   NON_CARPET_DEMO_PAD_HIDES_KEYS,
+  NONE_DEMO_DISPOSAL_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
@@ -128,6 +129,7 @@ import {
   jobHidesVinylSkimOnNonVinylDemo,
   jobHidesFastenersOnNonHardwood,
   jobHidesPadOnNonCarpetDemo,
+  jobHidesDisposalOnNoDemo,
   labelsAreWoodDeckOnly,
   labelsAreExistingFlooringOnly,
   jobAllowsFloatingVaporUnderlayment,
@@ -10000,6 +10002,207 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(knowledgeHelpFor({ key: "hs_demo" }, emptyInstallContext())).toMatch(
       /hides existing pad and tack/,
     );
+  });
+
+  it("0302 exclusive None demo hides haul-away and bulk pickup", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0302_flooring_knowledge_none_disposal.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0302_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/nothing is coming up/);
+    expect(sql).toMatch(/Do NOT SQL-gate demo_disposal on hs_demo/);
+    expect(sql).toMatch(/Do NOT SQL-gate bulk_pickup on hs_demo/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*hs_demo.*demo_disposal|demo_disposal.*show_if.*hs_demo/);
+    expect(sql).not.toMatch(/show_if.*hs_demo.*bulk_pickup|bulk_pickup.*show_if.*hs_demo/);
+
+    expect([...NONE_DEMO_DISPOSAL_HIDES_KEYS]).toEqual(["demo_disposal", "bulk_pickup"]);
+
+    const liveCurbShowIf = {
+      show_if: { key: "demo_disposal", in: ["Placed at curb"] },
+    };
+    expect(
+      questionApplies(
+        { key: "bulk_pickup", config: liveCurbShowIf },
+        {
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["None"],
+          demo_disposal: ["Placed at curb"],
+        },
+      ),
+    ).toBe(false);
+    expect(
+      questionApplies(
+        { key: "bulk_pickup", config: liveCurbShowIf },
+        {
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["Carpet"],
+          demo_disposal: ["Placed at curb"],
+        },
+      ),
+    ).toBe(true);
+
+    expect(
+      jobHidesDisposalOnNoDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["None"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesDisposalOnNoDemo(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          hs_demo: ["None"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesDisposalOnNoDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["Carpet"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesDisposalOnNoDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["LVP"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesDisposalOnNoDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["Other"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesDisposalOnNoDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["Unknown / field verify"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesDisposalOnNoDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesDisposalOnNoDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["None", "Carpet"],
+        }),
+      ),
+    ).toBe(false);
+
+    const noneDemo = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["None"],
+    });
+    expect(noneDemo).not.toContain("demo_disposal");
+    expect(noneDemo).not.toContain("bulk_pickup");
+    expect(noneDemo).toContain("existing_pad");
+    expect(noneDemo).toContain("hs_demo");
+
+    const leftoverCurb = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["None"],
+      demo_disposal: ["Placed at curb"],
+    });
+    expect(leftoverCurb).not.toContain("demo_disposal");
+    expect(leftoverCurb).not.toContain("bulk_pickup");
+
+    const carpetDemo = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Carpet"],
+    });
+    expect(carpetDemo).toContain("demo_disposal");
+
+    const lvpDemo = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      hs_demo: ["LVP"],
+    });
+    expect(lvpDemo).toContain("demo_disposal");
+
+    const unanswered = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(unanswered).toContain("demo_disposal");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["None", "Carpet"],
+    });
+    expect(mixed).toContain("demo_disposal");
+
+    const other = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Other"],
+    });
+    expect(other).toContain("demo_disposal");
+
+    expect(knowledgeHelpFor({ key: "demo_disposal" }, emptyInstallContext())).toMatch(
+      /Exclusive None demo hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "bulk_pickup" }, emptyInstallContext())).toMatch(
+      /Exclusive None demo hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_demo" }, emptyInstallContext())).toMatch(
+      /Exclusive None hides haul-away/,
+    );
+    expect(knowledgeHelpFor({ key: "demo_disposal" }, emptyInstallContext())).toMatch(
+      /demo_disposal is the source of truth/,
+    );
+    expect(knowledgeHelpFor({ key: "bulk_pickup" }, emptyInstallContext())).toMatch(
+      /Municipal bulk pickup day/,
+    );
+
+    const walkNone = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["None"],
+    });
+    expect(walkNone).not.toContain("demo_disposal");
+    expect(walkNone).not.toContain("bulk_pickup");
+    expect(walkNone).toContain("existing_pad");
+
+    const walkCarpet = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Carpet"],
+    });
+    expect(walkCarpet).toContain("demo_disposal");
   });
 
   it("pattern repeat only after pattern match is required", () => {
