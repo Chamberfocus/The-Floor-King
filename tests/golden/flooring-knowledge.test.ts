@@ -206,6 +206,7 @@ import { billsBySquareYard, defaultUnitForCategory, isCountPricedLine, lineDispl
 import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import {
+  buildCustomerScope,
   customerFacingJobNotes,
   customerFacingLineNote,
   customerLineLabel,
@@ -12744,6 +12745,76 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify \/ TBD vs Known bag counts/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0330 Customer Site preparation strip Guided takeoff crew prep confidence", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0330_flooring_knowledge_customer_site_prep.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0330_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print Site preparation strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify \/ TBD vs Known bag counts/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    const notes = [
+      "Job conditions:",
+      "• How sure are we about the prep?: Field verify / TBD",
+      "• Subfloor: Concrete",
+      "",
+      "Guided takeoff:",
+      "Prep:",
+      "• How sure are we about the prep?: Field verify / TBD",
+      "• Self-leveler: 15 bag — not taped square feet",
+      "Accessories:",
+      "• Stair wrap: 8 box — not taped square feet and not a 30-yard roll",
+    ].join("\n");
+
+    const scope = buildCustomerScope([], notes);
+    expect(scope.conditions).toContain("Subfloor: Concrete");
+    expect(scope.conditions.join("\n")).not.toMatch(/How sure are we about the prep/i);
+    expect(scope.conditions.join("\n")).not.toMatch(/Field verify \/ TBD/i);
+    expect(scope.notes).toMatch(/Stair wrap: 8 box/);
+    expect(scope.notes).toMatch(/Self-leveler: 15 bag/);
+    expect(scope.notes).not.toMatch(/How sure are we about the prep/i);
+    expect(scope.notes).not.toMatch(/Field verify \/ TBD/i);
+    expect(scope.notes).not.toMatch(/not taped square feet/i);
+
+    const shown = customerFacingJobNotes(notes);
+    expect(shown).toMatch(/Subfloor: Concrete/);
+    expect(shown).toMatch(/Stair wrap: 8 box/);
+    expect(shown).not.toMatch(/How sure are we about the prep/i);
+
+    const parsed = parseProjectDetails(notes);
+    expect(parsed.details).toContain("Subfloor: Concrete");
+    expect(parsed.details).toContain("Stair wrap: 8 box");
+    expect(parsed.details.join("\n")).not.toMatch(/How sure are we about the prep/i);
+    expect(parsed.flags.join("\n")).toMatch(/How sure are we about the prep/i);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).toMatch(/reviewToJobNotes/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print Site preparation strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify \/ TBD vs Known bag counts/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print Site preparation strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify \/ TBD vs Known bag counts/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

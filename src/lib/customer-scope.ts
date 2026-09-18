@@ -70,6 +70,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer print / portal itemized line notes strip wrap / carton-coverage TBD / qty TBD / room MEASURED sq ft identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
  * Customer / portal / print strip Guided takeoff crew Uncertainty — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
  * Customer / portal / print strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
+ * Customer / portal / print Site preparation strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\))/i;
@@ -213,7 +214,12 @@ function splitRoom(room: ScopeRoom): CustomerRoom {
     else included.push(productItem(p)); // pad / underlayment / trim / transitions
   }
   for (const l of room.labor) included.push(workItem(l));
-  for (const prep of room.prep) included.push({ title: prep });
+  for (const prep of room.prep) {
+    const title = stripCrewIdentityFromCustomerLabel(prep);
+    if (!title || isGuidedTakeoffMathLine(title) || isCrewPrepConfidenceLine(title))
+      continue;
+    included.push({ title });
+  }
   return { name: room.name, flooring, included };
 }
 
@@ -244,7 +250,12 @@ export function buildCustomerScope(
     },
     conditions: scope.conditions
       .map((c) => stripCrewIdentityFromCustomerLabel(c))
-      .filter((c) => c && !isGuidedTakeoffMathLine(c)),
+      .filter(
+        (c) =>
+          c &&
+          !isGuidedTakeoffMathLine(c) &&
+          !isCrewPrepConfidenceLine(c),
+      ),
     notes: customerFacingJobNotes(scope.freeText),
   };
 }
