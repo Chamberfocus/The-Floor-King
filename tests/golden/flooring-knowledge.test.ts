@@ -11,7 +11,7 @@ import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft 
 import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
 import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { cutLabel, cutSqYd } from "@/lib/order-cuts";
-import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, knowledgePickDescription, rollGoodsLineHasCuts, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
+import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, lineIsStairWrapTbd, knowledgePickDescription, rollGoodsLineHasCuts, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
 import {
   accessoryQuantity,
   piecesForLinearFeet,
@@ -205,7 +205,13 @@ import {
 import { billsBySquareYard, defaultUnitForCategory, isCountPricedLine, pickedProductUnit, rollReceiveUnit, SQYD_CATEGORIES } from "@/lib/units";
 import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
-import type { ShowIfClause } from "@/lib/types";
+import {
+  customerLineLabel,
+  stripCrewIdentityFromCustomerLabel,
+} from "@/lib/customer-scope";
+import { invoiceItemFromSnapshotLine } from "@/lib/invoice-from-approval";
+import type { EstimateLineItem, ShowIfClause } from "@/lib/types";
+import type { ApprovalSnapshotLine } from "@/lib/estimate-approval";
 
 const root = process.cwd();
 
@@ -11912,6 +11918,147 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Builder hydrate does not plant How many as taped sq ft on Unit TBD \(empty unit\) count lines — leftover quantity is not measured area/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0321 Customer / invoice / portal copy strips wrap / carton TBD How many identity", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0321_flooring_knowledge_customer_identity.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0321_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ invoice \/ portal copy strips wrap \/ carton-coverage TBD \/ qty TBD \/ order TBD identity — those stamps stay on stored lines so Builder \/ PO \/ WO \/ hydrate still skip leftover taped sq ft/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    const asLine = (description: string, extra?: Partial<EstimateLineItem>): EstimateLineItem =>
+      ({
+        id: "l1",
+        option_id: "o1",
+        position: 0,
+        room: null,
+        description,
+        note: null,
+        line_type: "mat_labor",
+        sqft: null,
+        length_in: null,
+        width_in: null,
+        measure_unit: "sqft",
+        material_rate: 40,
+        labor_rate: 0,
+        installed_rate: null,
+        flat_amount: null,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        item_no: null,
+        material_cost: 40,
+        labor_cost: 0,
+        quantity: 8,
+        unit: "box",
+        category: "lvp",
+        ...extra,
+      }) as EstimateLineItem;
+
+    expect(
+      stripCrewIdentityFromCustomerLabel(
+        "Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+      ),
+    ).toBe("Lifeproof Oak");
+    expect(
+      stripCrewIdentityFromCustomerLabel(
+        "Lifeproof Oak — 8 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+      ),
+    ).toBe("Lifeproof Oak");
+    expect(
+      stripCrewIdentityFromCustomerLabel(
+        "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+      ),
+    ).toBe("Lifeproof Oak");
+    expect(
+      stripCrewIdentityFromCustomerLabel("Rebond pad — qty TBD (unit TBD — not taped sq ft)"),
+    ).toBe("Rebond pad");
+    expect(
+      stripCrewIdentityFromCustomerLabel("Rebond pad — 4 roll (not taped sq ft)"),
+    ).toBe("Rebond pad");
+    expect(stripCrewIdentityFromCustomerLabel(rollGoodsOrderTbdDescription("Mohawk", 300))).toBe(
+      "Mohawk",
+    );
+    expect(stripCrewIdentityFromCustomerLabel("Living room — Lifeproof Oak")).toBe(
+      "Living room — Lifeproof Oak",
+    );
+
+    const wrap = asLine(
+      "Lifeproof Oak — 8 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+    );
+    expect(customerLineLabel(wrap)).toBe("Lifeproof Oak");
+    expect(lineQty(wrap)).toBe(8);
+    expect(lineIsStairWrapTbd(wrap)).toBe(true);
+
+    const snap = { line_total: 320 } as ApprovalSnapshotLine;
+    const invoiced = invoiceItemFromSnapshotLine("inv1", snap, wrap, 0);
+    expect(invoiced.description).toBe("Lifeproof Oak");
+    expect(invoiced.quantity).toBe(8);
+    expect(invoiced.description).not.toMatch(/wrap qty TBD|not an automatic sq ft\/step order/i);
+
+    const roomed = invoiceItemFromSnapshotLine(
+      "inv1",
+      snap,
+      asLine(
+        "Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+        { room: "Stairs", quantity: null, unit: "" },
+      ),
+      1,
+    );
+    expect(roomed.description).toBe("Stairs — Lifeproof Oak");
+    expect(roomed.description).not.toMatch(/Measured |order TBD|qty TBD/i);
+
+    const scope = readFileSync(join(root, "src/lib/customer-scope.ts"), "utf8");
+    expect(scope).toMatch(/export function stripCrewIdentityFromCustomerLabel/);
+    expect(scope).toMatch(
+      /Customer \/ invoice \/ portal copy strips wrap \/ carton-coverage TBD \/ qty TBD \/ order TBD identity — those stamps stay on stored lines so Builder \/ PO \/ WO \/ hydrate still skip leftover taped sq ft/,
+    );
+
+    const invoice = readFileSync(join(root, "src/lib/invoice-from-approval.ts"), "utf8");
+    expect(invoice).toMatch(/customerLineLabel/);
+    expect(invoice).toMatch(
+      /Customer \/ invoice \/ portal copy strips wrap \/ carton-coverage TBD \/ qty TBD \/ order TBD identity — those stamps stay on stored lines so Builder \/ PO \/ WO \/ hydrate still skip leftover taped sq ft/,
+    );
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).toMatch(/not taped sq ft/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/const identity = lineSkipsAreaCartonMath/);
+    expect(builder).not.toMatch(/companionQty/);
+    expect(builder).not.toMatch(/padRollCount/);
+
+    const po = readFileSync(join(root, "src/app/(app)/purchase-orders/po-builder.tsx"), "utf8");
+    expect(po).toMatch(/lineSkipsAreaCartonMath/);
+    expect(po).not.toMatch(/stripCrewIdentityFromCustomerLabel/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ invoice \/ portal copy strips wrap \/ carton-coverage TBD \/ qty TBD \/ order TBD identity — those stamps stay on stored lines so Builder \/ PO \/ WO \/ hydrate still skip leftover taped sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ invoice \/ portal copy strips wrap \/ carton-coverage TBD \/ qty TBD \/ order TBD identity — those stamps stay on stored lines so Builder \/ PO \/ WO \/ hydrate still skip leftover taped sq ft/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

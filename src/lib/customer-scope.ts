@@ -60,13 +60,45 @@ function productItem(l: EstimateLineItem): ScopeItem {
 }
 
 /**
+ * Crew How many identity (wrap qty TBD, carton coverage TBD, not taped sq ft,
+ * order TBD / measured sq ft) stays on stored estimate lines so Builder / PO /
+ * WO / hydrate skip leftover taped sq ft. Customer copy is the product name.
+ *
+ * Customer / invoice / portal copy strips wrap / carton-coverage TBD / qty TBD / order TBD identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
+ */
+const CREW_IDENTITY_TAIL =
+  /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\))/i;
+
+export function stripCrewIdentityFromCustomerLabel(raw: string): string {
+  const s = (raw ?? "").trim();
+  if (!s) return s;
+  if (
+    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not an automatic sq ft\/step order|order TBD/i.test(
+      s,
+    )
+  ) {
+    return s;
+  }
+  const cut = s.search(CREW_IDENTITY_TAIL);
+  if (cut > 0) return s.slice(0, cut).trim();
+  const fallback = s
+    .replace(
+      /\s*\([^)]*(?:not taped sq ft|not an automatic sq ft\/step order|enter cuts)[^)]*\)\s*$/i,
+      "",
+    )
+    .replace(/\s*(?:wrap qty TBD|qty TBD|carton coverage TBD|order TBD)\b.*$/i, "")
+    .trim();
+  return fallback || s;
+}
+
+/**
  * The customer-facing name for a line — the full product/description, with color
  * appended when it isn't already in it. Never a quantity, size, or price. Shared
  * by the scope view and the itemized estimate so a product reads the same way
  * everywhere.
  */
 export function customerLineLabel(l: EstimateLineItem): string {
-  const desc = (l.description ?? "").trim();
+  const desc = stripCrewIdentityFromCustomerLabel((l.description ?? "").trim());
   const brand = [l.manufacturer, l.style].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
   const color = (l.color ?? "").trim();
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
@@ -77,7 +109,7 @@ export function customerLineLabel(l: EstimateLineItem): string {
 
 /** A labor / prep line described as work performed — no hours, no area. */
 function workItem(l: EstimateLineItem): ScopeItem {
-  const desc = (l.description ?? "").trim();
+  const desc = stripCrewIdentityFromCustomerLabel((l.description ?? "").trim());
   const note = (l.note ?? "").trim();
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
   return { title: desc || catLabel || "Included work", detail: note || undefined };
