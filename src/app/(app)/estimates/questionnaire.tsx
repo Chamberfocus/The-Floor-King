@@ -3144,8 +3144,12 @@ export function Questionnaire({
           <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Running takeoff — measured is not order quantity
           </div>
-          {salespersonReview.takeoffs.map((t, i) =>
-            t.measured.sqft > 0 || t.orderSqft > 0 ? (
+          {salespersonReview.takeoffs.map((t, i) => {
+            if (!(t.measured.sqft > 0 || t.orderSqft > 0)) return null;
+            // Exclusive carpet-tile Guided Estimate running takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            // Underlayment Guided Estimate running takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+            const runningPadRolls = padRollCount(t.takeoffLabel ? "underlayment" : catalogCategoryForFamily(t.family), t.billingQty, t.billingUnit);
+            return (
               <p key={`${t.family}-${i}`} className="text-xs leading-snug">
                 <span className="font-semibold">{takeoffDisplayTitle(t)}</span>
                 {" · "}
@@ -3160,9 +3164,19 @@ export function Questionnaire({
                     </span>
                   </>
                 ) : null}
+                {/* Exclusive carpet-tile Guided Estimate running takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                {/* Underlayment Guided Estimate running takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+                {runningPadRolls ? (
+                  <>
+                    {" · "}
+                    <span className="font-medium tabular-nums">
+                      = {runningPadRolls} roll{runningPadRolls === 1 ? "" : "s"}
+                    </span>
+                  </>
+                ) : null}
               </p>
-            ) : null,
-          )}
+            );
+          })}
         </div>
       ) : null}
 
