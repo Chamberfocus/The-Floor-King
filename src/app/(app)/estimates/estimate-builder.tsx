@@ -2384,6 +2384,8 @@ export function EstimateBuilder({
                   const unitKey = normalizeUnit(summ.unit);
                   // Exclusive carpet-tile Builder collapsed order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                   // Underlayment Builder collapsed order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+                  // Exclusive carpet-tile Builder expanded pad order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Underlayment Builder expanded pad order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
                   const padRolls = padRollCount(summ.category, lineOrderQty(summ), unitKey);
                   const sSell = lineTotal(summ);
                   const sCost = lineOurCost(line);
@@ -2757,6 +2759,13 @@ export function EstimateBuilder({
                                   initialLabel={line.room}
                                   onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
                                 />
+                                {/* Exclusive carpet-tile Builder expanded pad order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                                {/* Underlayment Builder expanded pad order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+                                {padRolls ? (
+                                  <div className="pb-2 text-xs font-medium text-foreground">
+                                    {padRolls} roll{padRolls === 1 ? "" : "s"}
+                                  </div>
+                                ) : null}
                               </div>
                             ) : null}
 
