@@ -88,6 +88,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print strip leftover em-dash parenthetical How many — those stay in stored job_description so the crew still sees pad rolls and room sizes. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  * Customer / portal / print strip leftover leading count How many — those stay in stored job_description so the crew still sees pad rolls. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  * Customer / portal / print strip leftover leading dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ * Customer / portal / print strip leftover trailing dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  */
 const CREW_QTY_UNIT =
   "(?:rolls?|lnft|l\\.?f\\.?|each|ea|gal(?:lons?)?|kits?|box(?:es)?|bags?|sheets?|ft|inches|inch|in|sqft|sqyd|yards?|yds?|cartons?|pcs?|pieces?|steps?)";
@@ -128,8 +129,21 @@ function stripCrewLeadingDimensionHowMany(raw: string): string {
   return next || raw;
 }
 
+/** Trailing How many (`Living room 12' × 14'`). Not `Living: 12' × 14'` / `— cuts:` / catalog `12' Shaw`. */
+const CREW_TRAILING_DIM = new RegExp(
+  String.raw`(?<![—–-]|:)\s+` + CREW_DIM_PAIR + String.raw`\s*$`,
+  "i",
+);
+
+function stripCrewTrailingDimensionHowMany(raw: string): string {
+  const next = raw.replace(CREW_TRAILING_DIM, "").trim();
+  return next || raw;
+}
+
 function stripCrewLeadingHowMany(raw: string): string {
-  return stripCrewLeadingDimensionHowMany(stripCrewLeadingCountHowMany(raw));
+  return stripCrewTrailingDimensionHowMany(
+    stripCrewLeadingDimensionHowMany(stripCrewLeadingCountHowMany(raw)),
+  );
 }
 
 const CREW_PAREN_DIM_TAIL =
