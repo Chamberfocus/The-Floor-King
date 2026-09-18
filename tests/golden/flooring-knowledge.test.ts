@@ -207,6 +207,7 @@ import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import {
   customerFacingJobNotes,
+  customerFacingLineNote,
   customerLineLabel,
   isGuidedTakeoffMathLine,
   parseProjectDetails,
@@ -12421,6 +12422,81 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print strip Guided takeoff room MEASURED sq ft and crew Warnings — those stay in stored job_description so the crew still sees taped area vs order/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0326 Customer print / portal line notes strip How many and MEASURED sq ft identity", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0326_flooring_knowledge_customer_line_notes.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0326_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer print \/ portal itemized line notes strip wrap \/ carton-coverage TBD \/ qty TBD \/ room MEASURED sq ft identity — those stamps stay on stored lines so Builder \/ PO \/ WO \/ hydrate still skip leftover taped sq ft/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(
+      customerFacingLineNote(
+        "13 steps, tread + riser — not an automatic sq ft/step order",
+      ),
+    ).toBe("13 steps, tread + riser");
+    expect(
+      customerFacingLineNote(
+        "wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+      ),
+    ).toBe("");
+    expect(customerFacingLineNote("300 sq ft leftover taped area")).toBe("");
+    expect(customerFacingLineNote("Match existing stair nose")).toBe(
+      "Match existing stair nose",
+    );
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).toMatch(/customerFacingLineNote/);
+    expect(print).not.toMatch(/\{l\.note\}/);
+
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).toMatch(/customerFacingLineNote/);
+    expect(portal).not.toMatch(/note: \(l\.note \?\? ""\)\.trim\(\)/);
+
+    const snap = readFileSync(join(root, "src/lib/approval-snapshot-view.ts"), "utf8");
+    expect(snap).toMatch(/customerFacingLineNote/);
+    expect(snap).not.toMatch(/note: \(l\.note \?\? ""\)\.trim\(\)/);
+
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(wo).toMatch(/\{l\.note\}/);
+    expect(wo).not.toMatch(/customerFacingLineNote/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer print \/ portal itemized line notes strip wrap \/ carton-coverage TBD \/ qty TBD \/ room MEASURED sq ft identity — those stamps stay on stored lines so Builder \/ PO \/ WO \/ hydrate still skip leftover taped sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer print \/ portal itemized line notes strip wrap \/ carton-coverage TBD \/ qty TBD \/ room MEASURED sq ft identity — those stamps stay on stored lines so Builder \/ PO \/ WO \/ hydrate still skip leftover taped sq ft/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

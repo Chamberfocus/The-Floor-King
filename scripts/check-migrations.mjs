@@ -186,6 +186,7 @@ const REQUIRED_FILES = [
   "0323_flooring_knowledge_customer_notes.sql",
   "0324_flooring_knowledge_customer_takeoff.sql",
   "0325_flooring_knowledge_customer_rooms.sql",
+  "0326_flooring_knowledge_customer_line_notes.sql",
 ];
 
 /**
@@ -2222,6 +2223,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0325_FLOORING_KNOWLEDGE",
       "Customer / portal / print strip Guided takeoff room MEASURED sq ft and crew Warnings — those stay in stored job_description so the crew still sees taped area vs order",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0326_flooring_knowledge_customer_line_notes.sql",
+    markers: [
+      "P0_0326_FLOORING_KNOWLEDGE",
+      "Customer print / portal itemized line notes strip wrap / carton-coverage TBD / qty TBD / room MEASURED sq ft identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

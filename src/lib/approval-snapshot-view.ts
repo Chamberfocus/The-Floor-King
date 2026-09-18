@@ -1,7 +1,7 @@
 /**
  * Helpers to present an approval snapshot on the customer portal / staff views.
  */
-import { buildCustomerScope, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
+import { buildCustomerScope, customerFacingLineNote, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
 import type { ApprovalSnapshotPayload } from "@/lib/estimate-approval";
 import type { EstimateLineItem } from "@/lib/types";
 
@@ -58,7 +58,7 @@ export function snapshotItemGroups(payload: ApprovalSnapshotPayload) {
       }
       itemGroups[at.get(room)!].items.push({
         label: customerLineLabel(l),
-        note: (l.note ?? "").trim(),
+        note: customerFacingLineNote(l.note),
         amount,
       });
     }

@@ -7,7 +7,7 @@ import { Printer, Save, ListChecks, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
-import { customerFacingJobNotes, customerLineLabel } from "@/lib/customer-scope";
+import { customerFacingJobNotes, customerFacingLineNote, customerLineLabel } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -420,13 +420,14 @@ export function EstimatePrintDoc({
               {itemized ? (
                 pricedLines.map((l, i) => {
                   const amt = lineTotal(l);
+                  const note = customerFacingLineNote(l.note);
                   return (
                     <tr key={i} className="border-b border-gray-200 align-top">
                       <td className="px-3 py-2.5">
                         <div className="font-semibold">{customerLineLabel(l)}</div>
                         {l.room ? <div className="mt-0.5 text-[13px] text-gray-500">{l.room}</div> : null}
-                        {(l.note ?? "").trim() ? (
-                          <div className="mt-1 text-[13px] leading-snug text-gray-600">{l.note}</div>
+                        {note ? (
+                          <div className="mt-1 text-[13px] leading-snug text-gray-600">{note}</div>
                         ) : null}
                       </td>
                       <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-600">1.0</td>

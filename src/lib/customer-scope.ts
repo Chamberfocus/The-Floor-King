@@ -55,7 +55,7 @@ export interface CustomerScope {
  *  description holds the product name (e.g. "OVF Del Mar - JETCORE 7.25\""), so
  *  it leads; brand/category are only fallbacks when there's no description. */
 function productItem(l: EstimateLineItem): ScopeItem {
-  const note = stripCrewIdentityFromCustomerLabel((l.note ?? "").trim());
+  const note = customerFacingLineNote(l.note);
   return { title: customerLineLabel(l), detail: note || undefined };
 }
 
@@ -67,7 +67,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / invoice / portal copy strips wrap / carton-coverage TBD / qty TBD / order TBD identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
  * Customer / portal / print project details strip wrap / carton-coverage TBD / qty TBD / not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft.
  * Customer / portal / print strip Guided takeoff MEASURED / WASTE / ORDER / BILLING math — those stay in stored job_description so the crew still sees measured vs order.
- * Customer / portal / print strip Guided takeoff room MEASURED sq ft and crew Warnings — those stay in stored job_description so the crew still sees taped area vs order.
+ * Customer print / portal itemized line notes strip wrap / carton-coverage TBD / qty TBD / room MEASURED sq ft identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\))/i;
@@ -151,6 +151,22 @@ export function customerFacingJobNotes(text: string | null | undefined): string 
     .trim();
 }
 
+/** Customer line note. Stored estimate notes keep crew How many / taped sq ft. */
+export function customerFacingLineNote(raw: string | null | undefined): string {
+  const s = (raw ?? "").trim();
+  if (!s) return "";
+  const stripped = stripCrewIdentityFromCustomerLabel(s);
+  if (!stripped || isGuidedTakeoffMathLine(stripped)) return "";
+  if (
+    /wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD/i.test(
+      stripped,
+    )
+  ) {
+    return "";
+  }
+  return stripped;
+}
+
 /**
  * The customer-facing name for a line — the full product/description, with color
  * appended when it isn't already in it. Never a quantity, size, or price. Shared
@@ -170,7 +186,7 @@ export function customerLineLabel(l: EstimateLineItem): string {
 /** A labor / prep line described as work performed — no hours, no area. */
 function workItem(l: EstimateLineItem): ScopeItem {
   const desc = stripCrewIdentityFromCustomerLabel((l.description ?? "").trim());
-  const note = stripCrewIdentityFromCustomerLabel((l.note ?? "").trim());
+  const note = customerFacingLineNote(l.note);
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
   return { title: desc || catLabel || "Included work", detail: note || undefined };
 }
