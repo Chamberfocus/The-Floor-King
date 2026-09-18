@@ -197,6 +197,7 @@ export {
   jobIsExclusiveSolidHardwood,
   jobIsExclusiveConcrete,
   jobHasHardSurfaceInstallScope,
+  jobHasCarpetInstallScope,
   jobIsExclusiveCarpetOnly,
   jobHidesSlabMoistureOnWoodDeck,
   jobHidesVaporOnGlueWoodDeck,

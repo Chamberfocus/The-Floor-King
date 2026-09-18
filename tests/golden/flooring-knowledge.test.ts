@@ -99,6 +99,7 @@ import {
   jobIsExclusiveSolidHardwood,
   jobIsExclusiveConcrete,
   jobHasHardSurfaceInstallScope,
+  jobHasCarpetInstallScope,
   jobIsExclusiveCarpetOnly,
   jobHidesSlabMoistureOnWoodDeck,
   jobHidesVaporOnGlueWoodDeck,
@@ -7650,6 +7651,84 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(leftoverLvp).not.toContain("attached_pad");
     expect(leftoverLvp).not.toContain("laminate_expansion");
     expect(leftoverLvp).not.toContain("hs_underlayment");
+  });
+
+  it("0286 leftover Carpet install on exclusive HS does not reopen adhesive", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0286_flooring_knowledge_hs_carpet_leftover.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0286_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/does not switch adhesive, moisture test, or acclimation/);
+    expect(sql).toMatch(/Do NOT SQL-gate adhesive on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_install on surface_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*carpet_install.*adhesive|adhesive.*show_if.*carpet_install/,
+    );
+
+    const leftoverCtx = installContextFromValByKey({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(jobHasCarpetInstallScope(leftoverCtx)).toBe(false);
+    expect(jobHasHardSurfaceInstallScope(leftoverCtx)).toBe(true);
+    expect(leftoverCtx.families).toEqual(["lvp"]);
+    expect(leftoverCtx.systems).toEqual(["floating"]);
+    expect(leftoverCtx.installLabels).toEqual(["Floating / click"]);
+    expect(
+      knowledgeWarnings(leftoverCtx).some((w) => w.id === "hs-carpet-leftover"),
+    ).toBe(true);
+
+    expect(knowledgeHelpFor({ key: "carpet_install" }, emptyInstallContext())).toMatch(
+      /Leftover Glue-down \/ Carpet tile on exclusive LVP/,
+    );
+
+    const leftoverGlue = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(leftoverGlue).toContain("attached_pad");
+    expect(leftoverGlue).not.toContain("adhesive");
+    expect(leftoverGlue).not.toContain("moisture_test");
+    expect(leftoverGlue).not.toContain("acclimation");
+    expect(leftoverGlue).not.toContain("carpet_install");
+    expect(leftoverGlue).not.toContain("tack_strip");
+
+    const leftoverTile = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(leftoverTile).not.toContain("adhesive");
+    expect(leftoverTile).not.toContain("moisture_test");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(mixed).toContain("carpet_install");
+    expect(mixed).toContain("adhesive");
+    expect(mixed).toContain("attached_pad");
+
+    const exclusiveCarpetGlue = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(exclusiveCarpetGlue).toContain("adhesive");
+    expect(exclusiveCarpetGlue).toContain("carpet_install");
+
+    const assigned = withProductFamilies(leftoverCtx, ["carpet"]);
+    expect(assigned.families).toEqual(["lvp", "carpet"]);
+    expect(jobHasCarpetInstallScope(assigned)).toBe(true);
   });
 
   it("pattern repeat only after pattern match is required", () => {

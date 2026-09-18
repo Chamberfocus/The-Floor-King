@@ -146,6 +146,7 @@ const REQUIRED_FILES = [
   "0283_flooring_knowledge_carpet_install_method.sql",
   "0284_flooring_knowledge_carpet_surface.sql",
   "0285_flooring_knowledge_carpet_surface_leftover.sql",
+  "0286_flooring_knowledge_hs_carpet_leftover.sql",
 ];
 
 /**
@@ -1798,6 +1799,17 @@ const REQUIRED_MARKERS = [
       "does not switch finish, fasteners, vapor",
       "Do NOT SQL-gate hardwood_finish on project_type",
       "Do NOT SQL-gate surface_type on carpet_install",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0286_flooring_knowledge_hs_carpet_leftover.sql",
+    markers: [
+      "P0_0286_FLOORING_KNOWLEDGE",
+      "does not switch adhesive, moisture test, or acclimation",
+      "Do NOT SQL-gate adhesive on carpet_install",
+      "Do NOT SQL-gate carpet_install on surface_type",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
