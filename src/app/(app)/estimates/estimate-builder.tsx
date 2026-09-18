@@ -2688,6 +2688,8 @@ export function EstimateBuilder({
                             <div className="w-full space-y-2">
                               {/* Exclusive carpet-tile Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                               {/* Hard-surface Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                              {/* Exclusive carpet-tile Builder expanded LineMeasurements order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                              {/* Hard-surface Builder expanded LineMeasurements order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                               <LineMeasurements
                                 category={line.category}
                                 rows={line.measurements}
@@ -2696,6 +2698,7 @@ export function EstimateBuilder({
                                 onSqftPerBoxChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
                                 cartonLine={summ}
                                 billedQty={sQty}
+                                orderQty={lineOrderQty(summ)}
                               />
                               {/* Fallback when there are no warehouse pieces yet.
                                   Roll goods: leftover sq ft is MEASURED area, not

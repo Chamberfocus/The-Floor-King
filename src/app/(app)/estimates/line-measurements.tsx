@@ -60,6 +60,7 @@ export function LineMeasurements({
   onSqftPerBoxChange,
   cartonLine,
   billedQty,
+  orderQty,
 }: {
   category: string;
   rows: MeasureRow[];
@@ -85,6 +86,7 @@ export function LineMeasurements({
     }[] | null;
   };
   billedQty?: number;
+  orderQty?: number;
 }) {
   const isRoll = isRollGoodCategory(category);
   const isHard = isHardSurfaceCategory(category);
@@ -94,13 +96,15 @@ export function LineMeasurements({
   const addCount = rows.filter((r) => r.op === "add").length;
   // Exclusive carpet-tile Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
   // Hard-surface Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  // Exclusive carpet-tile Builder expanded LineMeasurements order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface Builder expanded LineMeasurements order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
   const cartons = hardSurfaceAreaCartonCount(
     {
       ...cartonLine,
       category,
       sqft_per_box: sqftPerBox,
     },
-    billedQty ?? 0,
+    orderQty ?? billedQty ?? 0,
   );
 
   const update = (id: string, patch: Partial<MeasureRow>) =>
