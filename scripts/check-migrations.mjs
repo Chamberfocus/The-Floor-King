@@ -257,6 +257,7 @@ const REQUIRED_FILES = [
   "0394_flooring_knowledge_estimate_office_order_pad_roll.sql",
   "0395_flooring_knowledge_builder_collapsed_order_pad_roll.sql",
   "0396_flooring_knowledge_guided_review_order_pad_roll.sql",
+  "0397_flooring_knowledge_linemeasurements_order_pad_roll.sql",
 ];
 
 /**
@@ -3177,6 +3178,19 @@ const REQUIRED_MARKERS = [
       "P0_0396_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile Guided Estimate Review order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Underlayment Guided Estimate Review order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0397_flooring_knowledge_linemeasurements_order_pad_roll.sql",
+    markers: [
+      "P0_0397_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile Builder expanded LineMeasurements order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Underlayment Builder expanded LineMeasurements order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

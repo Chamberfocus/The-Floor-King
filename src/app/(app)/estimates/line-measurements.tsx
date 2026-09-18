@@ -5,7 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { hardSurfaceAreaCartonCount, num } from "@/lib/estimate-calc";
+import { padRollCount } from "@/lib/job-scope";
 import { isRollGoodCategory, isHardSurfaceCategory } from "@/lib/types";
+import { normalizeUnit } from "@/lib/units";
 import {
   ROLL_GOODS_CUTS_EMPTY_HINT,
   ROLL_GOODS_CUTS_HEADER,
@@ -106,6 +108,10 @@ export function LineMeasurements({
     },
     orderQty ?? billedQty ?? 0,
   );
+  const unitKey = normalizeUnit(cartonLine?.unit);
+  // Exclusive carpet-tile Builder expanded LineMeasurements order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Underlayment Builder expanded LineMeasurements order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+  const padRolls = padRollCount(category, orderQty ?? billedQty ?? 0, unitKey);
 
   const update = (id: string, patch: Partial<MeasureRow>) =>
     onChange(rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -237,6 +243,13 @@ export function LineMeasurements({
               <span className="text-xs font-medium text-foreground">= {cartons} carton{cartons === 1 ? "" : "s"}</span>
             ) : null}
           </div>
+        ) : null}
+        {/* Exclusive carpet-tile Builder expanded LineMeasurements order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+        {/* Underlayment Builder expanded LineMeasurements order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+        {padRolls > 0 ? (
+          <span className="text-xs font-medium text-foreground">
+            {padRolls} roll{padRolls === 1 ? "" : "s"}
+          </span>
         ) : null}
       </div>
     </div>
