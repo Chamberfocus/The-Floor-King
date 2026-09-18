@@ -81,6 +81,7 @@ import {
   tileJobIsWallOnly,
   TILE_WALL_HIDES_KEYS,
   MERGED_CLIMATE_HIDES_KEYS,
+  MERGED_CURB_HIDES_KEYS,
   TILE_THINSET_HIDES_KEYS,
   CARPET_TILE_VAPOR_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
@@ -7348,6 +7349,87 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         }),
       ).some((w) => w.id === "climate"),
     ).toBe(false);
+  });
+
+  it("0282 leftover Placed-on-the-curb yes-no stays off the overlay; demo_disposal is SOT", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0282_flooring_knowledge_legacy_curb.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0282_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/demo_disposal is the source of truth/);
+    expect(sql).toMatch(/Do NOT SQL-gate bulk_pickup on demo_disposal/);
+    expect(sql).toMatch(/Do NOT SQL-gate demo_disposal on carpet_curb/);
+    expect(sql).toMatch(/Do NOT drop leftover carpet_curb from review SPECIAL_KEYS/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*demo_disposal.*carpet_curb|carpet_curb.*show_if.*demo_disposal/,
+    );
+    expect(sql).toMatch(/a07eb68f-91b6-4fe7-8237-bb0e9986076c/);
+    expect(sql).not.toMatch(/81a746cb-5374-46d2-b828-c7f0053b3c8f/);
+
+    expect([...MERGED_CURB_HIDES_KEYS]).toEqual(["carpet_curb"]);
+    expect(knowledgeQuestionByKey("carpet_curb")?.key).toBe("carpet_curb");
+    expect(reviewBucketForQuestion({ key: "carpet_curb" })).toBe("specials");
+    expect(knowledgeHelpFor({ key: "demo_disposal" }, emptyInstallContext())).toMatch(
+      /demo_disposal is the source of truth/,
+    );
+    expect(knowledgeHelpFor({ key: "bulk_pickup" }, emptyInstallContext())).toMatch(
+      /Placed at curb on demo_disposal/,
+    );
+
+    expect(
+      questionApplies({ key: "carpet_curb", config: {} }, { project_type: ["Carpet"] }, emptyInstallContext()),
+    ).toBe(false);
+    expect(
+      questionApplies(
+        { key: "demo_disposal", config: {} },
+        { project_type: ["Carpet"], hs_demo: ["Carpet"] },
+        emptyInstallContext(),
+      ),
+    ).toBe(true);
+
+    const stretch = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("demo_disposal");
+    expect(stretch).not.toContain("carpet_curb");
+
+    const curb = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Carpet"],
+      demo_disposal: ["Placed at curb"],
+    });
+    expect(curb).toContain("demo_disposal");
+    expect(curb).toContain("bulk_pickup");
+    expect(curb).not.toContain("carpet_curb");
+
+    const haul = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Carpet"],
+      demo_disposal: ["Haul away"],
+    });
+    expect(haul).toContain("demo_disposal");
+    expect(haul).not.toContain("bulk_pickup");
+    expect(haul).not.toContain("carpet_curb");
+
+    const lvp = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(lvp).not.toContain("carpet_curb");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(mixed).toContain("demo_disposal");
+    expect(mixed).not.toContain("carpet_curb");
   });
 
   it("pattern repeat only after pattern match is required", () => {

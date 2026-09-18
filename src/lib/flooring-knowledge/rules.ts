@@ -54,6 +54,7 @@ import {
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
   MERGED_CLIMATE_HIDES_KEYS,
+  MERGED_CURB_HIDES_KEYS,
   NEW_CONSTRUCTION_HIDES_KEYS,
   REMOVAL_QUESTION_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
@@ -489,6 +490,12 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (MERGED_CURB_HIDES_KEYS as readonly string[]).includes(q.key)
+  ) {
+    return false;
+  }
   // Attached-pad Yes → hide separate-underlayment questions.
   if (q.key === "hs_underlayment" && install.attachedPad === "yes") return false;
   if (
@@ -884,8 +891,11 @@ export function knowledgeHelpFor(
   if (key === "existing_tack") {
     return "Tearing out carpet usually takes tack strip with it. Keep is unusual. This is not new stretch-in tack strip — that stays on the install step. Linear feet stay off until you add a catalog item. Do not invent a linear-foot price.";
   }
+  if (key === "demo_disposal") {
+    return "Haul away, dumpster, or placed at curb. Placed at curb opens bulk pickup day. Leftover Placed-on-the-curb yes-no stays off the overlay — demo_disposal is the source of truth. New construction hides this. Unanswered stays open. Do not invent a dumpster fee.";
+  }
   if (key === "bulk_pickup") {
-    return "Municipal bulk pickup day so the old floor is at the curb on time. New construction hides this. Haul-away / dumpster hides this. Unanswered disposal stays open in overlay. Do not invent a disposal charge here.";
+    return "Municipal bulk pickup day so the old floor is at the curb on time. New construction hides this. Haul-away / dumpster hides this. Unanswered disposal stays open in overlay. Leftover Placed-on-the-curb yes-no is not this question — Placed at curb on demo_disposal is. Do not invent a disposal charge here.";
   }
   if (key === "work_type") {
     return "Replacement asks what's coming up. New construction hides tear-out, pad removal, existing-vinyl skim, asbestos, disposal, bulk pickup day, and toilet pull/reset — substrate, prep, appliances, and door shaves still apply. Unknown / field verify keeps demo visible. The overlay warning names those hides; do not invent a demo charge on a new slab.";

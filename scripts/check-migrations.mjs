@@ -142,6 +142,7 @@ const REQUIRED_FILES = [
   "0279_flooring_knowledge_bulk_pickup.sql",
   "0280_flooring_knowledge_wall_climate.sql",
   "0281_flooring_knowledge_legacy_climate.sql",
+  "0282_flooring_knowledge_legacy_curb.sql",
 ];
 
 /**
@@ -1749,6 +1750,18 @@ const REQUIRED_MARKERS = [
       "Do NOT SQL-gate climate_control on install_method",
       "Do NOT SQL-gate climate_control on tile_application",
       "Do NOT drop legacy Yes reading from climateControlConfirmed",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0282_flooring_knowledge_legacy_curb.sql",
+    markers: [
+      "P0_0282_FLOORING_KNOWLEDGE",
+      "demo_disposal is the source of truth",
+      "Do NOT SQL-gate bulk_pickup on demo_disposal",
+      "Do NOT SQL-gate demo_disposal on carpet_curb",
+      "Do NOT drop leftover carpet_curb from review SPECIAL_KEYS",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

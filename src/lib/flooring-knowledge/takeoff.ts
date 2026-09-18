@@ -60,6 +60,7 @@ const SPECIAL_KEYS = new Set([
   "toilets",
   "appliances",
   "doors_shave",
+  // Leftover 0142 Placed-on-the-curb yes-no. Overlay hides it; old answers still review.
   "carpet_curb",
   "occupancy",
   "access_conditions",

@@ -413,6 +413,13 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "appliances", purpose: "LABOR", phase: "details", quantityUnit: "each" },
   { key: "doors_shave", purpose: "LABOR", phase: "details", quantityUnit: "each" },
   { key: "delivery_scope", purpose: "PURCHASING", phase: "details" },
+  /**
+   * Leftover yes/no from before 0142 merged Placed on the curb into
+   * demo_disposal ("Placed at curb"). Overlay always hides it
+   * (MERGED_CURB_HIDES_KEYS). Review SPECIAL_KEYS still bucket leftover
+   * answers. bulk_pickup still waits for Placed at curb. Do not SQL-gate
+   * bulk_pickup on demo_disposal (0142).
+   */
   { key: "carpet_curb", purpose: "LABOR", phase: "details", families: ["carpet"] },
 ];
 
@@ -512,6 +519,14 @@ export const NEW_CONSTRUCTION_HIDES_KEYS = ["toilets"] as const;
  * climate_control on install_method or tile_application (0142).
  */
 export const MERGED_CLIMATE_HIDES_KEYS = ["ac_available", "heat_available"] as const;
+
+/**
+ * Leftover Placed-on-the-curb yes-no merged into demo_disposal (0142).
+ * Always hide — curb is a disposal chip, not a second yes/no. Review still
+ * buckets leftover answers as specials. Do not SQL-gate bulk_pickup on
+ * demo_disposal (0142).
+ */
+export const MERGED_CURB_HIDES_KEYS = ["carpet_curb"] as const;
 
 /**
  * Floor-only follow-ups hidden once tile_application is exclusively Wall
