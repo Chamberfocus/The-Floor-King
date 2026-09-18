@@ -281,6 +281,8 @@ export default async function JobPage({
                   ✂ Cut {spec.cut}
                 </span>
               ) : null}
+              {/* Exclusive carpet-tile job scope order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+              {/* Underlayment job scope order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
               {spec.rolls ? (
                 <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
                   {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd

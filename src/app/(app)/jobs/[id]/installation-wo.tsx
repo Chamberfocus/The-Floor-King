@@ -63,6 +63,8 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
           </div>
         ) : null}
         {spec.cut ? <div className="text-[12px] font-bold text-black">✂ {spec.cut}</div> : null}
+        {/* Exclusive carpet-tile job scope order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+        {/* Underlayment job scope order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
         {spec.rolls ? (
           <div className="text-[11px] text-gray-600">
             {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd
