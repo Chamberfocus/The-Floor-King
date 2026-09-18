@@ -10,7 +10,7 @@ import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText, padRollC
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { cutLabel, cutSqYd } from "@/lib/order-cuts";
-import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
+import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, knowledgePickDescription, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
 import {
   accessoryQuantity,
   piecesForLinearFeet,
@@ -11576,6 +11576,89 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /How many \/ Unit TBD/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0317 picking a boxed SKU with coverage takeoffs from measured area, not How many boxes", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0317_flooring_knowledge_pick_boxed_area.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0317_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Picking a boxed SKU with coverage still takeoffs from measured area — catalog unit box is not How many boxes/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "lvp",
+        productUnit: "box",
+        sqftPerBox: 23.64,
+      }),
+    ).toBe(true);
+    expect(
+      knowledgePickDescription(
+        "Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+        "Lifeproof Maple",
+        { dropTbd: true },
+      ),
+    ).toBe(
+      "Lifeproof Maple — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+    );
+    expect(
+      knowledgePickDescription(
+        "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+        "Lifeproof Maple",
+        { dropTbd: true },
+      ),
+    ).toBe("Lifeproof Maple");
+
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(/knowledgePickDescription/);
+    expect(calc).toMatch(/if \(lineIsStairWrapTbd\(line\)\) return num\(line\.quantity\)/);
+    expect(calc).toMatch(/if \(lineIsBoxedCartonTbd\(line\)\) return num\(line\.quantity\)/);
+    expect(calc).toMatch(/if \(lineIsCountNotTapedSqft\(line\)\) return num\(line\.quantity\)/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(/boxedCartonAreaTakeoffAllowed/);
+    expect(pricing).toMatch(
+      /Picking a boxed SKU with coverage still takeoffs from measured area — catalog unit box is not How many boxes/,
+    );
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/knowledgePickDescription/);
+    expect(builder).toMatch(/boxedCartonAreaTakeoffAllowed/);
+    expect(builder).toMatch(/sqft_per_box: spb/);
+    expect(builder).toMatch(/dropTbd: boxedArea && !wrap/);
+    expect(builder).toMatch(/lineIsStairWrapTbd/);
+    expect(builder).toMatch(/flooringAreaUi/);
+    expect(builder).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Picking a boxed SKU with coverage still takeoffs from measured area — catalog unit box is not How many boxes/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Picking a wrap SKU keeps How many/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

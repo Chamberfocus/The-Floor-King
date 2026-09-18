@@ -22,6 +22,7 @@ import {
   marginPct,
   lineCost,
   optionCostTotals,
+  knowledgePickDescription,
   num,
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
@@ -56,7 +57,7 @@ import {
   unitLabel,
   UNIT_OPTIONS,
 } from "@/lib/units";
-import { catalogLineSnapshot, PRICE_NEEDED } from "@/lib/catalog-pricing";
+import { catalogLineSnapshot, catalogToLineMeasure, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import {
   bagsNeeded,
   coverageAt,
@@ -69,6 +70,7 @@ import {
   computeMaterialTakeoff,
   cutWidthChoicesFt,
   familyFromCatalogCategory,
+  boxedCartonAreaTakeoffAllowed,
   formatEquivalentSqyd,
   builderAreaFallbackLabel,
   ROLL_GOODS_CUTS_MISSING_CAPTION,
@@ -1271,13 +1273,9 @@ export function EstimateBuilder({
       targetMarginPct: num(overallMargin),
       freightMarkupPct: org?.freight_markup_pct ?? 0,
     });
-    const count = snap.count;
-    const measure_unit: MeasureUnit = snap.measureUnit;
-    const lineUnit = snap.lineUnit;
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
     // Prep goods (self-leveler / patch) carry coverage → the bag calculator
     // sizes the quantity from area + thickness instead of a plain count.
-    const prep = count && hasCoverage(p.coverage_sqft);
 
     setOptions((prev) =>
       prev.map((o, i) =>
@@ -1286,6 +1284,22 @@ export function EstimateBuilder({
               ...o,
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
+                const wrap = lineIsStairWrapTbd(l);
+                const boxedArea = boxedCartonAreaTakeoffAllowed({
+                  family: familyFromCatalogCategory(p.category ?? l.category),
+                  productUnit: p.unit,
+                  sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
+                });
+                // Wrap extras stay How many even when the wrap SKU has carton coverage.
+                let count = wrap ? true : snap.count;
+                let lineUnit = snap.lineUnit;
+                const measure_unit: MeasureUnit = snap.measureUnit;
+                if (wrap) {
+                  lineUnit = isAreaUnit(p.unit) ? "" : p.unit;
+                }
+                const prep = count && hasCoverage(p.coverage_sqft);
+                const spb =
+                  Number(p.sqft_per_box) > 0 ? String(p.sqft_per_box) : "";
                 const base: LineState = {
                   ...l,
                   product_id: p.id,
@@ -1320,6 +1334,7 @@ export function EstimateBuilder({
                   item_no: p.sku ?? "",
                   measure_unit,
                   unit: lineUnit,
+                  sqft_per_box: spb,
                   // Snapshot the product's coverage so the estimate's bag math is
                   // stable; seed the pour thickness to the reference thickness.
                   coverage_sqft: prep ? String(p.coverage_sqft) : "",
@@ -1359,13 +1374,15 @@ export function EstimateBuilder({
                    * A room prefix the estimator typed is kept — "Living room —
                    * Dreamweaver" becomes "Living room — <new product>" — because
                    * that part is about the space, not the product.
+                   *
+                   * Picking a product keeps wrap / carton-coverage TBD / qty TBD
+                   * stamps so leftover taped sq ft cannot reopen those orders.
+                   * Coverage on a boxed SKU drops the TBD stamp and takeoffs from
+                   * measured area — catalog unit box is not How many boxes.
                    */
-                  description: (() => {
-                    const prev = l.description?.trim() ?? "";
-                    if (!prev) return p.name;
-                    const sep = prev.indexOf(" — ");
-                    return sep > 0 ? `${prev.slice(0, sep)} — ${p.name}` : p.name;
-                  })(),
+                  description: knowledgePickDescription(l.description, p.name, {
+                    dropTbd: boxedArea && !wrap,
+                  }),
                 };
                 // Clearance sell is stored on the product; don't re-markup it.
                 if (p.clearance && Number(p.clearance_price) > 0) return base;
@@ -1385,11 +1402,13 @@ export function EstimateBuilder({
   // "Use once": a trim / product typed in the picker that isn't in the catalog,
   // dropped onto THIS estimate line only (no product_id, nothing saved).
   const useOnceProduct = (oi: number, li: number, input: CustomProductInput) => {
-    const catUnit = normalizeUnit(input.unit);
-    const count = !isAreaUnit(input.unit);
-    const measure_unit: MeasureUnit = catUnit === "sqyd" ? "sqyd" : "sqft";
+    const specBox = num(input.specs?.sqft_per_box);
+    const snap = catalogToLineMeasure({
+      unit: input.unit,
+      category: input.category,
+      sqft_per_box: specBox > 0 ? specBox : null,
+    });
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
-    const prep = count && hasCoverage(input.coverage_sqft);
     setOptions((prev) =>
       prev.map((o, i) =>
         i === oi
@@ -1397,6 +1416,19 @@ export function EstimateBuilder({
               ...o,
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
+                const wrap = lineIsStairWrapTbd(l);
+                const boxedArea = boxedCartonAreaTakeoffAllowed({
+                  family: familyFromCatalogCategory(input.category || l.category),
+                  productUnit: input.unit,
+                  sqftPerBox: specBox > 0 ? specBox : null,
+                });
+                let count = wrap ? true : snap.count;
+                let lineUnit = snap.lineUnit;
+                if (wrap) {
+                  lineUnit = isAreaUnit(input.unit) ? "" : input.unit;
+                }
+                const measure_unit: MeasureUnit = snap.measureUnit;
+                const prep = count && hasCoverage(input.coverage_sqft);
                 const base: LineState = {
                   ...l,
                   product_id: "",
@@ -1407,8 +1439,9 @@ export function EstimateBuilder({
                   style: input.style || l.style,
                   color: input.color || l.color,
                   item_no: input.sku || l.item_no,
-                  unit: input.unit || l.unit,
+                  unit: lineUnit ?? "",
                   measure_unit,
+                  sqft_per_box: specBox > 0 ? String(specBox) : "",
                   coverage_sqft: prep ? String(num(input.coverage_sqft)) : "",
                   coverage_thickness_in: prep && input.coverage_thickness_in ? String(num(input.coverage_thickness_in)) : "",
                   prep_thickness_in: prep && input.coverage_thickness_in ? String(num(input.coverage_thickness_in)) : "",
@@ -1419,7 +1452,9 @@ export function EstimateBuilder({
                   ...(count && !prep
                     ? { sqft: "", len_ft: "", len_in: "", wid_ft: "", wid_in: "" }
                     : {}),
-                  description: input.name || l.description,
+                  description: knowledgePickDescription(l.description, input.name, {
+                    dropTbd: boxedArea && !wrap,
+                  }),
                 };
                 return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin)), org?.freight_markup_pct ?? 0) };
               }),

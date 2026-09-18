@@ -110,6 +110,34 @@ export function lineIsCountNotTapedSqft(line: { description?: string | null }): 
 }
 
 /**
+ * Keep Guided Estimate identity stamps when a catalog product is picked.
+ * Wrap / carton-coverage TBD / qty TBD stay How many until coverage exists
+ * on a non-wrap flooring SKU. Room prefixes stay on ordinary area lines.
+ */
+export function knowledgePickDescription(
+  prev: string,
+  nextName: string,
+  opts?: { dropTbd?: boolean },
+): string {
+  const name = (nextName ?? "").trim() || "Flooring";
+  const d = (prev ?? "").trim();
+  const wrap = lineIsStairWrapTbd({ description: d });
+  const tbd =
+    lineIsBoxedCartonTbd({ description: d }) || lineIsCountNotTapedSqft({ description: d });
+  if (wrap || (tbd && !opts?.dropTbd)) {
+    const sep = d.indexOf(" — ");
+    return sep > 0 ? `${name}${d.slice(sep)}` : d ? `${name} — ${d}` : name;
+  }
+  if (opts?.dropTbd && tbd) {
+    // Prefix before the TBD stamp is the old SKU name, not a room.
+    return name;
+  }
+  if (!d) return name;
+  const sep = d.indexOf(" — ");
+  return sep > 0 ? `${d.slice(0, sep)} — ${name}` : name;
+}
+
+/**
  * Warehouse pieces that make a roll-goods ORDER. Taped room square feet are
  * measured area, not these.
  */

@@ -199,6 +199,21 @@ describe("unit conversion does not corrupt price", () => {
     expect(catalogToLineMeasure(p).factor).toBe(1);
     expect(catalogCostInLineUnit(p).amount).toBe(45.62);
   });
+
+  it("boxed LVP with coverage takeoffs as area, not How many boxes", () => {
+    const p = product({
+      category: "lvp",
+      unit: "box",
+      sqft_per_box: 23.64,
+      material_rate: 45.62,
+    });
+    const conv = catalogToLineMeasure(p);
+    expect(conv.count).toBe(false);
+    expect(conv.lineUnit).toBe("sq ft");
+    expect(conv.factor).toBe(1);
+    expect(catalogToLineMeasure({ ...p, sqft_per_box: null }).count).toBe(true);
+    expect(catalogToLineMeasure({ ...p, category: "other" }).count).toBe(true);
+  });
 });
 
 describe("ACL / price privacy", () => {

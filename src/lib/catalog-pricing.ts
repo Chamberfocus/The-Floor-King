@@ -20,6 +20,10 @@ import { marginPct, priceFromMargin } from "@/lib/estimate-calc";
 import { sellMaterialFromTargetMargin } from "@/lib/estimate-pricing";
 import { catalogUnitFactor, isAreaUnit, normalizeUnit } from "@/lib/units";
 import { isRollGoodCategory } from "@/lib/types";
+import {
+  boxedCartonAreaTakeoffAllowed,
+  familyFromCatalogCategory,
+} from "@/lib/flooring-knowledge";
 import type { Product, ProductVendor, UserRole } from "@/lib/types";
 
 export const PRICE_NEEDED = "PRICE NEEDED";
@@ -215,6 +219,7 @@ export function roleMaySeeCatalogMargin(role: UserRole | null | undefined): bool
 export function catalogToLineMeasure(product: {
   unit?: string | null;
   category?: string | null;
+  sqft_per_box?: number | string | null;
 }): {
   count: boolean;
   measureUnit: "sqft" | "sqyd";
@@ -222,7 +227,13 @@ export function catalogToLineMeasure(product: {
   lineUnit: string;
 } {
   const catUnit = normalizeUnit(product.unit);
-  const count = !isAreaUnit(product.unit);
+  // Picking a boxed SKU with coverage still takeoffs from measured area — catalog unit box is not How many boxes.
+  const boxedArea = boxedCartonAreaTakeoffAllowed({
+    family: familyFromCatalogCategory(product.category ?? "other"),
+    productUnit: product.unit,
+    sqftPerBox: Number(product.sqft_per_box) > 0 ? Number(product.sqft_per_box) : null,
+  });
+  const count = boxedArea ? false : !isAreaUnit(product.unit);
   const measureUnit: "sqft" | "sqyd" = isRollGoodCategory(product.category)
     ? "sqyd"
     : catUnit === "sqyd"

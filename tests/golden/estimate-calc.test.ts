@@ -20,6 +20,7 @@ import {
   lineIsStairWrapTbd,
   lineIsBoxedCartonTbd,
   lineIsCountNotTapedSqft,
+  knowledgePickDescription,
   lineTotal,
   marginPct,
   markupPct,
@@ -296,6 +297,33 @@ describe("lineQty — unit kind rules", () => {
     };
     expect(lineIsStairWrapTbd(wrapCounted)).toBe(true);
     expect(lineQty(wrapCounted)).toBe(4);
+  });
+
+  it("keeps wrap / qty TBD stamps when picking a product", () => {
+    expect(
+      knowledgePickDescription(
+        "Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+        "Lifeproof Maple",
+      ),
+    ).toBe(
+      "Lifeproof Maple — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+    );
+    expect(
+      knowledgePickDescription(
+        "Lifeproof Oak — qty TBD (unit TBD — not taped sq ft)",
+        "Lifeproof Maple",
+      ),
+    ).toBe("Lifeproof Maple — qty TBD (unit TBD — not taped sq ft)");
+    expect(
+      knowledgePickDescription(
+        "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+        "Lifeproof Maple",
+        { dropTbd: true },
+      ),
+    ).toBe("Lifeproof Maple");
+    expect(
+      knowledgePickDescription("Living room — Dreamweaver", "Coretec Oak"),
+    ).toBe("Living room — Coretec Oak");
   });
 
   it("prices count units from quantity and ignores sqft (old $33,600 bug)", () => {
