@@ -46,7 +46,7 @@ import {
   questionnaireEmitToLineQty,
   smartLineToCalcLine,
 } from "@/lib/questionnaire-emit";
-import { lineTotal, hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
+import { lineTotal, lineOrderQty, hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
 import { bagsNeeded, selfLevelPourThicknessIn, thicknessLabel } from "@/lib/floor-prep";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { isRollGoodCategory } from "@/lib/types";
@@ -3291,7 +3291,12 @@ export function Questionnaire({
                     !(l.measurements && l.measurements.length);
                   // Exclusive carpet-tile Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                   // Hard-surface Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
-                  const cartons = hardSurfaceAreaCartonCount(l, Number(l.quantity) || 0);
+                  // Exclusive carpet-tile Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  const cartons = hardSurfaceAreaCartonCount(
+                    l,
+                    lineOrderQty(smartLineToCalcLine(l)),
+                  );
                   return (
                   <div key={i} className="flex items-center justify-between gap-3 py-1.5">
                     <span className="min-w-0">
@@ -3304,6 +3309,8 @@ export function Questionnaire({
                             }${l.waste_pct ? ` · ${l.waste_pct}% waste` : ""}`}
                         {/* Exclusive carpet-tile Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                         {/* Hard-surface Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                        {/* Exclusive carpet-tile Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                        {/* Hard-surface Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                         {!rollOrderTbd && cartons ? ` · 📦 ${cartons} carton(s)` : ""}
                         {l.from_stock ? " · from stock" : ""}
                         {l.category === "labor" ? " · labor" : ""}
