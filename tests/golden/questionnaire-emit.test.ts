@@ -272,6 +272,30 @@ describe("reload hydration recovers Amount stored only on quantity", () => {
       }),
     ).toBe("");
   });
+
+  it("does not plant wrap How many as taped sq ft when unit is empty", () => {
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: null,
+        quantity: 8,
+        description:
+          "Lifeproof Oak — 8 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+      }),
+    ).toBe("");
+  });
+
+  it("does not keep leftover taped sq ft on carton-coverage TBD", () => {
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: 300,
+        quantity: 10,
+        description:
+          "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+      }),
+    ).toBe("");
+  });
 });
 
 describe("PRICE NEEDED / product path is not this mapper", () => {

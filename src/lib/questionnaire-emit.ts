@@ -9,7 +9,7 @@
  * wipe the value.
  */
 import { isAreaUnit, normalizeUnit, unitLabel } from "@/lib/units";
-import type { CalcLine } from "@/lib/estimate-calc";
+import { lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -103,7 +103,12 @@ export function recoverAreaSqftFromQuantity(args: {
   unit: string | null | undefined;
   sqft: number | string | null | undefined;
   quantity: number | string | null | undefined;
+  description?: string | null;
 }): string {
+  // Builder hydrate does not plant How many as taped sq ft on wrap / carton-coverage TBD / qty TBD — leftover quantity is not measured area.
+  if (lineSkipsAreaCartonMath({ description: args.description, unit: args.unit })) {
+    return "";
+  }
   const existing =
     args.sqft != null && args.sqft !== "" ? String(args.sqft) : "";
   const existingN = parseFloat(existing);

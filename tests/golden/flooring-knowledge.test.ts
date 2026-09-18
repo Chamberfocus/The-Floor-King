@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { companionQty, defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText, padRollCount } from "@/lib/job-scope";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
+import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
 import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { cutLabel, cutSqYd } from "@/lib/order-cuts";
 import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, knowledgePickDescription, rollGoodsLineHasCuts, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
@@ -11768,6 +11769,80 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /PO \/ warehouse \/ work-order carton math from sq ft ÷ coverage does not apply to wrap \/ carton-coverage TBD \/ qty TBD How many — those are already the order, not taped square feet/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0319 Builder hydrate does not plant How many as taped sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0319_flooring_knowledge_hydrate_count_sqft.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0319_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Builder hydrate does not plant How many as taped sq ft on wrap \/ carton-coverage TBD \/ qty TBD — leftover quantity is not measured area/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: null,
+        quantity: 8,
+        description:
+          "Lifeproof Oak — 8 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+      }),
+    ).toBe("");
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "sq ft",
+        sqft: 300,
+        quantity: 8,
+        description:
+          "Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+      }),
+    ).toBe("");
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "sq ft",
+        sqft: null,
+        quantity: 250,
+        description: "Living room — Lifeproof Oak",
+      }),
+    ).toBe("250");
+
+    const emit = readFileSync(join(root, "src/lib/questionnaire-emit.ts"), "utf8");
+    expect(emit).toMatch(/lineSkipsAreaCartonMath/);
+    expect(emit).toMatch(
+      /Builder hydrate does not plant How many as taped sq ft on wrap \/ carton-coverage TBD \/ qty TBD — leftover quantity is not measured area/,
+    );
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/const identity = lineSkipsAreaCartonMath/);
+    expect(builder).toMatch(/if \(lineSkipsAreaCartonMath\(l\)\) return l/);
+    expect(builder).toMatch(/description: desc/);
+    expect(builder).not.toMatch(/companionQty/);
+    expect(builder).not.toMatch(/padRollCount/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Builder hydrate does not plant How many as taped sq ft on wrap \/ carton-coverage TBD \/ qty TBD — leftover quantity is not measured area/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Builder hydrate does not plant How many as taped sq ft on wrap \/ carton-coverage TBD \/ qty TBD — leftover quantity is not measured area/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

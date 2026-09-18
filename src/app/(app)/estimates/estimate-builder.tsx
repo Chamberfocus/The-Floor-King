@@ -23,6 +23,7 @@ import {
   lineCost,
   optionCostTotals,
   knowledgePickDescription,
+  lineSkipsAreaCartonMath,
   num,
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
@@ -543,13 +544,17 @@ export function EstimateBuilder({
                 wid_in: inToIn(widIn),
               }]
             : [];
-        const sqftStr = measurements.length
-          ? String(rowsSqft(measurements))
-          : recoverAreaSqftFromQuantity({
-              unit: l.unit,
-              sqft: l.sqft,
-              quantity: l.quantity,
-            });
+        const identity = lineSkipsAreaCartonMath({ description: desc, unit: l.unit });
+        const sqftStr = identity
+          ? ""
+          : measurements.length
+            ? String(rowsSqft(measurements))
+            : recoverAreaSqftFromQuantity({
+                unit: l.unit,
+                sqft: l.sqft,
+                quantity: l.quantity,
+                description: desc,
+              });
         return {
         key: newKey(),
         id: l.id,
@@ -843,6 +848,9 @@ export function EstimateBuilder({
                   };
                 }
                 if (isAreaUnit(unitValue)) {
+                  // Wrap / carton TBD / qty TBD stay How many — switching to
+                  // sq ft would reopen leftover taped square feet as the order.
+                  if (lineSkipsAreaCartonMath(l)) return l;
                   // → area: let the measured area drive the quantity again.
                   return {
                     ...l,
