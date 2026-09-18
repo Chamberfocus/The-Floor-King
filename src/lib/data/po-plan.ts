@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { lineQty, lineOrderQty } from "@/lib/estimate-calc";
+import { hardSurfaceAreaCartonCount, lineQty, lineOrderQty } from "@/lib/estimate-calc";
 import { lineUnitKey } from "@/lib/units";
 import { isMaterialLine } from "@/lib/job-scope";
 import {
@@ -22,6 +22,7 @@ export interface OrderPlanLine {
   lineTotal: number;
   fromStock: boolean;
   category: string | null;
+  cartons: number;
 }
 
 /** A company that will receive one PO (the lines it carries). */
@@ -159,6 +160,30 @@ export async function getEstimateOrderPlan(
     // customer is billed for or the crew turns up short.
     const qty = Math.round(lineOrderQty(l) * 100) / 100;
     const unitCost = costOf(l);
+    const catalog = l.product_id ? productCatalog.get(l.product_id) : null;
+    const sqft_per_box =
+      Number(catalog?.sqft_per_box) > 0 ? catalog!.sqft_per_box : l.sqft_per_box;
+    const roll_width_ft =
+      Number(catalog?.roll_width_ft) > 0 ? catalog!.roll_width_ft : l.roll_width_ft;
+    // Exclusive carpet-tile estimate order carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface estimate order carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+    const cartons = hardSurfaceAreaCartonCount(
+      {
+        description: l.description,
+        category: catalog?.category ?? l.category,
+        unit: l.unit,
+        measure_unit: l.measure_unit,
+        sqft: l.sqft,
+        quantity: qty,
+        sqft_per_box,
+        roll_width_ft,
+        order_as_roll: l.order_as_roll,
+        length_in: l.length_in,
+        width_in: l.width_in,
+        measurements: l.measurements,
+      },
+      qty,
+    );
     return {
       lineId: l.id,
       description: nameOf(l),
@@ -169,6 +194,7 @@ export async function getEstimateOrderPlan(
       lineTotal: Math.round(qty * unitCost * 100) / 100,
       fromStock: !!l.from_stock,
       category: l.category ?? null,
+      cartons,
     };
   };
 
