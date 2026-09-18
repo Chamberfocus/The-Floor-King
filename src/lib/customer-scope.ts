@@ -87,6 +87,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print strip leftover parenthetical count How many — those stay in stored job_description so the crew still sees pad rolls. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  * Customer / portal / print strip leftover em-dash parenthetical How many — those stay in stored job_description so the crew still sees pad rolls and room sizes. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  * Customer / portal / print strip leftover leading count How many — those stay in stored job_description so the crew still sees pad rolls. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ * Customer / portal / print strip leftover leading dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  */
 const CREW_QTY_UNIT =
   "(?:rolls?|lnft|l\\.?f\\.?|each|ea|gal(?:lons?)?|kits?|box(?:es)?|bags?|sheets?|ft|inches|inch|in|sqft|sqyd|yards?|yds?|cartons?|pcs?|pieces?|steps?)";
@@ -112,6 +113,25 @@ const CREW_FT_DIM =
   String.raw`\d+(?:\.\d+)?(?:\s*'\s*\d+(?:\.\d+)?["″]?|\s*'|\s+(?:ft|in|inch|inches)\b)`;
 /** Complete leftover room / cut pair (`12' × 14'`). Not a catalog `12'` / `Shaw (12')`. */
 const CREW_DIM_PAIR = CREW_FT_DIM + String.raw`\s*[×x]\s*` + CREW_FT_DIM;
+/** Leading How many (`12' × 14' Living room`). Not a catalog `12' Shaw`. */
+const CREW_LEADING_DIM = new RegExp(
+  String.raw`^(?:\(\s*` +
+    CREW_DIM_PAIR +
+    String.raw`\s*\)|` +
+    CREW_DIM_PAIR +
+    String.raw`)\s*(?:[—–-]\s*)?(?=\S)`,
+  "i",
+);
+
+function stripCrewLeadingDimensionHowMany(raw: string): string {
+  const next = raw.replace(CREW_LEADING_DIM, "").trim();
+  return next || raw;
+}
+
+function stripCrewLeadingHowMany(raw: string): string {
+  return stripCrewLeadingDimensionHowMany(stripCrewLeadingCountHowMany(raw));
+}
+
 const CREW_PAREN_DIM_TAIL =
   String.raw`\s*(?:[—–-]\s*)?\(\s*` + CREW_DIM_PAIR + String.raw`\s*\)\s*$`;
 const CREW_CUTS_DIM_TAIL = String.raw`cuts:\s*` + CREW_DIM_PAIR + String.raw`\s*$`;
@@ -166,7 +186,7 @@ function stripPrepConfidenceSuffix(raw: string): string {
 export function stripCrewIdentityFromCustomerLabel(raw: string): string {
   const s = (raw ?? "").trim();
   if (!s) return s;
-  const core = stripCrewLeadingCountHowMany(s);
+  const core = stripCrewLeadingHowMany(s);
   if (
     !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD|\d+\s+steps?\b|[—–-]\s*(?:cuts:|\(|\d+(?:\.\d+)?(?:["'″%]|\s*'|\s+(?:ft|in|inch|inches)\b|\s+[A-Za-z]))|\(\s*\d+/i.test(
       core,
@@ -343,7 +363,7 @@ export function customerFacingJobNotes(text: string | null | undefined): string 
       if (isCrewReviewSectionHeader(trimmed)) return "";
       const body = stripCrewIdentityFromCustomerLabel(raw);
       if (!body || isCrewOnlyCustomerText(body)) return "";
-      const shown = stripCrewLeadingCountHowMany(stripCrewReviewBucketPrefix(body));
+      const shown = stripCrewLeadingHowMany(stripCrewReviewBucketPrefix(body));
       if (!shown || isCrewReviewSectionHeader(shown) || isCrewOnlyCustomerText(shown))
         return "";
       return `${indent}${shown}`;
@@ -366,7 +386,7 @@ export function customerFacingLineNote(raw: string | null | undefined): string {
   ) {
     return "";
   }
-  const shown = stripCrewLeadingCountHowMany(stripCrewReviewBucketPrefix(stripped));
+  const shown = stripCrewLeadingHowMany(stripCrewReviewBucketPrefix(stripped));
   if (!shown || isCrewOnlyCustomerText(shown)) return "";
   return shown;
 }
@@ -378,7 +398,7 @@ export function customerFacingLineNote(raw: string | null | undefined): string {
  * everywhere.
  */
 export function customerLineLabel(l: EstimateLineItem): string {
-  let desc = stripCrewLeadingCountHowMany(
+  let desc = stripCrewLeadingHowMany(
     stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel((l.description ?? "").trim())),
   );
   if (desc && isCrewOnlyCustomerText(desc)) desc = "";
@@ -392,7 +412,7 @@ export function customerLineLabel(l: EstimateLineItem): string {
 
 /** A labor / prep line described as work performed — no hours, no area. */
 function workItem(l: EstimateLineItem): ScopeItem {
-  let desc = stripCrewLeadingCountHowMany(
+  let desc = stripCrewLeadingHowMany(
     stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel((l.description ?? "").trim())),
   );
   if (desc && isCrewOnlyCustomerText(desc)) desc = "";
@@ -410,7 +430,7 @@ function splitRoom(room: ScopeRoom): CustomerRoom {
   }
   for (const l of room.labor) included.push(workItem(l));
   for (const prep of room.prep) {
-    const title = stripCrewLeadingCountHowMany(
+    const title = stripCrewLeadingHowMany(
       stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel(prep)),
     );
     if (!title || isCrewOnlyCustomerText(title))
@@ -447,7 +467,7 @@ export function buildCustomerScope(
     },
     conditions: scope.conditions
       .map((c) =>
-        stripCrewLeadingCountHowMany(
+        stripCrewLeadingHowMany(
           stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel(c)),
         ),
       )
@@ -511,7 +531,7 @@ export function parseProjectDetails(
       continue;
     }
     if (!cleaned || isGuidedTakeoffMathLine(cleaned)) continue;
-    const shown = stripCrewLeadingCountHowMany(stripCrewReviewBucketPrefix(cleaned));
+    const shown = stripCrewLeadingHowMany(stripCrewReviewBucketPrefix(cleaned));
     if (shown && (isCrewPrepConfidenceLine(shown) || isCrewStairStepHowManyLine(shown) || isCrewLabeledCountHowManyLine(shown) || isCrewUnlabeledCountHowManyLine(shown) || isCrewDimensionHowManyLine(shown))) {
       flags.push(shown);
       continue;
