@@ -4660,20 +4660,32 @@ function QuestionBody({
                 cat === "underlayment") ? (
               <p className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_TBD_HINT}</p>
             ) : q.key === "carpet_pad" || q.key === "hs_underlayment" || cat === "underlayment" ? (
-              coverSf > 0 ? (
+              coverSf > 0 ? (() => {
+                const padTakeoff = computeMaterialTakeoff({
+                  family,
+                  measuredSqft: coverSf,
+                  wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : 0,
+                  sqftPerBox: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                  billingUnit: b.measureUnit,
+                  takeoffLabel: padFoamTakeoffLabel({ key: q.key, category: cat }),
+                });
+                // Exclusive carpet-tile Guided Estimate pad takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                // Underlayment Guided Estimate pad takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+                const padTakeoffRolls = padRollCount("underlayment", padTakeoff.billingQty, padTakeoff.billingUnit);
+                return (
                 <p className="text-sm">
-                  {formatTakeoffStrip(
-                    computeMaterialTakeoff({
-                      family,
-                      measuredSqft: coverSf,
-                      wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : 0,
-                      sqftPerBox: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
-                      billingUnit: b.measureUnit,
-                      takeoffLabel: padFoamTakeoffLabel({ key: q.key, category: cat }),
-                    }),
-                  )}
+                  {formatTakeoffStrip(padTakeoff)}
+                  {padTakeoffRolls ? (
+                    <>
+                      {" · "}
+                      <span className="font-medium tabular-nums">
+                        = {padTakeoffRolls} roll{padTakeoffRolls === 1 ? "" : "s"}
+                      </span>
+                    </>
+                  ) : null}
                 </p>
-              ) : mixedUnassigned ? (
+                );
+              })() : mixedUnassigned ? (
                 <p className="text-xs text-muted-foreground">
                   Assign rooms on the floor map. Mixed jobs do not clone whole-job sq ft onto pad or foam.
                 </p>
