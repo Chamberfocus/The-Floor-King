@@ -250,6 +250,7 @@ const REQUIRED_FILES = [
   "0387_flooring_knowledge_wo_editor_order_carton.sql",
   "0388_flooring_knowledge_job_scope_order_pad_roll.sql",
   "0389_flooring_knowledge_warehouse_queue_order_pad_roll.sql",
+  "0390_flooring_knowledge_job_materials_order_pad_roll.sql",
 ];
 
 /**
@@ -3079,6 +3080,19 @@ const REQUIRED_MARKERS = [
       "P0_0389_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile warehouse queue order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Underlayment warehouse queue order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0390_flooring_knowledge_job_materials_order_pad_roll.sql",
+    markers: [
+      "P0_0390_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile job materials order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Underlayment job materials order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
