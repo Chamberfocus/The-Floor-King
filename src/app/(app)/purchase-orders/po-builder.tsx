@@ -22,8 +22,9 @@ import {
 import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
-import { catalogUnitCost } from "@/lib/catalog-pricing";
+import { catalogUnitCost, catalogRateInLineUnit } from "@/lib/catalog-pricing";
 import { knowledgePickDescription, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
+import { poCarpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
 import { catalogRateToBillingUnit, isAreaUnit, pickedProductUnit } from "@/lib/units";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
@@ -196,9 +197,33 @@ export function PoBuilder({
   // catalog's own unit and the catalog basis is shown on the line for verifying.
   // Convert a catalog-unit cost into the PO's ordering unit (same rules the
   // price used) — shared so a vendor's cost converts identically.
-  const convertCost = (p: Product, base: number): { unit: string; unitCost: number } => {
+  const convertCost = (
+    p: Product,
+    base: number,
+    line?: ItemState,
+  ): { unit: string; unitCost: number } => {
     const cls = materialClass(p.category);
-    if (cls === "roll") return { unit: "sq yd", unitCost: catalogRateToBillingUnit(base, p.unit, true) };
+    // Exclusive carpet-tile PO boxed rate onto that area line is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    const carpetInstallSystems = poCarpetInstallSystemsForBoxedRate({
+      category: p.category,
+      roll_width_ft: Number(p.roll_width_ft) > 0 ? p.roll_width_ft : line?.roll_width_ft,
+      quantity: line?.quantity,
+    });
+    if (cls === "roll") {
+      return {
+        unit: "sq yd",
+        unitCost: catalogRateInLineUnit(
+          base,
+          {
+            unit: p.unit,
+            category: p.category,
+            sqft_per_box: p.sqft_per_box,
+            carpetInstallSystems,
+          },
+          true,
+        ),
+      };
+    }
     if (cls === "hard") return { unit: "sq ft", unitCost: catalogRateToBillingUnit(base, p.unit, false) };
     return { unit: pickedProductUnit(p.unit, p.category), unitCost: base };
   };
@@ -230,7 +255,7 @@ export function PoBuilder({
     });
     const base = cost.amount ?? 0;
     const skip = lineSkipsAreaCartonMath(items[i] ?? {});
-    const converted = convertCost(p, base);
+    const converted = convertCost(p, base, items[i]);
     // Wrap / carton TBD / qty TBD How many stays How many — catalog coverage
     // does not plant sq ft or reopen carton math from leftover taped sq ft.
     const unit = skip
@@ -893,7 +918,11 @@ export function PoBuilder({
                   vendors: [v],
                 });
                 const base = cost.amount ?? 0;
-                const { unit, unitCost } = convertCost(vendorChoice.product, base);
+                const { unit, unitCost } = convertCost(
+                  vendorChoice.product,
+                  base,
+                  items[vendorChoice.line],
+                );
                 return (
                   <button
                     key={v.id}
