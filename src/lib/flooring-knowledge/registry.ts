@@ -110,7 +110,10 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * Pad removal follows EXISTING carpet, not only a new-carpet job.
    * Installing carpet still asks it. LVP/hardwood/tile over carpet asks it
    * once hs_demo is Carpet. Sit after hs_demo so the follow-up is not behind
-   * the salesperson (0142).
+   * the salesperson (0142). Exclusive LVP / hardwood / ceramic / luan /
+   * sheet vinyl tear-out hides via NON_CARPET_DEMO_PAD_HIDES_KEYS — that
+   * demo is not old carpet. None / Other stay open. Unanswered stays open.
+   * Do not SQL-gate existing_pad on hs_demo (0142).
    */
   {
     key: "existing_pad",
@@ -121,7 +124,9 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   /**
    * Old tack strip follows EXISTING carpet, not only new stretch-in.
    * New stretch-in tack_strip stays on the install step. Sit after pad so
-   * the follow-up is not behind the salesperson (0142).
+   * the follow-up is not behind the salesperson (0142). Exclusive non-carpet
+   * tear-out hides via NON_CARPET_DEMO_PAD_HIDES_KEYS with existing_pad.
+   * Do not SQL-gate existing_tack on hs_demo (0142).
    */
   {
     key: "existing_tack",
@@ -828,6 +833,16 @@ export const NON_VINYL_DEMO_SKIM_HIDES_KEYS = ["vinyl_skim"] as const;
  * Do not SQL-gate hardwood_fasteners on surface_type.
  */
 export const NON_HARDWOOD_FASTENER_HIDES_KEYS = ["hardwood_fasteners"] as const;
+
+/**
+ * Existing pad / tack hidden once every demo pick names a non-carpet floor
+ * (LVP / laminate / hardwood / ceramic / luan / sheet vinyl). That tear-out
+ * is not old carpet. Carpet demo still asks. Mixed Carpet + LVP stays open.
+ * None / Other / Unknown stay open. Unanswered stays open (0142). New
+ * construction and exclusive wall already hide. Do not SQL-gate existing_pad
+ * or existing_tack on hs_demo.
+ */
+export const NON_CARPET_DEMO_PAD_HIDES_KEYS = ["existing_pad", "existing_tack"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,

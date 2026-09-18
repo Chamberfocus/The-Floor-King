@@ -63,6 +63,7 @@ import {
   LOOSE_LAY_VAPOR_HIDES_KEYS,
   NON_VINYL_DEMO_SKIM_HIDES_KEYS,
   NON_HARDWOOD_FASTENER_HIDES_KEYS,
+  NON_CARPET_DEMO_PAD_HIDES_KEYS,
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
@@ -679,6 +680,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (NON_CARPET_DEMO_PAD_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobHidesPadOnNonCarpetDemo(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -944,6 +952,34 @@ export function jobHidesFastenersOnNonHardwood(install: InstallContext): boolean
   return true;
 }
 
+function demoLabelIsCarpet(label: string): boolean {
+  const t = label.trim();
+  if (!t) return false;
+  return /^carpet$/i.test(t);
+}
+
+function demoLabelKeepsPadOpen(label: string): boolean {
+  const t = label.trim();
+  if (!t) return false;
+  if (/^(none|other)$/i.test(t)) return true;
+  if (/unknown|field verify|tbd/i.test(t)) return true;
+  return demoLabelIsCarpet(t);
+}
+
+/**
+ * Existing pad / tack on exclusive non-carpet tear-out. LVP / laminate /
+ * hardwood / ceramic / luan / sheet vinyl demo is not old carpet. Installing
+ * new carpet still asked these because families carpet kept the overlay
+ * open. Carpet demo still asks. Mixed Carpet + LVP still asks. None / Other
+ * / Unknown stay open. Unanswered stays open (0142).
+ */
+export function jobHidesPadOnNonCarpetDemo(install: InstallContext): boolean {
+  const have = install.existingFlooring.map((l) => l.trim()).filter(Boolean);
+  if (!have.length) return false;
+  if (have.some(demoLabelKeepsPadOpen)) return false;
+  return true;
+}
+
 /**
  * Slab moisture test / Aqua bar on a wood deck. Glue-down, carpet tile, a
  * moisture-concern flag, mixed LVP, unanswered method, and unanswered
@@ -1190,16 +1226,16 @@ export function knowledgeHelpFor(
     return "Prefinished vs unfinished (site finish) changes sanding, finishing, and acclimation notes. Floor King has no sand/finish labor in the catalog — capture it as scope. Field verify if the SKU is not in front of you. Do not invent a sand-and-finish dollar amount.";
   }
   if (key === "hs_demo") {
-    return "What's coming up. Exclusive wall tile hides floor demo chips (carpet / LVP / hardwood / sheet vinyl / luan) — those are not a backsplash. Ceramic with/without mortar, None, and Other stay. Mixed LVP + wall still shows floor demo. Exclusive carpet / LVP / hardwood / ceramic / luan tear-out hides existing-vinyl skim — that demo is not embossed vinyl. None still asks skim when installing sheet vinyl. Do not invent a second tear-out rate.";
+    return "What's coming up. Exclusive wall tile hides floor demo chips (carpet / LVP / hardwood / sheet vinyl / luan) — those are not a backsplash. Ceramic with/without mortar, None, and Other stay. Mixed LVP + wall still shows floor demo. Exclusive carpet / LVP / hardwood / ceramic / luan tear-out hides existing-vinyl skim — that demo is not embossed vinyl. None still asks skim when installing sheet vinyl. Exclusive LVP / hardwood / ceramic / luan / sheet vinyl tear-out hides existing pad and tack — that demo is not old carpet. Carpet demo still asks pad and tack. Mixed Carpet + LVP still asks. Do not invent a second tear-out rate.";
   }
   if (key === "existing_bond") {
     return "Glued-down LVP/laminate/vinyl is a different tear-out than floating. Scope note — existing demo rates stay. Exclusive wall tile hides this — that is floor demo.";
   }
   if (key === "existing_pad") {
-    return "Tearing out carpet — to carpet or to hard surface — usually takes the pad with it. Reuse only when the salesperson explicitly allows it. This follows the existing floor, not only a new-carpet job. Do not invent a second demo rate; the tear-out line gets a pad note.";
+    return "Tearing out carpet — to carpet or to hard surface — usually takes the pad with it. Reuse only when the salesperson explicitly allows it. This follows the existing floor, not only a new-carpet job. Exclusive LVP / hardwood / ceramic / luan / sheet vinyl tear-out hides this — that demo is not old carpet. None / Other / Unknown stay open. Mixed Carpet + LVP still asks. Unanswered stays open. Do not invent a second demo rate; the tear-out line gets a pad note.";
   }
   if (key === "existing_tack") {
-    return "Tearing out carpet usually takes tack strip with it. Keep is unusual. This is not new stretch-in tack strip — that stays on the install step. Linear feet stay off until you add a catalog item. Do not invent a linear-foot price.";
+    return "Tearing out carpet usually takes tack strip with it. Keep is unusual. This is not new stretch-in tack strip — that stays on the install step. Exclusive LVP / hardwood / ceramic / luan / sheet vinyl tear-out hides this with existing pad — that demo is not old carpet. None / Other / Unknown stay open. Mixed Carpet + LVP still asks. Unanswered stays open. Linear feet stay off until you add a catalog item. Do not invent a linear-foot price.";
   }
   if (key === "demo_disposal") {
     return "Haul away, dumpster, or placed at curb. Placed at curb opens bulk pickup day. Leftover Placed-on-the-curb yes-no stays off the overlay — demo_disposal is the source of truth. New construction hides this. Unanswered stays open. Do not invent a dumpster fee.";

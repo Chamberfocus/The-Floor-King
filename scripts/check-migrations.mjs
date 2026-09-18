@@ -161,6 +161,7 @@ const REQUIRED_FILES = [
   "0298_flooring_knowledge_non_vinyl_skim.sql",
   "0299_flooring_knowledge_illegal_leftover.sql",
   "0300_flooring_knowledge_lvp_fasteners.sql",
+  "0301_flooring_knowledge_non_carpet_pad.sql",
 ];
 
 /**
@@ -1968,6 +1969,17 @@ const REQUIRED_MARKERS = [
       "P0_0300_FLOORING_KNOWLEDGE",
       "leftover Nail-down on LVP does not reopen",
       "Do NOT SQL-gate hardwood_fasteners on surface_type",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0301_flooring_knowledge_non_carpet_pad.sql",
+    markers: [
+      "P0_0301_FLOORING_KNOWLEDGE",
+      "that demo is not old carpet",
+      "Do NOT SQL-gate existing_pad on hs_demo",
+      "Do NOT SQL-gate existing_tack on hs_demo",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

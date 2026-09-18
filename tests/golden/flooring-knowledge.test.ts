@@ -101,6 +101,7 @@ import {
   LOOSE_LAY_VAPOR_HIDES_KEYS,
   NON_VINYL_DEMO_SKIM_HIDES_KEYS,
   NON_HARDWOOD_FASTENER_HIDES_KEYS,
+  NON_CARPET_DEMO_PAD_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
@@ -126,6 +127,7 @@ import {
   jobHidesVaporOnLooseLay,
   jobHidesVinylSkimOnNonVinylDemo,
   jobHidesFastenersOnNonHardwood,
+  jobHidesPadOnNonCarpetDemo,
   labelsAreWoodDeckOnly,
   labelsAreExistingFlooringOnly,
   jobAllowsFloatingVaporUnderlayment,
@@ -9801,6 +9803,202 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     expect(knowledgeHelpFor({ key: "hardwood_fasteners" }, emptyInstallContext())).toMatch(
       /Exclusive LVP \/ laminate \/ vinyl \/ tile hide this/,
+    );
+  });
+
+  it("0301 exclusive non-carpet demo hides existing pad and tack", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0301_flooring_knowledge_non_carpet_pad.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0301_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/that demo is not old carpet/);
+    expect(sql).toMatch(/Do NOT SQL-gate existing_pad on hs_demo/);
+    expect(sql).toMatch(/Do NOT SQL-gate existing_tack on hs_demo/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*hs_demo.*existing_pad|existing_pad.*show_if.*hs_demo/);
+    expect(sql).not.toMatch(/show_if.*hs_demo.*existing_tack|existing_tack.*show_if.*hs_demo/);
+
+    expect([...NON_CARPET_DEMO_PAD_HIDES_KEYS]).toEqual(["existing_pad", "existing_tack"]);
+
+    const liveCarpetShowIf = {
+      show_if: {
+        any: [
+          { key: "project_type", in: ["Carpet"] },
+          { key: "hs_demo", in: ["Carpet"] },
+        ],
+      },
+      knowledge_when: {
+        any: [{ families: ["carpet"] }, { demo: ["Carpet"] }],
+        purpose: "LABOR" as const,
+      },
+    };
+    expect(
+      questionApplies(
+        { key: "existing_pad", config: liveCarpetShowIf },
+        { project_type: ["Carpet"], carpet_install: ["Stretch-in"], hs_demo: ["LVP"] },
+      ),
+    ).toBe(false);
+    expect(
+      questionApplies(
+        { key: "existing_tack", config: liveCarpetShowIf },
+        { project_type: ["Carpet"], carpet_install: ["Stretch-in"], hs_demo: ["Ceramic WITH mortar bed"] },
+      ),
+    ).toBe(false);
+    expect(
+      questionApplies(
+        { key: "existing_pad", config: liveCarpetShowIf },
+        { project_type: ["Carpet"], carpet_install: ["Stretch-in"] },
+      ),
+    ).toBe(true);
+    expect(
+      questionApplies(
+        { key: "existing_pad", config: liveCarpetShowIf },
+        { project_type: ["Carpet"], carpet_install: ["Stretch-in"], hs_demo: ["Carpet", "LVP"] },
+      ),
+    ).toBe(true);
+
+    expect(
+      jobHidesPadOnNonCarpetDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["LVP"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesPadOnNonCarpetDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["Nailed hardwood"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesPadOnNonCarpetDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["Sheet vinyl"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesPadOnNonCarpetDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["Luan"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesPadOnNonCarpetDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["Carpet"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesPadOnNonCarpetDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["None"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesPadOnNonCarpetDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["Other"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesPadOnNonCarpetDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesPadOnNonCarpetDemo(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Stretch-in"],
+          hs_demo: ["Carpet", "LVP"],
+        }),
+      ),
+    ).toBe(false);
+
+    const lvpDemo = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["LVP"],
+    });
+    expect(lvpDemo).not.toContain("existing_pad");
+    expect(lvpDemo).not.toContain("existing_tack");
+    expect(lvpDemo).toContain("hs_demo");
+    expect(lvpDemo).toContain("carpet_pad");
+
+    const ceramicWalk = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Ceramic WITHOUT mortar bed"],
+    });
+    expect(ceramicWalk).not.toContain("existing_pad");
+    expect(ceramicWalk).not.toContain("existing_tack");
+    expect(ceramicWalk).toContain("asbestos_risk");
+
+    const unanswered = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(unanswered).toContain("existing_pad");
+    expect(unanswered).toContain("existing_tack");
+
+    const carpetDemo = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      hs_demo: ["Carpet"],
+    });
+    expect(carpetDemo).toContain("existing_pad");
+    expect(carpetDemo).toContain("existing_tack");
+
+    const noneDemo = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["None"],
+    });
+    expect(noneDemo).toContain("existing_pad");
+    expect(noneDemo).toContain("existing_tack");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      hs_demo: ["Carpet", "LVP"],
+    });
+    expect(mixed).toContain("existing_pad");
+    expect(mixed).toContain("existing_tack");
+
+    expect(knowledgeHelpFor({ key: "existing_pad" }, emptyInstallContext())).toMatch(
+      /Exclusive LVP \/ hardwood \/ ceramic \/ luan \/ sheet vinyl tear-out hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "existing_tack" }, emptyInstallContext())).toMatch(
+      /Exclusive LVP \/ hardwood \/ ceramic \/ luan \/ sheet vinyl tear-out hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_demo" }, emptyInstallContext())).toMatch(
+      /hides existing pad and tack/,
     );
   });
 
