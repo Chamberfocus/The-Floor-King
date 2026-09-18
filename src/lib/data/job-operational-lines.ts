@@ -29,6 +29,9 @@ function snapshotLinesToSeedRows(
   const lines = option?.lines;
   if (!Array.isArray(lines) || lines.length === 0) return null;
   // Snapshot lines are a commercial subset; keep ids/qty fields for ops seed.
+  // Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box
+  // Hard-surface approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  // Snapshot seed now carries coverage so operational carton math from sq ft ÷ coverage is the pull, not leftover taped sq ft.
   return buildJobLineSeedRows(lines as object[], jobId);
 }
 
@@ -81,6 +84,8 @@ export async function seedJobScopeIfEmpty(
     .eq("option_id", job.option_id)
     .order("position", { ascending: true });
 
+  // Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box
+  // Hard-surface approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
   const preferred = preferSnapshotLinesForSeed(
     snapshotRows,
     (liveLines ?? []) as object[],

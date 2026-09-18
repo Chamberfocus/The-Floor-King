@@ -224,8 +224,15 @@ import {
   stripCrewReviewBucketPrefix,
 } from "@/lib/customer-scope";
 import { invoiceItemFromSnapshotLine } from "@/lib/invoice-from-approval";
-import type { EstimateLineItem, ShowIfClause } from "@/lib/types";
-import type { ApprovalSnapshotLine } from "@/lib/estimate-approval";
+import type { EstimateLineItem, EstimateOption, ShowIfClause } from "@/lib/types";
+import {
+  buildApprovalSnapshotPayload,
+  commercialLineFingerprint,
+  CUSTOMER_SAFE_SNAPSHOT_LINE_KEYS,
+  sanitizeApprovalPayloadForCustomer,
+  type ApprovalSnapshotLine,
+} from "@/lib/estimate-approval";
+import { snapshotLinesAsEstimateLines } from "@/lib/approval-snapshot-view";
 
 const root = process.cwd();
 
@@ -19004,6 +19011,236 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
       /Guided Estimate Review carton/,
+    );
+  });
+
+  it("0379 Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0379_flooring_knowledge_snapshot_seed_carton.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0379_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(
+      /Hard-surface approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap \/ count How many stays off carton math. Do not invent coverage/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Living room — Lifeproof Oak",
+          category: "lvp",
+          unit: "sq ft",
+          sqft_per_box: 23.64,
+        },
+        300,
+      ),
+    ).toBe(13);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Living room — Interface carpet tile",
+          category: "carpet",
+          unit: "sq yd",
+          sqft_per_box: 23.64,
+          order_as_roll: false,
+          quantity: 22.22,
+        },
+        22.22,
+      ),
+    ).toBe(9);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Stair wrap — wrap qty TBD",
+          category: "lvp",
+          unit: "box",
+          sqft_per_box: 23.64,
+          quantity: 8,
+        },
+        8,
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          category: "carpet",
+          unit: "sq yd",
+          sqft_per_box: 23.64,
+          roll_width_ft: 12,
+          quantity: 50,
+        },
+        50,
+      ),
+    ).toBe(0);
+
+    const option: EstimateOption = {
+      id: "opt-1",
+      estimate_id: "est-1",
+      name: "Option A",
+      position: 0,
+      notes: null,
+      created_at: "",
+    };
+    const line: EstimateLineItem = {
+      id: "l1",
+      option_id: "opt-1",
+      position: 0,
+      room: "Living",
+      description: "Lifeproof Oak",
+      note: null,
+      line_type: "mat_labor",
+      sqft: 300,
+      length_in: null,
+      width_in: null,
+      measure_unit: "sqft",
+      material_rate: 4.5,
+      labor_rate: 2,
+      installed_rate: null,
+      flat_amount: null,
+      waste_pct: 10,
+      product_id: "p1",
+      manufacturer: null,
+      style: null,
+      color: null,
+      item_no: null,
+      material_cost: null,
+      labor_cost: null,
+      quantity: 300,
+      unit: "sq ft",
+      category: "lvp",
+      sqft_per_box: 23.64,
+      roll_width_ft: null,
+      order_as_roll: false,
+    };
+    const payload = buildApprovalSnapshotPayload({
+      estimate: {
+        id: "est-1",
+        customer_id: "cust-1",
+        title: "Living",
+        presentation: "detailed",
+        show_project_details: true,
+        job_description: "Install",
+        notes: null,
+        tax_rate: 0,
+        discount_kind: "amount",
+        discount_value: 0,
+      },
+      option,
+      lines: [line],
+    });
+    expect(payload.option.lines[0].sqft_per_box).toBe(23.64);
+    expect(payload.option.lines[0].roll_width_ft).toBeNull();
+    expect(payload.option.lines[0].order_as_roll).toBe(false);
+    expect(CUSTOMER_SAFE_SNAPSHOT_LINE_KEYS).not.toContain("sqft_per_box");
+    expect(CUSTOMER_SAFE_SNAPSHOT_LINE_KEYS).not.toContain("roll_width_ft");
+    expect(CUSTOMER_SAFE_SNAPSHOT_LINE_KEYS).not.toContain("order_as_roll");
+    const safe = sanitizeApprovalPayloadForCustomer(payload);
+    const safeLine = safe.option.lines[0] as unknown as Record<string, unknown>;
+    expect(safeLine.sqft_per_box).toBeUndefined();
+    expect(safeLine.roll_width_ft).toBeUndefined();
+    expect(safeLine.order_as_roll).toBeUndefined();
+    const viewed = snapshotLinesAsEstimateLines(payload);
+    expect(viewed[0].sqft_per_box).toBe(23.64);
+    expect(viewed[0].roll_width_ft).toBeNull();
+    expect(viewed[0].order_as_roll).toBe(false);
+    expect(hardSurfaceAreaCartonCount(viewed[0], Number(viewed[0].quantity) || 0)).toBe(13);
+    const fpSrc = commercialLineFingerprint.toString();
+    expect(fpSrc).not.toMatch(/sqft_per_box/);
+    expect(fpSrc).not.toMatch(/roll_width_ft/);
+    expect(fpSrc).not.toMatch(/order_as_roll/);
+    const withCoverage = {
+      ...line,
+      sqft_per_box: 99,
+      roll_width_ft: 12,
+      order_as_roll: true,
+    };
+    expect(commercialLineFingerprint(line)).toBe(commercialLineFingerprint(withCoverage));
+
+    const approval = readFileSync(join(root, "src/lib/estimate-approval.ts"), "utf8");
+    expect(approval).toMatch(
+      /Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(approval).toMatch(
+      /Hard-surface approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(approval).toMatch(/sqft_per_box: l\.sqft_per_box \?\? null/);
+    expect(approval).toMatch(/roll_width_ft: l\.roll_width_ft \?\? null/);
+    expect(approval).toMatch(/order_as_roll: l\.order_as_roll/);
+
+    const ops = readFileSync(join(root, "src/lib/data/job-operational-lines.ts"), "utf8");
+    expect(ops).toMatch(
+      /Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(ops).toMatch(
+      /Hard-surface approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+
+    const view = readFileSync(join(root, "src/lib/approval-snapshot-view.ts"), "utf8");
+    expect(view).toMatch(/sqft_per_box: l\.sqft_per_box \?\? null/);
+    expect(view).toMatch(/roll_width_ft: l\.roll_width_ft \?\? null/);
+    expect(view).toMatch(/order_as_roll: l\.order_as_roll/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).not.toMatch(/approval-snapshot job-seed carton/);
+    expect(print).not.toMatch(/hardSurfaceAreaCartonCount/);
+
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).not.toMatch(/approval-snapshot job-seed carton/);
+    expect(portal).not.toMatch(/hardSurfaceAreaCartonCount/);
+
+    const catalogForm = readFileSync(
+      join(root, "src/app/(app)/catalog/product-form.tsx"),
+      "utf8",
+    );
+    expect(catalogForm).toMatch(/\$ \/ unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+
+    const help =
+      /Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Hard-surface approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap \/ count How many stays off carton math. Do not invent coverage/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /approval-snapshot job-seed carton/,
     );
   });
 
