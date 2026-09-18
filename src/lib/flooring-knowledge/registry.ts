@@ -159,6 +159,12 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   },
 
   // Install
+  /**
+   * Hard-surface method picker. Exclusive carpet hides this via
+   * CARPET_ONLY_HIDES_KEYS — stretch-in / glue / tile stay on carpet_install.
+   * Mixed Carpet + LVP still asks. Unanswered HS stays open (0142).
+   * Do not SQL-gate install_method on carpet_install.
+   */
   { key: "install_method", purpose: "INSTALLATION", phase: "install" },
   { key: "carpet_install", purpose: "INSTALLATION", phase: "install", families: ["carpet"] },
   /**
@@ -527,6 +533,14 @@ export const MERGED_CLIMATE_HIDES_KEYS = ["ac_available", "heat_available"] as c
  * demo_disposal (0142).
  */
 export const MERGED_CURB_HIDES_KEYS = ["carpet_curb"] as const;
+
+/**
+ * Hard-surface Install method hidden once the job is exclusive carpet.
+ * Stretch-in / glue-down / carpet tile stay on carpet_install. Mixed Carpet
+ * + LVP still asks. Unanswered HS stays open (0142). Do not SQL-gate
+ * install_method on carpet_install.
+ */
+export const CARPET_ONLY_HIDES_KEYS = ["install_method"] as const;
 
 /**
  * Floor-only follow-ups hidden once tile_application is exclusively Wall

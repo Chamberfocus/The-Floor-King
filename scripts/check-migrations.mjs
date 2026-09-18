@@ -143,6 +143,7 @@ const REQUIRED_FILES = [
   "0280_flooring_knowledge_wall_climate.sql",
   "0281_flooring_knowledge_legacy_climate.sql",
   "0282_flooring_knowledge_legacy_curb.sql",
+  "0283_flooring_knowledge_carpet_install_method.sql",
 ];
 
 /**
@@ -1762,6 +1763,17 @@ const REQUIRED_MARKERS = [
       "Do NOT SQL-gate bulk_pickup on demo_disposal",
       "Do NOT SQL-gate demo_disposal on carpet_curb",
       "Do NOT drop leftover carpet_curb from review SPECIAL_KEYS",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0283_flooring_knowledge_carpet_install_method.sql",
+    markers: [
+      "P0_0283_FLOORING_KNOWLEDGE",
+      "Exclusive carpet hides this hard-surface method picker",
+      "Do NOT SQL-gate install_method on carpet_install",
+      "Do NOT SQL-gate install_method on surface_type",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

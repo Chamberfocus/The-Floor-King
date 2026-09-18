@@ -46,6 +46,7 @@ import {
 import {
   CARPET_TILE_HIDES_KEYS,
   CARPET_TILE_VAPOR_HIDES_KEYS,
+  CARPET_ONLY_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
   WOOD_DECK_MOISTURE_HIDES_KEYS,
   GLUE_WOOD_VAPOR_HIDES_KEYS,
@@ -496,6 +497,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (CARPET_ONLY_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobIsExclusiveCarpetOnly(install)
+  ) {
+    return false;
+  }
   // Attached-pad Yes → hide separate-underlayment questions.
   if (q.key === "hs_underlayment" && install.attachedPad === "yes") return false;
   if (
@@ -611,6 +619,18 @@ export function jobIsExclusiveConcrete(install: InstallContext): boolean {
 export function jobHasHardSurfaceInstallScope(install: InstallContext): boolean {
   if (install.surfacePending) return true;
   return install.families.some(isHardSurfaceFamily);
+}
+
+/**
+ * Exclusive carpet — surface is Carpet, no hard-surface family also on the
+ * job. Hard-surface Install method hides; carpet_install stays. Mixed Carpet
+ * + LVP still asks. Unanswered HS stays open (0142). Unanswered project_type
+ * is not exclusive carpet.
+ */
+export function jobIsExclusiveCarpetOnly(install: InstallContext): boolean {
+  if (install.surfacePending) return false;
+  if (!install.families.includes("carpet")) return false;
+  return !install.families.some(isHardSurfaceFamily);
 }
 
 /**
@@ -825,6 +845,9 @@ export function knowledgeHelpFor(
 ): string | null {
   const key = q.key ?? "";
   if (key === "install_method") {
+    if (jobIsExclusiveCarpetOnly(ctx)) {
+      return "Carpet install is stretch-in / glue-down / carpet tile. Exclusive carpet hides this hard-surface method picker. Mixed Carpet + LVP still asks. Unanswered hard surface stays open. Leftover Floating / Glue-down chips do not reopen it.";
+    }
     const hs = ctx.families.filter(isHardSurfaceFamily);
     if (hs.length >= 2) {
       return `This job has ${hs.map(familyLabel).join(" + ")}. Pick every install method in play — adhesive, pad, and fastener follow-ups follow those picks. One chip still hides the other branch. Do not invent a per-room editor here.`;
@@ -847,7 +870,7 @@ export function knowledgeHelpFor(
     }
   }
   if (key === "carpet_install") {
-    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Exclusive carpet tile hides pattern match, pattern repeat, and seam/direction notes — those are a roll cut plan, not modular layout. Mixed stretch-in + tile still asks them. Exclusive carpet tile also hides the 6-mil vapor-barrier question — modular tile uses adhesive, not a floating-floor sheet. Acclimation, moisture test, and Aqua bar still ask. Mixed LVP or hardwood + carpet tile still asks vapor barrier. Leftover Floating / Glue-down on a carpet-only job is a hard-surface chip — it does not open expansion, underlayment, or click-floor vapor. Mixed Carpet + LVP still asks those. Do not invent a box size.";
+    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Exclusive carpet tile hides pattern match, pattern repeat, and seam/direction notes — those are a roll cut plan, not modular layout. Mixed stretch-in + tile still asks them. Exclusive carpet tile also hides the 6-mil vapor-barrier question — modular tile uses adhesive, not a floating-floor sheet. Acclimation, moisture test, and Aqua bar still ask. Mixed LVP or hardwood + carpet tile still asks vapor barrier. Leftover Floating / Glue-down on a carpet-only job is a hard-surface chip — it does not open expansion, underlayment, or click-floor vapor. Exclusive carpet also hides the hard-surface Install method picker. Mixed Carpet + LVP still asks those. Do not invent a box size.";
   }
   if (key === "prep_confidence") {
     return "If you cannot see the substrate until demo, leave this as Field verify / TBD rather than guessing a bag count.";
