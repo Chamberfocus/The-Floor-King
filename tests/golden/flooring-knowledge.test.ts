@@ -172,6 +172,7 @@ import {
   EXTRA_AREA_MEASURED_LABEL,
   EXTRA_AREA_MEASURED_PLACEHOLDER,
   EXTRA_AREA_MEASURED_HINT,
+  EXTRA_AREA_COUNT_TBD_HINT,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
   rollGoodsNeedCuts,
@@ -191,7 +192,7 @@ import {
   mergeReviewWarnings,
   emptyInstallContext,
 } from "@/lib/flooring-knowledge";
-import { billsBySquareYard, defaultUnitForCategory, pickedProductUnit, rollReceiveUnit, SQYD_CATEGORIES } from "@/lib/units";
+import { billsBySquareYard, defaultUnitForCategory, isCountPricedLine, pickedProductUnit, rollReceiveUnit, SQYD_CATEGORIES } from "@/lib/units";
 import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import type { ShowIfClause } from "@/lib/types";
@@ -10353,6 +10354,53 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       install_method: ["Floating / click"],
     });
     expect(walkMixed).toContain("install_method");
+  });
+
+  it("0304 extra pad TBD does not require measured sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0304_flooring_knowledge_extra_pad_tbd.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0304_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/without typing measured sq ft/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_pad on surface_type/);
+    expect(sql).toMatch(/Do NOT drop underlayment from SQYD_CATEGORIES/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*carpet_pad|carpet_pad.*show_if.*surface_type/,
+    );
+
+    expect(EXTRA_AREA_COUNT_TBD_HINT).toMatch(/How many \/ Unit TBD/);
+    expect(EXTRA_AREA_COUNT_TBD_HINT).toMatch(/Do not plant leftover sq ft/);
+    expect(EXTRA_AREA_MEASURED_LABEL).toBe("Measured sq ft");
+    expect(areaDerivedMaterialAllowed("other", "")).toBe(false);
+    expect(areaDerivedMaterialAllowed("other", "sqyd")).toBe(true);
+    expect(areaDerivedMaterialAllowed("other", "sqft")).toBe(true);
+    expect(
+      isCountPricedLine({ unit: "", measure_unit: "sqft", sqft: null }),
+    ).toBe(true);
+    expect(
+      isCountPricedLine({ unit: "sqyd", measure_unit: "sqyd", sqft: 450 }),
+    ).toBe(false);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/extraNeedsMeasured/);
+    expect(q).toMatch(/without requiring measured/);
+    expect(q).toMatch(/do not plant leftover sq ft/);
+    expect(q).not.toMatch(/if \(!ex\.product \|\| numv\(ex\.sqft\) <= 0\) continue/);
+
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /without typing measured sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Additional pad for a specific area is MEASURED sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /without typing measured sq ft/,
+    );
   });
 
   it("pattern repeat only after pattern match is required", () => {

@@ -71,6 +71,7 @@ import {
   EXTRA_AREA_MEASURED_LABEL,
   EXTRA_AREA_MEASURED_PLACEHOLDER,
   EXTRA_AREA_MEASURED_HINT,
+  EXTRA_AREA_COUNT_TBD_HINT,
   formatSqft,
   formatSqyd,
   formatTakeoffStrip,
@@ -1343,11 +1344,13 @@ export function Questionnaire({
         // stairs) — each its own material line, quantity from its own area.
         // Extra carpet/sheet cannot be ordered from taped sqft — keep the SKU
         // as order TBD, same as the main roll-goods path. Count-unit extras
-        // (gal/kit) also stay TBD rather than inheriting room square feet.
+        // (gal/kit / empty sold-by unit) emit TBD without requiring measured
+        // sq ft — do not plant leftover sq ft.
         for (const ex of a.extras) {
-          if (!ex.product || numv(ex.sqft) <= 0) continue;
+          if (!ex.product) continue;
           const exFam = familyFromCatalogCategory(ex.product.category || cat);
           if (areaDerivedMaterialAllowed(exFam, ex.product.unit, carpetSystems)) {
+            if (numv(ex.sqft) <= 0) continue;
             out.push(matLine(ex.product, { sqft: numv(ex.sqft) }));
             continue;
           }
@@ -1356,7 +1359,7 @@ export function Questionnaire({
             rollGoodsNeedCuts(exFam, carpetSystems) &&
             (ex.product.productId || ex.product.label)
           ) {
-            out.push(rollGoodsTbdLine(ex.product, null, numv(ex.sqft)));
+            out.push(rollGoodsTbdLine(ex.product, null, numv(ex.sqft) > 0 ? numv(ex.sqft) : undefined));
             continue;
           }
           if (ex.product.productId || ex.product.label) {
@@ -4051,7 +4054,12 @@ function QuestionBody({
               Additional {kindLabel} for a specific area
             </div>
             <p className="text-xs text-muted-foreground">{EXTRA_AREA_MEASURED_HINT}</p>
-            {extras.map((ex) => (
+            {extras.map((ex) => {
+              const extraFam = familyFromCatalogCategory(ex.product?.category || cat);
+              const extraNeedsMeasured =
+                !ex.product ||
+                areaDerivedMaterialAllowed(extraFam, ex.product.unit, carpetSystems);
+              return (
               <div key={ex.id} className="space-y-2 rounded-md border bg-muted/20 p-2">
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
@@ -4069,6 +4077,7 @@ function QuestionBody({
                     <Trash2 className="size-4 text-destructive" />
                   </Button>
                 </div>
+                {extraNeedsMeasured ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="text-xs text-muted-foreground">{EXTRA_AREA_MEASURED_LABEL}</label>
                   <Input value={ex.sqft} onChange={(e) => patchExtra(ex.id, { sqft: e.target.value })} inputMode="decimal" placeholder={EXTRA_AREA_MEASURED_PLACEHOLDER} className="h-10 w-28" />
@@ -4097,8 +4106,17 @@ function QuestionBody({
                     <SourceToggle p={ex.product} compact onChange={(np) => patchExtra(ex.id, { product: np })} />
                   ) : null}
                 </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_TBD_HINT}</p>
+                    {ex.product && q.config.ask_source ? (
+                      <SourceToggle p={ex.product} compact onChange={(np) => patchExtra(ex.id, { product: np })} />
+                    ) : null}
+                  </div>
+                )}
               </div>
-            ))}
+              );
+            })}
             <Button type="button" variant="outline" size="sm" onClick={() => setExtras([...extras, newExtra()])}>
               <Plus className="size-4" /> Add {kindLabel}
             </Button>

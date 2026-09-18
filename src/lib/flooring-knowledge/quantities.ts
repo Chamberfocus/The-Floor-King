@@ -491,6 +491,8 @@ export const EXTRA_AREA_MEASURED_LABEL = "Measured sq ft";
 export const EXTRA_AREA_MEASURED_PLACEHOLDER = "measured sq ft";
 export const EXTRA_AREA_MEASURED_HINT =
   "This is taped area for that extra pad — not a 30-yard roll and not the billing unit. Carpet pad bills in square yards unless the SKU is feet.";
+export const EXTRA_AREA_COUNT_TBD_HINT =
+  "Qty TBD in Builder (How many / Unit TBD) — not taped square feet. Do not plant leftover sq ft.";
 
 export function formatBillingQty(qty: number, unit: string): string {
   const key = normalizeUnit(unit);

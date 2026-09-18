@@ -153,6 +153,7 @@ export {
   EXTRA_AREA_MEASURED_LABEL,
   EXTRA_AREA_MEASURED_PLACEHOLDER,
   EXTRA_AREA_MEASURED_HINT,
+  EXTRA_AREA_COUNT_TBD_HINT,
   formatBillingQty,
   formatTakeoffStrip,
   takeoffConceptRows,
