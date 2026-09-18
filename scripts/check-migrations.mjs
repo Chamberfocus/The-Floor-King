@@ -168,6 +168,7 @@ const REQUIRED_FILES = [
   "0305_flooring_knowledge_extra_leftover_sqft.sql",
   "0306_flooring_knowledge_extra_count_qty.sql",
   "0307_flooring_knowledge_extra_count_review.sql",
+  "0308_flooring_knowledge_main_pad_count.sql",
 ];
 
 /**
@@ -2050,6 +2051,17 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0307_FLOORING_KNOWLEDGE",
       "Typed How many rides onto Review as that count",
+      "Do NOT SQL-gate carpet_pad on surface_type",
+      "Do NOT drop underlayment from SQYD_CATEGORIES",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0308_flooring_knowledge_main_pad_count.sql",
+    markers: [
+      "P0_0308_FLOORING_KNOWLEDGE",
+      "does not convert room square feet into pad yards",
       "Do NOT SQL-gate carpet_pad on surface_type",
       "Do NOT drop underlayment from SQYD_CATEGORIES",
       "Does NOT invent carton coverage",

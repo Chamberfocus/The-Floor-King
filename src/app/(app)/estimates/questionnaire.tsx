@@ -2321,6 +2321,18 @@ export function Questionnaire({
       const padLabel = padFoamTakeoffLabel({ key, category });
       const isPadOrFoam = Boolean(padLabel);
       if (family === "other" && !isPadOrFoam) return;
+      // Count / TBD main pad skips area Review takeoff — leftover / job sq ft
+      // is not pad yards and not a 30-yard roll.
+      if (
+        isPadOrFoam &&
+        !areaDerivedMaterialAllowed(
+          family,
+          productUnit,
+          carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall),
+        )
+      ) {
+        return;
+      }
       const waste = wastePct.trim() !== "" ? numv(wastePct) : isPadOrFoam ? 0 : undefined;
       const cover = isPadOrFoam
         ? measuredSqft != null && measuredSqft > 0

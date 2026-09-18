@@ -10641,6 +10641,55 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0308 main count pad does not convert room sq ft into Review yards", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0308_flooring_knowledge_main_pad_count.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0308_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/does not convert room square feet into pad yards/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_pad on surface_type/);
+    expect(sql).toMatch(/Do NOT drop underlayment from SQYD_CATEGORIES/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*carpet_pad|carpet_pad.*show_if.*surface_type/,
+    );
+
+    expect(areaDerivedMaterialAllowed("other", "roll")).toBe(false);
+    expect(areaDerivedMaterialAllowed("other", "gal")).toBe(false);
+    expect(areaDerivedMaterialAllowed("other", "")).toBe(false);
+    expect(areaDerivedMaterialAllowed("other", "sqyd")).toBe(true);
+    expect(areaDerivedMaterialAllowed("other", "sqft")).toBe(true);
+    expect(extraAsksCountQty({ family: "other", productUnit: "roll" })).toBe(true);
+    expect(extraAsksCountQty({ family: "other", productUnit: "" })).toBe(false);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/Count \/ TBD main pad skips area Review takeoff/);
+    expect(q).toMatch(/is not pad yards and not a 30-yard roll/);
+    expect(q).toMatch(/isPadOrFoam &&/);
+    expect(q).toMatch(/!areaDerivedMaterialAllowed/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /does not convert room square feet into pad yards on Review/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /does not convert room square feet into foam feet on Review/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Additional pad for a specific area is MEASURED sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Typed How many rides onto Review as that count/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /without typing measured sq ft/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
