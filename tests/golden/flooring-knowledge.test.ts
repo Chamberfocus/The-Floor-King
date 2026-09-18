@@ -7571,6 +7571,87 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(unanswered).toContain("surface_type");
   });
 
+  it("0285 leftover Surface type on exclusive carpet does not reopen HS follow-ups", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0285_flooring_knowledge_carpet_surface_leftover.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0285_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/does not switch finish, fasteners, vapor/);
+    expect(sql).toMatch(/Do NOT SQL-gate hardwood_finish on project_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate surface_type on carpet_install/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*project_type.*hardwood_finish|hardwood_finish.*show_if.*project_type/,
+    );
+
+    const leftoverCtx = installContextFromValByKey({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      surface_type: ["Hardwood"],
+    });
+    expect(jobIsExclusiveCarpetOnly(leftoverCtx)).toBe(true);
+    expect(jobHasHardSurfaceInstallScope(leftoverCtx)).toBe(false);
+    expect(leftoverCtx.families).toEqual(["carpet"]);
+    expect(
+      knowledgeWarnings(leftoverCtx).some((w) => w.id === "carpet-surface-leftover"),
+    ).toBe(true);
+
+    expect(knowledgeHelpFor({ key: "surface_type" }, emptyInstallContext())).toMatch(
+      /do not reopen finish, fasteners, vapor/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_install" }, emptyInstallContext())).toMatch(
+      /Leftover Hardwood on Surface type does not reopen/,
+    );
+
+    const leftover = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      surface_type: ["Hardwood"],
+    });
+    expect(leftover).toContain("carpet_install");
+    expect(leftover).toContain("tack_strip");
+    expect(leftover).not.toContain("surface_type");
+    expect(leftover).not.toContain("install_method");
+    expect(leftover).not.toContain("hardwood_finish");
+    expect(leftover).not.toContain("hardwood_fasteners");
+    expect(leftover).not.toContain("adhesive");
+    expect(leftover).not.toContain("vapor_barrier");
+    expect(leftover).not.toContain("hs_direction");
+    expect(leftover).not.toContain("hs_plank_stairs");
+    expect(leftover).not.toContain("hs_transitions");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["Hardwood"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(mixed).toContain("surface_type");
+    expect(mixed).toContain("hardwood_finish");
+    expect(mixed).toContain("carpet_install");
+
+    const unansweredProject = visibleKnowledgeKeys({
+      surface_type: ["Hardwood"],
+    });
+    expect(unansweredProject).toContain("hardwood_finish");
+    expect(unansweredProject).toContain("surface_type");
+
+    const assigned = withProductFamilies(leftoverCtx, ["hardwood"]);
+    expect(assigned.families).toEqual(["carpet", "hardwood"]);
+    expect(jobHasHardSurfaceInstallScope(assigned)).toBe(true);
+    expect(knowledgeWarnings(assigned).some((w) => w.id === "unscoped-products")).toBe(true);
+
+    const leftoverLvp = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(leftoverLvp).not.toContain("attached_pad");
+    expect(leftoverLvp).not.toContain("laminate_expansion");
+    expect(leftoverLvp).not.toContain("hs_underlayment");
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

@@ -145,6 +145,7 @@ const REQUIRED_FILES = [
   "0282_flooring_knowledge_legacy_curb.sql",
   "0283_flooring_knowledge_carpet_install_method.sql",
   "0284_flooring_knowledge_carpet_surface.sql",
+  "0285_flooring_knowledge_carpet_surface_leftover.sql",
 ];
 
 /**
@@ -1786,6 +1787,17 @@ const REQUIRED_MARKERS = [
       "Exclusive carpet hides this",
       "Do NOT SQL-gate surface_type on carpet_install",
       "Do NOT SQL-gate surface_type on project_type",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0285_flooring_knowledge_carpet_surface_leftover.sql",
+    markers: [
+      "P0_0285_FLOORING_KNOWLEDGE",
+      "does not switch finish, fasteners, vapor",
+      "Do NOT SQL-gate hardwood_finish on project_type",
+      "Do NOT SQL-gate surface_type on carpet_install",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

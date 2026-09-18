@@ -246,15 +246,25 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
     seen.add(f);
     families.push(f);
   };
+  const hasHS = projectTypes.some((p) => /hard/i.test(p));
+  const exclusiveCarpetByProject =
+    projectTypes.some((p) => /carpet/i.test(p)) && !hasHS;
   if (projectTypes.some((p) => /carpet/i.test(p))) add("carpet");
-  for (const s of surfaceLabels) add(familyFromSurfaceLabel(s));
+  // Leftover Surface type on exclusive carpet is not a mixed job — same as
+  // leftover Floating on install_method (0274). Mixed Carpet + LVP still
+  // unions surface labels. Unanswered project_type still reads them (0142).
+  if (!exclusiveCarpetByProject) {
+    for (const s of surfaceLabels) add(familyFromSurfaceLabel(s));
+  }
 
   let hardwoodConstruction: HardwoodConstruction = "unknown";
-  for (const s of surfaceLabels) {
-    const c = hardwoodConstructionFromLabel(s);
-    if (c !== "unknown") {
-      hardwoodConstruction = c;
-      break;
+  if (!exclusiveCarpetByProject) {
+    for (const s of surfaceLabels) {
+      const c = hardwoodConstructionFromLabel(s);
+      if (c !== "unknown") {
+        hardwoodConstruction = c;
+        break;
+      }
     }
   }
 
@@ -270,8 +280,6 @@ export function installContextFromValByKey(valByKey: Record<string, string[]>): 
   const stairs = stairsRaw.length
     ? stairsRaw.some((v) => v === "Yes" || /yes/i.test(v))
     : null;
-
-  const hasHS = projectTypes.some((p) => /hard/i.test(p));
 
   return finalizeInstallContext({
     projectTypes,
@@ -848,7 +856,7 @@ export function knowledgeHelpFor(
 ): string | null {
   const key = q.key ?? "";
   if (key === "surface_type") {
-    return "LVP, hardwood, laminate, tile, or sheet vinyl. Exclusive carpet hides this — stretch-in / glue-down / carpet tile stay on Carpet install. Mixed Carpet + LVP still asks. Unanswered hard surface stays open. Leftover Hardwood chips do not reopen it on a carpet-only job.";
+    return "LVP, hardwood, laminate, tile, or sheet vinyl. Exclusive carpet hides this — stretch-in / glue-down / carpet tile stay on Carpet install. Mixed Carpet + LVP still asks. Unanswered hard surface stays open. Leftover Hardwood chips do not reopen finish, fasteners, vapor, or Install method on a carpet-only job.";
   }
   if (key === "install_method") {
     if (jobIsExclusiveCarpetOnly(ctx)) {
@@ -876,7 +884,7 @@ export function knowledgeHelpFor(
     }
   }
   if (key === "carpet_install") {
-    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Exclusive carpet tile hides pattern match, pattern repeat, and seam/direction notes — those are a roll cut plan, not modular layout. Mixed stretch-in + tile still asks them. Exclusive carpet tile also hides the 6-mil vapor-barrier question — modular tile uses adhesive, not a floating-floor sheet. Acclimation, moisture test, and Aqua bar still ask. Mixed LVP or hardwood + carpet tile still asks vapor barrier. Leftover Floating / Glue-down on a carpet-only job is a hard-surface chip — it does not open expansion, underlayment, or click-floor vapor. Exclusive carpet also hides the hard-surface Install method picker and Surface type. Mixed Carpet + LVP still asks those. Do not invent a box size.";
+    return "Stretch-in over pad is the residential default. Glue-down is still roll goods (cuts are the order). Carpet tile is modular — measured area plus waste, carton only if the product has coverage. Exclusive carpet tile hides pattern match, pattern repeat, and seam/direction notes — those are a roll cut plan, not modular layout. Mixed stretch-in + tile still asks them. Exclusive carpet tile also hides the 6-mil vapor-barrier question — modular tile uses adhesive, not a floating-floor sheet. Acclimation, moisture test, and Aqua bar still ask. Mixed LVP or hardwood + carpet tile still asks vapor barrier. Leftover Floating / Glue-down on a carpet-only job is a hard-surface chip — it does not open expansion, underlayment, or click-floor vapor. Exclusive carpet also hides the hard-surface Install method picker and Surface type. Leftover Hardwood on Surface type does not reopen finish, fasteners, or vapor. Mixed Carpet + LVP still asks those. Do not invent a box size.";
   }
   if (key === "prep_confidence") {
     return "If you cannot see the substrate until demo, leave this as Field verify / TBD rather than guessing a bag count.";
@@ -1246,6 +1254,18 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
       id: "carpet-hs-leftover",
       text: `This job is carpet only. Leftover “${leftover.join(" / ")}” is a hard-surface method and does not switch pad, adhesive, expansion, or 6-mil vapor follow-ups. Stretch-in / glue-down / carpet tile stay on Carpet install.`,
     });
+  }
+  if (jobIsExclusiveCarpetOnly(ctx)) {
+    const leftoverSurface = ctx.surfaceLabels.filter((s) => {
+      const f = familyFromSurfaceLabel(s);
+      return f != null && f !== "carpet";
+    });
+    if (leftoverSurface.length) {
+      w.push({
+        id: "carpet-surface-leftover",
+        text: `This job is carpet only. Leftover “${leftoverSurface.join(" / ")}” is a hard-surface type and does not switch finish, fasteners, vapor, or Install method. LVP / hardwood / laminate / tile stay on Surface type when Hard surface is also in play.`,
+      });
+    }
   }
   if (
     ctx.families.includes("carpet") &&
