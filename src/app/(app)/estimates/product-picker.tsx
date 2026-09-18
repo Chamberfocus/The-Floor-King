@@ -517,6 +517,38 @@ export function ProductPicker({
                               false,
                             )
                           : costAmount;
+                    // Hard-surface catalog picker clearance badge boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+                    // Exclusive carpet-tile catalog picker clearance badge boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    const clearanceAmount = p.clearance_price;
+                    const clearanceLine =
+                      isCarpet && boxedArea && clearanceAmount != null
+                        ? catalogRateInLineUnit(
+                            clearanceAmount,
+                            {
+                              unit: p.unit,
+                              category: p.category,
+                              sqft_per_box: p.sqft_per_box,
+                              carpetInstallSystems,
+                            },
+                            true,
+                          )
+                        : !isCarpet && boxedArea && clearanceAmount != null
+                          ? catalogRateInLineUnit(
+                              clearanceAmount,
+                              {
+                                unit: p.unit,
+                                category: p.category,
+                                sqft_per_box: p.sqft_per_box,
+                              },
+                              false,
+                            )
+                          : clearanceAmount;
+                    const clearanceUnit =
+                      isCarpet && boxedArea && clearanceAmount != null
+                        ? "sq yd"
+                        : !isCarpet && boxedArea && clearanceAmount != null
+                          ? "sq ft"
+                          : p.unit;
                     return (
                       <button
                         key={p.id}
@@ -558,8 +590,8 @@ export function ProductPicker({
                           <span className="mt-0.5 flex flex-wrap gap-1">
                             {p.clearance && p.clearance_price != null ? (
                               <span className="inline-block rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-800">
-                                🔖 Clearance {formatMoney(p.clearance_price)}/
-                                {p.unit}
+                                🔖 Clearance {formatMoney(clearanceLine ?? 0)}/
+                                {clearanceUnit}
                               </span>
                             ) : null}
                             {p.track_stock ? (
