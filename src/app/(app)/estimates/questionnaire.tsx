@@ -2499,6 +2499,20 @@ export function Questionnaire({
       ) {
         return;
       }
+      // Review does not print taped square feet as the order when carton coverage is missing.
+      if (
+        boxedCartonCoverageTbdDescription({
+          family,
+          productUnit,
+          sqftPerBox: numv(sqftPerBox) > 0 ? numv(sqftPerBox) : null,
+          label,
+          carpetInstallSystems: carpetInstallSystemsFromLabels(
+            flooringCtx.answeredCarpetInstall,
+          ),
+        })
+      ) {
+        return;
+      }
       const waste = wastePct.trim() !== "" ? numv(wastePct) : isPadOrFoam ? 0 : undefined;
       const cover = isPadOrFoam
         ? measuredSqft != null && measuredSqft > 0
@@ -2540,16 +2554,37 @@ export function Questionnaire({
           qq.key,
           a.product.unit,
         );
-        const mainCountLine = extraCountReviewLine({
-          family: familyFromCatalogCategory(a.product.category),
-          productUnit: a.product.unit,
-          qty: numv(a.qty ?? ""),
-          label: a.product.label,
-          carpetInstallSystems: carpetInstallSystemsFromLabels(
-            flooringCtx.answeredCarpetInstall,
-          ),
-        });
-        if (mainCountLine) extraCountReview.push(mainCountLine);
+        const mainFam = familyFromCatalogCategory(a.product.category);
+        const mainSystems = carpetInstallSystemsFromLabels(
+          flooringCtx.answeredCarpetInstall,
+        );
+        // Leftover How many is not a second Review order when carton coverage
+        // still takeoffs from measured area. Missing coverage stays TBD.
+        if (
+          !boxedCartonAreaTakeoffAllowed({
+            family: mainFam,
+            productUnit: a.product.unit,
+            sqftPerBox: numv(a.product.sqftPerBox),
+            carpetInstallSystems: mainSystems,
+          })
+        ) {
+          const mainCountLine =
+            extraCountReviewLine({
+              family: mainFam,
+              productUnit: a.product.unit,
+              qty: numv(a.qty ?? ""),
+              label: a.product.label,
+              carpetInstallSystems: mainSystems,
+            }) ??
+            boxedCartonCoverageTbdDescription({
+              family: mainFam,
+              productUnit: a.product.unit,
+              sqftPerBox: numv(a.product.sqftPerBox),
+              label: a.product.label,
+              carpetInstallSystems: mainSystems,
+            });
+          if (mainCountLine) extraCountReview.push(mainCountLine);
+        }
         // Count / TBD extras skip area Review takeoff — leftover measured sq ft
         // is not pad yards and not an order. Do not plant leftover sq ft.
         // Typed How many rides onto Review as that count — not leftover sq ft and not a 30-yard roll.
@@ -2596,7 +2631,27 @@ export function Questionnaire({
         }
       } else if (a?.kind === "cuts") {
         const p = a.same !== false ? a.product : a.groups.map((g) => g.product).find(Boolean) ?? null;
-        if (p) addProduct(p.label, p.category || qq.config.category || "carpet", p.wastePct, p.sqftPerBox);
+        if (p) {
+          addProduct(
+            p.label,
+            p.category || qq.config.category || "carpet",
+            p.wastePct,
+            p.sqftPerBox,
+            undefined,
+            qq.key,
+            p.unit,
+          );
+          const cutTbd = boxedCartonCoverageTbdDescription({
+            family: familyFromCatalogCategory(p.category || qq.config.category || "carpet"),
+            productUnit: p.unit,
+            sqftPerBox: numv(p.sqftPerBox),
+            label: p.label,
+            carpetInstallSystems: carpetInstallSystemsFromLabels(
+              flooringCtx.answeredCarpetInstall,
+            ),
+          });
+          if (cutTbd) extraCountReview.push(cutTbd);
+        }
         else {
           const fam = qq.config.category === "vinyl" ? "vinyl" : "carpet";
           const cutSf = fam === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : cutsSqftByCategory.carpet ?? 0;
@@ -2622,6 +2677,7 @@ export function Questionnaire({
               wastePct: p.wastePct,
               sqftPerBox: p.sqftPerBox,
               measuredSqft: rm.sqft,
+              unit: p.unit,
             };
           })
           .filter((x): x is NonNullable<typeof x> => !!x);
@@ -2630,7 +2686,25 @@ export function Questionnaire({
         for (const p of assigned) {
           if (seen.has(p.label)) continue;
           seen.add(p.label);
-          addProduct(p.label, p.category, p.wastePct, p.sqftPerBox, sqftByLabel[p.label] ?? p.measuredSqft);
+          addProduct(
+            p.label,
+            p.category,
+            p.wastePct,
+            p.sqftPerBox,
+            sqftByLabel[p.label] ?? p.measuredSqft,
+            undefined,
+            p.unit,
+          );
+          const mapTbd = boxedCartonCoverageTbdDescription({
+            family: familyFromCatalogCategory(p.category),
+            productUnit: p.unit,
+            sqftPerBox: numv(p.sqftPerBox),
+            label: p.label,
+            carpetInstallSystems: carpetInstallSystemsFromLabels(
+              flooringCtx.answeredCarpetInstall,
+            ),
+          });
+          if (mapTbd) extraCountReview.push(mapTbd);
         }
       } else if (a?.kind === "hs_stairs" && a.product) {
         const wrapLine = extraCountReviewLine({
@@ -3821,6 +3895,13 @@ function QuestionBody({
                       sqftPerBox: !needCuts && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
                       carpetSystems: family === "carpet" ? carpetSystems : null,
                     });
+                    const cartonTbd = boxedCartonCoverageTbdDescription({
+                      family,
+                      productUnit: p.unit,
+                      sqftPerBox: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                      label: p.label,
+                      carpetInstallSystems: carpetSystems,
+                    });
                     return (
                       <div className="mt-2 space-y-1.5">
                         <div className="flex flex-wrap items-end gap-3">
@@ -3863,13 +3944,17 @@ function QuestionBody({
                               ? "Order (from cuts) "
                               : takeoff.orderBasis === "none" && needCuts
                                 ? "Order TBD — enter cuts "
-                                : takeoff.orderBasis === "measured_plus_waste_estimated"
+                                : cartonTbd
+                                  ? "Order TBD — carton coverage TBD "
+                                  : takeoff.orderBasis === "measured_plus_waste_estimated"
                                   ? "Order (estimate — not a cut plan) "
                                   : "Order "}
-                            <span className="font-semibold tabular-nums text-foreground">
+                            <span className={cn("font-semibold tabular-nums", cartonTbd ? "text-amber-800 dark:text-amber-200" : "text-foreground")}>
                               {takeoff.orderBasis === "none" && needCuts
                                 ? ""
-                                : takeoff.billingUnit === "sqyd"
+                                : cartonTbd
+                                  ? "(not How many boxes from leftover taped sq ft)"
+                                  : takeoff.billingUnit === "sqyd"
                                   ? formatSqyd(takeoff.billingQty)
                                   : formatSqft(takeoff.orderSqft)}
                             </span>
@@ -4255,6 +4340,13 @@ function QuestionBody({
       productUnit: p?.unit,
       carpetInstallSystems: carpetSystems,
     });
+    const mainCartonTbd = boxedCartonCoverageTbdDescription({
+      family,
+      productUnit: p?.unit,
+      sqftPerBox: p && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+      label: p?.label,
+      carpetInstallSystems: carpetSystems,
+    });
     const setExtraProduct = (id: string, product: ProductAns | null, extra: ExtraPad) =>
       patchExtra(id, {
         product,
@@ -4366,6 +4458,13 @@ function QuestionBody({
                                 TBD — enter cuts (not sq ft ÷ 9)
                               </span>
                             </>
+                          ) : mainCartonTbd ? (
+                            <>
+                              Order{" "}
+                              <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
+                                TBD — carton coverage TBD (not How many boxes from leftover taped sq ft)
+                              </span>
+                            </>
                           ) : (
                             <>
                           Order{" "}
@@ -4395,6 +4494,24 @@ function QuestionBody({
                       <p className="text-xs text-muted-foreground">
                         Assign this product on the floor map. Mixed jobs do not clone whole-job sq ft onto every family.
                       </p>
+                    ) : null}
+                    {mainCartonTbd ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_LABEL}</label>
+                        <Input
+                          value={qty}
+                          onChange={(e) => setMainQty(e.target.value)}
+                          inputMode="decimal"
+                          placeholder={countUnitForTbd(p.unit).phrase}
+                          className="h-10 w-28"
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {countUnitForTbd(p.unit).phrase}
+                        </span>
+                        <p className="w-full text-xs text-muted-foreground">
+                          Missing carton coverage stays TBD — not How many boxes from leftover taped sq ft. Typed How many rides onto Review as that count.
+                        </p>
+                      </div>
                     ) : null}
                   </div>
                 );
@@ -4838,6 +4955,15 @@ function QuestionBody({
         sqftPerBox: p && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
         carpetSystems,
       });
+      const cartonTbd = p
+        ? boxedCartonCoverageTbdDescription({
+            family: "carpet",
+            productUnit: p.unit,
+            sqftPerBox: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+            label: p.label,
+            carpetInstallSystems: carpetSystems,
+          })
+        : null;
       const setProduct = (product: ProductAns | null) => mutate((a) => ({ ...a, product, same: true }));
       return (
         <div className="space-y-3">
@@ -4883,7 +5009,11 @@ function QuestionBody({
                 </div>
               </div>
               {coverSf > 0 ? (
-                <p className="text-sm">{formatTakeoffStrip(takeoff)}</p>
+                <p className="text-sm">
+                  {cartonTbd
+                    ? "Order TBD — carton coverage TBD (not How many boxes from leftover taped sq ft). Do not invent a box size."
+                    : formatTakeoffStrip(takeoff)}
+                </p>
               ) : mixedUnassigned ? (
                 <p className="text-xs text-muted-foreground">
                   Assign carpet rooms on the floor map. Mixed jobs do not clone whole-job sq ft onto carpet tile.

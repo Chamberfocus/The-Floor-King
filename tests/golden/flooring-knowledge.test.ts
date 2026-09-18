@@ -11285,6 +11285,75 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0314 Review does not print taped sq ft as the order when carton coverage is missing", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0314_flooring_knowledge_carton_tbd_review.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0314_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Review does not print taped square feet as the order when carton coverage is missing/);
+    expect(sql).toMatch(/not How many boxes from leftover taped sq ft/);
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "lvp",
+        productUnit: "box",
+        label: "Lifeproof Oak",
+      }),
+    ).toBe("Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)");
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "lvp",
+        productUnit: "box",
+        sqftPerBox: 23.64,
+        label: "Lifeproof Oak",
+      }),
+    ).toBe(null);
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      extraCountReviewLine({
+        family: "lvp",
+        productUnit: "box",
+        qty: 4,
+        label: "Lifeproof Oak wrap",
+      }),
+    ).toBe("Lifeproof Oak wrap: 4 box — not taped square feet and not a 30-yard roll");
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/Review does not print taped square feet as the order when carton coverage is missing/);
+    expect(q).toMatch(/mainCartonTbd/);
+    expect(q).toMatch(/boxedCartonAreaTakeoffAllowed/);
+    expect(q).toMatch(/addProduct\(/);
+    expect(q).toMatch(/p\.unit/);
+    expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Review does not print taped square feet as the order when carton coverage is missing/,
+    );
+    const tileCtx = installContextFromValByKey({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(knowledgeHelpFor({ kind: "cuts" }, tileCtx)).toMatch(
+      /Review does not print taped square feet as the order when carton coverage is missing/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
