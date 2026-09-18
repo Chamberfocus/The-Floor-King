@@ -215,6 +215,7 @@ import {
   isCrewStairStepHowManyLine,
   isCrewLabeledCountHowManyLine,
   isCrewUnlabeledCountHowManyLine,
+  isCrewDimensionHowManyLine,
   isGuidedTakeoffMathLine,
   parseProjectDetails,
   stripCrewIdentityFromCustomerLabel,
@@ -13875,6 +13876,154 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print strip leftover unlabeled count How many and labeled inch \/ percent How many — those stay in stored job_description so the crew still sees pad rolls and pattern repeat. Wrap How many and Self-leveler bag How many stay/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0341 Customer copy strips leftover dimension How many", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0341_flooring_knowledge_customer_dimensions.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0341_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print strip leftover dimension How many — those stay in stored job_description so the crew still sees room \/ cut sizes. Wrap How many and Self-leveler bag How many stay. 5mm product names stay/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(isCrewDimensionHowManyLine("12' × 14'")).toBe(true);
+    expect(isCrewDimensionHowManyLine("12' x 14'")).toBe(true);
+    expect(isCrewDimensionHowManyLine("12 ft × 14 ft")).toBe(true);
+    expect(isCrewDimensionHowManyLine("Living: 12' × 14'")).toBe(true);
+    expect(isCrewDimensionHowManyLine("12' 6\"")).toBe(true);
+    expect(isCrewDimensionHowManyLine("2nd floor")).toBe(false);
+    expect(isCrewDimensionHowManyLine("Lifeproof Oak 5mm")).toBe(false);
+    expect(isCrewDimensionHowManyLine("Stair wrap: 8 box")).toBe(false);
+    expect(isCrewDimensionHowManyLine("Self-leveler: 15 bag")).toBe(false);
+    expect(isCrewDimensionHowManyLine("Occupancy: Occupied")).toBe(false);
+    expect(isCrewLabeledCountHowManyLine("Stair wrap: 8 box")).toBe(false);
+    expect(isCrewUnlabeledCountHowManyLine("Lifeproof Oak 5mm")).toBe(false);
+
+    expect(stripCrewIdentityFromCustomerLabel("Living room — 12' × 14'")).toBe("Living room");
+    expect(stripCrewIdentityFromCustomerLabel("Lifeproof Oak — 5mm")).toBe("Lifeproof Oak — 5mm");
+    expect(stripCrewIdentityFromCustomerLabel("Living room — Lifeproof Oak")).toBe(
+      "Living room — Lifeproof Oak",
+    );
+    expect(stripCrewIdentityFromCustomerLabel("Stair wrap: 8 box")).toBe("Stair wrap: 8 box");
+
+    expect(customerFacingLineNote("12' × 14'")).toBe("");
+    expect(customerFacingLineNote("Living: 12' × 14'")).toBe("");
+    expect(customerFacingLineNote("Living room — 12' × 14'")).toBe("Living room");
+    expect(customerFacingLineNote("Lifeproof Oak 5mm")).toBe("Lifeproof Oak 5mm");
+    expect(customerFacingLineNote("Stair wrap: 8 box")).toBe("Stair wrap: 8 box");
+    expect(customerFacingLineNote("Self-leveler: 15 bag")).toBe("Self-leveler: 15 bag");
+
+    const asLine = (description: string, extra: Partial<EstimateLineItem> = {}) =>
+      ({
+        id: "l1",
+        option_id: "o1",
+        position: 0,
+        room: null,
+        description,
+        note: null,
+        line_type: "mat_labor",
+        sqft: null,
+        length_in: null,
+        width_in: null,
+        measure_unit: "sqft",
+        material_rate: 40,
+        labor_rate: 0,
+        installed_rate: null,
+        flat_amount: null,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        item_no: null,
+        material_cost: 40,
+        labor_cost: 0,
+        quantity: 4,
+        unit: "roll",
+        category: "underlayment",
+        ...extra,
+      }) as EstimateLineItem;
+
+    expect(customerLineLabel(asLine("Living room — 12' × 14'"))).toBe("Living room");
+    expect(customerLineLabel(asLine("Lifeproof Oak 5mm", { category: "lvp" }))).toBe(
+      "Lifeproof Oak 5mm",
+    );
+    expect(customerLineLabel(asLine("OVF Del Mar - JETCORE 7.25\"", { category: "lvp" }))).toBe(
+      "OVF Del Mar - JETCORE 7.25\"",
+    );
+
+    const review = buildSalespersonReview({
+      rooms: [],
+      products: ["Lifeproof Oak 5mm"],
+      takeoffs: [],
+      ctx: emptyInstallContext(),
+      removal: [],
+      installation: ["Run: 12' × 14'"],
+      prep: ["Self-leveler: 15 bag — not taped square feet"],
+      accessories: ["Stair wrap: 8 box — not taped square feet and not a 30-yard roll"],
+      specials: ["Occupancy: Occupied", "Access: 2nd floor"],
+    });
+    const stored = reviewToJobNotes(review);
+    expect(stored).toMatch(/Run: 12'/);
+    expect(stored).toMatch(/Accessorie: Stair wrap: 8 box/);
+    const shown = customerFacingJobNotes(stored);
+    expect(shown).toMatch(/Guided takeoff:/);
+    expect(shown).toMatch(/Stair wrap: 8 box/);
+    expect(shown).toMatch(/Self-leveler: 15 bag/);
+    expect(shown).toMatch(/Occupancy: Occupied/);
+    expect(shown).toMatch(/Lifeproof Oak 5mm/);
+    expect(shown).toMatch(/Access: 2nd floor/);
+    expect(shown).not.toMatch(/12'\s*[×x]\s*14'/i);
+    expect(shown).not.toMatch(/not taped square feet/i);
+
+    const parsed = parseProjectDetails(stored);
+    expect(parsed.details).toContain("Stair wrap: 8 box");
+    expect(parsed.details).toContain("Self-leveler: 15 bag");
+    expect(parsed.details).toContain("Access: 2nd floor");
+    expect(parsed.details.join("\n")).not.toMatch(/12'\s*[×x]\s*14'/i);
+    expect(parsed.flags.join("\n")).toMatch(/12'\s*[×x]\s*14'/i);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/reviewToJobNotes/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).toMatch(/customerFacingJobNotes/);
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).toMatch(/parseProjectDetails/);
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"),
+      "utf8",
+    );
+    expect(wo).not.toMatch(/customerFacingJobNotes/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print strip leftover dimension How many — those stay in stored job_description so the crew still sees room \/ cut sizes. Wrap How many and Self-leveler bag How many stay. 5mm product names stay/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print strip leftover dimension How many — those stay in stored job_description so the crew still sees room \/ cut sizes. Wrap How many and Self-leveler bag How many stay. 5mm product names stay/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

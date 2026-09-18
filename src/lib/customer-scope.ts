@@ -81,9 +81,10 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print strip Guided takeoff labeled count How many — those stay in stored job_description so the crew still sees toilets / trim / metals counts. Wrap How many and Self-leveler bag How many stay.
  * Customer / portal / print line labels strip leftover em-dash How many — those stay on stored lines so Builder still prices How many. Wrap How many and Self-leveler bag How many stay in job notes.
  * Customer / portal / print strip leftover unlabeled count How many and labeled inch / percent How many — those stay in stored job_description so the crew still sees pad rolls and pattern repeat. Wrap How many and Self-leveler bag How many stay.
+ * Customer / portal / print strip leftover dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap How many and Self-leveler bag How many stay. 5mm product names stay.
  */
 const CREW_IDENTITY_TAIL =
-  /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?|\d+(?:\.\d+)?\s+[A-Za-z][A-Za-z./-]*\s*$)/i;
+  /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?|\d+(?:\.\d+)?(?:["'″%].*$|\s*'.*$|\s+(?:ft|in|inch|inches)\b.*$|\s+[A-Za-z][A-Za-z./-]*\s*$))/i;
 
 const GUIDED_TAKEOFF_MATH_LABEL =
   /^(?:measured area|waste|order quantity|billing quantity|unit of measure|carton coverage|required cartons)\s*:/i;
@@ -118,7 +119,7 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
   const s = (raw ?? "").trim();
   if (!s) return s;
   if (
-    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD|\d+\s+steps?\b|[—–-]\s*\d+(?:\.\d+)?\s+[A-Za-z]/i.test(
+    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD|\d+\s+steps?\b|[—–-]\s*\d+(?:\.\d+)?(?:["'″%]|\s*'|\s+(?:ft|in|inch|inches)\b|\s+[A-Za-z])/i.test(
       s,
     )
   ) {
@@ -134,6 +135,7 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
     .replace(/\s*(?:wrap qty TBD|qty TBD|carton coverage TBD|order TBD)\b.*$/i, "")
     .replace(/\s*[—–-]\s*\d+\s+steps?\b.*$/i, "")
     .replace(/\s*[—–-]\s*\d+(?:\.\d+)?\s+[A-Za-z][A-Za-z./-]*\s*$/i, "")
+    .replace(/\s*[—–-]\s*\d+(?:\.\d+)?(?:["'″%].*|\s*'.*|\s+(?:ft|in|inch|inches)\b.*)$/i, "")
     .trim();
   return stripPrepConfidenceSuffix(fallback || s);
 }
@@ -223,13 +225,31 @@ export function isCrewUnlabeledCountHowManyLine(raw: string): boolean {
   return CREW_UNLABELED_COUNT_HOW_MANY.test(text);
 }
 
+const CREW_DIMENSION_HOW_MANY =
+  /(?:^|:)\s*\d+(?:\.\d+)?(?:\s*'\s*\d+(?:\.\d+)?["″]?|\s*'|\s+(?:ft|in|inch|inches)\b)(?:\s*[×x]\s*\d+(?:\.\d+)?(?:\s*'\s*\d+(?:\.\d+)?["″]?|\s*'|\s+(?:ft|in|inch|inches)\b)?)?/i;
+
+/** Crew leftover room / cut sizes (`12' × 14'`). 5mm product names and wrap / bag How many stay. */
+export function isCrewDimensionHowManyLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
+  );
+  if (!stripped) return false;
+  const shown = stripCrewReviewBucketPrefix(stripped);
+  const text = shown || stripped;
+  if (!text) return false;
+  if (isCrewStairStepHowManyLine(raw)) return false;
+  if (/:\s*\d+(?:\.\d+)?\s+(?:box|bag)\b/i.test(text)) return false;
+  return CREW_DIMENSION_HOW_MANY.test(text);
+}
+
 function isCrewOnlyCustomerText(raw: string): boolean {
   return (
     isGuidedTakeoffMathLine(raw) ||
     isCrewPrepConfidenceLine(raw) ||
     isCrewStairStepHowManyLine(raw) ||
     isCrewLabeledCountHowManyLine(raw) ||
-    isCrewUnlabeledCountHowManyLine(raw)
+    isCrewUnlabeledCountHowManyLine(raw) ||
+    isCrewDimensionHowManyLine(raw)
   );
 }
 
@@ -407,13 +427,13 @@ export function parseProjectDetails(
     const cleaned = stripCrewIdentityFromCustomerLabel(
       line.replace(/^[•\-]\s*/, "").replace(/\?:/g, ":"),
     );
-    if (cleaned && (isCrewPrepConfidenceLine(cleaned) || isCrewStairStepHowManyLine(cleaned) || isCrewLabeledCountHowManyLine(cleaned) || isCrewUnlabeledCountHowManyLine(cleaned))) {
+    if (cleaned && (isCrewPrepConfidenceLine(cleaned) || isCrewStairStepHowManyLine(cleaned) || isCrewLabeledCountHowManyLine(cleaned) || isCrewUnlabeledCountHowManyLine(cleaned) || isCrewDimensionHowManyLine(cleaned))) {
       flags.push(cleaned);
       continue;
     }
     if (!cleaned || isGuidedTakeoffMathLine(cleaned)) continue;
     const shown = stripCrewReviewBucketPrefix(cleaned);
-    if (shown && (isCrewPrepConfidenceLine(shown) || isCrewStairStepHowManyLine(shown) || isCrewLabeledCountHowManyLine(shown) || isCrewUnlabeledCountHowManyLine(shown))) {
+    if (shown && (isCrewPrepConfidenceLine(shown) || isCrewStairStepHowManyLine(shown) || isCrewLabeledCountHowManyLine(shown) || isCrewUnlabeledCountHowManyLine(shown) || isCrewDimensionHowManyLine(shown))) {
       flags.push(shown);
       continue;
     }
@@ -424,7 +444,8 @@ export function parseProjectDetails(
       !isCrewPrepConfidenceLine(shown) &&
       !isCrewStairStepHowManyLine(shown) &&
       !isCrewLabeledCountHowManyLine(shown) &&
-      !isCrewUnlabeledCountHowManyLine(shown)
+      !isCrewUnlabeledCountHowManyLine(shown) &&
+      !isCrewDimensionHowManyLine(shown)
     ) {
       details.push(shown);
     }
