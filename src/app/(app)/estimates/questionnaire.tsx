@@ -307,7 +307,7 @@ type Answer =
   | { kind: "choice_areas"; rows: DemoRow[] }
   | { kind: "cuts"; same: boolean; product: ProductAns | null; groups: CarpetGroup[] }
   | { kind: "stairs"; groups: StairGroup[] }
-  | { kind: "hs_stairs"; steps: string; treadRiser: boolean; product: ProductAns | null; laborRate: string }
+  | { kind: "hs_stairs"; steps: string; treadRiser: boolean; product: ProductAns | null; laborRate: string; qty?: string }
   | { kind: "subfloor"; thickness: string }
   | { kind: "selflevel"; thickness: string }
   | { kind: "text"; text: string };
@@ -589,7 +589,7 @@ export function Questionnaire({
       else if (q.kind === "stairs")
         init[q.id] = { kind: "stairs", groups: [newStairGroup(q.config.options?.[0]?.label ?? "Waterfall")] };
       else if (q.kind === "hs_stairs")
-        init[q.id] = { kind: "hs_stairs", steps: "", treadRiser: true, product: null, laborRate: "" };
+        init[q.id] = { kind: "hs_stairs", steps: "", treadRiser: true, product: null, laborRate: "", qty: "" };
       else if (q.kind === "subfloor")
         init[q.id] = { kind: "subfloor", thickness: q.config.options?.[0]?.label ?? "" };
       else if (q.kind === "selflevel") {
@@ -1877,31 +1877,62 @@ export function Questionnaire({
           const p = a.product;
           if (p && (p.productId || p.label)) {
             const matCost = rateFor(p.materialRate, p.unit, false);
+            const wrapFam = familyFromCatalogCategory(p.category);
+            // Count wrap SKU emits How many in that unit — not leftover sq ft and not 8 sq ft/step. Area-unit wrap stays wrap qty TBD.
+            const counted = extraCountQtyForEmit({
+              family: wrapFam,
+              productUnit: p.unit,
+              qty: numv(a.qty ?? ""),
+            });
             // Wrap extra boxes are COUNT. A boxed LVP/hardwood SKU sold by the
             // square foot must not plant that area unit onto the wrap line —
             // typing 104 sq ft in Builder would reopen the 8 sq ft/step order.
             const { unit: countUnit } = countUnitForTbd(isAreaUnit(p.unit) ? "" : p.unit);
-            out.push({
-              room: null,
-              description: `${p.label || "Stair wrap"} — wrap qty TBD (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel} — not an automatic sq ft/step order)`,
-              category: p.category || "other",
-              measure_unit: "sqft",
-              sqft: null,
-              quantity: null,
-              length_in: null,
-              width_in: null,
-              unit: countUnit,
-              material_rate: sellMat(matCost),
-              labor_rate: 0,
-              material_cost: matCost,
-              labor_cost: 0,
-              waste_pct: 0,
-              product_id: p.productId || null,
-              manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
-              style: p.style,
-              color: p.color,
-              from_stock: p.source === "stock",
-            });
+            if (counted) {
+              out.push({
+                room: null,
+                description: `${p.label || "Stair wrap"} — ${counted.quantity} ${counted.unit} (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel} — not an automatic sq ft/step order)`,
+                category: p.category || "other",
+                measure_unit: "sqft",
+                sqft: null,
+                quantity: counted.quantity,
+                length_in: null,
+                width_in: null,
+                unit: counted.unit,
+                material_rate: sellMat(matCost),
+                labor_rate: 0,
+                material_cost: matCost,
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: p.productId || null,
+                manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                style: p.style,
+                color: p.color,
+                from_stock: p.source === "stock",
+              });
+            } else {
+              out.push({
+                room: null,
+                description: `${p.label || "Stair wrap"} — wrap qty TBD (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel} — not an automatic sq ft/step order)`,
+                category: p.category || "other",
+                measure_unit: "sqft",
+                sqft: null,
+                quantity: null,
+                length_in: null,
+                width_in: null,
+                unit: countUnit,
+                material_rate: sellMat(matCost),
+                labor_rate: 0,
+                material_cost: matCost,
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: p.productId || null,
+                manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                style: p.style,
+                color: p.color,
+                from_stock: p.source === "stock",
+              });
+            }
           }
           const typedRate = numv(a.laborRate);
           const configPerStep = Number(q.config.labor_per_step);
@@ -2497,6 +2528,20 @@ export function Questionnaire({
           if (seen.has(p.label)) continue;
           seen.add(p.label);
           addProduct(p.label, p.category, p.wastePct, p.sqftPerBox, sqftByLabel[p.label] ?? p.measuredSqft);
+        }
+      } else if (a?.kind === "hs_stairs" && a.product) {
+        const wrapLine = extraCountReviewLine({
+          family: familyFromCatalogCategory(a.product.category),
+          productUnit: a.product.unit,
+          qty: numv(a.qty ?? ""),
+          label: a.product.label,
+        });
+        if (wrapLine) {
+          if (!seenProd.has(a.product.label)) {
+            seenProd.add(a.product.label);
+            products.push(a.product.label);
+          }
+          extraCountReview.push(wrapLine);
         }
       }
     }
@@ -4925,6 +4970,15 @@ function QuestionBody({
     const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
     const lr = numv(a.laborRate) || (Number(q.config.labor_per_step) > 0 ? Number(q.config.labor_per_step) : 0);
     const p = a.product;
+    const wrapFam = familyFromCatalogCategory(p?.category);
+    const wrapAsksCount = extraAsksCountQty({ family: wrapFam, productUnit: p?.unit });
+    const setWrapProduct = (prod: ProductAns | null) => {
+      const keep = extraAsksCountQty({
+        family: familyFromCatalogCategory(prod?.category),
+        productUnit: prod?.unit,
+      });
+      upd({ product: prod, qty: keep ? a.qty : "" });
+    };
     const hsWrapCat = (() => {
       const hs = flooringCtx.families.filter(isHardSurfaceFamily);
       return hs.length === 1 ? catalogCategoryForFamily(hs[0]) : undefined;
@@ -4961,16 +5015,44 @@ function QuestionBody({
             initialLabel={p?.label ?? ""}
             label=""
             defaultCategory={hsWrapCat}
-            onPick={(prod) => upd({ product: prod ? toProductAns(prod) : null })}
-            onCreated={(prod) => upd({ product: toProductAns(prod) })}
-            onUseOnce={(input) => upd({ product: customToProductAns(input) })}
+            onPick={(prod) => setWrapProduct(prod ? toProductAns(prod) : null)}
+            onCreated={(prod) => setWrapProduct(toProductAns(prod))}
+            onUseOnce={(input) => setWrapProduct(customToProductAns(input))}
           />
         </div>
+        {wrapAsksCount ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_LABEL}</label>
+            <Input
+              value={a.qty ?? ""}
+              onChange={(e) => upd({ qty: e.target.value })}
+              inputMode="decimal"
+              placeholder={countUnitForTbd(p?.unit).phrase}
+              className="h-10 w-28"
+            />
+            <span className="text-xs text-muted-foreground">{countUnitForTbd(p?.unit).phrase}</span>
+            {numv(a.qty ?? "") > 0 ? (
+              <span className="w-full text-xs text-muted-foreground tabular-nums">
+                {extraCountReviewLine({
+                  family: wrapFam,
+                  productUnit: p?.unit,
+                  qty: numv(a.qty ?? ""),
+                  label: p?.label,
+                })}
+              </span>
+            ) : null}
+            <p className="w-full text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_HINT}</p>
+          </div>
+        ) : null}
         {steps > 0 ? (
           <div className="rounded-md border border-dashed p-2.5 text-sm">
             <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"} · {scopeLabel}
             {" · "}noses / treads / risers fill on Trims in EACH
-            {p ? <> · {p.label} wrap qty TBD (not an automatic sq ft/step order)</> : null}
+            {p && wrapAsksCount && numv(a.qty ?? "") > 0 ? (
+              <> · {extraCountReviewLine({ family: wrapFam, productUnit: p.unit, qty: numv(a.qty ?? ""), label: p.label })}</>
+            ) : p ? (
+              <> · {p.label} wrap qty TBD (not an automatic sq ft/step order)</>
+            ) : null}
             {lr > 0 ? (
               <> · labor <span className="tabular-nums">{formatMoney(sellLab(lr) * steps)}</span> ({steps} × {formatMoney(sellLab(lr))}/step)</>
             ) : (

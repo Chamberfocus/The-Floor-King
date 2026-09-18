@@ -10765,6 +10765,88 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(knowledgeHelpFor({ key: "adhesive" }, emptyInstallContext())).toMatch(/Unit TBD/);
   });
 
+  it("0310 stair wrap count SKU asks How many, not steps × 8", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0310_flooring_knowledge_stair_wrap_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0310_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/asks How many in that unit — not 8 sq ft\/step/);
+    expect(sql).toMatch(/Area-unit wrap stays wrap qty TBD/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*tile_application.*hs_plank_stairs|hs_plank_stairs.*show_if.*tile_application/,
+    );
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "each" })).toBe(true);
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "roll" })).toBe(true);
+    expect(extraAsksCountQty({ family: "hardwood", productUnit: "box" })).toBe(true);
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "sqft" })).toBe(false);
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "" })).toBe(false);
+    expect(extraAsksCountQty({ family: "hardwood", productUnit: "sqyd" })).toBe(false);
+    expect(
+      extraCountQtyForEmit({ family: "lvp", productUnit: "box", qty: 4 }),
+    ).toEqual({ quantity: 4, unit: "box" });
+    expect(
+      extraCountQtyForEmit({ family: "lvp", productUnit: "sqft", qty: 104 }),
+    ).toBe(null);
+    expect(
+      extraCountQtyForEmit({ family: "lvp", productUnit: "box", qty: 0 }),
+    ).toBe(null);
+    expect(
+      extraCountReviewLine({
+        family: "lvp",
+        productUnit: "box",
+        qty: 4,
+        label: "Lifeproof Oak wrap",
+      }),
+    ).toBe("Lifeproof Oak wrap: 4 box — not taped square feet and not a 30-yard roll");
+    expect(
+      extraCountReviewLine({
+        family: "lvp",
+        productUnit: "sqft",
+        qty: 104,
+        label: "Lifeproof Oak wrap",
+      }),
+    ).toBe(null);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/wrapAsksCount/);
+    expect(q).toMatch(/setWrapProduct/);
+    expect(q).toMatch(/Count wrap SKU emits How many in that unit/);
+    expect(q).toMatch(/not leftover sq ft and not 8 sq ft\/step/);
+    expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).toMatch(/extraCountQtyForEmit/);
+    expect(q).toMatch(/extraCountReviewLine/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/STAIR_SQFT_TREAD_RISER/);
+
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /How many \/ Unit TBD/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Area-unit wrap stays wrap qty TBD/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Exclusive wall tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /Exclusive floor tile also hides the 6-mil/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
