@@ -151,6 +151,7 @@ const REQUIRED_FILES = [
   "0288_flooring_knowledge_dead_stair_gate.sql",
   "0289_flooring_knowledge_carpet_tile_metals.sql",
   "0290_flooring_knowledge_glue_existing_vapor.sql",
+  "0291_flooring_knowledge_wood_deck_vapor.sql",
 ];
 
 /**
@@ -1858,6 +1859,16 @@ const REQUIRED_MARKERS = [
       "existing-floor primer",
       "Do NOT SQL-gate vapor_barrier on substrate",
       "Do NOT SQL-gate moisture_mitigation on substrate",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0291_flooring_knowledge_wood_deck_vapor.sql",
+    markers: [
+      "P0_0291_FLOORING_KNOWLEDGE",
+      "not a wood-deck underlayment",
+      "Do NOT SQL-gate vapor_barrier on substrate",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

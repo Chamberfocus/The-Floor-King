@@ -90,6 +90,7 @@ import {
   WOOD_DECK_MOISTURE_HIDES_KEYS,
   GLUE_WOOD_VAPOR_HIDES_KEYS,
   WOOD_DECK_AQUA_HIDES_KEYS,
+  WOOD_DECK_VAPOR_HIDES_KEYS,
   GLUE_EXISTING_VAPOR_HIDES_KEYS,
   EXISTING_FLOOR_AQUA_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
@@ -107,6 +108,7 @@ import {
   jobHidesDeadStairGate,
   jobHidesSlabMoistureOnWoodDeck,
   jobHidesVaporOnGlueWoodDeck,
+  jobHidesVaporOnWoodDeck,
   jobHidesAquaBarOnGlueWoodDeck,
   jobHidesVaporOnGlueExistingFloor,
   jobHidesAquaBarOnGlueExistingFloor,
@@ -6325,7 +6327,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       substrate: ["Plywood / OSB"],
     });
     expect(floatingPlywood).not.toContain("moisture_test");
-    expect(floatingPlywood).toContain("vapor_barrier");
+    expect(floatingPlywood).not.toContain("vapor_barrier");
     expect(floatingPlywood).toContain("attached_pad");
 
     const mixedLvp = walk({
@@ -6751,7 +6753,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       install_method: ["Floating / click"],
       substrate: ["Plywood / OSB"],
     });
-    expect(floatingPlywood).toContain("vapor_barrier");
+    expect(floatingPlywood).not.toContain("vapor_barrier");
     expect(floatingPlywood).toContain("attached_pad");
 
     const mixedFloat = walk({
@@ -6760,7 +6762,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       install_method: ["Glue-down", "Floating / click"],
       substrate: ["Plywood / OSB"],
     });
-    expect(mixedFloat).toContain("vapor_barrier");
+    expect(mixedFloat).not.toContain("vapor_barrier");
     expect(mixedFloat).toContain("attached_pad");
     expect(mixedFloat).toContain("adhesive");
 
@@ -6990,7 +6992,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       substrate: ["Plywood / OSB"],
     });
     expect(mixedFloat).not.toContain("moisture_mitigation");
-    expect(mixedFloat).toContain("vapor_barrier");
+    expect(mixedFloat).not.toContain("vapor_barrier");
     expect(mixedFloat).toContain("attached_pad");
 
     expect(knowledgeHelpFor({ key: "moisture_mitigation" }, emptyInstallContext())).toMatch(
@@ -8248,6 +8250,221 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(walkGlue).not.toContain("vapor_barrier");
     expect(walkGlue).not.toContain("moisture_mitigation");
     expect(walkGlue).toContain("moisture_test");
+  });
+
+  it("0291 exclusive plywood hides 6-mil for floating, glue, and mixed; concrete stays open", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0291_flooring_knowledge_wood_deck_vapor.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0291_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/not a wood-deck underlayment/);
+    expect(sql).toMatch(/Do NOT SQL-gate vapor_barrier on substrate/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*substrate.*vapor_barrier|vapor_barrier.*show_if.*substrate/,
+    );
+
+    expect([...WOOD_DECK_VAPOR_HIDES_KEYS]).toEqual(["vapor_barrier"]);
+    expect(
+      jobHidesVaporOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Floating / click"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVaporOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVaporOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down", "Floating / click"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVaporOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Laminate"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVaporOnGlueWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Floating / click"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Floating / click"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down", "Floating / click"],
+          substrate: ["Plywood / OSB", "Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnWoodDeck(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          substrate: ["Plywood / OSB"],
+        }),
+      ),
+    ).toBe(false);
+
+    const floatingPlywood = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(floatingPlywood).not.toContain("vapor_barrier");
+    expect(floatingPlywood).toContain("attached_pad");
+
+    const overlayGlue = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(overlayGlue).not.toContain("vapor_barrier");
+    expect(overlayGlue).toContain("adhesive");
+    expect(overlayGlue).toContain("moisture_test");
+
+    const mixedFloat = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down", "Floating / click"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(mixedFloat).not.toContain("vapor_barrier");
+    expect(mixedFloat).toContain("attached_pad");
+    expect(mixedFloat).toContain("adhesive");
+
+    const laminatePlywood = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(laminatePlywood).not.toContain("vapor_barrier");
+    expect(laminatePlywood).toContain("attached_pad");
+
+    const floatingConcrete = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      substrate: ["Concrete"],
+    });
+    expect(floatingConcrete).toContain("vapor_barrier");
+    expect(floatingConcrete).toContain("attached_pad");
+
+    const glueConcrete = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+      substrate: ["Concrete"],
+    });
+    expect(glueConcrete).toContain("vapor_barrier");
+    expect(glueConcrete).toContain("adhesive");
+
+    const unansweredSub = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+    });
+    expect(unansweredSub).toContain("vapor_barrier");
+    expect(unansweredSub).toContain("substrate");
+
+    const unansweredMethod = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(unansweredMethod).toContain("vapor_barrier");
+    expect(unansweredMethod).toContain("install_method");
+
+    const mixedSub = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      substrate: ["Plywood / OSB", "Concrete"],
+    });
+    expect(mixedSub).toContain("vapor_barrier");
+
+    const leftoverStretch = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      substrate: ["Plywood / OSB"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(leftoverStretch).not.toContain("vapor_barrier");
+
+    expect(knowledgeHelpFor({ key: "vapor_barrier" }, emptyInstallContext())).toMatch(
+      /Exclusive plywood also hides this/,
+    );
+
+    const walkFloat = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(walkFloat).not.toContain("vapor_barrier");
+    expect(walkFloat).toContain("attached_pad");
   });
 
   it("pattern repeat only after pattern match is required", () => {
