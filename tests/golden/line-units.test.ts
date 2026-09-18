@@ -232,6 +232,7 @@ describe("work-order lineSpec follows the same display unit", () => {
     expect(spec.unit).toBe("each");
     expect(spec.qty).toMatch(/2 each/);
     expect(spec.qty).not.toMatch(/sq ft/);
+    expect(spec.cartons).toBe(0);
   });
 
   it("count labor that forgot unit still does not print sq ft", () => {
@@ -246,6 +247,7 @@ describe("work-order lineSpec follows the same display unit", () => {
     });
     expect(spec.unit).toBe("");
     expect(spec.qty).not.toMatch(/sq ft/);
+    expect(spec.cartons).toBe(0);
   });
 
   it("carpet yards print sq yd next to the yard quantity", () => {
@@ -261,6 +263,7 @@ describe("work-order lineSpec follows the same display unit", () => {
     expect(spec.unit).toBe("sq yd");
     expect(spec.qty).toMatch(/sq yd/);
     expect(spec.qty).not.toMatch(/50 sq ft/);
+    expect(spec.cartons).toBe(0);
   });
 
   it("carpet pad billed in sq yd uses 30-yard rolls and does not divide yards by 9", () => {
@@ -278,6 +281,7 @@ describe("work-order lineSpec follows the same display unit", () => {
     expect(spec.rolls).toBe(Math.ceil(50 / PAD_ROLL_SQYD));
     expect(spec.rolls).toBe(2);
     expect(spec.rolls).not.toBe(Math.ceil(50 / 9 / PAD_ROLL_SQYD));
+    expect(spec.cartons).toBe(0);
   });
 
   it("pad already counted in rolls is not converted as if it were square feet", () => {
@@ -293,6 +297,7 @@ describe("work-order lineSpec follows the same display unit", () => {
     expect(spec.unit).toBe("roll");
     expect(spec.qtyNum).toBe(2);
     expect(spec.rolls).toBe(2);
+    expect(spec.cartons).toBe(0);
   });
 
   it("laminate underlayment billed in sq ft is not invented as 30-yard carpet-pad rolls", () => {
@@ -308,6 +313,7 @@ describe("work-order lineSpec follows the same display unit", () => {
     expect(spec.unit).toBe("sq ft");
     expect(spec.qtyNum).toBe(270);
     expect(spec.rolls).toBe(0);
+    expect(spec.cartons).toBe(0);
     expect(padRollCount("underlayment", 270, "sqft")).toBe(0);
     expect(padRollCount("underlayment", 50, "sqyd")).toBe(2);
   });
@@ -327,6 +333,7 @@ describe("work-order lineSpec follows the same display unit", () => {
     expect(spec.qtyNum).toBe(0);
     expect(spec.qty).not.toMatch(/sq ft/);
     expect(spec.qty).toBe("");
+    expect(spec.cartons).toBe(0);
   });
 });
 

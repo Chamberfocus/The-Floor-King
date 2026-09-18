@@ -3,7 +3,7 @@ import {
   isHardSurfaceCategory,
   type EstimateLineItem,
 } from "@/lib/types";
-import { lineQty, lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
+import { hardSurfaceAreaCartonCount, lineQty, lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
 import { billedQtyToSqyd, lineDisplayUnit, lineUnitKey } from "@/lib/units";
 
 // Carpet padding is bought by the roll; the shop's standard roll covers this
@@ -59,7 +59,7 @@ export function stripRoomFromName(
   return stripped || name;
 }
 
-/** What the crew needs per line: order quantity, cut size, pad rolls, fill flag. */
+/** What the crew needs per line: order quantity, carton count, cut size, pad rolls, fill flag. */
 export function lineSpec(l: {
   quantity: number | null;
   unit: string | null;
@@ -70,7 +70,23 @@ export function lineSpec(l: {
   category: string | null;
   is_fill?: boolean | null;
   description?: string | null;
-}): { qty: string; qtyNum: number; unit: string; cut: string; rolls: number; isFill: boolean } {
+  sqft_per_box?: number | string | null;
+  roll_width_ft?: number | string | null;
+  order_as_roll?: boolean | null;
+  measurements?: {
+    length_in?: number | string | null;
+    width_in?: number | string | null;
+    op?: string | null;
+  }[] | null;
+}): {
+  qty: string;
+  qtyNum: number;
+  unit: string;
+  cut: string;
+  rolls: number;
+  cartons: number;
+  isFill: boolean;
+} {
   // Use the SAME billed quantity as the estimate and invoice (measured area for
   // area lines, count for count lines) — never the raw stored quantity, which
   // could be waste-baked or off by rounding and made the work order disagree.
@@ -95,7 +111,10 @@ export function lineSpec(l: {
       ? `${ftIn(l.width_in)} × ${ftIn(l.length_in)}`
       : "";
   const rolls = padRollCount(l.category, q, unitKey);
-  return { qty, qtyNum: q, unit, cut, rolls, isFill: isRoll && !!l.is_fill };
+  // Exclusive carpet-tile job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const cartons = hardSurfaceAreaCartonCount(l, q || Number(l.sqft) || 0);
+  return { qty, qtyNum: q, unit, cut, rolls, cartons, isFill: isRoll && !!l.is_fill };
 }
 
 /**

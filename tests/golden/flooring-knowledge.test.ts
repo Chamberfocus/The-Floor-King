@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { companionQty, defaultWastePct, profileFor } from "@/lib/flooring-profiles";
-import { carpetCutList, carpetLineIsModularCoverage, carpetInstallSystemsForBoxedRate, notesCarpetInstallSystemsForBoxedRate, poCarpetInstallSystemsForBoxedRate, catalogCarpetInstallSystemsForBoxedRate, parseCutsFromText, padRollCount } from "@/lib/job-scope";
+import { carpetCutList, carpetLineIsModularCoverage, carpetInstallSystemsForBoxedRate, notesCarpetInstallSystemsForBoxedRate, poCarpetInstallSystemsForBoxedRate, catalogCarpetInstallSystemsForBoxedRate, parseCutsFromText, padRollCount, lineSpec } from "@/lib/job-scope";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
 import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
@@ -17729,6 +17729,198 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
       /warehouse queue carton/,
+    );
+  });
+
+  it("0370 Exclusive carpet-tile job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0370_flooring_knowledge_job_scope_carton.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0370_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive carpet-tile job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(
+      /Hard-surface job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap \/ count How many stays off carton math. Do not invent coverage/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Living room — Lifeproof Oak",
+          category: "lvp",
+          unit: "sq ft",
+          sqft_per_box: 23.64,
+        },
+        300,
+      ),
+    ).toBe(13);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Living room — Interface carpet tile",
+          category: "carpet",
+          unit: "sq yd",
+          sqft_per_box: 23.64,
+          order_as_roll: false,
+          quantity: 22.22,
+        },
+        22.22,
+      ),
+    ).toBe(9);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Stair wrap — wrap qty TBD",
+          category: "lvp",
+          unit: "box",
+          sqft_per_box: 23.64,
+          quantity: 8,
+        },
+        8,
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          category: "carpet",
+          unit: "sq yd",
+          sqft_per_box: 23.64,
+          roll_width_ft: 12,
+          quantity: 50,
+        },
+        50,
+      ),
+    ).toBe(0);
+
+    expect(
+      lineSpec({
+        quantity: 300,
+        unit: "sq ft",
+        measure_unit: "sqft",
+        sqft: 300,
+        length_in: null,
+        width_in: null,
+        category: "lvp",
+        sqft_per_box: 23.64,
+      }).cartons,
+    ).toBe(13);
+    expect(
+      lineSpec({
+        quantity: 22.22,
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 200,
+        length_in: null,
+        width_in: null,
+        category: "carpet",
+        sqft_per_box: 23.64,
+        order_as_roll: false,
+      }).cartons,
+    ).toBe(9);
+    expect(
+      lineSpec({
+        quantity: 8,
+        unit: "box",
+        measure_unit: "sqft",
+        sqft: 300,
+        length_in: null,
+        width_in: null,
+        category: "lvp",
+        description: "Lifeproof Oak — wrap qty TBD",
+        sqft_per_box: 23.64,
+      }).cartons,
+    ).toBe(0);
+    expect(
+      lineSpec({
+        quantity: 50,
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 450,
+        length_in: null,
+        width_in: null,
+        category: "carpet",
+        sqft_per_box: 23.64,
+        roll_width_ft: 12,
+      }).cartons,
+    ).toBe(0);
+
+    const scopeView = readFileSync(join(root, "src/components/job-scope-view.tsx"), "utf8");
+    expect(scopeView).toMatch(/spec\.cartons/);
+    expect(scopeView).toMatch(
+      /Exclusive carpet-tile job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(scopeView).toMatch(
+      /Hard-surface job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(scopeView).not.toMatch(/billedRateToCartonCost/);
+    expect(scopeView).not.toMatch(/category === ["']carpet_tile["']/);
+
+    const jobPage = readFileSync(join(root, "src/app/(app)/jobs/[id]/page.tsx"), "utf8");
+    expect(jobPage).toMatch(/spec\.cartons/);
+    expect(jobPage).toMatch(
+      /Exclusive carpet-tile job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(jobPage).toMatch(
+      /Hard-surface job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(jobPage).not.toMatch(/billedRateToCartonCost/);
+    expect(jobPage).not.toMatch(/category === ["']carpet_tile["']/);
+
+    const jobScope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(jobScope).toMatch(/hardSurfaceAreaCartonCount/);
+    expect(jobScope).toMatch(
+      /Exclusive carpet-tile job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(jobScope).toMatch(
+      /Hard-surface job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+
+    const catalogForm = readFileSync(
+      join(root, "src/app/(app)/catalog/product-form.tsx"),
+      "utf8",
+    );
+    expect(catalogForm).toMatch(/\$ \/ unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface warehouse queue carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+
+    const help =
+      /Exclusive carpet-tile job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Hard-surface job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap \/ count How many stays off carton math. Do not invent coverage/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /job scope carton/,
     );
   });
 
