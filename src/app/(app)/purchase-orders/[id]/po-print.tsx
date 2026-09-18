@@ -14,7 +14,7 @@ import {
   type PoItem,
   type PurchaseOrder,
 } from "@/lib/types";
-import { billedQtyToSqft, unitIsSqyd } from "@/lib/units";
+import { billedQtyToSqft, billedRateToCartonCost, lineUnitKey, unitIsSqyd } from "@/lib/units";
 import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
 
 function itemLabel(it: PoItem): string {
@@ -129,6 +129,12 @@ export function PoPrintDoc({
             // Hard surface / exclusive carpet tile: order in whole cartons from
             // billed area ÷ coverage (sq yd × 9). Wrap / carton TBD / qty TBD
             // How many is already the order. Mixed stretch-in + tile stays cuts.
+            // Exclusive carpet-tile PO print carton helper boxed rate onto $/carton is sq ft coverage, not sq yd × coverage 1:1. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            const cartonCost = billedRateToCartonCost(
+              Number(it.unit_cost) || 0,
+              lineUnitKey(it),
+              Number(it.sqft_per_box),
+            );
             const cartons = hardSurfaceAreaCartonCount(it, qty);
             const skipCarton = lineSkipsAreaCartonMath(it);
             const cartonArea =
@@ -138,7 +144,9 @@ export function PoPrintDoc({
               ? `${cartons} carton${cartons === 1 ? "" : "s"}`
               : `${Math.round(qty * 100) / 100} ${it.unit ?? ""}`.trim();
             const basis = cartons
-              ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${spb}/box`
+              ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${spb}/box${
+                  cartonCost != null ? ` · ${formatMoney(cartonCost)}/carton` : ""
+                }`
               : skipCarton
                 ? ""
                 : showCartonWarn

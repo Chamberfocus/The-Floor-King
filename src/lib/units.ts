@@ -196,7 +196,7 @@ export function billedQtyToSqft(qty: number, unitKey: string): number | null {
  * Convert a billed-unit rate into $/carton from sq ft/box coverage.
  * sq ft rate × coverage. sq yd rate ÷ 9 first — exclusive carpet-tile bills
  * per sq yd, coverage is sq ft/box. Count units return null.
- * Exclusive carpet-tile PO carton helper boxed rate onto $/carton is sq ft coverage, not sq yd × coverage 1:1. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+ * Exclusive carpet-tile PO carton helper boxed rate onto $/carton is sq ft coverage, not sq yd × coverage 1:1. Exclusive carpet-tile PO print carton helper boxed rate onto $/carton is sq ft coverage, not sq yd × coverage 1:1. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
  */
 export function billedRateToCartonCost(
   unitCost: number,
