@@ -10690,6 +10690,81 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0309 main count SKU asks How many, not room sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0309_flooring_knowledge_main_count_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0309_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/asks How many in that unit — room square feet is not pad yards/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_pad on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate adhesive on surface_type/);
+    expect(sql).toMatch(/Do NOT drop underlayment from SQYD_CATEGORIES/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*carpet_pad|carpet_pad.*show_if.*surface_type/,
+    );
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*adhesive|adhesive.*show_if.*surface_type/,
+    );
+
+    expect(extraAsksCountQty({ family: "other", productUnit: "roll" })).toBe(true);
+    expect(extraAsksCountQty({ family: "other", productUnit: "gal" })).toBe(true);
+    expect(extraAsksCountQty({ family: "other", productUnit: "kit" })).toBe(true);
+    expect(extraAsksCountQty({ family: "other", productUnit: "" })).toBe(false);
+    expect(extraAsksCountQty({ family: "other", productUnit: "sqyd" })).toBe(false);
+    expect(
+      extraCountQtyForEmit({ family: "other", productUnit: "roll", qty: 2 }),
+    ).toEqual({ quantity: 2, unit: "roll" });
+    expect(
+      extraCountQtyForEmit({ family: "other", productUnit: "gal", qty: 3 }),
+    ).toEqual({ quantity: 3, unit: "gallon" });
+    expect(
+      extraCountReviewLine({
+        family: "other",
+        productUnit: "roll",
+        qty: 2,
+        label: "Rebond pad",
+      }),
+    ).toBe("Rebond pad: 2 roll — not taped square feet and not a 30-yard roll");
+    expect(
+      extraCountReviewLine({
+        family: "other",
+        productUnit: "gal",
+        qty: 3,
+        label: "Pressure sensitive",
+      }),
+    ).toBe("Pressure sensitive: 3 gallon — not taped square feet and not a 30-yard roll");
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/mainAsksCount/);
+    expect(q).toMatch(/setMainQty/);
+    expect(q).toMatch(/Main count SKU emits How many in that unit/);
+    expect(q).toMatch(/mainCountLine/);
+    expect(q).toMatch(/qty\?: string/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — room square feet is not pad yards/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — room square feet is not foam feet/,
+    );
+    expect(knowledgeHelpFor({ key: "adhesive" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — taped square feet is not a glue order/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Additional pad for a specific area is MEASURED sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /does not convert room square feet into pad yards on Review/,
+    );
+    expect(knowledgeHelpFor({ key: "adhesive" }, emptyInstallContext())).toMatch(/Unit TBD/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

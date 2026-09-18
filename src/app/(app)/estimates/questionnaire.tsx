@@ -299,7 +299,7 @@ interface StairGroup { id: string; type: string; count: string }
 type Answer =
   | { kind: "areas"; rooms: AreaRow[] }
   | { kind: "floor_map"; byRoom: Record<string, ProductAns | null> }
-  | { kind: "product"; product: ProductAns | null; extras: ExtraPad[] }
+  | { kind: "product"; product: ProductAns | null; extras: ExtraPad[]; qty?: string }
   | { kind: "trims"; rows: TrimRow[] }
   | { kind: "yesno"; yes: boolean }
   | { kind: "number"; value: string; rateIdx: number | null }
@@ -569,7 +569,7 @@ export function Questionnaire({
       else if (q.kind === "product")
         init[q.id] = q.config.trim_list
           ? { kind: "trims", rows: [] }
-          : { kind: "product", product: null, extras: [] };
+          : { kind: "product", product: null, extras: [], qty: "" };
       else if (q.kind === "yesno") init[q.id] = { kind: "yesno", yes: !!q.config.default };
       else if (q.kind === "number") init[q.id] = { kind: "number", value: "", rateIdx: q.config.rate_options?.length ? 0 : null };
       else if (q.kind === "choice")
@@ -1284,29 +1284,61 @@ export function Questionnaire({
           ) {
             out.push(rollGoodsTbdLine(p, null, coverSf > 0 ? coverSf : undefined));
           } else if (!isRollGoodsFamily(fam) && (p.productId || p.label)) {
-            const { unit: countUnit, phrase: countPhrase } = countUnitForTbd(p.unit);
-            out.push({
-              room: null,
-              description: `${p.label || cat} — qty TBD (${countPhrase} — not taped sq ft)`,
-              category: p.category || cat,
-              measure_unit: "sqft",
-              sqft: null,
-              quantity: null,
-              length_in: null,
-              width_in: null,
-              unit: countUnit,
-              material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
-              labor_rate: 0,
-              material_cost: rateFor(p.materialRate, p.unit, false),
-              labor_cost: 0,
-              waste_pct: 0,
-              product_id: p.productId || null,
-              manufacturer:
-                p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
-              style: p.style,
-              color: p.color,
-              from_stock: p.source === "stock",
+            // Main count SKU emits How many in that unit — not leftover sq ft and not a 30-yard roll. Empty unit stays TBD.
+            const counted = extraCountQtyForEmit({
+              family: fam,
+              productUnit: p.unit,
+              qty: numv(a.qty ?? ""),
+              carpetInstallSystems: carpetSystems,
             });
+            const { unit: countUnit, phrase: countPhrase } = countUnitForTbd(p.unit);
+            if (counted) {
+              out.push({
+                room: null,
+                description: `${p.label || cat} — ${counted.quantity} ${counted.unit} (not taped sq ft)`,
+                category: p.category || cat,
+                measure_unit: "sqft",
+                sqft: null,
+                quantity: counted.quantity,
+                length_in: null,
+                width_in: null,
+                unit: counted.unit,
+                material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
+                labor_rate: 0,
+                material_cost: rateFor(p.materialRate, p.unit, false),
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: p.productId || null,
+                manufacturer:
+                  p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                style: p.style,
+                color: p.color,
+                from_stock: p.source === "stock",
+              });
+            } else {
+              out.push({
+                room: null,
+                description: `${p.label || cat} — qty TBD (${countPhrase} — not taped sq ft)`,
+                category: p.category || cat,
+                measure_unit: "sqft",
+                sqft: null,
+                quantity: null,
+                length_in: null,
+                width_in: null,
+                unit: countUnit,
+                material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
+                labor_rate: 0,
+                material_cost: rateFor(p.materialRate, p.unit, false),
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: p.productId || null,
+                manufacturer:
+                  p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                style: p.style,
+                color: p.color,
+                from_stock: p.source === "stock",
+              });
+            }
           }
           // Install labor — bundled, with the total area recorded.
           // Cuts-owned roll goods emit install with the cut yardage instead.
@@ -2374,6 +2406,16 @@ export function Questionnaire({
           qq.key,
           a.product.unit,
         );
+        const mainCountLine = extraCountReviewLine({
+          family: familyFromCatalogCategory(a.product.category),
+          productUnit: a.product.unit,
+          qty: numv(a.qty ?? ""),
+          label: a.product.label,
+          carpetInstallSystems: carpetInstallSystemsFromLabels(
+            flooringCtx.answeredCarpetInstall,
+          ),
+        });
+        if (mainCountLine) extraCountReview.push(mainCountLine);
         // Count / TBD extras skip area Review takeoff — leftover measured sq ft
         // is not pad yards and not an order. Do not plant leftover sq ft.
         // Typed How many rides onto Review as that count — not leftover sq ft and not a 30-yard roll.
@@ -3959,6 +4001,7 @@ function QuestionBody({
   if (q.kind === "product" && !q.config.trim_list && answer?.kind === "product") {
     const p = answer.product;
     const extras = answer.extras;
+    const qty = answer.qty ?? "";
     const familyCat =
       flooringCtx.families.length === 1
         ? catalogCategoryForFamily(flooringCtx.families[0])
@@ -3977,8 +4020,16 @@ function QuestionBody({
     const needRollCuts = rollGoodsNeedCuts(family, carpetSystems);
     const isRoll = needRollCuts;
     const defWasteForCat = profileFor(cat)?.waste ?? 0;
-    const setMain = (product: ProductAns | null) => set({ kind: "product", product, extras });
-    const setExtras = (xs: ExtraPad[]) => set({ kind: "product", product: p, extras: xs });
+    const setMain = (product: ProductAns | null) => {
+      const keep = extraAsksCountQty({
+        family: familyFromCatalogCategory(product?.category || cat),
+        productUnit: product?.unit,
+        carpetInstallSystems: carpetSystems,
+      });
+      set({ kind: "product", product, extras, qty: keep ? qty : "" });
+    };
+    const setExtras = (xs: ExtraPad[]) => set({ kind: "product", product: p, extras: xs, qty });
+    const setMainQty = (next: string) => set({ kind: "product", product: p, extras, qty: next });
     const patchExtra = (id: string, patch: Partial<ExtraPad>) =>
       setExtras(extras.map((x) => (x.id === id ? { ...x, ...patch } : x)));
     const extraKeepMeasured = (prod: ProductAns | null) => {
@@ -3997,6 +4048,11 @@ function QuestionBody({
         carpetInstallSystems: carpetSystems,
       });
     };
+    const mainAsksCount = extraAsksCountQty({
+      family,
+      productUnit: p?.unit,
+      carpetInstallSystems: carpetSystems,
+    });
     const setExtraProduct = (id: string, product: ProductAns | null, extra: ExtraPad) =>
       patchExtra(id, {
         product,
@@ -4022,7 +4078,9 @@ function QuestionBody({
                 {p.materialRate > 0
                   ? `${formatMoney(p.materialRate)}/${p.unit} → sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/${b.unitLabel}`
                   : PRICE_NEEDED}
-                {coverSf > 0
+                {mainAsksCount
+                  ? ""
+                  : coverSf > 0
                   ? ` · measured ${formatMeasuredLabel({ sqft: coverSf, sqydEquivalent: r2(coverSf / 9) }, { showEquivalentYd: b.wantYd })}`
                   : mixedUnassigned
                     ? " · assign rooms to this product — mixed jobs do not clone whole-job sq ft"
@@ -4139,6 +4197,42 @@ function QuestionBody({
                   </div>
                 );
               })()
+            ) : extraAsksCountQty({
+              family,
+              productUnit: p.unit,
+              carpetInstallSystems: carpetSystems,
+            }) ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_LABEL}</label>
+                <Input
+                  value={qty}
+                  onChange={(e) => setMainQty(e.target.value)}
+                  inputMode="decimal"
+                  placeholder={countUnitForTbd(p.unit).phrase}
+                  className="h-10 w-28"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {countUnitForTbd(p.unit).phrase}
+                </span>
+                {numv(qty) > 0 ? (
+                  <span className="w-full text-xs text-muted-foreground tabular-nums">
+                    {extraCountReviewLine({
+                      family,
+                      productUnit: p.unit,
+                      qty: numv(qty),
+                      label: p.label,
+                      carpetInstallSystems: carpetSystems,
+                    })}
+                  </span>
+                ) : null}
+                <p className="w-full text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_HINT}</p>
+              </div>
+            ) : !areaDerivedMaterialAllowed(family, p.unit, carpetSystems) &&
+              (q.key === "carpet_pad" ||
+                q.key === "hs_underlayment" ||
+                q.key === "adhesive" ||
+                cat === "underlayment") ? (
+              <p className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_TBD_HINT}</p>
             ) : q.key === "carpet_pad" || q.key === "hs_underlayment" || cat === "underlayment" ? (
               coverSf > 0 ? (
                 <p className="text-sm">

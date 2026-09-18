@@ -169,6 +169,7 @@ const REQUIRED_FILES = [
   "0306_flooring_knowledge_extra_count_qty.sql",
   "0307_flooring_knowledge_extra_count_review.sql",
   "0308_flooring_knowledge_main_pad_count.sql",
+  "0309_flooring_knowledge_main_count_qty.sql",
 ];
 
 /**
@@ -2063,6 +2064,18 @@ const REQUIRED_MARKERS = [
       "P0_0308_FLOORING_KNOWLEDGE",
       "does not convert room square feet into pad yards",
       "Do NOT SQL-gate carpet_pad on surface_type",
+      "Do NOT drop underlayment from SQYD_CATEGORIES",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0309_flooring_knowledge_main_count_qty.sql",
+    markers: [
+      "P0_0309_FLOORING_KNOWLEDGE",
+      "asks How many in that unit — room square feet is not pad yards",
+      "Do NOT SQL-gate carpet_pad on surface_type",
+      "Do NOT SQL-gate adhesive on surface_type",
       "Do NOT drop underlayment from SQYD_CATEGORIES",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
