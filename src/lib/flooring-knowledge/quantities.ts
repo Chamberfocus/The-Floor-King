@@ -20,6 +20,7 @@ import { billsBySquareYard, isAreaUnit, normalizeUnit, unitIsSqyd, unitLabel } f
 import {
   billsBySqydFamily,
   defaultWastePctForFamily,
+  familyLabel,
   isBoxedFamily,
   isRollGoodsFamily,
   rollGoodsNeedCuts,
@@ -53,6 +54,8 @@ export type OrderBasis =
 
 export interface MaterialTakeoff {
   family: FlooringFamily;
+  /** Salesperson-facing title when family is `other` (pad / foam). */
+  takeoffLabel?: string;
   /** Catalog / billing unit key (sqft, sqyd, lnft, each, box…). */
   billingUnit: string;
   measured: MeasuredArea;
@@ -227,6 +230,34 @@ export interface ComputeTakeoffInput {
   carpetSystems?: InstallSystem[] | null;
   /** When true, skip waste even without cuts (explicit 0 on the line). */
   wasteAlreadyInQuantity?: boolean;
+  /**
+   * Override family billing. Pad (`carpet_pad`) is sq yd unless the SKU is
+   * feet; foam (`hs_underlayment`) is sq ft unless the SKU is yards. Family
+   * `other` is not roll goods — do not invent a 30-yard roll.
+   */
+  billingUnit?: "sqft" | "sqyd" | null;
+  /** Review title when family is `other` (Carpet pad / Underlayment). */
+  takeoffLabel?: string | null;
+}
+
+/** Review title for pad / foam. Catalog underlayment still maps to family `other`. */
+export function padFoamTakeoffLabel(args: {
+  key?: string | null;
+  category?: string | null;
+}): string | undefined {
+  const key = (args.key ?? "").trim();
+  if (key === "hs_underlayment") return "Underlayment";
+  if (key === "carpet_pad") return "Carpet pad";
+  if ((args.category ?? "").trim().toLowerCase() === "underlayment") return "Carpet pad";
+  return undefined;
+}
+
+export function takeoffDisplayTitle(
+  t: Pick<MaterialTakeoff, "family" | "takeoffLabel">,
+): string {
+  const custom = (t.takeoffLabel ?? "").trim();
+  if (custom) return custom;
+  return familyLabel(t.family);
 }
 
 /**
@@ -237,12 +268,23 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
   const measured = measuredArea(input.measuredSqft);
   const notes: string[] = [];
   const warnings: string[] = [];
-  const billingUnit = billsBySqydFamily(family) ? "sqyd" : "sqft";
+  const billingUnit: "sqft" | "sqyd" =
+    input.billingUnit === "sqyd" || input.billingUnit === "sqft"
+      ? input.billingUnit
+      : billsBySqydFamily(family)
+        ? "sqyd"
+        : "sqft";
+  const takeoffLabel = (input.takeoffLabel ?? "").trim() || undefined;
 
   const cuts = Number(input.cutsSqft);
   const hasCuts = rollGoodsHaveCuts(family, input.cutsSqft, input.carpetSystems);
   const needCuts = rollGoodsNeedCuts(family, input.carpetSystems);
-  const boxedLike = isBoxedFamily(family) || (family === "carpet" && !needCuts);
+  // Family other is not roll goods and not boxed unless the SKU actually has
+  // carton coverage. Do not invent a 30-yard pad roll.
+  const boxedLike =
+    isBoxedFamily(family) ||
+    (family === "carpet" && !needCuts) ||
+    (family === "other" && Number(input.sqftPerBox) > 0 && !needCuts);
 
   let wastePct: number;
   let orderSqft: number;
@@ -251,6 +293,7 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
   if (measured.sqft <= 0 && !hasCuts) {
     return {
       family,
+      takeoffLabel,
       billingUnit,
       measured,
       wastePct: 0,
@@ -319,8 +362,17 @@ export function computeMaterialTakeoff(input: ComputeTakeoffInput): MaterialTake
   const billedSqft = cartons ? cartons.orderedCoverageSqft : orderSqft;
   const billingQty = billingUnit === "sqyd" ? r2(billedSqft / 9) : r2(billedSqft);
 
+  if (family === "other" && orderBasis === "measured_plus_waste") {
+    notes.push(
+      billingUnit === "sqyd"
+        ? "Billing is square yards from measured area — not a 30-yard roll."
+        : "Billing is square feet from measured area — not pad yards and not a 30-yard roll.",
+    );
+  }
+
   return {
     family,
+    takeoffLabel,
     billingUnit,
     measured,
     wastePct,

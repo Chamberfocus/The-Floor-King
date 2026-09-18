@@ -30,6 +30,8 @@ import {
   catalogCategoryForFamily,
   coerceTrimUnit,
   computeMaterialTakeoff,
+  padFoamTakeoffLabel,
+  takeoffDisplayTitle,
   cutWidthChoicesFt,
   defaultCutWidthFt,
   enteredCutWidthFt,
@@ -8844,6 +8846,123 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(walkAfter).toContain("stair_landings");
     expect(walkAfter).toContain("stair_open_sides");
+  });
+
+  it("0294 pad/foam Review takeoff is measured vs billing, not a 30-yard roll", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0294_flooring_knowledge_pad_takeoff.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0294_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/not a 30-yard roll/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_pad on surface_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*carpet_pad|carpet_pad.*show_if.*surface_type/,
+    );
+
+    expect(familyFromCatalogCategory("underlayment")).toBe("other");
+    expect(padFoamTakeoffLabel({ key: "carpet_pad", category: "underlayment" })).toBe(
+      "Carpet pad",
+    );
+    expect(padFoamTakeoffLabel({ key: "hs_underlayment", category: "underlayment" })).toBe(
+      "Underlayment",
+    );
+
+    const pad = computeMaterialTakeoff({
+      family: "other",
+      measuredSqft: 450,
+      billingUnit: billingUnitForArea({ category: "underlayment", key: "carpet_pad" }),
+      takeoffLabel: padFoamTakeoffLabel({ key: "carpet_pad", category: "underlayment" }),
+    });
+    expect(pad.family).toBe("other");
+    expect(pad.takeoffLabel).toBe("Carpet pad");
+    expect(takeoffDisplayTitle(pad)).toBe("Carpet pad");
+    expect(pad.billingUnit).toBe("sqyd");
+    expect(pad.measured.sqft).toBe(450);
+    expect(pad.measured.sqydEquivalent).toBe(50);
+    expect(pad.wastePct).toBe(0);
+    expect(pad.orderBasis).toBe("measured_plus_waste");
+    expect(pad.billingQty).toBe(50);
+    expect(pad.orderSqft).toBe(450);
+    expect(pad.cartons).toBeNull();
+    expect(pad.notes.some((n) => /not a 30-yard roll/i.test(n))).toBe(true);
+    expect(formatTakeoffStrip(pad)).toMatch(/Billing 50 sq yd/);
+    expect(formatTakeoffStrip(pad)).not.toMatch(/60 sq yd/);
+
+    const padCompanion = profileFor("carpet")!.companions.find((c) => c.key === "pad")!;
+    expect(companionQty(padCompanion, 450, 0)).toBe(60);
+    expect(padRollCount("underlayment", 50, "sqyd")).toBe(2);
+
+    const foam = computeMaterialTakeoff({
+      family: "other",
+      measuredSqft: 450,
+      billingUnit: billingUnitForArea({
+        category: "underlayment",
+        key: "hs_underlayment",
+      }),
+      takeoffLabel: padFoamTakeoffLabel({
+        key: "hs_underlayment",
+        category: "underlayment",
+      }),
+    });
+    expect(foam.billingUnit).toBe("sqft");
+    expect(foam.billingQty).toBe(450);
+    expect(foam.wastePct).toBe(0);
+    expect(foam.cartons).toBeNull();
+    expect(foam.notes.some((n) => /not pad yards/i.test(n))).toBe(true);
+    expect(formatTakeoffStrip(foam)).toMatch(/Billing 450 sq ft/);
+    expect(formatTakeoffStrip(foam)).not.toMatch(/sq yd/);
+
+    const boxed = computeMaterialTakeoff({
+      family: "other",
+      measuredSqft: 450,
+      billingUnit: "sqft",
+      sqftPerBox: 20,
+      takeoffLabel: "Underlayment",
+    });
+    expect(boxed.cartons?.cartonCount).toBe(23);
+    const noBox = computeMaterialTakeoff({
+      family: "other",
+      measuredSqft: 450,
+      billingUnit: "sqyd",
+    });
+    expect(noBox.cartons).toBeNull();
+
+    const review = buildSalespersonReview({
+      rooms: [],
+      products: ["Rebond pad"],
+      takeoffs: [pad, foam],
+      ctx: emptyInstallContext(),
+      removal: [],
+      installation: [],
+      prep: [],
+      accessories: [],
+      specials: [],
+    });
+    expect(review.sections.map((s) => s.title)).toEqual(
+      expect.arrayContaining(["Carpet pad takeoff", "Underlayment takeoff"]),
+    );
+    expect(review.sections.map((s) => s.title)).not.toContain("Other takeoff");
+    const notes = reviewToJobNotes(review);
+    expect(notes).toMatch(/Carpet pad takeoff:/);
+    expect(notes).toMatch(/Billing quantity: 50 sq yd/);
+    expect(notes).not.toMatch(/Billing quantity: 60 sq yd/);
+
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Review takeoff shows measured area vs billing yards/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /Review takeoff shows measured area vs billing square feet/,
+    );
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/padFoamTakeoffLabel/);
+    expect(q).toMatch(/billingUnitForArea/);
+    expect(q).toMatch(/takeoffDisplayTitle/);
+    expect(q).not.toMatch(/if \(family === "other"\) return;/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

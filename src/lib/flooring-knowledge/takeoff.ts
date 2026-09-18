@@ -6,7 +6,7 @@
  * reading every line item first.
  */
 
-import { formatSqft, takeoffConceptRows, type MaterialTakeoff } from "./quantities";
+import { formatSqft, takeoffConceptRows, takeoffDisplayTitle, type MaterialTakeoff } from "./quantities";
 import {
   CONDITION_CONFIDENCE_LABELS,
   familyFromCatalogCategory,
@@ -501,7 +501,7 @@ export function buildSalespersonReview(args: {
   args.takeoffs.forEach((t, i) => {
     sections.push({
       id: `takeoff-${i}`,
-      title: `${familyLabel(t.family)} takeoff`,
+      title: `${takeoffDisplayTitle(t)} takeoff`,
       rows: takeoffRows(t),
     });
   });

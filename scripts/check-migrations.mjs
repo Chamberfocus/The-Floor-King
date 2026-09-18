@@ -154,6 +154,7 @@ const REQUIRED_FILES = [
   "0291_flooring_knowledge_wood_deck_vapor.sql",
   "0292_flooring_knowledge_existing_floor_vapor.sql",
   "0293_flooring_knowledge_dead_stair_followups.sql",
+  "0294_flooring_knowledge_pad_takeoff.sql",
 ];
 
 /**
@@ -1891,6 +1892,16 @@ const REQUIRED_MARKERS = [
       "P0_0293_FLOORING_KNOWLEDGE",
       "hidden parent",
       "Do NOT SQL-gate stair_landings on carpet_stairs",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0294_flooring_knowledge_pad_takeoff.sql",
+    markers: [
+      "P0_0294_FLOORING_KNOWLEDGE",
+      "not a 30-yard roll",
+      "Do NOT SQL-gate carpet_pad on surface_type",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

@@ -61,6 +61,9 @@ import {
   questionnaireCutGroupOrderLabel,
   questionnaireCutsGrandOrderLabel,
   computeMaterialTakeoff,
+  padFoamTakeoffLabel,
+  takeoffDisplayTitle,
+  billingUnitForArea,
   emptyInstallContext,
   familyFromCatalogCategory,
   formatDimensionPair,
@@ -2252,21 +2255,46 @@ export function Questionnaire({
       wastePct: string,
       sqftPerBox: string,
       measuredSqft?: number,
+      key?: string | null,
+      productUnit?: string | null,
     ) => {
-      if (!label || seenProd.has(label)) return;
-      seenProd.add(label);
-      products.push(label);
+      if (!label) return;
+      const already = seenProd.has(label);
+      if (!already) {
+        seenProd.add(label);
+        products.push(label);
+      } else if (measuredSqft == null) {
+        return;
+      }
       const family = familyFromCatalogCategory(category);
-      if (family === "other") return;
-      const waste = wastePct.trim() !== "" ? numv(wastePct) : undefined;
+      const padLabel = padFoamTakeoffLabel({ key, category });
+      const isPadOrFoam = Boolean(padLabel);
+      if (family === "other" && !isPadOrFoam) return;
+      const waste = wastePct.trim() !== "" ? numv(wastePct) : isPadOrFoam ? 0 : undefined;
+      const cover = isPadOrFoam
+        ? measuredSqft != null && measuredSqft > 0
+          ? measuredSqft
+          : measuredSqftForQuestionCover({
+              kind: "product",
+              key,
+              category,
+              totalSqft,
+              byFamily: familySqft,
+              jobFamilies: flooringCtx.families,
+            })
+        : measuredFor(family, measuredSqft);
       takeoffs.push(
         computeMaterialTakeoff({
           family,
-          measuredSqft: measuredFor(family, measuredSqft),
+          measuredSqft: cover,
           wastePct: waste,
           cutsSqft: family === "carpet" ? cutsSqftByCategory.carpet ?? 0 : family === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : null,
           sqftPerBox: numv(sqftPerBox) > 0 ? numv(sqftPerBox) : null,
           carpetSystems: family === "carpet" ? carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall) : null,
+          billingUnit: isPadOrFoam
+            ? billingUnitForArea({ category, key, productUnit })
+            : undefined,
+          takeoffLabel: padLabel,
         }),
       );
     };
@@ -2274,7 +2302,27 @@ export function Questionnaire({
       if (!visible[qq.id]) continue;
       const a = answers[qq.id];
       if (a?.kind === "product" && a.product) {
-        addProduct(a.product.label, a.product.category, a.product.wastePct, a.product.sqftPerBox);
+        addProduct(
+          a.product.label,
+          a.product.category,
+          a.product.wastePct,
+          a.product.sqftPerBox,
+          undefined,
+          qq.key,
+          a.product.unit,
+        );
+        for (const ex of a.extras) {
+          if (!ex.product?.label || !(numv(ex.sqft) > 0)) continue;
+          addProduct(
+            ex.product.label,
+            ex.product.category || qq.config.category || a.product.category,
+            ex.product.wastePct,
+            ex.product.sqftPerBox,
+            numv(ex.sqft),
+            qq.key,
+            ex.product.unit,
+          );
+        }
       } else if (a?.kind === "cuts") {
         const p = a.same !== false ? a.product : a.groups.map((g) => g.product).find(Boolean) ?? null;
         if (p) addProduct(p.label, p.category || qq.config.category || "carpet", p.wastePct, p.sqftPerBox);
@@ -2622,7 +2670,7 @@ export function Questionnaire({
           {salespersonReview.takeoffs.map((t, i) =>
             t.measured.sqft > 0 || t.orderSqft > 0 ? (
               <p key={`${t.family}-${i}`} className="text-xs leading-snug">
-                <span className="font-semibold">{familyLabel(t.family)}</span>
+                <span className="font-semibold">{takeoffDisplayTitle(t)}</span>
                 {" · "}
                 {formatTakeoffStrip(t)}
               </p>
@@ -3973,6 +4021,25 @@ function QuestionBody({
                   </div>
                 );
               })()
+            ) : q.key === "carpet_pad" || q.key === "hs_underlayment" || cat === "underlayment" ? (
+              coverSf > 0 ? (
+                <p className="text-sm">
+                  {formatTakeoffStrip(
+                    computeMaterialTakeoff({
+                      family,
+                      measuredSqft: coverSf,
+                      wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : 0,
+                      sqftPerBox: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                      billingUnit: b.measureUnit,
+                      takeoffLabel: padFoamTakeoffLabel({ key: q.key, category: cat }),
+                    }),
+                  )}
+                </p>
+              ) : mixedUnassigned ? (
+                <p className="text-xs text-muted-foreground">
+                  Assign rooms on the floor map. Mixed jobs do not clone whole-job sq ft onto pad or foam.
+                </p>
+              ) : null
             ) : null}
           </>
         ) : null}
@@ -4007,15 +4074,22 @@ function QuestionBody({
                   <Input value={ex.sqft} onChange={(e) => patchExtra(ex.id, { sqft: e.target.value })} inputMode="decimal" placeholder={EXTRA_AREA_MEASURED_PLACEHOLDER} className="h-10 w-28" />
                   {ex.product && numv(ex.sqft) > 0 ? (
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {formatMeasuredLabel(
-                        { sqft: numv(ex.sqft), sqydEquivalent: r2(numv(ex.sqft) / 9) },
-                        {
-                          showEquivalentYd: billing({
+                      {formatTakeoffStrip(
+                        computeMaterialTakeoff({
+                          family: familyFromCatalogCategory(ex.product.category || cat),
+                          measuredSqft: numv(ex.sqft),
+                          wastePct: ex.product.wastePct.trim() !== "" ? numv(ex.product.wastePct) : 0,
+                          sqftPerBox: numv(ex.product.sqftPerBox) > 0 ? numv(ex.product.sqftPerBox) : null,
+                          billingUnit: billing({
                             category: cat,
                             key: q.key,
                             productUnit: ex.product.unit,
-                          }).wantYd,
-                        },
+                          }).measureUnit,
+                          takeoffLabel: padFoamTakeoffLabel({
+                            key: q.key,
+                            category: ex.product.category || cat,
+                          }),
+                        }),
                       )}
                     </span>
                   ) : null}

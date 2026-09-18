@@ -128,6 +128,8 @@ export {
   sqydToSqft,
   cartonTakeoff,
   computeMaterialTakeoff,
+  padFoamTakeoffLabel,
+  takeoffDisplayTitle,
   formatSqft,
   formatSqyd,
   formatEquivalentSqyd,
