@@ -260,6 +260,7 @@ const REQUIRED_FILES = [
   "0397_flooring_knowledge_linemeasurements_order_pad_roll.sql",
   "0398_flooring_knowledge_builder_expanded_pad_order_pad_roll.sql",
   "0399_flooring_knowledge_builder_expanded_tile_takeoff_order_carton.sql",
+  "0400_flooring_knowledge_guided_estimate_tile_takeoff_order_carton.sql",
 ];
 
 /**
@@ -3219,6 +3220,19 @@ const REQUIRED_MARKERS = [
       "P0_0399_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile Builder expanded tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Hard-surface Builder expanded tile takeoff order carton count stays off this modular strip. Wrap / count How many stays off carton math. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0400_flooring_knowledge_guided_estimate_tile_takeoff_order_carton.sql",
+    markers: [
+      "P0_0400_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile Guided Estimate tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Hard-surface Guided Estimate tile takeoff order carton count stays off this modular strip. Wrap / count How many stays off carton math. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

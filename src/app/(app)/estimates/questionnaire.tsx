@@ -5047,6 +5047,28 @@ function QuestionBody({
             carpetInstallSystems: carpetSystems,
           })
         : null;
+      // Exclusive carpet-tile Guided Estimate tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+      // Hard-surface Guided Estimate tile takeoff order carton count stays off this modular strip. Wrap / count How many stays off carton math. Do not invent coverage.
+      const geCartons = p
+        ? hardSurfaceAreaCartonCount(
+            {
+              description: p.label,
+              category: "carpet",
+              unit: "sq yd",
+              sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+              order_as_roll: false,
+              quantity: coverSf / 9,
+            },
+            lineOrderQty({
+              line_type: "mat_labor",
+              description: p.label,
+              category: "carpet",
+              unit: "sq yd",
+              quantity: coverSf / 9,
+              waste_pct: p.wastePct.trim() !== "" ? numv(p.wastePct) : 0,
+            }),
+          )
+        : 0;
       const setProduct = (product: ProductAns | null) => mutate((a) => ({ ...a, product, same: true }));
       return (
         <div className="space-y-3">
@@ -5092,11 +5114,20 @@ function QuestionBody({
                 </div>
               </div>
               {coverSf > 0 ? (
-                <p className="text-sm">
-                  {cartonTbd
-                    ? "Order TBD — carton coverage TBD (not How many boxes from leftover taped sq ft). Do not invent a box size."
-                    : formatTakeoffStrip(takeoff)}
-                </p>
+                <>
+                  <p className="text-sm">
+                    {cartonTbd
+                      ? "Order TBD — carton coverage TBD (not How many boxes from leftover taped sq ft). Do not invent a box size."
+                      : formatTakeoffStrip(takeoff)}
+                  </p>
+                  {/* Exclusive carpet-tile Guided Estimate tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                  {/* Hard-surface Guided Estimate tile takeoff order carton count stays off this modular strip. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                  {!cartonTbd && geCartons ? (
+                    <span className="text-sm font-medium text-foreground">
+                      = {geCartons} carton{geCartons === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
+                </>
               ) : mixedUnassigned ? (
                 <p className="text-xs text-muted-foreground">
                   Assign carpet rooms on the floor map. Mixed jobs do not clone whole-job sq ft onto carpet tile.
