@@ -76,6 +76,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer print / portal itemized line notes strip leftover stair-install step How many and crew prep confidence — those stay on stored lines so Builder still prices per step and the crew still sees Field verify / TBD vs Known bag counts.
  * Customer / portal / print strip Guided takeoff Review section headers — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay.
  * Customer / portal / print strip Guided takeoff Review bucket prefixes — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay.
+ * Customer / portal / print strip Guided takeoff stair-install step How many — those stay in stored job_description so Builder still prices per step. Wrap How many still stays.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?)/i;
@@ -172,13 +173,17 @@ export function isCrewPrepConfidenceLine(raw: string): boolean {
   return false;
 }
 
-/** Crew stair-step How many leftover. Stored line notes keep the count. */
+/** Crew stair-step How many leftover. Stored job_description / line notes keep the count. Wrap “8 box” is accessory How many and stays. */
 export function isCrewStairStepHowManyLine(raw: string): boolean {
   const stripped = stripCrewIdentityFromCustomerLabel(
     (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
   );
   if (!stripped) return false;
-  return /^\d+\s+steps?\b/i.test(stripped);
+  const shown = stripCrewReviewBucketPrefix(stripped);
+  const text = shown || stripped;
+  if (/^\d+\s+steps?\b/i.test(text)) return true;
+  if (/:\s*\d+\s+steps?\b/i.test(text)) return true;
+  return false;
 }
 
 function isCrewOnlyCustomerText(raw: string): boolean {
@@ -369,11 +374,16 @@ export function parseProjectDetails(
     }
     if (!cleaned || isGuidedTakeoffMathLine(cleaned)) continue;
     const shown = stripCrewReviewBucketPrefix(cleaned);
+    if (shown && (isCrewPrepConfidenceLine(shown) || isCrewStairStepHowManyLine(shown))) {
+      flags.push(shown);
+      continue;
+    }
     if (
       shown &&
       !isCrewReviewSectionHeader(shown) &&
       !isGuidedTakeoffMathLine(shown) &&
-      !isCrewPrepConfidenceLine(shown)
+      !isCrewPrepConfidenceLine(shown) &&
+      !isCrewStairStepHowManyLine(shown)
     ) {
       details.push(shown);
     }
