@@ -14,6 +14,7 @@ import { formatMoney } from "@/lib/format";
 import {
   lineTotal,
   lineQty,
+  lineOrderQty,
   lineIsStairWrapTbd,
   lineIsBoxedCartonTbd,
   lineIsCountNotTapedSqft,
@@ -2377,7 +2378,9 @@ export function EstimateBuilder({
                   const sUnit = lineDisplayUnit(line);
                   // Exclusive carpet-tile Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                   // Hard-surface Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
-                  const sCartons = hardSurfaceAreaCartonCount(summ, sQty);
+                  // Exclusive carpet-tile Builder collapsed order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Builder collapsed order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  const sCartons = hardSurfaceAreaCartonCount(summ, lineOrderQty(summ));
                   const sSell = lineTotal(summ);
                   const sCost = lineOurCost(line);
                   const sMargin = sSell > 0 ? ((sSell - sCost) / sSell) * 100 : 0;
