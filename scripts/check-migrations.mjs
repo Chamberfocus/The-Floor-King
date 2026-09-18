@@ -236,6 +236,9 @@ const REQUIRED_FILES = [
   "0373_flooring_knowledge_wo_editor_carton.sql",
   "0374_flooring_knowledge_job_materials_gap_carton.sql",
   "0375_flooring_knowledge_incoming_delivery_carton.sql",
+  "0376_flooring_knowledge_estimate_office_carton.sql",
+  "0377_flooring_knowledge_builder_collapsed_carton.sql",
+  "0378_flooring_knowledge_guided_review_carton.sql",
 ];
 
 /**
@@ -2909,6 +2912,19 @@ const REQUIRED_MARKERS = [
       "P0_0377_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Hard-surface Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0378_flooring_knowledge_guided_review_carton.sql",
+    markers: [
+      "P0_0378_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Hard-surface Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
