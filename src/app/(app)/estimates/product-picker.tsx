@@ -18,6 +18,7 @@ import { formatMoney } from "@/lib/format";
 import {
   PRICE_NEEDED,
   catalogMarginPct,
+  catalogRateInLineUnit,
   catalogSellPrice,
   catalogUnitCost,
   formatCatalogPrice,
@@ -35,11 +36,12 @@ import { createProductInline, searchCatalogProducts } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { TYPICAL_PIECE_LENGTH_IN } from "@/lib/accessories";
 import { specFieldsFor } from "@/lib/product-fields";
+import { boxedCartonAreaTakeoffAllowed, familyFromCatalogCategory } from "@/lib/flooring-knowledge";
+import { catalogCarpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
 import {
   defaultUnitForCategory,
   unitsForCategory,
   billsBySquareYard,
-  catalogRateToBillingUnit,
   unitLabel,
   isAreaUnit,
 } from "@/lib/units";
@@ -395,10 +397,33 @@ export function ProductPicker({
                       showMargin && !money.cost.missing && !money.sell.missing
                         ? catalogMarginPct(money.cost, money.sell)
                         : null;
+                    // Exclusive carpet-tile catalog picker boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    const carpetInstallSystems = catalogCarpetInstallSystemsForBoxedRate(p);
+                    const boxedArea = boxedCartonAreaTakeoffAllowed({
+                      family: familyFromCatalogCategory(p.category ?? "other"),
+                      productUnit: p.unit,
+                      sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
+                      carpetInstallSystems,
+                    });
+                    const rate = money.primary.amount;
+                    const showPerSqyd =
+                      isCarpet &&
+                      !money.needed &&
+                      rate != null &&
+                      (isAreaUnit(p.unit) || boxedArea);
                     const perSqyd =
-                      isCarpet && !money.needed && money.primary.amount != null
-                        ? catalogRateToBillingUnit(money.primary.amount, p.unit, true)
-                        : null;
+                      showPerSqyd && rate != null
+                        ? catalogRateInLineUnit(
+                            rate,
+                          {
+                            unit: p.unit,
+                            category: p.category,
+                            sqft_per_box: p.sqft_per_box,
+                            carpetInstallSystems,
+                          },
+                          true,
+                        )
+                      : null;
                     return (
                       <button
                         key={p.id}
@@ -476,7 +501,7 @@ export function ProductPicker({
                                   </span>
                                 )}
                               </span>
-                              {isCarpet && perSqyd != null ? (
+                              {isCarpet && showPerSqyd && perSqyd != null ? (
                                 <span className="block text-xs font-medium tabular-nums text-primary">
                                   {formatMoney(perSqyd)}/sq yd
                                 </span>

@@ -231,6 +231,24 @@ export function poCarpetInstallSystemsForBoxedRate(args: {
   return carpetInstallSystemsForBoxedRate(args);
 }
 
+/**
+ * Exclusive-tile evidence for boxed catalog rate conversion in the catalog picker.
+ * Coverage + no roll width may convert $/box by coverage onto sq yd. Stretch-in
+ * roll width and missing coverage stay 1:1. Do not infer exclusive tile from unit=box.
+ */
+export function catalogCarpetInstallSystemsForBoxedRate(p: {
+  category?: string | null;
+  roll_width_ft?: number | string | null;
+  sqft_per_box?: number | string | null;
+}): Array<"carpet_tile"> | undefined {
+  if (!(Number(p.sqft_per_box) > 0)) return undefined;
+  return poCarpetInstallSystemsForBoxedRate({
+    category: p.category,
+    roll_width_ft: p.roll_width_ft,
+    quantity: 1,
+  });
+}
+
 const NOTES_CARPET_TILE_RE = /carpet[\s-]*tiles?|modular\s+carpet/i;
 const NOTES_STRETCH_IN_RE = /stretch[\s-]*in|broadloom/i;
 
