@@ -8,8 +8,9 @@
  * the line sq ft / sq yd made the builder look empty and any later area edit
  * wipe the value.
  */
-import { isAreaUnit, normalizeUnit, unitLabel } from "@/lib/units";
+import { isAreaUnit, isCountPricedLine, normalizeUnit, unitLabel } from "@/lib/units";
 import { lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
+import { isHardSurfaceCategory, isRollGoodCategory } from "@/lib/types";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -104,9 +105,20 @@ export function recoverAreaSqftFromQuantity(args: {
   sqft: number | string | null | undefined;
   quantity: number | string | null | undefined;
   description?: string | null;
+  category?: string | null;
 }): string {
   // Builder hydrate does not plant How many as taped sq ft on wrap / carton-coverage TBD / qty TBD — leftover quantity is not measured area.
   if (lineSkipsAreaCartonMath({ description: args.description, unit: args.unit })) {
+    return "";
+  }
+  const flooring =
+    isRollGoodCategory(args.category) || isHardSurfaceCategory(args.category);
+  // Builder hydrate does not plant How many as taped sq ft on Unit TBD (empty unit) count lines — leftover quantity is not measured area.
+  // Ignore leftover planted sqft so a prior save cannot flip adhesive / pad TBD to area.
+  if (
+    !flooring &&
+    isCountPricedLine({ unit: args.unit, sqft: null })
+  ) {
     return "";
   }
   const existing =

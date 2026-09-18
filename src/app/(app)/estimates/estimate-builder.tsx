@@ -544,7 +544,9 @@ export function EstimateBuilder({
                 wid_in: inToIn(widIn),
               }]
             : [];
-        const identity = lineSkipsAreaCartonMath({ description: desc, unit: l.unit });
+        const identity = lineSkipsAreaCartonMath({ description: desc, unit: l.unit }) ||
+          (!(isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) &&
+            isCountPricedLine({ unit: l.unit, sqft: null }));
         const sqftStr = identity
           ? ""
           : measurements.length
@@ -554,6 +556,7 @@ export function EstimateBuilder({
                 sqft: l.sqft,
                 quantity: l.quantity,
                 description: desc,
+                category: l.category,
               });
         return {
         key: newKey(),

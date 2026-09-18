@@ -296,6 +296,30 @@ describe("reload hydration recovers Amount stored only on quantity", () => {
       }),
     ).toBe("");
   });
+
+  it("does not plant Unit TBD adhesive How many as taped sq ft", () => {
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: null,
+        quantity: 40,
+        category: "other",
+        description: "Adhesive",
+      }),
+    ).toBe("");
+  });
+
+  it("clears leftover taped sq ft on Unit TBD pad so How many stays count", () => {
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: 40,
+        quantity: 40,
+        category: "underlayment",
+        description: "Rebond pad",
+      }),
+    ).toBe("");
+  });
 });
 
 describe("PRICE NEEDED / product path is not this mapper", () => {

@@ -11849,6 +11849,75 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0320 Builder hydrate does not plant How many as taped sq ft on Unit TBD count lines", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0320_flooring_knowledge_unit_tbd_hydrate.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0320_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Builder hydrate does not plant How many as taped sq ft on Unit TBD \(empty unit\) count lines — leftover quantity is not measured area/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: null,
+        quantity: 40,
+        category: "other",
+        description: "Adhesive",
+      }),
+    ).toBe("");
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: 40,
+        quantity: 40,
+        category: "underlayment",
+        description: "Rebond pad",
+      }),
+    ).toBe("");
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "sq ft",
+        sqft: null,
+        quantity: 250,
+        category: "lvp",
+        description: "Living room — Lifeproof Oak",
+      }),
+    ).toBe("250");
+
+    const emit = readFileSync(join(root, "src/lib/questionnaire-emit.ts"), "utf8");
+    expect(emit).toMatch(/isCountPricedLine/);
+    expect(emit).toMatch(
+      /Builder hydrate does not plant How many as taped sq ft on Unit TBD \(empty unit\) count lines — leftover quantity is not measured area/,
+    );
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/isCountPricedLine\(\{ unit: l\.unit, sqft: null \}\)/);
+    expect(builder).toMatch(/category: l\.category/);
+    expect(builder).not.toMatch(/companionQty/);
+    expect(builder).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Builder hydrate does not plant How many as taped sq ft on Unit TBD \(empty unit\) count lines — leftover quantity is not measured area/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Builder hydrate does not plant How many as taped sq ft on Unit TBD \(empty unit\) count lines — leftover quantity is not measured area/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

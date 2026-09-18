@@ -180,6 +180,7 @@ const REQUIRED_FILES = [
   "0317_flooring_knowledge_pick_boxed_area.sql",
   "0318_flooring_knowledge_po_carton_count.sql",
   "0319_flooring_knowledge_hydrate_count_sqft.sql",
+  "0320_flooring_knowledge_unit_tbd_hydrate.sql",
 ];
 
 /**
@@ -2144,6 +2145,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0319_FLOORING_KNOWLEDGE",
       "Builder hydrate does not plant How many as taped sq ft on wrap / carton-coverage TBD / qty TBD — leftover quantity is not measured area",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0320_flooring_knowledge_unit_tbd_hydrate.sql",
+    markers: [
+      "P0_0320_FLOORING_KNOWLEDGE",
+      "Builder hydrate does not plant How many as taped sq ft on Unit TBD (empty unit) count lines — leftover quantity is not measured area",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
