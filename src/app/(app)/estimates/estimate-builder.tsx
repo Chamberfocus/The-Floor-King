@@ -24,6 +24,7 @@ import {
   optionCostTotals,
   knowledgePickDescription,
   lineSkipsAreaCartonMath,
+  hardSurfaceAreaCartonCount,
   num,
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
@@ -2368,9 +2369,15 @@ export function EstimateBuilder({
                     waste_pct: line.waste_pct,
                     quantity: line.quantity,
                     unit: line.unit,
+                    sqft_per_box: line.sqft_per_box,
+                    roll_width_ft: line.roll_width_ft,
+                    order_as_roll: line.order_as_roll,
                   };
                   const sQty = lineQty(summ);
                   const sUnit = lineDisplayUnit(line);
+                  // Exclusive carpet-tile Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  const sCartons = hardSurfaceAreaCartonCount(summ, sQty);
                   const sSell = lineTotal(summ);
                   const sCost = lineOurCost(line);
                   const sMargin = sSell > 0 ? ((sSell - sCost) / sSell) * 100 : 0;
@@ -2452,6 +2459,9 @@ export function EstimateBuilder({
                             {line.line_type !== "flat" && sQty > 0 ? (
                               <span className="tabular-nums">
                                 {sQty.toFixed(sQty < 100 ? 1 : 0)} {sUnit}
+                                {/* Exclusive carpet-tile Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                                {/* Hard-surface Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                                {sCartons ? ` · 📦 ${sCartons} carton(s)` : ""}
                               </span>
                             ) : null}
                             {line.category === "labor" ? (
