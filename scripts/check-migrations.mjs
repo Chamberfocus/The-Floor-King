@@ -150,6 +150,7 @@ const REQUIRED_FILES = [
   "0287_flooring_knowledge_extra_pad_measured.sql",
   "0288_flooring_knowledge_dead_stair_gate.sql",
   "0289_flooring_knowledge_carpet_tile_metals.sql",
+  "0290_flooring_knowledge_glue_existing_vapor.sql",
 ];
 
 /**
@@ -1846,6 +1847,17 @@ const REQUIRED_MARKERS = [
       "P0_0289_FLOORING_KNOWLEDGE",
       "binder bars for roll goods",
       "Do NOT SQL-gate metals_needed on carpet_install",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0290_flooring_knowledge_glue_existing_vapor.sql",
+    markers: [
+      "P0_0290_FLOORING_KNOWLEDGE",
+      "existing-floor primer",
+      "Do NOT SQL-gate vapor_barrier on substrate",
+      "Do NOT SQL-gate moisture_mitigation on substrate",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

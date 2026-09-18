@@ -345,3 +345,13 @@ export function labelsAreWoodDeckOnly(labels: string[]): boolean {
   if (!cleaned.length) return false;
   return cleaned.every((l) => /^(plywood(\s*\/\s*osb)?|osb|wood)$/i.test(l));
 }
+
+/**
+ * Exclusive Existing flooring. Concrete, plywood, Other, and Unknown /
+ * unanswered stay open (0142). Mixed existing + concrete stays open.
+ */
+export function labelsAreExistingFlooringOnly(labels: string[]): boolean {
+  const cleaned = labels.map((l) => l.trim()).filter(Boolean);
+  if (!cleaned.length) return false;
+  return cleaned.every((l) => /^existing flooring$/i.test(l));
+}

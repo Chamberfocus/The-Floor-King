@@ -259,11 +259,15 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * this via CARPET_TILE_VAPOR_HIDES_KEYS — modular tile uses adhesive,
    * not a floating-floor sheet; Aqua bar stays on moisture_mitigation.
    * Exclusive glue-down over plywood hides via GLUE_WOOD_VAPOR_HIDES_KEYS —
-   * you cannot glue to 6-mil poly. Exclusive glue / carpet tile over plywood
-   * also hides Aqua bar via WOOD_DECK_AQUA_HIDES_KEYS — Aqua bar is a slab
-   * system. Glue over concrete still asks both. Mixed floating still asks
-   * vapor. Unanswered substrate stays open. Do not SQL-gate
-   * vapor_barrier on surface_type, carpet_install, or substrate (0142).
+   * you cannot glue to 6-mil poly. Exclusive glue-down over existing flooring
+   * hides via GLUE_EXISTING_VAPOR_HIDES_KEYS — you glue to the existing floor
+   * or tear it out. Exclusive glue / carpet tile over plywood also hides
+   * Aqua bar via WOOD_DECK_AQUA_HIDES_KEYS; exclusive glue / carpet tile
+   * over existing flooring hides Aqua bar via EXISTING_FLOOR_AQUA_HIDES_KEYS
+   * — Aqua bar is a slab system. Glue over concrete still asks both. Mixed
+   * floating still asks vapor. Unanswered substrate stays open. Do not
+   * SQL-gate vapor_barrier on surface_type, carpet_install, or substrate
+   * (0142).
    */
   {
     key: "vapor_barrier",
@@ -691,6 +695,25 @@ export const GLUE_WOOD_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
  * method stay open (0142). Do not SQL-gate moisture_mitigation on substrate.
  */
 export const WOOD_DECK_AQUA_HIDES_KEYS = ["moisture_mitigation"] as const;
+
+/**
+ * 6-mil click-floor vapor hidden once the job is exclusive glue-down over
+ * Existing flooring. You glue to the existing floor or tear it out — not
+ * to 6-mil poly. Mixed floating + glue still asks vapor. Glue over
+ * concrete still asks. Unanswered substrate stays open (0142). Do not
+ * SQL-gate vapor_barrier on substrate.
+ */
+export const GLUE_EXISTING_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
+
+/**
+ * Aqua bar / primer hidden once exclusive glue-down or carpet tile is over
+ * Existing flooring. Aqua bar is a slab coating, not an existing-floor
+ * primer. Moisture test still asks (unknown what's under). Mixed existing
+ * + concrete stays open. A moisture-concern flag still asks. Unanswered
+ * substrate stays open (0142). Do not SQL-gate moisture_mitigation on
+ * substrate.
+ */
+export const EXISTING_FLOOR_AQUA_HIDES_KEYS = ["moisture_mitigation"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,

@@ -90,6 +90,8 @@ import {
   WOOD_DECK_MOISTURE_HIDES_KEYS,
   GLUE_WOOD_VAPOR_HIDES_KEYS,
   WOOD_DECK_AQUA_HIDES_KEYS,
+  GLUE_EXISTING_VAPOR_HIDES_KEYS,
+  EXISTING_FLOOR_AQUA_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
@@ -106,7 +108,10 @@ import {
   jobHidesSlabMoistureOnWoodDeck,
   jobHidesVaporOnGlueWoodDeck,
   jobHidesAquaBarOnGlueWoodDeck,
+  jobHidesVaporOnGlueExistingFloor,
+  jobHidesAquaBarOnGlueExistingFloor,
   labelsAreWoodDeckOnly,
+  labelsAreExistingFlooringOnly,
   jobAllowsFloatingVaporUnderlayment,
   choiceOptionApplies,
   tileWallHidesPrepOptionLabel,
@@ -6941,14 +6946,6 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(mixedSub).toContain("moisture_mitigation");
 
-    const existing = walk({
-      project_type: ["Hard surface"],
-      surface_type: ["LVP / LVT"],
-      install_method: ["Glue-down"],
-      substrate: ["Existing flooring"],
-    });
-    expect(existing).toContain("moisture_mitigation");
-
     const moistureFlag = walk({
       project_type: ["Hard surface"],
       surface_type: ["LVP / LVT"],
@@ -7959,6 +7956,298 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(walkGlue).toContain("metals_needed");
     expect(walkGlue).toContain("metals_qty");
+  });
+
+  it("0290 exclusive glue over existing flooring hides 6-mil and Aqua bar; moisture test still asks", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0290_flooring_knowledge_glue_existing_vapor.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0290_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/existing-floor primer/);
+    expect(sql).toMatch(/Do NOT SQL-gate vapor_barrier on substrate/);
+    expect(sql).toMatch(/Do NOT SQL-gate moisture_mitigation on substrate/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*substrate.*vapor_barrier|vapor_barrier.*show_if.*substrate/,
+    );
+    expect(sql).not.toMatch(
+      /show_if.*substrate.*moisture_mitigation|moisture_mitigation.*show_if.*substrate/,
+    );
+
+    expect([...GLUE_EXISTING_VAPOR_HIDES_KEYS]).toEqual(["vapor_barrier"]);
+    expect([...EXISTING_FLOOR_AQUA_HIDES_KEYS]).toEqual(["moisture_mitigation"]);
+    expect(labelsAreExistingFlooringOnly(["Existing flooring"])).toBe(true);
+    expect(labelsAreExistingFlooringOnly(["existing flooring"])).toBe(true);
+    expect(labelsAreExistingFlooringOnly(["Plywood / OSB"])).toBe(false);
+    expect(labelsAreExistingFlooringOnly(["Existing flooring", "Concrete"])).toBe(false);
+    expect(labelsAreExistingFlooringOnly(["Unknown / field verify"])).toBe(false);
+    expect(labelsAreExistingFlooringOnly([])).toBe(false);
+
+    expect(
+      jobHidesVaporOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVaporOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Glue-down"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVaporOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Floating / click"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down", "Floating / click"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVaporOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+          substrate: ["Existing flooring", "Concrete"],
+        }),
+      ),
+    ).toBe(false);
+
+    expect(
+      jobHidesAquaBarOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesAquaBarOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Carpet"],
+          carpet_install: ["Carpet tile"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesAquaBarOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesAquaBarOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesAquaBarOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+          substrate: ["Existing flooring", "Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesAquaBarOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Floating / click"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesAquaBarOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down", "Floating / click"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesAquaBarOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Glue-down"],
+          substrate: ["Existing flooring"],
+          subfloor_condition: ["Moisture concerns"],
+        }),
+      ),
+    ).toBe(false);
+
+    const glueExisting = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+      substrate: ["Existing flooring"],
+    });
+    expect(glueExisting).not.toContain("vapor_barrier");
+    expect(glueExisting).not.toContain("moisture_mitigation");
+    expect(glueExisting).toContain("adhesive");
+    expect(glueExisting).toContain("moisture_test");
+
+    const glueCarpetExisting = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+      substrate: ["Existing flooring"],
+    });
+    expect(glueCarpetExisting).not.toContain("vapor_barrier");
+    expect(glueCarpetExisting).not.toContain("moisture_mitigation");
+    expect(glueCarpetExisting).toContain("adhesive");
+    expect(glueCarpetExisting).toContain("moisture_test");
+
+    const tileExisting = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+      substrate: ["Existing flooring"],
+    });
+    expect(tileExisting).not.toContain("vapor_barrier");
+    expect(tileExisting).not.toContain("moisture_mitigation");
+    expect(tileExisting).toContain("moisture_test");
+    expect(tileExisting).toContain("adhesive");
+
+    const floatExisting = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+      substrate: ["Existing flooring"],
+    });
+    expect(floatExisting).toContain("vapor_barrier");
+    expect(floatExisting).not.toContain("moisture_mitigation");
+
+    const glueConcrete = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+      substrate: ["Concrete"],
+    });
+    expect(glueConcrete).toContain("vapor_barrier");
+    expect(glueConcrete).toContain("moisture_mitigation");
+
+    const unanswered = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+    });
+    expect(unanswered).toContain("vapor_barrier");
+    expect(unanswered).toContain("moisture_mitigation");
+    expect(unanswered).toContain("substrate");
+
+    const mixedSub = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+      substrate: ["Existing flooring", "Concrete"],
+    });
+    expect(mixedSub).toContain("vapor_barrier");
+    expect(mixedSub).toContain("moisture_mitigation");
+
+    const mixedFloat = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down", "Floating / click"],
+      substrate: ["Existing flooring"],
+    });
+    expect(mixedFloat).toContain("vapor_barrier");
+    expect(mixedFloat).not.toContain("moisture_mitigation");
+    expect(mixedFloat).toContain("attached_pad");
+
+    const moistureFlag = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+      substrate: ["Existing flooring"],
+      subfloor_condition: ["Moisture concerns"],
+    });
+    expect(moistureFlag).not.toContain("vapor_barrier");
+    expect(moistureFlag).toContain("moisture_mitigation");
+    expect(moistureFlag).toContain("moisture_test");
+
+    const leftoverPlywood = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+      substrate: ["Existing flooring"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(leftoverPlywood).not.toContain("vapor_barrier");
+    expect(leftoverPlywood).not.toContain("moisture_mitigation");
+
+    expect(knowledgeHelpFor({ key: "vapor_barrier" }, emptyInstallContext())).toMatch(
+      /Exclusive glue-down over existing flooring hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "moisture_mitigation" }, emptyInstallContext())).toMatch(
+      /Exclusive glue-down or carpet tile over existing flooring also hides this/,
+    );
+
+    const walkGlue = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Glue-down"],
+      substrate: ["Existing flooring"],
+    });
+    expect(walkGlue).not.toContain("vapor_barrier");
+    expect(walkGlue).not.toContain("moisture_mitigation");
+    expect(walkGlue).toContain("moisture_test");
   });
 
   it("pattern repeat only after pattern match is required", () => {
