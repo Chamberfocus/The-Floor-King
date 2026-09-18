@@ -47,6 +47,7 @@ import {
   CARPET_TILE_HIDES_KEYS,
   CARPET_TILE_VAPOR_HIDES_KEYS,
   CARPET_ONLY_HIDES_KEYS,
+  DEAD_STAIR_GATE_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
   WOOD_DECK_MOISTURE_HIDES_KEYS,
   GLUE_WOOD_VAPOR_HIDES_KEYS,
@@ -514,6 +515,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (DEAD_STAIR_GATE_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobHidesDeadStairGate(install)
+  ) {
+    return false;
+  }
   // Attached-pad Yes → hide separate-underlayment questions.
   if (q.key === "hs_underlayment" && install.attachedPad === "yes") return false;
   if (
@@ -656,6 +664,21 @@ export function jobIsExclusiveCarpetOnly(install: InstallContext): boolean {
   return (
     install.families.includes("carpet") ||
     install.projectTypes.some((p) => /carpet/i.test(p))
+  );
+}
+
+/**
+ * Generic stairs yes/no is a leftover synthesizer. Carpet stairs, carpet
+ * tile stairs, and hard-surface plank stairs are the live questions.
+ * Hide the dead gate once one of those is in play. Unanswered project_type
+ * stays open (0142). Exclusive wall already hides stairs via TILE_WALL.
+ * Do not SQL-gate stair_landings on carpet_stairs.
+ */
+export function jobHidesDeadStairGate(install: InstallContext): boolean {
+  if (jobHasCarpetInstallScope(install)) return true;
+  if (install.surfacePending) return true;
+  return install.families.some(
+    (f) => f === "lvp" || f === "hardwood" || f === "laminate" || f === "vinyl" || f === "tile",
   );
 }
 
@@ -1104,7 +1127,7 @@ export function knowledgeHelpFor(
     return "Open sides change wrapped carpet ends and hard-surface nosing. Exclusive wall tile hides this. Capture the construction — pricing still uses existing stair labor.";
   }
   if (key === "stairs") {
-    return "Stairs change material, labor, and trim. Exclusive wall tile hides this — a backsplash is not a stair job. Mixed carpet or LVP + wall still asks. Field verify if you have not seen them.";
+    return "Stairs change material, labor, and trim. Exclusive wall tile hides this — a backsplash is not a stair job. Mixed carpet or LVP + wall still asks the family-specific stair questions. This leftover yes/no hides once Carpet stairs, Carpet tile stairs, or hard-surface plank stairs are in play — landings still follow those Yes answers. Unanswered project_type stays open. Field verify if you have not seen them.";
   }
   if (key === "asbestos_risk") {
     return "Old ceramic or sheet vinyl can hide asbestos. Possible / confirmed is a crew warning — do not invent an abatement dollar amount here.";

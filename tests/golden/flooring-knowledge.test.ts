@@ -83,6 +83,7 @@ import {
   MERGED_CLIMATE_HIDES_KEYS,
   MERGED_CURB_HIDES_KEYS,
   CARPET_ONLY_HIDES_KEYS,
+  DEAD_STAIR_GATE_HIDES_KEYS,
   TILE_THINSET_HIDES_KEYS,
   CARPET_TILE_VAPOR_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
@@ -101,6 +102,7 @@ import {
   jobHasHardSurfaceInstallScope,
   jobHasCarpetInstallScope,
   jobIsExclusiveCarpetOnly,
+  jobHidesDeadStairGate,
   jobHidesSlabMoistureOnWoodDeck,
   jobHidesVaporOnGlueWoodDeck,
   jobHidesAquaBarOnGlueWoodDeck,
@@ -5373,7 +5375,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       project_type: ["Hard surface"],
       surface_type: ["Tile"],
     });
-    expect(unanswered).toContain("stairs");
+    expect(unanswered).not.toContain("stairs");
     expect(unanswered).toContain("hs_plank_stairs");
     expect(unanswered).not.toContain("stair_landings");
 
@@ -5405,7 +5407,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       tile_application: ["Floor"],
       hs_plank_stairs: ["Yes"],
     });
-    expect(floor).toContain("stairs");
+    expect(floor).not.toContain("stairs");
     expect(floor).toContain("hs_plank_stairs");
     expect(floor).toContain("stair_landings");
     expect(floor).toContain("stair_open_sides");
@@ -5415,7 +5417,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       surface_type: ["Tile", "LVP / LVT"],
       tile_application: ["Wall"],
     });
-    expect(mixed).toContain("stairs");
+    expect(mixed).not.toContain("stairs");
     expect(mixed).toContain("hs_plank_stairs");
 
     const overlayWall = visibleKnowledgeKeys({
@@ -5431,7 +5433,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       project_type: ["Hard surface"],
       surface_type: ["Tile"],
     });
-    expect(overlayUnanswered).toContain("stairs");
+    expect(overlayUnanswered).not.toContain("stairs");
+    expect(overlayUnanswered).toContain("hs_plank_stairs");
     expect(overlayUnanswered).toContain("stair_landings");
     expect(overlayUnanswered).toContain("stair_open_sides");
   });
@@ -7765,6 +7768,77 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/`sqft` is MEASURED area, not the order/);
   });
 
+  it("0288 leftover Stairs yes/no hides once family-specific stairs are live", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0288_flooring_knowledge_dead_stair_gate.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0288_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/leftover synthesizer/);
+    expect(sql).toMatch(/Do NOT SQL-gate stair_landings on carpet_stairs/);
+    expect(sql).toMatch(/Do NOT SQL-gate stairs on carpet_install/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*carpet_install.*stairs|stairs.*show_if.*carpet_install/,
+    );
+
+    expect([...DEAD_STAIR_GATE_HIDES_KEYS]).toEqual(["stairs"]);
+    expect(
+      jobHidesDeadStairGate(installContextFromValByKey({ project_type: ["Carpet"] })),
+    ).toBe(true);
+    expect(
+      jobHidesDeadStairGate(installContextFromValByKey({ project_type: ["Hard surface"] })),
+    ).toBe(true);
+    expect(jobHidesDeadStairGate(emptyInstallContext())).toBe(false);
+    expect(knowledgeHelpFor({ key: "stairs" }, emptyInstallContext())).toMatch(
+      /leftover yes\/no hides once Carpet stairs/,
+    );
+
+    const stretch = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("carpet_stairs");
+    expect(stretch).not.toContain("stairs");
+
+    const tile = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(tile).toContain("carpet_tile_stairs");
+    expect(tile).not.toContain("stairs");
+
+    const lvp = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Floating / click"],
+    });
+    expect(lvp).toContain("hs_plank_stairs");
+    expect(lvp).not.toContain("stairs");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(mixed).toContain("carpet_stairs");
+    expect(mixed).toContain("hs_plank_stairs");
+    expect(mixed).not.toContain("stairs");
+
+    const unanswered = visibleKnowledgeKeys({});
+    expect(unanswered).toContain("stairs");
+
+    const after = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      carpet_stairs: ["Yes"],
+    });
+    expect(after).not.toContain("stairs");
+    expect(after).toContain("carpet_stairs");
+    expect(after).toContain("stair_landings");
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
@@ -7787,6 +7861,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       carpet_install: ["Stretch-in"],
     });
     expect(before).toContain("carpet_stairs");
+    expect(before).not.toContain("stairs");
     expect(before).not.toContain("stair_landings");
     const after = walk({
       project_type: ["Carpet"],

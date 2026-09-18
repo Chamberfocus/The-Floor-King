@@ -330,9 +330,12 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
 
   // Details
   /**
-   * Generic stair gate. Exclusive wall tile hides this via TILE_WALL_HIDES_KEYS
-   * along with landings / open sides — a backsplash is not a stair job.
-   * Mixed carpet or LVP + wall still asks. Unanswered stays open (0142).
+   * Generic stair gate — leftover yes/no. Live questions are carpet_stairs /
+   * carpet_tile_stairs / hs_plank_stairs. Overlay hides this via
+   * DEAD_STAIR_GATE_HIDES_KEYS once a family-specific stair question is in
+   * play. Exclusive wall tile hides this via TILE_WALL_HIDES_KEYS.
+   * Mixed carpet or LVP + wall still asks the family-specific questions.
+   * Unanswered project_type stays open (0142).
    */
   { key: "stairs", purpose: "MEASUREMENT", phase: "details" },
   {
@@ -547,6 +550,16 @@ export const MERGED_CURB_HIDES_KEYS = ["carpet_curb"] as const;
  * (0142). Do not SQL-gate install_method or surface_type on carpet_install.
  */
 export const CARPET_ONLY_HIDES_KEYS = ["install_method", "surface_type"] as const;
+
+/**
+ * Leftover generic stairs yes/no. Live stair questions are carpet_stairs /
+ * carpet_tile_stairs / hs_plank_stairs. Landings still read stairs=Yes via
+ * synthesizeStairGate. Hide this dead gate once a family-specific stair
+ * question is in play. Unanswered project_type stays open (0142). Exclusive
+ * wall already hides stairs via TILE_WALL_HIDES_KEYS. Do not SQL-gate
+ * stair_landings on carpet_stairs.
+ */
+export const DEAD_STAIR_GATE_HIDES_KEYS = ["stairs"] as const;
 
 /**
  * Floor-only follow-ups hidden once tile_application is exclusively Wall

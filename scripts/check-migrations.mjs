@@ -148,6 +148,7 @@ const REQUIRED_FILES = [
   "0285_flooring_knowledge_carpet_surface_leftover.sql",
   "0286_flooring_knowledge_hs_carpet_leftover.sql",
   "0287_flooring_knowledge_extra_pad_measured.sql",
+  "0288_flooring_knowledge_dead_stair_gate.sql",
 ];
 
 /**
@@ -1823,6 +1824,17 @@ const REQUIRED_MARKERS = [
       "not a 30-yard roll",
       "Do NOT SQL-gate carpet_pad on surface_type",
       "Do NOT drop underlayment from SQYD_CATEGORIES",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0288_flooring_knowledge_dead_stair_gate.sql",
+    markers: [
+      "P0_0288_FLOORING_KNOWLEDGE",
+      "leftover synthesizer",
+      "Do NOT SQL-gate stair_landings on carpet_stairs",
+      "Do NOT SQL-gate stairs on carpet_install",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
