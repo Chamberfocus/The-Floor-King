@@ -12348,6 +12348,85 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0325 Customer project details strip room MEASURED sq ft and crew Warnings", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0325_flooring_knowledge_customer_rooms.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0325_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff room MEASURED sq ft and crew Warnings — those stay in stored job_description so the crew still sees taped area vs order/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(isGuidedTakeoffMathLine("Rooms:")).toBe(true);
+    expect(
+      isGuidedTakeoffMathLine("Living: 300 sq ft — Main: 12 × 14 (300 sq ft)"),
+    ).toBe(true);
+    expect(isGuidedTakeoffMathLine("Stair wrap: 8 box")).toBe(false);
+    expect(isGuidedTakeoffMathLine("Occupancy: Occupied")).toBe(false);
+    expect(isGuidedTakeoffMathLine("Guided takeoff:")).toBe(false);
+
+    const notes = [
+      "Guided takeoff:",
+      "Rooms:",
+      "• Living: 300 sq ft — Main: 12 × 14 (300 sq ft)",
+      "Accessories:",
+      "• Stair wrap: 8 box — not taped square feet and not a 30-yard roll",
+      "Conditions:",
+      "• Occupancy: Occupied",
+      "Warnings:",
+      "• Carpet measured by area only — converting sq ft ÷ 9 is equivalent area, not a cut plan. Enter cuts (roll width × length) before ordering.",
+      "• Radiant heat present — confirm the selected flooring is rated for radiant heat before ordering.",
+    ].join("\n");
+    const shown = customerFacingJobNotes(notes);
+    expect(shown).toMatch(/Guided takeoff:/);
+    expect(shown).toMatch(/Stair wrap: 8 box/);
+    expect(shown).toMatch(/Occupancy: Occupied/);
+    expect(shown).not.toMatch(/^Rooms:/m);
+    expect(shown).not.toMatch(/300 sq ft/i);
+    expect(shown).not.toMatch(/Warnings:/i);
+    expect(shown).not.toMatch(/Carpet measured by area only/i);
+    expect(shown).not.toMatch(/Radiant heat present/i);
+    expect(shown).not.toMatch(/not taped square feet/i);
+
+    const parsed = parseProjectDetails(notes);
+    expect(parsed.details).toContain("Stair wrap: 8 box");
+    expect(parsed.details).toContain("Occupancy: Occupied");
+    expect(parsed.details.join("\n")).not.toMatch(/300 sq ft/i);
+    expect(parsed.details.join("\n")).not.toMatch(/Radiant heat present/i);
+    expect(parsed.flags.join("\n")).toMatch(/Carpet measured by area only/i);
+    expect(parsed.flags.join("\n")).toMatch(/Radiant heat present/i);
+
+    const takeoff = readFileSync(join(root, "src/lib/flooring-knowledge/takeoff.ts"), "utf8");
+    expect(takeoff).toMatch(/lines\.push\("Warnings:"\)/);
+    expect(takeoff).toMatch(/formatSqft\(r\.measuredSqft\)/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).toMatch(/reviewToJobNotes/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff room MEASURED sq ft and crew Warnings — those stay in stored job_description so the crew still sees taped area vs order/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff room MEASURED sq ft and crew Warnings — those stay in stored job_description so the crew still sees taped area vs order/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

@@ -67,6 +67,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / invoice / portal copy strips wrap / carton-coverage TBD / qty TBD / order TBD identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
  * Customer / portal / print project details strip wrap / carton-coverage TBD / qty TBD / not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft.
  * Customer / portal / print strip Guided takeoff MEASURED / WASTE / ORDER / BILLING math — those stay in stored job_description so the crew still sees measured vs order.
+ * Customer / portal / print strip Guided takeoff room MEASURED sq ft and crew Warnings — those stay in stored job_description so the crew still sees taped area vs order.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\))/i;
@@ -84,10 +85,12 @@ export function isGuidedTakeoffMathLine(raw: string): boolean {
   );
   if (!stripped) return false;
   if (/^guided takeoff\s*:?\s*$/i.test(stripped)) return false;
+  if (/^rooms\s*:?\s*$/i.test(stripped)) return true;
   if (/\btakeoff\s*:?\s*$/i.test(stripped)) return true;
   if (GUIDED_TAKEOFF_MATH_LABEL.test(stripped)) return true;
   if (/^note:\s*/i.test(stripped) && GUIDED_TAKEOFF_MATH_NOTE.test(stripped)) return true;
   if (/^measured .+\s+·\s+waste\s+/i.test(stripped)) return true;
+  if (/\d(?:[\d.,]*)\s+sq\s*(?:ft|yd)\b/i.test(stripped)) return true;
   return false;
 }
 
@@ -113,14 +116,33 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
   return fallback || s;
 }
 
+function isCrewFlagsHeader(s: string): boolean {
+  return /^(warnings|flags to confirm)\s*:?\s*$/i.test(s.trim());
+}
+
+function isNonFlagSectionHeader(s: string): boolean {
+  return /^(guided takeoff|conditions|job conditions|per-room prep)\s*:?\s*$/i.test(
+    s.trim(),
+  );
+}
+
 /** Customer print / portal narrative. Stored job_description keeps crew stamps. */
 export function customerFacingJobNotes(text: string | null | undefined): string {
   if (!text) return "";
+  let inFlags = false;
   return text
     .split("\n")
     .map((line) => {
       const indent = line.match(/^\s*/)?.[0] ?? "";
-      const body = stripCrewIdentityFromCustomerLabel(line.trimStart());
+      const raw = line.trimStart();
+      const trimmed = raw.trim();
+      if (isCrewFlagsHeader(trimmed)) {
+        inFlags = true;
+        return "";
+      }
+      if (isNonFlagSectionHeader(trimmed)) inFlags = false;
+      if (inFlags) return "";
+      const body = stripCrewIdentityFromCustomerLabel(raw);
       if (!body || isGuidedTakeoffMathLine(body)) return "";
       return `${indent}${body}`;
     })
@@ -225,7 +247,7 @@ export function parseProjectDetails(
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
-    if (/^flags to confirm/i.test(line)) {
+    if (/^(flags to confirm|warnings)\s*:?\s*$/i.test(line)) {
       inFlags = true;
       continue;
     }
