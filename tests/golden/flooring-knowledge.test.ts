@@ -21487,6 +21487,184 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0393 Exclusive carpet-tile work-order editor order pad-roll count stays off 30-yard roll math", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0393_flooring_knowledge_wo_editor_order_pad_roll.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0393_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive carpet-tile work-order editor order pad-roll count stays off 30-yard roll math — mixed stretch-in \+ tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(
+      /Underlayment work-order editor order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap \/ count How many stays off 30-yard roll math. Do not invent a 30-yard roll/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(padRollCount("underlayment", 50, "sqyd")).toBe(2);
+    expect(padRollCount("underlayment", 450, "sqft")).toBe(0);
+    const padCalc = {
+      line_type: "mat_labor" as const,
+      description: "Rebond pad",
+      category: "underlayment",
+      unit: "sq yd",
+      quantity: 60,
+      waste_pct: 10,
+    };
+    expect(padRollCount("underlayment", lineQty(padCalc), "sqyd")).toBe(2);
+    expect(padRollCount("underlayment", lineOrderQty(padCalc), "sqyd")).toBe(3);
+    expect(
+      padRollCount("lvp", lineOrderQty({
+        line_type: "mat_labor",
+        category: "lvp",
+        unit: "sq ft",
+        quantity: 300,
+        waste_pct: 10,
+      }), "sqft"),
+    ).toBe(0);
+    expect(
+      padRollCount("carpet", lineOrderQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        quantity: 50,
+        waste_pct: 10,
+      }), "sqyd"),
+    ).toBe(0);
+
+    const editor = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/edit-scope.tsx"),
+      "utf8",
+    );
+    expect(editor).toMatch(/padRollCount\(l\.category, lineOrderQty/);
+    expect(editor).toMatch(/hardSurfaceAreaCartonCount/);
+    expect(editor).toMatch(/cartonCountFor/);
+    expect(editor).toMatch(/lineOrderQty\(l as unknown as CalcLine\)/);
+    expect(editor).toMatch(/waste_pct: number \| null/);
+    expect(editor).toMatch(/line_type: string \| null/);
+    expect(editor).toMatch(/name="quantity"/);
+    expect(editor).toMatch(
+      /Exclusive carpet-tile work-order editor order pad-roll count stays off 30-yard roll math/,
+    );
+    expect(editor).toMatch(
+      /Underlayment work-order editor order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+    expect(editor).toMatch(
+      /Exclusive carpet-tile work-order editor order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(editor).not.toMatch(/category === ["']carpet_tile["']/);
+    expect(editor).not.toMatch(/billedRateToCartonCost/);
+    expect(editor).not.toMatch(/formatMoney/);
+    expect(editor).not.toMatch(/PAD_ROLL_SQYD/);
+
+    const incoming = readFileSync(
+      join(root, "src/app/(app)/warehouse/incoming-deliveries.tsx"),
+      "utf8",
+    );
+    expect(incoming).toMatch(/padRollCount\(i\.category, ordered/);
+    expect(incoming).not.toMatch(/work-order editor order pad-roll/);
+
+    const orderUi = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/order/order-materials.tsx"),
+      "utf8",
+    );
+    expect(orderUi).toMatch(/padRollCount\(line\.category, line\.qty/);
+    expect(orderUi).not.toMatch(/work-order editor order pad-roll/);
+
+    const card = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/job-materials-card.tsx"),
+      "utf8",
+    );
+    expect(card).toMatch(/padRollCount\(l\.category, l\.qty/);
+    expect(card).not.toMatch(/work-order editor order pad-roll/);
+
+    const warehouse = readFileSync(
+      join(root, "src/app/(app)/warehouse/page.tsx"),
+      "utf8",
+    );
+    expect(warehouse).toMatch(/padRollCount\(m\.category, m\.qty/);
+    expect(warehouse).not.toMatch(/work-order editor order pad-roll/);
+
+    const staging = readFileSync(
+      join(root, "src/app/(app)/warehouse/staging-sheet-doc.tsx"),
+      "utf8",
+    );
+    expect(staging).toMatch(/padRollCount\(g\.category, g\.qty/);
+    expect(staging).not.toMatch(/work-order editor order pad-roll/);
+
+    const jobScope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(jobScope).toMatch(/padRollCount\(l\.category, orderQ \|\| q/);
+    expect(jobScope).not.toMatch(/work-order editor order pad-roll/);
+
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"),
+      "utf8",
+    );
+    expect(wo).toMatch(/hardSurfaceAreaCartonCount\(l, lineOrderQty\(l\)/);
+    expect(wo).toMatch(/spec\.rolls/);
+    expect(wo).not.toMatch(/spec\.cartons/);
+    expect(wo).not.toMatch(/work-order editor order pad-roll/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).not.toMatch(/work-order editor order pad-roll/);
+    expect(print).not.toMatch(/padRollCount/);
+
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).not.toMatch(/work-order editor order pad-roll/);
+    expect(portal).not.toMatch(/padRollCount/);
+
+    const catalogForm = readFileSync(
+      join(root, "src/app/(app)/catalog/product-form.tsx"),
+      "utf8",
+    );
+    expect(catalogForm).toMatch(/\$ \/ unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile work-order editor order pad-roll count stays off 30-yard roll math/,
+    );
+    expect(pricing).toMatch(
+      /Underlayment work-order editor order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+    expect(pricing).toMatch(
+      /Underlayment incoming-delivery pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+
+    const help =
+      /Exclusive carpet-tile work-order editor order pad-roll count stays off 30-yard roll math — mixed stretch-in \+ tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Underlayment work-order editor order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap \/ count How many stays off 30-yard roll math. Do not invent a 30-yard roll/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /work-order editor order pad-roll/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
