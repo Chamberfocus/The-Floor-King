@@ -11858,7 +11858,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(builder).toMatch(/if \(lineSkipsAreaCartonMath\(l\)\) return l/);
     expect(builder).toMatch(/description: desc/);
     expect(builder).not.toMatch(/companionQty/);
-    expect(builder).not.toMatch(/padRollCount/);
+    expect(builder).not.toMatch(/PAD_ROLL_SQYD/);
 
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/wrap qty TBD/);
@@ -11932,7 +11932,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(builder).toMatch(/isCountPricedLine\(\{ unit: l\.unit, sqft: null \}\)/);
     expect(builder).toMatch(/category: l\.category/);
     expect(builder).not.toMatch(/companionQty/);
-    expect(builder).not.toMatch(/padRollCount/);
+    expect(builder).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Builder hydrate does not plant How many as taped sq ft on Unit TBD \(empty unit\) count lines — leftover quantity is not measured area/,
@@ -12069,7 +12069,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
     expect(builder).toMatch(/const identity = lineSkipsAreaCartonMath/);
     expect(builder).not.toMatch(/companionQty/);
-    expect(builder).not.toMatch(/padRollCount/);
+    expect(builder).not.toMatch(/PAD_ROLL_SQYD/);
 
     const po = readFileSync(join(root, "src/app/(app)/purchase-orders/po-builder.tsx"), "utf8");
     expect(po).toMatch(/lineSkipsAreaCartonMath/);
@@ -12179,7 +12179,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(builder).toMatch(/const identity = lineSkipsAreaCartonMath/);
     expect(builder).toMatch(/category: l\.category/);
     expect(builder).not.toMatch(/companionQty/);
-    expect(builder).not.toMatch(/padRollCount/);
+    expect(builder).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Pricing does not treat leftover planted sqft as measured area on Unit TBD \(empty unit\) count lines — leftover quantity is How many, not taped square feet/,
@@ -21846,6 +21846,198 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       /estimate office order pad-roll/,
     );
   });
+
+  it("0395 Exclusive carpet-tile Builder collapsed order pad-roll count stays off 30-yard roll math", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0395_flooring_knowledge_builder_collapsed_order_pad_roll.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0395_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive carpet-tile Builder collapsed order pad-roll count stays off 30-yard roll math — mixed stretch-in \+ tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(
+      /Underlayment Builder collapsed order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap \/ count How many stays off 30-yard roll math. Do not invent a 30-yard roll/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(padRollCount("underlayment", 50, "sqyd")).toBe(2);
+    expect(padRollCount("underlayment", 450, "sqft")).toBe(0);
+    const padCalc = {
+      line_type: "mat_labor" as const,
+      description: "Rebond pad",
+      category: "underlayment",
+      unit: "sq yd",
+      quantity: 60,
+      waste_pct: 10,
+    };
+    expect(padRollCount("underlayment", lineQty(padCalc), "sqyd")).toBe(2);
+    expect(padRollCount("underlayment", lineOrderQty(padCalc), "sqyd")).toBe(3);
+    expect(
+      padRollCount("lvp", lineOrderQty({
+        line_type: "mat_labor",
+        category: "lvp",
+        unit: "sq ft",
+        quantity: 300,
+        waste_pct: 10,
+      }), "sqft"),
+    ).toBe(0);
+    expect(
+      padRollCount("carpet", lineOrderQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        quantity: 50,
+        waste_pct: 10,
+      }), "sqyd"),
+    ).toBe(0);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/padRollCount\(summ\.category, lineOrderQty\(summ\)/);
+    expect(builder).toMatch(/hardSurfaceAreaCartonCount\(summ, lineOrderQty\(summ\)/);
+    expect(builder).toMatch(/const sQty = lineQty\(summ\)/);
+    expect(builder).toMatch(/formatMoney\(sSell\)/);
+    expect(builder).toMatch(/carton\(s\)/);
+    expect(builder).toMatch(/billedQty=\{sQty\}/);
+    expect(builder).toMatch(
+      /Exclusive carpet-tile Builder collapsed order pad-roll count stays off 30-yard roll math/,
+    );
+    expect(builder).toMatch(
+      /Underlayment Builder collapsed order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+    expect(builder).toMatch(
+      /Exclusive carpet-tile Builder collapsed order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(builder).not.toMatch(/category === ["']carpet_tile["']/);
+    expect(builder).not.toMatch(/billedRateToCartonCost/);
+    expect(builder).not.toMatch(/PAD_ROLL_SQYD/);
+    expect(builder).not.toMatch(/companionQty/);
+
+    const office = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(office).toMatch(/padRollCount\(l\.category, lineOrderQty\(l\)/);
+    expect(office).not.toMatch(/Builder collapsed order pad-roll/);
+
+    const editor = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/edit-scope.tsx"),
+      "utf8",
+    );
+    expect(editor).toMatch(/padRollCount\(l\.category, lineOrderQty/);
+    expect(editor).not.toMatch(/Builder collapsed order pad-roll/);
+
+    const incoming = readFileSync(
+      join(root, "src/app/(app)/warehouse/incoming-deliveries.tsx"),
+      "utf8",
+    );
+    expect(incoming).toMatch(/padRollCount\(i\.category, ordered/);
+    expect(incoming).not.toMatch(/Builder collapsed order pad-roll/);
+
+    const orderUi = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/order/order-materials.tsx"),
+      "utf8",
+    );
+    expect(orderUi).toMatch(/padRollCount\(line\.category, line\.qty/);
+    expect(orderUi).not.toMatch(/Builder collapsed order pad-roll/);
+
+    const card = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/job-materials-card.tsx"),
+      "utf8",
+    );
+    expect(card).toMatch(/padRollCount\(l\.category, l\.qty/);
+    expect(card).not.toMatch(/Builder collapsed order pad-roll/);
+
+    const warehouse = readFileSync(
+      join(root, "src/app/(app)/warehouse/page.tsx"),
+      "utf8",
+    );
+    expect(warehouse).toMatch(/padRollCount\(m\.category, m\.qty/);
+    expect(warehouse).not.toMatch(/Builder collapsed order pad-roll/);
+
+    const staging = readFileSync(
+      join(root, "src/app/(app)/warehouse/staging-sheet-doc.tsx"),
+      "utf8",
+    );
+    expect(staging).toMatch(/padRollCount\(g\.category, g\.qty/);
+    expect(staging).not.toMatch(/Builder collapsed order pad-roll/);
+
+    const jobScope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(jobScope).toMatch(/padRollCount\(l\.category, orderQ \|\| q/);
+    expect(jobScope).not.toMatch(/Builder collapsed order pad-roll/);
+
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"),
+      "utf8",
+    );
+    expect(wo).toMatch(/hardSurfaceAreaCartonCount\(l, lineOrderQty\(l\)/);
+    expect(wo).toMatch(/spec\.rolls/);
+    expect(wo).not.toMatch(/spec\.cartons/);
+    expect(wo).not.toMatch(/Builder collapsed order pad-roll/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).not.toMatch(/Builder collapsed order pad-roll/);
+    expect(print).not.toMatch(/padRollCount/);
+
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).not.toMatch(/Builder collapsed order pad-roll/);
+    expect(portal).not.toMatch(/padRollCount/);
+
+    const catalogForm = readFileSync(
+      join(root, "src/app/(app)/catalog/product-form.tsx"),
+      "utf8",
+    );
+    expect(catalogForm).toMatch(/\$ \/ unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile Builder collapsed order pad-roll count stays off 30-yard roll math/,
+    );
+    expect(pricing).toMatch(
+      /Underlayment Builder collapsed order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+    expect(pricing).toMatch(
+      /Underlayment estimate office order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+
+    const help =
+      /Exclusive carpet-tile Builder collapsed order pad-roll count stays off 30-yard roll math — mixed stretch-in \+ tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Underlayment Builder collapsed order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap \/ count How many stays off 30-yard roll math. Do not invent a 30-yard roll/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /Builder collapsed order pad-roll/,
+    );
+  });
+
 
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
