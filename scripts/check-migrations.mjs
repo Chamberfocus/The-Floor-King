@@ -152,6 +152,7 @@ const REQUIRED_FILES = [
   "0289_flooring_knowledge_carpet_tile_metals.sql",
   "0290_flooring_knowledge_glue_existing_vapor.sql",
   "0291_flooring_knowledge_wood_deck_vapor.sql",
+  "0292_flooring_knowledge_existing_floor_vapor.sql",
 ];
 
 /**
@@ -1868,6 +1869,16 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0291_FLOORING_KNOWLEDGE",
       "not a wood-deck underlayment",
+      "Do NOT SQL-gate vapor_barrier on substrate",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0292_flooring_knowledge_existing_floor_vapor.sql",
+    markers: [
+      "P0_0292_FLOORING_KNOWLEDGE",
+      "not an existing-floor underlayment",
       "Do NOT SQL-gate vapor_barrier on substrate",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
