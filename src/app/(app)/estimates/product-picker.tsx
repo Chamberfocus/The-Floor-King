@@ -67,7 +67,7 @@ function pickerMoney(p: Product, purpose: CatalogPricePurpose) {
 
 /**
  * Hard-surface catalog picker swap boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
- * Carpet swap stays catalog unit here — exclusive-tile list conversion is 0357.
+ * Exclusive carpet-tile catalog picker swap boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
  */
 function pickerSwapRate(p: Product, purpose: CatalogPricePurpose): {
   label: string;
@@ -87,6 +87,19 @@ function pickerSwapRate(p: Product, purpose: CatalogPricePurpose): {
     sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
     carpetInstallSystems,
   });
+  if (isCarpet && (isAreaUnit(p.unit) || boxedArea)) {
+    const perSqyd = catalogRateInLineUnit(
+      rate,
+      {
+        unit: p.unit,
+        category: p.category,
+        sqft_per_box: p.sqft_per_box,
+        carpetInstallSystems,
+      },
+      true,
+    );
+    return { label: formatMoney(perSqyd), unit: "sq yd", needed: false };
+  }
   if (!isCarpet && boxedArea) {
     const perSqft = catalogRateInLineUnit(
       rate,
