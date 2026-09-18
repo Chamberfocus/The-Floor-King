@@ -523,6 +523,8 @@ export function buildSalespersonReview(args: {
   const conf = args.ctx.prepConfidence[0];
   const c = confidenceFromLabel(conf);
   if (c && c !== "known") {
+    // Crew Review only. Customer / portal / print strip this section; stored
+    // job_description keeps Field verify / TBD vs Known bag counts.
     sections.push({
       id: "confidence",
       title: "Uncertainty",

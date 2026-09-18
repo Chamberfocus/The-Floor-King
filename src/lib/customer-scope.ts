@@ -68,6 +68,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print project details strip wrap / carton-coverage TBD / qty TBD / not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft.
  * Customer / portal / print strip Guided takeoff MEASURED / WASTE / ORDER / BILLING math — those stay in stored job_description so the crew still sees measured vs order.
  * Customer print / portal itemized line notes strip wrap / carton-coverage TBD / qty TBD / room MEASURED sq ft identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
+ * Customer / portal / print strip Guided takeoff crew Uncertainty — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\))/i;
@@ -117,7 +118,7 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
 }
 
 function isCrewFlagsHeader(s: string): boolean {
-  return /^(warnings|flags to confirm)\s*:?\s*$/i.test(s.trim());
+  return /^(warnings|flags to confirm|uncertainty)\s*:?\s*$/i.test(s.trim());
 }
 
 function isNonFlagSectionHeader(s: string): boolean {
@@ -263,13 +264,16 @@ export function parseProjectDetails(
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
-    if (/^(flags to confirm|warnings)\s*:?\s*$/i.test(line)) {
+    if (/^(flags to confirm|warnings|uncertainty)\s*:?\s*$/i.test(line)) {
       inFlags = true;
       continue;
     }
     if (/^(job conditions|per-room prep)\s*:?$/i.test(line)) {
       inFlags = false;
       continue;
+    }
+    if (/^(guided takeoff|conditions)\s*:?\s*$/i.test(line)) {
+      inFlags = false;
     }
     if (inFlags || line.startsWith("⚠")) {
       flags.push(line.replace(/^⚠\s*/, ""));
