@@ -217,6 +217,7 @@ export function lineQty(line: CalcLine): number {
   if (lineIsBoxedCartonTbd(line)) return num(line.quantity);
   // Builder count SKU / qty TBD lines are How many / Unit TBD, never taped square feet.
   if (lineIsCountNotTapedSqft(line)) return num(line.quantity);
+  // Pricing does not treat leftover planted sqft as measured area on Unit TBD (empty unit) count lines — leftover quantity is How many, not taped square feet.
   if (isCountPricedLine(line)) return num(line.quantity);
   if (isRollGoodCategory(line.category) && line.category !== "labor" && !rollGoodsLineHasCuts(line)) {
     return num(line.quantity);

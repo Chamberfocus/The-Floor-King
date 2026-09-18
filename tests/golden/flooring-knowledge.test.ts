@@ -202,7 +202,7 @@ import {
   mergeReviewWarnings,
   emptyInstallContext,
 } from "@/lib/flooring-knowledge";
-import { billsBySquareYard, defaultUnitForCategory, isCountPricedLine, pickedProductUnit, rollReceiveUnit, SQYD_CATEGORIES } from "@/lib/units";
+import { billsBySquareYard, defaultUnitForCategory, isCountPricedLine, lineDisplayUnit, lineUnitKey, pickedProductUnit, rollReceiveUnit, SQYD_CATEGORIES } from "@/lib/units";
 import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import {
@@ -12059,6 +12059,112 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Customer \/ invoice \/ portal copy strips wrap \/ carton-coverage TBD \/ qty TBD \/ order TBD identity — those stamps stay on stored lines so Builder \/ PO \/ WO \/ hydrate still skip leftover taped sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0322 Pricing does not treat leftover planted sqft as measured area on Unit TBD count lines", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0322_flooring_knowledge_unit_tbd_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0322_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Pricing does not treat leftover planted sqft as measured area on Unit TBD \(empty unit\) count lines — leftover quantity is How many, not taped square feet/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(
+      isCountPricedLine({
+        unit: "",
+        measure_unit: "sqft",
+        sqft: 300,
+        category: "other",
+      }),
+    ).toBe(true);
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        unit: "",
+        measure_unit: "sqft",
+        sqft: 300,
+        quantity: 2,
+        category: "other",
+        material_rate: 10,
+        labor_rate: 0,
+        waste_pct: 0,
+      }),
+    ).toBe(2);
+    expect(
+      lineUnitKey({
+        unit: "",
+        measure_unit: "sqft",
+        sqft: 300,
+        category: "other",
+      }),
+    ).toBe("");
+    expect(
+      lineDisplayUnit({
+        unit: "",
+        measure_unit: "sqft",
+        sqft: 40,
+        category: "underlayment",
+      }),
+    ).toBe("");
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        unit: "sq ft",
+        measure_unit: "sqft",
+        sqft: 300,
+        quantity: 2,
+        category: "lvp",
+        material_rate: 10,
+        labor_rate: 0,
+        waste_pct: 0,
+      }),
+    ).toBe(300);
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "sq ft",
+        sqft: null,
+        quantity: 250,
+        category: "lvp",
+        description: "Living room — Lifeproof Oak",
+      }),
+    ).toBe("250");
+
+    const units = readFileSync(join(root, "src/lib/units.ts"), "utf8");
+    expect(units).toMatch(
+      /Pricing does not treat leftover planted sqft as measured area on Unit TBD \(empty unit\) count lines — leftover quantity is How many, not taped square feet/,
+    );
+
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(
+      /Pricing does not treat leftover planted sqft as measured area on Unit TBD \(empty unit\) count lines — leftover quantity is How many, not taped square feet/,
+    );
+
+    const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
+    expect(builder).toMatch(/const identity = lineSkipsAreaCartonMath/);
+    expect(builder).toMatch(/category: l\.category/);
+    expect(builder).not.toMatch(/companionQty/);
+    expect(builder).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Pricing does not treat leftover planted sqft as measured area on Unit TBD \(empty unit\) count lines — leftover quantity is How many, not taped square feet/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Pricing does not treat leftover planted sqft as measured area on Unit TBD \(empty unit\) count lines — leftover quantity is How many, not taped square feet/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

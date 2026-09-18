@@ -63,6 +63,8 @@ describe("lineUnitKey / lineDisplayUnit — count vs area", () => {
     expect(isCountPricedLine(line)).toBe(true);
     expect(lineUnitKey(line)).toBe("");
     expect(lineDisplayUnit(line)).toBe("");
+    expect(isCountPricedLine({ ...line, sqft: 40, category: "other" })).toBe(true);
+    expect(lineUnitKey({ ...line, sqft: 40, category: "other" })).toBe("");
     const builder = readFileSync(
       join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
       "utf8",

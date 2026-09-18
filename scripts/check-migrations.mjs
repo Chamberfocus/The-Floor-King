@@ -182,6 +182,7 @@ const REQUIRED_FILES = [
   "0319_flooring_knowledge_hydrate_count_sqft.sql",
   "0320_flooring_knowledge_unit_tbd_hydrate.sql",
   "0321_flooring_knowledge_customer_identity.sql",
+  "0322_flooring_knowledge_unit_tbd_qty.sql",
 ];
 
 /**
@@ -2170,6 +2171,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0321_FLOORING_KNOWLEDGE",
       "Customer / invoice / portal copy strips wrap / carton-coverage TBD / qty TBD / order TBD identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0322_flooring_knowledge_unit_tbd_qty.sql",
+    markers: [
+      "P0_0322_FLOORING_KNOWLEDGE",
+      "Pricing does not treat leftover planted sqft as measured area on Unit TBD (empty unit) count lines — leftover quantity is How many, not taped square feet",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

@@ -241,6 +241,7 @@ function isCountLine(l: LineState): boolean {
       unit: l.unit,
       measure_unit: l.measure_unit,
       sqft: l.sqft,
+      category: l.category,
     });
   }
   return false;

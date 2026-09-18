@@ -7,8 +7,10 @@
  * explicit `quantity` for count units and the measured area for area units, so
  * every material is priced in its OWN unit — never area-forced.
  *
- * Pure + dependency-free so both the client builder and the server can use it.
+ * Catalog category classifiers keep leftover planted sqft on Unit TBD
+ * adhesive / pad / labor as How many, not taped square feet.
  */
+import { isHardSurfaceCategory, isRollGoodCategory } from "@/lib/types";
 
 export type UnitKind = "area" | "count";
 
@@ -132,12 +134,20 @@ export function lineUnitKey(line: {
   unit?: string | null;
   measure_unit?: string | null;
   sqft?: number | string | null;
+  category?: string | null;
 }): string {
   const raw = (line.unit ?? "").trim();
   const fromUnit = normalizeUnit(raw);
   if (fromUnit && !isAreaUnit(fromUnit)) return fromUnit;
   if (fromUnit === "sqyd") return "sqyd";
   if (fromUnit === "sqft") return "sqft";
+  // Pricing does not treat leftover planted sqft as measured area on Unit TBD (empty unit) count lines — leftover quantity is How many, not taped square feet.
+  if (
+    line.category &&
+    !(isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category))
+  ) {
+    return "";
+  }
   if (hasMeasuredArea(line.sqft)) return line.measure_unit === "sqyd" ? "sqyd" : "sqft";
   // No taped area and no count unit — unknown, not square feet and not "each".
   return "";
@@ -148,6 +158,7 @@ export function lineDisplayUnit(line: {
   unit?: string | null;
   measure_unit?: string | null;
   sqft?: number | string | null;
+  category?: string | null;
 }): string {
   const key = lineUnitKey(line);
   return unitLabel(key) || key;
@@ -218,9 +229,17 @@ export function isCountPricedLine(line: {
   unit?: string | null;
   measure_unit?: string | null;
   sqft?: number | string | null;
+  category?: string | null;
 }): boolean {
   const raw = (line.unit ?? "").trim();
   if (raw) return !isAreaUnit(raw);
+  // Pricing does not treat leftover planted sqft as measured area on Unit TBD (empty unit) count lines — leftover quantity is How many, not taped square feet.
+  if (
+    line.category &&
+    !(isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category))
+  ) {
+    return true;
+  }
   // No unit string: taped area is still AREA. No taped area is COUNT so we
   // never print "sq ft" beside a toilet/stair/delivery quantity.
   return !hasMeasuredArea(line.sqft);
