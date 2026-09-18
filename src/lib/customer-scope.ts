@@ -80,6 +80,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print strip Guided takeoff waterfall / upholstered stair How many — those stay in stored job_description so Builder still prices wrap labor. Wrap How many still stays.
  * Customer / portal / print strip Guided takeoff labeled count How many — those stay in stored job_description so the crew still sees toilets / trim / metals counts. Wrap How many and Self-leveler bag How many stay.
  * Customer / portal / print line labels strip leftover em-dash How many — those stay on stored lines so Builder still prices How many. Wrap How many and Self-leveler bag How many stay in job notes.
+ * Customer / portal / print strip leftover unlabeled count How many and labeled inch / percent How many — those stay in stored job_description so the crew still sees pad rolls and pattern repeat. Wrap How many and Self-leveler bag How many stay.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?|\d+(?:\.\d+)?\s+[A-Za-z][A-Za-z./-]*\s*$)/i;
@@ -189,9 +190,9 @@ export function isCrewStairStepHowManyLine(raw: string): boolean {
 }
 
 const CREW_LABELED_COUNT_HOW_MANY =
-  /:\s*\d+(?:\.\d+)?(?:\s+[A-Za-z][A-Za-z./-]*)?(?:\s*;|\s*$)/;
+  /:\s*\d+(?:\.\d+)?(?:["'%])?(?:\s+[A-Za-z][A-Za-z./-]*)?(?:\s*;|\s*$)/;
 
-/** Crew labeled count How many (toilets / trim / metals / gal). Wrap box and Self-leveler bag stay. */
+/** Crew labeled count How many (toilets / trim / metals / gal / inches). Wrap box and Self-leveler bag stay. */
 export function isCrewLabeledCountHowManyLine(raw: string): boolean {
   const stripped = stripCrewIdentityFromCustomerLabel(
     (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
@@ -205,12 +206,30 @@ export function isCrewLabeledCountHowManyLine(raw: string): boolean {
   return CREW_LABELED_COUNT_HOW_MANY.test(text);
 }
 
+const CREW_UNLABELED_COUNT_HOW_MANY =
+  /^\d+(?:\.\d+)?(?:["'%])?(?:\s+[A-Za-z][A-Za-z./-]*)?\s*$/;
+
+/** Crew leftover qty with no label (`4 roll`). Wrap colon How many still stays. */
+export function isCrewUnlabeledCountHowManyLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
+  );
+  if (!stripped) return false;
+  const shown = stripCrewReviewBucketPrefix(stripped);
+  const text = shown || stripped;
+  if (!text) return false;
+  if (isCrewStairStepHowManyLine(raw)) return false;
+  if (isCrewLabeledCountHowManyLine(raw)) return false;
+  return CREW_UNLABELED_COUNT_HOW_MANY.test(text);
+}
+
 function isCrewOnlyCustomerText(raw: string): boolean {
   return (
     isGuidedTakeoffMathLine(raw) ||
     isCrewPrepConfidenceLine(raw) ||
     isCrewStairStepHowManyLine(raw) ||
-    isCrewLabeledCountHowManyLine(raw)
+    isCrewLabeledCountHowManyLine(raw) ||
+    isCrewUnlabeledCountHowManyLine(raw)
   );
 }
 
@@ -388,13 +407,13 @@ export function parseProjectDetails(
     const cleaned = stripCrewIdentityFromCustomerLabel(
       line.replace(/^[•\-]\s*/, "").replace(/\?:/g, ":"),
     );
-    if (cleaned && (isCrewPrepConfidenceLine(cleaned) || isCrewStairStepHowManyLine(cleaned) || isCrewLabeledCountHowManyLine(cleaned))) {
+    if (cleaned && (isCrewPrepConfidenceLine(cleaned) || isCrewStairStepHowManyLine(cleaned) || isCrewLabeledCountHowManyLine(cleaned) || isCrewUnlabeledCountHowManyLine(cleaned))) {
       flags.push(cleaned);
       continue;
     }
     if (!cleaned || isGuidedTakeoffMathLine(cleaned)) continue;
     const shown = stripCrewReviewBucketPrefix(cleaned);
-    if (shown && (isCrewPrepConfidenceLine(shown) || isCrewStairStepHowManyLine(shown) || isCrewLabeledCountHowManyLine(shown))) {
+    if (shown && (isCrewPrepConfidenceLine(shown) || isCrewStairStepHowManyLine(shown) || isCrewLabeledCountHowManyLine(shown) || isCrewUnlabeledCountHowManyLine(shown))) {
       flags.push(shown);
       continue;
     }
@@ -404,7 +423,8 @@ export function parseProjectDetails(
       !isGuidedTakeoffMathLine(shown) &&
       !isCrewPrepConfidenceLine(shown) &&
       !isCrewStairStepHowManyLine(shown) &&
-      !isCrewLabeledCountHowManyLine(shown)
+      !isCrewLabeledCountHowManyLine(shown) &&
+      !isCrewUnlabeledCountHowManyLine(shown)
     ) {
       details.push(shown);
     }

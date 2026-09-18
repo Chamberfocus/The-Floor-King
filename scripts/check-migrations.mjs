@@ -200,6 +200,7 @@ const REQUIRED_FILES = [
   "0337_flooring_knowledge_customer_stair_types.sql",
   "0338_flooring_knowledge_customer_count_qty.sql",
   "0339_flooring_knowledge_customer_dash_qty.sql",
+  "0340_flooring_knowledge_customer_bare_qty.sql",
 ];
 
 /**
@@ -2404,6 +2405,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0339_FLOORING_KNOWLEDGE",
       "Customer / portal / print line labels strip leftover em-dash How many — those stay on stored lines so Builder still prices How many. Wrap How many and Self-leveler bag How many stay in job notes",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0340_flooring_knowledge_customer_bare_qty.sql",
+    markers: [
+      "P0_0340_FLOORING_KNOWLEDGE",
+      "Customer / portal / print strip leftover unlabeled count How many and labeled inch / percent How many — those stay in stored job_description so the crew still sees pad rolls and pattern repeat. Wrap How many and Self-leveler bag How many stay",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
