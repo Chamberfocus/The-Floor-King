@@ -72,6 +72,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
  * Customer / portal / print Site preparation strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
  * Customer / portal / print line labels strip stair-install step How many — those stay on stored lines so Builder still prices per step.
+ * Customer / portal / print line labels strip prep estimated / allowance suffix — those stay on stored lines so the crew still sees Field verify / TBD vs Known bag counts.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?)/i;
@@ -98,6 +99,13 @@ export function isGuidedTakeoffMathLine(raw: string): boolean {
   return false;
 }
 
+function stripPrepConfidenceSuffix(raw: string): string {
+  const next = raw
+    .replace(/\s*\((?:estimated|allowance|field verify(?:\s*\/\s*TBD)?)\)$/i, "")
+    .trim();
+  return next || raw;
+}
+
 export function stripCrewIdentityFromCustomerLabel(raw: string): string {
   const s = (raw ?? "").trim();
   if (!s) return s;
@@ -106,10 +114,10 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
       s,
     )
   ) {
-    return s;
+    return stripPrepConfidenceSuffix(s);
   }
   const cut = s.search(CREW_IDENTITY_TAIL);
-  if (cut > 0) return s.slice(0, cut).trim();
+  if (cut > 0) return stripPrepConfidenceSuffix(s.slice(0, cut).trim());
   const fallback = s
     .replace(
       /\s*\([^)]*(?:not taped sq ft|not an automatic sq ft\/step order|enter cuts)[^)]*\)\s*$/i,
@@ -118,7 +126,7 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
     .replace(/\s*(?:wrap qty TBD|qty TBD|carton coverage TBD|order TBD)\b.*$/i, "")
     .replace(/\s*[—–-]\s*\d+\s+steps?\b.*$/i, "")
     .trim();
-  return fallback || s;
+  return stripPrepConfidenceSuffix(fallback || s);
 }
 
 function isCrewFlagsHeader(s: string): boolean {

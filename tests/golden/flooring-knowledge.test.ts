@@ -12915,6 +12915,91 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0332 Customer line labels strip prep estimated / allowance suffix", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0332_flooring_knowledge_customer_prep_suffix.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0332_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print line labels strip prep estimated \/ allowance suffix — those stay on stored lines so the crew still sees Field verify \/ TBD vs Known bag counts/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(stripCrewIdentityFromCustomerLabel("Self-leveler (estimated)")).toBe("Self-leveler");
+    expect(stripCrewIdentityFromCustomerLabel("Self-leveler (allowance)")).toBe("Self-leveler");
+    expect(stripCrewIdentityFromCustomerLabel("Subfloor 3/4 — Living (estimated)")).toBe(
+      "Subfloor 3/4 — Living",
+    );
+    expect(stripCrewIdentityFromCustomerLabel("Self-leveler")).toBe("Self-leveler");
+    expect(stripCrewIdentityFromCustomerLabel("Stair install — 8 steps (tread + riser)")).toBe(
+      "Stair install",
+    );
+    expect(stripCrewIdentityFromCustomerLabel("Living room — Lifeproof Oak")).toBe(
+      "Living room — Lifeproof Oak",
+    );
+
+    const asLine = (description: string, extra: Partial<EstimateLineItem> = {}) =>
+      ({
+        id: "l1",
+        option_id: "o1",
+        position: 0,
+        room: null,
+        description,
+        note: null,
+        line_type: "mat_labor",
+        sqft: null,
+        length_in: null,
+        width_in: null,
+        measure_unit: "sqft",
+        material_rate: 12,
+        labor_rate: 0,
+        installed_rate: null,
+        flat_amount: null,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        item_no: null,
+        material_cost: 12,
+        labor_cost: 0,
+        quantity: 15,
+        unit: "bag",
+        category: "other",
+        ...extra,
+      }) as EstimateLineItem;
+
+    const bags = asLine("Self-leveler (estimated)");
+    expect(customerLineLabel(bags)).toBe("Self-leveler");
+    expect(customerLineLabel(bags)).not.toMatch(/estimated|allowance/i);
+    expect(lineQty(bags)).toBe(15);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/prepQuantitySuffix/);
+    expect(q).toMatch(/Self-leveler\$\{suffix\}/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print line labels strip prep estimated \/ allowance suffix — those stay on stored lines so the crew still sees Field verify \/ TBD vs Known bag counts/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print line labels strip prep estimated \/ allowance suffix — those stay on stored lines so the crew still sees Field verify \/ TBD vs Known bag counts/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
