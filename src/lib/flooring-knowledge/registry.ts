@@ -102,8 +102,9 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
 
   // Existing
   /**
-   * Replacement vs new construction. Positive "New construction" hides tear-out
-   * questions (demo, pad, bond, asbestos, disposal). Unanswered stays open.
+   * Replacement vs new construction. Positive exclusive "New construction"
+   * hides tear-out questions (demo, pad, bond, asbestos, disposal). Mixed
+   * Replacement + New construction still asks. Unanswered stays open.
    */
   { key: "work_type", purpose: "SCOPE", phase: "existing" },
   /**
@@ -149,7 +150,8 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   /**
    * Municipal pickup day after the old floor is going to the curb.
    * Keyless in 0142 (UUID only) so overlay/review could not attach.
-   * New construction hides this with the other tear-out questions.
+   * New construction hides this with the other tear-out questions unless
+   * Replacement is also in play. Unanswered stays open.
    * Exclusive None demo hides this with demo_disposal via
    * NONE_DEMO_DISPOSAL_HIDES_KEYS — nothing is coming up, so nothing goes
    * to the curb. Unanswered disposal stays open in overlay require; live
@@ -584,8 +586,9 @@ export const REMOVAL_QUESTION_KEYS = [
 ] as const;
 
 /**
- * Pull-and-reset is replacement work. New construction hides these.
- * Unanswered and Unknown stay open. Do not SQL-gate toilets on work_type (0142).
+ * Pull-and-reset is replacement work. Exclusive New construction hides these.
+ * Mixed Replacement + New construction still asks. Unanswered and Unknown
+ * stay open. Do not SQL-gate toilets on work_type (0142).
  * Appliances and door shaves stay — those can still apply on a new slab.
  */
 export const NEW_CONSTRUCTION_HIDES_KEYS = ["toilets"] as const;

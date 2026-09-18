@@ -12591,6 +12591,89 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0328 Exclusive New construction hides tear-out; mixed Replacement still asks", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0328_flooring_knowledge_mixed_new_build.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0328_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive New construction hides tear-out — mixed Replacement \+ New construction still asks demo, pad removal, and toilets/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*work_type.*hs_demo|hs_demo.*show_if.*work_type/);
+    expect(sql).not.toMatch(/show_if.*work_type.*toilets|toilets.*show_if.*work_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    const exclusive = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      work_type: ["New construction"],
+    });
+    expect(exclusive).not.toContain("hs_demo");
+    expect(exclusive).not.toContain("existing_pad");
+    expect(exclusive).not.toContain("demo_disposal");
+    expect(exclusive).not.toContain("toilets");
+    expect(exclusive).toContain("substrate");
+    expect(exclusive).toContain("appliances");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      work_type: ["New construction", "Replacement (tear-out)"],
+    });
+    expect(mixed).toContain("hs_demo");
+    expect(mixed).toContain("existing_pad");
+    expect(mixed).toContain("demo_disposal");
+    expect(mixed).toContain("toilets");
+    expect(mixed).toContain("furniture_level");
+
+    const mixedWarn = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Carpet"],
+        carpet_install: ["Stretch-in"],
+        work_type: ["New construction", "Replacement (tear-out)"],
+      }),
+    );
+    expect(mixedWarn.some((w) => w.id === "new-construction")).toBe(false);
+
+    const exclusiveWarn = knowledgeWarnings(
+      installContextFromValByKey({
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT"],
+        work_type: ["New construction"],
+      }),
+    );
+    expect(exclusiveWarn.some((w) => w.id === "new-construction")).toBe(true);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(
+      /Exclusive New construction hides tear-out — mixed Replacement \+ New construction still asks demo, pad removal, and toilets/,
+    );
+    expect(knowledgeHelpFor({ key: "toilets" }, emptyInstallContext())).toMatch(
+      /Mixed Replacement \+ New construction still asks/,
+    );
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Exclusive New construction hides tear-out — mixed Replacement \+ New construction still asks demo, pad removal, and toilets/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Exclusive New construction hides tear-out — mixed Replacement \+ New construction still asks demo, pad removal, and toilets/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

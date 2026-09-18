@@ -188,6 +188,7 @@ const REQUIRED_FILES = [
   "0325_flooring_knowledge_customer_rooms.sql",
   "0326_flooring_knowledge_customer_line_notes.sql",
   "0327_flooring_knowledge_customer_uncertainty.sql",
+  "0328_flooring_knowledge_mixed_new_build.sql",
 ];
 
 /**
@@ -2248,6 +2249,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0327_FLOORING_KNOWLEDGE",
       "Customer / portal / print strip Guided takeoff crew Uncertainty — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0328_flooring_knowledge_mixed_new_build.sql",
+    markers: [
+      "P0_0328_FLOORING_KNOWLEDGE",
+      "Exclusive New construction hides tear-out — mixed Replacement + New construction still asks demo, pad removal, and toilets",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
