@@ -184,6 +184,7 @@ const REQUIRED_FILES = [
   "0321_flooring_knowledge_customer_identity.sql",
   "0322_flooring_knowledge_unit_tbd_qty.sql",
   "0323_flooring_knowledge_customer_notes.sql",
+  "0324_flooring_knowledge_customer_takeoff.sql",
 ];
 
 /**
@@ -2196,6 +2197,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0323_FLOORING_KNOWLEDGE",
       "Customer / portal / print project details strip wrap / carton-coverage TBD / qty TBD / not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0324_flooring_knowledge_customer_takeoff.sql",
+    markers: [
+      "P0_0324_FLOORING_KNOWLEDGE",
+      "Customer / portal / print strip Guided takeoff MEASURED / WASTE / ORDER / BILLING math — those stay in stored job_description so the crew still sees measured vs order",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

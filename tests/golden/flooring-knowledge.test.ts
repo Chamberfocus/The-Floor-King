@@ -208,6 +208,7 @@ import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import {
   customerFacingJobNotes,
   customerLineLabel,
+  isGuidedTakeoffMathLine,
   parseProjectDetails,
   stripCrewIdentityFromCustomerLabel,
 } from "@/lib/customer-scope";
@@ -12249,6 +12250,98 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print project details strip wrap \/ carton-coverage TBD \/ qty TBD \/ not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0324 Customer project details strip Guided takeoff MEASURED / ORDER / BILLING math", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0324_flooring_knowledge_customer_takeoff.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0324_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff MEASURED \/ WASTE \/ ORDER \/ BILLING math — those stay in stored job_description so the crew still sees measured vs order/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(isGuidedTakeoffMathLine("Carpet takeoff:")).toBe(true);
+    expect(isGuidedTakeoffMathLine("Guided takeoff:")).toBe(false);
+    expect(
+      isGuidedTakeoffMathLine("Measured area: 300 sq ft (33.3 sq yd equivalent)"),
+    ).toBe(true);
+    expect(
+      isGuidedTakeoffMathLine(
+        "Order quantity: TBD — enter cuts (sq ft ÷ 9 is not an order)",
+      ),
+    ).toBe(true);
+    expect(
+      isGuidedTakeoffMathLine(
+        "Note: Billing is square yards from measured area — not a 30-yard roll.",
+      ),
+    ).toBe(true);
+    expect(isGuidedTakeoffMathLine("Stair wrap: 8 box")).toBe(false);
+    expect(isGuidedTakeoffMathLine("Occupancy: Occupied")).toBe(false);
+
+    const notes = [
+      "Guided takeoff:",
+      "Carpet takeoff:",
+      "• Measured area: 300 sq ft (33.3 sq yd equivalent)",
+      "• Waste: 0% (not invented from sq ft ÷ 9 — layout waste lives in the cut list)",
+      "• Order quantity: TBD — enter cuts (sq ft ÷ 9 is not an order)",
+      "• Billing quantity: TBD — not 33.3 sq yd from taped area",
+      "• Unit of measure: sq yd — billed by the yard. Taped sq ft is measured area, not an order.",
+      "• Note: Billing is square yards from measured area — not a 30-yard roll.",
+      "Accessories:",
+      "• Stair wrap: 8 box — not taped square feet and not a 30-yard roll",
+      "• Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+      "Conditions:",
+      "• Occupancy: Occupied",
+    ].join("\n");
+    const shown = customerFacingJobNotes(notes);
+    expect(shown).toMatch(/Guided takeoff:/);
+    expect(shown).toMatch(/Stair wrap: 8 box/);
+    expect(shown).toMatch(/Lifeproof Oak/);
+    expect(shown).toMatch(/Occupancy: Occupied/);
+    expect(shown).not.toMatch(/Carpet takeoff/i);
+    expect(shown).not.toMatch(/Measured area/i);
+    expect(shown).not.toMatch(/Order quantity/i);
+    expect(shown).not.toMatch(/Billing quantity/i);
+    expect(shown).not.toMatch(/Unit of measure/i);
+    expect(shown).not.toMatch(/33\.3 sq yd/i);
+    expect(shown).not.toMatch(/not a 30-yard roll/i);
+    expect(shown).not.toMatch(/wrap qty TBD/i);
+    expect(shown).not.toMatch(/not taped square feet/i);
+    expect(parseProjectDetails(notes).details).toContain("Stair wrap: 8 box");
+    expect(parseProjectDetails(notes).details).toContain("Occupancy: Occupied");
+    expect(parseProjectDetails(notes).details.join("\n")).not.toMatch(/Measured area/i);
+    expect(parseProjectDetails(notes).details.join("\n")).not.toMatch(/Order quantity/i);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).toMatch(/reviewToJobNotes/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const takeoff = readFileSync(join(root, "src/lib/flooring-knowledge/takeoff.ts"), "utf8");
+    expect(takeoff).toMatch(/export function reviewToJobNotes/);
+    expect(takeoff).toMatch(/Guided takeoff:/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff MEASURED \/ WASTE \/ ORDER \/ BILLING math — those stay in stored job_description so the crew still sees measured vs order/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff MEASURED \/ WASTE \/ ORDER \/ BILLING math — those stay in stored job_description so the crew still sees measured vs order/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

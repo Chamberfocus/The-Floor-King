@@ -66,9 +66,30 @@ function productItem(l: EstimateLineItem): ScopeItem {
  *
  * Customer / invoice / portal copy strips wrap / carton-coverage TBD / qty TBD / order TBD identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
  * Customer / portal / print project details strip wrap / carton-coverage TBD / qty TBD / not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft.
+ * Customer / portal / print strip Guided takeoff MEASURED / WASTE / ORDER / BILLING math — those stay in stored job_description so the crew still sees measured vs order.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\))/i;
+
+const GUIDED_TAKEOFF_MATH_LABEL =
+  /^(?:measured area|waste|order quantity|billing quantity|unit of measure|carton coverage|required cartons)\s*:/i;
+
+const GUIDED_TAKEOFF_MATH_NOTE =
+  /not a 30-yard roll|carton coverage|carton count is not invented|sq ft\s*[÷\/]\s*9|not a cut plan|from taped area|taped sq ft is measured area|this number is (?:yards|square feet)|layout waste|bills in square feet, not yards|billed by the yard|not pad yards/i;
+
+/** Crew Review takeoff concept rows. Stored job_description keeps them. */
+export function isGuidedTakeoffMathLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
+  );
+  if (!stripped) return false;
+  if (/^guided takeoff\s*:?\s*$/i.test(stripped)) return false;
+  if (/\btakeoff\s*:?\s*$/i.test(stripped)) return true;
+  if (GUIDED_TAKEOFF_MATH_LABEL.test(stripped)) return true;
+  if (/^note:\s*/i.test(stripped) && GUIDED_TAKEOFF_MATH_NOTE.test(stripped)) return true;
+  if (/^measured .+\s+·\s+waste\s+/i.test(stripped)) return true;
+  return false;
+}
 
 export function stripCrewIdentityFromCustomerLabel(raw: string): string {
   const s = (raw ?? "").trim();
@@ -100,7 +121,8 @@ export function customerFacingJobNotes(text: string | null | undefined): string 
     .map((line) => {
       const indent = line.match(/^\s*/)?.[0] ?? "";
       const body = stripCrewIdentityFromCustomerLabel(line.trimStart());
-      return body ? `${indent}${body}` : "";
+      if (!body || isGuidedTakeoffMathLine(body)) return "";
+      return `${indent}${body}`;
     })
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -170,7 +192,7 @@ export function buildCustomerScope(
     },
     conditions: scope.conditions
       .map((c) => stripCrewIdentityFromCustomerLabel(c))
-      .filter(Boolean),
+      .filter((c) => c && !isGuidedTakeoffMathLine(c)),
     notes: customerFacingJobNotes(scope.freeText),
   };
 }
@@ -220,7 +242,7 @@ export function parseProjectDetails(
     const cleaned = stripCrewIdentityFromCustomerLabel(
       line.replace(/^[•\-]\s*/, "").replace(/\?:/g, ":"),
     );
-    if (cleaned) details.push(cleaned);
+    if (cleaned && !isGuidedTakeoffMathLine(cleaned)) details.push(cleaned);
   }
   return { details, flags };
 }
