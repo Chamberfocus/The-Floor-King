@@ -526,6 +526,8 @@ export const TILE_WALL_HIDES_KEYS = [
   "existing_pad",
   "existing_tack",
   "existing_bond",
+  "climate_control",
+  "acclimation",
 ] as const;
 
 /**

@@ -4640,6 +4640,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       "existing_pad",
       "existing_tack",
       "existing_bond",
+      "climate_control",
+      "acclimation",
     ]);
 
     const wallCtx = installContextFromValByKey({
@@ -7177,6 +7179,72 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(neu).not.toContain("bulk_pickup");
     expect(neu).not.toContain("demo_disposal");
+  });
+
+  it("0280 exclusive wall tile hides site AC/heat; occupancy and appliances stay", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0280_flooring_knowledge_wall_climate.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0280_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/a backsplash is not a hardwood acclimation job/);
+    expect(sql).toMatch(/Do NOT SQL-gate climate_control on tile_application/);
+    expect(sql).toMatch(/Do NOT SQL-gate acclimation on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*tile_application.*climate_control|climate_control.*show_if.*tile_application/,
+    );
+
+    expect(TILE_WALL_HIDES_KEYS).toEqual(expect.arrayContaining(["climate_control", "acclimation"]));
+    expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
+      /Site AC\/heat and acclimation hide too/,
+    );
+    expect(knowledgeHelpFor({ key: "climate_control" }, emptyInstallContext())).toMatch(
+      /a backsplash is not a hardwood acclimation job/,
+    );
+    expect(knowledgeHelpFor({ key: "acclimation" }, emptyInstallContext())).toMatch(
+      /Exclusive wall tile hides this/,
+    );
+
+    const unanswered = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+    });
+    expect(unanswered).toContain("climate_control");
+    expect(unanswered).toContain("occupancy");
+    expect(unanswered).toContain("appliances");
+    expect(unanswered).toContain("wet_area");
+
+    const wall = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Wall"],
+      install_method: ["Glue-down"],
+    });
+    expect(wall).toContain("occupancy");
+    expect(wall).toContain("appliances");
+    expect(wall).toContain("wet_area");
+    expect(wall).toContain("delivery_scope");
+    expect(wall).toContain("access_conditions");
+    expect(wall).not.toContain("climate_control");
+    expect(wall).not.toContain("acclimation");
+
+    const floor = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile"],
+      tile_application: ["Floor"],
+    });
+    expect(floor).toContain("climate_control");
+
+    const mixed = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Tile", "LVP / LVT"],
+      tile_application: ["Wall"],
+      install_method: ["Glue-down"],
+    });
+    expect(mixed).toContain("climate_control");
+    expect(mixed).toContain("acclimation");
   });
 
   it("pattern repeat only after pattern match is required", () => {

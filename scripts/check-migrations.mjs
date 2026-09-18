@@ -140,6 +140,7 @@ const REQUIRED_FILES = [
   "0277_flooring_knowledge_underlayment_cover.sql",
   "0278_flooring_knowledge_underlayment_units.sql",
   "0279_flooring_knowledge_bulk_pickup.sql",
+  "0280_flooring_knowledge_wall_climate.sql",
 ];
 
 /**
@@ -1724,6 +1725,17 @@ const REQUIRED_MARKERS = [
       "Key it as bulk_pickup",
       "Do NOT SQL-gate bulk_pickup on work_type",
       "Do NOT SQL-gate bulk_pickup on demo_disposal",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0280_flooring_knowledge_wall_climate.sql",
+    markers: [
+      "P0_0280_FLOORING_KNOWLEDGE",
+      "a backsplash is not a hardwood acclimation job",
+      "Do NOT SQL-gate climate_control on tile_application",
+      "Do NOT SQL-gate acclimation on tile_application",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
