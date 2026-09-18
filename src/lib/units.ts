@@ -192,6 +192,24 @@ export function billedQtyToSqft(qty: number, unitKey: string): number | null {
   return null;
 }
 
+/**
+ * Convert a billed-unit rate into $/carton from sq ft/box coverage.
+ * sq ft rate × coverage. sq yd rate ÷ 9 first — exclusive carpet-tile bills
+ * per sq yd, coverage is sq ft/box. Count units return null.
+ * Exclusive carpet-tile PO carton helper boxed rate onto $/carton is sq ft coverage, not sq yd × coverage 1:1. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+ */
+export function billedRateToCartonCost(
+  unitCost: number,
+  unitKey: string,
+  sqftPerBox: number,
+): number | null {
+  if (!(Number.isFinite(unitCost) && unitCost >= 0)) return null;
+  if (!(Number.isFinite(sqftPerBox) && sqftPerBox > 0)) return null;
+  const perSqft = billedQtyToSqft(1, normalizeUnit(unitKey) || unitKey);
+  if (perSqft == null || !(perSqft > 0)) return null;
+  return Math.round((unitCost / perSqft) * sqftPerBox * 100) / 100;
+}
+
 /** True when the unit string is square yards (SY / sq yd / yard / …). */
 export function unitIsSqyd(raw: string | null | undefined): boolean {
   return normalizeUnit(raw) === "sqyd";

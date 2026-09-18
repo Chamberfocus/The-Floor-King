@@ -25,7 +25,7 @@ import { formatMoney } from "@/lib/format";
 import { catalogUnitCost, catalogRateInLineUnit } from "@/lib/catalog-pricing";
 import { knowledgePickDescription, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
 import { poCarpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
-import { isAreaUnit, pickedProductUnit } from "@/lib/units";
+import { billedRateToCartonCost, isAreaUnit, lineUnitKey, pickedProductUnit } from "@/lib/units";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
   PO_SOURCE_BADGE,
@@ -612,7 +612,14 @@ export function PoBuilder({
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {items.map((it, i) => (
+          {items.map((it, i) => {
+            // Exclusive carpet-tile PO carton helper boxed rate onto $/carton is sq ft coverage, not sq yd × coverage 1:1. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            const cartonCost = billedRateToCartonCost(
+              Number(it.unit_cost) || 0,
+              lineUnitKey(it),
+              Number(it.sqft_per_box),
+            );
+            return (
             <div key={it.key} className="rounded-md border p-3">
               {it.product_id || pickerOpen.has(it.key) ? (
                 <ProductPicker
@@ -753,7 +760,11 @@ export function PoBuilder({
                     <span className="font-semibold text-primary">
                       = {hardSurfaceAreaCartonCount(it, Number(it.quantity))} cartons
                       <span className="font-normal text-muted-foreground">
-                        {" "}({it.sqft_per_box} sq ft/box · {formatMoney((Number(it.unit_cost) || 0) * Number(it.sqft_per_box))}/carton)
+                        {" "}({it.sqft_per_box} sq ft/box
+                        {cartonCost != null
+                          ? ` · ${formatMoney(cartonCost)}/carton`
+                          : ""}
+                        )
                       </span>
                     </span>
                   ) : (
@@ -822,7 +833,8 @@ export function PoBuilder({
                 ) : null}
               </div>
             </div>
-          ))}
+          );
+          })}
           <Button type="button" variant="outline" size="sm" onClick={addItem}>
             <Plus className="size-3.5" /> Add item
           </Button>
