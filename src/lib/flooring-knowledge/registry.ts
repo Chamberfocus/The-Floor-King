@@ -185,7 +185,21 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   /** Glue-down of any family, or carpet tile (pressure-sensitive / glue). */
   { key: "adhesive", purpose: "MATERIAL", phase: "install", systems: ["glue", "carpet_tile"] },
   { key: "hs_underlayment", purpose: "MATERIAL", phase: "install", systems: ["floating"] },
-  { key: "hardwood_fasteners", purpose: "MATERIAL", phase: "install", systems: ["nail", "staple"] },
+  /**
+   * Nail / staple fasteners. Overlay families hardwood so exclusive LVP /
+   * laminate / vinyl / tile hide once the surface is known. Live 0191
+   * knowledge_when is systems-only — leftover Nail-down still matches SQL
+   * show_if and would reopen this without NON_HARDWOOD_FASTENER_HIDES_KEYS.
+   * Unanswered HS stays open (surfacePending). Mixed LVP + hardwood still
+   * asks. Do not SQL-gate hardwood_fasteners on surface_type (0142).
+   */
+  {
+    key: "hardwood_fasteners",
+    purpose: "MATERIAL",
+    phase: "install",
+    families: ["hardwood"],
+    systems: ["nail", "staple"],
+  },
   /**
    * Prefinished vs unfinished (site finish). Catalog has no sand/finish labor —
    * capture as scope. Overlay families hardwood so laminate/LVP hide once the
@@ -804,6 +818,16 @@ export const LOOSE_LAY_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
  * hs_demo.
  */
 export const NON_VINYL_DEMO_SKIM_HIDES_KEYS = ["vinyl_skim"] as const;
+
+/**
+ * Nail / staple fasteners hidden once the surface is exclusive LVP /
+ * laminate / vinyl / tile. Leftover Nail-down on LVP still matches SQL
+ * show_if and live 0191 knowledge_when (systems only) — this overlay hide
+ * is the positive evidence those leftover chips must not reopen fasteners.
+ * Mixed LVP + hardwood still asks. Unanswered HS stays open (0142).
+ * Do not SQL-gate hardwood_fasteners on surface_type.
+ */
+export const NON_HARDWOOD_FASTENER_HIDES_KEYS = ["hardwood_fasteners"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,

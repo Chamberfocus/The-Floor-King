@@ -160,6 +160,7 @@ const REQUIRED_FILES = [
   "0297_flooring_knowledge_loose_lay_vapor.sql",
   "0298_flooring_knowledge_non_vinyl_skim.sql",
   "0299_flooring_knowledge_illegal_leftover.sql",
+  "0300_flooring_knowledge_lvp_fasteners.sql",
 ];
 
 /**
@@ -1957,6 +1958,16 @@ const REQUIRED_MARKERS = [
       "P0_0299_FLOORING_KNOWLEDGE",
       "leftover illegal chips do not switch",
       "Do NOT SQL-gate hardwood_fasteners on install_method",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0300_flooring_knowledge_lvp_fasteners.sql",
+    markers: [
+      "P0_0300_FLOORING_KNOWLEDGE",
+      "leftover Nail-down on LVP does not reopen",
+      "Do NOT SQL-gate hardwood_fasteners on surface_type",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

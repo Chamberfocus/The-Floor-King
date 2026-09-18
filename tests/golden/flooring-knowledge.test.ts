@@ -100,6 +100,7 @@ import {
   EXISTING_FLOOR_VAPOR_HIDES_KEYS,
   LOOSE_LAY_VAPOR_HIDES_KEYS,
   NON_VINYL_DEMO_SKIM_HIDES_KEYS,
+  NON_HARDWOOD_FASTENER_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
@@ -124,6 +125,7 @@ import {
   jobHidesAquaBarOnExistingFloor,
   jobHidesVaporOnLooseLay,
   jobHidesVinylSkimOnNonVinylDemo,
+  jobHidesFastenersOnNonHardwood,
   labelsAreWoodDeckOnly,
   labelsAreExistingFlooringOnly,
   jobAllowsFloatingVaporUnderlayment,
@@ -9629,6 +9631,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(leftoverLvpNail).toContain("attached_pad");
     expect(leftoverLvpNail).toContain("adhesive");
     expect(leftoverLvpNail).toContain("laminate_expansion");
+    expect(leftoverLvpNail).not.toContain("hardwood_fasteners");
 
     const leftoverEngLoose = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
@@ -9666,6 +9669,139 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         }),
       ),
     ).toMatch(/Leftover Floating does not hide fasteners/);
+  });
+
+  it("0300 exclusive LVP hides hardwood fasteners, including leftover Nail-down", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0300_flooring_knowledge_lvp_fasteners.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0300_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/leftover Nail-down on LVP does not reopen/);
+    expect(sql).toMatch(/Do NOT SQL-gate hardwood_fasteners on surface_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*hardwood_fasteners|hardwood_fasteners.*show_if.*surface_type/,
+    );
+
+    expect(knowledgeQuestionByKey("hardwood_fasteners")?.families).toEqual(["hardwood"]);
+    expect(knowledgeQuestionByKey("hardwood_fasteners")?.systems).toEqual(["nail", "staple"]);
+    expect([...NON_HARDWOOD_FASTENER_HIDES_KEYS]).toEqual(["hardwood_fasteners"]);
+
+    const liveLeftoverNail = {
+      key: "hardwood_fasteners",
+      config: {
+        show_if: { key: "install_method", in: ["Nail-down", "Staple-down"] },
+        knowledge_when: { systems: ["nail", "staple"], purpose: "MATERIAL" as const },
+      },
+    };
+    expect(
+      questionApplies(liveLeftoverNail, {
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT"],
+        install_method: ["Nail-down"],
+      }),
+    ).toBe(false);
+    expect(
+      questionApplies(liveLeftoverNail, {
+        project_type: ["Hard surface"],
+        surface_type: ["LVP / LVT", "Hardwood"],
+        install_method: ["Nail-down"],
+      }),
+    ).toBe(true);
+    expect(
+      questionApplies(
+        { key: "hardwood_fasteners", config: {} },
+        { project_type: ["Hard surface"] },
+      ),
+    ).toBe(true);
+
+    expect(
+      jobHidesFastenersOnNonHardwood(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT"],
+          install_method: ["Nail-down"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesFastenersOnNonHardwood(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["LVP / LVT", "Hardwood"],
+          install_method: ["Nail-down"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesFastenersOnNonHardwood(
+        installContextFromValByKey({ project_type: ["Hard surface"] }),
+      ),
+    ).toBe(false);
+
+    const lvp = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+    });
+    expect(lvp).not.toContain("hardwood_fasteners");
+    expect(lvp).toContain("attached_pad");
+    expect(lvp).toContain("adhesive");
+
+    const leftoverNail = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Nail-down"],
+    });
+    expect(leftoverNail).not.toContain("hardwood_fasteners");
+    expect(leftoverNail).toContain("attached_pad");
+
+    const walkLeftover = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Nail-down"],
+    });
+    expect(walkLeftover).not.toContain("hardwood_fasteners");
+    expect(walkLeftover).toContain("install_method");
+
+    const unansweredHs = visibleKnowledgeKeys({ project_type: ["Hard surface"] });
+    expect(unansweredHs).toContain("hardwood_fasteners");
+
+    const solid = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+    });
+    expect(solid).toContain("hardwood_fasteners");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT", "Hardwood"],
+      install_method: ["Nail-down"],
+    });
+    expect(mixed).toContain("hardwood_fasteners");
+
+    const leftoverSolid = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Floating / click"],
+    });
+    expect(leftoverSolid).toContain("hardwood_fasteners");
+
+    for (const surface of ["Laminate", "Sheet vinyl", "Tile"] as const) {
+      expect(
+        visibleKnowledgeKeys({
+          project_type: ["Hard surface"],
+          surface_type: [surface],
+          install_method: ["Nail-down"],
+        }),
+      ).not.toContain("hardwood_fasteners");
+    }
+
+    expect(knowledgeHelpFor({ key: "hardwood_fasteners" }, emptyInstallContext())).toMatch(
+      /Exclusive LVP \/ laminate \/ vinyl \/ tile hide this/,
+    );
   });
 
   it("pattern repeat only after pattern match is required", () => {

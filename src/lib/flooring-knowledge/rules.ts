@@ -62,6 +62,7 @@ import {
   EXISTING_FLOOR_VAPOR_HIDES_KEYS,
   LOOSE_LAY_VAPOR_HIDES_KEYS,
   NON_VINYL_DEMO_SKIM_HIDES_KEYS,
+  NON_HARDWOOD_FASTENER_HIDES_KEYS,
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
@@ -671,6 +672,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (NON_HARDWOOD_FASTENER_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobHidesFastenersOnNonHardwood(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -923,6 +931,20 @@ export function jobHidesVinylSkimOnNonVinylDemo(install: InstallContext): boolea
 }
 
 /**
+ * Nail / staple fasteners on exclusive non-hardwood hard surface. Exclusive
+ * LVP / laminate / vinyl / tile do not use hardwood fasteners — leftover
+ * Nail-down on LVP does not reopen them. Mixed LVP + hardwood still asks.
+ * Unanswered hard surface stays open (0142). Exclusive carpet does not
+ * hide here — install_method is already hidden on carpet-only jobs.
+ */
+export function jobHidesFastenersOnNonHardwood(install: InstallContext): boolean {
+  if (install.surfacePending) return false;
+  if (install.families.includes("hardwood")) return false;
+  if (!install.families.some(isHardSurfaceFamily)) return false;
+  return true;
+}
+
+/**
  * Slab moisture test / Aqua bar on a wood deck. Glue-down, carpet tile, a
  * moisture-concern flag, mixed LVP, unanswered method, and unanswered
  * substrate stay open. Exclusive hardwood nail/staple/floating over
@@ -1162,7 +1184,7 @@ export function knowledgeHelpFor(
     return "Straight vs diagonal changes waste and labor. Capture it; do not auto-inflate waste without the salesperson.";
   }
   if (key === "hardwood_fasteners") {
-    return "Nail/staple jobs need fasteners. Pick the catalog item in Builder — this question only records the need. Leftover Floating on exclusive solid hardwood does not hide this — leftover illegal chips do not switch overlay follow-ups. Mixed LVP + hardwood still asks when Nail-down is in play.";
+    return "Nail/staple jobs need fasteners. Pick the catalog item in Builder — this question only records the need. Exclusive LVP / laminate / vinyl / tile hide this — leftover Nail-down on LVP does not reopen it. Leftover Floating on exclusive solid hardwood does not hide this — leftover illegal chips do not switch overlay follow-ups. Mixed LVP + hardwood still asks when Nail-down is in play. Unanswered hard surface stays open.";
   }
   if (key === "hardwood_finish") {
     return "Prefinished vs unfinished (site finish) changes sanding, finishing, and acclimation notes. Floor King has no sand/finish labor in the catalog — capture it as scope. Field verify if the SKU is not in front of you. Do not invent a sand-and-finish dollar amount.";
