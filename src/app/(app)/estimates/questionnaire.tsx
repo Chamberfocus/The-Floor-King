@@ -72,6 +72,8 @@ import {
   EXTRA_AREA_MEASURED_PLACEHOLDER,
   EXTRA_AREA_MEASURED_HINT,
   EXTRA_AREA_COUNT_TBD_HINT,
+  EXTRA_AREA_COUNT_QTY_LABEL,
+  EXTRA_AREA_COUNT_QTY_HINT,
   formatSqft,
   formatSqyd,
   formatTakeoffStrip,
@@ -91,6 +93,8 @@ import {
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
   extraMeasuredSqftForTakeoff,
+  extraAsksCountQty,
+  extraCountQtyForEmit,
   measuredInstallLaborAllowed,
   configuredInstallRate,
   rollGoodsSeamWarnings,
@@ -210,8 +214,9 @@ interface ProductAns {
   /** Hardwood species/construction text from the catalog, when present. */
   species: string | null;
 }
-/** Extra pad/foam for a specific area. `sqft` is MEASURED area, not the order. */
-interface ExtraPad { id: string; product: ProductAns | null; sqft: string }
+/** Extra pad/foam for a specific area. `sqft` is MEASURED area, not the order.
+ *  `qty` is How many in the SKU unit for count extras — never leftover sq ft. */
+interface ExtraPad { id: string; product: ProductAns | null; sqft: string; qty?: string }
 /** One demo type + the area it covers (repeatable "demo" step). */
 interface DemoRow { id: string; option: string; sqft: string }
 /** One trim/molding line — a quick-picked type with color/size, and an optional
@@ -395,7 +400,7 @@ function customToProductAns(input: CustomProductInput): ProductAns {
   };
 }
 let xpid = 0;
-const newExtra = (): ExtraPad => ({ id: `x${xpid++}`, product: null, sqft: "" });
+const newExtra = (): ExtraPad => ({ id: `x${xpid++}`, product: null, sqft: "", qty: "" });
 
 let rid = 0;
 /** The areas a flooring job actually names, in the order you'd walk a house. */
@@ -1369,8 +1374,42 @@ export function Questionnaire({
             out.push(rollGoodsTbdLine(ex.product, null, numv(ex.sqft) > 0 ? numv(ex.sqft) : undefined));
             continue;
           }
+          // Count extras with a sold-by unit emit How many in that unit — not leftover sq ft and not a 30-yard roll. Empty unit stays TBD.
           if (ex.product.productId || ex.product.label) {
+            const counted = extraCountQtyForEmit({
+              family: exFam,
+              productUnit: ex.product.unit,
+              qty: numv(ex.qty ?? ""),
+              carpetInstallSystems: carpetSystems,
+            });
             const { unit: countUnit, phrase: countPhrase } = countUnitForTbd(ex.product.unit);
+            if (counted) {
+              out.push({
+                room: null,
+                description: `${ex.product.label || cat} — ${counted.quantity} ${counted.unit} (not taped sq ft)`,
+                category: ex.product.category || cat,
+                measure_unit: "sqft",
+                sqft: null,
+                quantity: counted.quantity,
+                length_in: null,
+                width_in: null,
+                unit: counted.unit,
+                material_rate: sellMat(rateFor(ex.product.materialRate, ex.product.unit, false)),
+                labor_rate: 0,
+                material_cost: rateFor(ex.product.materialRate, ex.product.unit, false),
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: ex.product.productId || null,
+                manufacturer:
+                  ex.product.source === "order" && ex.product.vendor.trim()
+                    ? ex.product.vendor.trim()
+                    : ex.product.manufacturer,
+                style: ex.product.style,
+                color: ex.product.color,
+                from_stock: ex.product.source === "stock",
+              });
+              continue;
+            }
             out.push({
               room: null,
               description: `${ex.product.label || cat} — qty TBD (${countPhrase} — not taped sq ft)`,
@@ -3917,8 +3956,20 @@ function QuestionBody({
         carpetSystems,
       );
     };
-    const setExtraProduct = (id: string, product: ProductAns | null, sqft: string) =>
-      patchExtra(id, { product, sqft: extraKeepMeasured(product) ? sqft : "" });
+    const extraKeepCountQty = (prod: ProductAns | null) => {
+      if (!prod) return false;
+      return extraAsksCountQty({
+        family: familyFromCatalogCategory(prod.category || cat),
+        productUnit: prod.unit,
+        carpetInstallSystems: carpetSystems,
+      });
+    };
+    const setExtraProduct = (id: string, product: ProductAns | null, extra: ExtraPad) =>
+      patchExtra(id, {
+        product,
+        sqft: extraKeepMeasured(product) ? extra.sqft : "",
+        qty: extraKeepCountQty(product) ? extra.qty ?? "" : "",
+      });
     return (
       <div className="space-y-3">
         <ProductPicker
@@ -4100,11 +4151,11 @@ function QuestionBody({
                       label={`Product (${cat})`}
                       defaultCategory={cat}
                       onPick={(prod) =>
-                        setExtraProduct(ex.id, prod ? toProductAns(prod) : null, ex.sqft)
+                        setExtraProduct(ex.id, prod ? toProductAns(prod) : null, ex)
                       }
-                      onCreated={(prod) => setExtraProduct(ex.id, toProductAns(prod), ex.sqft)}
+                      onCreated={(prod) => setExtraProduct(ex.id, toProductAns(prod), ex)}
                       onUseOnce={(input) =>
-                        setExtraProduct(ex.id, customToProductAns(input), ex.sqft)
+                        setExtraProduct(ex.id, customToProductAns(input), ex)
                       }
                     />
                   </div>
@@ -4138,14 +4189,36 @@ function QuestionBody({
                     </span>
                   ) : null}
                   {ex.product && q.config.ask_source ? (
-                    <SourceToggle p={ex.product} compact onChange={(np) => patchExtra(ex.id, { product: np })} />
+                    <SourceToggle p={ex.product} compact onChange={(np) => setExtraProduct(ex.id, np, ex)} />
                   ) : null}
                 </div>
+                ) : extraAsksCountQty({
+                  family: extraFam,
+                  productUnit: ex.product?.unit,
+                  carpetInstallSystems: carpetSystems,
+                }) ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_LABEL}</label>
+                    <Input
+                      value={ex.qty ?? ""}
+                      onChange={(e) => patchExtra(ex.id, { qty: e.target.value })}
+                      inputMode="decimal"
+                      placeholder={countUnitForTbd(ex.product?.unit).phrase}
+                      className="h-10 w-28"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      {countUnitForTbd(ex.product?.unit).phrase}
+                    </span>
+                    <p className="w-full text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_HINT}</p>
+                    {ex.product && q.config.ask_source ? (
+                      <SourceToggle p={ex.product} compact onChange={(np) => setExtraProduct(ex.id, np, ex)} />
+                    ) : null}
+                  </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_TBD_HINT}</p>
                     {ex.product && q.config.ask_source ? (
-                      <SourceToggle p={ex.product} compact onChange={(np) => patchExtra(ex.id, { product: np })} />
+                      <SourceToggle p={ex.product} compact onChange={(np) => setExtraProduct(ex.id, np, ex)} />
                     ) : null}
                   </div>
                 )}

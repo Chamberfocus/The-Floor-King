@@ -173,6 +173,8 @@ import {
   EXTRA_AREA_MEASURED_PLACEHOLDER,
   EXTRA_AREA_MEASURED_HINT,
   EXTRA_AREA_COUNT_TBD_HINT,
+  EXTRA_AREA_COUNT_QTY_LABEL,
+  EXTRA_AREA_COUNT_QTY_HINT,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
   rollGoodsNeedCuts,
@@ -183,6 +185,8 @@ import {
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
   extraMeasuredSqftForTakeoff,
+  extraAsksCountQty,
+  extraCountQtyForEmit,
   measuredInstallLaborAllowed,
   configuredInstallRate,
   rollGoodsSeamWarnings,
@@ -10475,6 +10479,77 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
       /leftover measured sq ft on a count or TBD extra/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /without typing measured sq ft/,
+    );
+  });
+
+  it("0306 extra count SKU asks How many, not leftover sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0306_flooring_knowledge_extra_count_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0306_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/asks How many in that unit/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_pad on surface_type/);
+    expect(sql).toMatch(/Do NOT drop underlayment from SQYD_CATEGORIES/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*carpet_pad|carpet_pad.*show_if.*surface_type/,
+    );
+
+    expect(extraAsksCountQty({ family: "other", productUnit: "roll" })).toBe(true);
+    expect(extraAsksCountQty({ family: "other", productUnit: "gal" })).toBe(true);
+    expect(extraAsksCountQty({ family: "other", productUnit: "each" })).toBe(true);
+    expect(extraAsksCountQty({ family: "other", productUnit: "lnft" })).toBe(true);
+    expect(extraAsksCountQty({ family: "other", productUnit: "" })).toBe(false);
+    expect(extraAsksCountQty({ family: "other", productUnit: "sqyd" })).toBe(false);
+    expect(extraAsksCountQty({ family: "other", productUnit: "sqft" })).toBe(false);
+    expect(extraAsksCountQty({ family: "carpet", productUnit: "sqyd" })).toBe(false);
+    expect(
+      extraAsksCountQty({
+        family: "carpet",
+        productUnit: "each",
+        carpetInstallSystems: ["carpet_tile"],
+      }),
+    ).toBe(true);
+
+    expect(
+      extraCountQtyForEmit({ family: "other", productUnit: "roll", qty: 2 }),
+    ).toEqual({ quantity: 2, unit: "roll" });
+    expect(
+      extraCountQtyForEmit({ family: "other", productUnit: "gal", qty: 1.5 }),
+    ).toEqual({ quantity: 1.5, unit: "gallon" });
+    expect(extraCountQtyForEmit({ family: "other", productUnit: "roll", qty: 0 })).toBe(null);
+    expect(extraCountQtyForEmit({ family: "other", productUnit: "", qty: 2 })).toBe(null);
+    expect(extraCountQtyForEmit({ family: "other", productUnit: "sqyd", qty: 50 })).toBe(null);
+    expect(
+      extraCountQtyForEmit({ family: "other", productUnit: "roll", qty: 450 }),
+    ).toEqual({ quantity: 450, unit: "roll" });
+    expect(EXTRA_AREA_COUNT_QTY_LABEL).toBe("How many");
+    expect(EXTRA_AREA_COUNT_QTY_HINT).toMatch(/not a 30-yard roll/);
+    expect(EXTRA_AREA_COUNT_TBD_HINT).toMatch(/How many \/ Unit TBD/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/extraAsksCountQty/);
+    expect(q).toMatch(/extraCountQtyForEmit/);
+    expect(q).toMatch(/extraKeepCountQty/);
+    expect(q).toMatch(/EXTRA_AREA_COUNT_QTY_LABEL/);
+    expect(q).toMatch(/not leftover sq ft and not a 30-yard roll/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Additional pad for a specific area is MEASURED sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit/,
     );
     expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
       /without typing measured sq ft/,

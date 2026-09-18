@@ -166,6 +166,45 @@ export function extraMeasuredSqftForTakeoff(args: {
 }
 
 /**
+ * Extra SKU sold by roll / each / gal / lnft / bag. Empty unit stays TBD —
+ * do not invent "each". Area-unit extras still use measured sq ft. Roll
+ * goods still wait for cuts. Do not convert leftover taped sq ft or a
+ * 30-yard pad roll into this count.
+ */
+export function extraAsksCountQty(args: {
+  family: FlooringFamily;
+  productUnit?: string | null;
+  carpetInstallSystems?: InstallSystem[] | null;
+}): boolean {
+  if (areaDerivedMaterialAllowed(args.family, args.productUnit, args.carpetInstallSystems)) {
+    return false;
+  }
+  if (rollGoodsNeedCuts(args.family, args.carpetInstallSystems)) return false;
+  const raw = args.productUnit == null ? "" : String(args.productUnit).trim();
+  if (!raw) return false;
+  if (isAreaUnit(raw)) return false;
+  return true;
+}
+
+/**
+ * Typed How many for a count extra. Missing / zero qty is not an order —
+ * callers emit TBD instead of inventing 1 roll or leftover sq ft.
+ */
+export function extraCountQtyForEmit(args: {
+  family: FlooringFamily;
+  productUnit?: string | null;
+  qty: number;
+  carpetInstallSystems?: InstallSystem[] | null;
+}): { quantity: number; unit: string } | null {
+  if (!extraAsksCountQty(args)) return null;
+  const n = Number(args.qty);
+  if (!(n > 0) || !Number.isFinite(n)) return null;
+  const unit = unitLabel(args.productUnit) || String(args.productUnit ?? "").trim();
+  if (!unit) return null;
+  return { quantity: r2(n), unit };
+}
+
+/**
  * Whether install labor may be billed from measured area on the floor-map /
  * product path. Roll goods with cuts: no — the cuts step already emits
  * install against cut yardage. Roll goods without cuts: yes — install is
@@ -513,6 +552,9 @@ export const EXTRA_AREA_MEASURED_HINT =
   "This is taped area for that extra pad — not a 30-yard roll and not the billing unit. Carpet pad bills in square yards unless the SKU is feet.";
 export const EXTRA_AREA_COUNT_TBD_HINT =
   "Qty TBD in Builder (How many / Unit TBD) — not taped square feet. Do not plant leftover sq ft. Review takeoff ignores leftover taped sq ft — not pad yards.";
+export const EXTRA_AREA_COUNT_QTY_LABEL = "How many";
+export const EXTRA_AREA_COUNT_QTY_HINT =
+  "Order quantity in the SKU unit — not taped square feet and not a 30-yard roll.";
 
 export function formatBillingQty(qty: number, unit: string): string {
   const key = normalizeUnit(unit);
