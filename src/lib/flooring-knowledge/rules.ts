@@ -27,6 +27,7 @@ import {
   solePermittedInstallSystem,
   leftoverIllegalSoleInstallLabels,
   coalesceSoleInstallSystem,
+  stripIllegalInstallSystems,
   permittedInstallSystems,
   INSTALL_METHOD_LABELS,
   type FlooringFamily,
@@ -207,7 +208,11 @@ export function finalizeInstallContext(ctx: InstallContext): InstallContext {
     ctx.hardwoodConstruction,
     hsAnswered,
   );
-  const hsSystems = coalesced.systems;
+  const hsSystems = stripIllegalInstallSystems(
+    ctx.families,
+    ctx.hardwoodConstruction,
+    coalesced.systems,
+  );
   const inferredLabel = coalesced.inferred
     ? INSTALL_METHOD_LABELS[coalesced.inferred]
     : null;
@@ -1121,7 +1126,7 @@ export function knowledgeHelpFor(
     if (ctx.families.includes("hardwood")) {
       return ctx.hardwoodConstruction === "engineered"
         ? "Engineered hardwood may allow nail, staple, glue, or floating — confirm the product permits the method you pick."
-        : "Solid hardwood is typically nail, staple, or glue. Floating follow-ups (attached pad, underlayment, expansion) stay off unless the surface is engineered. Confirm the product before using a leftover Floating chip.";
+        : "Solid hardwood is typically nail, staple, or glue. Floating follow-ups (attached pad, underlayment, expansion) stay off unless the surface is engineered. Leftover Floating does not hide fasteners or adhesive — those stay on like unanswered method. Confirm the product before using a leftover Floating chip.";
     }
     if (ctx.families.includes("lvp")) {
       if (ctx.systems.includes("loose_lay"))
@@ -1157,7 +1162,7 @@ export function knowledgeHelpFor(
     return "Straight vs diagonal changes waste and labor. Capture it; do not auto-inflate waste without the salesperson.";
   }
   if (key === "hardwood_fasteners") {
-    return "Nail/staple jobs need fasteners. Pick the catalog item in Builder — this question only records the need.";
+    return "Nail/staple jobs need fasteners. Pick the catalog item in Builder — this question only records the need. Leftover Floating on exclusive solid hardwood does not hide this — leftover illegal chips do not switch overlay follow-ups. Mixed LVP + hardwood still asks when Nail-down is in play.";
   }
   if (key === "hardwood_finish") {
     return "Prefinished vs unfinished (site finish) changes sanding, finishing, and acclimation notes. Floor King has no sand/finish labor in the catalog — capture it as scope. Field verify if the SKU is not in front of you. Do not invent a sand-and-finish dollar amount.";
@@ -1470,7 +1475,10 @@ export function knowledgeWarnings(ctx: InstallContext, extras?: {
       text: "Solid hardwood below grade — confirm the product/manufacturer permits this. Do not assume it; field verify if unsure.",
     });
   }
-  if (jobIsExclusiveSolidHardwood(ctx) && ctx.systems.includes("floating")) {
+  if (
+    jobIsExclusiveSolidHardwood(ctx) &&
+    ctx.answeredInstallMethod.some((l) => installSystemFromLabel(l) === "floating")
+  ) {
     w.push({
       id: "solid-floating",
       text: "Solid hardwood is typically nail, staple, or glue. Floating is uncommon — confirm the product permits it. Do not assume a click floor or attached pad.",

@@ -329,6 +329,30 @@ export function coalesceSoleInstallSystem(
   };
 }
 
+/**
+ * Exclusive single hard-surface family: leftover chips that are not a
+ * permitted system (solid leftover Floating, LVP leftover Nail, engineered
+ * leftover Loose-lay) do not switch overlay follow-ups. Mixed LVP + hardwood
+ * keeps every chip. Sole-system families already coalesced (laminate
+ * leftover Glue stays floating). Empty after strip behaves like unanswered
+ * for system-gated questions — installPending stays false so substrate
+ * hides (plywood 6-mil) still apply.
+ */
+export function stripIllegalInstallSystems(
+  families: FlooringFamily[],
+  construction: HardwoodConstruction,
+  answered: InstallSystem[],
+): InstallSystem[] {
+  const hs = families.filter(isHardSurfaceFamily);
+  if (hs.length !== 1) return answered;
+  const permitted = permittedInstallSystems(hs[0], construction).filter(
+    (s): s is Exclude<InstallSystem, "unknown"> => s !== "unknown",
+  );
+  if (!permitted.length) return answered;
+  const allow = new Set<InstallSystem>(permitted);
+  return answered.filter((s) => allow.has(s));
+}
+
 export function isRollGoodsFamily(family: FlooringFamily): boolean {
   return family === "carpet" || family === "vinyl";
 }

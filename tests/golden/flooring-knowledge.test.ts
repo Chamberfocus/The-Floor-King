@@ -66,6 +66,7 @@ import {
   solePermittedInstallSystem,
   leftoverIllegalSoleInstallLabels,
   coalesceSoleInstallSystem,
+  stripIllegalInstallSystems,
   synthesizeSoleInstallMethod,
   questionApplies,
   sqydToSqft,
@@ -5691,6 +5692,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(leftover).not.toContain("attached_pad");
     expect(leftover).not.toContain("laminate_expansion");
+    expect(leftover).toContain("hardwood_fasteners");
+    expect(leftover).toContain("adhesive");
     expect(
       knowledgeWarnings(
         installContextFromValByKey({
@@ -9563,6 +9566,106 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(walkCarpet).not.toContain("vinyl_skim");
     expect(walkCarpet).toContain("vinyl_layout");
+  });
+
+  it("0299 leftover illegal install chips do not switch overlay follow-ups", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0299_flooring_knowledge_illegal_leftover.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0299_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/leftover illegal chips do not switch/);
+    expect(sql).toMatch(/Do NOT SQL-gate hardwood_fasteners on install_method/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*install_method.*hardwood_fasteners|hardwood_fasteners.*show_if.*install_method/,
+    );
+
+    expect(stripIllegalInstallSystems(["hardwood"], "solid", ["floating"])).toEqual([]);
+    expect(stripIllegalInstallSystems(["hardwood"], "solid", ["floating", "nail"])).toEqual(["nail"]);
+    expect(stripIllegalInstallSystems(["lvp"], "unknown", ["nail"])).toEqual([]);
+    expect(stripIllegalInstallSystems(["lvp"], "unknown", ["glue"])).toEqual(["glue"]);
+    expect(stripIllegalInstallSystems(["hardwood"], "engineered", ["loose_lay"])).toEqual([]);
+    expect(stripIllegalInstallSystems(["laminate"], "unknown", ["floating"])).toEqual(["floating"]);
+    expect(stripIllegalInstallSystems(["lvp", "hardwood"], "solid", ["floating"])).toEqual([
+      "floating",
+    ]);
+
+    const leftoverSolid = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Floating / click"],
+    });
+    expect(leftoverSolid).toContain("hardwood_fasteners");
+    expect(leftoverSolid).toContain("adhesive");
+    expect(leftoverSolid).not.toContain("attached_pad");
+    expect(leftoverSolid).not.toContain("laminate_expansion");
+    expect(
+      knowledgeWarnings(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Floating / click"],
+        }),
+      ).some((w) => w.id === "solid-floating"),
+    ).toBe(true);
+
+    const leftoverPlywood = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Floating / click"],
+      substrate: ["Plywood / OSB"],
+    });
+    expect(leftoverPlywood).not.toContain("vapor_barrier");
+    expect(leftoverPlywood).toContain("hardwood_fasteners");
+
+    const leftoverLvpNail = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT"],
+      install_method: ["Nail-down"],
+    });
+    expect(leftoverLvpNail).toContain("attached_pad");
+    expect(leftoverLvpNail).toContain("adhesive");
+    expect(leftoverLvpNail).toContain("laminate_expansion");
+
+    const leftoverEngLoose = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Engineered hardwood"],
+      install_method: ["Loose-lay"],
+    });
+    expect(leftoverEngLoose).toContain("attached_pad");
+    expect(leftoverEngLoose).toContain("hardwood_fasteners");
+    expect(leftoverEngLoose).toContain("adhesive");
+
+    const lamGlue = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Laminate"],
+      install_method: ["Glue-down"],
+    });
+    expect(lamGlue).not.toContain("adhesive");
+    expect(lamGlue).toContain("attached_pad");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["LVP / LVT", "Hardwood"],
+      install_method: ["Floating / click"],
+    });
+    expect(mixed).toContain("attached_pad");
+
+    expect(knowledgeHelpFor({ key: "hardwood_fasteners" }, emptyInstallContext())).toMatch(
+      /Leftover Floating on exclusive solid hardwood does not hide this/,
+    );
+    expect(
+      knowledgeHelpFor(
+        { key: "install_method" },
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+        }),
+      ),
+    ).toMatch(/Leftover Floating does not hide fasteners/);
   });
 
   it("pattern repeat only after pattern match is required", () => {

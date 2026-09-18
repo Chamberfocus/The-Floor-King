@@ -25,6 +25,7 @@ export {
   solePermittedInstallSystem,
   leftoverIllegalSoleInstallLabels,
   coalesceSoleInstallSystem,
+  stripIllegalInstallSystems,
   isHardSurfaceFamily,
   jobNeedsMixedInstallMethodPicks,
   isRollGoodsFamily,

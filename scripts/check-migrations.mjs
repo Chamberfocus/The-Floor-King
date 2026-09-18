@@ -159,6 +159,7 @@ const REQUIRED_FILES = [
   "0296_flooring_knowledge_new_build_furniture.sql",
   "0297_flooring_knowledge_loose_lay_vapor.sql",
   "0298_flooring_knowledge_non_vinyl_skim.sql",
+  "0299_flooring_knowledge_illegal_leftover.sql",
 ];
 
 /**
@@ -1946,6 +1947,16 @@ const REQUIRED_MARKERS = [
       "P0_0298_FLOORING_KNOWLEDGE",
       "not embossed vinyl",
       "Do NOT SQL-gate vinyl_skim on hs_demo",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0299_flooring_knowledge_illegal_leftover.sql",
+    markers: [
+      "P0_0299_FLOORING_KNOWLEDGE",
+      "leftover illegal chips do not switch",
+      "Do NOT SQL-gate hardwood_fasteners on install_method",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],
