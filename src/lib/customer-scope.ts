@@ -85,6 +85,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print keep 12' product names — leftover dimension How many is a complete room / cut size, not a catalog name. Wrap How many and Self-leveler bag How many stay. 5mm product names stay.
  * Customer / portal / print strip leftover parenthetical dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  * Customer / portal / print strip leftover parenthetical count How many — those stay in stored job_description so the crew still sees pad rolls. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ * Customer / portal / print strip leftover em-dash parenthetical How many — those stay in stored job_description so the crew still sees pad rolls and room sizes. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  */
 const CREW_QTY_UNIT =
   "(?:rolls?|lnft|l\\.?f\\.?|each|ea|gal(?:lons?)?|kits?|box(?:es)?|bags?|sheets?|ft|inches|inch|in|sqft|sqyd|yards?|yds?|cartons?|pcs?|pieces?|steps?)";
@@ -94,11 +95,14 @@ const CREW_FT_DIM =
   String.raw`\d+(?:\.\d+)?(?:\s*'\s*\d+(?:\.\d+)?["″]?|\s*'|\s+(?:ft|in|inch|inches)\b)`;
 /** Complete leftover room / cut pair (`12' × 14'`). Not a catalog `12'` / `Shaw (12')`. */
 const CREW_DIM_PAIR = CREW_FT_DIM + String.raw`\s*[×x]\s*` + CREW_FT_DIM;
-const CREW_PAREN_DIM_TAIL = String.raw`\s*\(\s*` + CREW_DIM_PAIR + String.raw`\s*\)\s*$`;
+const CREW_PAREN_DIM_TAIL =
+  String.raw`\s*(?:[—–-]\s*)?\(\s*` + CREW_DIM_PAIR + String.raw`\s*\)\s*$`;
 const CREW_CUTS_DIM_TAIL = String.raw`cuts:\s*` + CREW_DIM_PAIR + String.raw`\s*$`;
-/** Leftover `(4 roll)` / `Pad (4 roll)`. Not `Shaw (12')` — that needs a qty unit word. */
+/** Leftover `(4 roll)` / `Pad (4 roll)` / `Pad — (4 roll)`. Not `Shaw (12')` — that needs a qty unit word. */
 const CREW_PAREN_COUNT_TAIL =
-  String.raw`\s*\(\s*\d+(?:\.\d+)?(?:["'%])?\s+` + CREW_QTY_UNIT + String.raw`\b\s*\)\s*$`;
+  String.raw`\s*(?:[—–-]\s*)?\(\s*\d+(?:\.\d+)?(?:["'%])?\s+` +
+  CREW_QTY_UNIT +
+  String.raw`\b\s*\)\s*$`;
 
 const CREW_IDENTITY_TAIL = new RegExp(
   String.raw`(?:\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|` +
@@ -146,7 +150,7 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
   const s = (raw ?? "").trim();
   if (!s) return s;
   if (
-    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD|\d+\s+steps?\b|[—–-]\s*(?:cuts:|\d+(?:\.\d+)?(?:["'″%]|\s*'|\s+(?:ft|in|inch|inches)\b|\s+[A-Za-z]))|\(\s*\d+/i.test(
+    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD|\d+\s+steps?\b|[—–-]\s*(?:cuts:|\(|\d+(?:\.\d+)?(?:["'″%]|\s*'|\s+(?:ft|in|inch|inches)\b|\s+[A-Za-z]))|\(\s*\d+/i.test(
       s,
     )
   ) {
@@ -244,7 +248,7 @@ export function isCrewLabeledCountHowManyLine(raw: string): boolean {
 }
 
 const CREW_UNLABELED_COUNT_HOW_MANY = new RegExp(
-  String.raw`^(?:\d+(?:\.\d+)?(?:["'%])?(?:\s+` +
+  String.raw`^(?:[—–-]\s*)?(?:\d+(?:\.\d+)?(?:["'%])?(?:\s+` +
     CREW_QTY_UNIT +
     String.raw`\b)?|\(\s*\d+(?:\.\d+)?(?:["'%])?\s+` +
     CREW_QTY_UNIT +
@@ -271,7 +275,7 @@ const CREW_DIMENSION_HOW_MANY = new RegExp(
     CREW_FT_DIM +
     String.raw`(?:\s*[×x]\s*` +
     CREW_FT_DIM +
-    String.raw`)?|^\(\s*` +
+    String.raw`)?|^(?:[—–-]\s*)?\(\s*` +
     CREW_DIM_PAIR +
     String.raw`\s*\))\s*$`,
   "i",
