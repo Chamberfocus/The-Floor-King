@@ -184,6 +184,8 @@ export function billedQtyToSqyd(qty: number, unitKey: string): number | null {
  * conversion — return null so callers do not invent square feet.
  * Exclusive carpet-tile PO / warehouse / work-order carton math uses this
  * before ÷ coverage (tile bills per sq yd; coverage is sq ft/box).
+ * Exclusive carpet-tile warehouse queue carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+ * Hard-surface warehouse queue carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
  */
 export function billedQtyToSqft(qty: number, unitKey: string): number | null {
   if (!(Number.isFinite(qty) && qty > 0)) return null;

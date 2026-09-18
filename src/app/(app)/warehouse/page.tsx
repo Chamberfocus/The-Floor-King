@@ -30,7 +30,8 @@ import { reportOrderStock } from "../orders/actions";
 import { CutList } from "@/components/cut-list";
 import { DateNeeded } from "@/components/date-needed";
 import { cutsTotalSqYd } from "@/lib/order-cuts";
-import { unitIsSqyd } from "@/lib/units";
+import { billedQtyToSqft, normalizeUnit, unitIsSqyd } from "@/lib/units";
+import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
 import {
   JOB_DELIVERY_LABELS,
   WAREHOUSE_STATUS_LABELS,
@@ -247,7 +248,40 @@ export default async function WarehousePage() {
                   <div>
                     <div className={cn("mb-1 text-xs font-bold uppercase tracking-wide", cls)}>{title}</div>
                     <ul className="text-sm">
-                      {items.map((m) => (
+                      {items.map((m) => {
+                        const cartonLine = {
+                          description: m.description || m.productName,
+                          category: m.category,
+                          unit: m.unit,
+                          sqft_per_box: m.sqftPerBox,
+                          roll_width_ft: m.rollWidthFt,
+                          order_as_roll: m.orderAsRoll,
+                          quantity: m.qty,
+                        };
+                        // Exclusive carpet-tile warehouse queue carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                        // Hard-surface warehouse queue carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                        const cartons = hardSurfaceAreaCartonCount(cartonLine, m.qty);
+                        const skipCarton = lineSkipsAreaCartonMath({
+                          description: m.description || m.productName,
+                          unit: m.unit,
+                        });
+                        const showCartonWarn = lineUsesAreaCartonMath(cartonLine);
+                        const unitKey = normalizeUnit(m.unit);
+                        const cartonArea =
+                          billedQtyToSqft(m.qty, unitKey === "sqyd" ? "sqyd" : "sqft") ?? m.qty;
+                        const qtyMain = cartons
+                          ? `${cartons} carton${cartons === 1 ? "" : "s"}`
+                          : m.qty > 0
+                            ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim()
+                            : "";
+                        const qtySub = cartons
+                          ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${m.sqftPerBox}/box`
+                          : skipCarton
+                            ? ""
+                            : showCartonWarn
+                              ? "⚠ set sq ft/box"
+                              : "";
+                        return (
                         <li key={m.lineId} className="flex flex-wrap items-baseline justify-between gap-x-2 py-0.5">
                           <span className="min-w-0">
                             {m.room ? `${m.room} — ` : ""}
@@ -256,11 +290,17 @@ export default async function WarehousePage() {
                             {m.resolvedSource === "order" && m.supplier ? <span className="ml-1 text-xs text-muted-foreground">· {m.supplier}</span> : null}
                             {m.status === "arrived" ? <span className="ml-1 rounded bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">✓ arrived</span> : null}
                           </span>
-                          <span className="shrink-0 font-medium tabular-nums">
-                            {m.qty > 0 ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim() : ""}
+                          <span className="shrink-0 text-right font-medium tabular-nums">
+                            {qtyMain}
+                            {qtySub ? (
+                              <span className="block text-xs font-normal text-muted-foreground">
+                                {qtySub}
+                              </span>
+                            ) : null}
                           </span>
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                   </div>
                 ) : null;
