@@ -430,6 +430,16 @@ export function formatMeasuredLabel(m: MeasuredArea, opts?: { showEquivalentYd?:
   return `${formatSqft(m.sqft)} (${formatSqyd(m.sqydEquivalent)} equivalent area — not an order quantity)`;
 }
 
+/**
+ * Extra pad / foam for a specific area is MEASURED sq ft, not a 30-yard roll
+ * and not the billing unit. Carpet pad bills in yards unless the SKU is feet;
+ * foam (`hs_underlayment`) bills in feet unless the SKU is yards.
+ */
+export const EXTRA_AREA_MEASURED_LABEL = "Measured sq ft";
+export const EXTRA_AREA_MEASURED_PLACEHOLDER = "measured sq ft";
+export const EXTRA_AREA_MEASURED_HINT =
+  "This is taped area for that extra pad — not a 30-yard roll and not the billing unit. Carpet pad bills in square yards unless the SKU is feet.";
+
 export function formatBillingQty(qty: number, unit: string): string {
   const key = normalizeUnit(unit);
   const label = unitLabel(unit) || (unit || "").trim();

@@ -65,6 +65,9 @@ import {
   familyFromCatalogCategory,
   formatDimensionPair,
   formatMeasuredLabel,
+  EXTRA_AREA_MEASURED_LABEL,
+  EXTRA_AREA_MEASURED_PLACEHOLDER,
+  EXTRA_AREA_MEASURED_HINT,
   formatSqft,
   formatSqyd,
   formatTakeoffStrip,
@@ -202,7 +205,7 @@ interface ProductAns {
   /** Hardwood species/construction text from the catalog, when present. */
   species: string | null;
 }
-/** An extra material for a specific area (e.g. an upgraded pad for the stairs). */
+/** Extra pad/foam for a specific area. `sqft` is MEASURED area, not the order. */
 interface ExtraPad { id: string; product: ProductAns | null; sqft: string }
 /** One demo type + the area it covers (repeatable "demo" step). */
 interface DemoRow { id: string; option: string; sqft: string }
@@ -3980,6 +3983,7 @@ function QuestionBody({
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Additional {kindLabel} for a specific area
             </div>
+            <p className="text-xs text-muted-foreground">{EXTRA_AREA_MEASURED_HINT}</p>
             {extras.map((ex) => (
               <div key={ex.id} className="space-y-2 rounded-md border bg-muted/20 p-2">
                 <div className="flex items-start gap-2">
@@ -3999,8 +4003,8 @@ function QuestionBody({
                   </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className="text-xs text-muted-foreground">Area</label>
-                  <Input value={ex.sqft} onChange={(e) => patchExtra(ex.id, { sqft: e.target.value })} inputMode="decimal" placeholder="sq ft" className="h-10 w-28" />
+                  <label className="text-xs text-muted-foreground">{EXTRA_AREA_MEASURED_LABEL}</label>
+                  <Input value={ex.sqft} onChange={(e) => patchExtra(ex.id, { sqft: e.target.value })} inputMode="decimal" placeholder={EXTRA_AREA_MEASURED_PLACEHOLDER} className="h-10 w-28" />
                   {ex.product && numv(ex.sqft) > 0 ? (
                     <span className="text-xs text-muted-foreground tabular-nums">
                       {formatMeasuredLabel(

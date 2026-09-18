@@ -139,6 +139,9 @@ import {
   deliveryAddonCost,
   reviewBucketForQuestion,
   formatMeasuredLabel,
+  EXTRA_AREA_MEASURED_LABEL,
+  EXTRA_AREA_MEASURED_PLACEHOLDER,
+  EXTRA_AREA_MEASURED_HINT,
   materialWastePctForEmit,
   rollGoodsHaveCuts,
   rollGoodsNeedCuts,
@@ -7729,6 +7732,37 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const assigned = withProductFamilies(leftoverCtx, ["carpet"]);
     expect(assigned.families).toEqual(["lvp", "carpet"]);
     expect(jobHasCarpetInstallScope(assigned)).toBe(true);
+  });
+
+  it("0287 extra pad area is measured sq ft, not a roll or billing unit", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0287_flooring_knowledge_extra_pad_measured.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0287_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/MEASURED sq ft/);
+    expect(sql).toMatch(/not a 30-yard roll/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_pad on surface_type/);
+    expect(sql).toMatch(/Do NOT drop underlayment from SQYD_CATEGORIES/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*carpet_pad|carpet_pad.*show_if.*surface_type/,
+    );
+
+    expect(EXTRA_AREA_MEASURED_LABEL).toBe("Measured sq ft");
+    expect(EXTRA_AREA_MEASURED_PLACEHOLDER).toBe("measured sq ft");
+    expect(EXTRA_AREA_MEASURED_HINT).toMatch(/not a 30-yard roll/);
+    expect(EXTRA_AREA_MEASURED_HINT).toMatch(/not the billing unit/);
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Additional pad for a specific area is MEASURED sq ft/,
+    );
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/EXTRA_AREA_MEASURED_LABEL/);
+    expect(q).toMatch(/EXTRA_AREA_MEASURED_PLACEHOLDER/);
+    expect(q).toMatch(/EXTRA_AREA_MEASURED_HINT/);
+    expect(q).toMatch(/`sqft` is MEASURED area, not the order/);
   });
 
   it("pattern repeat only after pattern match is required", () => {
