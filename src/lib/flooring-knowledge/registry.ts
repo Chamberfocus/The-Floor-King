@@ -344,7 +344,8 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * DEAD_STAIR_GATE_HIDES_KEYS once a family-specific stair question is in
    * play. Exclusive wall tile hides this via TILE_WALL_HIDES_KEYS.
    * Mixed carpet or LVP + wall still asks the family-specific questions.
-   * Unanswered project_type stays open (0142).
+   * Unanswered project_type stays open (0142). Landings / open sides hide
+   * via DEAD_STAIR_FOLLOWUP_HIDES_KEYS until a family stair question is Yes.
    */
   { key: "stairs", purpose: "MEASUREMENT", phase: "details" },
   {
@@ -416,6 +417,13 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     quantityUnit: "lnft",
   },
   { key: "vents_registers", purpose: "ACCESSORY", phase: "details", quantityUnit: "each" },
+  /**
+   * Live landing count. Overlay require reads leftover stairs=Yes. Once the
+   * dead gate is hidden, unanswered require would keep this open forever.
+   * Hide via DEAD_STAIR_FOLLOWUP_HIDES_KEYS until a family stair question
+   * is Yes. Exclusive wall already hides this. Unanswered project_type
+   * stays open (0142). Do not SQL-gate stair_landings on carpet_stairs.
+   */
   {
     key: "stair_landings",
     purpose: "MEASUREMENT",
@@ -423,6 +431,10 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     quantityUnit: "each",
     require: { key: "stairs", in: ["Yes"] },
   },
+  /**
+   * Same leftover-parent hole as stair_landings. Hide until a family stair
+   * question is Yes.
+   */
   {
     key: "stair_open_sides",
     purpose: "MEASUREMENT",
@@ -575,6 +587,16 @@ export const CARPET_ONLY_HIDES_KEYS = ["install_method", "surface_type"] as cons
  * stair_landings on carpet_stairs.
  */
 export const DEAD_STAIR_GATE_HIDES_KEYS = ["stairs"] as const;
+
+/**
+ * Leftover landings / open sides. The dead stairs yes/no is overlay-hidden
+ * once family stairs are live, so unanswered require would keep these
+ * children open forever. Hide them until Carpet stairs, Carpet tile stairs,
+ * or hard-surface plank stairs is Yes. Unanswered project_type stays open
+ * (0142). Exclusive wall already hides them via TILE_WALL_HIDES_KEYS. Do
+ * not SQL-gate stair_landings on carpet_stairs.
+ */
+export const DEAD_STAIR_FOLLOWUP_HIDES_KEYS = ["stair_landings", "stair_open_sides"] as const;
 
 /**
  * Floor-only follow-ups hidden once tile_application is exclusively Wall

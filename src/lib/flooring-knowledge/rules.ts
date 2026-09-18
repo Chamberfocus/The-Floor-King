@@ -49,6 +49,7 @@ import {
   CARPET_TILE_VAPOR_HIDES_KEYS,
   CARPET_ONLY_HIDES_KEYS,
   DEAD_STAIR_GATE_HIDES_KEYS,
+  DEAD_STAIR_FOLLOWUP_HIDES_KEYS,
   CONCRETE_HIDES_KEYS,
   WOOD_DECK_MOISTURE_HIDES_KEYS,
   GLUE_WOOD_VAPOR_HIDES_KEYS,
@@ -527,6 +528,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (DEAD_STAIR_FOLLOWUP_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobHidesDeadStairFollowups(install, valByKey)
+  ) {
+    return false;
+  }
   // Attached-pad Yes → hide separate-underlayment questions.
   if (q.key === "hs_underlayment" && install.attachedPad === "yes") return false;
   if (
@@ -713,6 +721,30 @@ export function jobHidesDeadStairGate(install: InstallContext): boolean {
   return install.families.some(
     (f) => f === "lvp" || f === "hardwood" || f === "laminate" || f === "vinyl" || f === "tile",
   );
+}
+
+const FAMILY_STAIR_KEYS = ["carpet_stairs", "carpet_tile_stairs", "hs_plank_stairs"] as const;
+
+function familyStairIsYes(valByKey: Record<string, string[]>): boolean {
+  return FAMILY_STAIR_KEYS.some((k) =>
+    (valByKey[k] ?? []).some((v) => /^yes$/i.test(v.trim())),
+  );
+}
+
+/**
+ * Leftover landings / open sides once the dead stairs yes/no is hidden.
+ * Unanswered require on a hidden parent would keep them open forever.
+ * Family-specific Yes still opens them (synthesizeStairGate copies onto
+ * stairs). Leftover stairs=Yes without a family Yes does not — hidden
+ * answers do not gate. Unanswered project_type stays open (0142).
+ */
+export function jobHidesDeadStairFollowups(
+  install: InstallContext,
+  valByKey: Record<string, string[]>,
+): boolean {
+  if (!jobHidesDeadStairGate(install)) return false;
+  if (familyStairIsYes(valByKey)) return false;
+  return true;
 }
 
 /**
@@ -1215,13 +1247,13 @@ export function knowledgeHelpFor(
     return "Glue-down, carpet tile, hardwood over concrete, or a moisture-concern flag on the substrate. If you cannot test yet, pick Field verify — do not invent a number. Answering No fires the overlay moisture-untested warning; unanswered does not. Exclusive wall tile hides this — a slab moisture test is floor work. Exclusive carpet tile asks this instead of 6-mil vapor barrier. Exclusive hardwood nail/staple/floating over plywood hides this — 0190 is glue-down or wood over concrete, not a wood deck. Glue-down over plywood still asks. Exclusive glue-down or carpet tile over plywood hides Aqua bar — it is a slab system. Mixed LVP still asks. Unanswered substrate stays open. Wet area still asks.";
   }
   if (key === "stair_landings") {
-    return "Count of landings in EACH. Measured with the rooms when they are floored the same; this flags extra pieces and noses. Exclusive wall tile hides this — a backsplash is not a stair job.";
+    return "Count of landings in EACH. Measured with the rooms when they are floored the same; this flags extra pieces and noses. Exclusive wall tile hides this — a backsplash is not a stair job. Leftover Stairs yes/no hides this once Carpet stairs, Carpet tile stairs, or hard-surface plank stairs are in play — landings still follow those Yes answers. Unanswered project_type stays open.";
   }
   if (key === "stair_open_sides") {
-    return "Open sides change wrapped carpet ends and hard-surface nosing. Exclusive wall tile hides this. Capture the construction — pricing still uses existing stair labor.";
+    return "Open sides change wrapped carpet ends and hard-surface nosing. Exclusive wall tile hides this. Leftover Stairs yes/no hides this once family-specific stairs are in play — open sides still follow those Yes answers. Capture the construction — pricing still uses existing stair labor.";
   }
   if (key === "stairs") {
-    return "Stairs change material, labor, and trim. Exclusive wall tile hides this — a backsplash is not a stair job. Mixed carpet or LVP + wall still asks the family-specific stair questions. This leftover yes/no hides once Carpet stairs, Carpet tile stairs, or hard-surface plank stairs are in play — landings still follow those Yes answers. Unanswered project_type stays open. Field verify if you have not seen them.";
+    return "Stairs change material, labor, and trim. Exclusive wall tile hides this — a backsplash is not a stair job. Mixed carpet or LVP + wall still asks the family-specific stair questions. This leftover yes/no hides once Carpet stairs, Carpet tile stairs, or hard-surface plank stairs are in play — landings still follow those Yes answers. Leftover landings / open sides hide until a family stair question is Yes. Unanswered project_type stays open. Field verify if you have not seen them.";
   }
   if (key === "asbestos_risk") {
     return "Old ceramic or sheet vinyl can hide asbestos. Possible / confirmed is a crew warning — do not invent an abatement dollar amount here.";
