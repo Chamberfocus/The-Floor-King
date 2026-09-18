@@ -216,6 +216,7 @@ const REQUIRED_FILES = [
   "0353_flooring_knowledge_ai_tile_rate.sql",
   "0354_flooring_knowledge_tile_carton.sql",
   "0355_flooring_knowledge_po_tile_rate.sql",
+  "0356_flooring_knowledge_po_hs_rate.sql",
 ];
 
 /**
@@ -2612,6 +2613,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0355_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile PO boxed rate onto that area line is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0356_flooring_knowledge_po_hs_rate.sql",
+    markers: [
+      "P0_0356_FLOORING_KNOWLEDGE",
+      "Hard-surface PO boxed rate onto that area line is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

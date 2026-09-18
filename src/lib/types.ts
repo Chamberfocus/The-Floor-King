@@ -1205,6 +1205,7 @@ export interface PoItem {
   // Vendor-unit helpers: product category (for carpet-vs-hard rendering), hard
   // surface / exclusive carpet tile → carton count = ceil(sq ft / sqft_per_box)
   // (sq yd × 9 first); exclusive carpet-tile boxed $/box onto sq yd is $/coverage;
+  // hard-surface boxed $/box onto sq ft is $/coverage;
   // carpet roll goods → broadloom roll width. Null when not applicable.
   category: string | null;
   sqft_per_box: number | null;

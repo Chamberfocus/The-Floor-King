@@ -25,7 +25,7 @@ import { formatMoney } from "@/lib/format";
 import { catalogUnitCost, catalogRateInLineUnit } from "@/lib/catalog-pricing";
 import { knowledgePickDescription, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
 import { poCarpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
-import { catalogRateToBillingUnit, isAreaUnit, pickedProductUnit } from "@/lib/units";
+import { isAreaUnit, pickedProductUnit } from "@/lib/units";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
   PO_SOURCE_BADGE,
@@ -224,7 +224,21 @@ export function PoBuilder({
         ),
       };
     }
-    if (cls === "hard") return { unit: "sq ft", unitCost: catalogRateToBillingUnit(base, p.unit, false) };
+    // Hard-surface PO boxed rate onto that area line is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+    if (cls === "hard") {
+      return {
+        unit: "sq ft",
+        unitCost: catalogRateInLineUnit(
+          base,
+          {
+            unit: p.unit,
+            category: p.category,
+            sqft_per_box: p.sqft_per_box,
+          },
+          false,
+        ),
+      };
+    }
     return { unit: pickedProductUnit(p.unit, p.category), unitCost: base };
   };
 

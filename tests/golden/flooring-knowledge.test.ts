@@ -16070,7 +16070,6 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(po).toMatch(
       /Exclusive carpet-tile PO boxed rate onto that area line is \$\/coverage, not 1:1/,
     );
-    expect(po).toMatch(/catalogRateToBillingUnit\(base, p\.unit, false\)/);
     expect(po).not.toMatch(/category === ["']carpet_tile["']/);
 
     const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
@@ -16093,6 +16092,80 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
       /Exclusive carpet-tile PO boxed rate/,
+    );
+  });
+
+  it("0356 Hard-surface PO boxed rate onto that area line is $/coverage, not 1:1", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0356_flooring_knowledge_po_hs_rate.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0356_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Hard-surface PO boxed rate onto that area line is \$\/coverage, not 1:1. Wrap \/ count How many stays 1:1. Do not invent coverage/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    const boxed = {
+      category: "lvp" as const,
+      unit: "box",
+      sqft_per_box: 23.64,
+      material_rate: 45.62,
+    };
+    expect(catalogRateInLineUnit(45.62, boxed, false)).toBe(
+      Math.round((45.62 / 23.64) * 100) / 100,
+    );
+    expect(catalogRateInLineUnit(45.62, { ...boxed, sqft_per_box: null }, false)).toBe(45.62);
+    expect(
+      catalogRateInLineUnit(
+        45.62,
+        { category: "hardwood", unit: "box", sqft_per_box: 23.64 },
+        false,
+      ),
+    ).toBe(Math.round((45.62 / 23.64) * 100) / 100);
+    expect(
+      catalogRateInLineUnit(45.62, { category: "lvp", unit: "box" }, false),
+    ).toBe(45.62);
+
+    const po = readFileSync(join(root, "src/app/(app)/purchase-orders/po-builder.tsx"), "utf8");
+    expect(po).toMatch(/catalogRateInLineUnit/);
+    expect(po).toMatch(/skip \? base : converted\.unitCost/);
+    expect(po).toMatch(
+      /Hard-surface PO boxed rate onto that area line is \$\/coverage, not 1:1/,
+    );
+    expect(po).toMatch(/cls === "hard"[\s\S]*?catalogRateInLineUnit/);
+    expect(po).not.toMatch(/catalogRateToBillingUnit\(base, p\.unit, false\)/);
+    expect(po).not.toMatch(/category === ["']carpet_tile["']/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Hard-surface PO boxed rate onto that area line is \$\/coverage, not 1:1/,
+    );
+
+    const help =
+      /Hard-surface PO boxed rate onto that area line is \$\/coverage, not 1:1. Wrap \/ count How many stays 1:1. Do not invent coverage/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /Hard-surface PO boxed rate/,
     );
   });
 
