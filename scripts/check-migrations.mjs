@@ -219,6 +219,7 @@ const REQUIRED_FILES = [
   "0356_flooring_knowledge_po_hs_rate.sql",
   "0357_flooring_knowledge_picker_tile_rate.sql",
   "0358_flooring_knowledge_picker_hs_rate.sql",
+  "0359_flooring_knowledge_picker_hs_swap.sql",
 ];
 
 /**
@@ -2651,6 +2652,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0358_FLOORING_KNOWLEDGE",
       "Hard-surface catalog picker boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0359_flooring_knowledge_picker_hs_swap.sql",
+    markers: [
+      "P0_0359_FLOORING_KNOWLEDGE",
+      "Hard-surface catalog picker swap boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

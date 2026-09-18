@@ -66,6 +66,43 @@ function pickerMoney(p: Product, purpose: CatalogPricePurpose) {
 }
 
 /**
+ * Hard-surface catalog picker swap boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+ * Carpet swap stays catalog unit here — exclusive-tile list conversion is 0357.
+ */
+function pickerSwapRate(p: Product, purpose: CatalogPricePurpose): {
+  label: string;
+  unit: string;
+  needed: boolean;
+} {
+  const money = pickerMoney(p, purpose);
+  const unit = p.unit || "unit";
+  if (money.needed) return { label: money.label, unit, needed: true };
+  const rate = money.primary.amount;
+  if (rate == null) return { label: money.label, unit, needed: money.needed };
+  const isCarpet = p.category === "carpet";
+  const carpetInstallSystems = catalogCarpetInstallSystemsForBoxedRate(p);
+  const boxedArea = boxedCartonAreaTakeoffAllowed({
+    family: familyFromCatalogCategory(p.category ?? "other"),
+    productUnit: p.unit,
+    sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
+    carpetInstallSystems,
+  });
+  if (!isCarpet && boxedArea) {
+    const perSqft = catalogRateInLineUnit(
+      rate,
+      {
+        unit: p.unit,
+        category: p.category,
+        sqft_per_box: p.sqft_per_box,
+      },
+      false,
+    );
+    return { label: formatMoney(perSqft), unit: "sq ft", needed: false };
+  }
+  return { label: money.label, unit, needed: false };
+}
+
+/**
  * Searchable catalog picker for an estimate line. Searches the catalog
  * server-side (so it stays fast with thousands of products) by name /
  * manufacturer / style / color / SKU, or adds a brand-new product.
@@ -233,6 +270,8 @@ export function ProductPicker({
     }
   };
 
+  const swapRate = pending ? pickerSwapRate(pending, purpose) : null;
+
   return (
     <div ref={boxRef} className="relative">
       <label className="mb-1 block text-xs text-muted-foreground">
@@ -261,8 +300,8 @@ export function ProductPicker({
           </div>
           <p className="mt-2 rounded-md bg-background/60 px-2 py-1.5 text-xs text-muted-foreground">
             {purpose === "cost" ? "Vendor cost becomes" : "Sell price becomes"}{" "}
-            <span className={cn("font-semibold", pickerMoney(pending, purpose).needed ? "text-amber-700" : "text-foreground")}>
-              {pickerMoney(pending, purpose).label} per {pending.unit || "unit"}
+            <span className={cn("font-semibold", swapRate?.needed ? "text-amber-700" : "text-foreground")}>
+              {swapRate?.label} per {swapRate?.unit}
             </span>
             {pending.category ? (
               <> · {PRODUCT_CATEGORY_LABELS[pending.category]}</>

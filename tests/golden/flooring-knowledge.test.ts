@@ -16386,6 +16386,97 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0359 Hard-surface catalog picker swap boxed rate onto sq ft is $/coverage, not 1:1", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0359_flooring_knowledge_picker_hs_swap.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0359_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Hard-surface catalog picker swap boxed rate onto sq ft is \$\/coverage, not 1:1. Wrap \/ count How many stays 1:1. Do not invent coverage/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    const boxed = {
+      category: "lvp" as const,
+      unit: "box",
+      sqft_per_box: 23.64,
+    };
+    expect(catalogRateInLineUnit(45.62, boxed, false)).toBe(
+      Math.round((45.62 / 23.64) * 100) / 100,
+    );
+    expect(catalogRateInLineUnit(45.62, { ...boxed, sqft_per_box: null }, false)).toBe(45.62);
+    expect(
+      catalogRateInLineUnit(
+        45.62,
+        { category: "hardwood", unit: "box", sqft_per_box: 23.64 },
+        false,
+      ),
+    ).toBe(Math.round((45.62 / 23.64) * 100) / 100);
+    expect(
+      catalogRateInLineUnit(45.62, { category: "lvp", unit: "box" }, false),
+    ).toBe(45.62);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "lvp",
+        productUnit: "box",
+        sqftPerBox: 23.64,
+      }),
+    ).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({ family: "lvp", productUnit: "box" }),
+    ).toBe(false);
+
+    const picker = readFileSync(
+      join(root, "src/app/(app)/estimates/product-picker.tsx"),
+      "utf8",
+    );
+    expect(picker).toMatch(/pickerSwapRate/);
+    expect(picker).toMatch(/catalogRateInLineUnit/);
+    expect(picker).toMatch(/boxedCartonAreaTakeoffAllowed/);
+    expect(picker).toMatch(/swapRate\?\.label\} per \{swapRate\?\.unit\}/);
+    expect(picker).toMatch(
+      /Hard-surface catalog picker swap boxed rate onto sq ft is \$\/coverage, not 1:1/,
+    );
+    expect(picker).toMatch(
+      /Hard-surface catalog picker boxed rate onto sq ft is \$\/coverage, not 1:1/,
+    );
+    expect(picker).not.toMatch(/catalogRateToBillingUnit/);
+    expect(picker).not.toMatch(/category === ["']carpet_tile["']/);
+    expect(picker).not.toMatch(/pickerMoney\(pending, purpose\)\.label\} per \{pending\.unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Hard-surface catalog picker swap boxed rate onto sq ft is \$\/coverage, not 1:1/,
+    );
+
+    const help =
+      /Hard-surface catalog picker swap boxed rate onto sq ft is \$\/coverage, not 1:1. Wrap \/ count How many stays 1:1. Do not invent coverage/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /Hard-surface catalog picker swap boxed rate/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
