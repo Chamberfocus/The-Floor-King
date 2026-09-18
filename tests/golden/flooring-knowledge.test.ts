@@ -11116,6 +11116,175 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0313 exclusive carpet-tile carton SKU takeoffs from measured area, not How many boxes", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0313_flooring_knowledge_carpet_tile_carton.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0313_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/A carpet-tile SKU sold by the carton with coverage still takeoffs from measured area/);
+    expect(sql).toMatch(/not How many boxes from leftover taped sq ft/);
+    expect(sql).toMatch(/Missing coverage stays TBD; do not invent a box size/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*carpet_install.*carpet_cuts|carpet_cuts.*show_if.*carpet_install/,
+    );
+
+    const tile = carpetInstallSystemsFromLabels(["Carpet tile"]);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "box",
+        sqftPerBox: 20,
+        carpetInstallSystems: tile,
+      }),
+    ).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "carton",
+        sqftPerBox: 18,
+        carpetInstallSystems: tile,
+      }),
+    ).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "box",
+        sqftPerBox: 20,
+      }),
+    ).toBe(false);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "box",
+        sqftPerBox: 20,
+        carpetInstallSystems: ["stretch_in"],
+      }),
+    ).toBe(false);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "box",
+        sqftPerBox: 20,
+        carpetInstallSystems: ["stretch_in", "carpet_tile"],
+      }),
+    ).toBe(false);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "box",
+        carpetInstallSystems: tile,
+      }),
+    ).toBe(false);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "sqyd",
+        sqftPerBox: 20,
+        carpetInstallSystems: tile,
+      }),
+    ).toBe(false);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "vinyl",
+        productUnit: "box",
+        sqftPerBox: 20,
+      }),
+    ).toBe(false);
+
+    expect(
+      areaDerivedMaterialQty({
+        family: "carpet",
+        measuredSqft: 450,
+        billingUnit: "sqyd",
+        productUnit: "box",
+        sqftPerBox: 20,
+        carpetInstallSystems: tile,
+      }),
+    ).toBe(50);
+    expect(
+      areaDerivedMaterialQty({
+        family: "carpet",
+        measuredSqft: 450,
+        billingUnit: "sqyd",
+        productUnit: "box",
+        carpetInstallSystems: tile,
+      }),
+    ).toBeNull();
+    expect(
+      extraAsksCountQty({
+        family: "carpet",
+        productUnit: "box",
+        carpetInstallSystems: tile,
+      }),
+    ).toBe(true);
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "carpet",
+        productUnit: "box",
+        label: "Shaw Tile",
+        carpetInstallSystems: tile,
+      }),
+    ).toBe("Shaw Tile — carton coverage TBD (not How many boxes from leftover taped sq ft)");
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "carpet",
+        productUnit: "box",
+        sqftPerBox: 20,
+        label: "Shaw Tile",
+        carpetInstallSystems: tile,
+      }),
+    ).toBe(null);
+    expect(
+      boxedCartonCoverageTbdDescription({
+        family: "carpet",
+        productUnit: "box",
+        label: "Shaw Tile",
+        carpetInstallSystems: ["stretch_in"],
+      }),
+    ).toBe(null);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/boxedCartonCoverageTbdDescription/);
+    expect(q).toMatch(/sqftPerBox: spb/);
+    expect(q).toMatch(/not How many boxes from leftover taped sq ft/);
+    expect(q).toMatch(/do not invent a box size/);
+    expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const tileCtx = installContextFromValByKey({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(knowledgeHelpFor({ kind: "cuts" }, tileCtx)).toMatch(
+      /A carpet-tile SKU sold by the carton with coverage still takeoffs from measured area/,
+    );
+    expect(knowledgeHelpFor({ kind: "cuts" }, tileCtx)).toMatch(
+      /Builder shows measured coverage and carton math, not Cuts vs Roll/,
+    );
+    expect(knowledgeHelpFor({ kind: "floor_map" }, tileCtx)).toMatch(
+      /A carpet-tile SKU sold by the carton with coverage still takeoffs from measured area/,
+    );
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /A boxed LVP \/ hardwood SKU sold by the carton with coverage still takeoffs from measured area/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

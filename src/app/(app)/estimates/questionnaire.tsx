@@ -1604,14 +1604,53 @@ export function Questionnaire({
           if (!floorMapActive) {
             const emitModular = (p: ProductAns | null, roomLabel: string | null, sqft: number) => {
               if (!p || !(sqft > 0)) return;
+              const spb = numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null;
               const qty = areaDerivedMaterialQty({
                 family: "carpet",
                 measuredSqft: sqft,
                 billingUnit: "sqyd",
                 productUnit: p.unit,
                 carpetInstallSystems: carpetSystems,
+                sqftPerBox: spb,
               });
-              if (qty == null) return;
+              if (qty == null) {
+                // Exclusive carpet-tile carton SKU with coverage takeoffs from measured area — not How many boxes from leftover taped sq ft. Missing coverage stays TBD; do not invent a box size.
+                const tbd = boxedCartonCoverageTbdDescription({
+                  family: "carpet",
+                  productUnit: p.unit,
+                  sqftPerBox: spb,
+                  label: p.label,
+                  carpetInstallSystems: carpetSystems,
+                });
+                if (!tbd) return;
+                out.push({
+                  room: roomLabel,
+                  description: tbd,
+                  category: p.category || "carpet",
+                  measure_unit: "sqyd",
+                  sqft: null,
+                  quantity: null,
+                  length_in: null,
+                  width_in: null,
+                  measurements: null,
+                  unit: "sq yd",
+                  material_rate: sellMat(rateFor(p.materialRate, p.unit, true)),
+                  labor_rate: 0,
+                  material_cost: rateFor(p.materialRate, p.unit, true),
+                  labor_cost: 0,
+                  waste_pct: 0,
+                  product_id: p.productId || null,
+                  manufacturer:
+                    p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                  style: p.style,
+                  color: p.color,
+                  from_stock: p.source === "stock",
+                  order_as_roll: false,
+                  roll_width_ft: null,
+                  sqft_per_box: null,
+                });
+                return;
+              }
               const waste = materialWastePctForEmit({
                 family: "carpet",
                 requestedWastePct:

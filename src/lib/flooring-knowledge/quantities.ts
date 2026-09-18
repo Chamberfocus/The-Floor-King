@@ -125,11 +125,24 @@ export function areaDerivedMaterialAllowed(
 }
 
 /**
- * Boxed LVP / hardwood / laminate / tile sold by the carton WITH catalog
- * coverage may still takeoff from measured area. Carton math uses
- * `sqft_per_box` — we do not invent a box size and we do not treat leftover
- * taped sq ft as How many boxes. Wrap extras stay on extraAsksCountQty
- * (lvp + box without this coverage gate).
+ * Boxed hard surface, or exclusive carpet tile (modular — not a roll cut
+ * plan). Stretch-in / glue-down / mixed stretch+tile still need cuts.
+ */
+function boxedCartonSoldFamily(
+  family: FlooringFamily,
+  carpetInstallSystems?: InstallSystem[] | null,
+): boolean {
+  if (rollGoodsNeedCuts(family, carpetInstallSystems)) return false;
+  return isBoxedFamily(family) || family === "carpet";
+}
+
+/**
+ * Boxed LVP / hardwood / laminate / tile, and exclusive carpet tile, sold by
+ * the carton WITH catalog coverage may still takeoff from measured area.
+ * Carton math uses `sqft_per_box` — we do not invent a box size and we do
+ * not treat leftover taped sq ft as How many boxes. Wrap extras stay on
+ * extraAsksCountQty (lvp + box without this coverage gate). Unanswered
+ * carpet and mixed stretch-in + tile still wait for cuts.
  */
 export function boxedCartonAreaTakeoffAllowed(args: {
   family: FlooringFamily;
@@ -137,17 +150,16 @@ export function boxedCartonAreaTakeoffAllowed(args: {
   sqftPerBox?: number | null;
   carpetInstallSystems?: InstallSystem[] | null;
 }): boolean {
-  if (rollGoodsNeedCuts(args.family, args.carpetInstallSystems)) return false;
-  if (!isBoxedFamily(args.family)) return false;
+  if (!boxedCartonSoldFamily(args.family, args.carpetInstallSystems)) return false;
   if (normalizeUnit(args.productUnit) !== "box") return false;
   const cov = Number(args.sqftPerBox);
   return Number.isFinite(cov) && cov > 0;
 }
 
 /**
- * Floor-map / AI identity line when a boxed SKU is sold by the carton but
- * coverage is missing. Not How many boxes from leftover taped sq ft, and
- * not an invented box size.
+ * Floor-map / AI / modular-tile identity line when a boxed SKU is sold by
+ * the carton but coverage is missing. Not How many boxes from leftover
+ * taped sq ft, and not an invented box size.
  */
 export function boxedCartonCoverageTbdDescription(args: {
   family: FlooringFamily;
@@ -157,8 +169,7 @@ export function boxedCartonCoverageTbdDescription(args: {
   carpetInstallSystems?: InstallSystem[] | null;
 }): string | null {
   if (boxedCartonAreaTakeoffAllowed(args)) return null;
-  if (rollGoodsNeedCuts(args.family, args.carpetInstallSystems)) return null;
-  if (!isBoxedFamily(args.family)) return null;
+  if (!boxedCartonSoldFamily(args.family, args.carpetInstallSystems)) return null;
   if (normalizeUnit(args.productUnit) !== "box") return null;
   const name = (args.label ?? "").trim() || "Flooring";
   return `${name} — carton coverage TBD (not How many boxes from leftover taped sq ft)`;
