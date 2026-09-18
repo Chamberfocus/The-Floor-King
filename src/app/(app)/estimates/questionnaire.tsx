@@ -4732,27 +4732,39 @@ function QuestionBody({
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="text-xs text-muted-foreground">{EXTRA_AREA_MEASURED_LABEL}</label>
                   <Input value={ex.sqft} onChange={(e) => patchExtra(ex.id, { sqft: e.target.value })} inputMode="decimal" placeholder={EXTRA_AREA_MEASURED_PLACEHOLDER} className="h-10 w-28" />
-                  {ex.product && numv(ex.sqft) > 0 ? (
+                  {ex.product && numv(ex.sqft) > 0 ? (() => {
+                    const extraTakeoff = computeMaterialTakeoff({
+                      family: familyFromCatalogCategory(ex.product.category || cat),
+                      measuredSqft: numv(ex.sqft),
+                      wastePct: ex.product.wastePct.trim() !== "" ? numv(ex.product.wastePct) : 0,
+                      sqftPerBox: numv(ex.product.sqftPerBox) > 0 ? numv(ex.product.sqftPerBox) : null,
+                      billingUnit: billing({
+                        category: cat,
+                        key: q.key,
+                        productUnit: ex.product.unit,
+                      }).measureUnit,
+                      takeoffLabel: padFoamTakeoffLabel({
+                        key: q.key,
+                        category: ex.product.category || cat,
+                      }),
+                    });
+                    // Exclusive carpet-tile Guided Estimate extra takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    // Underlayment Guided Estimate extra takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+                    const extraPadRolls = padRollCount(extraTakeoff.takeoffLabel ? "underlayment" : catalogCategoryForFamily(extraTakeoff.family), extraTakeoff.billingQty, extraTakeoff.billingUnit);
+                    return (
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {formatTakeoffStrip(
-                        computeMaterialTakeoff({
-                          family: familyFromCatalogCategory(ex.product.category || cat),
-                          measuredSqft: numv(ex.sqft),
-                          wastePct: ex.product.wastePct.trim() !== "" ? numv(ex.product.wastePct) : 0,
-                          sqftPerBox: numv(ex.product.sqftPerBox) > 0 ? numv(ex.product.sqftPerBox) : null,
-                          billingUnit: billing({
-                            category: cat,
-                            key: q.key,
-                            productUnit: ex.product.unit,
-                          }).measureUnit,
-                          takeoffLabel: padFoamTakeoffLabel({
-                            key: q.key,
-                            category: ex.product.category || cat,
-                          }),
-                        }),
-                      )}
+                      {formatTakeoffStrip(extraTakeoff)}
+                      {extraPadRolls ? (
+                        <>
+                          {" · "}
+                          <span className="font-medium tabular-nums">
+                            = {extraPadRolls} roll{extraPadRolls === 1 ? "" : "s"}
+                          </span>
+                        </>
+                      ) : null}
                     </span>
-                  ) : null}
+                    );
+                  })() : null}
                   {ex.product && q.config.ask_source ? (
                     <SourceToggle p={ex.product} compact onChange={(np) => setExtraProduct(ex.id, np, ex)} />
                   ) : null}
