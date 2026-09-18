@@ -75,6 +75,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print line labels strip prep estimated / allowance suffix — those stay on stored lines so the crew still sees Field verify / TBD vs Known bag counts.
  * Customer print / portal itemized line notes strip leftover stair-install step How many and crew prep confidence — those stay on stored lines so Builder still prices per step and the crew still sees Field verify / TBD vs Known bag counts.
  * Customer / portal / print strip Guided takeoff Review section headers — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay.
+ * Customer / portal / print strip Guided takeoff Review bucket prefixes — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?)/i;
@@ -148,6 +149,17 @@ export function isCrewReviewSectionHeader(raw: string): boolean {
   );
 }
 
+const CREW_REVIEW_BUCKET_PREFIX =
+  /^(?:removal|installation|prep|accessorie|accessories|special conditions?|products?)\s*:\s*/i;
+
+/** Crew Review row label. Stored job_description keeps “Prep: …” / “Accessorie: …”. */
+export function stripCrewReviewBucketPrefix(raw: string): string {
+  const s = (raw ?? "").replace(/^[•\-]\s*/, "").trim();
+  if (!s) return (raw ?? "").trim();
+  const next = s.replace(CREW_REVIEW_BUCKET_PREFIX, "").trim();
+  return next || s;
+}
+
 /** Crew prep-confidence stamp. Stored job_description keeps Field verify / TBD. */
 export function isCrewPrepConfidenceLine(raw: string): boolean {
   const stripped = stripCrewIdentityFromCustomerLabel(
@@ -196,7 +208,10 @@ export function customerFacingJobNotes(text: string | null | undefined): string 
       if (isCrewReviewSectionHeader(trimmed)) return "";
       const body = stripCrewIdentityFromCustomerLabel(raw);
       if (!body || isCrewOnlyCustomerText(body)) return "";
-      return `${indent}${body}`;
+      const shown = stripCrewReviewBucketPrefix(body);
+      if (!shown || isCrewReviewSectionHeader(shown) || isCrewOnlyCustomerText(shown))
+        return "";
+      return `${indent}${shown}`;
     })
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -216,7 +231,9 @@ export function customerFacingLineNote(raw: string | null | undefined): string {
   ) {
     return "";
   }
-  return stripped;
+  const shown = stripCrewReviewBucketPrefix(stripped);
+  if (!shown || isCrewOnlyCustomerText(shown)) return "";
+  return shown;
 }
 
 /**
@@ -288,8 +305,15 @@ export function buildCustomerScope(
       ],
     },
     conditions: scope.conditions
-      .map((c) => stripCrewIdentityFromCustomerLabel(c))
-      .filter((c) => c && !isCrewOnlyCustomerText(c)),
+      .map((c) =>
+        stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel(c)),
+      )
+      .filter(
+        (c) =>
+          c &&
+          !isCrewOnlyCustomerText(c) &&
+          !isCrewReviewSectionHeader(c),
+      ),
     notes: customerFacingJobNotes(scope.freeText),
   };
 }
@@ -343,7 +367,16 @@ export function parseProjectDetails(
       flags.push(cleaned);
       continue;
     }
-    if (cleaned && !isGuidedTakeoffMathLine(cleaned)) details.push(cleaned);
+    if (!cleaned || isGuidedTakeoffMathLine(cleaned)) continue;
+    const shown = stripCrewReviewBucketPrefix(cleaned);
+    if (
+      shown &&
+      !isCrewReviewSectionHeader(shown) &&
+      !isGuidedTakeoffMathLine(shown) &&
+      !isCrewPrepConfidenceLine(shown)
+    ) {
+      details.push(shown);
+    }
   }
   return { details, flags };
 }

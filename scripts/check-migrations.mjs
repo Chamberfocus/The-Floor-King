@@ -195,6 +195,7 @@ const REQUIRED_FILES = [
   "0332_flooring_knowledge_customer_prep_suffix.sql",
   "0333_flooring_knowledge_customer_line_steps.sql",
   "0334_flooring_knowledge_customer_review_headers.sql",
+  "0335_flooring_knowledge_customer_review_buckets.sql",
 ];
 
 /**
@@ -2339,6 +2340,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0334_FLOORING_KNOWLEDGE",
       "Customer / portal / print strip Guided takeoff Review section headers — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0335_flooring_knowledge_customer_review_buckets.sql",
+    markers: [
+      "P0_0335_FLOORING_KNOWLEDGE",
+      "Customer / portal / print strip Guided takeoff Review bucket prefixes — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
