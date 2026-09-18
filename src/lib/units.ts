@@ -177,6 +177,21 @@ export function billedQtyToSqyd(qty: number, unitKey: string): number | null {
   return null;
 }
 
+/**
+ * Convert a billed quantity into square feet.
+ *
+ * sq ft stays feet. sq yd multiplies by 9. Any other unit is not an area
+ * conversion — return null so callers do not invent square feet.
+ * Exclusive carpet-tile PO / warehouse / work-order carton math uses this
+ * before ÷ coverage (tile bills per sq yd; coverage is sq ft/box).
+ */
+export function billedQtyToSqft(qty: number, unitKey: string): number | null {
+  if (!(Number.isFinite(qty) && qty > 0)) return null;
+  if (unitKey === "sqft") return qty;
+  if (unitKey === "sqyd") return qty * 9;
+  return null;
+}
+
 /** True when the unit string is square yards (SY / sq yd / yard / …). */
 export function unitIsSqyd(raw: string | null | undefined): boolean {
   return normalizeUnit(raw) === "sqyd";

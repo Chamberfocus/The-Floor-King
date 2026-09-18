@@ -23,10 +23,11 @@ import type { JobDetail } from "@/lib/data/jobs";
  *  quantities in bold. */
 function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean }) {
   const spec = lineSpec(l);
-  // Hard surface installs by the carton — show the box count so the crew knows
-  // how many to open, with the sq-ft basis. Use the SAME billed area as the
-  // estimate (spec.qtyNum), not the raw stored quantity. Wrap / carton TBD /
-  // qty TBD How many is already the order — do not divide by coverage.
+  // Hard surface / exclusive carpet tile installs by the carton — show the box
+  // count so the crew knows how many to open, with the sq-ft basis. Use the SAME
+  // billed area as the estimate (spec.qtyNum). Tile bills per sq yd — convert
+  // before ÷ coverage. Wrap / carton TBD / qty TBD How many is already the
+  // order — do not divide by coverage. Mixed stretch-in + tile stays cuts.
   const spb = Number(l.sqft_per_box) || 0;
   const cartons = hardSurfaceAreaCartonCount(l, spec.qtyNum || Number(l.sqft) || 0);
   return (

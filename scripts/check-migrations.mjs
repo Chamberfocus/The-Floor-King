@@ -214,6 +214,7 @@ const REQUIRED_FILES = [
   "0351_flooring_knowledge_tile_rate.sql",
   "0352_flooring_knowledge_builder_tile_rate.sql",
   "0353_flooring_knowledge_ai_tile_rate.sql",
+  "0354_flooring_knowledge_tile_carton.sql",
 ];
 
 /**
@@ -2586,6 +2587,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0353_FLOORING_KNOWLEDGE",
       "AI notes exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not infer exclusive tile from unit=box",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0354_flooring_knowledge_tile_carton.sql",
+    markers: [
+      "P0_0354_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile PO / warehouse / work-order carton math from sq ft ÷ coverage — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

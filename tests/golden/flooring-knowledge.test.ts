@@ -11,7 +11,7 @@ import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft 
 import { recoverAreaSqftFromQuantity } from "@/lib/questionnaire-emit";
 import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { cutLabel, cutSqYd } from "@/lib/order-cuts";
-import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, lineIsStairWrapTbd, knowledgePickDescription, rollGoodsLineHasCuts, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
+import { lineQty, lineIsBoxedCartonTbd, lineIsCountNotTapedSqft, lineIsStairWrapTbd, knowledgePickDescription, rollGoodsLineHasCuts, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
 import { catalogCostInLineUnit, catalogRateInLineUnit, catalogToLineMeasure } from "@/lib/catalog-pricing";
 import {
   accessoryQuantity,
@@ -203,7 +203,7 @@ import {
   mergeReviewWarnings,
   emptyInstallContext,
 } from "@/lib/flooring-knowledge";
-import { billsBySquareYard, defaultUnitForCategory, isCountPricedLine, lineDisplayUnit, lineUnitKey, pickedProductUnit, rollReceiveUnit, SQYD_CATEGORIES } from "@/lib/units";
+import { billsBySquareYard, billedQtyToSqft, defaultUnitForCategory, isCountPricedLine, lineDisplayUnit, lineUnitKey, pickedProductUnit, rollReceiveUnit, SQYD_CATEGORIES } from "@/lib/units";
 import { installDaysForJob } from "@/lib/scheduling";
 import { SCHEDULING_DEFAULTS } from "@/lib/data/scheduling";
 import {
@@ -15794,6 +15794,171 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
       /AI notes exclusive carpet-tile catalog box rate/,
+    );
+  });
+
+  it("0354 Exclusive carpet-tile PO / warehouse / work-order carton math from sq ft ÷ coverage", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0354_flooring_knowledge_tile_carton.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0354_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive carpet-tile PO \/ warehouse \/ work-order carton math from sq ft ÷ coverage — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(billedQtyToSqft(22.22, "sqyd")).toBeCloseTo(199.98, 10);
+
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Living room — Lifeproof Oak",
+          category: "lvp",
+          unit: "sq ft",
+          sqft_per_box: 23.64,
+        },
+        300,
+      ),
+    ).toBe(13);
+
+    const tile = {
+      description: "Living room — Interface carpet tile",
+      category: "carpet",
+      unit: "sq yd",
+      sqft_per_box: 23.64,
+      order_as_roll: false as const,
+      sqft: 200,
+      quantity: 22.22,
+    };
+    expect(lineUsesAreaCartonMath(tile)).toBe(true);
+    expect(hardSurfaceAreaCartonCount(tile, 22.22)).toBe(9);
+    expect(hardSurfaceAreaCartonCount(tile, 22.22)).not.toBe(1);
+
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          ...tile,
+          order_as_roll: true,
+        },
+        22.22,
+      ),
+    ).toBe(0);
+    expect(
+      lineUsesAreaCartonMath({
+        category: "carpet",
+        unit: "sq yd",
+        sqft_per_box: 23.64,
+        order_as_roll: true,
+        quantity: 22.22,
+      }),
+    ).toBe(false);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          category: "carpet",
+          unit: "sq yd",
+          sqft_per_box: 23.64,
+          length_in: 144,
+          width_in: 168,
+          quantity: 22.22,
+        },
+        22.22,
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          category: "carpet",
+          unit: "sq yd",
+          quantity: 22.22,
+        },
+        22.22,
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          category: "carpet",
+          unit: "box",
+          sqft_per_box: 23.64,
+          quantity: 8,
+        },
+        8,
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description:
+            "Lifeproof Oak — 8 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+          category: "lvp",
+          unit: "box",
+          sqft_per_box: 23.64,
+        },
+        8,
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          category: "carpet",
+          unit: "sq yd",
+          sqft_per_box: 23.64,
+          roll_width_ft: 12,
+          quantity: 22.22,
+        },
+        22.22,
+      ),
+    ).toBe(0);
+
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(/export function lineUsesAreaCartonMath/);
+    expect(calc).toMatch(/export function hardSurfaceAreaCartonCount/);
+    expect(calc).toMatch(
+      /Exclusive carpet-tile PO \/ warehouse \/ work-order carton math from sq ft ÷ coverage/,
+    );
+    expect(calc).not.toMatch(/category === ["']carpet_tile["']/);
+
+    const po = readFileSync(join(root, "src/app/(app)/purchase-orders/po-builder.tsx"), "utf8");
+    expect(po).toMatch(/lineUsesAreaCartonMath/);
+    expect(po).toMatch(/hardSurfaceAreaCartonCount/);
+
+    const print = readFileSync(join(root, "src/app/(app)/purchase-orders/[id]/po-print.tsx"), "utf8");
+    expect(print).toMatch(/lineUsesAreaCartonMath/);
+    expect(print).toMatch(/billedQtyToSqft/);
+
+    const staging = readFileSync(join(root, "src/app/(app)/warehouse/staging-sheet-doc.tsx"), "utf8");
+    expect(staging).toMatch(/lineUsesAreaCartonMath/);
+    expect(staging).toMatch(/billedQtyToSqft/);
+
+    const wo = readFileSync(join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"), "utf8");
+    expect(wo).toMatch(/hardSurfaceAreaCartonCount/);
+    expect(wo).toMatch(/Tile bills per sq yd/);
+
+    const help =
+      /Exclusive carpet-tile PO \/ warehouse \/ work-order carton math from sq ft ÷ coverage — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /Exclusive carpet-tile PO \/ warehouse \/ work-order carton math/,
     );
   });
 

@@ -6,7 +6,7 @@ import {
   type LineType,
   type MeasureUnit,
 } from "@/lib/types";
-import { isAreaUnit, isCountPricedLine, normalizeUnit } from "@/lib/units";
+import { billedQtyToSqft, isAreaUnit, isCountPricedLine, lineUnitKey, normalizeUnit } from "@/lib/units";
 
 /** Signed square feet of one measured piece (subtract = a cutout). */
 export function measurementSqft(m: LineMeasurement): number {
@@ -130,25 +130,68 @@ export function lineSkipsAreaCartonMath(line: {
   return !!u && !isAreaUnit(u);
 }
 
+type AreaCartonLine = {
+  description?: string | null;
+  category?: string | null;
+  unit?: string | null;
+  measure_unit?: string | null;
+  sqft?: number | string | null;
+  quantity?: number | string | null;
+  sqft_per_box?: number | string | null;
+  roll_width_ft?: number | string | null;
+  order_as_roll?: boolean | null;
+  length_in?: number | string | null;
+  width_in?: number | string | null;
+  measurements?: { length_in?: number | string | null; width_in?: number | string | null; op?: string | null }[] | null;
+};
+
+/**
+ * Hard-surface, or exclusive carpet tile (category stays carpet — do not invent
+ * a carpet-tile category). Mixed stretch-in + tile, unanswered carpet, and a
+ * roll-width / cut plan stay cuts. Do not infer exclusive tile from unit=box.
+ */
+export function lineUsesAreaCartonMath(line: AreaCartonLine): boolean {
+  if (lineSkipsAreaCartonMath(line)) return false;
+  if (isHardSurfaceCategory(line.category)) return true;
+  if ((line.category ?? "") !== "carpet") return false;
+  if (Number(line.roll_width_ft) > 0) return false;
+  if (line.order_as_roll === true) return false;
+  const pieces = (line.measurements ?? []).filter(
+    (m) => m.op !== "subtract" && Number(m.length_in) > 0 && Number(m.width_in) > 0,
+  );
+  if (pieces.length) return false;
+  if (Number(line.length_in) > 0 && Number(line.width_in) > 0) return false;
+  const cov = Number(line.sqft_per_box);
+  return Number.isFinite(cov) && cov > 0;
+}
+
 /**
  * Hard-surface carton count from MEASURED area ÷ coverage.
+ * Exclusive carpet-tile PO / warehouse / work-order carton math from sq ft ÷ coverage — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
  * PO / warehouse / work-order carton math from sq ft ÷ coverage does not apply to wrap / carton-coverage TBD / qty TBD How many — those are already the order, not taped square feet.
  */
 export function hardSurfaceAreaCartonCount(
-  line: {
-    description?: string | null;
-    category?: string | null;
-    unit?: string | null;
-    sqft_per_box?: number | string | null;
-  },
+  line: AreaCartonLine,
   areaSqft: number,
 ): number {
-  if (lineSkipsAreaCartonMath(line)) return 0;
+  if (!lineUsesAreaCartonMath(line)) return 0;
   const spb = Number(line.sqft_per_box);
   if (!Number.isFinite(spb) || !(spb > 0)) return 0;
-  if (line.category ? !isHardSurfaceCategory(line.category) : !(spb > 0)) return 0;
-  const sf = Number(areaSqft);
-  if (!Number.isFinite(sf) || !(sf > 0)) return 0;
+  const billed = Number(areaSqft);
+  if (!Number.isFinite(billed) || !(billed > 0)) return 0;
+  const key = lineUnitKey({
+    unit: line.unit,
+    measure_unit: line.measure_unit,
+    sqft: line.sqft,
+    category: line.category,
+  });
+  const sf =
+    key === "sqyd" || key === "sqft"
+      ? billedQtyToSqft(billed, key)
+      : isHardSurfaceCategory(line.category)
+        ? billed
+        : billedQtyToSqft(billed, "sqyd");
+  if (sf == null || !(sf > 0)) return 0;
   return Math.ceil(sf / spb);
 }
 

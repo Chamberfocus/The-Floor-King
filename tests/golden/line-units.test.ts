@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   billedQtyToSqyd,
+  billedQtyToSqft,
   catalogRateToBillingUnit,
   catalogUnitFactor,
   isCountPricedLine,
@@ -170,6 +171,17 @@ describe("billedQtyToSqyd — never invent yards from count units", () => {
     expect(billedQtyToSqyd(20, "lnft")).toBeNull();
     expect(billedQtyToSqyd(2, "roll")).toBeNull();
     expect(billedQtyToSqyd(0, "sqyd")).toBeNull();
+  });
+});
+
+describe("billedQtyToSqft — never invent square feet from count units", () => {
+  it("sq ft stays feet; sq yd multiplies by 9; each/box/roll return null", () => {
+    expect(billedQtyToSqft(300, "sqft")).toBe(300);
+    expect(billedQtyToSqft(22.22, "sqyd")).toBeCloseTo(199.98, 10);
+    expect(billedQtyToSqft(8, "box")).toBeNull();
+    expect(billedQtyToSqft(8, "each")).toBeNull();
+    expect(billedQtyToSqft(2, "roll")).toBeNull();
+    expect(billedQtyToSqft(0, "sqft")).toBeNull();
   });
 });
 

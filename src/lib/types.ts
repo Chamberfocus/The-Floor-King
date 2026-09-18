@@ -1203,8 +1203,8 @@ export interface PoItem {
   received_by: string | null;
   receiving_note: string | null;
   // Vendor-unit helpers: product category (for carpet-vs-hard rendering), hard
-  // surface → carton count = ceil(qty / sqft_per_box); carpet → broadloom roll
-  // width. Null when not applicable.
+  // surface / exclusive carpet tile → carton count = ceil(sq ft / sqft_per_box)
+  // (sq yd × 9 first); carpet roll goods → broadloom roll width. Null when not applicable.
   category: string | null;
   sqft_per_box: number | null;
   roll_width_ft: number | null;

@@ -14,8 +14,8 @@ import {
   type PoItem,
   type PurchaseOrder,
 } from "@/lib/types";
-import { unitIsSqyd } from "@/lib/units";
-import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
+import { billedQtyToSqft, unitIsSqyd } from "@/lib/units";
+import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
 
 function itemLabel(it: PoItem): string {
   const spec = productSpec(it);
@@ -124,21 +124,24 @@ export function PoPrintDoc({
           {items.map((it) => {
             const qty = it.quantity ?? 0;
             const amount = qty * (it.unit_cost ?? 0);
-            const isHard = poLineIsHard(it);
             const isRoll = poLineIsRoll(it);
             const spb = it.sqft_per_box ?? 0;
-            // Hard surface: order in whole cartons from measured sq ft ÷ coverage.
-            // Wrap / carton TBD / qty TBD How many is already the order.
+            // Hard surface / exclusive carpet tile: order in whole cartons from
+            // billed area ÷ coverage (sq yd × 9). Wrap / carton TBD / qty TBD
+            // How many is already the order. Mixed stretch-in + tile stays cuts.
             const cartons = hardSurfaceAreaCartonCount(it, qty);
             const skipCarton = lineSkipsAreaCartonMath(it);
+            const cartonArea =
+              billedQtyToSqft(qty, unitIsSqyd(it.unit) ? "sqyd" : "sqft") ?? qty;
+            const showCartonWarn = lineUsesAreaCartonMath(it);
             const orderQty = cartons
               ? `${cartons} carton${cartons === 1 ? "" : "s"}`
               : `${Math.round(qty * 100) / 100} ${it.unit ?? ""}`.trim();
             const basis = cartons
-              ? `${Math.round(qty * 100) / 100} sq ft ÷ ${spb}/box`
+              ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${spb}/box`
               : skipCarton
                 ? ""
-                : isHard
+                : showCartonWarn
                 ? "⚠ set sq ft/box for carton count"
                 : isRoll && it.roll_width_ft
                   ? `${it.roll_width_ft} ft broadloom roll`

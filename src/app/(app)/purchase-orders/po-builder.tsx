@@ -23,7 +23,7 @@ import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 import { catalogUnitCost } from "@/lib/catalog-pricing";
-import { knowledgePickDescription, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
+import { knowledgePickDescription, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
 import { catalogRateToBillingUnit, isAreaUnit, pickedProductUnit } from "@/lib/units";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
@@ -698,9 +698,17 @@ export function PoBuilder({
                 </Button>
               </div>
 
-              {/* Vendor-unit helper: hard surface → cartons from sq ft/box.
-                  Wrap / carton TBD / qty TBD How many is already the order. */}
-              {isHardSurfaceCategory(it.category) && !lineSkipsAreaCartonMath(it) ? (
+              {/* Vendor-unit helper: hard surface / exclusive carpet tile → cartons from sq ft/box.
+                  Wrap / carton TBD / qty TBD How many is already the order.
+                  Mixed stretch-in + tile and unanswered carpet stay cuts. */}
+              {lineUsesAreaCartonMath({
+                description: it.description,
+                category: it.category,
+                unit: it.unit,
+                sqft_per_box: it.sqft_per_box,
+                roll_width_ft: it.roll_width_ft,
+                quantity: it.quantity,
+              }) ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs">
                   {Number(it.sqft_per_box) > 0 && Number(it.quantity) > 0 ? (
                     <span className="font-semibold text-primary">
