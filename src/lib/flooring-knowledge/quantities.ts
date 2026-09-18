@@ -584,6 +584,25 @@ export function extraCountReviewLine(args: {
   return `${name}: ${formatBillingQty(counted.quantity, counted.unit)} — not taped square feet and not a 30-yard roll`;
 }
 
+/**
+ * Review line for a derived prep count (self-level bags, subfloor sheets).
+ * Missing / zero qty stays off Review — do not invent a bag or a 4×8 sheet
+ * from taped square feet. Builder emit still carries coverage + area so the
+ * bag calculator stays live.
+ */
+export function prepCountReviewLine(args: {
+  label?: string | null;
+  qty: number;
+  unit: string;
+}): string | null {
+  const n = Number(args.qty);
+  if (!(n > 0) || !Number.isFinite(n)) return null;
+  const unit = unitLabel(args.unit) || String(args.unit ?? "").trim();
+  if (!unit) return null;
+  const name = (args.label ?? "").trim() || "Prep";
+  return `${name}: ${formatBillingQty(n, unit)} — not taped square feet`;
+}
+
 /** Printed unit key — never labels a sq ft number as sq yd or the reverse. */
 export function takeoffUnitKeyLabel(unit: string | null | undefined): string {
   const key = normalizeUnit(unit);

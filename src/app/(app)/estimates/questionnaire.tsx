@@ -96,6 +96,7 @@ import {
   extraAsksCountQty,
   extraCountQtyForEmit,
   extraCountReviewLine,
+  prepCountReviewLine,
   measuredInstallLaborAllowed,
   configuredInstallRate,
   rollGoodsSeamWarnings,
@@ -1970,6 +1971,7 @@ export function Questionnaire({
         // Subfloor → SHEETS per room (ceil(area ÷ sheet coverage)) so nothing is
         // under-ordered. The builder prices it by the sheet. Field verify / TBD
         // does not invent a sheet count — the condition still rides in notes.
+        // Review prints the sheet count — taped square feet is not a plywood order.
         if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
         const opts = q.config.options ?? [];
         const sheetSqft = resolvedSheetSqft(q.config.sheet_sqft);
@@ -2020,7 +2022,7 @@ export function Questionnaire({
         // Self-leveler → BAGS from area ÷ coverage-at-thickness. Coverage is
         // carried so the builder's bag calculator stays live. (Labor is the prep
         // question's job — no double-charge here.) TBD prep does not emit a
-        // fake bag count.
+        // fake bag count. Review prints the bag count — taped square feet is not a bag order.
         if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
         const cov = q.config.coverage_sqft ?? 0;
         const covT = q.config.coverage_thickness_in ?? 0;
@@ -2351,6 +2353,7 @@ export function Questionnaire({
     }
     const products: string[] = [];
     const extraCountReview: string[] = [];
+    const prepCountReview: string[] = [];
     const takeoffs = [];
     const seenProd = new Set<string>();
     const familySqft = floorMapAssignments.byFamily;
@@ -2543,6 +2546,59 @@ export function Questionnaire({
           }
           extraCountReview.push(wrapLine);
         }
+      } else if (a?.kind === "selflevel") {
+        // Review prints the bag count — taped square feet is not a bag order.
+        if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
+          const cov = qq.config.coverage_sqft ?? 0;
+          const covT = qq.config.coverage_thickness_in ?? 0;
+          const pour = selfLevelPourThicknessIn(qq.config, a.thickness);
+          const prepCover = questionCoverSf({
+            kind: qq.kind,
+            key: qq.key,
+            category: qq.config.category,
+          });
+          const bags =
+            cov > 0 && prepCover > 0
+              ? bagsNeeded(prepCover, cov, covT > 0 ? covT : null, covT > 0 ? pour : null)
+              : 0;
+          const bagLine = prepCountReviewLine({
+            label: "Self-leveler",
+            qty: bags,
+            unit: "bag",
+          });
+          if (bagLine) prepCountReview.push(bagLine);
+        }
+      } else if (a?.kind === "subfloor") {
+        // Review prints the sheet count — taped square feet is not a plywood order.
+        if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
+          const sheetSqft = resolvedSheetSqft(qq.config.sheet_sqft);
+          if (sheetSqft != null) {
+            const prepRooms = roomsForPrepTakeoff({
+              rooms: floorMapAssignments.rooms.length
+                ? floorMapAssignments.rooms
+                : allRooms.map((rm) => ({ room: rm, family: null })),
+              jobFamilies: flooringCtx.families,
+            });
+            const prepCover = questionCoverSf({
+              kind: qq.kind,
+              key: qq.key,
+              category: qq.config.category,
+            });
+            const rooms = prepRooms.length
+              ? prepRooms
+              : prepCover > 0
+                ? [{ name: "", sqft: prepCover, lenIn: null, widIn: null }]
+                : [];
+            let sheets = 0;
+            for (const rm of rooms) sheets += subfloorSheets(rm.sqft, sheetSqft);
+            const sheetLine = prepCountReviewLine({
+              label: a.thickness ? `Subfloor ${a.thickness}` : "Subfloor",
+              qty: sheets,
+              unit: "sheet",
+            });
+            if (sheetLine) prepCountReview.push(sheetLine);
+          }
+        }
       }
     }
     if (!takeoffs.length && totalSqft > 0) {
@@ -2609,6 +2665,7 @@ export function Questionnaire({
     if (flooringCtx.installLabels.length)
       installation.unshift(`System: ${flooringCtx.installLabels.join(", ")}`);
     accessories.push(...extraCountReview);
+    prep.push(...prepCountReview);
     return buildSalespersonReview({
       rooms,
       products,

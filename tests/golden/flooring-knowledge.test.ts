@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { companionQty, defaultWastePct, profileFor } from "@/lib/flooring-profiles";
 import { carpetCutList, carpetLineIsModularCoverage, parseCutsFromText, padRollCount } from "@/lib/job-scope";
 import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
-import { selfLevelPourThicknessIn } from "@/lib/floor-prep";
+import { bagsNeeded, selfLevelPourThicknessIn } from "@/lib/floor-prep";
 import { cutLabel, cutSqYd } from "@/lib/order-cuts";
 import { lineQty, rollGoodsLineHasCuts } from "@/lib/estimate-calc";
 import {
@@ -188,6 +188,7 @@ import {
   extraAsksCountQty,
   extraCountQtyForEmit,
   extraCountReviewLine,
+  prepCountReviewLine,
   measuredInstallLaborAllowed,
   configuredInstallRate,
   rollGoodsSeamWarnings,
@@ -10844,6 +10845,69 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "tile_application" }, emptyInstallContext())).toMatch(
       /Exclusive floor tile also hides the 6-mil/,
+    );
+  });
+
+  it("0311 Review prints self-level bags and subfloor sheets, not taped sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0311_flooring_knowledge_prep_count_review.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0311_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Review prints the bag count — taped square feet is not a bag order/);
+    expect(sql).toMatch(/Review prints the sheet count — taped square feet is not a plywood order/);
+    expect(sql).toMatch(/Do NOT SQL-gate selflevel_needed on tile_application/);
+    expect(sql).toMatch(/Do NOT SQL-gate subfloor_needed on surface_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*tile_application.*selflevel_needed|selflevel_needed.*show_if.*tile_application/,
+    );
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*subfloor_needed|subfloor_needed.*show_if.*surface_type/,
+    );
+
+    expect(bagsNeeded(450, 30, null, null)).toBe(15);
+    expect(subfloorSheets(320, 32)).toBe(10);
+    expect(
+      prepCountReviewLine({ label: "Self-leveler", qty: 15, unit: "bag" }),
+    ).toBe("Self-leveler: 15 bag — not taped square feet");
+    expect(
+      prepCountReviewLine({ label: "Subfloor 3/4\"", qty: 10, unit: "sheet" }),
+    ).toBe("Subfloor 3/4\": 10 sheet — not taped square feet");
+    expect(prepCountReviewLine({ label: "Self-leveler", qty: 0, unit: "bag" })).toBe(null);
+    expect(prepCountReviewLine({ label: "Subfloor", qty: 7, unit: "" })).toBe(null);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/prepCountReview/);
+    expect(q).toMatch(/Review prints the bag count — taped square feet is not a bag order/);
+    expect(q).toMatch(/Review prints the sheet count — taped square feet is not a plywood order/);
+    expect(q).toMatch(/prepCountReviewLine/);
+    expect(q).toMatch(/coverage_sqft: cov/);
+    expect(q).toMatch(/resolvedSheetSqft/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/sheet_sqft \?\? 32/);
+    expect(q).not.toMatch(/default_thickness_in \?\? 0\.25/);
+
+    expect(knowledgeHelpFor({ key: "selflevel_needed" }, emptyInstallContext())).toMatch(
+      /Review prints the bag count — taped square feet is not a bag order/,
+    );
+    expect(knowledgeHelpFor({ key: "selflevel_needed" }, emptyInstallContext())).toMatch(
+      /we do not invent 1\/4 inch/,
+    );
+    expect(knowledgeHelpFor({ key: "subfloor_needed" }, emptyInstallContext())).toMatch(
+      /Review prints the sheet count — taped square feet is not a plywood order/,
+    );
+    expect(knowledgeHelpFor({ key: "subfloor_needed" }, emptyInstallContext())).toMatch(
+      /Exclusive Concrete hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /asks How many in that unit — not 8 sq ft\/step/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
     );
   });
 
