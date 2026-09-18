@@ -39,6 +39,7 @@ import {
   optionTotalsWithDiscount,
   lineTotal,
   lineQty,
+  lineOrderQty,
   hardSurfaceAreaCartonCount,
 } from "@/lib/estimate-calc";
 import { lineDisplayUnit } from "@/lib/units";
@@ -83,7 +84,9 @@ function lineMath(l: EstimateLineItem): string {
       : (l.material_rate ?? 0) + (l.labor_rate ?? 0);
   // Exclusive carpet-tile estimate office carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
   // Hard-surface estimate office carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
-  const cartons = hardSurfaceAreaCartonCount(l, qty);
+  // Exclusive carpet-tile estimate office order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface estimate office order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const cartons = hardSurfaceAreaCartonCount(l, lineOrderQty(l));
   return `${qty.toFixed(2)} ${unit} × ${formatMoney(rate)}${cartons ? ` · 📦 ${cartons} carton(s)` : ""}`;
 }
 
