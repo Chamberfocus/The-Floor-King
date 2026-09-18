@@ -492,19 +492,31 @@ export function ProductPicker({
                           )
                         : null;
                     // Hard-surface catalog picker cost line boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+                    // Exclusive carpet-tile catalog picker cost line boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                     const costAmount = money.cost.amount;
                     const costLine =
-                      !isCarpet && boxedArea && costAmount != null
+                      isCarpet && boxedArea && costAmount != null
                         ? catalogRateInLineUnit(
                             costAmount,
                             {
                               unit: p.unit,
                               category: p.category,
                               sqft_per_box: p.sqft_per_box,
+                              carpetInstallSystems,
                             },
-                            false,
+                            true,
                           )
-                        : costAmount;
+                        : !isCarpet && boxedArea && costAmount != null
+                          ? catalogRateInLineUnit(
+                              costAmount,
+                              {
+                                unit: p.unit,
+                                category: p.category,
+                                sqft_per_box: p.sqft_per_box,
+                              },
+                              false,
+                            )
+                          : costAmount;
                     return (
                       <button
                         key={p.id}
