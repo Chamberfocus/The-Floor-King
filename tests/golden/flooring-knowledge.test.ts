@@ -10572,7 +10572,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/EXTRA_AREA_COUNT_QTY_LABEL/);
     expect(q).toMatch(/not leftover sq ft and not a 30-yard roll/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
       /asks How many in that unit/,
@@ -10649,7 +10649,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/leftover measured sq ft/);
     expect(q).toMatch(/is not pad yards/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
     expect(q).toMatch(/accessories\.push\(\.\.\.extraCountReview\)/);
 
     expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
@@ -10702,7 +10702,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/isPadOrFoam &&/);
     expect(q).toMatch(/!areaDerivedMaterialAllowed/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
       /does not convert room square feet into pad yards on Review/,
@@ -10776,7 +10776,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/mainCountLine/);
     expect(q).toMatch(/qty\?: string/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
       /asks How many in that unit — room square feet is not pad yards/,
@@ -10855,7 +10855,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/extraCountQtyForEmit/);
     expect(q).toMatch(/extraCountReviewLine/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
     expect(q).not.toMatch(/STAIR_SQFT_TREAD_RISER/);
 
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
@@ -10917,7 +10917,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/coverage_sqft: cov/);
     expect(q).toMatch(/resolvedSheetSqft/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
     expect(q).not.toMatch(/sheet_sqft \?\? 32/);
     expect(q).not.toMatch(/default_thickness_in \?\? 0\.25/);
 
@@ -11109,7 +11109,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
     expect(ai).toMatch(/boxedCartonAreaTakeoffAllowed/);
@@ -11287,7 +11287,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const tileCtx = installContextFromValByKey({
       project_type: ["Carpet"],
@@ -11362,7 +11362,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Review does not print taped square feet as the order when carton coverage is missing/,
@@ -11469,7 +11469,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
     expect(ai).toMatch(/Builder carton-coverage TBD is How many \/ Unit TBD, never taped square feet/);
@@ -11581,7 +11581,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Builder count SKU \/ qty TBD lines are How many \/ Unit TBD, never taped square feet/,
@@ -11677,7 +11677,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/isAreaUnit\(p\.unit\) \? "" : p\.unit/);
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Picking a boxed SKU with coverage still takeoffs from measured area — catalog unit box is not How many boxes/,
@@ -11863,7 +11863,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Builder hydrate does not plant How many as taped sq ft on wrap \/ carton-coverage TBD \/ qty TBD — leftover quantity is not measured area/,
@@ -12064,7 +12064,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).toMatch(/not taped sq ft/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const builder = readFileSync(join(root, "src/app/(app)/estimates/estimate-builder.tsx"), "utf8");
     expect(builder).toMatch(/const identity = lineSkipsAreaCartonMath/);
@@ -12258,7 +12258,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).toMatch(/extraCountReviewLine/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const qty = readFileSync(join(root, "src/lib/flooring-knowledge/quantities.ts"), "utf8");
     expect(qty).toMatch(/not taped square feet and not a 30-yard roll/);
@@ -12349,7 +12349,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const takeoff = readFileSync(join(root, "src/lib/flooring-knowledge/takeoff.ts"), "utf8");
     expect(takeoff).toMatch(/export function reviewToJobNotes/);
@@ -12432,7 +12432,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print strip Guided takeoff room MEASURED sq ft and crew Warnings — those stay in stored job_description so the crew still sees taped area vs order/,
@@ -12507,7 +12507,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Customer print \/ portal itemized line notes strip wrap \/ carton-coverage TBD \/ qty TBD \/ room MEASURED sq ft identity — those stamps stay on stored lines so Builder \/ PO \/ WO \/ hydrate still skip leftover taped sq ft/,
@@ -12595,7 +12595,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print strip Guided takeoff crew Uncertainty — those stay in stored job_description so the crew still sees Field verify \/ TBD vs Known bag counts/,
@@ -12672,7 +12672,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(
       /Exclusive New construction hides tear-out — mixed Replacement \+ New construction still asks demo, pad removal, and toilets/,
@@ -12753,7 +12753,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify \/ TBD vs Known bag counts/,
@@ -12823,7 +12823,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print Site preparation strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify \/ TBD vs Known bag counts/,
@@ -12917,7 +12917,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Stair install — \$\{steps\} step/);
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print line labels strip stair-install step How many — those stay on stored lines so Builder still prices per step/,
@@ -13002,7 +13002,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/prepQuantitySuffix/);
     expect(q).toMatch(/Self-leveler\$\{suffix\}/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print line labels strip prep estimated \/ allowance suffix — those stay on stored lines so the crew still sees Field verify \/ TBD vs Known bag counts/,
@@ -13134,7 +13134,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Stair install — \$\{steps\} step/);
     expect(q).toMatch(/wrap qty TBD/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -13224,7 +13224,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print strip Guided takeoff Review section headers — those stay in stored job_description so the crew still sees Removal \/ Prep \/ Accessories grouping. Product names, accessory How many, and job conditions stay/,
@@ -13313,7 +13313,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print strip Guided takeoff Review bucket prefixes — those stay in stored job_description so the crew still sees Removal \/ Prep \/ Accessories grouping. Product names, accessory How many, and job conditions stay/,
@@ -13404,7 +13404,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -13512,7 +13512,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -13617,7 +13617,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -13763,7 +13763,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -13862,7 +13862,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -14010,7 +14010,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -14154,7 +14154,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -14314,7 +14314,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -14470,7 +14470,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -14641,7 +14641,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -14806,7 +14806,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -14982,7 +14982,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -15159,7 +15159,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -15331,7 +15331,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/reviewToJobNotes/);
     expect(q).not.toMatch(/companionQty/);
-    expect(q).not.toMatch(/padRollCount/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
 
     const print = readFileSync(
       join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
@@ -22035,6 +22035,204 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
       /Builder collapsed order pad-roll/,
+    );
+  });
+
+  it("0396 Exclusive carpet-tile Guided Estimate Review order pad-roll count stays off 30-yard roll math", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0396_flooring_knowledge_guided_review_order_pad_roll.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0396_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive carpet-tile Guided Estimate Review order pad-roll count stays off 30-yard roll math — mixed stretch-in \+ tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(
+      /Underlayment Guided Estimate Review order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap \/ count How many stays off 30-yard roll math. Do not invent a 30-yard roll/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(padRollCount("underlayment", 50, "sqyd")).toBe(2);
+    expect(padRollCount("underlayment", 450, "sqft")).toBe(0);
+    const padCalc = {
+      line_type: "mat_labor" as const,
+      description: "Rebond pad",
+      category: "underlayment",
+      unit: "sq yd",
+      quantity: 60,
+      waste_pct: 10,
+    };
+    expect(padRollCount("underlayment", lineQty(padCalc), "sqyd")).toBe(2);
+    expect(padRollCount("underlayment", lineOrderQty(padCalc), "sqyd")).toBe(3);
+    expect(
+      padRollCount("lvp", lineOrderQty({
+        line_type: "mat_labor",
+        category: "lvp",
+        unit: "sq ft",
+        quantity: 300,
+        waste_pct: 10,
+      }), "sqft"),
+    ).toBe(0);
+    expect(
+      padRollCount("carpet", lineOrderQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        quantity: 50,
+        waste_pct: 10,
+      }), "sqyd"),
+    ).toBe(0);
+
+    const q = readFileSync(
+      join(root, "src/app/(app)/estimates/questionnaire.tsx"),
+      "utf8",
+    );
+    expect(q).toMatch(/padRollCount\(l\.category, lineOrderQty\(smartLineToCalcLine\(l\)\)/);
+    expect(q).toMatch(/hardSurfaceAreaCartonCount/);
+    expect(q).toMatch(/lineOrderQty\(smartLineToCalcLine\(l\)/);
+    expect(q).toMatch(/\$\{l\.quantity\} \$\{lineDisplayUnit\(l\)\}/);
+    expect(q).toMatch(/formatMoney\(lineTotal\(smartLineToCalcLine\(l\)\)\)/);
+    expect(q).toMatch(/carton\(s\)/);
+    expect(q).toMatch(
+      /Exclusive carpet-tile Guided Estimate Review order pad-roll count stays off 30-yard roll math/,
+    );
+    expect(q).toMatch(
+      /Underlayment Guided Estimate Review order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+    expect(q).toMatch(
+      /Exclusive carpet-tile Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(q).not.toMatch(/category === ["']carpet_tile["']/);
+    expect(q).not.toMatch(/billedRateToCartonCost/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
+    expect(q).not.toMatch(/companionQty/);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/padRollCount\(summ\.category, lineOrderQty\(summ\)/);
+    expect(builder).not.toMatch(/Guided Estimate Review order pad-roll/);
+
+    const office = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(office).toMatch(/padRollCount\(l\.category, lineOrderQty\(l\)/);
+    expect(office).not.toMatch(/Guided Estimate Review order pad-roll/);
+
+    const editor = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/edit-scope.tsx"),
+      "utf8",
+    );
+    expect(editor).toMatch(/padRollCount\(l\.category, lineOrderQty/);
+    expect(editor).not.toMatch(/Guided Estimate Review order pad-roll/);
+
+    const incoming = readFileSync(
+      join(root, "src/app/(app)/warehouse/incoming-deliveries.tsx"),
+      "utf8",
+    );
+    expect(incoming).toMatch(/padRollCount\(i\.category, ordered/);
+    expect(incoming).not.toMatch(/Guided Estimate Review order pad-roll/);
+
+    const orderUi = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/order/order-materials.tsx"),
+      "utf8",
+    );
+    expect(orderUi).toMatch(/padRollCount\(line\.category, line\.qty/);
+    expect(orderUi).not.toMatch(/Guided Estimate Review order pad-roll/);
+
+    const card = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/job-materials-card.tsx"),
+      "utf8",
+    );
+    expect(card).toMatch(/padRollCount\(l\.category, l\.qty/);
+    expect(card).not.toMatch(/Guided Estimate Review order pad-roll/);
+
+    const warehouse = readFileSync(
+      join(root, "src/app/(app)/warehouse/page.tsx"),
+      "utf8",
+    );
+    expect(warehouse).toMatch(/padRollCount\(m\.category, m\.qty/);
+    expect(warehouse).not.toMatch(/Guided Estimate Review order pad-roll/);
+
+    const staging = readFileSync(
+      join(root, "src/app/(app)/warehouse/staging-sheet-doc.tsx"),
+      "utf8",
+    );
+    expect(staging).toMatch(/padRollCount\(g\.category, g\.qty/);
+    expect(staging).not.toMatch(/Guided Estimate Review order pad-roll/);
+
+    const jobScope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(jobScope).toMatch(/padRollCount\(l\.category, orderQ \|\| q/);
+    expect(jobScope).not.toMatch(/Guided Estimate Review order pad-roll/);
+
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"),
+      "utf8",
+    );
+    expect(wo).toMatch(/hardSurfaceAreaCartonCount\(l, lineOrderQty\(l\)/);
+    expect(wo).toMatch(/spec\.rolls/);
+    expect(wo).not.toMatch(/spec\.cartons/);
+    expect(wo).not.toMatch(/Guided Estimate Review order pad-roll/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).not.toMatch(/Guided Estimate Review order pad-roll/);
+    expect(print).not.toMatch(/padRollCount/);
+
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).not.toMatch(/Guided Estimate Review order pad-roll/);
+    expect(portal).not.toMatch(/padRollCount/);
+
+    const catalogForm = readFileSync(
+      join(root, "src/app/(app)/catalog/product-form.tsx"),
+      "utf8",
+    );
+    expect(catalogForm).toMatch(/\$ \/ unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile Guided Estimate Review order pad-roll count stays off 30-yard roll math/,
+    );
+    expect(pricing).toMatch(
+      /Underlayment Guided Estimate Review order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+    expect(pricing).toMatch(
+      /Underlayment Builder collapsed order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+
+    const help =
+      /Exclusive carpet-tile Guided Estimate Review order pad-roll count stays off 30-yard roll math — mixed stretch-in \+ tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Underlayment Guided Estimate Review order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap \/ count How many stays off 30-yard roll math. Do not invent a 30-yard roll/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /Guided Estimate Review order pad-roll/,
     );
   });
 
