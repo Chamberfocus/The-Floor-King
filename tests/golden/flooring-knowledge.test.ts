@@ -211,6 +211,7 @@ import {
   customerFacingLineNote,
   customerLineLabel,
   isCrewPrepConfidenceLine,
+  isCrewStairStepHowManyLine,
   isGuidedTakeoffMathLine,
   parseProjectDetails,
   stripCrewIdentityFromCustomerLabel,
@@ -12453,7 +12454,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       customerFacingLineNote(
         "13 steps, tread + riser — not an automatic sq ft/step order",
       ),
-    ).toBe("13 steps, tread + riser");
+    ).toBe("");
     expect(
       customerFacingLineNote(
         "wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
@@ -12994,6 +12995,152 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print line labels strip prep estimated \/ allowance suffix — those stay on stored lines so the crew still sees Field verify \/ TBD vs Known bag counts/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0333 Customer line notes strip leftover stair-step How many and prep confidence", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0333_flooring_knowledge_customer_line_steps.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0333_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer print \/ portal itemized line notes strip leftover stair-install step How many and crew prep confidence — those stay on stored lines so Builder still prices per step and the crew still sees Field verify \/ TBD vs Known bag counts/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(
+      customerFacingLineNote(
+        "13 steps, tread + riser — not an automatic sq ft/step order",
+      ),
+    ).toBe("");
+    expect(customerFacingLineNote("13 steps, tread + riser")).toBe("");
+    expect(customerFacingLineNote("8 steps")).toBe("");
+    expect(
+      customerFacingLineNote("How sure are we about the prep?: Field verify / TBD"),
+    ).toBe("");
+    expect(isCrewStairStepHowManyLine("13 steps, tread + riser")).toBe(true);
+    expect(isCrewPrepConfidenceLine("How sure are we about the prep?: Field verify / TBD")).toBe(
+      true,
+    );
+    expect(customerFacingLineNote("Match existing stair nose")).toBe(
+      "Match existing stair nose",
+    );
+    expect(customerFacingLineNote("Self-leveler (estimated)")).toBe("Self-leveler");
+
+    const asLine = (description: string, extra: Partial<EstimateLineItem> = {}) =>
+      ({
+        id: "l1",
+        option_id: "o1",
+        position: 0,
+        room: null,
+        description,
+        note: "13 steps, tread + riser — not an automatic sq ft/step order",
+        line_type: "mat_labor",
+        sqft: null,
+        length_in: null,
+        width_in: null,
+        measure_unit: "sqft",
+        material_rate: 0,
+        labor_rate: 45,
+        installed_rate: null,
+        flat_amount: null,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        item_no: null,
+        material_cost: 0,
+        labor_cost: 45,
+        quantity: 8,
+        unit: "step",
+        category: "labor",
+        ...extra,
+      }) as EstimateLineItem;
+
+    const labor = asLine("Stair install — 8 steps (tread + riser)");
+    expect(customerLineLabel(labor)).toBe("Stair install");
+    expect(customerFacingLineNote(labor.note)).toBe("");
+    expect(lineQty(labor)).toBe(8);
+
+    const leftover = asLine("13 steps, tread + riser", { note: "8 steps" });
+    expect(customerLineLabel(leftover)).not.toMatch(/\d+\s+steps?/i);
+    expect(customerFacingLineNote(leftover.note)).toBe("");
+
+    const wrap = asLine(
+      "Lifeproof Oak — 8 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+      {
+        category: "lvp",
+        unit: "box",
+        labor_rate: 0,
+        labor_cost: 0,
+        material_rate: 40,
+        material_cost: 320,
+        quantity: 8,
+        note: "13 steps, tread + riser",
+      },
+    );
+    expect(customerLineLabel(wrap)).toBe("Lifeproof Oak");
+    expect(customerFacingLineNote(wrap.note)).toBe("");
+    expect(lineQty(wrap)).toBe(8);
+
+    const notes = [
+      "Guided takeoff:",
+      "Accessories:",
+      "• Stair wrap: 8 box — not taped square feet and not a 30-yard roll",
+      "• 13 steps, tread + riser — not an automatic sq ft/step order",
+      "Conditions:",
+      "• Occupancy: Occupied",
+    ].join("\n");
+    const shown = customerFacingJobNotes(notes);
+    expect(shown).toMatch(/Stair wrap: 8 box/);
+    expect(shown).toMatch(/Occupancy: Occupied/);
+    expect(shown).not.toMatch(/13 steps/i);
+    expect(shown).not.toMatch(/not an automatic/i);
+
+    const parsed = parseProjectDetails(notes);
+    expect(parsed.details).toContain("Stair wrap: 8 box");
+    expect(parsed.details).toContain("Occupancy: Occupied");
+    expect(parsed.details.join("\n")).not.toMatch(/13 steps/i);
+    expect(parsed.flags.join("\n")).toMatch(/13 steps/i);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/Stair install — \$\{steps\} step/);
+    expect(q).toMatch(/wrap qty TBD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).toMatch(/customerFacingLineNote/);
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).toMatch(/customerFacingLineNote/);
+    const wo = readFileSync(join(root, "src/app/(app)/jobs/[id]/page.tsx"), "utf8");
+    expect(wo).toMatch(/\{l\.note\}/);
+    expect(wo).not.toMatch(/customerFacingLineNote/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer print \/ portal itemized line notes strip leftover stair-install step How many and crew prep confidence — those stay on stored lines so Builder still prices per step and the crew still sees Field verify \/ TBD vs Known bag counts/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer print \/ portal itemized line notes strip leftover stair-install step How many and crew prep confidence — those stay on stored lines so Builder still prices per step and the crew still sees Field verify \/ TBD vs Known bag counts/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

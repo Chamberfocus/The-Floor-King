@@ -73,6 +73,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print Site preparation strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
  * Customer / portal / print line labels strip stair-install step How many — those stay on stored lines so Builder still prices per step.
  * Customer / portal / print line labels strip prep estimated / allowance suffix — those stay on stored lines so the crew still sees Field verify / TBD vs Known bag counts.
+ * Customer print / portal itemized line notes strip leftover stair-install step How many and crew prep confidence — those stay on stored lines so Builder still prices per step and the crew still sees Field verify / TBD vs Known bag counts.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?)/i;
@@ -151,6 +152,23 @@ export function isCrewPrepConfidenceLine(raw: string): boolean {
   return false;
 }
 
+/** Crew stair-step How many leftover. Stored line notes keep the count. */
+export function isCrewStairStepHowManyLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
+  );
+  if (!stripped) return false;
+  return /^\d+\s+steps?\b/i.test(stripped);
+}
+
+function isCrewOnlyCustomerText(raw: string): boolean {
+  return (
+    isGuidedTakeoffMathLine(raw) ||
+    isCrewPrepConfidenceLine(raw) ||
+    isCrewStairStepHowManyLine(raw)
+  );
+}
+
 /** Customer print / portal narrative. Stored job_description keeps crew stamps. */
 export function customerFacingJobNotes(text: string | null | undefined): string {
   if (!text) return "";
@@ -168,7 +186,7 @@ export function customerFacingJobNotes(text: string | null | undefined): string 
       if (isNonFlagSectionHeader(trimmed)) inFlags = false;
       if (inFlags) return "";
       const body = stripCrewIdentityFromCustomerLabel(raw);
-      if (!body || isGuidedTakeoffMathLine(body) || isCrewPrepConfidenceLine(body)) return "";
+      if (!body || isCrewOnlyCustomerText(body)) return "";
       return `${indent}${body}`;
     })
     .join("\n")
@@ -181,7 +199,7 @@ export function customerFacingLineNote(raw: string | null | undefined): string {
   const s = (raw ?? "").trim();
   if (!s) return "";
   const stripped = stripCrewIdentityFromCustomerLabel(s);
-  if (!stripped || isGuidedTakeoffMathLine(stripped)) return "";
+  if (!stripped || isCrewOnlyCustomerText(stripped)) return "";
   if (
     /wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD/i.test(
       stripped,
@@ -199,7 +217,8 @@ export function customerFacingLineNote(raw: string | null | undefined): string {
  * everywhere.
  */
 export function customerLineLabel(l: EstimateLineItem): string {
-  const desc = stripCrewIdentityFromCustomerLabel((l.description ?? "").trim());
+  let desc = stripCrewIdentityFromCustomerLabel((l.description ?? "").trim());
+  if (desc && isCrewOnlyCustomerText(desc)) desc = "";
   const brand = [l.manufacturer, l.style].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
   const color = (l.color ?? "").trim();
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
@@ -210,7 +229,8 @@ export function customerLineLabel(l: EstimateLineItem): string {
 
 /** A labor / prep line described as work performed — no hours, no area. */
 function workItem(l: EstimateLineItem): ScopeItem {
-  const desc = stripCrewIdentityFromCustomerLabel((l.description ?? "").trim());
+  let desc = stripCrewIdentityFromCustomerLabel((l.description ?? "").trim());
+  if (desc && isCrewOnlyCustomerText(desc)) desc = "";
   const note = customerFacingLineNote(l.note);
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
   return { title: desc || catLabel || "Included work", detail: note || undefined };
@@ -226,7 +246,7 @@ function splitRoom(room: ScopeRoom): CustomerRoom {
   for (const l of room.labor) included.push(workItem(l));
   for (const prep of room.prep) {
     const title = stripCrewIdentityFromCustomerLabel(prep);
-    if (!title || isGuidedTakeoffMathLine(title) || isCrewPrepConfidenceLine(title))
+    if (!title || isCrewOnlyCustomerText(title))
       continue;
     included.push({ title });
   }
@@ -260,12 +280,7 @@ export function buildCustomerScope(
     },
     conditions: scope.conditions
       .map((c) => stripCrewIdentityFromCustomerLabel(c))
-      .filter(
-        (c) =>
-          c &&
-          !isGuidedTakeoffMathLine(c) &&
-          !isCrewPrepConfidenceLine(c),
-      ),
+      .filter((c) => c && !isCrewOnlyCustomerText(c)),
     notes: customerFacingJobNotes(scope.freeText),
   };
 }
@@ -318,7 +333,7 @@ export function parseProjectDetails(
     const cleaned = stripCrewIdentityFromCustomerLabel(
       line.replace(/^[•\-]\s*/, "").replace(/\?:/g, ":"),
     );
-    if (cleaned && isCrewPrepConfidenceLine(cleaned)) {
+    if (cleaned && (isCrewPrepConfidenceLine(cleaned) || isCrewStairStepHowManyLine(cleaned))) {
       flags.push(cleaned);
       continue;
     }
