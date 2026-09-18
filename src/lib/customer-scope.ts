@@ -77,6 +77,7 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print strip Guided takeoff Review section headers — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay.
  * Customer / portal / print strip Guided takeoff Review bucket prefixes — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay.
  * Customer / portal / print strip Guided takeoff stair-install step How many — those stay in stored job_description so Builder still prices per step. Wrap How many still stays.
+ * Customer / portal / print strip Guided takeoff waterfall / upholstered stair How many — those stay in stored job_description so Builder still prices wrap labor. Wrap How many still stays.
  */
 const CREW_IDENTITY_TAIL =
   /\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?)/i;
@@ -181,9 +182,7 @@ export function isCrewStairStepHowManyLine(raw: string): boolean {
   if (!stripped) return false;
   const shown = stripCrewReviewBucketPrefix(stripped);
   const text = shown || stripped;
-  if (/^\d+\s+steps?\b/i.test(text)) return true;
-  if (/:\s*\d+\s+steps?\b/i.test(text)) return true;
-  return false;
+  return /(?:^|:)\s*\d+\s+(?:steps?|waterfall|upholstered)\b/i.test(text);
 }
 
 function isCrewOnlyCustomerText(raw: string): boolean {
