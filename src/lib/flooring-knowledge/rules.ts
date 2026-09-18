@@ -60,6 +60,7 @@ import {
   EXISTING_FLOOR_AQUA_HIDES_KEYS,
   EXISTING_FLOOR_VAPOR_HIDES_KEYS,
   LOOSE_LAY_VAPOR_HIDES_KEYS,
+  NON_VINYL_DEMO_SKIM_HIDES_KEYS,
   DEFAULT_KNOWLEDGE_WHEN,
   FURNITURE_MOVING_KEYS,
   KNOWLEDGE_QUESTIONS,
@@ -658,6 +659,13 @@ export function questionApplies(
   ) {
     return false;
   }
+  if (
+    q.key &&
+    (NON_VINYL_DEMO_SKIM_HIDES_KEYS as readonly string[]).includes(q.key) &&
+    jobHidesVinylSkimOnNonVinylDemo(install)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -876,6 +884,36 @@ export function jobHidesVaporOnLooseLay(install: InstallContext): boolean {
   if (jobHasCarpetInstallScope(install)) return false;
   if (!install.families.includes("lvp")) return false;
   if (install.families.some((f) => f !== "lvp" && isHardSurfaceFamily(f))) return false;
+  return true;
+}
+
+function demoLabelIsSheetVinyl(label: string): boolean {
+  const t = label.trim();
+  if (!t) return false;
+  if (/sheet vinyl/i.test(t)) return true;
+  if (/lvp\s*\/\s*vinyl/i.test(t)) return true;
+  return false;
+}
+
+function demoLabelKeepsVinylSkimOpen(label: string): boolean {
+  const t = label.trim();
+  if (!t) return false;
+  if (/^(none|other)$/i.test(t)) return true;
+  if (/unknown|field verify|tbd/i.test(t)) return true;
+  return demoLabelIsSheetVinyl(t);
+}
+
+/**
+ * Existing-vinyl skim on exclusive non-vinyl tear-out. Carpet / LVP /
+ * laminate / hardwood / ceramic / luan demo is not embossed vinyl. None
+ * stays open — encapsulating existing vinyl has no tear-out chip. Other
+ * and Unknown stay open. Sheet vinyl demo still asks. Mixed Carpet +
+ * Sheet vinyl stays open. Unanswered stays open (0142).
+ */
+export function jobHidesVinylSkimOnNonVinylDemo(install: InstallContext): boolean {
+  const have = install.existingFlooring.map((l) => l.trim()).filter(Boolean);
+  if (!have.length) return false;
+  if (have.some(demoLabelKeepsVinylSkimOpen)) return false;
   return true;
 }
 
@@ -1125,7 +1163,7 @@ export function knowledgeHelpFor(
     return "Prefinished vs unfinished (site finish) changes sanding, finishing, and acclimation notes. Floor King has no sand/finish labor in the catalog — capture it as scope. Field verify if the SKU is not in front of you. Do not invent a sand-and-finish dollar amount.";
   }
   if (key === "hs_demo") {
-    return "What's coming up. Exclusive wall tile hides floor demo chips (carpet / LVP / hardwood / sheet vinyl / luan) — those are not a backsplash. Ceramic with/without mortar, None, and Other stay. Mixed LVP + wall still shows floor demo. Do not invent a second tear-out rate.";
+    return "What's coming up. Exclusive wall tile hides floor demo chips (carpet / LVP / hardwood / sheet vinyl / luan) — those are not a backsplash. Ceramic with/without mortar, None, and Other stay. Mixed LVP + wall still shows floor demo. Exclusive carpet / LVP / hardwood / ceramic / luan tear-out hides existing-vinyl skim — that demo is not embossed vinyl. None still asks skim when installing sheet vinyl. Do not invent a second tear-out rate.";
   }
   if (key === "existing_bond") {
     return "Glued-down LVP/laminate/vinyl is a different tear-out than floating. Scope note — existing demo rates stay. Exclusive wall tile hides this — that is floor demo.";
@@ -1251,7 +1289,7 @@ export function knowledgeHelpFor(
     return "Glue-down and carpet tile need adhesive from the catalog. Stretch-in and floating hide this. Exclusive laminate leftover Glue-down does not show this — laminate is floating. Exclusive sheet vinyl leftover Floating still asks this — sheet vinyl is glue-down. Carpet-only leftover Glue-down does not show this — carpet glue is on Carpet install. Mixed LVP still asks. Quantity is gallons or kits in Builder — taped square feet is not a glue order. A line with no sold-by unit shows How many / Unit TBD, not Sq ft. Do not invent coverage.";
   }
   if (key === "vinyl_skim") {
-    return "Embossed existing vinyl often needs a skim coat. New construction hides this — there is no existing vinyl. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";
+    return "Embossed existing vinyl often needs a skim coat. New construction hides this — there is no existing vinyl. Exclusive carpet / LVP / hardwood / ceramic / luan tear-out also hides this — that demo is not existing vinyl. None still asks — encapsulating existing vinyl has no tear-out chip. Other / Unknown stay open. Sheet vinyl demo still asks. Mixed Carpet + Sheet vinyl still asks. Unanswered stays open. If you cannot see it until demo, pick Field verify — do not invent a bag count here.";
   }
   if (key === "carpet_stairs") {
     return "Waterfall vs upholstered is stretch-in / glue-down wrap labor. Exclusive carpet tile hides this — modular tile on stairs is not a waterfall cut plan. Step count is EACH. We do not invent 6/8 sq ft of carpet per step as an order — include stairs in your cuts.";

@@ -158,6 +158,7 @@ const REQUIRED_FILES = [
   "0295_flooring_knowledge_existing_floor_aqua.sql",
   "0296_flooring_knowledge_new_build_furniture.sql",
   "0297_flooring_knowledge_loose_lay_vapor.sql",
+  "0298_flooring_knowledge_non_vinyl_skim.sql",
 ];
 
 /**
@@ -1935,6 +1936,16 @@ const REQUIRED_MARKERS = [
       "P0_0297_FLOORING_KNOWLEDGE",
       "not a click-floor",
       "Do NOT SQL-gate vapor_barrier on install_method",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0298_flooring_knowledge_non_vinyl_skim.sql",
+    markers: [
+      "P0_0298_FLOORING_KNOWLEDGE",
+      "not embossed vinyl",
+      "Do NOT SQL-gate vinyl_skim on hs_demo",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

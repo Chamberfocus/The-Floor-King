@@ -338,6 +338,15 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
    * Unknown stay open. Unanswered stays open (0142).
    */
   { key: "subfloor_needed", purpose: "PREP", phase: "prep" },
+  /**
+   * Embossed existing vinyl often needs a skim coat before new sheet vinyl.
+   * Exclusive non-vinyl tear-out (carpet / LVP / hardwood / ceramic / luan)
+   * hides this via NON_VINYL_DEMO_SKIM_HIDES_KEYS — that demo is not existing
+   * vinyl. None / Other stay open (encapsulation or unknown existing). Sheet
+   * vinyl demo still asks. Unanswered stays open (0142). New construction
+   * already hides via REMOVAL_QUESTION_KEYS. Do not SQL-gate vinyl_skim on
+   * hs_demo (0142).
+   */
   { key: "vinyl_skim", purpose: "PREP", phase: "prep", families: ["vinyl"] },
 
   // Details
@@ -784,6 +793,17 @@ export const EXISTING_FLOOR_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
  * vapor_barrier on install_method.
  */
 export const LOOSE_LAY_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
+
+/**
+ * Existing-vinyl skim hidden once every demo pick names a non-vinyl floor
+ * (carpet / LVP / laminate / hardwood / ceramic / luan). That tear-out is
+ * not embossed vinyl. None stays open — encapsulating existing vinyl has no
+ * tear-out chip. Other / Unknown / field verify stay open. Sheet vinyl demo
+ * still asks. Mixed Carpet + Sheet vinyl stays open. Unanswered stays open
+ * (0142). New construction already hides. Do not SQL-gate vinyl_skim on
+ * hs_demo.
+ */
+export const NON_VINYL_DEMO_SKIM_HIDES_KEYS = ["vinyl_skim"] as const;
 
 /**
  * Floating-floor vapor sheet bundled with underlayment. Glue-down, carpet tile,

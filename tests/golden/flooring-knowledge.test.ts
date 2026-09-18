@@ -98,6 +98,7 @@ import {
   EXISTING_FLOOR_AQUA_HIDES_KEYS,
   EXISTING_FLOOR_VAPOR_HIDES_KEYS,
   LOOSE_LAY_VAPOR_HIDES_KEYS,
+  NON_VINYL_DEMO_SKIM_HIDES_KEYS,
   CARPET_TILE_HIDES_KEYS,
   SOLID_HARDWOOD_HIDES_KEYS,
   jobHasNonTileFloorFamily,
@@ -121,6 +122,7 @@ import {
   jobHidesAquaBarOnGlueExistingFloor,
   jobHidesAquaBarOnExistingFloor,
   jobHidesVaporOnLooseLay,
+  jobHidesVinylSkimOnNonVinylDemo,
   labelsAreWoodDeckOnly,
   labelsAreExistingFlooringOnly,
   jobAllowsFloatingVaporUnderlayment,
@@ -9406,6 +9408,161 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     });
     expect(walkLoose).not.toContain("vapor_barrier");
     expect(walkLoose).not.toContain("adhesive");
+  });
+
+  it("0298 exclusive non-vinyl demo hides existing-vinyl skim", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0298_flooring_knowledge_non_vinyl_skim.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0298_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/not embossed vinyl/);
+    expect(sql).toMatch(/Do NOT SQL-gate vinyl_skim on hs_demo/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*hs_demo.*vinyl_skim|vinyl_skim.*show_if.*hs_demo/,
+    );
+
+    expect([...NON_VINYL_DEMO_SKIM_HIDES_KEYS]).toEqual(["vinyl_skim"]);
+    expect(
+      jobHidesVinylSkimOnNonVinylDemo(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Sheet vinyl"],
+          hs_demo: ["Carpet"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVinylSkimOnNonVinylDemo(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Sheet vinyl"],
+          hs_demo: ["LVP"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVinylSkimOnNonVinylDemo(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Sheet vinyl"],
+          hs_demo: ["Nailed hardwood"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVinylSkimOnNonVinylDemo(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Sheet vinyl"],
+          hs_demo: ["Ceramic WITHOUT mortar bed"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesVinylSkimOnNonVinylDemo(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Sheet vinyl"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVinylSkimOnNonVinylDemo(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Sheet vinyl"],
+          hs_demo: ["Sheet vinyl"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVinylSkimOnNonVinylDemo(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Sheet vinyl"],
+          hs_demo: ["None"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVinylSkimOnNonVinylDemo(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Sheet vinyl"],
+          hs_demo: ["Other"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesVinylSkimOnNonVinylDemo(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Sheet vinyl"],
+          hs_demo: ["Carpet", "Sheet vinyl"],
+        }),
+      ),
+    ).toBe(false);
+
+    const carpetDemo = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      install_method: ["Glue-down"],
+      hs_demo: ["Carpet"],
+    });
+    expect(carpetDemo).not.toContain("vinyl_skim");
+    expect(carpetDemo).toContain("vinyl_layout");
+    expect(carpetDemo).toContain("adhesive");
+
+    const lvpDemo = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      hs_demo: ["LVP"],
+    });
+    expect(lvpDemo).not.toContain("vinyl_skim");
+
+    const unanswered = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+    });
+    expect(unanswered).toContain("vinyl_skim");
+
+    const vinylDemo = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      hs_demo: ["Sheet vinyl"],
+    });
+    expect(vinylDemo).toContain("vinyl_skim");
+
+    const encapsulate = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      hs_demo: ["None"],
+    });
+    expect(encapsulate).toContain("vinyl_skim");
+
+    const mixedDemo = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      hs_demo: ["Carpet", "Sheet vinyl"],
+    });
+    expect(mixedDemo).toContain("vinyl_skim");
+
+    expect(knowledgeHelpFor({ key: "vinyl_skim" }, emptyInstallContext())).toMatch(
+      /Exclusive carpet \/ LVP \/ hardwood \/ ceramic \/ luan tear-out also hides this/,
+    );
+
+    const walkCarpet = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Sheet vinyl"],
+      install_method: ["Glue-down"],
+      hs_demo: ["Carpet"],
+    });
+    expect(walkCarpet).not.toContain("vinyl_skim");
+    expect(walkCarpet).toContain("vinyl_layout");
   });
 
   it("pattern repeat only after pattern match is required", () => {
