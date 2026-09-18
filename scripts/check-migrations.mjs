@@ -228,6 +228,7 @@ const REQUIRED_FILES = [
   "0365_flooring_knowledge_po_print_carton_cost.sql",
   "0366_flooring_knowledge_order_plan_boxed.sql",
   "0367_flooring_knowledge_picker_cost_unit.sql",
+  "0368_flooring_knowledge_job_purchasing_boxed.sql",
 ];
 
 /**
@@ -2771,6 +2772,19 @@ const REQUIRED_MARKERS = [
       "P0_0367_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile catalog picker cost line boxed rate onto sq yd shows /sq yd, not native /box 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Hard-surface catalog picker cost line boxed rate onto sq ft shows /sq ft, not native /box 1:1. Wrap / count How many stays 1:1. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0368_flooring_knowledge_job_purchasing_boxed.sql",
+    markers: [
+      "P0_0368_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile job purchasing boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Hard-surface job purchasing boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
