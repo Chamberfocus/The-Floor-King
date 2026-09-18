@@ -17,7 +17,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { searchCatalog } from "@/lib/data/products";
 import { catalogToLineMeasure, redactCatalogCost, roleMaySeeCatalogSell, hydrateCatalogPricing, type CatalogPricePurpose } from "@/lib/catalog-pricing";
-import { boxedCartonAreaTakeoffAllowed, familyFromCatalogCategory } from "@/lib/flooring-knowledge";
+import { boxedCartonAreaTakeoffAllowed, familyFromCatalogCategory, type InstallSystem } from "@/lib/flooring-knowledge";
 import { getProfile } from "@/lib/auth";
 import { catalogUnitFactor, pickedProductUnit } from "@/lib/units";
 import type { Product, ProductCategory } from "@/lib/types";
@@ -358,6 +358,11 @@ export async function saveProductRate(input: {
   measureUnit: "sqft" | "sqyd";
   /** Wrap / count How many stays 1:1 — catalog box rate onto an area line is $/coverage, not 1:1. */
   count?: boolean;
+  /**
+   * Exclusive carpet-tile Builder boxed rate onto that area line is $/coverage.
+   * Do not infer exclusive tile from unit=box — omit unless the line is modular coverage.
+   */
+  carpetInstallSystems?: InstallSystem[] | null;
 }): Promise<{ error: string | null }> {
   if (!input.productId) return { error: "Missing product." };
   let actor: string | null = null;
@@ -387,11 +392,14 @@ export async function saveProductRate(input: {
   // Convert using the line's printed billing unit, not leftover measure_unit.
   // Count catalog units stay 1:1. SY catalog vs sq-yd line is 1, not ÷9.
   // Catalog box rate onto an area line is $/coverage, not 1:1.
-  // Wrap / count How many stays 1:1. Do not invent coverage.
+  // Exclusive carpet-tile Builder boxed rate onto that area line is $/coverage, not 1:1 —
+  // mixed stretch-in + tile and unanswered carpet stay How many. Wrap / count How many stays 1:1.
+  // Do not invent coverage. Do not infer exclusive tile from unit=box.
   const boxedArea = boxedCartonAreaTakeoffAllowed({
     family: familyFromCatalogCategory((p.category as string) ?? "other"),
     productUnit: p.unit as string,
     sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
+    carpetInstallSystems: input.count ? undefined : input.carpetInstallSystems,
   });
   const countFactor = catalogUnitFactor(p.unit as string, input.measureUnit === "sqyd");
   const materialFactor =
@@ -401,6 +409,7 @@ export async function saveProductRate(input: {
           unit: p.unit as string,
           category: p.category as string,
           sqft_per_box: p.sqft_per_box,
+          carpetInstallSystems: input.count ? undefined : input.carpetInstallSystems,
         }).factor;
   const material_rate = r2(num(input.materialCost) / materialFactor);
   const labor_rate = r2(num(input.laborCost) / countFactor);

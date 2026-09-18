@@ -218,7 +218,7 @@ export function roleMaySeeCatalogMargin(role: UserRole | null | undefined): bool
  * count units 1:1; carpet/sheet vinyl bill per sq yd (×9 from per-sq-ft cost).
  * Catalog box rate onto an area line is $/coverage, not 1:1 — wrap / count How many stays 1:1.
  * Exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 —
- * mixed stretch-in + tile still waits for cuts. Do not invent coverage.
+ * mixed stretch-in + tile still waits for cuts. Exclusive carpet-tile Builder boxed rate onto that area line is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay How many. Do not invent coverage.
  */
 export function catalogToLineMeasure(product: {
   unit?: string | null;

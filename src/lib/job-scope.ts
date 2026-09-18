@@ -200,6 +200,18 @@ export function carpetLineIsModularCoverage(l: {
 }
 
 /**
+ * Exclusive-tile evidence for boxed catalog rate conversion in Builder.
+ * A modular coverage line (already area, not a cut plan) may convert $/box
+ * by coverage onto sq yd. Do not infer exclusive tile from unit=box —
+ * mixed stretch-in + tile and unanswered / blank carpet stay How many.
+ */
+export function carpetInstallSystemsForBoxedRate(
+  l: Parameters<typeof carpetLineIsModularCoverage>[0],
+): Array<"carpet_tile"> | undefined {
+  return carpetLineIsModularCoverage(l) ? ["carpet_tile"] : undefined;
+}
+
+/**
  * Build the carpet cut list from any line source: every roll-good piece with a
  * measured W×L, grouped for display and summed per roll. Each cut is read from
  * the line's OWN data — structured length_in/width_in when present, else the size

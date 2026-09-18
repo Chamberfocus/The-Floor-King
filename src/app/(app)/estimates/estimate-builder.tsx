@@ -34,7 +34,7 @@ import {
   resolveCommission,
 } from "@/lib/estimate-commission";
 import { ratesFromTargetMargin, landedMaterialForTarget } from "@/lib/estimate-pricing";
-import { parseCutsFromText, carpetLineIsModularCoverage } from "@/lib/job-scope";
+import { parseCutsFromText, carpetLineIsModularCoverage, carpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
 import {
   type Estimate,
   type EstimateLineItem,
@@ -245,6 +245,20 @@ function isCountLine(l: LineState): boolean {
     });
   }
   return false;
+}
+
+/** Exclusive-tile boxed rate: only when this line is already modular coverage. Do not infer from unit=box. */
+function lineCarpetInstallSystems(l: LineState) {
+  if (lineIsStairWrapTbd(l)) return undefined;
+  return carpetInstallSystemsForBoxedRate({
+    category: l.category,
+    order_as_roll: l.order_as_roll,
+    sqft: l.sqft,
+    quantity: l.quantity,
+    length_in: ftInToIn(l.len_ft, l.len_in) || null,
+    width_in: ftInToIn(l.wid_ft, l.wid_in) || null,
+    measurements: l.measurements.map(rowToMeasurement),
+  });
 }
 
 // Typical material waste by category (%), used as a smart default on pick.
@@ -1302,8 +1316,9 @@ export function EstimateBuilder({
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
                 const wrap = lineIsStairWrapTbd(l);
+                const carpetInstallSystems = wrap ? undefined : lineCarpetInstallSystems(l);
                 const snap = catalogLineSnapshot(
-                  wrap ? { ...p, sqft_per_box: null } : p,
+                  { ...(wrap ? { ...p, sqft_per_box: null } : p), carpetInstallSystems },
                   {
                     targetMarginPct: num(overallMargin),
                     freightMarkupPct: org?.freight_markup_pct ?? 0,
@@ -1313,6 +1328,7 @@ export function EstimateBuilder({
                   family: familyFromCatalogCategory(p.category ?? l.category),
                   productUnit: p.unit,
                   sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
+                  carpetInstallSystems,
                 });
                 // Wrap extras stay How many even when the wrap SKU has carton coverage.
                 let count = wrap ? true : snap.count;
@@ -1436,15 +1452,18 @@ export function EstimateBuilder({
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
                 const wrap = lineIsStairWrapTbd(l);
+                const carpetInstallSystems = wrap ? undefined : lineCarpetInstallSystems(l);
                 const boxedArea = boxedCartonAreaTakeoffAllowed({
                   family: familyFromCatalogCategory(input.category || l.category),
                   productUnit: input.unit,
                   sqftPerBox: specBox > 0 ? specBox : null,
+                  carpetInstallSystems,
                 });
                 const snap = catalogToLineMeasure({
                   unit: input.unit,
                   category: input.category,
                   sqft_per_box: wrap ? null : specBox > 0 ? specBox : null,
+                  carpetInstallSystems,
                 });
                 let count = wrap ? true : snap.count;
                 let lineUnit = snap.lineUnit;
@@ -1577,10 +1596,12 @@ export function EstimateBuilder({
     if (!d) return null;
     const rate = labor ? d.labor_rate : d.material_rate;
     const wrap = lineIsStairWrapTbd(l);
+    const carpetInstallSystems = wrap ? undefined : lineCarpetInstallSystems(l);
     const boxedArea = boxedCartonAreaTakeoffAllowed({
       family: familyFromCatalogCategory(d.category ?? l.category),
       productUnit: d.unit,
       sqftPerBox: Number(d.sqft_per_box) > 0 ? Number(d.sqft_per_box) : null,
+      carpetInstallSystems,
     });
     const factor =
       labor || wrap || !boxedArea
@@ -1589,6 +1610,7 @@ export function EstimateBuilder({
             unit: d.unit,
             category: d.category ?? l.category,
             sqft_per_box: d.sqft_per_box,
+            carpetInstallSystems,
           }).factor;
     return Math.round(rate * factor * 100) / 100;
   };
@@ -1600,12 +1622,14 @@ export function EstimateBuilder({
       for (const l of o.lines) {
         if (!l.save_default || !l.product_id || seen.has(l.product_id)) continue;
         seen.add(l.product_id);
+        const wrap = lineIsStairWrapTbd(l);
         await saveProductRate({
           productId: l.product_id,
           materialCost: num(l.material_cost),
           laborCost: num(l.labor_cost),
           measureUnit: lineUnitKey(l) === "sqyd" ? "sqyd" : "sqft",
-          count: isCountLine(l) || lineIsStairWrapTbd(l),
+          count: isCountLine(l) || wrap,
+          carpetInstallSystems: wrap || isCountLine(l) ? undefined : lineCarpetInstallSystems(l),
         });
       }
   };
