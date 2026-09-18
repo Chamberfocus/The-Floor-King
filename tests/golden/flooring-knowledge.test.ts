@@ -1219,21 +1219,21 @@ describe("family → system asks the right keys (not every question)", () => {
       carpet_install: ["Stretch-in"],
     });
     on(carpetStretch, ["work_type", "wet_area", "carpet_install", "carpet_cuts", "pattern_match", "tack_strip", "carpet_pad", "existing_pad", "existing_tack", "hs_demo", "substrate", "radiant_heat", "carpet_stairs"]);
-    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "carpet_tile_stairs", "install_method"]);
+    off(carpetStretch, ["adhesive", "attached_pad", "tile_setting", "vinyl_layout", "hardwood_fasteners", "hardwood_finish", "laminate_expansion", "acclimation", "moisture_test", "hs_direction", "carpet_tile_stairs", "install_method", "surface_type"]);
 
     const carpetGlue = visibleKnowledgeKeys({
       project_type: ["Carpet"],
       carpet_install: ["Glue-down"],
     });
     on(carpetGlue, ["adhesive", "vapor_barrier"]);
-    off(carpetGlue, ["tack_strip", "carpet_pad", "attached_pad", "tile_layout", "install_method"]);
+    off(carpetGlue, ["tack_strip", "carpet_pad", "attached_pad", "tile_layout", "install_method", "surface_type"]);
 
     const carpetTile = visibleKnowledgeKeys({
       project_type: ["Carpet"],
       carpet_install: ["Carpet tile"],
     });
     on(carpetTile, ["adhesive", "carpet_cuts", "carpet_tile_stairs", "acclimation", "moisture_test", "moisture_mitigation"]);
-    off(carpetTile, ["tack_strip", "carpet_pad", "laminate_expansion", "carpet_stairs", "pattern_match", "pattern_repeat", "carpet_direction", "vapor_barrier", "install_method"]);
+    off(carpetTile, ["tack_strip", "carpet_pad", "laminate_expansion", "carpet_stairs", "pattern_match", "pattern_repeat", "carpet_direction", "vapor_barrier", "install_method", "surface_type"]);
 
     const lam = visibleKnowledgeKeys({
       project_type: ["Hard surface"],
@@ -7449,7 +7449,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       /show_if.*carpet_install.*install_method|install_method.*show_if.*carpet_install/,
     );
 
-    expect([...CARPET_ONLY_HIDES_KEYS]).toEqual(["install_method"]);
+    expect(CARPET_ONLY_HIDES_KEYS).toEqual(expect.arrayContaining(["install_method"]));
     expect(
       jobIsExclusiveCarpetOnly(
         installContextFromValByKey({
@@ -7513,6 +7513,62 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
 
     const unanswered = visibleKnowledgeKeys({});
     expect(unanswered).toContain("install_method");
+  });
+
+  it("0284 exclusive carpet hides Surface type; mixed Carpet + LVP still asks", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0284_flooring_knowledge_carpet_surface.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0284_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/Exclusive carpet hides this/);
+    expect(sql).toMatch(/Do NOT SQL-gate surface_type on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate surface_type on project_type/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*carpet_install.*surface_type|surface_type.*show_if.*carpet_install/,
+    );
+
+    expect([...CARPET_ONLY_HIDES_KEYS]).toEqual(["install_method", "surface_type"]);
+    expect(knowledgeHelpFor({ key: "surface_type" }, emptyInstallContext())).toMatch(
+      /Exclusive carpet hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_install" }, emptyInstallContext())).toMatch(
+      /Install method picker and Surface type/,
+    );
+
+    const stretch = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("carpet_install");
+    expect(stretch).not.toContain("surface_type");
+    expect(stretch).not.toContain("install_method");
+
+    const leftoverHs = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+      surface_type: ["Hardwood"],
+    });
+    expect(leftoverHs).not.toContain("surface_type");
+    expect(leftoverHs).not.toContain("install_method");
+
+    const unansweredHs = visibleKnowledgeKeys({ project_type: ["Hard surface"] });
+    expect(unansweredHs).toContain("surface_type");
+    expect(unansweredHs).toContain("install_method");
+
+    const mixed = visibleKnowledgeKeys({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(mixed).toContain("surface_type");
+    expect(mixed).toContain("install_method");
+    expect(mixed).toContain("carpet_install");
+
+    const unanswered = visibleKnowledgeKeys({});
+    expect(unanswered).toContain("surface_type");
   });
 
   it("pattern repeat only after pattern match is required", () => {

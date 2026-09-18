@@ -54,6 +54,12 @@ export interface KnowledgeQuestionDef {
 export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
   { key: "project_type", purpose: "SCOPE", phase: "area" },
   // Product
+  /**
+   * Hard-surface family picker. Exclusive carpet hides this via
+   * CARPET_ONLY_HIDES_KEYS — LVP / hardwood / laminate / tile / sheet vinyl
+   * are not a carpet-only job. Mixed Carpet + LVP still asks. Unanswered HS
+   * stays open (0142). Do not SQL-gate surface_type on carpet_install.
+   */
   { key: "surface_type", purpose: "MATERIAL", phase: "product" },
   /**
    * Gate for per-room prep. Must sit with Measure (before rooms) so "set it by
@@ -535,12 +541,12 @@ export const MERGED_CLIMATE_HIDES_KEYS = ["ac_available", "heat_available"] as c
 export const MERGED_CURB_HIDES_KEYS = ["carpet_curb"] as const;
 
 /**
- * Hard-surface Install method hidden once the job is exclusive carpet.
- * Stretch-in / glue-down / carpet tile stay on carpet_install. Mixed Carpet
- * + LVP still asks. Unanswered HS stays open (0142). Do not SQL-gate
- * install_method on carpet_install.
+ * Hard-surface Install method and Surface type hidden once the job is
+ * exclusive carpet. Stretch-in / glue-down / carpet tile stay on
+ * carpet_install. Mixed Carpet + LVP still asks. Unanswered HS stays open
+ * (0142). Do not SQL-gate install_method or surface_type on carpet_install.
  */
-export const CARPET_ONLY_HIDES_KEYS = ["install_method"] as const;
+export const CARPET_ONLY_HIDES_KEYS = ["install_method", "surface_type"] as const;
 
 /**
  * Floor-only follow-ups hidden once tile_application is exclusively Wall
