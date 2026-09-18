@@ -363,6 +363,12 @@ export const KNOWLEDGE_QUESTIONS: KnowledgeQuestionDef[] = [
     require: { key: "carpet_tile_stairs", in: ["Yes"] },
   },
   { key: "hs_plank_stairs", purpose: "MEASUREMENT", phase: "details", families: ["lvp", "hardwood", "laminate", "vinyl", "tile"] },
+  /**
+   * Gripper / flat binder bars for roll-goods carpet at doorways. Exclusive
+   * carpet tile hides this via CARPET_TILE_HIDES_KEYS — modular tile is not
+   * a binder-bar plan. Stretch-in / glue-down keep it. Unanswered stays
+   * open (0142). Mixed LVP + exclusive tile uses hs_transitions.
+   */
   { key: "metals_needed", purpose: "ACCESSORY", phase: "details", families: ["carpet"] },
   {
     key: "metals_qty",
@@ -601,15 +607,21 @@ export const TILE_WALL_HIDES_KEYS = [
 export const FURNITURE_MOVING_KEYS = ["furniture_level", "furniture_heavy"] as const;
 
 /**
- * Roll-goods layout follow-ups hidden once carpet_install is exclusively
- * Carpet tile. Unanswered stays visible. Stretch-in / glue-down mixed with
- * tile still ask them — those rooms still need a cut plan. Do not SQL-gate
- * pattern_match on carpet_install (0142).
+ * Roll-goods layout and binder-bar follow-ups hidden once carpet_install is
+ * exclusively Carpet tile. Unanswered stays visible. Stretch-in / glue-down
+ * mixed with tile still ask them — those rooms still need a cut plan and
+ * doorway metals. Mixed LVP + exclusive tile hides metals (LVP uses
+ * hs_transitions). Do not SQL-gate pattern_match or metals_needed on
+ * carpet_install (0142).
  */
 export const CARPET_TILE_HIDES_KEYS = [
   "pattern_match",
   "pattern_repeat",
   "carpet_direction",
+  "metals_needed",
+  "metals_qty",
+  "metal_type",
+  "metal_color",
 ] as const;
 
 /**

@@ -149,6 +149,7 @@ const REQUIRED_FILES = [
   "0286_flooring_knowledge_hs_carpet_leftover.sql",
   "0287_flooring_knowledge_extra_pad_measured.sql",
   "0288_flooring_knowledge_dead_stair_gate.sql",
+  "0289_flooring_knowledge_carpet_tile_metals.sql",
 ];
 
 /**
@@ -1835,6 +1836,16 @@ const REQUIRED_MARKERS = [
       "leftover synthesizer",
       "Do NOT SQL-gate stair_landings on carpet_stairs",
       "Do NOT SQL-gate stairs on carpet_install",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0289_flooring_knowledge_carpet_tile_metals.sql",
+    markers: [
+      "P0_0289_FLOORING_KNOWLEDGE",
+      "binder bars for roll goods",
+      "Do NOT SQL-gate metals_needed on carpet_install",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

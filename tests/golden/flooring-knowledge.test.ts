@@ -5137,11 +5137,13 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       /show_if.*carpet_install.*pattern_match|pattern_match.*show_if.*carpet_install/,
     );
 
-    expect(CARPET_TILE_HIDES_KEYS).toEqual([
-      "pattern_match",
-      "pattern_repeat",
-      "carpet_direction",
-    ]);
+    expect(CARPET_TILE_HIDES_KEYS).toEqual(
+      expect.arrayContaining([
+        "pattern_match",
+        "pattern_repeat",
+        "carpet_direction",
+      ]),
+    );
     expect(
       jobIsExclusiveCarpetTile(
         installContextFromValByKey({
@@ -7837,6 +7839,126 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(after).not.toContain("stairs");
     expect(after).toContain("carpet_stairs");
     expect(after).toContain("stair_landings");
+  });
+
+  it("0289 exclusive carpet tile hides gripper/flat metals; stretch-in and glue-down keep them", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0289_flooring_knowledge_carpet_tile_metals.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0289_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/binder bars for roll goods/);
+    expect(sql).toMatch(/Do NOT SQL-gate metals_needed on carpet_install/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*carpet_install.*metals_needed|metals_needed.*show_if.*carpet_install/,
+    );
+
+    expect([...CARPET_TILE_HIDES_KEYS]).toEqual([
+      "pattern_match",
+      "pattern_repeat",
+      "carpet_direction",
+      "metals_needed",
+      "metals_qty",
+      "metal_type",
+      "metal_color",
+    ]);
+    expect(knowledgeHelpFor({ key: "metals_needed" }, emptyInstallContext())).toMatch(
+      /Exclusive carpet tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "metals_qty" }, emptyInstallContext())).toMatch(
+      /Exclusive carpet tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "metal_type" }, emptyInstallContext())).toMatch(
+      /Exclusive carpet tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "metal_color" }, emptyInstallContext())).toMatch(
+      /Exclusive carpet tile hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_install" }, emptyInstallContext())).toMatch(
+      /hides gripper\/flat metals/,
+    );
+
+    const unanswered = visibleKnowledgeKeys({ project_type: ["Carpet"] });
+    expect(unanswered).toContain("metals_needed");
+    expect(unanswered).toContain("metals_qty");
+
+    const stretch = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(stretch).toContain("metals_needed");
+
+    const glue = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+    });
+    expect(glue).toContain("metals_needed");
+
+    const tile = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(tile).not.toContain("metals_needed");
+    expect(tile).not.toContain("metals_qty");
+    expect(tile).not.toContain("metal_type");
+    expect(tile).not.toContain("metal_color");
+    expect(tile).toContain("adhesive");
+    expect(tile).toContain("carpet_tile_stairs");
+
+    const leftoverYes = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+      metals_needed: ["Yes"],
+    });
+    expect(leftoverYes).not.toContain("metals_needed");
+    expect(leftoverYes).not.toContain("metals_qty");
+    expect(leftoverYes).not.toContain("metal_type");
+    expect(leftoverYes).not.toContain("metal_color");
+
+    const mixedStretch = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in", "Carpet tile"],
+    });
+    expect(mixedStretch).toContain("metals_needed");
+
+    const mixedLvp = visibleKnowledgeKeys({
+      project_type: ["Carpet", "Hard surface"],
+      surface_type: ["LVP / LVT"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(mixedLvp).not.toContain("metals_needed");
+    expect(mixedLvp).toContain("hs_transitions");
+
+    const leftoverHs = visibleKnowledgeKeys({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+      install_method: ["Floating / click"],
+    });
+    expect(leftoverHs).not.toContain("metals_needed");
+
+    const walkTile = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Carpet tile"],
+    });
+    expect(walkTile).not.toContain("metals_needed");
+    expect(walkTile).not.toContain("metals_qty");
+
+    const walkStretch = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Stretch-in"],
+    });
+    expect(walkStretch).toContain("metals_needed");
+    expect(walkStretch).not.toContain("metals_qty");
+
+    const walkGlue = walk({
+      project_type: ["Carpet"],
+      carpet_install: ["Glue-down"],
+      metals_needed: ["Yes"],
+    });
+    expect(walkGlue).toContain("metals_needed");
+    expect(walkGlue).toContain("metals_qty");
   });
 
   it("pattern repeat only after pattern match is required", () => {
