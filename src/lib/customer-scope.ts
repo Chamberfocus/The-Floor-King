@@ -86,9 +86,26 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * Customer / portal / print strip leftover parenthetical dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  * Customer / portal / print strip leftover parenthetical count How many — those stay in stored job_description so the crew still sees pad rolls. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  * Customer / portal / print strip leftover em-dash parenthetical How many — those stay in stored job_description so the crew still sees pad rolls and room sizes. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ * Customer / portal / print strip leftover leading count How many — those stay in stored job_description so the crew still sees pad rolls. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
  */
 const CREW_QTY_UNIT =
   "(?:rolls?|lnft|l\\.?f\\.?|each|ea|gal(?:lons?)?|kits?|box(?:es)?|bags?|sheets?|ft|inches|inch|in|sqft|sqyd|yards?|yds?|cartons?|pcs?|pieces?|steps?)";
+/** Leading How many (`4 roll Pad`). Not `ft` / `in` — those collide with `12 ft Shaw`. */
+const CREW_LEADING_QTY_UNIT =
+  "(?:rolls?|lnft|l\\.?f\\.?|each|ea|gal(?:lons?)?|kits?|box(?:es)?|bags?|sheets?|yards?|yds?|cartons?|pcs?|pieces?)";
+const CREW_LEADING_COUNT = new RegExp(
+  String.raw`^(?:\(\s*\d+(?:\.\d+)?(?:["'%])?\s+` +
+    CREW_LEADING_QTY_UNIT +
+    String.raw`\b\s*\)|\d+(?:\.\d+)?(?:["'%])?\s+` +
+    CREW_LEADING_QTY_UNIT +
+    String.raw`\b)\s*(?:[—–-]\s*)?(?=\S)`,
+  "i",
+);
+
+function stripCrewLeadingCountHowMany(raw: string): string {
+  const next = raw.replace(CREW_LEADING_COUNT, "").trim();
+  return next || raw;
+}
 
 /** One side of a leftover room / cut size (`12'`, `12' 6"`, `12 ft`). */
 const CREW_FT_DIM =
@@ -149,16 +166,17 @@ function stripPrepConfidenceSuffix(raw: string): string {
 export function stripCrewIdentityFromCustomerLabel(raw: string): string {
   const s = (raw ?? "").trim();
   if (!s) return s;
+  const core = stripCrewLeadingCountHowMany(s);
   if (
     !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD|\d+\s+steps?\b|[—–-]\s*(?:cuts:|\(|\d+(?:\.\d+)?(?:["'″%]|\s*'|\s+(?:ft|in|inch|inches)\b|\s+[A-Za-z]))|\(\s*\d+/i.test(
-      s,
+      core,
     )
   ) {
-    return stripPrepConfidenceSuffix(s);
+    return stripPrepConfidenceSuffix(core);
   }
-  const cut = s.search(CREW_IDENTITY_TAIL);
-  if (cut > 0) return stripPrepConfidenceSuffix(s.slice(0, cut).trim());
-  const fallback = s
+  const cut = core.search(CREW_IDENTITY_TAIL);
+  if (cut > 0) return stripPrepConfidenceSuffix(core.slice(0, cut).trim());
+  const fallback = core
     .replace(
       /\s*\([^)]*(?:not taped sq ft|not an automatic sq ft\/step order|enter cuts)[^)]*\)\s*$/i,
       "",
@@ -174,7 +192,7 @@ export function stripCrewIdentityFromCustomerLabel(raw: string): string {
     .replace(new RegExp(CREW_PAREN_DIM_TAIL, "i"), "")
     .replace(new RegExp(CREW_PAREN_COUNT_TAIL, "i"), "")
     .trim();
-  return stripPrepConfidenceSuffix(fallback || s);
+  return stripPrepConfidenceSuffix(fallback || core);
 }
 
 function isCrewFlagsHeader(s: string): boolean {
@@ -325,7 +343,7 @@ export function customerFacingJobNotes(text: string | null | undefined): string 
       if (isCrewReviewSectionHeader(trimmed)) return "";
       const body = stripCrewIdentityFromCustomerLabel(raw);
       if (!body || isCrewOnlyCustomerText(body)) return "";
-      const shown = stripCrewReviewBucketPrefix(body);
+      const shown = stripCrewLeadingCountHowMany(stripCrewReviewBucketPrefix(body));
       if (!shown || isCrewReviewSectionHeader(shown) || isCrewOnlyCustomerText(shown))
         return "";
       return `${indent}${shown}`;
@@ -348,7 +366,7 @@ export function customerFacingLineNote(raw: string | null | undefined): string {
   ) {
     return "";
   }
-  const shown = stripCrewReviewBucketPrefix(stripped);
+  const shown = stripCrewLeadingCountHowMany(stripCrewReviewBucketPrefix(stripped));
   if (!shown || isCrewOnlyCustomerText(shown)) return "";
   return shown;
 }
@@ -360,7 +378,9 @@ export function customerFacingLineNote(raw: string | null | undefined): string {
  * everywhere.
  */
 export function customerLineLabel(l: EstimateLineItem): string {
-  let desc = stripCrewIdentityFromCustomerLabel((l.description ?? "").trim());
+  let desc = stripCrewLeadingCountHowMany(
+    stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel((l.description ?? "").trim())),
+  );
   if (desc && isCrewOnlyCustomerText(desc)) desc = "";
   const brand = [l.manufacturer, l.style].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
   const color = (l.color ?? "").trim();
@@ -372,7 +392,9 @@ export function customerLineLabel(l: EstimateLineItem): string {
 
 /** A labor / prep line described as work performed — no hours, no area. */
 function workItem(l: EstimateLineItem): ScopeItem {
-  let desc = stripCrewIdentityFromCustomerLabel((l.description ?? "").trim());
+  let desc = stripCrewLeadingCountHowMany(
+    stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel((l.description ?? "").trim())),
+  );
   if (desc && isCrewOnlyCustomerText(desc)) desc = "";
   const note = customerFacingLineNote(l.note);
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
@@ -388,7 +410,9 @@ function splitRoom(room: ScopeRoom): CustomerRoom {
   }
   for (const l of room.labor) included.push(workItem(l));
   for (const prep of room.prep) {
-    const title = stripCrewIdentityFromCustomerLabel(prep);
+    const title = stripCrewLeadingCountHowMany(
+      stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel(prep)),
+    );
     if (!title || isCrewOnlyCustomerText(title))
       continue;
     included.push({ title });
@@ -423,7 +447,9 @@ export function buildCustomerScope(
     },
     conditions: scope.conditions
       .map((c) =>
-        stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel(c)),
+        stripCrewLeadingCountHowMany(
+          stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel(c)),
+        ),
       )
       .filter(
         (c) =>
@@ -485,7 +511,7 @@ export function parseProjectDetails(
       continue;
     }
     if (!cleaned || isGuidedTakeoffMathLine(cleaned)) continue;
-    const shown = stripCrewReviewBucketPrefix(cleaned);
+    const shown = stripCrewLeadingCountHowMany(stripCrewReviewBucketPrefix(cleaned));
     if (shown && (isCrewPrepConfidenceLine(shown) || isCrewStairStepHowManyLine(shown) || isCrewLabeledCountHowManyLine(shown) || isCrewUnlabeledCountHowManyLine(shown) || isCrewDimensionHowManyLine(shown))) {
       flags.push(shown);
       continue;
