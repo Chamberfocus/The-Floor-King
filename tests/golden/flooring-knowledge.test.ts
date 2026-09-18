@@ -213,6 +213,7 @@ import {
   isCrewPrepConfidenceLine,
   isCrewReviewSectionHeader,
   isCrewStairStepHowManyLine,
+  isCrewLabeledCountHowManyLine,
   isGuidedTakeoffMathLine,
   parseProjectDetails,
   stripCrewIdentityFromCustomerLabel,
@@ -13523,6 +13524,111 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
     expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
       /Customer \/ portal \/ print strip Guided takeoff waterfall \/ upholstered stair How many — those stay in stored job_description so Builder still prices wrap labor. Wrap How many still stays/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+  });
+
+  it("0338 Customer copy strips Guided takeoff labeled count How many", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0338_flooring_knowledge_customer_count_qty.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0338_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff labeled count How many — those stay in stored job_description so the crew still sees toilets \/ trim \/ metals counts. Wrap How many and Self-leveler bag How many stay/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+
+    expect(isCrewLabeledCountHowManyLine("Toilets: 2")).toBe(true);
+    expect(isCrewLabeledCountHowManyLine("Quarter round: 40 lnft")).toBe(true);
+    expect(isCrewLabeledCountHowManyLine("Metals: 4")).toBe(true);
+    expect(isCrewLabeledCountHowManyLine("Adhesive: 2 gal")).toBe(true);
+    expect(isCrewLabeledCountHowManyLine("Stair landings: 1")).toBe(true);
+    expect(isCrewLabeledCountHowManyLine("Stair wrap: 8 box")).toBe(false);
+    expect(isCrewLabeledCountHowManyLine("Self-leveler: 15 bag")).toBe(false);
+    expect(isCrewLabeledCountHowManyLine("Occupancy: Occupied")).toBe(false);
+    expect(isCrewLabeledCountHowManyLine("Subfloor: Concrete")).toBe(false);
+    expect(isCrewLabeledCountHowManyLine("Lifeproof Oak")).toBe(false);
+
+    const review = buildSalespersonReview({
+      rooms: [],
+      products: ["Lifeproof Oak"],
+      takeoffs: [],
+      ctx: emptyInstallContext(),
+      removal: [],
+      installation: [],
+      prep: ["Self-leveler: 15 bag — not taped square feet"],
+      accessories: [
+        "Stair wrap: 8 box — not taped square feet and not a 30-yard roll",
+        "Quarter round: 40 lnft",
+      ],
+      specials: ["Occupancy: Occupied", "Toilets: 2"],
+    });
+    const stored = reviewToJobNotes(review);
+    expect(stored).toMatch(/Prep: Self-leveler: 15 bag/);
+    expect(stored).toMatch(/Accessorie: Stair wrap: 8 box/);
+    expect(stored).toMatch(/Quarter round: 40 lnft/);
+    expect(stored).toMatch(/Toilets: 2/);
+
+    const shown = customerFacingJobNotes(stored);
+    expect(shown).toMatch(/Guided takeoff:/);
+    expect(shown).toMatch(/Self-leveler: 15 bag/);
+    expect(shown).toMatch(/Stair wrap: 8 box/);
+    expect(shown).toMatch(/Occupancy: Occupied/);
+    expect(shown).toMatch(/Lifeproof Oak/);
+    expect(shown).not.toMatch(/Toilets:\s*2/);
+    expect(shown).not.toMatch(/Quarter round: 40 lnft/);
+    expect(shown).not.toMatch(/not taped square feet/i);
+
+    expect(customerFacingLineNote("Toilets: 2")).toBe("");
+    expect(customerFacingLineNote("Quarter round: 40 lnft")).toBe("");
+    expect(customerFacingLineNote("Stair wrap: 8 box")).toBe("Stair wrap: 8 box");
+    expect(customerFacingLineNote("Self-leveler: 15 bag")).toBe("Self-leveler: 15 bag");
+
+    const parsed = parseProjectDetails(stored);
+    expect(parsed.details).toContain("Self-leveler: 15 bag");
+    expect(parsed.details).toContain("Stair wrap: 8 box");
+    expect(parsed.details).toContain("Occupancy: Occupied");
+    expect(parsed.details.join("\n")).not.toMatch(/Toilets:\s*2/);
+    expect(parsed.details.join("\n")).not.toMatch(/Quarter round: 40 lnft/);
+    expect(parsed.flags.join("\n")).toMatch(/Toilets:\s*2/);
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/reviewToJobNotes/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/padRollCount/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).toMatch(/customerFacingJobNotes/);
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).toMatch(/parseProjectDetails/);
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"),
+      "utf8",
+    );
+    expect(wo).not.toMatch(/customerFacingJobNotes/);
+
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff labeled count How many — those stay in stored job_description so the crew still sees toilets \/ trim \/ metals counts. Wrap How many and Self-leveler bag How many stay/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(
+      /Customer \/ portal \/ print strip Guided takeoff labeled count How many — those stay in stored job_description so the crew still sees toilets \/ trim \/ metals counts. Wrap How many and Self-leveler bag How many stay/,
     );
     expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
       /Exclusive tile hides the 6-mil/,

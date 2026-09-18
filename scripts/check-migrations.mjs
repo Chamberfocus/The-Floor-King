@@ -198,6 +198,7 @@ const REQUIRED_FILES = [
   "0335_flooring_knowledge_customer_review_buckets.sql",
   "0336_flooring_knowledge_customer_review_steps.sql",
   "0337_flooring_knowledge_customer_stair_types.sql",
+  "0338_flooring_knowledge_customer_count_qty.sql",
 ];
 
 /**
@@ -2378,6 +2379,18 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0337_FLOORING_KNOWLEDGE",
       "Customer / portal / print strip Guided takeoff waterfall / upholstered stair How many — those stay in stored job_description so Builder still prices wrap labor. Wrap How many still stays",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0338_flooring_knowledge_customer_count_qty.sql",
+    markers: [
+      "P0_0338_FLOORING_KNOWLEDGE",
+      "Customer / portal / print strip Guided takeoff labeled count How many — those stay in stored job_description so the crew still sees toilets / trim / metals counts. Wrap How many and Self-leveler bag How many stay",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
