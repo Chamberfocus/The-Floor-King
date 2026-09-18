@@ -118,6 +118,7 @@ import {
   jobHidesVaporOnGlueExistingFloor,
   jobHidesVaporOnExistingFloor,
   jobHidesAquaBarOnGlueExistingFloor,
+  jobHidesAquaBarOnExistingFloor,
   labelsAreWoodDeckOnly,
   labelsAreExistingFlooringOnly,
   jobAllowsFloatingVaporUnderlayment,
@@ -8963,6 +8964,185 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/billingUnitForArea/);
     expect(q).toMatch(/takeoffDisplayTitle/);
     expect(q).not.toMatch(/if \(family === "other"\) return;/);
+  });
+
+  it("0295 exclusive existing flooring hides Aqua bar for nail/staple/floating hardwood", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0295_flooring_knowledge_existing_floor_aqua.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0295_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/not an existing-floor primer/);
+    expect(sql).toMatch(/Do NOT SQL-gate moisture_mitigation on substrate/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*substrate.*moisture_mitigation|moisture_mitigation.*show_if.*substrate/,
+    );
+
+    expect([...EXISTING_FLOOR_AQUA_HIDES_KEYS]).toEqual(["moisture_mitigation"]);
+    expect(
+      jobHidesAquaBarOnExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Nail-down"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesAquaBarOnExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Staple-down"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesAquaBarOnExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Engineered hardwood"],
+          install_method: ["Floating / click"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      jobHidesAquaBarOnGlueExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Nail-down"],
+          substrate: ["Existing flooring"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesAquaBarOnExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Nail-down"],
+          substrate: ["Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesAquaBarOnExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Nail-down"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesAquaBarOnExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Nail-down"],
+          substrate: ["Existing flooring", "Concrete"],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      jobHidesAquaBarOnExistingFloor(
+        installContextFromValByKey({
+          project_type: ["Hard surface"],
+          surface_type: ["Hardwood"],
+          install_method: ["Nail-down"],
+          substrate: ["Existing flooring"],
+          subfloor_condition: ["Moisture concerns"],
+        }),
+      ),
+    ).toBe(false);
+
+    const nail = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Existing flooring"],
+    });
+    expect(nail).not.toContain("moisture_mitigation");
+    expect(nail).not.toContain("vapor_barrier");
+    expect(nail).toContain("moisture_test");
+    expect(nail).toContain("hardwood_fasteners");
+
+    const staple = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Staple-down"],
+      substrate: ["Existing flooring"],
+    });
+    expect(staple).not.toContain("moisture_mitigation");
+    expect(staple).toContain("moisture_test");
+
+    const engFloat = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Engineered hardwood"],
+      install_method: ["Floating / click"],
+      substrate: ["Existing flooring"],
+    });
+    expect(engFloat).not.toContain("moisture_mitigation");
+    expect(engFloat).not.toContain("vapor_barrier");
+    expect(engFloat).toContain("moisture_test");
+    expect(engFloat).toContain("attached_pad");
+
+    const nailConcrete = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Concrete"],
+    });
+    expect(nailConcrete).toContain("moisture_mitigation");
+    expect(nailConcrete).toContain("moisture_test");
+
+    const unanswered = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+    });
+    expect(unanswered).toContain("moisture_mitigation");
+    expect(unanswered).toContain("moisture_test");
+
+    const mixedSub = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Existing flooring", "Concrete"],
+    });
+    expect(mixedSub).toContain("moisture_mitigation");
+
+    const moistureFlag = visibleKnowledgeKeys({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Existing flooring"],
+      subfloor_condition: ["Moisture concerns"],
+    });
+    expect(moistureFlag).toContain("moisture_mitigation");
+
+    expect(knowledgeHelpFor({ key: "moisture_mitigation" }, emptyInstallContext())).toMatch(
+      /Exclusive hardwood nail\/staple\/floating over existing flooring also hides this/,
+    );
+    expect(knowledgeHelpFor({ key: "moisture_test" }, emptyInstallContext())).toMatch(
+      /Exclusive hardwood nail\/staple\/floating over existing flooring also hides Aqua bar/,
+    );
+
+    const walkNail = walk({
+      project_type: ["Hard surface"],
+      surface_type: ["Hardwood"],
+      install_method: ["Nail-down"],
+      substrate: ["Existing flooring"],
+    });
+    expect(walkNail).not.toContain("moisture_mitigation");
+    expect(walkNail).toContain("moisture_test");
   });
 
   it("pattern repeat only after pattern match is required", () => {

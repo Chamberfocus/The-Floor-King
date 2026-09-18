@@ -155,6 +155,7 @@ const REQUIRED_FILES = [
   "0292_flooring_knowledge_existing_floor_vapor.sql",
   "0293_flooring_knowledge_dead_stair_followups.sql",
   "0294_flooring_knowledge_pad_takeoff.sql",
+  "0295_flooring_knowledge_existing_floor_aqua.sql",
 ];
 
 /**
@@ -1902,6 +1903,16 @@ const REQUIRED_MARKERS = [
       "P0_0294_FLOORING_KNOWLEDGE",
       "not a 30-yard roll",
       "Do NOT SQL-gate carpet_pad on surface_type",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0295_flooring_knowledge_existing_floor_aqua.sql",
+    markers: [
+      "P0_0295_FLOORING_KNOWLEDGE",
+      "not an existing-floor primer",
+      "Do NOT SQL-gate moisture_mitigation on substrate",
       "Does NOT invent carton coverage",
       "Does NOT enable accounting",
     ],

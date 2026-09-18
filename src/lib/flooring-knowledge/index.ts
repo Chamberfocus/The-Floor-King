@@ -220,6 +220,7 @@ export {
   jobHidesVaporOnGlueExistingFloor,
   jobHidesVaporOnExistingFloor,
   jobHidesAquaBarOnGlueExistingFloor,
+  jobHidesAquaBarOnExistingFloor,
   jobAllowsFloatingVaporUnderlayment,
   choiceOptionApplies,
   type InstallContext,

@@ -745,9 +745,10 @@ export const WOOD_DECK_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
 export const GLUE_EXISTING_VAPOR_HIDES_KEYS = ["vapor_barrier"] as const;
 
 /**
- * Aqua bar / primer hidden once exclusive glue-down or carpet tile is over
- * Existing flooring. Aqua bar is a slab coating, not an existing-floor
- * primer. Moisture test still asks (unknown what's under). Mixed existing
+ * Aqua bar / primer hidden once every substrate pick is Existing flooring.
+ * Aqua bar is a slab coating, not an existing-floor primer — exclusive
+ * glue / carpet tile (0290) and exclusive hardwood nail / staple / floating
+ * all hide. Moisture test still asks (unknown what's under). Mixed existing
  * + concrete stays open. A moisture-concern flag still asks. Unanswered
  * substrate stays open (0142). Do not SQL-gate moisture_mitigation on
  * substrate.
