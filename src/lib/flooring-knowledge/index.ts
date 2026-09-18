@@ -170,6 +170,7 @@ export {
   rollGoodsHaveCuts,
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
+  extraMeasuredSqftForTakeoff,
   measuredInstallLaborAllowed,
   configuredInstallRate,
   materialWastePctForEmit,

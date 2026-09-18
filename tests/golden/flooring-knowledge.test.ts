@@ -182,6 +182,7 @@ import {
   billingUnitForCategory,
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
+  extraMeasuredSqftForTakeoff,
   measuredInstallLaborAllowed,
   configuredInstallRate,
   rollGoodsSeamWarnings,
@@ -10399,6 +10400,83 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       /Additional pad for a specific area is MEASURED sq ft/,
     );
     expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /without typing measured sq ft/,
+    );
+  });
+
+  it("0305 leftover extra sq ft is not Review pad yards", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0305_flooring_knowledge_extra_leftover_sqft.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0305_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(/leftover measured sq ft on a count or TBD extra/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_pad on surface_type/);
+    expect(sql).toMatch(/Do NOT drop underlayment from SQYD_CATEGORIES/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(
+      /show_if.*surface_type.*carpet_pad|carpet_pad.*show_if.*surface_type/,
+    );
+
+    expect(extraMeasuredSqftForTakeoff({ family: "other", productUnit: "", measuredSqft: 450 })).toBe(
+      null,
+    );
+    expect(extraMeasuredSqftForTakeoff({ family: "other", productUnit: "gal", measuredSqft: 450 })).toBe(
+      null,
+    );
+    expect(extraMeasuredSqftForTakeoff({ family: "other", productUnit: "roll", measuredSqft: 450 })).toBe(
+      null,
+    );
+    expect(extraMeasuredSqftForTakeoff({ family: "other", productUnit: "each", measuredSqft: 450 })).toBe(
+      null,
+    );
+    expect(extraMeasuredSqftForTakeoff({ family: "other", productUnit: "sqyd", measuredSqft: 450 })).toBe(
+      450,
+    );
+    expect(extraMeasuredSqftForTakeoff({ family: "other", productUnit: "sqft", measuredSqft: 200 })).toBe(
+      200,
+    );
+    expect(extraMeasuredSqftForTakeoff({ family: "lvp", productUnit: "sqft", measuredSqft: 180 })).toBe(
+      180,
+    );
+    expect(
+      extraMeasuredSqftForTakeoff({
+        family: "carpet",
+        productUnit: "sqyd",
+        measuredSqft: 450,
+      }),
+    ).toBe(null);
+    expect(
+      extraMeasuredSqftForTakeoff({
+        family: "carpet",
+        productUnit: "sqyd",
+        measuredSqft: 450,
+        carpetInstallSystems: ["carpet_tile"],
+      }),
+    ).toBe(450);
+    expect(extraMeasuredSqftForTakeoff({ family: "other", productUnit: "sqyd", measuredSqft: 0 })).toBe(
+      null,
+    );
+
+    const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
+    expect(q).toMatch(/extraMeasuredSqftForTakeoff/);
+    expect(q).toMatch(/extraKeepMeasured/);
+    expect(q).toMatch(/leftover measured sq ft/);
+    expect(q).toMatch(/is not pad yards/);
+
+    expect(EXTRA_AREA_COUNT_TBD_HINT).toMatch(/Review takeoff ignores leftover taped sq ft/);
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /leftover measured sq ft on a count or TBD extra/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
+      /Additional pad for a specific area is MEASURED sq ft/,
+    );
+    expect(knowledgeHelpFor({ key: "hs_underlayment" }, emptyInstallContext())).toMatch(
+      /leftover measured sq ft on a count or TBD extra/,
+    );
+    expect(knowledgeHelpFor({ key: "carpet_pad" }, emptyInstallContext())).toMatch(
       /without typing measured sq ft/,
     );
   });

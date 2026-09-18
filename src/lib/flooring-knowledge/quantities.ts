@@ -146,6 +146,26 @@ export function areaDerivedMaterialQty(args: {
 }
 
 /**
+ * Measured sq ft that may ride onto an extra-SKU Review takeoff (and the
+ * extra's own taped-area field). Count / TBD / roll-goods extras return
+ * null — leftover typed square feet is not pad yards, not foam feet, and
+ * not an order. Do not invent a 30-yard roll.
+ */
+export function extraMeasuredSqftForTakeoff(args: {
+  family: FlooringFamily;
+  productUnit?: string | null;
+  measuredSqft: number;
+  carpetInstallSystems?: InstallSystem[] | null;
+}): number | null {
+  if (!areaDerivedMaterialAllowed(args.family, args.productUnit, args.carpetInstallSystems)) {
+    return null;
+  }
+  const n = Number(args.measuredSqft);
+  if (!(n > 0) || !Number.isFinite(n)) return null;
+  return r2(n);
+}
+
+/**
  * Whether install labor may be billed from measured area on the floor-map /
  * product path. Roll goods with cuts: no — the cuts step already emits
  * install against cut yardage. Roll goods without cuts: yes — install is
@@ -492,7 +512,7 @@ export const EXTRA_AREA_MEASURED_PLACEHOLDER = "measured sq ft";
 export const EXTRA_AREA_MEASURED_HINT =
   "This is taped area for that extra pad — not a 30-yard roll and not the billing unit. Carpet pad bills in square yards unless the SKU is feet.";
 export const EXTRA_AREA_COUNT_TBD_HINT =
-  "Qty TBD in Builder (How many / Unit TBD) — not taped square feet. Do not plant leftover sq ft.";
+  "Qty TBD in Builder (How many / Unit TBD) — not taped square feet. Do not plant leftover sq ft. Review takeoff ignores leftover taped sq ft — not pad yards.";
 
 export function formatBillingQty(qty: number, unit: string): string {
   const key = normalizeUnit(unit);

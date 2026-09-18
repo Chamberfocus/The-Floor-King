@@ -165,6 +165,7 @@ const REQUIRED_FILES = [
   "0302_flooring_knowledge_none_disposal.sql",
   "0303_flooring_knowledge_tile_install_method.sql",
   "0304_flooring_knowledge_extra_pad_tbd.sql",
+  "0305_flooring_knowledge_extra_leftover_sqft.sql",
 ];
 
 /**
@@ -2014,6 +2015,17 @@ const REQUIRED_MARKERS = [
     markers: [
       "P0_0304_FLOORING_KNOWLEDGE",
       "without typing measured sq ft",
+      "Do NOT SQL-gate carpet_pad on surface_type",
+      "Do NOT drop underlayment from SQYD_CATEGORIES",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0305_flooring_knowledge_extra_leftover_sqft.sql",
+    markers: [
+      "P0_0305_FLOORING_KNOWLEDGE",
+      "leftover measured sq ft on a count or TBD extra",
       "Do NOT SQL-gate carpet_pad on surface_type",
       "Do NOT drop underlayment from SQYD_CATEGORIES",
       "Does NOT invent carton coverage",

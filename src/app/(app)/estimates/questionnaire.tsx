@@ -90,6 +90,7 @@ import {
   areaBillsBySquareYard,
   areaDerivedMaterialAllowed,
   areaDerivedMaterialQty,
+  extraMeasuredSqftForTakeoff,
   measuredInstallLaborAllowed,
   configuredInstallRate,
   rollGoodsSeamWarnings,
@@ -1349,11 +1350,17 @@ export function Questionnaire({
         for (const ex of a.extras) {
           if (!ex.product) continue;
           const exFam = familyFromCatalogCategory(ex.product.category || cat);
-          if (areaDerivedMaterialAllowed(exFam, ex.product.unit, carpetSystems)) {
-            if (numv(ex.sqft) <= 0) continue;
-            out.push(matLine(ex.product, { sqft: numv(ex.sqft) }));
+          const extraSf = extraMeasuredSqftForTakeoff({
+            family: exFam,
+            productUnit: ex.product.unit,
+            measuredSqft: numv(ex.sqft),
+            carpetInstallSystems: carpetSystems,
+          });
+          if (extraSf != null) {
+            out.push(matLine(ex.product, { sqft: extraSf }));
             continue;
           }
+          if (areaDerivedMaterialAllowed(exFam, ex.product.unit, carpetSystems)) continue;
           if (
             isRollGoodsFamily(exFam) &&
             rollGoodsNeedCuts(exFam, carpetSystems) &&
@@ -2314,14 +2321,28 @@ export function Questionnaire({
           qq.key,
           a.product.unit,
         );
+        // Count / TBD extras skip Review takeoff — leftover measured sq ft
+        // is not pad yards and not an order. Do not plant leftover sq ft.
         for (const ex of a.extras) {
-          if (!ex.product?.label || !(numv(ex.sqft) > 0)) continue;
+          if (!ex.product?.label) continue;
+          const exFam = familyFromCatalogCategory(
+            ex.product.category || qq.config.category || a.product.category,
+          );
+          const extraSf = extraMeasuredSqftForTakeoff({
+            family: exFam,
+            productUnit: ex.product.unit,
+            measuredSqft: numv(ex.sqft),
+            carpetInstallSystems: carpetInstallSystemsFromLabels(
+              flooringCtx.answeredCarpetInstall,
+            ),
+          });
+          if (extraSf == null) continue;
           addProduct(
             ex.product.label,
             ex.product.category || qq.config.category || a.product.category,
             ex.product.wastePct,
             ex.product.sqftPerBox,
-            numv(ex.sqft),
+            extraSf,
             qq.key,
             ex.product.unit,
           );
@@ -3888,6 +3909,16 @@ function QuestionBody({
     const setExtras = (xs: ExtraPad[]) => set({ kind: "product", product: p, extras: xs });
     const patchExtra = (id: string, patch: Partial<ExtraPad>) =>
       setExtras(extras.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    const extraKeepMeasured = (prod: ProductAns | null) => {
+      if (!prod) return true;
+      return areaDerivedMaterialAllowed(
+        familyFromCatalogCategory(prod.category || cat),
+        prod.unit,
+        carpetSystems,
+      );
+    };
+    const setExtraProduct = (id: string, product: ProductAns | null, sqft: string) =>
+      patchExtra(id, { product, sqft: extraKeepMeasured(product) ? sqft : "" });
     return (
       <div className="space-y-3">
         <ProductPicker
@@ -4068,9 +4099,13 @@ function QuestionBody({
                       initialLabel={ex.product?.label ?? ""}
                       label={`Product (${cat})`}
                       defaultCategory={cat}
-                      onPick={(prod) => patchExtra(ex.id, { product: prod ? toProductAns(prod) : null })}
-                      onCreated={(prod) => patchExtra(ex.id, { product: toProductAns(prod) })}
-                      onUseOnce={(input) => patchExtra(ex.id, { product: customToProductAns(input) })}
+                      onPick={(prod) =>
+                        setExtraProduct(ex.id, prod ? toProductAns(prod) : null, ex.sqft)
+                      }
+                      onCreated={(prod) => setExtraProduct(ex.id, toProductAns(prod), ex.sqft)}
+                      onUseOnce={(input) =>
+                        setExtraProduct(ex.id, customToProductAns(input), ex.sqft)
+                      }
                     />
                   </div>
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => setExtras(extras.filter((x) => x.id !== ex.id))}>
