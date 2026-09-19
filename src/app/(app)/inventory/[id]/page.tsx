@@ -114,7 +114,13 @@ export default async function InventoryItemPage({
           <CardContent className="py-4">
             <div className="text-xs text-muted-foreground">On order</div>
             <div className="text-2xl font-bold">
-              {onOrder} {onOrder ? product.unit : ""}
+              {/* Exclusive carpet-tile warehouse inventory stock-item leftover planted on-order mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+              {/* Hard-surface warehouse inventory stock-item leftover planted on-order mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+              {mixedRemnant ? (liveRolls.length > 1 ? `on order across ${liveRolls.length} pieces` : "on order as a remnant/roll") : (
+                <>
+                  {onOrder} {onOrder ? product.unit : ""}
+                </>
+              )}
             </div>
             {showCost ? (
               <div className="text-xs text-muted-foreground">
