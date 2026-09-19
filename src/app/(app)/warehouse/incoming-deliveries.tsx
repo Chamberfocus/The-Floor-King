@@ -96,10 +96,12 @@ function PoCard({ po }: { po: IncomingPo }) {
         toast.error(res.error);
         return;
       }
+      // Exclusive carpet-tile warehouse incoming Short toast mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+      // Hard-surface warehouse incoming Short leftover planted toast mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
       toast.success(
         res.fullyReceived
           ? "All received — the job's materials are marked arrived"
-          : `Checked in. ${(res.short ?? 0).toFixed(2)} still outstanding.`,
+          : mixedShort ? "Checked in. Still outstanding." : `Checked in. ${(res.short ?? 0).toFixed(2)} still outstanding.`,
       );
       router.refresh();
     });
