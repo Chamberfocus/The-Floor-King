@@ -30,6 +30,7 @@ import { Trash2 } from "lucide-react";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { OrderLinkCard } from "@/components/order-link-card";
 import { CutList } from "@/components/cut-list";
+import { cutsTotalSqYd } from "@/lib/order-cuts";
 import { DateNeeded } from "@/components/date-needed";
 import { COMPANY_NAME } from "@/lib/nav";
 import {
@@ -106,7 +107,9 @@ export default async function OrdersPage() {
               <li key={it.id} className="rounded-md border p-2">
                 <div className="font-medium">
                   {[it.description, it.color, it.style].filter(Boolean).join(" · ") || "Item"}
-                  {it.quantity ? (
+                  {/* Exclusive carpet-tile office customer-order qty from cuts is the order, not leftover planted quantity — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                  {/* Hard-surface office customer-order leftover planted quantity stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+                  {cutsTotalSqYd(it) == null && it.quantity ? (
                     <span className="ml-1 font-normal text-muted-foreground">— {it.quantity} {it.unit}</span>
                   ) : null}
                   <StockLine productId={it.product_id} />
