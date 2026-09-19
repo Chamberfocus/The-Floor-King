@@ -537,7 +537,9 @@ export default async function WarehousePage() {
                             .filter(Boolean)
                             .join(" · ")}
                         </div>
-                        {it.quantity ? (
+                        {/* Exclusive carpet-tile warehouse customer-order qty from cuts is the order, not leftover planted quantity — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                        {/* Hard-surface warehouse customer-order leftover planted Qty stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+                        {cutsTotalSqYd(it) == null && it.quantity ? (
                           <div className="text-xs">
                             Qty {it.quantity} {it.unit}
                           </div>
