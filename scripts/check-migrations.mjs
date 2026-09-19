@@ -283,6 +283,7 @@ const REQUIRED_FILES = [
   "0420_flooring_knowledge_wo_editor_pad_takeoff_order_carton.sql",
   "0421_flooring_knowledge_installation_wo_pad_takeoff_order_carton.sql",
   "0422_flooring_knowledge_estimate_order_pad_takeoff_order_carton.sql",
+  "0423_flooring_knowledge_job_materials_pad_takeoff_order_carton.sql",
 ];
 
 /**
@@ -3541,6 +3542,19 @@ const REQUIRED_MARKERS = [
       "P0_0422_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Hard-surface estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0423_flooring_knowledge_job_materials_pad_takeoff_order_carton.sql",
+    markers: [
+      "P0_0423_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile job materials pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Hard-surface job materials pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
