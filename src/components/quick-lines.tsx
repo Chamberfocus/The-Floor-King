@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchPicker } from "@/components/ui/search-picker";
 import { formatMoney } from "@/lib/format";
 import { PRICE_NEEDED } from "@/lib/catalog-pricing";
+import { catalogRemnantAlertsFor } from "@/app/(app)/catalog/actions";
 
 export interface QuickLineState {
   key: string;
@@ -72,6 +74,33 @@ export function QuickLines({
   /** Show what's on hand — useful when the material is leaving today. */
   showStock?: boolean;
 }) {
+  const [remnantAlerts, setRemnantAlerts] = useState<
+    Awaited<ReturnType<typeof catalogRemnantAlertsFor>>
+  >({});
+  const stockKey = products
+    .filter((x) => x.track_stock)
+    .map((x) => x.id)
+    .sort()
+    .join(",");
+  useEffect(() => {
+    const ids = stockKey ? stockKey.split(",") : [];
+    if (!ids.length) {
+      setRemnantAlerts({});
+      return;
+    }
+    let cancelled = false;
+    catalogRemnantAlertsFor(ids)
+      .then((alerts) => {
+        if (!cancelled) setRemnantAlerts(alerts);
+      })
+      .catch(() => {
+        if (!cancelled) setRemnantAlerts({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stockKey]);
+
   const options = products.map((p) => ({
     value: p.id,
     label: productLabel(p),
@@ -87,7 +116,7 @@ export function QuickLines({
     patch(key, {
       productId: p.id,
       description: productLabel(p),
-      unit: p.unit || "each",
+      unit: p.unit || "",
       rate: p.priceNeeded ? "" : String(p.rate),
     });
   };
@@ -171,9 +200,17 @@ export function QuickLines({
               <p
                 className={`mt-1.5 text-xs ${short ? "text-amber-600" : "text-muted-foreground"}`}
               >
-                {short
-                  ? `Only ${p.on_hand ?? 0} ${p.unit} on hand — selling ${l.quantity} takes it negative.`
-                  : `${p.on_hand ?? 0} ${p.unit} on hand.`}
+                {(() => {
+                  const remnantItems = remnantAlerts[p.id]?.items ?? [];
+                  // Exclusive carpet-tile quick-lines on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface quick-lines leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+                  const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+                  const mixedRemnant = new Set(remnantUnits).size > 1;
+                  const onHandQty = mixedRemnant ? (remnantItems.length > 1 ? `stock across ${remnantItems.length} pieces` : "stock as a remnant/roll") : `${p.on_hand ?? 0} ${p.unit}`;
+                  return short
+                    ? `Only ${onHandQty} on hand — selling ${l.quantity} takes it negative.`
+                    : `${onHandQty} on hand.`;
+                })()}
               </p>
             ) : null}
           </div>

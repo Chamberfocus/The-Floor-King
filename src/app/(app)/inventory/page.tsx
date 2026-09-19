@@ -20,7 +20,7 @@ import {
   daysIdle,
   AGED_DAYS,
 } from "@/lib/data/inventory";
-import { newRemnants, searchStock, listStockPOs } from "@/lib/data/stock-rolls";
+import { newRemnants, searchStock, listStockPOs, reorderAlertsFor } from "@/lib/data/stock-rolls";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,18 @@ export default async function InventoryPage({
     q ? searchStock(q) : Promise.resolve([]),
     canStockPO ? listStockPOs(createAdminClient()) : Promise.resolve([]),
   ]);
+  const remnantAlerts = await reorderAlertsFor(
+    [...items, ...aged].map((p) => p.id),
+    createAdminClient(),
+  );
+  const onHandLabel = (p: (typeof items)[number]) => {
+    const remnantItems = remnantAlerts[p.id]?.items ?? [];
+    // Exclusive carpet-tile warehouse inventory list on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface warehouse inventory list leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    const mixedRemnant = new Set(remnantUnits).size > 1;
+    return mixedRemnant ? (remnantItems.length > 1 ? `stock across ${remnantItems.length} pieces` : "stock as a remnant/roll") : `${p.on_hand} ${p.unit}`;
+  };
 
   // Warehouse sees qty ops only — never inventory $ value (F7 / 0176 cost firewall).
   const opsSummary = canSeeCost
@@ -67,6 +79,18 @@ export default async function InventoryPage({
         ).length,
         totalValue: 0,
       };
+  const mixedSummarySkus = [...items, ...aged].filter((p) => {
+    const remnantItems = remnantAlerts[p.id]?.items ?? [];
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    return new Set(remnantUnits).size > 1;
+  });
+  // Exclusive carpet-tile warehouse inventory list leftover planted summary totalValue mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface warehouse inventory list leftover planted summary totalValue mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+  const mixedRemnant = mixedSummarySkus.length > 0;
+  const mixedSummaryPieces = mixedSummarySkus.reduce(
+    (n, p) => n + (remnantAlerts[p.id]?.items ?? []).length,
+    0,
+  );
 
   return (
     <div>
@@ -177,7 +201,7 @@ export default async function InventoryPage({
             icon={DollarSign}
             tint="bg-emerald-100 text-emerald-600"
             label="Inventory value (at cost)"
-            value={formatMoney(opsSummary.totalValue)}
+            value={mixedRemnant ? (mixedSummaryPieces > 1 ? `value across ${mixedSummaryPieces} pieces` : "value as a remnant/roll") : formatMoney(opsSummary.totalValue)}
           />
         ) : (
           <SummaryCard
@@ -216,7 +240,7 @@ export default async function InventoryPage({
                       {p.name}
                     </Link>
                     <div className="text-xs text-muted-foreground">
-                      {p.on_hand} {p.unit} · idle {daysIdle(p)} days
+                      {onHandLabel(p)} · idle {daysIdle(p)} days
                       {p.clearance && p.clearance_price != null
                         ? ` · clearance ${formatMoney(p.clearance_price)}`
                         : ""}
@@ -301,6 +325,9 @@ export default async function InventoryPage({
         <div className="space-y-2 md:hidden">
           {items.map((p) => {
             const low = p.reorder_point > 0 && p.on_hand <= p.reorder_point;
+            const remnantItems = remnantAlerts[p.id]?.items ?? [];
+            const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+            const mixedRemnant = new Set(remnantUnits).size > 1;
             return (
               <div key={p.id} className={cn("rounded-lg border p-3", low && "bg-destructive/5")}>
                 <div className="flex items-start justify-between gap-2">
@@ -319,7 +346,7 @@ export default async function InventoryPage({
                   </div>
                   <div className="shrink-0 text-right">
                     <div className={cn("font-medium tabular-nums", low && "text-destructive")}>
-                      {p.on_hand} {p.unit}
+                      {onHandLabel(p)}
                     </div>
                     {low ? <div className="text-xs font-medium text-destructive">low</div> : null}
                   </div>
@@ -327,7 +354,13 @@ export default async function InventoryPage({
                 <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-muted-foreground">
                   <span>Reorder at {p.reorder_point || "—"}</span>
                   {canSeeCost ? (
-                    <span>Value {formatMoney(p.on_hand * (p.material_rate || 0))}</span>
+                    <span>
+                      {/* Exclusive carpet-tile warehouse inventory list leftover planted value mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                      {/* Hard-surface warehouse inventory list leftover planted value mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+                      {mixedRemnant ? (remnantItems.length > 1 ? `value across ${remnantItems.length} pieces` : "value as a remnant/roll") : (
+                        <>Value {formatMoney(p.on_hand * (p.material_rate || 0))}</>
+                      )}
+                    </span>
                   ) : null}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -365,6 +398,9 @@ export default async function InventoryPage({
             <tbody className="divide-y">
               {items.map((p) => {
                 const low = p.reorder_point > 0 && p.on_hand <= p.reorder_point;
+                const remnantItems = remnantAlerts[p.id]?.items ?? [];
+                const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+                const mixedRemnant = new Set(remnantUnits).size > 1;
                 return (
                   <tr key={p.id} className={low ? "bg-destructive/5" : ""}>
                     <td className="px-3 py-2">
@@ -385,7 +421,7 @@ export default async function InventoryPage({
                     <td className="px-3 py-2 text-muted-foreground">{p.bin_location ?? "—"}</td>
                     <td className="px-3 py-2 text-right">
                       <span className={cn("font-medium tabular-nums", low && "text-destructive")}>
-                        {p.on_hand} {p.unit}
+                        {onHandLabel(p)}
                       </span>
                       {low ? (
                         <span className="ml-1 text-xs font-medium text-destructive">low</span>
@@ -396,7 +432,9 @@ export default async function InventoryPage({
                     </td>
                     {canSeeCost ? (
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                        {formatMoney(p.on_hand * (p.material_rate || 0))}
+                        {mixedRemnant ? (remnantItems.length > 1 ? `value across ${remnantItems.length} pieces` : "value as a remnant/roll") : (
+                          formatMoney(p.on_hand * (p.material_rate || 0))
+                        )}
                       </td>
                     ) : null}
                     <td className="px-3 py-2">

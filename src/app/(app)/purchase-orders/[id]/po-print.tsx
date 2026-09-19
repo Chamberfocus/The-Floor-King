@@ -14,6 +14,9 @@ import {
   type PoItem,
   type PurchaseOrder,
 } from "@/lib/types";
+import { billedQtyToSqft, billedRateToCartonCost, lineUnitKey, unitIsSqyd } from "@/lib/units";
+import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 
 function itemLabel(it: PoItem): string {
   const spec = productSpec(it);
@@ -32,8 +35,8 @@ function poLineIsHard(it: PoItem): boolean {
 }
 function poLineIsRoll(it: PoItem): boolean {
   if (it.category) return isRollGoodCategory(it.category);
-  return (it.roll_width_ft != null && it.roll_width_ft > 0) ||
-    (it.unit || "").toLowerCase().includes("yd");
+  return     (it.roll_width_ft != null && it.roll_width_ft > 0) ||
+    unitIsSqyd(it.unit);
 }
 
 /**
@@ -122,18 +125,49 @@ export function PoPrintDoc({
           {items.map((it) => {
             const qty = it.quantity ?? 0;
             const amount = qty * (it.unit_cost ?? 0);
-            const isHard = poLineIsHard(it);
             const isRoll = poLineIsRoll(it);
             const spb = it.sqft_per_box ?? 0;
-            // Hard surface: order in whole cartons; show the sq-ft basis so the
-            // count is verifiable. Carpet: yards + broadloom roll width.
-            const cartons = isHard && spb > 0 ? Math.ceil(qty / spb) : 0;
+            // Hard surface / exclusive carpet tile: order in whole cartons from
+            // billed area ÷ coverage (sq yd × 9). Wrap / carton TBD / qty TBD
+            // How many is already the order. Mixed stretch-in + tile stays cuts.
+            // Exclusive carpet-tile PO print carton helper boxed rate onto $/carton is sq ft coverage, not sq yd × coverage 1:1. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            const cartonCost = billedRateToCartonCost(
+              Number(it.unit_cost) || 0,
+              lineUnitKey(it),
+              Number(it.sqft_per_box),
+            );
+            const cartonsHs = hardSurfaceAreaCartonCount(it, qty);
+            // Exclusive carpet-tile po print pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            // Hard-surface po print pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+            const poPrintPadTakeoff =
+              it.category === "underlayment" && it.unit !== "sheet"
+                ? computeMaterialTakeoff({
+                    family: "other",
+                    measuredSqft:
+                      billedQtyToSqft(qty, unitIsSqyd(it.unit) ? "sqyd" : "sqft") ?? 0,
+                    wasteAlreadyInQuantity: true,
+                    sqftPerBox: Number(it.sqft_per_box) > 0 ? Number(it.sqft_per_box) : null,
+                    billingUnit: unitIsSqyd(it.unit) ? "sqyd" : "sqft",
+                    takeoffLabel: "Carpet pad",
+                  })
+                : null;
+            const cartons =
+              cartonsHs ||
+              (poPrintPadTakeoff?.cartons ? poPrintPadTakeoff.cartons.cartonCount : 0);
+            const skipCarton = lineSkipsAreaCartonMath(it);
+            const cartonArea =
+              billedQtyToSqft(qty, unitIsSqyd(it.unit) ? "sqyd" : "sqft") ?? qty;
+            const showCartonWarn = lineUsesAreaCartonMath(it);
             const orderQty = cartons
               ? `${cartons} carton${cartons === 1 ? "" : "s"}`
               : `${Math.round(qty * 100) / 100} ${it.unit ?? ""}`.trim();
             const basis = cartons
-              ? `${Math.round(qty * 100) / 100} sq ft ÷ ${spb}/box`
-              : isHard
+              ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${spb}/box${
+                  cartonCost != null ? ` · ${formatMoney(cartonCost)}/carton` : ""
+                }`
+              : skipCarton
+                ? ""
+                : showCartonWarn
                 ? "⚠ set sq ft/box for carton count"
                 : isRoll && it.roll_width_ft
                   ? `${it.roll_width_ft} ft broadloom roll`

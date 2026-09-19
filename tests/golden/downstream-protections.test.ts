@@ -175,7 +175,9 @@ describe("PURCHASE ORDER quantities — buildPoItemRows (order qty with waste)",
       category: "carpet",
       unit: "sq yd",
       measure_unit: "sqyd",
-      sqft: 360, // 40 sq yd measured → 44 ordered
+      sqft: 360, // 40 sq yd from a 12' × 30' cut → 44 ordered with waste
+      length_in: 360,
+      width_in: 144,
       waste_pct: 10,
       order_as_roll: true,
       roll_width_ft: 12,
@@ -187,6 +189,58 @@ describe("PURCHASE ORDER quantities — buildPoItemRows (order qty with waste)",
     expect(rows).toHaveLength(1);
     expect(rows[0].unit).toBe("sqyd");
     expect(rows[0].quantity).toBe(44);
+    expect(rows[0].roll_width_ft).toBe(12);
+    expect(rows[0].description).toMatch(/@ 12 ft wide/);
+  });
+
+  it("roll goods: unit sq yd wins over measure_unit sqft so yards are not divided by 9 again", () => {
+    const roll = asEstLine({
+      id: "r-drift",
+      product_id: "carpet-1",
+      description: "Carpet",
+      line_type: "mat_labor",
+      category: "carpet",
+      unit: "sq yd",
+      measure_unit: "sqft",
+      sqft: 360,
+      length_in: 360,
+      width_in: 144,
+      waste_pct: 0,
+      order_as_roll: true,
+      roll_width_ft: 12,
+    });
+    const rows = buildPoItemRows([roll], {
+      costOf: () => 20,
+      nameOf: (l) => l.description,
+    });
+    expect(rows[0].quantity).toBe(40);
+    expect(rows[0].unit).toBe("sqyd");
+  });
+
+  it("roll goods: missing catalog width is TBD, not invented 12'", () => {
+    const roll = asEstLine({
+      id: "r-tbd",
+      product_id: "carpet-1",
+      description: "Carpet",
+      line_type: "mat_labor",
+      category: "carpet",
+      unit: "sq yd",
+      measure_unit: "sqyd",
+      sqft: 360,
+      length_in: 360,
+      width_in: 144,
+      waste_pct: 0,
+      order_as_roll: true,
+      roll_width_ft: null,
+    });
+    const rows = buildPoItemRows([roll], {
+      costOf: () => 20,
+      nameOf: (l) => l.description,
+    });
+    expect(rows[0].roll_width_ft).toBeNull();
+    expect(rows[0].quantity).toBe(40);
+    expect(rows[0].description).toMatch(/roll width TBD/);
+    expect(rows[0].description).not.toMatch(/@ 12 ft wide/);
   });
 });
 
@@ -287,6 +341,8 @@ describe("Estimate commercial totals remain the source of truth", () => {
         unit: "sq yd",
         measure_unit: "sqyd",
         sqft: 360,
+        length_in: 360,
+        width_in: 144,
         waste_pct: 10,
         material_rate: 30,
       },

@@ -14,10 +14,18 @@ import { formatMoney } from "@/lib/format";
 import {
   lineTotal,
   lineQty,
+  lineOrderQty,
+  lineIsStairWrapTbd,
+  lineIsBoxedCartonTbd,
+  lineIsCountNotTapedSqft,
+  rollGoodsLineHasCuts,
   optionTotalsWithDiscount,
   marginPct,
   lineCost,
   optionCostTotals,
+  knowledgePickDescription,
+  lineSkipsAreaCartonMath,
+  hardSurfaceAreaCartonCount,
   num,
   type SaveEstimateInput,
 } from "@/lib/estimate-calc";
@@ -28,7 +36,7 @@ import {
   resolveCommission,
 } from "@/lib/estimate-commission";
 import { ratesFromTargetMargin, landedMaterialForTarget } from "@/lib/estimate-pricing";
-import { parseCutsFromText } from "@/lib/job-scope";
+import { parseCutsFromText, carpetLineIsModularCoverage, carpetInstallSystemsForBoxedRate, padRollCount } from "@/lib/job-scope";
 import {
   type Estimate,
   type EstimateLineItem,
@@ -43,21 +51,34 @@ import {
 } from "@/lib/types";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
 import {
+  catalogUnitFactor,
   isAreaUnit,
+  isCountPricedLine,
+  lineDisplayUnit,
+  lineUnitKey,
   normalizeUnit,
   unitLabel,
   UNIT_OPTIONS,
 } from "@/lib/units";
-import { catalogLineSnapshot, PRICE_NEEDED } from "@/lib/catalog-pricing";
+import { catalogLineSnapshot, catalogToLineMeasure, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import {
   bagsNeeded,
   coverageAt,
   hasCoverage,
   thicknessLabel,
   THICKNESS_OPTIONS,
-  DEFAULT_LABOR_PER_SQFT,
-  DEFAULT_LABOR_PER_BAG,
 } from "@/lib/floor-prep";
+import { defaultWastePct } from "@/lib/flooring-profiles";
+import {
+  computeMaterialTakeoff,
+  cutWidthChoicesFt,
+  familyFromCatalogCategory,
+  boxedCartonAreaTakeoffAllowed,
+  formatEquivalentSqyd,
+  builderAreaFallbackLabel,
+  ROLL_GOODS_CUTS_MISSING_CAPTION,
+  formatTakeoffStrip,
+} from "@/lib/flooring-knowledge";
 import { saveEstimate, saveEstimateBuilderDraft, clearEstimateBuilderDraft, sendEstimateById } from "./actions";
 import { saveProductRate, createProductInline } from "../catalog/actions";
 import { writeScopeDescription } from "./ai-actions";
@@ -200,20 +221,52 @@ function isSubfloor(l: LineState): boolean {
  *  quantity × per-unit price), NOT by measured area. Roll goods and hard surface
  *  are always area-billed regardless of a stray unit string. */
 function isCountLine(l: LineState): boolean {
+  // Stair wrap TBD is extra boxes / EACH, even when the wrap SKU is LVP/hardwood.
+  if (lineIsStairWrapTbd(l)) return true;
+  // Builder carton-coverage TBD is How many / Unit TBD, never taped square feet.
+  if (lineIsBoxedCartonTbd(l)) return true;
+  // Builder count SKU / qty TBD lines are How many / Unit TBD, never taped square feet.
+  if (lineIsCountNotTapedSqft(l)) return true;
   if (isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) return false;
   if (isSubfloor(l)) return false;
-  return !isAreaUnit(l.unit);
+  if ((l.unit ?? "").trim()) return !isAreaUnit(l.unit);
+  // Empty unit on a blank new line stays AREA (Sq ft). Other / labor / trim /
+  // underlayment with no taped area is COUNT — adhesive and pad TBD are not
+  // square feet.
+  if (
+    l.category === "other" ||
+    l.category === "labor" ||
+    l.category === "trim" ||
+    l.category === "underlayment"
+  ) {
+    return isCountPricedLine({
+      unit: l.unit,
+      measure_unit: l.measure_unit,
+      sqft: l.sqft,
+      category: l.category,
+    });
+  }
+  return false;
+}
+
+/** Exclusive-tile boxed rate: only when this line is already modular coverage. Do not infer from unit=box. */
+function lineCarpetInstallSystems(l: LineState) {
+  if (lineIsStairWrapTbd(l)) return undefined;
+  return carpetInstallSystemsForBoxedRate({
+    category: l.category,
+    order_as_roll: l.order_as_roll,
+    sqft: l.sqft,
+    quantity: l.quantity,
+    length_in: ftInToIn(l.len_ft, l.len_in) || null,
+    width_in: ftInToIn(l.wid_ft, l.wid_in) || null,
+    measurements: l.measurements.map(rowToMeasurement),
+  });
 }
 
 // Typical material waste by category (%), used as a smart default on pick.
-const WASTE_BY_CATEGORY: Record<string, number> = {
-  carpet: 10,
-  tile: 10,
-  hardwood: 7,
-  laminate: 5,
-  lvp: 5,
-  vinyl: 5,
-};
+// Typical material waste lives on flooring-profiles (the questionnaire uses
+// the same function). Do not keep a second table here — laminate 5 vs 7 and
+// vinyl-as-sqft were how measured/order units drifted apart.
 
 function inToFt(total: number | null | undefined): string {
   if (!total) return "";
@@ -233,7 +286,11 @@ function lineOurCost(l: LineState): number {
   // sitting on a LABOR line — the shared one gets both right.
   return lineCost({
     line_type: l.line_type,
+    description: l.description,
     sqft: l.sqft,
+    length_in: ftInToIn(l.len_ft, l.len_in) || null,
+    width_in: ftInToIn(l.wid_ft, l.wid_in) || null,
+    measurements: l.measurements.filter(rowHasDims).map(rowToMeasurement),
     measure_unit: l.measure_unit,
     material_rate: l.material_rate,
     labor_rate: l.labor_rate,
@@ -339,7 +396,16 @@ export function EstimateBuilder({
   productUnits?: Record<string, string>;
   /** Saved catalog default rate + unit per linked product id — powers the
    *  "standard vs one-off" badge and the "use always" write-back. */
-  productDefaults?: Record<string, { material_rate: number; labor_rate: number; unit: string }>;
+  productDefaults?: Record<
+    string,
+    {
+      material_rate: number;
+      labor_rate: number;
+      unit: string;
+      category?: string | null;
+      sqft_per_box?: number | string | null;
+    }
+  >;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -471,6 +537,7 @@ export function EstimateBuilder({
         // the cut back as structured data (and drops the leaked size text).
         const legacyCut =
           l.length_in == null && l.width_in == null && isRollGoodCategory(l.category)
+            && !carpetLineIsModularCoverage(l)
             ? parseCutsFromText(l.description, l.roll_width_ft)[0]
             : null;
         const lenIn = l.length_in ?? legacyCut?.lengthIn ?? null;
@@ -503,13 +570,20 @@ export function EstimateBuilder({
                 wid_in: inToIn(widIn),
               }]
             : [];
-        const sqftStr = measurements.length
-          ? String(rowsSqft(measurements))
-          : recoverAreaSqftFromQuantity({
-              unit: l.unit,
-              sqft: l.sqft,
-              quantity: l.quantity,
-            });
+        const identity = lineSkipsAreaCartonMath({ description: desc, unit: l.unit }) ||
+          (!(isRollGoodCategory(l.category) || isHardSurfaceCategory(l.category)) &&
+            isCountPricedLine({ unit: l.unit, sqft: null }));
+        const sqftStr = identity
+          ? ""
+          : measurements.length
+            ? String(rowsSqft(measurements))
+            : recoverAreaSqftFromQuantity({
+                unit: l.unit,
+                sqft: l.sqft,
+                quantity: l.quantity,
+                description: desc,
+                category: l.category,
+              });
         return {
         key: newKey(),
         id: l.id,
@@ -714,7 +788,7 @@ export function EstimateBuilder({
       description: a.label,
       line_type: "mat_labor",
       category,
-      unit: a.unit || "each",
+      unit: a.unit || "",
       material_rate: isLabor ? "" : sell,
       labor_rate: isLabor ? sell : "",
       material_cost: isLabor ? "" : cost,
@@ -735,7 +809,7 @@ export function EstimateBuilder({
       unit: "sheet",
       line_type: "installed",
       description: confirm ? "Subfloor — confirm thickness & sheets on site" : `Subfloor — ${label}`,
-      quantity: confirm ? "" : "1",
+      quantity: "",
     };
     setOptions((prev) =>
       prev.map((o, i) => (i === oi ? { ...o, lines: [...o.lines, line] } : o)),
@@ -778,7 +852,8 @@ export function EstimateBuilder({
 
   // Switch a line's pricing unit. Area units (sq ft / sq yd) keep the area math;
   // a count unit (each / bag / lnft…) flips the line to price by quantity × the
-  // per-unit rate, seeds a qty of 1, and drops any area waste %.
+  // per-unit rate and drops any area waste %. Count qty stays empty until typed
+  // — never carry 1693 sq ft as 1693 each, and never invent a count of 1.
   const setLineUnit = (oi: number, li: number, unitValue: string) =>
     setOptions((prev) =>
       prev.map((o, i) =>
@@ -787,7 +862,24 @@ export function EstimateBuilder({
               ...o,
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
+                if (!(unitValue ?? "").trim()) {
+                  // Unit TBD — not square feet and not invented each.
+                  return {
+                    ...l,
+                    unit: "",
+                    quantity: "",
+                    sqft: "",
+                    len_ft: "",
+                    len_in: "",
+                    wid_ft: "",
+                    wid_in: "",
+                    waste_pct: "",
+                  };
+                }
                 if (isAreaUnit(unitValue)) {
+                  // Wrap / carton TBD / qty TBD stay How many — switching to
+                  // sq ft would reopen leftover taped square feet as the order.
+                  if (lineSkipsAreaCartonMath(l)) return l;
                   // → area: let the measured area drive the quantity again.
                   return {
                     ...l,
@@ -796,14 +888,13 @@ export function EstimateBuilder({
                     quantity: "",
                   };
                 }
-                // → count: a FRESH count of 1 — never carry over the old square
-                // footage (that's the "1693 each" bug), and drop area waste + dims.
+                // → count: drop area waste + dims. Do not seed qty 1.
                 // A PREP line keeps its area (sqft) — the bag calculator uses it.
                 const prepLine = !!l.coverage_sqft;
                 return {
                   ...l,
                   unit: unitValue,
-                  quantity: prepLine ? l.quantity : "1",
+                  quantity: prepLine ? l.quantity : "",
                   sqft: prepLine ? l.sqft : "",
                   len_ft: "",
                   len_in: "",
@@ -952,7 +1043,7 @@ export function EstimateBuilder({
           unit: "bag",
           measure_unit: "sqft",
           quantity: bags ? String(bags) : "",
-          labor_cost: String(DEFAULT_LABOR_PER_BAG),
+          labor_cost: "",
           prep_key: prepKey,
         };
         const priced = { ...laborLine, ...ratesFromMargin(laborLine, num(overallMargin), org?.freight_markup_pct ?? 0) };
@@ -1215,17 +1306,9 @@ export function EstimateBuilder({
     // (sq ft / sq yd) keep the area math; carpet is quoted by the square yard, so
     // its catalog rate converts ×9 if the catalog priced it per sq ft.
     // Vendor cost wins over products.material_rate (OUR COST, never customer sell).
-    const snap = catalogLineSnapshot(p, {
-      targetMarginPct: num(overallMargin),
-      freightMarkupPct: org?.freight_markup_pct ?? 0,
-    });
-    const count = snap.count;
-    const measure_unit: MeasureUnit = snap.measureUnit;
-    const lineUnit = snap.lineUnit;
+    // Catalog box rate onto an area line is $/coverage, not 1:1.
+    // Wrap / count How many stays 1:1 (snapshot omits sqft_per_box).
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
-    // Prep goods (self-leveler / patch) carry coverage → the bag calculator
-    // sizes the quantity from area + thickness instead of a plain count.
-    const prep = count && hasCoverage(p.coverage_sqft);
 
     setOptions((prev) =>
       prev.map((o, i) =>
@@ -1234,6 +1317,31 @@ export function EstimateBuilder({
               ...o,
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
+                const wrap = lineIsStairWrapTbd(l);
+                const carpetInstallSystems = wrap ? undefined : lineCarpetInstallSystems(l);
+                const snap = catalogLineSnapshot(
+                  { ...(wrap ? { ...p, sqft_per_box: null } : p), carpetInstallSystems },
+                  {
+                    targetMarginPct: num(overallMargin),
+                    freightMarkupPct: org?.freight_markup_pct ?? 0,
+                  },
+                );
+                const boxedArea = boxedCartonAreaTakeoffAllowed({
+                  family: familyFromCatalogCategory(p.category ?? l.category),
+                  productUnit: p.unit,
+                  sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
+                  carpetInstallSystems,
+                });
+                // Wrap extras stay How many even when the wrap SKU has carton coverage.
+                let count = wrap ? true : snap.count;
+                let lineUnit = snap.lineUnit;
+                const measure_unit: MeasureUnit = snap.measureUnit;
+                if (wrap) {
+                  lineUnit = isAreaUnit(p.unit) ? "" : p.unit;
+                }
+                const prep = count && hasCoverage(p.coverage_sqft);
+                const spb =
+                  Number(p.sqft_per_box) > 0 ? String(p.sqft_per_box) : "";
                 const base: LineState = {
                   ...l,
                   product_id: p.id,
@@ -1268,6 +1376,7 @@ export function EstimateBuilder({
                   item_no: p.sku ?? "",
                   measure_unit,
                   unit: lineUnit,
+                  sqft_per_box: spb,
                   // Snapshot the product's coverage so the estimate's bag math is
                   // stable; seed the pour thickness to the reference thickness.
                   coverage_sqft: prep ? String(p.coverage_sqft) : "",
@@ -1276,8 +1385,9 @@ export function EstimateBuilder({
                   prep_thickness_in:
                     prep && p.coverage_thickness_in != null ? String(p.coverage_thickness_in) : "",
                   // Prep lines get their quantity from the calculator (area drives
-                  // bags); plain count items default to 1 so they price at once.
-                  quantity: prep ? l.quantity : count ? l.quantity || "1" : l.quantity,
+                  // bags). Switching an area line onto a count SKU does not invent
+                  // a count of 1 or keep taped square footage as the count.
+                  quantity: prep ? l.quantity : count && !isCountLine(l) ? "" : l.quantity,
                   // Only suggest waste when the quantity is area-driven (no
                   // explicit qty) — avoids double-counting a qty that already
                   // includes waste (e.g. from the questionnaire). Never on count.
@@ -1286,7 +1396,12 @@ export function EstimateBuilder({
                     : l.quantity
                       ? l.waste_pct
                       : l.waste_pct ||
-                        (WASTE_BY_CATEGORY[p.category] ? String(WASTE_BY_CATEGORY[p.category]) : ""),
+                        (defaultWastePct(p.category)
+                          ? String(defaultWastePct(p.category))
+                          : ""),
+                  ...(count && !prep
+                    ? { sqft: "", len_ft: "", len_in: "", wid_ft: "", wid_in: "" }
+                    : {}),
                   /**
                    * The line is now THIS product, and says so.
                    *
@@ -1301,13 +1416,15 @@ export function EstimateBuilder({
                    * A room prefix the estimator typed is kept — "Living room —
                    * Dreamweaver" becomes "Living room — <new product>" — because
                    * that part is about the space, not the product.
+                   *
+                   * Picking a product keeps wrap / carton-coverage TBD / qty TBD
+                   * stamps so leftover taped sq ft cannot reopen those orders.
+                   * Coverage on a boxed SKU drops the TBD stamp and takeoffs from
+                   * measured area — catalog unit box is not How many boxes.
                    */
-                  description: (() => {
-                    const prev = l.description?.trim() ?? "";
-                    if (!prev) return p.name;
-                    const sep = prev.indexOf(" — ");
-                    return sep > 0 ? `${prev.slice(0, sep)} — ${p.name}` : p.name;
-                  })(),
+                  description: knowledgePickDescription(l.description, p.name, {
+                    dropTbd: boxedArea && !wrap,
+                  }),
                 };
                 // Clearance sell is stored on the product; don't re-markup it.
                 if (p.clearance && Number(p.clearance_price) > 0) return base;
@@ -1327,11 +1444,8 @@ export function EstimateBuilder({
   // "Use once": a trim / product typed in the picker that isn't in the catalog,
   // dropped onto THIS estimate line only (no product_id, nothing saved).
   const useOnceProduct = (oi: number, li: number, input: CustomProductInput) => {
-    const catUnit = normalizeUnit(input.unit);
-    const count = !isAreaUnit(input.unit);
-    const measure_unit: MeasureUnit = catUnit === "sqyd" ? "sqyd" : "sqft";
+    const specBox = num(input.specs?.sqft_per_box);
     const round2 = (n: number) => String(Math.round(n * 100) / 100);
-    const prep = count && hasCoverage(input.coverage_sqft);
     setOptions((prev) =>
       prev.map((o, i) =>
         i === oi
@@ -1339,26 +1453,56 @@ export function EstimateBuilder({
               ...o,
               lines: o.lines.map((l, j) => {
                 if (j !== li) return l;
+                const wrap = lineIsStairWrapTbd(l);
+                const carpetInstallSystems = wrap ? undefined : lineCarpetInstallSystems(l);
+                const boxedArea = boxedCartonAreaTakeoffAllowed({
+                  family: familyFromCatalogCategory(input.category || l.category),
+                  productUnit: input.unit,
+                  sqftPerBox: specBox > 0 ? specBox : null,
+                  carpetInstallSystems,
+                });
+                const snap = catalogToLineMeasure({
+                  unit: input.unit,
+                  category: input.category,
+                  sqft_per_box: wrap ? null : specBox > 0 ? specBox : null,
+                  carpetInstallSystems,
+                });
+                let count = wrap ? true : snap.count;
+                let lineUnit = snap.lineUnit;
+                if (wrap) {
+                  lineUnit = isAreaUnit(input.unit) ? "" : input.unit;
+                }
+                const measure_unit: MeasureUnit = snap.measureUnit;
+                const prep = count && hasCoverage(input.coverage_sqft);
+                const boxFactor = wrap || !boxedArea ? 1 : snap.factor;
                 const base: LineState = {
                   ...l,
                   product_id: "",
                   category: input.category || l.category,
-                  material_cost: input.material_rate ? round2(num(input.material_rate)) : l.material_cost,
+                  material_cost: input.material_rate
+                    ? round2(num(input.material_rate) * boxFactor)
+                    : l.material_cost,
                   labor_cost: input.labor_rate ? round2(num(input.labor_rate)) : l.labor_cost,
                   manufacturer: input.manufacturer || l.manufacturer,
                   style: input.style || l.style,
                   color: input.color || l.color,
                   item_no: input.sku || l.item_no,
-                  unit: input.unit || l.unit,
+                  unit: lineUnit ?? "",
                   measure_unit,
+                  sqft_per_box: specBox > 0 ? String(specBox) : "",
                   coverage_sqft: prep ? String(num(input.coverage_sqft)) : "",
                   coverage_thickness_in: prep && input.coverage_thickness_in ? String(num(input.coverage_thickness_in)) : "",
                   prep_thickness_in: prep && input.coverage_thickness_in ? String(num(input.coverage_thickness_in)) : "",
-                  // Count items price by quantity — default to 1, no area waste.
+                  // Count items price by quantity — no invented 1, no area waste.
                   // Prep lines get their quantity from the bag calculator (area).
-                  quantity: prep ? l.quantity : count ? l.quantity || "1" : l.quantity,
+                  quantity: prep ? l.quantity : count && !isCountLine(l) ? "" : l.quantity,
                   waste_pct: count ? "" : l.waste_pct,
-                  description: input.name || l.description,
+                  ...(count && !prep
+                    ? { sqft: "", len_ft: "", len_in: "", wid_ft: "", wid_in: "" }
+                    : {}),
+                  description: knowledgePickDescription(l.description, input.name, {
+                    dropTbd: boxedArea && !wrap,
+                  }),
                 };
                 return { ...base, ...ratesFromMargin(base, effMargin(base, num(overallMargin)), org?.freight_markup_pct ?? 0) };
               }),
@@ -1446,19 +1590,31 @@ export function EstimateBuilder({
   });
 
   // --- Saved-default write-back ("use once" vs "use always") ----------------
-  const catalogFactor = (measure: MeasureUnit, productUnit: string): number => {
-    if (!isAreaUnit(productUnit)) return 1; // count units price 1:1
-    const catUnit = normalizeUnit(productUnit);
-    return measure === catUnit ? 1 : measure === "sqyd" ? 9 : 1 / 9;
-  };
-  // The catalog default cost expressed in THIS line's billing unit — or null
-  // when the line has no linked product/default. Drives the standard-vs-one-off
-  // badge (compared against the current cost).
+  // Convert using the printed billing unit (`lineUnitKey`), never leftover
+  // measure_unit. A sq-yd carpet line that still stores measure_unit "sqft"
+  // must not ÷9 a catalog SY rate.
   const defaultCostFor = (l: LineState, labor: boolean): number | null => {
     const d = l.product_id ? productDefaults[l.product_id] : undefined;
     if (!d) return null;
     const rate = labor ? d.labor_rate : d.material_rate;
-    return Math.round(rate * catalogFactor(l.measure_unit, d.unit) * 100) / 100;
+    const wrap = lineIsStairWrapTbd(l);
+    const carpetInstallSystems = wrap ? undefined : lineCarpetInstallSystems(l);
+    const boxedArea = boxedCartonAreaTakeoffAllowed({
+      family: familyFromCatalogCategory(d.category ?? l.category),
+      productUnit: d.unit,
+      sqftPerBox: Number(d.sqft_per_box) > 0 ? Number(d.sqft_per_box) : null,
+      carpetInstallSystems,
+    });
+    const factor =
+      labor || wrap || !boxedArea
+        ? catalogUnitFactor(d.unit, lineUnitKey(l) === "sqyd")
+        : catalogToLineMeasure({
+            unit: d.unit,
+            category: d.category ?? l.category,
+            sqft_per_box: d.sqft_per_box,
+            carpetInstallSystems,
+          }).factor;
+    return Math.round(rate * factor * 100) / 100;
   };
   // On save, push every "Save as my default" line's cost back to its product's
   // saved rate (one write per product). "Use once" lines never reach here.
@@ -1468,11 +1624,14 @@ export function EstimateBuilder({
       for (const l of o.lines) {
         if (!l.save_default || !l.product_id || seen.has(l.product_id)) continue;
         seen.add(l.product_id);
+        const wrap = lineIsStairWrapTbd(l);
         await saveProductRate({
           productId: l.product_id,
           materialCost: num(l.material_cost),
           laborCost: num(l.labor_cost),
-          measureUnit: l.measure_unit,
+          measureUnit: lineUnitKey(l) === "sqyd" ? "sqyd" : "sqft",
+          count: isCountLine(l) || wrap,
+          carpetInstallSystems: wrap || isCountLine(l) ? undefined : lineCarpetInstallSystems(l),
         });
       }
   };
@@ -1485,7 +1644,7 @@ export function EstimateBuilder({
       const res = await createProductInline({
         name: l.description || "New product",
         category: l.category || "other",
-        unit: isCountLine(l) ? l.unit || "each" : l.measure_unit,
+        unit: isCountLine(l) ? l.unit || "" : lineUnitKey(l) === "sqyd" ? "sqyd" : "sqft",
         material_rate: num(l.material_cost),
         labor_rate: num(l.labor_cost),
         manufacturer: l.manufacturer || undefined,
@@ -1598,7 +1757,7 @@ export function EstimateBuilder({
         room: l.room || null,
         description: l.description,
         quantity: Number(l.quantity) || Number(l.sqft) || null,
-        unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+        unit: lineDisplayUnit(l),
       }));
     if (!lines.length) {
       toast.error("Add line items first.");
@@ -1621,7 +1780,11 @@ export function EstimateBuilder({
   // and shown in the always-visible bar, with the true blended margin.
   const toCalc = (l: LineState) => ({
     line_type: l.line_type,
+    description: l.description,
     sqft: l.sqft,
+    length_in: ftInToIn(l.len_ft, l.len_in) || null,
+    width_in: ftInToIn(l.wid_ft, l.wid_in) || null,
+    measurements: l.measurements.filter(rowHasDims).map(rowToMeasurement),
     measure_unit: l.measure_unit,
     material_rate: l.material_rate,
     labor_rate: l.labor_rate,
@@ -2193,8 +2356,12 @@ export function EstimateBuilder({
                     // Carry category, or a labor line's per-line price shows a
                     // material rate the option total doesn't charge.
                     category: line.category,
+                    description: line.description,
                     line_type: line.line_type,
                     sqft: line.sqft,
+                    length_in: ftInToIn(line.len_ft, line.len_in) || null,
+                    width_in: ftInToIn(line.wid_ft, line.wid_in) || null,
+                    measurements: line.measurements.filter(rowHasDims).map(rowToMeasurement),
                     measure_unit: line.measure_unit,
                     material_rate: line.material_rate,
                     labor_rate: line.labor_rate,
@@ -2203,13 +2370,81 @@ export function EstimateBuilder({
                     waste_pct: line.waste_pct,
                     quantity: line.quantity,
                     unit: line.unit,
+                    sqft_per_box: line.sqft_per_box,
+                    roll_width_ft: line.roll_width_ft,
+                    order_as_roll: line.order_as_roll,
                   };
                   const sQty = lineQty(summ);
-                  const sUnit = line.unit || (line.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+                  const sUnit = lineDisplayUnit(line);
+                  // Exclusive carpet-tile Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  // Exclusive carpet-tile Builder collapsed order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Builder collapsed order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  // Exclusive carpet-tile Builder expanded tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Builder expanded tile takeoff order carton count stays off this modular strip. Wrap / count How many stays off carton math. Do not invent coverage.
+                  const sCartons = hardSurfaceAreaCartonCount(summ, lineOrderQty(summ));
+                  const unitKey = normalizeUnit(summ.unit);
+                  // Exclusive carpet-tile Builder collapsed order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Underlayment Builder collapsed order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+                  // Exclusive carpet-tile Builder expanded pad order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Underlayment Builder expanded pad order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+                  const padRolls = padRollCount(summ.category, lineOrderQty(summ), unitKey);
+                  // Exclusive carpet-tile Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  // Exclusive carpet-tile Builder collapsed pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Builder collapsed pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  const builderPadTakeoff =
+                    line.category === "underlayment" && !isSubfloor(line)
+                      ? computeMaterialTakeoff({
+                          family: "other",
+                          measuredSqft: num(line.sqft),
+                          wastePct: line.waste_pct.trim() === "" ? null : num(line.waste_pct),
+                          sqftPerBox: num(line.sqft_per_box) > 0 ? num(line.sqft_per_box) : null,
+                          billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
+                          takeoffLabel: "Carpet pad",
+                        })
+                      : null;
                   const sSell = lineTotal(summ);
                   const sCost = lineOurCost(line);
                   const sMargin = sSell > 0 ? ((sSell - sCost) / sSell) * 100 : 0;
                   const isOpen = activeLine === line.key;
+                  const cutPlanOpen = line.measurements.length > 0;
+                  const modularCarpet =
+                    carpetLineIsModularCoverage({
+                      category: line.category,
+                      order_as_roll: line.order_as_roll,
+                      sqft: line.sqft,
+                      quantity: line.quantity,
+                      length_in: ftInToIn(line.len_ft, line.len_in) || null,
+                      width_in: ftInToIn(line.wid_ft, line.wid_in) || null,
+                      measurements: line.measurements.map(rowToMeasurement),
+                    }) && !cutPlanOpen;
+                  const tileTakeoff = modularCarpet
+                    ? computeMaterialTakeoff({
+                        family: "carpet",
+                        measuredSqft: num(line.sqft),
+                        wastePct: line.waste_pct.trim() === "" ? null : num(line.waste_pct),
+                        sqftPerBox: num(line.sqft_per_box) > 0 ? num(line.sqft_per_box) : null,
+                        carpetSystems: ["carpet_tile"],
+                      })
+                    : null;
+                  const wrapTbd = lineIsStairWrapTbd(line);
+                  const boxedCartonTbd = lineIsBoxedCartonTbd(line);
+                  const countNotTaped = lineIsCountNotTapedSqft(line);
+                  const flooringAreaUi =
+                    !wrapTbd &&
+                    !boxedCartonTbd &&
+                    !countNotTaped &&
+                    (isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category));
+                  const rollCutsMissing =
+                    isRollGoodCategory(line.category) &&
+                    !modularCarpet &&
+                    !rollGoodsLineHasCuts({
+                      line_type: line.line_type,
+                      measurements: line.measurements.map(rowToMeasurement),
+                      length_in: ftInToIn(line.len_ft, line.len_in) || null,
+                      width_in: ftInToIn(line.wid_ft, line.wid_in) || null,
+                    });
                   // Flooring (roll goods / hard surface) — color is part of its
                   // at-a-glance identity, so it stays an essential for these.
                   const isFlooring =
@@ -2250,6 +2485,15 @@ export function EstimateBuilder({
                             {line.line_type !== "flat" && sQty > 0 ? (
                               <span className="tabular-nums">
                                 {sQty.toFixed(sQty < 100 ? 1 : 0)} {sUnit}
+                                {/* Exclusive carpet-tile Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                                {/* Hard-surface Builder collapsed carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                                {sCartons ? ` · 📦 ${sCartons} carton(s)` : ""}
+                                {/* Exclusive carpet-tile Builder collapsed pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                                {/* Hard-surface Builder collapsed pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                                {builderPadTakeoff?.cartons ? ` · 📦 ${builderPadTakeoff.cartons.cartonCount} carton(s)` : ""}
+                                {/* Exclusive carpet-tile Builder collapsed order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                                {/* Underlayment Builder collapsed order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+                                {padRolls ? ` · ${padRolls} roll${padRolls === 1 ? "" : "s"}` : ""}
                               </span>
                             ) : null}
                             {line.category === "labor" ? (
@@ -2414,32 +2658,111 @@ export function EstimateBuilder({
                         ) : null}
 
                         {line.line_type !== "flat" && !isSubfloor(line) ? (
-                          isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category) ? (
+                          modularCarpet ? (
+                            /* Exclusive carpet tile — measured coverage + carton
+                               math. Do not open a warehouse cut list: adding
+                               room rectangles here would become cuts. */
+                            <div className="w-full space-y-2 rounded-lg border bg-card p-3">
+                              <p className="text-xs text-muted-foreground">
+                                Carpet tile is modular — measured coverage, not a warehouse cut plan.
+                                Carton count only if coverage is on the product. Do not invent a box size.
+                              </p>
+                              {tileTakeoff ? (
+                                <p className="text-xs font-medium tabular-nums">
+                                  {formatTakeoffStrip(tileTakeoff)}
+                                </p>
+                              ) : null}
+                              {/* Exclusive carpet-tile Builder expanded tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                              {/* Hard-surface Builder expanded tile takeoff order carton count stays off this modular strip. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                              {sCartons ? (
+                                <span className="text-xs font-medium text-foreground">
+                                  = {sCartons} carton{sCartons === 1 ? "" : "s"}
+                                </span>
+                              ) : null}
+                              <div className="flex flex-wrap items-end gap-3">
+                                <LabeledNumber
+                                  label="Measured sq ft"
+                                  width="w-28"
+                                  value={line.sqft}
+                                  onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
+                                />
+                                {num(line.sqft) > 0 ? (
+                                  <div className="pb-2 text-xs text-muted-foreground">
+                                    {formatEquivalentSqyd(num(line.sqft))}
+                                  </div>
+                                ) : null}
+                                <div>
+                                  <label className="mb-1 block text-xs text-muted-foreground">
+                                    Sq ft / box
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    inputMode="decimal"
+                                    value={line.sqft_per_box}
+                                    onChange={(e) =>
+                                      updateLine(oi, li, { sqft_per_box: e.target.value })
+                                    }
+                                    placeholder="if known"
+                                    className="h-9 w-24 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  />
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setLineMeasurements(oi, li, [newMeasureRow()])}
+                                className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                              >
+                                Switch to warehouse cut plan
+                              </button>
+                            </div>
+                          ) : flooringAreaUi ? (
                             /* FLOORING — build the area up from measured pieces.
                                Carpet/vinyl: each add-piece is a cut off the roll
                                (→ staging sheet). Hard surface: pieces sum to SF. */
                             <div className="w-full space-y-2">
+                              {/* Exclusive carpet-tile Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                              {/* Hard-surface Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                              {/* Exclusive carpet-tile Builder expanded LineMeasurements order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                              {/* Hard-surface Builder expanded LineMeasurements order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                              {/* Exclusive carpet-tile Builder expanded LineMeasurements order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                              {/* Underlayment Builder expanded LineMeasurements order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
                               <LineMeasurements
                                 category={line.category}
                                 rows={line.measurements}
                                 onChange={(rows) => setLineMeasurements(oi, li, rows)}
                                 sqftPerBox={line.sqft_per_box}
                                 onSqftPerBoxChange={(v) => updateLine(oi, li, { sqft_per_box: v })}
+                                cartonLine={summ}
+                                billedQty={sQty}
+                                orderQty={lineOrderQty(summ)}
                               />
-                              {/* Fallback for lines with no measured pieces yet
-                                  (e.g. older estimates) — type the sq ft directly. */}
+                              {/* Fallback when there are no warehouse pieces yet.
+                                  Roll goods: leftover sq ft is MEASURED area, not
+                                  the order. Hard-surface boxed: type sq ft as the order. */}
                               {line.measurements.length === 0 ? (
-                                <div className="flex items-end gap-2">
-                                  <LabeledNumber
-                                    label="Or enter sq ft directly"
-                                    width="w-28"
-                                    value={line.sqft}
-                                    onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
-                                  />
-                                  {isRollGoodCategory(line.category) && num(line.sqft) > 0 ? (
-                                    <div className="pb-2 text-xs text-muted-foreground">
-                                      {(num(line.sqft) / 9).toFixed(1)} sq yd
-                                    </div>
+                                <div className="space-y-1">
+                                  <div className="flex items-end gap-2">
+                                    <LabeledNumber
+                                      label={builderAreaFallbackLabel({
+                                        isRollGood: isRollGoodCategory(line.category) && !modularCarpet,
+                                        hasWarehouseCuts: !rollCutsMissing,
+                                      })}
+                                      width="w-28"
+                                      value={line.sqft}
+                                      onChange={(v) => updateLine(oi, li, { sqft: v, quantity: "" })}
+                                    />
+                                    {isRollGoodCategory(line.category) && num(line.sqft) > 0 ? (
+                                      <div className="pb-2 text-xs text-muted-foreground">
+                                        {formatEquivalentSqyd(num(line.sqft))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  {rollCutsMissing ? (
+                                    <p className="text-xs text-muted-foreground">
+                                      {ROLL_GOODS_CUTS_MISSING_CAPTION}
+                                    </p>
                                   ) : null}
                                 </div>
                               ) : null}
@@ -2463,6 +2786,20 @@ export function EstimateBuilder({
                                   initialLabel={line.room}
                                   onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
                                 />
+                                {/* Exclusive carpet-tile Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                                {/* Hard-surface Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                                {builderPadTakeoff?.cartons ? (
+                                  <div className="pb-2 text-xs font-medium tabular-nums text-foreground">
+                                    = {builderPadTakeoff.cartons.cartonCount} carton{builderPadTakeoff.cartons.cartonCount === 1 ? "" : "s"}
+                                  </div>
+                                ) : null}
+                                {/* Exclusive carpet-tile Builder expanded pad order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                                {/* Underlayment Builder expanded pad order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+                                {padRolls ? (
+                                  <div className="pb-2 text-xs font-medium text-foreground">
+                                    {padRolls} roll{padRolls === 1 ? "" : "s"}
+                                  </div>
+                                ) : null}
                               </div>
                             ) : null}
 
@@ -2545,7 +2882,7 @@ export function EstimateBuilder({
                                         onClick={() => addSelfLevelingLabor(oi, li)}
                                         className="text-xs font-medium text-primary hover:underline"
                                       >
-                                        + Add self-leveling labor (separate line, auto-filled)
+                                        + Add self-leveling labor (separate line — enter the shop rate)
                                       </button>
                                     ) : (
                                       <div className="text-[11px] text-muted-foreground">
@@ -2580,7 +2917,7 @@ export function EstimateBuilder({
                         {line.line_type === "mat_labor" ? (
                           (() => {
                             const labor = isLaborLine(line);
-                            const unitLbl = line.unit || (line.measure_unit === "sqyd" ? "sq yd" : "sq ft");
+                            const unitLbl = lineDisplayUnit(line);
                             const overriding = line.margin_pct.trim() !== "";
                             return (
                               <div className="w-full space-y-1.5 rounded-lg border bg-card p-3">
@@ -2741,7 +3078,7 @@ export function EstimateBuilder({
                             label={
                               isSubfloor(line)
                                 ? "$ / sheet (installed)"
-                                : `Installed /${line.measure_unit === "sqyd" ? "sq yd" : "sqft"}`
+                                : `Installed /${lineDisplayUnit(line)}`
                             }
                             prefix="$"
                             value={line.installed_rate}
@@ -2953,7 +3290,7 @@ export function EstimateBuilder({
 
                             {/* Order as roll — PO shows one roll; work order keeps the
                                 cuts. Roll goods only (carpet / sheet vinyl). */}
-                            {line.line_type !== "flat" && line.category !== "labor" && !line.from_stock && isRollGoodCategory(line.category) ? (
+                            {line.line_type !== "flat" && line.category !== "labor" && !line.from_stock && isRollGoodCategory(line.category) && !modularCarpet ? (
                               <div>
                                 <label className="mb-1 block text-xs text-muted-foreground">Order as</label>
                                 <div className="flex items-center gap-2">
@@ -2967,7 +3304,7 @@ export function EstimateBuilder({
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => updateLine(oi, li, { order_as_roll: true, roll_width_ft: line.roll_width_ft || "12" })}
+                                      onClick={() => updateLine(oi, li, { order_as_roll: true })}
                                       className={cn("rounded px-2.5 py-1.5 font-medium", line.order_as_roll ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
                                     >
                                       Roll
@@ -2975,18 +3312,23 @@ export function EstimateBuilder({
                                   </div>
                                   {line.order_as_roll ? (
                                     <select
-                                      value={line.roll_width_ft || "12"}
+                                      value={line.roll_width_ft || ""}
                                       onChange={(e) => updateLine(oi, li, { roll_width_ft: e.target.value })}
                                       className="h-8 rounded-md border border-input bg-transparent px-1.5 text-xs"
                                       aria-label="Roll width"
                                     >
-                                      <option value="12">12 ft wide</option>
-                                      <option value="15">15 ft wide</option>
+                                      <option value="">Width TBD</option>
+                                      {cutWidthChoicesFt({
+                                        family: familyFromCatalogCategory(line.category),
+                                        productWidthFt: num(line.roll_width_ft) > 0 ? num(line.roll_width_ft) : null,
+                                      }).map((w) => (
+                                        <option key={w} value={String(w)}>{w} ft wide</option>
+                                      ))}
                                     </select>
                                   ) : null}
                                 </div>
                                 {line.order_as_roll ? (
-                                  <p className="mt-1 text-xs text-muted-foreground">PO orders one roll; the work order shows the cut sizes.</p>
+                                  <p className="mt-1 text-xs text-muted-foreground">PO orders one roll at the catalog width — do not assume 12&apos;. Work order still shows the cuts.</p>
                                 ) : (
                                   <p className="mt-1 text-xs text-muted-foreground">Each cut you add above prints on the warehouse cut sheet.</p>
                                 )}
@@ -2997,7 +3339,7 @@ export function EstimateBuilder({
                                 area (carpet needs sq yd); everything else gets the
                                 full unit picker so bag / each / lnft is one tap. */}
                             {line.line_type !== "flat" && !isSubfloor(line) ? (
-                              isRollGoodCategory(line.category) || isHardSurfaceCategory(line.category) ? (
+                              flooringAreaUi ? (
                                 <div>
                                   <label className="mb-1 block text-xs text-muted-foreground">
                                     Price per
@@ -3023,6 +3365,7 @@ export function EstimateBuilder({
                                     className={cn(inputSm, "w-32")}
                                     aria-label="Pricing unit"
                                   >
+                                    <option value="">Unit TBD</option>
                                     <optgroup label="By area">
                                       {UNIT_OPTIONS.filter((u) => u.kind === "area").map((u) => (
                                         <option key={u.value} value={u.value}>{u.label}</option>

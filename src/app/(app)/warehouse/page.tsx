@@ -23,13 +23,17 @@ import Link from "next/link";
 import { listWarehouseJobs } from "@/lib/data/jobs";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
-import { newRemnants } from "@/lib/data/stock-rolls";
+import { newRemnants, reorderAlertsFor } from "@/lib/data/stock-rolls";
 import { getJobMaterials } from "@/lib/data/job-materials";
 import { listWarehouseStockCheckOrders, getWarehouseCatalogFacts } from "@/lib/data/orders";
 import { reportOrderStock } from "../orders/actions";
 import { CutList } from "@/components/cut-list";
 import { DateNeeded } from "@/components/date-needed";
 import { cutsTotalSqYd } from "@/lib/order-cuts";
+import { billedQtyToSqft, normalizeUnit, unitIsSqyd } from "@/lib/units";
+import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
+import { PAD_ROLL_SQYD, padRollCount } from "@/lib/job-scope";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import {
   JOB_DELIVERY_LABELS,
   WAREHOUSE_STATUS_LABELS,
@@ -120,6 +124,10 @@ export default async function WarehousePage() {
   // What we actually have of each ordered product, so "in stock?" is answered
   // from the shelf count rather than from memory. Operational catalog facts only.
   const orderStock = await getWarehouseCatalogFacts(
+    stockChecks.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? "")),
+    wh,
+  );
+  const remnantAlerts = await reorderAlertsFor(
     stockChecks.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? "")),
     wh,
   );
@@ -246,7 +254,64 @@ export default async function WarehousePage() {
                   <div>
                     <div className={cn("mb-1 text-xs font-bold uppercase tracking-wide", cls)}>{title}</div>
                     <ul className="text-sm">
-                      {items.map((m) => (
+                      {items.map((m) => {
+                        const cartonLine = {
+                          description: m.description || m.productName,
+                          category: m.category,
+                          unit: m.unit,
+                          sqft_per_box: m.sqftPerBox,
+                          roll_width_ft: m.rollWidthFt,
+                          order_as_roll: m.orderAsRoll,
+                          quantity: m.qty,
+                        };
+                        // Exclusive carpet-tile warehouse queue carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                        // Hard-surface warehouse queue carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                        const cartons = hardSurfaceAreaCartonCount(cartonLine, m.qty);
+                        const skipCarton = lineSkipsAreaCartonMath({
+                          description: m.description || m.productName,
+                          unit: m.unit,
+                        });
+                        const showCartonWarn = lineUsesAreaCartonMath(cartonLine);
+                        const unitKey = normalizeUnit(m.unit);
+                        // Exclusive carpet-tile warehouse queue pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                        // Hard-surface warehouse queue pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                        const warehouseQueuePadTakeoff =
+                          m.category === "underlayment" && m.unit !== "sheet"
+                            ? computeMaterialTakeoff({
+                                family: "other",
+                                measuredSqft: Number(m.sqftArea) || 0,
+                                wastePct: m.wastePct,
+                                sqftPerBox: Number(m.sqftPerBox) > 0 ? Number(m.sqftPerBox) : null,
+                                billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
+                                takeoffLabel: "Carpet pad",
+                              })
+                            : null;
+                        // Exclusive carpet-tile warehouse queue order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                        // Underlayment warehouse queue order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+                        const padRolls = padRollCount(m.category, m.qty, unitKey);
+                        const cartonArea =
+                          billedQtyToSqft(m.qty, unitKey === "sqyd" ? "sqyd" : "sqft") ?? m.qty;
+                        const qtyMain = cartons
+                          ? `${cartons} carton${cartons === 1 ? "" : "s"}`
+                          : warehouseQueuePadTakeoff?.cartons
+                            ? `${warehouseQueuePadTakeoff.cartons.cartonCount} carton${warehouseQueuePadTakeoff.cartons.cartonCount === 1 ? "" : "s"}`
+                            : padRolls
+                              ? `${padRolls} roll${padRolls === 1 ? "" : "s"}`
+                              : m.qty > 0
+                                ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim()
+                                : "";
+                        const qtySub = cartons
+                          ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${m.sqftPerBox}/box`
+                          : warehouseQueuePadTakeoff?.cartons
+                            ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${m.sqftPerBox}/box`
+                            : padRolls && unitKey === "sqyd"
+                              ? `${Math.round(m.qty * 100) / 100} sq yd ÷ ${PAD_ROLL_SQYD}/roll`
+                              : skipCarton
+                                ? ""
+                                : showCartonWarn
+                                  ? "⚠ set sq ft/box"
+                                  : "";
+                        return (
                         <li key={m.lineId} className="flex flex-wrap items-baseline justify-between gap-x-2 py-0.5">
                           <span className="min-w-0">
                             {m.room ? `${m.room} — ` : ""}
@@ -255,11 +320,17 @@ export default async function WarehousePage() {
                             {m.resolvedSource === "order" && m.supplier ? <span className="ml-1 text-xs text-muted-foreground">· {m.supplier}</span> : null}
                             {m.status === "arrived" ? <span className="ml-1 rounded bg-emerald-100 px-1.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">✓ arrived</span> : null}
                           </span>
-                          <span className="shrink-0 font-medium tabular-nums">
-                            {m.qty > 0 ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim() : ""}
+                          <span className="shrink-0 text-right font-medium tabular-nums">
+                            {qtyMain}
+                            {qtySub ? (
+                              <span className="block text-xs font-normal text-muted-foreground">
+                                {qtySub}
+                              </span>
+                            ) : null}
                           </span>
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                   </div>
                 ) : null;
@@ -449,9 +520,16 @@ export default async function WarehousePage() {
                     const avail = s
                       ? Math.round((s.on_hand - s.reserved) * 100) / 100
                       : null;
+                    const remnantItems = it.product_id
+                      ? remnantAlerts[it.product_id]?.items ?? []
+                      : [];
+                    // Exclusive carpet-tile warehouse customer-order on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    // Hard-surface warehouse customer-order leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+                    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+                    const mixedRemnant = new Set(remnantUnits).size > 1;
                     const needed = cutsTotalSqYd(it) ?? it.quantity ?? null;
                     const comparable =
-                      avail != null && needed != null && (s?.unit ?? "").includes("yd");
+                      avail != null && needed != null && unitIsSqyd(s?.unit);
                     const product = [it.description, s?.name].filter(Boolean)[0] || "Item";
                     const manufacturer = s?.manufacturer || null;
                     const style = it.style || s?.style || null;
@@ -470,7 +548,9 @@ export default async function WarehousePage() {
                             .filter(Boolean)
                             .join(" · ")}
                         </div>
-                        {it.quantity ? (
+                        {/* Exclusive carpet-tile warehouse customer-order qty from cuts is the order, not leftover planted quantity — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                        {/* Hard-surface warehouse customer-order leftover planted Qty stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+                        {cutsTotalSqYd(it) == null && it.quantity ? (
                           <div className="text-xs">
                             Qty {it.quantity} {it.unit}
                           </div>
@@ -485,7 +565,7 @@ export default async function WarehousePage() {
                               }
                             >
                               {avail && avail > 0
-                                ? `${avail} ${s.unit} on hand`
+                                ? mixedRemnant ? (remnantItems.length > 1 ? `stock across ${remnantItems.length} pieces` : "stock as a remnant/roll") : `${avail} ${s.unit} on hand`
                                 : "none on hand"}
                             </span>
                             {comparable ? (

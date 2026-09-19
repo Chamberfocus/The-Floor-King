@@ -318,9 +318,9 @@ export type EstimateQuestionKind =
   | "choice" // single/multi choice → each picked option can emit a line
   | "text" // free note → appended to the job notes
   // Smart auto-calc kinds — the questionnaire does the math:
-  | "cuts" // carpet cuts (length × 12'/15' roll) → total sq yd to order
+  | "cuts" // carpet/sheet cuts (length × roll width) → order qty; carpet tile uses this step to pick the SKU, not a cut plan
   | "stairs" // step count + type (waterfall/upholstered) → labor + carpet yd
-  | "hs_stairs" // hard-surface stairs → area (steps × 4/8 sf) → plank + stair labor
+  | "hs_stairs" // hard-surface stairs → step count + trim EACH; wrap sq ft is not automatic
   | "subfloor" // thickness → sheets = ceil(area ÷ 32)
   | "selflevel"; // self-leveler → bags from area + pour thickness
 
@@ -330,8 +330,71 @@ export interface EstimateEmit {
   category: string; // ProductCategory for material, "labor" for labor
   description: string; // the line label on the estimate
   unit: string; // "sqft" | "sqyd" | "lnft" | "each" | "step" | "flat"
-  per?: "area" | "flat" | "each"; // area → qty from measurements; else qty = 1
+  per?: "area" | "flat" | "each"; // area → qty from measurements; flat → 1 charge; each → typed Amount
   cost: number; // our per-unit cost (sells at the target margin)
+}
+
+/** Why a guided-estimate question exists. */
+export type QuestionPurpose =
+  | "MEASUREMENT"
+  | "MATERIAL"
+  | "LABOR"
+  | "PREP"
+  | "ACCESSORY"
+  | "PRICE"
+  | "SCOPE"
+  | "SCHEDULING"
+  | "PURCHASING"
+  | "WAREHOUSE"
+  | "INSTALLATION"
+  | "WARNING";
+
+/**
+ * Show this question when…
+ * - `{ key, in }` — the keyed question's answer is one of `in`
+ * - `{ all }` — every nested clause matches
+ * - `{ any }` — at least one nested clause matches
+ */
+export type ShowIfClause =
+  | { key: string; in: string[] }
+  | { all: ShowIfClause[] }
+  | { any: ShowIfClause[] };
+
+/** One overlay clause — AND of families, systems, and/or substrate. */
+export interface KnowledgeWhenClause {
+  families?: string[];
+  systems?: string[];
+  /**
+   * Positive substrate match (e.g. Concrete). Unanswered does not satisfy
+   * an OR branch on its own — same as SQL `{ key: "substrate", in: [...] }`.
+   */
+  substrate?: string[];
+  /**
+   * Positive match on `subfloor_condition` labels (e.g. Moisture concerns).
+   * Unanswered does not satisfy an OR branch on its own.
+   */
+  subfloor?: string[];
+  /**
+   * Positive match on existing-flooring / `hs_demo` labels (e.g. Carpet).
+   * Unanswered does not satisfy an OR branch on its own. Removal follow-ups
+   * belong to what is coming up, not only the new product family.
+   */
+  demo?: string[];
+}
+
+/**
+ * Domain overlay on top of `show_if`. Unanswered gates do not hide.
+ *
+ * `families` / `systems` AND together. `any` is an OR of those clauses
+ * (hardwood OR glue-down — not the intersection). Hide only when every
+ * applicable clause fails with positive evidence.
+ */
+export interface KnowledgeWhen extends KnowledgeWhenClause {
+  /** OR of family/system clauses. Matches 0190 `{ any: [hardwood, glue] }` show_if. */
+  any?: KnowledgeWhenClause[];
+  require?: { key: string; in: string[] };
+  attachedPad?: "yes" | "no" | "any";
+  purpose?: QuestionPurpose;
 }
 
 export interface EstimateQuestionConfig {
@@ -348,8 +411,8 @@ export interface EstimateQuestionConfig {
   // (stairs: carpet allowance per step) off each option.
   options?: { label: string; emit?: EstimateEmit | null; cost?: number; carpet_sqft?: number }[];
   // Smart auto-calc knobs (all optional, editable per question in Settings):
-  install_yd?: number; // carpet install labor $/sq yd (cuts + floor_map), default 6
-  install_ft?: number; // hard-surface install labor $/sq ft (floor_map), default 2
+  install_yd?: number; // carpet install labor $/sq yd (cuts + floor_map) — Settings only, never a hidden $6
+  install_ft?: number; // hard-surface install labor $/sq ft (floor_map) — Settings only, never a hidden $2
   widths?: number[]; // cuts: selectable roll widths (default [12, 15])
   sheet_sqft?: number; // subfloor: coverage per sheet (4×8 = 32)
   coverage_sqft?: number; // selflevel: SF per bag at the reference thickness
@@ -357,11 +420,23 @@ export interface EstimateQuestionConfig {
   default_thickness_in?: number; // selflevel: default pour thickness
   bag_cost?: number; // selflevel: our cost per bag
   labor_per_sqft?: number; // selflevel: self-leveling labor $/sq ft
+  labor_per_step?: number; // hs_stairs: stair-install labor $/step (never × 8 sq ft)
   carpet_cost_per_yd?: number; // stairs: our cost per sq yd of stair carpet
   note?: boolean; // record the answer as a job condition on the work order
-  // Conditional visibility: show this question only when the answer to the
-  // question with `show_if.key` is one of `show_if.in`. Absent = always shown.
-  show_if?: { key: string; in: string[] } | null;
+  /**
+   * Conditional visibility. The common form is `{ key, in }` (show when that
+   * question's answer is one of the listed values). Compound `{ all }` / `{ any }`
+   * lets a question require more than one prior answer without a JSX maze.
+   * Absent = always shown (until the flooring-knowledge overlay hides it).
+   */
+  show_if?: ShowIfClause | null;
+  /**
+   * Flooring-domain gate (family / install system / purpose). Overlay only
+   * HIDES when prior answers prove the question is irrelevant.
+   */
+  knowledge_when?: KnowledgeWhen | null;
+  /** Why this question exists — unused questions should be challenged. */
+  purpose?: QuestionPurpose | null;
   // Per-room prep: answered once as the job default, with per-room overrides for
   // rooms flagged as "different prep" in the areas step.
   per_room?: boolean;
@@ -588,7 +663,14 @@ export interface Product {
   accessory_variant?: string | null; // the color/size key this item was generated for
   accessory_origin?: AccessoryOrigin | null;
   price_override?: number | null; // when set, regeneration leaves material_rate alone
-  piece_length_in?: number | null; // unit='each': stick length, for lnft → pieces
+  piece_length_in?: number | null; // unit='each': stick length for lnft → pieces. Null = TBD, never a hidden 94".
+  /** Catalog spec columns — optional because older loads may omit them. */
+  species?: string | null;
+  wear_rating?: string | null;
+  fiber?: string | null;
+  wear_layer_mil?: number | null;
+  thickness_mm?: number | null;
+  face_weight_oz?: number | null;
   last_movement_at: string | null;
   created_at: string;
   updated_at: string;
@@ -1121,8 +1203,10 @@ export interface PoItem {
   received_by: string | null;
   receiving_note: string | null;
   // Vendor-unit helpers: product category (for carpet-vs-hard rendering), hard
-  // surface → carton count = ceil(qty / sqft_per_box); carpet → broadloom roll
-  // width. Null when not applicable.
+  // surface / exclusive carpet tile → carton count = ceil(sq ft / sqft_per_box)
+  // (sq yd × 9 first); exclusive carpet-tile boxed $/box onto sq yd is $/coverage;
+  // hard-surface boxed $/box onto sq ft is $/coverage;
+  // carpet roll goods → broadloom roll width. Null when not applicable.
   category: string | null;
   sqft_per_box: number | null;
   roll_width_ft: number | null;

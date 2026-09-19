@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { type CalcLine } from "@/lib/estimate-calc";
+import { lineDisplayUnit } from "@/lib/units";
 import { isMaterialLine } from "@/lib/job-scope";
 import { materialNeedQty } from "@/lib/job-operational-scope";
 import {
@@ -29,6 +30,7 @@ export interface JobMaterialLine {
   lengthIn: number | null; // cut measurements to order (carpet especially)
   widthIn: number | null;
   sqftArea: number | null; // the line's measured area (cut-list safety net)
+  wastePct: number | null;
   measurements: LineMeasurement[] | null; // first-class measured pieces / cuts
   qty: number; // quantity needed for the job
   unit: string;
@@ -254,9 +256,13 @@ export async function getJobMaterials(
       lengthIn: l.length_in ?? null,
       widthIn: l.width_in ?? null,
       sqftArea: l.sqft == null || l.sqft === "" ? null : Number(l.sqft),
+      wastePct:
+        l.waste_pct == null || l.waste_pct === ""
+          ? null
+          : Number(l.waste_pct),
       measurements: l.measurements ?? null,
       qty,
-      unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+      unit: lineDisplayUnit(l),
       trackStock: canStock,
       onHand,
       available,

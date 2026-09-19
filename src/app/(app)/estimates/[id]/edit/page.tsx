@@ -43,12 +43,21 @@ export default async function EditEstimatePage({
     ),
   ];
   const productUnits: Record<string, string> = {};
-  const productDefaults: Record<string, { material_rate: number; labor_rate: number; unit: string }> = {};
+  const productDefaults: Record<
+    string,
+    {
+      material_rate: number;
+      labor_rate: number;
+      unit: string;
+      category?: string | null;
+      sqft_per_box?: number | string | null;
+    }
+  > = {};
   if (productIds.length) {
     const supabase = await createClient();
     const { data: prods } = await supabase
       .from("products")
-      .select("id, unit, material_rate, labor_rate")
+      .select("id, unit, material_rate, labor_rate, category, sqft_per_box")
       .in("id", productIds);
     for (const p of prods ?? []) {
       const unit = (p.unit as string) ?? "";
@@ -57,6 +66,8 @@ export default async function EditEstimatePage({
         material_rate: Number(p.material_rate) || 0,
         labor_rate: Number(p.labor_rate) || 0,
         unit,
+        category: (p.category as string) ?? null,
+        sqft_per_box: p.sqft_per_box,
       };
     }
   }

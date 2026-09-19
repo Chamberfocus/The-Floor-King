@@ -99,7 +99,7 @@ export async function listAddonCatalog(): Promise<AddonCatalogItem[]> {
     .sort((a, b) => a.localeCompare(b))
     .map((l) => ({
       label: l,
-      unit: defaults[l].unit || "each",
+      unit: defaults[l].unit || "",
       labor: defaults[l].labor,
       cost: defaults[l].cost ?? null,
       sell: defaults[l].sell ?? null,

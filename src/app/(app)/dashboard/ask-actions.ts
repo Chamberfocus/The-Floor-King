@@ -2,6 +2,8 @@
 
 import { aiText } from "@/lib/ai";
 import { getBusinessPulse } from "@/lib/data/pulse";
+import { getDeadStock } from "@/lib/data/product-performance";
+import { reorderAlertsFor } from "@/lib/data/stock-rolls";
 import { getTodayTasks } from "@/lib/data/day-tasks";
 import { formatMoney } from "@/lib/format";
 
@@ -17,10 +19,24 @@ export async function askBusiness(question: string): Promise<AskResult> {
 
   let ctx: string[] = [];
   try {
-    const [pulse, tasks] = await Promise.all([
+    const [pulse, tasks, dead] = await Promise.all([
       getBusinessPulse(),
       getTodayTasks(),
+      getDeadStock(90),
     ]);
+    const remnantAlerts = await reorderAlertsFor(dead.map((d) => d.product.id));
+    const mixedDeadSkus = dead.filter((d) => {
+      const remnantItems = remnantAlerts[d.product.id]?.items ?? [];
+      const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+      return new Set(remnantUnits).size > 1;
+    });
+    // Exclusive carpet-tile dashboard ask leftover planted deadStockValue mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface dashboard ask leftover planted deadStockValue mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const mixedRemnant = mixedDeadSkus.length > 0;
+    const mixedDeadPieces = mixedDeadSkus.reduce(
+      (n, d) => n + (remnantAlerts[d.product.id]?.items ?? []).length,
+      0,
+    );
 
     ctx.push(`Month: ${pulse.monthLabel}`);
     ctx.push(
@@ -42,7 +58,7 @@ export async function askBusiness(question: string): Promise<AskResult> {
       );
     if (pulse.deadStockValue > 0)
       ctx.push(
-        `Dead stock (90+ days idle): ${formatMoney(pulse.deadStockValue)} across ${pulse.deadStockCount} products.`,
+        mixedRemnant ? (mixedDeadPieces > 1 ? `Dead stock (90+ days idle): value across ${mixedDeadPieces} pieces across ${pulse.deadStockCount} products.` : `Dead stock (90+ days idle): value as a remnant/roll across ${pulse.deadStockCount} products.`) : `Dead stock (90+ days idle): ${formatMoney(pulse.deadStockValue)} across ${pulse.deadStockCount} products.`,
       );
     if (pulse.losingJobs.length) {
       ctx.push(`Jobs that lost money:`);

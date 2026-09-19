@@ -13,7 +13,7 @@ import { formatMoney } from "@/lib/format";
 import type { OrderSubmission, OrderResult } from "@/app/order/actions";
 
 interface Cut {
-  width: string; // "12" | "15"
+  width: string; // catalog roll width, or "" for TBD — never invent 12'
   ft: string;
   in: string;
 }
@@ -47,11 +47,12 @@ const num = (v: string) => {
   return Number.isFinite(x) ? x : 0;
 };
 
-/** "12' × 14'6"" — only when a length is given. */
+/** "12' × 14'6"" — only when a length is given. Empty width is TBD, not 12'. */
 function formatCut(c: Cut): string {
   if (!c.ft && !c.in) return "";
   const len = `${c.ft || "0"}'${c.in ? `${c.in}"` : ""}`;
-  return `${c.width}' × ${len}`;
+  const w = num(c.width);
+  return `${w > 0 ? `${w}'` : "width TBD"} × ${len}`;
 }
 
 export function OrderForm({
@@ -65,7 +66,7 @@ export function OrderForm({
 }) {
   const [pending, start] = useTransition();
   const [done, setDone] = useState(false);
-  const newCut = (): Cut => ({ width: "12", ft: "", in: "" });
+  const newCut = (): Cut => ({ width: "", ft: "", in: "" });
   const newLine = (): Line => ({
     key: `l${lineSeq++}`,
     productId: "",
@@ -73,7 +74,7 @@ export function OrderForm({
     color: "",
     style: "",
     quantity: "",
-    unit: "sq yd",
+    unit: "",
     cuts: [newCut()],
     requested: "",
   });
@@ -95,7 +96,7 @@ export function OrderForm({
     update(
       i,
       p
-        ? { productId: p.id, description: p.name, unit: p.unit || "sq yd" }
+        ? { productId: p.id, description: p.name, unit: p.unit || "" }
         : { productId: "" },
     );
   };
@@ -248,6 +249,7 @@ export function OrderForm({
                   <div>
                     <label className="mb-0.5 block text-xs text-muted-foreground">Unit</label>
                     <select value={l.unit} onChange={(e) => update(i, { unit: e.target.value })} className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm">
+                      <option value="">Unit TBD</option>
                       {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
@@ -289,6 +291,8 @@ export function OrderForm({
                           onChange={(e) => update(i, { cuts: l.cuts.map((x, k) => (k === ci ? { ...x, width: e.target.value } : x)) })}
                           className="h-9 rounded-md border border-input bg-transparent px-2"
                         >
+                          <option value="">Width TBD</option>
+                          <option value="6">6&apos; wide</option>
                           <option value="12">12&apos; wide</option>
                           <option value="15">15&apos; wide</option>
                         </select>

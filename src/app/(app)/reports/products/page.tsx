@@ -23,6 +23,7 @@ import {
   getDeadStock,
 } from "@/lib/data/product-performance";
 import { formatMoney } from "@/lib/format";
+import { reorderAlertsFor } from "@/lib/data/stock-rolls";
 
 export const metadata: Metadata = { title: "Product performance" };
 export const dynamic = "force-dynamic";
@@ -35,12 +36,48 @@ export default async function ProductPerformancePage() {
     getProductPerformance(),
     getDeadStock(90),
   ]);
+  const remnantAlerts = await reorderAlertsFor(dead.map((d) => d.product.id));
+  const onHandLabel = (p: (typeof dead)[number]["product"]) => {
+    const remnantItems = remnantAlerts[p.id]?.items ?? [];
+    // Exclusive carpet-tile reports products on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface reports products leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    const mixedRemnant = new Set(remnantUnits).size > 1;
+    return mixedRemnant ? (remnantItems.length > 1 ? `stock across ${remnantItems.length} pieces` : "stock as a remnant/roll") : `${p.on_hand}`;
+  };
+  const valueLabel = (d: (typeof dead)[number]) => {
+    const remnantItems = remnantAlerts[d.product.id]?.items ?? [];
+    // Exclusive carpet-tile reports products leftover planted value mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface reports products leftover planted value mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    const mixedRemnant = new Set(remnantUnits).size > 1;
+    return mixedRemnant ? (remnantItems.length > 1 ? `value across ${remnantItems.length} pieces` : "value as a remnant/roll") : formatMoney(d.value);
+  };
+  const unitsLabel = (p: (typeof perf)[number]) => {
+    const soldUnits = p.lineUnits ?? [];
+    // Exclusive carpet-tile reports products leftover planted units mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface reports products leftover planted units mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const mixedRemnant = new Set(soldUnits).size > 1;
+    return mixedRemnant ? (soldUnits.length > 1 ? `units across ${soldUnits.length} lines` : "units as a sold line") : `${Math.round(p.units)}`;
+  };
 
   const topSellers = [...perf].slice(0, 15);
   const worstMargin = [...perf]
     .filter((p) => p.revenue > 0)
     .sort((a, b) => a.margin - b.margin)
     .slice(0, 10);
+  const mixedDeadSkus = dead.filter((d) => {
+    const remnantItems = remnantAlerts[d.product.id]?.items ?? [];
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    return new Set(remnantUnits).size > 1;
+  });
+  // Exclusive carpet-tile reports products leftover planted deadValue mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface reports products leftover planted deadValue mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+  const mixedRemnant = mixedDeadSkus.length > 0;
+  const mixedDeadPieces = mixedDeadSkus.reduce(
+    (n, d) => n + (remnantAlerts[d.product.id]?.items ?? []).length,
+    0,
+  );
   const deadValue = dead.reduce((s, d) => s + d.value, 0);
 
   return (
@@ -95,7 +132,7 @@ export default async function ProductPerformancePage() {
                         <div className="text-xs text-muted-foreground">
                           Units
                         </div>
-                        <div className="font-medium">{Math.round(p.units)}</div>
+                        <div className="font-medium">{unitsLabel(p)}</div>
                       </div>
                       <div>
                         <div className="text-xs text-muted-foreground">
@@ -153,7 +190,7 @@ export default async function ProductPerformancePage() {
                           {p.jobs}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
-                          {Math.round(p.units)}
+                          {unitsLabel(p)}
                         </TableCell>
                         <TableCell className="text-right">
                           {formatMoney(p.revenue)}
@@ -262,7 +299,7 @@ export default async function ProductPerformancePage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <PackageX className="size-4 text-destructive" /> Dead stock —{" "}
-            {formatMoney(deadValue)} tied up
+            {mixedRemnant ? (mixedDeadPieces > 1 ? `value across ${mixedDeadPieces} pieces` : "value as a remnant/roll") : formatMoney(deadValue)} tied up
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -298,7 +335,7 @@ export default async function ProductPerformancePage() {
                         <div className="text-xs text-muted-foreground">
                           On hand
                         </div>
-                        <div className="font-medium">{d.product.on_hand}</div>
+                        <div className="font-medium">{onHandLabel(d.product)}</div>
                       </div>
                       <div>
                         <div className="text-xs text-muted-foreground">
@@ -310,7 +347,7 @@ export default async function ProductPerformancePage() {
                         <div className="text-xs text-muted-foreground">
                           Cash tied up
                         </div>
-                        <div className="font-medium">{formatMoney(d.value)}</div>
+                        <div className="font-medium">{valueLabel(d)}</div>
                       </div>
                     </div>
                     <div className="mt-2">
@@ -353,13 +390,13 @@ export default async function ProductPerformancePage() {
                           ) : null}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
-                          {d.product.on_hand}
+                          {onHandLabel(d.product)}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {d.idleDays}
                         </TableCell>
                         <TableCell className="text-right">
-                          {formatMoney(d.value)}
+                          {valueLabel(d)}
                         </TableCell>
                         <TableCell className="text-right">
                           <Link

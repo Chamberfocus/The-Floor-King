@@ -1,6 +1,7 @@
 // Structured catalog CSV: a clean template + a fast parser that skips the AI
 // when a file already has recognizable column headers. Browser-safe (no deps).
 import type { PriceRow } from "@/lib/extract";
+import { normalizeUnit } from "@/lib/units";
 
 /** The exact columns the catalog understands. First row of the template. */
 export const CATALOG_TEMPLATE_HEADERS = [
@@ -82,12 +83,15 @@ function splitLine(line: string, delim: string): string[] {
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 export function normUnit(v: string): string {
-  const u = norm(v);
-  if (!u) return "sqft";
-  if (u.startsWith("sy") || u.includes("yd")) return "sqyd";
-  if (u.includes("sf") || u.includes("sq")) return "sqft";
-  if (u.includes("lf") || u.includes("lnft") || u.includes("linear")) return "lnft";
-  if (u.startsWith("ea") || u === "each" || u === "pc" || u === "piece") return "each";
+  if (!(v ?? "").trim()) return "sqft";
+  const key = normalizeUnit(v);
+  if (key === "sqyd") return "sqyd";
+  if (key === "sqft") return "sqft";
+  if (key === "lnft") return "lnft";
+  if (key === "each" || key === "pc") return "each";
+  if (key === "box" || key === "roll" || key === "bag" || key === "sheet") return key;
+  // Historical importer default: unknown cells are area sqft, never yards
+  // invented from a random "yd" substring (hydronic, idyllic, …).
   return "sqft";
 }
 

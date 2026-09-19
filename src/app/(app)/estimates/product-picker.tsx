@@ -18,6 +18,7 @@ import { formatMoney } from "@/lib/format";
 import {
   PRICE_NEEDED,
   catalogMarginPct,
+  catalogRateInLineUnit,
   catalogSellPrice,
   catalogUnitCost,
   formatCatalogPrice,
@@ -31,10 +32,12 @@ import {
   type Product,
   type UserRole,
 } from "@/lib/types";
-import { createProductInline, searchCatalogProducts } from "../catalog/actions";
+import { createProductInline, searchCatalogProducts, catalogRemnantAlertsFor } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
-import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
+import { TYPICAL_PIECE_LENGTH_IN } from "@/lib/accessories";
 import { specFieldsFor } from "@/lib/product-fields";
+import { boxedCartonAreaTakeoffAllowed, familyFromCatalogCategory } from "@/lib/flooring-knowledge";
+import { catalogCarpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
 import {
   defaultUnitForCategory,
   unitsForCategory,
@@ -60,6 +63,56 @@ function pickerMoney(p: Product, purpose: CatalogPricePurpose) {
     label: formatCatalogPrice(primary, formatMoney),
     needed: primary.missing,
   };
+}
+
+/**
+ * Hard-surface catalog picker swap boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+ * Exclusive carpet-tile catalog picker swap boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+ */
+function pickerSwapRate(p: Product, purpose: CatalogPricePurpose): {
+  label: string;
+  unit: string;
+  needed: boolean;
+} {
+  const money = pickerMoney(p, purpose);
+  const unit = p.unit || "unit";
+  if (money.needed) return { label: money.label, unit, needed: true };
+  const rate = money.primary.amount;
+  if (rate == null) return { label: money.label, unit, needed: money.needed };
+  const isCarpet = p.category === "carpet";
+  const carpetInstallSystems = catalogCarpetInstallSystemsForBoxedRate(p);
+  const boxedArea = boxedCartonAreaTakeoffAllowed({
+    family: familyFromCatalogCategory(p.category ?? "other"),
+    productUnit: p.unit,
+    sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
+    carpetInstallSystems,
+  });
+  if (isCarpet && (isAreaUnit(p.unit) || boxedArea)) {
+    const perSqyd = catalogRateInLineUnit(
+      rate,
+      {
+        unit: p.unit,
+        category: p.category,
+        sqft_per_box: p.sqft_per_box,
+        carpetInstallSystems,
+      },
+      true,
+    );
+    return { label: formatMoney(perSqyd), unit: "sq yd", needed: false };
+  }
+  if (!isCarpet && boxedArea) {
+    const perSqft = catalogRateInLineUnit(
+      rate,
+      {
+        unit: p.unit,
+        category: p.category,
+        sqft_per_box: p.sqft_per_box,
+      },
+      false,
+    );
+    return { label: formatMoney(perSqft), unit: "sq ft", needed: false };
+  }
+  return { label: money.label, unit, needed: false };
 }
 
 /**
@@ -131,6 +184,9 @@ export function ProductPicker({
   const [pending, setPending] = useState<Product | null>(null);
   const [q, setQ] = useState(initialLabel);
   const [results, setResults] = useState<Product[]>([]);
+  const [remnantAlerts, setRemnantAlerts] = useState<
+    Awaited<ReturnType<typeof catalogRemnantAlertsFor>>
+  >({});
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -164,19 +220,40 @@ export function ProductPicker({
     if (!open || adding) return;
     setLoading(true);
     const term = q.trim() === initialLabel.trim() ? "" : q;
+    let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        setResults(await searchCatalogProducts(term, { purpose }));
+        const rows = await searchCatalogProducts(term, { purpose });
+        if (cancelled) return;
+        setResults(rows);
+        const ids = rows.filter((p) => p.track_stock).map((p) => p.id);
+        const alerts = ids.length ? await catalogRemnantAlertsFor(ids) : {};
+        if (cancelled) return;
+        setRemnantAlerts(alerts);
       } catch {
-        setResults([]);
+        if (!cancelled) {
+          setResults([]);
+          setRemnantAlerts({});
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }, 200);
-    return () => clearTimeout(t);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   }, [q, open, adding, initialLabel, purpose]);
 
   const matches = results;
+  const onHandLabel = (p: Product) => {
+    const remnantItems = remnantAlerts[p.id]?.items ?? [];
+    // Exclusive carpet-tile catalog picker on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface catalog picker leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    const mixedRemnant = new Set(remnantUnits).size > 1;
+    return mixedRemnant ? (remnantItems.length > 1 ? `In stock across ${remnantItems.length} pieces` : "In stock as a remnant/roll") : `In stock: ${p.on_hand} ${p.unit}`;
+  };
 
   // Reset the highlight when the list changes; keep it in range.
   useEffect(() => {
@@ -230,6 +307,8 @@ export function ProductPicker({
     }
   };
 
+  const swapRate = pending ? pickerSwapRate(pending, purpose) : null;
+
   return (
     <div ref={boxRef} className="relative">
       <label className="mb-1 block text-xs text-muted-foreground">
@@ -258,8 +337,8 @@ export function ProductPicker({
           </div>
           <p className="mt-2 rounded-md bg-background/60 px-2 py-1.5 text-xs text-muted-foreground">
             {purpose === "cost" ? "Vendor cost becomes" : "Sell price becomes"}{" "}
-            <span className={cn("font-semibold", pickerMoney(pending, purpose).needed ? "text-amber-700" : "text-foreground")}>
-              {pickerMoney(pending, purpose).label} per {pending.unit || "unit"}
+            <span className={cn("font-semibold", swapRate?.needed ? "text-amber-700" : "text-foreground")}>
+              {swapRate?.label} per {swapRate?.unit}
             </span>
             {pending.category ? (
               <> · {PRODUCT_CATEGORY_LABELS[pending.category]}</>
@@ -394,12 +473,114 @@ export function ProductPicker({
                       showMargin && !money.cost.missing && !money.sell.missing
                         ? catalogMarginPct(money.cost, money.sell)
                         : null;
+                    // Exclusive carpet-tile catalog picker boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    const carpetInstallSystems = catalogCarpetInstallSystemsForBoxedRate(p);
+                    const boxedArea = boxedCartonAreaTakeoffAllowed({
+                      family: familyFromCatalogCategory(p.category ?? "other"),
+                      productUnit: p.unit,
+                      sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
+                      carpetInstallSystems,
+                    });
+                    const rate = money.primary.amount;
+                    const showPerSqyd =
+                      isCarpet &&
+                      !money.needed &&
+                      rate != null &&
+                      (isAreaUnit(p.unit) || boxedArea);
                     const perSqyd =
-                      isCarpet && !money.needed && money.primary.amount != null
-                        ? (p.unit || "").toLowerCase().includes("yd")
-                          ? money.primary.amount
-                          : money.primary.amount * 9
+                      showPerSqyd && rate != null
+                        ? catalogRateInLineUnit(
+                            rate,
+                          {
+                            unit: p.unit,
+                            category: p.category,
+                            sqft_per_box: p.sqft_per_box,
+                            carpetInstallSystems,
+                          },
+                          true,
+                        )
+                      : null;
+                    // Hard-surface catalog picker boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+                    const showPerSqft =
+                      !isCarpet && boxedArea && !money.needed && rate != null;
+                    const perSqft =
+                      showPerSqft && rate != null
+                        ? catalogRateInLineUnit(
+                            rate,
+                            {
+                              unit: p.unit,
+                              category: p.category,
+                              sqft_per_box: p.sqft_per_box,
+                            },
+                            false,
+                          )
                         : null;
+                    // Hard-surface catalog picker cost line boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+                    // Exclusive carpet-tile catalog picker cost line boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    const costAmount = money.cost.amount;
+                    const costLine =
+                      isCarpet && boxedArea && costAmount != null
+                        ? catalogRateInLineUnit(
+                            costAmount,
+                            {
+                              unit: p.unit,
+                              category: p.category,
+                              sqft_per_box: p.sqft_per_box,
+                              carpetInstallSystems,
+                            },
+                            true,
+                          )
+                        : !isCarpet && boxedArea && costAmount != null
+                          ? catalogRateInLineUnit(
+                              costAmount,
+                              {
+                                unit: p.unit,
+                                category: p.category,
+                                sqft_per_box: p.sqft_per_box,
+                              },
+                              false,
+                            )
+                          : costAmount;
+                    // Hard-surface catalog picker cost line boxed rate onto sq ft shows /sq ft, not native /box 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+                    // Exclusive carpet-tile catalog picker cost line boxed rate onto sq yd shows /sq yd, not native /box 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    const costUnit =
+                      isCarpet && boxedArea && costAmount != null
+                        ? "sq yd"
+                        : !isCarpet && boxedArea && costAmount != null
+                          ? "sq ft"
+                          : p.unit;
+                    // Hard-surface catalog picker clearance badge boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+                    // Exclusive carpet-tile catalog picker clearance badge boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    const clearanceAmount = p.clearance_price;
+                    const clearanceLine =
+                      isCarpet && boxedArea && clearanceAmount != null
+                        ? catalogRateInLineUnit(
+                            clearanceAmount,
+                            {
+                              unit: p.unit,
+                              category: p.category,
+                              sqft_per_box: p.sqft_per_box,
+                              carpetInstallSystems,
+                            },
+                            true,
+                          )
+                        : !isCarpet && boxedArea && clearanceAmount != null
+                          ? catalogRateInLineUnit(
+                              clearanceAmount,
+                              {
+                                unit: p.unit,
+                                category: p.category,
+                                sqft_per_box: p.sqft_per_box,
+                              },
+                              false,
+                            )
+                          : clearanceAmount;
+                    const clearanceUnit =
+                      isCarpet && boxedArea && clearanceAmount != null
+                        ? "sq yd"
+                        : !isCarpet && boxedArea && clearanceAmount != null
+                          ? "sq ft"
+                          : p.unit;
                     return (
                       <button
                         key={p.id}
@@ -441,8 +622,8 @@ export function ProductPicker({
                           <span className="mt-0.5 flex flex-wrap gap-1">
                             {p.clearance && p.clearance_price != null ? (
                               <span className="inline-block rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-800">
-                                🔖 Clearance {formatMoney(p.clearance_price)}/
-                                {p.unit}
+                                🔖 Clearance {formatMoney(clearanceLine ?? 0)}/
+                                {clearanceUnit}
                               </span>
                             ) : null}
                             {p.track_stock ? (
@@ -455,7 +636,7 @@ export function ProductPicker({
                                 )}
                               >
                                 {p.on_hand > 0
-                                  ? `In stock: ${p.on_hand} ${p.unit}`
+                                  ? onHandLabel(p)
                                   : "Out of stock — order"}
                               </span>
                             ) : null}
@@ -477,14 +658,20 @@ export function ProductPicker({
                                   </span>
                                 )}
                               </span>
-                              {isCarpet && perSqyd != null ? (
+                              {isCarpet && showPerSqyd && perSqyd != null ? (
                                 <span className="block text-xs font-medium tabular-nums text-primary">
                                   {formatMoney(perSqyd)}/sq yd
                                 </span>
                               ) : null}
+                              {showPerSqft && perSqft != null ? (
+                                <span className="block text-xs font-medium tabular-nums text-primary">
+                                  {formatMoney(perSqft)}/sq ft
+                                </span>
+                              ) : null}
                               {showCost && !money.cost.missing ? (
                                 <span className="block text-xs tabular-nums text-muted-foreground">
-                                  cost {formatMoney(money.cost.amount ?? 0)}
+                                  cost {formatMoney(costLine ?? 0)}/
+                                  {costUnit}
                                   {showMargin && margin != null
                                     ? ` · ${Math.round(margin)}% gm`
                                     : ""}
@@ -586,8 +773,8 @@ function AddProductForm({
     manufacturer: "",
     style: "",
     color: "",
-    category: initialCategory || "lvp",
-    unit: defaultUnitForCategory(initialCategory || "lvp"),
+    category: initialCategory || "",
+    unit: defaultUnitForCategory(initialCategory),
     sku: "",
     material_rate: "",
     labor_rate: "",
@@ -756,11 +943,11 @@ function AddProductForm({
                 inputMode="decimal"
                 value={f.piece_length_in}
                 onChange={(e) => set({ piece_length_in: e.target.value })}
-                placeholder={String(DEFAULT_PIECE_LENGTH_IN)}
+                placeholder={`${TYPICAL_PIECE_LENGTH_IN} typical`}
                 className={cn(inputSm, "h-9 w-24")}
               />
               <span className="text-xs text-muted-foreground">
-                inches per piece — blank uses {DEFAULT_PIECE_LENGTH_IN}&quot;
+                inches per piece — blank leaves TBD; {TYPICAL_PIECE_LENGTH_IN}&quot; is typical, not assumed
               </span>
             </div>
           ) : null}
@@ -770,6 +957,10 @@ function AddProductForm({
               {f.category === "underlayment"
                 ? "Carpet pad is sold by the square yard; laminate underlayment usually by the square foot."
                 : "Carpet and sheet vinyl are sold by the square yard — enter the price you pay per yard."}
+            </p>
+          ) : !f.unit ? (
+            <p className="text-[11px] text-amber-800 dark:text-amber-200">
+              Unit TBD — pick how this is sold. We do not plant sq ft on Other / adhesive.
             </p>
           ) : null}
         </div>

@@ -114,7 +114,7 @@ export function CounterSaleForm({
     if (!p) return;
     setRow(key, {
       description: productLabel(p).trim(),
-      unit: p.unit || "each",
+      unit: p.unit || "",
       // Catalog material_rate / vendor cost is OUR COST. Selling at it would
       // hand the material over at cost, so mark it up to the shop's target
       // margin — same as the public order form.
@@ -321,7 +321,7 @@ export function CounterSaleForm({
                 onUseOnce={(input) =>
                   setRow(r.key, {
                     description: input.name,
-                    unit: input.unit || "each",
+                    unit: input.unit || "",
                     rate: retail(Number(input.material_rate) || 0),
                     productId: null,
                   })
