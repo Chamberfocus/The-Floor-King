@@ -313,6 +313,9 @@ export default async function InventoryPage({
         <div className="space-y-2 md:hidden">
           {items.map((p) => {
             const low = p.reorder_point > 0 && p.on_hand <= p.reorder_point;
+            const remnantItems = remnantAlerts[p.id]?.items ?? [];
+            const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+            const mixedRemnant = new Set(remnantUnits).size > 1;
             return (
               <div key={p.id} className={cn("rounded-lg border p-3", low && "bg-destructive/5")}>
                 <div className="flex items-start justify-between gap-2">
@@ -339,7 +342,13 @@ export default async function InventoryPage({
                 <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-muted-foreground">
                   <span>Reorder at {p.reorder_point || "—"}</span>
                   {canSeeCost ? (
-                    <span>Value {formatMoney(p.on_hand * (p.material_rate || 0))}</span>
+                    <span>
+                      {/* Exclusive carpet-tile warehouse inventory list leftover planted value mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                      {/* Hard-surface warehouse inventory list leftover planted value mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+                      {mixedRemnant ? (remnantItems.length > 1 ? `value across ${remnantItems.length} pieces` : "value as a remnant/roll") : (
+                        <>Value {formatMoney(p.on_hand * (p.material_rate || 0))}</>
+                      )}
+                    </span>
                   ) : null}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -377,6 +386,9 @@ export default async function InventoryPage({
             <tbody className="divide-y">
               {items.map((p) => {
                 const low = p.reorder_point > 0 && p.on_hand <= p.reorder_point;
+                const remnantItems = remnantAlerts[p.id]?.items ?? [];
+                const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+                const mixedRemnant = new Set(remnantUnits).size > 1;
                 return (
                   <tr key={p.id} className={low ? "bg-destructive/5" : ""}>
                     <td className="px-3 py-2">
@@ -408,7 +420,9 @@ export default async function InventoryPage({
                     </td>
                     {canSeeCost ? (
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                        {formatMoney(p.on_hand * (p.material_rate || 0))}
+                        {mixedRemnant ? (remnantItems.length > 1 ? `value across ${remnantItems.length} pieces` : "value as a remnant/roll") : (
+                          formatMoney(p.on_hand * (p.material_rate || 0))
+                        )}
                       </td>
                     ) : null}
                     <td className="px-3 py-2">
