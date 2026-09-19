@@ -45,6 +45,14 @@ export default async function ProductPerformancePage() {
     const mixedRemnant = new Set(remnantUnits).size > 1;
     return mixedRemnant ? (remnantItems.length > 1 ? `stock across ${remnantItems.length} pieces` : "stock as a remnant/roll") : `${p.on_hand}`;
   };
+  const valueLabel = (d: (typeof dead)[number]) => {
+    const remnantItems = remnantAlerts[d.product.id]?.items ?? [];
+    // Exclusive carpet-tile reports products leftover planted value mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface reports products leftover planted value mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    const mixedRemnant = new Set(remnantUnits).size > 1;
+    return mixedRemnant ? (remnantItems.length > 1 ? `value across ${remnantItems.length} pieces` : "value as a remnant/roll") : formatMoney(d.value);
+  };
 
   const topSellers = [...perf].slice(0, 15);
   const worstMargin = [...perf]
@@ -320,7 +328,7 @@ export default async function ProductPerformancePage() {
                         <div className="text-xs text-muted-foreground">
                           Cash tied up
                         </div>
-                        <div className="font-medium">{formatMoney(d.value)}</div>
+                        <div className="font-medium">{valueLabel(d)}</div>
                       </div>
                     </div>
                     <div className="mt-2">
@@ -369,7 +377,7 @@ export default async function ProductPerformancePage() {
                           {d.idleDays}
                         </TableCell>
                         <TableCell className="text-right">
-                          {formatMoney(d.value)}
+                          {valueLabel(d)}
                         </TableCell>
                         <TableCell className="text-right">
                           <Link
