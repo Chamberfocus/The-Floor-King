@@ -98,14 +98,14 @@ export function lineSpec(l: {
   const unit = lineDisplayUnit(l);
   // Wrap / carton TBD / qty TBD How many is the order — leftover taped sq ft
   // is not a work-order quantity and not cartons.
+  // Exclusive carpet-tile job scope leftover planted taped sq ft is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface job scope leftover planted taped sq ft stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
   const qty =
     q > 0
       ? `${Math.round(q * 100) / 100} ${unit}`
       : lineSkipsAreaCartonMath(l)
         ? ""
-        : l.sqft
-          ? `${l.sqft} sq ft`
-          : "";
+        : "";
   // Cuts only apply to roll goods (carpet / sheet vinyl). Hard surface is sold
   // by the square foot in cartons and never has a cut size.
   const isRoll = isRollGoodCategory(l.category);
