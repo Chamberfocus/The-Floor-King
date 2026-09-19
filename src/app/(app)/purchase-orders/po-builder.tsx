@@ -25,7 +25,8 @@ import { formatMoney } from "@/lib/format";
 import { catalogUnitCost, catalogRateInLineUnit } from "@/lib/catalog-pricing";
 import { knowledgePickDescription, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
 import { poCarpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
-import { billedRateToCartonCost, isAreaUnit, lineUnitKey, pickedProductUnit } from "@/lib/units";
+import { billedQtyToSqft, billedRateToCartonCost, isAreaUnit, lineUnitKey, pickedProductUnit, unitIsSqyd } from "@/lib/units";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
   PO_SOURCE_BADGE,
@@ -619,6 +620,24 @@ export function PoBuilder({
               lineUnitKey(it),
               Number(it.sqft_per_box),
             );
+            const cartonsHs = hardSurfaceAreaCartonCount(it, Number(it.quantity));
+            // Exclusive carpet-tile po builder pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            // Hard-surface po builder pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+            const poBuilderPadTakeoff =
+              it.category === "underlayment" && it.unit !== "sheet"
+                ? computeMaterialTakeoff({
+                    family: "other",
+                    measuredSqft:
+                      billedQtyToSqft(Number(it.quantity), unitIsSqyd(it.unit) ? "sqyd" : "sqft") ?? 0,
+                    wasteAlreadyInQuantity: true,
+                    sqftPerBox: Number(it.sqft_per_box) > 0 ? Number(it.sqft_per_box) : null,
+                    billingUnit: unitIsSqyd(it.unit) ? "sqyd" : "sqft",
+                    takeoffLabel: "Carpet pad",
+                  })
+                : null;
+            const cartons =
+              cartonsHs ||
+              (poBuilderPadTakeoff?.cartons ? poBuilderPadTakeoff.cartons.cartonCount : 0);
             return (
             <div key={it.key} className="rounded-md border p-3">
               {it.product_id || pickerOpen.has(it.key) ? (
@@ -754,11 +773,11 @@ export function PoBuilder({
                 sqft_per_box: it.sqft_per_box,
                 roll_width_ft: it.roll_width_ft,
                 quantity: it.quantity,
-              }) ? (
+              }) || cartons > 0 ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs">
                   {Number(it.sqft_per_box) > 0 && Number(it.quantity) > 0 ? (
                     <span className="font-semibold text-primary">
-                      = {hardSurfaceAreaCartonCount(it, Number(it.quantity))} cartons
+                      = {cartons} cartons
                       <span className="font-normal text-muted-foreground">
                         {" "}({it.sqft_per_box} sq ft/box
                         {cartonCost != null
