@@ -9,6 +9,7 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { PageHeader } from "@/components/page-header";
 import { requireProfile } from "@/lib/auth";
 import { listOrders, getProductStock, type ProductStock } from "@/lib/data/orders";
+import { reorderAlertsFor } from "@/lib/data/stock-rolls";
 import { getProfileNames } from "@/lib/data/customers";
 import { ApproveOrder } from "./approve-order";
 import {
@@ -46,9 +47,9 @@ export default async function OrdersPage() {
   const profile = await requireProfile();
   if (!["admin", "office"].includes(profile.role)) redirect("/");
   const orders = await listOrders();
-  const stock = await getProductStock(
-    orders.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? "")),
-  );
+  const productIds = orders.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? ""));
+  const stock = await getProductStock(productIds);
+  const remnantAlerts = await reorderAlertsFor(productIds);
   const checkerNames = await getProfileNames(
     orders.map((o) => o.stock_checked_by ?? "").filter(Boolean),
   );
@@ -59,6 +60,11 @@ export default async function OrdersPage() {
     const s: ProductStock | undefined = productId ? stock.get(productId) : undefined;
     if (!s || !s.track_stock) return null;
     const avail = Math.round((s.on_hand - s.reserved) * 100) / 100;
+    const remnantItems = productId ? remnantAlerts[productId]?.items ?? [] : [];
+    // Exclusive carpet-tile office customer-order on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface office customer-order leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    const mixedRemnant = new Set(remnantUnits).size > 1;
     return (
       <span
         className={cn(
@@ -66,7 +72,7 @@ export default async function OrdersPage() {
           avail > 0 ? "text-emerald-600" : "text-destructive",
         )}
       >
-        {avail > 0 ? `· ${avail} ${s.unit} on hand` : "· out of stock"}
+        {avail > 0 ? mixedRemnant ? (remnantItems.length > 1 ? `· stock across ${remnantItems.length} pieces` : "· stock as a remnant/roll") : `· ${avail} ${s.unit} on hand` : "· out of stock"}
       </span>
     );
   };
