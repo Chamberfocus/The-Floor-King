@@ -165,6 +165,9 @@ function PoCard({ po }: { po: IncomingPo }) {
               const ordered = Number(i.quantity ?? 0);
               const differs = Math.abs(entered - ordered) > 0.005;
               const orderedCartons = cartonCountFor(i, ordered);
+              // Exclusive carpet-tile warehouse incoming-delivery arrived order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+              // Hard-surface warehouse incoming-delivery arrived order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+              const enteredCartons = cartonCountFor(i, entered);
               const unitKey = normalizeUnit(i.unit);
               // Exclusive carpet-tile incoming-delivery pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
               // Underlayment incoming-delivery pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
@@ -210,6 +213,15 @@ function PoCard({ po }: { po: IncomingPo }) {
                           className="w-24"
                           aria-label={`Quantity received for ${itemLabel(i)}`}
                         />
+                        {/* Exclusive carpet-tile warehouse incoming-delivery arrived order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                        {/* Hard-surface warehouse incoming-delivery arrived order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                        {enteredCartons
+                          ? (
+                            <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                              📦 {enteredCartons} carton{enteredCartons === 1 ? "" : "s"}
+                            </p>
+                          )
+                          : null}
                       </div>
                       {i.received_at ? (
                         <Button
