@@ -76,6 +76,10 @@ function PoCard({ po }: { po: IncomingPo }) {
   );
   const allChecked = po.items.length > 0 && checked === po.items.length;
   const complete = allChecked && short <= 0.005;
+  // Exclusive carpet-tile warehouse incoming Short mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface warehouse incoming Short leftover planted mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+  const shortUnits = po.items.map((i) => (i.unit || "").trim());
+  const mixedShort = new Set(shortUnits).size > 1;
 
   const submit = () =>
     start(async () => {
@@ -132,7 +136,7 @@ function PoCard({ po }: { po: IncomingPo }) {
               </Badge>
             ) : allChecked ? (
               <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                Short {short}
+                {mixedShort ? "Short" : `Short ${short}`}
               </Badge>
             ) : checked > 0 ? (
               <Badge variant="outline">
