@@ -124,8 +124,14 @@ export default async function InventoryItemPage({
             </div>
             {showCost ? (
               <div className="text-xs text-muted-foreground">
-                value {formatMoney(inventoryValue)}
-                {avgCost != null ? ` · avg ${formatMoney(avgCost)}` : ""}
+                {/* Exclusive carpet-tile warehouse inventory stock-item leftover planted value mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                {/* Hard-surface warehouse inventory stock-item leftover planted value mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+                {mixedRemnant ? (liveRolls.length > 1 ? `value across ${liveRolls.length} pieces` : "value as a remnant/roll") : (
+                  <>
+                    value {formatMoney(inventoryValue)}
+                    {avgCost != null ? ` · avg ${formatMoney(avgCost)}` : ""}
+                  </>
+                )}
               </div>
             ) : null}
           </CardContent>

@@ -76325,6 +76325,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(ordersPage).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
     expect(ordersPage).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
     expect(ordersPage).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(ordersPage).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
     expect(ordersPage).not.toMatch(/warehouseCustomerOrderCuts/);
     expect(ordersPage).not.toMatch(/warehouse customer-order qty from cuts/);
     expect(ordersPage).not.toMatch(/guidedReviewPadTakeoff/);
@@ -77506,6 +77508,2380 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(reportsProducts).not.toMatch(/warehouseInventoryAvailableMixed/);
     expect(reportsProducts).not.toMatch(/warehouseInventoryReservedMixed/);
     expect(reportsProducts).not.toMatch(/warehouseInventoryOnOrderMixed/);
+
+  });
+
+  it("0461 Exclusive carpet-tile warehouse inventory stock-item leftover planted value mixed-product SUM is not the order", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0461_flooring_knowledge_warehouse_inventory_value_mixed.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0461_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive carpet-tile warehouse inventory stock-item leftover planted value mixed-product SUM is not the order — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(
+      /Hard-surface warehouse inventory stock-item leftover planted value mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap \/ count How many stays. Do not invent coverage/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    const padTakeoff = computeMaterialTakeoff({
+      family: "other",
+      measuredSqft: 540,
+      wastePct: 10,
+      billingUnit: "sqyd",
+      takeoffLabel: "Carpet pad",
+    });
+    expect(padTakeoff.cartons).toBeNull();
+    expect(padRollCount("underlayment", 60, "sqyd")).toBe(2);
+    expect(padRollCount("underlayment", padTakeoff.billingQty, padTakeoff.billingUnit)).toBe(3);
+    expect(padRollCount("underlayment", padTakeoff.billingQty, padTakeoff.billingUnit)).not.toBe(2);
+    expect(padRollCount("underlayment", 6, "sqyd")).toBe(1);
+    const boxedPad = computeMaterialTakeoff({
+      family: "other",
+      measuredSqft: 300,
+      wastePct: 10,
+      sqftPerBox: 23.64,
+      billingUnit: "sqyd",
+      takeoffLabel: "Carpet pad",
+    });
+    expect(boxedPad.cartons?.cartonCount).toBe(14);
+    expect(boxedPad.cartons?.cartonCount).not.toBe(13);
+    const extraLvp = computeMaterialTakeoff({
+      family: "lvp",
+      measuredSqft: 300,
+      wastePct: 10,
+      sqftPerBox: 23.64,
+    });
+    expect(extraLvp.cartons?.cartonCount).toBe(14);
+    expect(extraLvp.cartons?.cartonCount).not.toBe(13);
+    const extraTile = computeMaterialTakeoff({
+      family: "carpet",
+      measuredSqft: 200,
+      wastePct: 10,
+      sqftPerBox: 23.64,
+      carpetSystems: ["carpet_tile"],
+    });
+    expect(extraTile.cartons?.cartonCount).toBe(10);
+    expect(extraTile.cartons?.cartonCount).not.toBe(9);
+    expect(
+      padRollCount(
+        "carpet",
+        computeMaterialTakeoff({
+          family: "carpet",
+          measuredSqft: 200,
+          wastePct: 10,
+          sqftPerBox: 23.64,
+          carpetSystems: ["carpet_tile"],
+        }).billingQty,
+        "sqyd",
+      ),
+    ).toBe(0);
+    expect(padRollCount("lvp", 8, "box")).toBe(0);
+    expect(padRollCount("underlayment", 540, "sqft")).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Stair wrap — wrap qty TBD",
+          category: "lvp",
+          unit: "box",
+          sqft_per_box: 23.64,
+          quantity: 8,
+        },
+        lineOrderQty({
+          line_type: "mat_labor",
+          description: "Stair wrap — wrap qty TBD",
+          category: "lvp",
+          unit: "box",
+          quantity: 8,
+          waste_pct: 10,
+        }),
+      ),
+    ).toBe(0);
+
+    const q = readFileSync(
+      join(root, "src/app/(app)/estimates/questionnaire.tsx"),
+      "utf8",
+    );
+    expect(q).toMatch(/padTakeoff\.cartons\.cartonCount/);
+    expect(q).toMatch(/= \{padTakeoff.cartons.cartonCount\} carton/);
+    expect(q).toMatch(/formatTakeoffStrip\(padTakeoff\)/);
+    expect(q).toMatch(/padRollCount\("underlayment", padTakeoff\.billingQty/);
+    expect(q).toMatch(/= \{padTakeoffRolls\} roll/);
+    expect(q).toMatch(/extraTakeoff\.cartons\.cartonCount/);
+    expect(q).toMatch(/= \{extraTakeoff.cartons.cartonCount\} carton/);
+    expect(q).toMatch(/formatTakeoffStrip\(extraTakeoff\)/);
+    expect(q).toMatch(/padRollCount\(extraTakeoff\.takeoffLabel \? "underlayment"/);
+    expect(q).toMatch(/= \{extraPadRolls\} roll/);
+    expect(q).toMatch(/const reviewTakeoffPadRolls = reviewTakeoff/);
+    expect(q).toMatch(/\{reviewTakeoffPadRolls\} roll/);
+    expect(q).toMatch(/Required rolls/);
+    expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
+    expect(q).toMatch(/reviewTakeoff\.billingQty/);
+    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
+    expect(q).toMatch(/= \{runningPadRolls\} roll/);
+    expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
+    expect(q).toMatch(/formatTakeoffStrip\(t\)/);
+    expect(q).toMatch(/const geCartons = p/);
+    expect(q).toMatch(/= \{geCartons\} carton/);
+    expect(q).toMatch(/padRollCount\(l\.category, lineOrderQty\(smartLineToCalcLine\(l\)\)/);
+    expect(q).toMatch(
+      /Exclusive carpet-tile Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(q).toMatch(
+      /Hard-surface Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(q).toMatch(/guidedReviewPadTakeoff\.cartons\.cartonCount/);
+    expect(q).toMatch(/wasteAlreadyInQuantity: true/);
+    expect(q).toMatch(/const cartonsHs = hardSurfaceAreaCartonCount/);
+    expect(q).toMatch(/billedQtyToSqft\(orderQty/);
+    expect(q).toMatch(
+      /Exclusive carpet-tile Guided Estimate Review pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(q).toMatch(
+      /Hard-surface Guided Estimate Review pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(q).not.toMatch(/poPlanPadTakeoff/);
+    expect(q).not.toMatch(/warehouseCustomerOrderCuts/);
+    expect(q).not.toMatch(/officeCustomerOrderCuts/);
+    expect(q).not.toMatch(/officeCustomerOrderEmailCuts/);
+    expect(q).not.toMatch(/officeCustomerOrderInvoiceCuts/);
+    expect(q).not.toMatch(/officeCustomerOrderInvoiceUnit/);
+    expect(q).not.toMatch(/officeCustomerOrderInvoiceRate/);
+    expect(q).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(q).not.toMatch(/officePoShortEmailMixed/);
+    expect(q).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(q).not.toMatch(/warehouseReorderRemnantMixed/);
+    expect(q).not.toMatch(/warehouseStockPoRemnantMixed/);
+    expect(q).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(q).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(q).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(q).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(q).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(q).not.toMatch(/quickLinesOnHandMixed/);
+    expect(q).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(q).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(q).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(q).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(q).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(q).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(q).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(q).not.toMatch(/office customer-order qty from cuts/);
+    expect(q).not.toMatch(/office customer-order email qty from cuts/);
+    expect(q).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(q).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(q).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(q).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(q).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(q).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(q).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(q).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(q).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(q).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(q).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(q).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(q).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(q).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(q).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(q).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(q).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(q).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(q).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(q).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(q).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(q).not.toMatch(/job materials pad takeoff order carton/);
+    expect(q).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(q).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(q).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(q).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(q).not.toMatch(/job scope pad takeoff order carton/);
+    expect(q).not.toMatch(/po print pad takeoff order carton/);
+    expect(q).not.toMatch(/po builder pad takeoff order carton/);
+    expect(q).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(q).not.toMatch(/po plan pad takeoff order carton/);
+    expect(q).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(q).not.toMatch(/staging pad takeoff order carton/);
+    expect(q).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(q).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(q).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+    expect(q).not.toMatch(/installation-wo pad takeoff order carton/);
+    expect(q).not.toMatch(/estimate office pad takeoff order carton/);
+    expect(q).not.toMatch(/Builder collapsed pad takeoff order carton/);
+    expect(q).not.toMatch(/Builder expanded pad takeoff order carton/);
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/category === ["']carpet_tile["']/);
+    expect(q).not.toMatch(/billedRateToCartonCost/);
+
+    const takeoffLib = readFileSync(
+      join(root, "src/lib/flooring-knowledge/quantities.ts"),
+      "utf8",
+    );
+    expect(takeoffLib).toMatch(/row.label === "Required cartons"/);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/builderPadTakeoff\.cartons\.cartonCount/);
+    expect(builder).toMatch(/= \{builderPadTakeoff.cartons.cartonCount\} carton/);
+    expect(builder).toMatch(/takeoffLabel: "Carpet pad"/);
+    expect(builder).toMatch(/hardSurfaceAreaCartonCount\(summ, lineOrderQty\(summ\)/);
+    expect(builder).toMatch(/= \{sCartons\} carton/);
+    expect(builder).toMatch(/formatTakeoffStrip\(tileTakeoff\)/);
+    expect(builder).toMatch(/const sQty = lineQty\(summ\)/);
+    expect(builder).toMatch(/billedQty=\{sQty\}/);
+    expect(builder).toMatch(/orderQty=\{lineOrderQty\(summ\)\}/);
+    expect(builder).toMatch(/formatMoney\(sSell\)/);
+    expect(builder).toMatch(/padRollCount\(summ\.category, lineOrderQty\(summ\)/);
+    expect(builder).toMatch(/· 📦 \$\{builderPadTakeoff.cartons.cartonCount\} carton\(s\)/);
+    expect(builder).toMatch(
+      /Exclusive carpet-tile Builder collapsed pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(builder).toMatch(
+      /Hard-surface Builder collapsed pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(builder).toMatch(
+      /Exclusive carpet-tile Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(builder).toMatch(
+      /Hard-surface Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(builder).toMatch(
+      /Exclusive carpet-tile Builder expanded pad order pad-roll count stays off 30-yard roll math/,
+    );
+    expect(builder).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(builder).not.toMatch(/job materials pad takeoff order carton/);
+    expect(builder).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(builder).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(builder).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(builder).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(builder).not.toMatch(/job scope pad takeoff order carton/);
+    expect(builder).not.toMatch(/po print pad takeoff order carton/);
+    expect(builder).not.toMatch(/po builder pad takeoff order carton/);
+    expect(builder).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(builder).not.toMatch(/po plan pad takeoff order carton/);
+    expect(builder).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(builder).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(builder).not.toMatch(/office customer-order qty from cuts/);
+    expect(builder).not.toMatch(/office customer-order email qty from cuts/);
+    expect(builder).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(builder).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(builder).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(builder).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(builder).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(builder).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(builder).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(builder).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(builder).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(builder).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(builder).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(builder).not.toMatch(/staging pad takeoff order carton/);
+    expect(builder).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(builder).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(builder).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+    expect(builder).not.toMatch(/installation-wo pad takeoff order carton/);
+    expect(builder).not.toMatch(/estimate office pad takeoff order carton/);
+    expect(builder).not.toMatch(/Guided Estimate pad takeoff order carton/);
+    expect(builder).not.toMatch(/PAD_ROLL_SQYD/);
+    expect(builder).not.toMatch(/companionQty/);
+    expect(builder).not.toMatch(/category === ["']carpet_tile["']/);
+
+    const meas = readFileSync(
+      join(root, "src/app/(app)/estimates/line-measurements.tsx"),
+      "utf8",
+    );
+    expect(meas).toMatch(/padRollCount\(category, orderQty \?\? billedQty \?\? 0/);
+    expect(meas).toMatch(/lineMeasurementsPadTakeoff\.cartons\.cartonCount/);
+    expect(meas).toMatch(/wasteAlreadyInQuantity: true/);
+    expect(meas).toMatch(/const cartonsHs = hardSurfaceAreaCartonCount/);
+    expect(meas).toMatch(/billedQtyToSqft\(orderQty \?\? billedQty \?\? 0/);
+    expect(meas).toMatch(
+      /Exclusive carpet-tile line measurements pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(meas).toMatch(
+      /Hard-surface line measurements pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(meas).not.toMatch(/poBuilderPadTakeoff/);
+    expect(meas).not.toMatch(/poPrintPadTakeoff/);
+    expect(meas).not.toMatch(/jobScopePadTakeoff/);
+    expect(meas).not.toMatch(/installWoPadTakeoff/);
+    expect(meas).not.toMatch(/poPlanPadTakeoff/);
+    expect(meas).not.toMatch(/po plan pad takeoff order carton/);
+    expect(meas).not.toMatch(/guidedReviewPadTakeoff/);
+    expect(meas).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(meas).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(meas).not.toMatch(/office customer-order qty from cuts/);
+    expect(meas).not.toMatch(/office customer-order email qty from cuts/);
+    expect(meas).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(meas).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(meas).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(meas).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(meas).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(meas).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(meas).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(meas).not.toMatch(/office customer-order qty from cuts/);
+    expect(meas).not.toMatch(/office customer-order email qty from cuts/);
+    expect(meas).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(meas).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(meas).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(meas).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(meas).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(meas).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(meas).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(meas).not.toMatch(/job materials pad takeoff order carton/);
+    expect(meas).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(meas).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(meas).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(meas).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(meas).not.toMatch(/job scope pad takeoff order carton/);
+    expect(meas).not.toMatch(/po print pad takeoff order carton/);
+    expect(meas).not.toMatch(/po builder pad takeoff order carton/);
+
+    const office = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(office).toMatch(/padRollCount\(l\.category, lineOrderQty\(l\)/);
+    expect(office).toMatch(/hardSurfaceAreaCartonCount\(l, lineOrderQty\(l\)/);
+    expect(office).toMatch(/officePadTakeoff\.cartons\.cartonCount/);
+    expect(office).toMatch(/formatMoney\(rate\)/);
+    expect(office).toMatch(
+      /Exclusive carpet-tile estimate office pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(office).toMatch(
+      /Hard-surface estimate office pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(office).not.toMatch(/Builder collapsed pad takeoff order carton/);
+    expect(office).not.toMatch(/Builder expanded pad takeoff order carton/);
+    expect(office).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(office).not.toMatch(/job materials pad takeoff order carton/);
+    expect(office).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(office).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(office).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(office).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(office).not.toMatch(/job scope pad takeoff order carton/);
+    expect(office).not.toMatch(/po print pad takeoff order carton/);
+    expect(office).not.toMatch(/po builder pad takeoff order carton/);
+    expect(office).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(office).not.toMatch(/po plan pad takeoff order carton/);
+    expect(office).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(office).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(office).not.toMatch(/office customer-order qty from cuts/);
+    expect(office).not.toMatch(/office customer-order email qty from cuts/);
+    expect(office).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(office).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(office).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(office).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(office).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(office).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(office).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(office).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(office).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(office).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(office).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(office).not.toMatch(/staging pad takeoff order carton/);
+    expect(office).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(office).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(office).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+
+    const editor = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/edit-scope.tsx"),
+      "utf8",
+    );
+    expect(editor).toMatch(/padRollCount\(l\.category, lineOrderQty/);
+    expect(editor).toMatch(/cartonCountFor\(l\)/);
+    expect(editor).toMatch(/woEditorPadTakeoff\.cartons\.cartonCount/);
+    expect(editor).toMatch(/takeoffLabel: "Carpet pad"/);
+    expect(editor).toMatch(
+      /Exclusive carpet-tile work-order editor pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(editor).toMatch(
+      /Hard-surface work-order editor pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(editor).not.toMatch(/estimate office pad takeoff order carton/);
+    expect(editor).not.toMatch(/job materials pad takeoff order carton/);
+    expect(editor).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(editor).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(editor).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(editor).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(editor).not.toMatch(/job scope pad takeoff order carton/);
+    expect(editor).not.toMatch(/po print pad takeoff order carton/);
+    expect(editor).not.toMatch(/po builder pad takeoff order carton/);
+    expect(editor).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(editor).not.toMatch(/po plan pad takeoff order carton/);
+    expect(editor).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(editor).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(editor).not.toMatch(/office customer-order qty from cuts/);
+    expect(editor).not.toMatch(/office customer-order email qty from cuts/);
+    expect(editor).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(editor).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(editor).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(editor).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(editor).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(editor).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(editor).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(editor).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(editor).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(editor).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(editor).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(editor).not.toMatch(/staging pad takeoff order carton/);
+    expect(editor).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(editor).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(editor).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+
+    const incoming = readFileSync(
+      join(root, "src/app/(app)/warehouse/incoming-deliveries.tsx"),
+      "utf8",
+    );
+    expect(incoming).toMatch(/padRollCount\(i\.category, outstanding/);
+    expect(incoming).toMatch(/\{outstandingPadRolls\} roll/);
+    expect(incoming).toMatch(/cartonCountFor\(i, outstanding/);
+    expect(incoming).toMatch(/padRollCount\(i\.category, ordered/);
+    expect(incoming).toMatch(/incomingPadTakeoff\.cartons\.cartonCount/);
+    expect(incoming).toMatch(/incomingArrivedPadTakeoff\.cartons\.cartonCount/);
+    expect(incoming).toMatch(/incomingOutstandingPadTakeoff\.cartons\.cartonCount/);
+    expect(incoming).toMatch(/padRollCount\(i\.category, entered/);
+    expect(incoming).toMatch(/billedQtyToSqft\(entered/);
+    expect(incoming).toMatch(/takeoffLabel: "Carpet pad"/);
+    expect(incoming).toMatch(
+      /Exclusive carpet-tile incoming-delivery pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(incoming).toMatch(
+      /Hard-surface incoming-delivery pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(incoming).toMatch(
+      /Exclusive carpet-tile incoming-delivery arrived pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(incoming).toMatch(
+      /Hard-surface incoming-delivery arrived pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(incoming).toMatch(/incomingOutstandingPadTakeoff\.cartons\.cartonCount/);
+    expect(incoming).toMatch(/billedQtyToSqft\(outstanding/);
+    expect(incoming).toMatch(
+      /Exclusive carpet-tile incoming-delivery outstanding pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(incoming).toMatch(
+      /Hard-surface incoming-delivery outstanding pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(incoming).toMatch(
+      /Exclusive carpet-tile warehouse incoming Short mixed-product SUM is not the order/,
+    );
+    expect(incoming).toMatch(
+      /Hard-surface warehouse incoming Short leftover planted mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(incoming).toMatch(/const shortUnits = po\.items\.map/);
+    expect(incoming).toMatch(/mixedShort/);
+    expect(incoming).toMatch(/mixedShort \? "Short"/);
+    expect(incoming).toMatch(/const complete = allChecked && short <= 0\.005/);
+    expect(incoming).toMatch(/res\.short/);
+    expect(incoming).toMatch(
+      /Exclusive carpet-tile warehouse incoming Short toast mixed-product SUM is not the order/,
+    );
+    expect(incoming).toMatch(
+      /Hard-surface warehouse incoming Short leftover planted toast mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(incoming).toMatch(/mixedShort \? "Checked in\. Still outstanding\."/);
+    expect(incoming).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(incoming).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(incoming).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(incoming).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(incoming).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(incoming).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(incoming).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(incoming).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(incoming).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(incoming).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(incoming).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(incoming).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(incoming).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(incoming).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(incoming).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(incoming).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(incoming).not.toMatch(/officePoShortEmailMixed/);
+    expect(incoming).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(incoming).not.toMatch(/warehouseReorderRemnantMixed/);
+    expect(incoming).not.toMatch(/warehouseStockPoRemnantMixed/);
+    expect(incoming).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(incoming).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(incoming).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(incoming).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(incoming).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(incoming).not.toMatch(/quickLinesOnHandMixed/);
+    expect(incoming).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(incoming).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(incoming).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(incoming).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(incoming).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(incoming).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(incoming).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(incoming).not.toMatch(/job materials pad takeoff order carton/);
+    expect(incoming).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(incoming).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(incoming).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(incoming).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(incoming).not.toMatch(/job scope pad takeoff order carton/);
+    expect(incoming).not.toMatch(/po print pad takeoff order carton/);
+    expect(incoming).not.toMatch(/po builder pad takeoff order carton/);
+    expect(incoming).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(incoming).not.toMatch(/po plan pad takeoff order carton/);
+    expect(incoming).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(incoming).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(incoming).not.toMatch(/office customer-order qty from cuts/);
+    expect(incoming).not.toMatch(/office customer-order email qty from cuts/);
+    expect(incoming).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(incoming).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(incoming).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(incoming).not.toMatch(/jobMaterialsGapPadTakeoff/);
+    expect(incoming).not.toMatch(/jobMaterialsExcessPadTakeoff/);
+    expect(incoming).not.toMatch(/jobMaterialsArrivedPadTakeoff/);
+    expect(incoming).not.toMatch(/jobMaterialsOutstandingPadTakeoff/);
+    expect(incoming).not.toMatch(/jobScopePadTakeoff/);
+    expect(incoming).not.toMatch(/poPrintPadTakeoff/);
+    expect(incoming).not.toMatch(/poBuilderPadTakeoff/);
+    expect(incoming).not.toMatch(/lineMeasurementsPadTakeoff/);
+    expect(incoming).not.toMatch(/poPlanPadTakeoff/);
+    expect(incoming).not.toMatch(/guidedReviewPadTakeoff/);
+    expect(incoming).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(incoming).not.toMatch(/staging pad takeoff order carton/);
+
+    const orderUi = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/order/order-materials.tsx"),
+      "utf8",
+    );
+    expect(orderUi).toMatch(/padRollCount\(line\.category, line\.qty/);
+    expect(orderUi).toMatch(/line\.cartons/);
+    expect(orderUi).toMatch(/formatMoney\(line\.unitCost\)/);
+    expect(orderUi).toMatch(/orderPadTakeoff\.cartons\.cartonCount/);
+    expect(orderUi).toMatch(/orderPadTakeoff\?\.cartons && !line\.cartons/);
+    expect(orderUi).toMatch(/takeoffLabel: "Carpet pad"/);
+    expect(orderUi).toMatch(
+      /Exclusive carpet-tile estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(orderUi).toMatch(
+      /Hard-surface estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(orderUi).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/installation-wo pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/job materials pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/job scope pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/po print pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/po builder pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/po plan pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(orderUi).not.toMatch(/office customer-order qty from cuts/);
+    expect(orderUi).not.toMatch(/office customer-order email qty from cuts/);
+    expect(orderUi).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(orderUi).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(orderUi).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(orderUi).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(orderUi).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(orderUi).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(orderUi).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(orderUi).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(orderUi).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(orderUi).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(orderUi).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/staging pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(orderUi).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+
+    const poPlan = readFileSync(
+      join(root, "src/lib/data/po-plan.ts"),
+      "utf8",
+    );
+    expect(poPlan).toMatch(/hardSurfaceAreaCartonCount/);
+    expect(poPlan).toMatch(/sqft_per_box: Number\(sqft_per_box\) > 0/);
+    expect(poPlan).toMatch(/poPlanPadTakeoff\.cartons\.cartonCount/);
+    expect(poPlan).toMatch(/wasteAlreadyInQuantity: true/);
+    expect(poPlan).toMatch(/billedQtyToSqft\(qty/);
+    expect(poPlan).toMatch(/const cartonsHs = hardSurfaceAreaCartonCount/);
+    expect(poPlan).toMatch(
+      /Exclusive carpet-tile po plan pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(poPlan).toMatch(
+      /Hard-surface po plan pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(poPlan).not.toMatch(/padRollCount/);
+    expect(poPlan).not.toMatch(/job materials pad takeoff order carton/);
+    expect(poPlan).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(poPlan).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(poPlan).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(poPlan).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(poPlan).not.toMatch(/job scope pad takeoff order carton/);
+    expect(poPlan).not.toMatch(/po print pad takeoff order carton/);
+    expect(poPlan).not.toMatch(/po builder pad takeoff order carton/);
+    expect(poPlan).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(poPlan).not.toMatch(/orderPadTakeoff/);
+    expect(poPlan).not.toMatch(/jobMaterialsPadTakeoff/);
+    expect(poPlan).not.toMatch(/warehouseQueuePadTakeoff/);
+    expect(poPlan).not.toMatch(/stagingPadTakeoff/);
+    expect(poPlan).not.toMatch(/incomingPadTakeoff/);
+    expect(poPlan).not.toMatch(/incomingArrivedPadTakeoff/);
+    expect(poPlan).not.toMatch(/incomingOutstandingPadTakeoff/);
+    expect(poPlan).not.toMatch(/jobMaterialsGapPadTakeoff/);
+    expect(poPlan).not.toMatch(/jobMaterialsExcessPadTakeoff/);
+    expect(poPlan).not.toMatch(/jobMaterialsArrivedPadTakeoff/);
+    expect(poPlan).not.toMatch(/jobMaterialsOutstandingPadTakeoff/);
+    expect(poPlan).not.toMatch(/jobScopePadTakeoff/);
+    expect(poPlan).not.toMatch(/poPrintPadTakeoff/);
+    expect(poPlan).not.toMatch(/poBuilderPadTakeoff/);
+    expect(poPlan).not.toMatch(/lineMeasurementsPadTakeoff/);
+    expect(poPlan).not.toMatch(/guidedReviewPadTakeoff/);
+    expect(poPlan).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(poPlan).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(poPlan).not.toMatch(/office customer-order qty from cuts/);
+    expect(poPlan).not.toMatch(/office customer-order email qty from cuts/);
+    expect(poPlan).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(poPlan).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(poPlan).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(poPlan).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(poPlan).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(poPlan).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(poPlan).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(poPlan).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(poPlan).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(poPlan).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(poPlan).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(poPlan).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(poPlan).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(poPlan).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(poPlan).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(poPlan).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(poPlan).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(poPlan).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(poPlan).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(poPlan).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+
+    const jobMaterials = readFileSync(
+      join(root, "src/lib/data/job-materials.ts"),
+      "utf8",
+    );
+    expect(jobMaterials).toMatch(/wastePct/);
+    expect(jobMaterials).not.toMatch(/job materials pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/job scope pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/po print pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/po builder pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/po plan pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(jobMaterials).not.toMatch(/office customer-order qty from cuts/);
+    expect(jobMaterials).not.toMatch(/office customer-order email qty from cuts/);
+    expect(jobMaterials).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(jobMaterials).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(jobMaterials).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(jobMaterials).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(jobMaterials).not.toMatch(/jobMaterialsPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/warehouseQueuePadTakeoff/);
+    expect(jobMaterials).not.toMatch(/stagingPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/incomingPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/incomingArrivedPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/incomingOutstandingPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/jobMaterialsGapPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/jobMaterialsExcessPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/jobMaterialsArrivedPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/jobMaterialsOutstandingPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/jobScopePadTakeoff/);
+    expect(jobMaterials).not.toMatch(/poPrintPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/poBuilderPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/lineMeasurementsPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/poPlanPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/guidedReviewPadTakeoff/);
+    expect(jobMaterials).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/staging pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(jobMaterials).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+
+    const card = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/job-materials-card.tsx"),
+      "utf8",
+    );
+    expect(card).toMatch(/padRollCount\(l\.category, remaining/);
+    expect(card).toMatch(/\{outstandingPadRolls\} roll/);
+    expect(card).toMatch(/cartonCountForQty\(l, remaining/);
+    expect(card).toMatch(/\{outstandingCartons\} carton/);
+    expect(card).toMatch(/jobMaterialsPadTakeoff\.cartons\.cartonCount/);
+    expect(card).toMatch(/jobMaterialsGapPadTakeoff\.cartons\.cartonCount/);
+    expect(card).toMatch(/takeoffLabel: "Carpet pad"/);
+    expect(card).toMatch(
+      /Exclusive carpet-tile job materials pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(
+      /Hard-surface job materials pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(/jobMaterialsGapPadTakeoff\.cartons\.cartonCount/);
+    expect(card).toMatch(/billedQtyToSqft\(l\.purchasingGap/);
+    expect(card).toMatch(
+      /Exclusive carpet-tile job materials purchasing-gap pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(
+      /Hard-surface job materials purchasing-gap pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(/jobMaterialsExcessPadTakeoff\.cartons\.cartonCount/);
+    expect(card).toMatch(/billedQtyToSqft\(l\.excessIssued/);
+    expect(card).toMatch(
+      /Exclusive carpet-tile job materials excess pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(
+      /Hard-surface job materials excess pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(/jobMaterialsArrivedPadTakeoff\.cartons\.cartonCount/);
+    expect(card).toMatch(/billedQtyToSqft\(l\.arrivedQty/);
+    expect(card).toMatch(
+      /Exclusive carpet-tile job materials arrived pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(
+      /Hard-surface job materials arrived pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(/jobMaterialsOutstandingPadTakeoff\.cartons\.cartonCount/);
+    expect(card).toMatch(/billedQtyToSqft\(remaining/);
+    expect(card).toMatch(
+      /Exclusive carpet-tile job materials outstanding pad takeoff order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(
+      /Hard-surface job materials outstanding pad takeoff order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(card).not.toMatch(/estimate order pad takeoff order carton/);
+    expect(card).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(card).not.toMatch(/staging pad takeoff order carton/);
+    expect(card).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(card).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(card).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+    expect(card).not.toMatch(/job scope pad takeoff order carton/);
+    expect(card).not.toMatch(/po print pad takeoff order carton/);
+    expect(card).not.toMatch(/po builder pad takeoff order carton/);
+    expect(card).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(card).not.toMatch(/po plan pad takeoff order carton/);
+    expect(card).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(card).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(card).not.toMatch(/office customer-order qty from cuts/);
+    expect(card).not.toMatch(/office customer-order email qty from cuts/);
+    expect(card).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(card).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(card).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(card).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(card).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(card).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(card).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(card).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(card).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(card).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(card).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(card).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(card).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(card).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(card).toMatch(
+      /Exclusive carpet-tile job materials on-hand mixed-product SUM is not the order/,
+    );
+    expect(card).toMatch(
+      /Hard-surface job materials leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(card).toMatch(/const remnantUnits = remnantItems\.map/);
+    expect(card).toMatch(/mixedRemnant/);
+    expect(card).toMatch(/mixedRemnant \?/);
+    expect(card).toMatch(/\$\{l\.onHand\} on hand/);
+    expect(card).toMatch(/reorderAlertsFor/);
+    expect(card).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(card).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(card).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(card).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(card).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(card).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(card).not.toMatch(/quickLinesOnHandMixed/);
+    expect(card).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(card).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(card).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(card).not.toMatch(/jobScopePadTakeoff/);
+    expect(card).not.toMatch(/poPrintPadTakeoff/);
+    expect(card).not.toMatch(/poBuilderPadTakeoff/);
+    expect(card).not.toMatch(/lineMeasurementsPadTakeoff/);
+    expect(card).not.toMatch(/poPlanPadTakeoff/);
+    expect(card).not.toMatch(/guidedReviewPadTakeoff/);
+
+    const warehouse = readFileSync(
+      join(root, "src/app/(app)/warehouse/page.tsx"),
+      "utf8",
+    );
+    expect(warehouse).toMatch(/padRollCount\(m\.category, m\.qty/);
+    expect(warehouse).toMatch(/hardSurfaceAreaCartonCount\(cartonLine, m\.qty/);
+    expect(warehouse).toMatch(/warehouseQueuePadTakeoff\.cartons\.cartonCount/);
+    expect(warehouse).toMatch(/cutsTotalSqYd\(it\) == null && it.quantity/);
+    expect(warehouse).toMatch(/const needed = cutsTotalSqYd\(it\) \?\? it.quantity/);
+    expect(warehouse).toMatch(/<CutList item=\{it\} \/>/);
+    expect(warehouse).toMatch(
+      /Exclusive carpet-tile warehouse customer-order qty from cuts is the order, not leftover planted quantity/,
+    );
+    expect(warehouse).toMatch(
+      /Hard-surface warehouse customer-order leftover planted Qty stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(warehouse).toMatch(
+      /Exclusive carpet-tile warehouse customer-order on-hand mixed-product SUM is not the order/,
+    );
+    expect(warehouse).toMatch(
+      /Hard-surface warehouse customer-order leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(warehouse).toMatch(/const remnantUnits = remnantItems\.map/);
+    expect(warehouse).toMatch(/mixedRemnant/);
+    expect(warehouse).toMatch(/mixedRemnant \?/);
+    expect(warehouse).toMatch(/\$\{avail\} \$\{s\.unit\} on hand/);
+    expect(warehouse).not.toMatch(/office customer-order qty from cuts/);
+    expect(warehouse).not.toMatch(/office customer-order email qty from cuts/);
+    expect(warehouse).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(warehouse).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(warehouse).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(warehouse).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(warehouse).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(warehouse).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(warehouse).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(warehouse).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(warehouse).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(warehouse).not.toMatch(/guidedReviewPadTakeoff/);
+    expect(warehouse).not.toMatch(/poPlanPadTakeoff/);
+    expect(warehouse).not.toMatch(/warehouseCustomerOrderCuts/);
+    expect(warehouse).not.toMatch(/officeCustomerOrderCuts/);
+    expect(warehouse).not.toMatch(/officeCustomerOrderEmailCuts/);
+    expect(warehouse).not.toMatch(/officeCustomerOrderInvoiceCuts/);
+    expect(warehouse).not.toMatch(/officeCustomerOrderInvoiceUnit/);
+    expect(warehouse).not.toMatch(/officeCustomerOrderInvoiceRate/);
+    expect(warehouse).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(warehouse).not.toMatch(/officePoShortEmailMixed/);
+    expect(warehouse).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(warehouse).not.toMatch(/warehouseReorderRemnantMixed/);
+    expect(warehouse).not.toMatch(/warehouseStockPoRemnantMixed/);
+    expect(warehouse).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(warehouse).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(warehouse).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(warehouse).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(warehouse).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(warehouse).not.toMatch(/quickLinesOnHandMixed/);
+    expect(warehouse).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(warehouse).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(warehouse).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(warehouse).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(warehouse).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(warehouse).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(warehouse).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(warehouse).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(warehouse).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(warehouse).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(warehouse).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(warehouse).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(warehouse).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(warehouse).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(warehouse).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(warehouse).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(warehouse).toMatch(/takeoffLabel: "Carpet pad"/);
+    expect(warehouse).toMatch(
+      /Exclusive carpet-tile warehouse queue pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(warehouse).toMatch(
+      /Hard-surface warehouse queue pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(warehouse).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/job materials pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/job scope pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/po print pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/po builder pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/po plan pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/staging pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(warehouse).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+
+    const ordersPage = readFileSync(
+      join(root, "src/app/(app)/orders/page.tsx"),
+      "utf8",
+    );
+    expect(ordersPage).toMatch(/cutsTotalSqYd\(it\) == null && it.quantity/);
+    expect(ordersPage).toMatch(/<CutList item=\{it\} \/>/);
+    expect(ordersPage).toMatch(
+      /Exclusive carpet-tile office customer-order qty from cuts is the order, not leftover planted quantity/,
+    );
+    expect(ordersPage).toMatch(
+      /Hard-surface office customer-order leftover planted quantity stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(ordersPage).toMatch(
+      /Exclusive carpet-tile office customer-order on-hand mixed-product SUM is not the order/,
+    );
+    expect(ordersPage).toMatch(
+      /Hard-surface office customer-order leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(ordersPage).toMatch(/const remnantUnits = remnantItems\.map/);
+    expect(ordersPage).toMatch(/mixedRemnant/);
+    expect(ordersPage).toMatch(/mixedRemnant \?/);
+    expect(ordersPage).toMatch(/\$\{avail\} \$\{s\.unit\} on hand/);
+    const inventoryList = readFileSync(
+      join(root, "src/app/(app)/inventory/page.tsx"),
+      "utf8",
+    );
+    expect(inventoryList).toMatch(
+      /Exclusive carpet-tile warehouse inventory list on-hand mixed-product SUM is not the order/,
+    );
+    expect(inventoryList).toMatch(
+      /Hard-surface warehouse inventory list leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(inventoryList).toMatch(/const remnantUnits = remnantItems\.map/);
+    expect(inventoryList).toMatch(/mixedRemnant/);
+    expect(inventoryList).toMatch(/mixedRemnant \?/);
+    expect(inventoryList).toMatch(/\$\{p\.on_hand\} \$\{p\.unit\}/);
+    expect(inventoryList).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(inventoryList).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(inventoryList).not.toMatch(/quickLinesOnHandMixed/);
+    expect(inventoryList).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(inventoryList).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(inventoryList).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(inventoryList).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(inventoryList).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(inventoryList).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(inventoryList).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(inventoryList).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(inventoryList).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(inventoryList).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(inventoryList).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(inventoryList).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(inventoryList).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(inventoryList).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(inventoryList).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(inventoryList).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(inventoryList).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(inventoryList).not.toMatch(/quickLinesOnHandMixed/);
+    expect(inventoryList).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(inventoryList).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(inventoryList).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(inventoryList).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(inventoryList).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(inventoryList).not.toMatch(/warehouseInventoryValueMixed/);
+    const picker = readFileSync(
+      join(root, "src/app/(app)/estimates/product-picker.tsx"),
+      "utf8",
+    );
+    expect(picker).toMatch(
+      /Exclusive carpet-tile catalog picker on-hand mixed-product SUM is not the order/,
+    );
+    expect(picker).toMatch(
+      /Hard-surface catalog picker leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(picker).toMatch(/const remnantUnits = remnantItems\.map/);
+    expect(picker).toMatch(/mixedRemnant/);
+    expect(picker).toMatch(/mixedRemnant \?/);
+    expect(picker).toMatch(/\$\{p\.on_hand\} \$\{p\.unit\}/);
+    expect(picker).toMatch(/catalogRemnantAlertsFor/);
+    expect(picker).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(picker).not.toMatch(/quickLinesOnHandMixed/);
+    expect(picker).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(picker).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(picker).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(picker).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(picker).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(picker).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(picker).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(picker).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(picker).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(picker).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(picker).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(picker).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(picker).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(picker).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(picker).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    const quickLines = readFileSync(
+      join(root, "src/components/quick-lines.tsx"),
+      "utf8",
+    );
+    expect(quickLines).toMatch(
+      /Exclusive carpet-tile quick-lines on-hand mixed-product SUM is not the order/,
+    );
+    expect(quickLines).toMatch(
+      /Hard-surface quick-lines leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(quickLines).toMatch(/const remnantUnits = remnantItems\.map/);
+    expect(quickLines).toMatch(/mixedRemnant/);
+    expect(quickLines).toMatch(/mixedRemnant \?/);
+    expect(quickLines).toMatch(/\$\{p\.on_hand \?\? 0\} \$\{p\.unit\}/);
+    expect(quickLines).toMatch(/catalogRemnantAlertsFor/);
+    expect(quickLines).not.toMatch(/quickLinesOnHandMixed/);
+    expect(quickLines).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(quickLines).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(quickLines).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(quickLines).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(quickLines).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(quickLines).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(quickLines).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(quickLines).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(quickLines).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(quickLines).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(ordersPage).not.toMatch(/office customer-order email qty from cuts/);
+    expect(ordersPage).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(ordersPage).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(ordersPage).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(ordersPage).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/officeCustomerOrderCuts/);
+    expect(ordersPage).not.toMatch(/officeCustomerOrderEmailCuts/);
+    expect(ordersPage).not.toMatch(/officeCustomerOrderInvoiceCuts/);
+    expect(ordersPage).not.toMatch(/officeCustomerOrderInvoiceUnit/);
+    expect(ordersPage).not.toMatch(/officeCustomerOrderInvoiceRate/);
+    expect(ordersPage).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(ordersPage).not.toMatch(/officePoShortEmailMixed/);
+    expect(ordersPage).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(ordersPage).not.toMatch(/warehouseReorderRemnantMixed/);
+    expect(ordersPage).not.toMatch(/warehouseStockPoRemnantMixed/);
+    expect(ordersPage).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(ordersPage).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(ordersPage).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(ordersPage).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(ordersPage).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(ordersPage).not.toMatch(/quickLinesOnHandMixed/);
+    expect(ordersPage).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(ordersPage).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(ordersPage).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(ordersPage).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(ordersPage).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(ordersPage).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(ordersPage).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(ordersPage).not.toMatch(/warehouseCustomerOrderCuts/);
+    expect(ordersPage).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(ordersPage).not.toMatch(/guidedReviewPadTakeoff/);
+    expect(ordersPage).not.toMatch(/poPlanPadTakeoff/);
+    expect(ordersPage).not.toMatch(/guided estimate review pad takeoff order carton/);
+
+    const ordersActions = readFileSync(
+      join(root, "src/app/(app)/orders/actions.ts"),
+      "utf8",
+    );
+    expect(ordersActions).toMatch(/cutsTotalSqYd\(it\) == null && it.quantity/);
+    expect(ordersActions).toMatch(
+      /Exclusive carpet-tile office customer-order email qty from cuts is the order, not leftover planted quantity/,
+    );
+    expect(ordersActions).toMatch(
+      /Hard-surface office customer-order email leftover planted quantity stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(ordersActions).not.toMatch(/officeCustomerOrderEmailCuts/);
+    expect(ordersActions).not.toMatch(/officeCustomerOrderInvoiceCuts/);
+    expect(ordersActions).not.toMatch(/officeCustomerOrderInvoiceUnit/);
+    expect(ordersActions).not.toMatch(/officeCustomerOrderInvoiceRate/);
+    expect(ordersActions).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(ordersActions).not.toMatch(/officePoShortEmailMixed/);
+    expect(ordersActions).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(ordersActions).not.toMatch(/warehouseReorderRemnantMixed/);
+    expect(ordersActions).not.toMatch(/warehouseStockPoRemnantMixed/);
+    expect(ordersActions).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(ordersActions).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(ordersActions).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(ordersActions).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(ordersActions).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(ordersActions).not.toMatch(/quickLinesOnHandMixed/);
+    expect(ordersActions).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(ordersActions).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(ordersActions).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(ordersActions).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(ordersActions).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(ordersActions).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(ordersActions).not.toMatch(/officeCustomerOrderCuts/);
+    expect(ordersActions).not.toMatch(/warehouseCustomerOrderCuts/);
+    expect(ordersActions).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(ordersActions).not.toMatch(/office customer-order qty from cuts/);
+    expect(ordersActions).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(ordersActions).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(ordersActions).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(ordersActions).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(ordersActions).not.toMatch(/guidedReviewPadTakeoff/);
+    expect(ordersActions).not.toMatch(/poPlanPadTakeoff/);
+
+    const orderInvoice = readFileSync(
+      join(root, "src/lib/data/order-invoice.ts"),
+      "utf8",
+    );
+    expect(orderInvoice).toMatch(/cutsTotalSqYd\(it\) \?\? it.quantity/);
+    expect(orderInvoice).toMatch(/it.cut_notes/);
+    expect(orderInvoice).toMatch(
+      /Exclusive carpet-tile office customer-order invoice qty from cuts is the order, not leftover planted quantity/,
+    );
+    expect(orderInvoice).toMatch(
+      /Hard-surface office customer-order invoice leftover planted quantity stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(orderInvoice).toMatch(
+      /Exclusive carpet-tile office customer-order invoice unit from cuts is the order, not leftover planted unit/,
+    );
+    expect(orderInvoice).toMatch(
+      /Hard-surface office customer-order invoice leftover planted unit stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(orderInvoice).toMatch(
+      /Exclusive carpet-tile office customer-order invoice rate from cuts is the order, not leftover planted rate/,
+    );
+    expect(orderInvoice).toMatch(
+      /Hard-surface office customer-order invoice leftover planted rate stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(orderInvoice).toMatch(/cutsTotalSqYd\(it\) != null/);
+    expect(orderInvoice).toMatch(/"sq yd"/);
+    expect(orderInvoice).toMatch(/catalogRateToBillingUnit/);
+    expect(orderInvoice).toMatch(/leftoverRate/);
+    expect(orderInvoice).toMatch(/isAreaUnit\(it\.unit\)/);
+    expect(orderInvoice).not.toMatch(/officeCustomerOrderInvoiceCuts/);
+    expect(orderInvoice).not.toMatch(/officeCustomerOrderInvoiceUnit/);
+    expect(orderInvoice).not.toMatch(/officeCustomerOrderInvoiceRate/);
+    expect(orderInvoice).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(orderInvoice).not.toMatch(/officePoShortEmailMixed/);
+    expect(orderInvoice).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(orderInvoice).not.toMatch(/warehouseReorderRemnantMixed/);
+    expect(orderInvoice).not.toMatch(/warehouseStockPoRemnantMixed/);
+    expect(orderInvoice).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(orderInvoice).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(orderInvoice).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(orderInvoice).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(orderInvoice).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(orderInvoice).not.toMatch(/quickLinesOnHandMixed/);
+    expect(orderInvoice).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(orderInvoice).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(orderInvoice).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(orderInvoice).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(orderInvoice).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(orderInvoice).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(orderInvoice).not.toMatch(/officeCustomerOrderEmailCuts/);
+    expect(orderInvoice).not.toMatch(/officeCustomerOrderCuts/);
+    expect(orderInvoice).not.toMatch(/warehouseCustomerOrderCuts/);
+    expect(orderInvoice).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(orderInvoice).not.toMatch(/office customer-order email qty from cuts/);
+    expect(orderInvoice).not.toMatch(/office customer-order qty from cuts/);
+    expect(orderInvoice).not.toMatch(/guidedReviewPadTakeoff/);
+    expect(orderInvoice).not.toMatch(/poPlanPadTakeoff/);
+    expect(orderInvoice).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(orderInvoice).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+
+    const staging = readFileSync(
+      join(root, "src/app/(app)/warehouse/staging-sheet-doc.tsx"),
+      "utf8",
+    );
+    expect(staging).toMatch(/padRollCount\(g\.category, g\.qty/);
+    expect(staging).toMatch(/hardSurfaceAreaCartonCount\(cartonLine, g\.qty/);
+    expect(staging).toMatch(/stagingPadTakeoff\.cartons\.cartonCount/);
+    expect(staging).toMatch(/takeoffLabel: "Carpet pad"/);
+    expect(staging).toMatch(
+      /Exclusive carpet-tile staging pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(staging).toMatch(
+      /Hard-surface staging pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(staging).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(staging).not.toMatch(/job materials pad takeoff order carton/);
+    expect(staging).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(staging).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(staging).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(staging).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(staging).not.toMatch(/job scope pad takeoff order carton/);
+    expect(staging).not.toMatch(/po print pad takeoff order carton/);
+    expect(staging).not.toMatch(/po builder pad takeoff order carton/);
+    expect(staging).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(staging).not.toMatch(/po plan pad takeoff order carton/);
+    expect(staging).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(staging).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(staging).not.toMatch(/office customer-order qty from cuts/);
+    expect(staging).not.toMatch(/office customer-order email qty from cuts/);
+    expect(staging).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(staging).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(staging).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(staging).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(staging).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(staging).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(staging).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(staging).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(staging).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(staging).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(staging).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(staging).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(staging).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(staging).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+
+    const jobScope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(jobScope).toMatch(/padRollCount\(l\.category, orderQ \|\| q/);
+    expect(jobScope).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/job materials pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(jobScope).toMatch(/jobScopePadTakeoff\.cartons\.cartonCount/);
+    expect(jobScope).toMatch(/billedQtyToSqft\(orderQ \|\| q/);
+    expect(jobScope).toMatch(
+      /Exclusive carpet-tile job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(jobScope).toMatch(
+      /Hard-surface job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(jobScope).not.toMatch(/po print pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/po builder pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/po plan pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(jobScope).not.toMatch(/office customer-order qty from cuts/);
+    expect(jobScope).not.toMatch(/office customer-order email qty from cuts/);
+    expect(jobScope).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(jobScope).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(jobScope).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(jobScope).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(jobScope).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(jobScope).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(jobScope).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(jobScope).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(jobScope).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(jobScope).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(jobScope).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(jobScope).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(jobScope).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(jobScope).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(jobScope).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(jobScope).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(jobScope).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(jobScope).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(jobScope).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(jobScope).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(jobScope).not.toMatch(/poPrintPadTakeoff/);
+    expect(jobScope).not.toMatch(/poBuilderPadTakeoff/);
+    expect(jobScope).not.toMatch(/lineMeasurementsPadTakeoff/);
+    expect(jobScope).not.toMatch(/poPlanPadTakeoff/);
+    expect(jobScope).not.toMatch(/guidedReviewPadTakeoff/);
+    expect(jobScope).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/staging pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(jobScope).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+
+    const scopeView = readFileSync(join(root, "src/components/job-scope-view.tsx"), "utf8");
+    expect(scopeView).toMatch(/spec\.cartons/);
+    expect(scopeView).toMatch(
+      /Exclusive carpet-tile job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(scopeView).toMatch(
+      /Hard-surface job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(scopeView).not.toMatch(/jobMaterialsOutstandingPadTakeoff/);
+    expect(scopeView).not.toMatch(/installWoPadTakeoff/);
+
+    const jobPage = readFileSync(join(root, "src/app/(app)/jobs/[id]/page.tsx"), "utf8");
+    expect(jobPage).toMatch(/spec\.cartons/);
+    expect(jobPage).toMatch(
+      /Exclusive carpet-tile job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(jobPage).toMatch(
+      /Hard-surface job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(jobPage).not.toMatch(/jobMaterialsOutstandingPadTakeoff/);
+    expect(jobPage).not.toMatch(/installWoPadTakeoff/);
+
+    expect(scopeView).not.toMatch(/po print pad takeoff order carton/);
+    expect(scopeView).not.toMatch(/po builder pad takeoff order carton/);
+    expect(scopeView).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(scopeView).not.toMatch(/po plan pad takeoff order carton/);
+    expect(scopeView).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(scopeView).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(scopeView).not.toMatch(/office customer-order qty from cuts/);
+    expect(scopeView).not.toMatch(/office customer-order email qty from cuts/);
+    expect(scopeView).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(scopeView).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(scopeView).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(scopeView).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(scopeView).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(scopeView).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(scopeView).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(scopeView).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(scopeView).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(scopeView).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(scopeView).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(scopeView).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(scopeView).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(scopeView).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(scopeView).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(scopeView).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(scopeView).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(scopeView).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(scopeView).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(scopeView).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(scopeView).not.toMatch(/poPrintPadTakeoff/);
+    expect(scopeView).not.toMatch(/poBuilderPadTakeoff/);
+    expect(scopeView).not.toMatch(/lineMeasurementsPadTakeoff/);
+    expect(scopeView).not.toMatch(/poPlanPadTakeoff/);
+    expect(scopeView).not.toMatch(/guidedReviewPadTakeoff/);
+
+    expect(jobPage).not.toMatch(/po print pad takeoff order carton/);
+    expect(jobPage).not.toMatch(/po builder pad takeoff order carton/);
+    expect(jobPage).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(jobPage).not.toMatch(/po plan pad takeoff order carton/);
+    expect(jobPage).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(jobPage).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(jobPage).not.toMatch(/office customer-order qty from cuts/);
+    expect(jobPage).not.toMatch(/office customer-order email qty from cuts/);
+    expect(jobPage).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(jobPage).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(jobPage).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(jobPage).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(jobPage).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(jobPage).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(jobPage).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(jobPage).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(jobPage).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(jobPage).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(jobPage).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(jobPage).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(jobPage).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(jobPage).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(jobPage).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(jobPage).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(jobPage).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(jobPage).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(jobPage).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(jobPage).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(jobPage).not.toMatch(/poPrintPadTakeoff/);
+    expect(jobPage).not.toMatch(/poBuilderPadTakeoff/);
+    expect(jobPage).not.toMatch(/lineMeasurementsPadTakeoff/);
+    expect(jobPage).not.toMatch(/poPlanPadTakeoff/);
+    expect(jobPage).not.toMatch(/guidedReviewPadTakeoff/);
+
+    const poPrint = readFileSync(
+      join(root, "src/app/(app)/purchase-orders/[id]/po-print.tsx"),
+      "utf8",
+    );
+    expect(poPrint).toMatch(/poPrintPadTakeoff\.cartons\.cartonCount/);
+    expect(poPrint).toMatch(/wasteAlreadyInQuantity: true/);
+    expect(poPrint).toMatch(/hardSurfaceAreaCartonCount\(it, qty\)/);
+    expect(poPrint).toMatch(
+      /Exclusive carpet-tile po print pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(poPrint).toMatch(
+      /Hard-surface po print pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(poPrint).not.toMatch(/jobScopePadTakeoff/);
+    expect(poPrint).not.toMatch(/jobMaterialsOutstandingPadTakeoff/);
+    expect(poPrint).not.toMatch(/installWoPadTakeoff/);
+
+    expect(poPrint).not.toMatch(/po builder pad takeoff order carton/);
+    expect(poPrint).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(poPrint).not.toMatch(/po plan pad takeoff order carton/);
+    expect(poPrint).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(poPrint).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(poPrint).not.toMatch(/office customer-order qty from cuts/);
+    expect(poPrint).not.toMatch(/office customer-order email qty from cuts/);
+    expect(poPrint).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(poPrint).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(poPrint).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(poPrint).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(poPrint).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(poPrint).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(poPrint).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(poPrint).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(poPrint).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(poPrint).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(poPrint).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(poPrint).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(poPrint).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(poPrint).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(poPrint).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(poPrint).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(poPrint).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(poPrint).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(poPrint).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(poPrint).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(poPrint).not.toMatch(/poBuilderPadTakeoff/);
+    expect(poPrint).not.toMatch(/lineMeasurementsPadTakeoff/);
+    expect(poPrint).not.toMatch(/poPlanPadTakeoff/);
+    expect(poPrint).not.toMatch(/guidedReviewPadTakeoff/);
+
+    const poBuilder = readFileSync(
+      join(root, "src/app/(app)/purchase-orders/po-builder.tsx"),
+      "utf8",
+    );
+    expect(poBuilder).toMatch(/poBuilderPadTakeoff\.cartons\.cartonCount/);
+    expect(poBuilder).toMatch(/wasteAlreadyInQuantity: true/);
+    expect(poBuilder).toMatch(/hardSurfaceAreaCartonCount\(it, Number\(it.quantity\)/);
+    expect(poBuilder).toMatch(
+      /Exclusive carpet-tile po builder pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(poBuilder).toMatch(
+      /Hard-surface po builder pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(poBuilder).not.toMatch(/poPrintPadTakeoff/);
+    expect(poBuilder).not.toMatch(/jobScopePadTakeoff/);
+    expect(poBuilder).not.toMatch(/installWoPadTakeoff/);
+    expect(poBuilder).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(poBuilder).not.toMatch(/po plan pad takeoff order carton/);
+    expect(poBuilder).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(poBuilder).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(poBuilder).not.toMatch(/office customer-order qty from cuts/);
+    expect(poBuilder).not.toMatch(/office customer-order email qty from cuts/);
+    expect(poBuilder).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(poBuilder).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(poBuilder).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(poBuilder).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(poBuilder).not.toMatch(/lineMeasurementsPadTakeoff/);
+    expect(poBuilder).not.toMatch(/poPlanPadTakeoff/);
+    expect(poBuilder).not.toMatch(/guidedReviewPadTakeoff/);
+
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"),
+      "utf8",
+    );
+    expect(wo).toMatch(/hardSurfaceAreaCartonCount\(l, lineOrderQty\(l\)/);
+    expect(wo).toMatch(/spec\.rolls/);
+    expect(wo).not.toMatch(/spec\.cartons/);
+    expect(wo).toMatch(/installWoPadTakeoff\.cartons\.cartonCount/);
+    expect(wo).toMatch(/takeoffLabel: "Carpet pad"/);
+    expect(wo).toMatch(
+      /Exclusive carpet-tile installation-wo pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(wo).toMatch(
+      /Hard-surface installation-wo pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(wo).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(wo).not.toMatch(/estimate office pad takeoff order carton/);
+    expect(wo).not.toMatch(/job materials pad takeoff order carton/);
+    expect(wo).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(wo).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(wo).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(wo).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(wo).not.toMatch(/job scope pad takeoff order carton/);
+    expect(wo).not.toMatch(/po print pad takeoff order carton/);
+    expect(wo).not.toMatch(/po builder pad takeoff order carton/);
+    expect(wo).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(wo).not.toMatch(/po plan pad takeoff order carton/);
+    expect(wo).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(wo).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(wo).not.toMatch(/office customer-order qty from cuts/);
+    expect(wo).not.toMatch(/office customer-order email qty from cuts/);
+    expect(wo).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(wo).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(wo).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(wo).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(wo).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(wo).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(wo).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(wo).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(wo).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(wo).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(wo).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(wo).not.toMatch(/staging pad takeoff order carton/);
+    expect(wo).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(wo).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(wo).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(print).not.toMatch(/job materials pad takeoff order carton/);
+    expect(print).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(print).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(print).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(print).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(print).not.toMatch(/job scope pad takeoff order carton/);
+    expect(print).not.toMatch(/po print pad takeoff order carton/);
+    expect(print).not.toMatch(/po builder pad takeoff order carton/);
+    expect(print).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(print).not.toMatch(/po plan pad takeoff order carton/);
+    expect(print).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(print).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(print).not.toMatch(/office customer-order qty from cuts/);
+    expect(print).not.toMatch(/office customer-order email qty from cuts/);
+    expect(print).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(print).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(print).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(print).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(print).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(print).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(print).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(print).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(print).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(print).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(print).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(print).not.toMatch(/staging pad takeoff order carton/);
+    expect(print).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(print).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(print).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+    expect(print).not.toMatch(/padRollCount/);
+    expect(print).not.toMatch(/hardSurfaceAreaCartonCount/);
+
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).not.toMatch(/work-order editor pad takeoff order carton/);
+    expect(portal).not.toMatch(/job materials pad takeoff order carton/);
+    expect(portal).not.toMatch(/job materials purchasing-gap pad takeoff order carton/);
+    expect(portal).not.toMatch(/job materials excess pad takeoff order carton/);
+    expect(portal).not.toMatch(/job materials arrived pad takeoff order carton/);
+    expect(portal).not.toMatch(/job materials outstanding pad takeoff order carton/);
+    expect(portal).not.toMatch(/job scope pad takeoff order carton/);
+    expect(portal).not.toMatch(/po print pad takeoff order carton/);
+    expect(portal).not.toMatch(/po builder pad takeoff order carton/);
+    expect(portal).not.toMatch(/line measurements pad takeoff order carton/);
+    expect(portal).not.toMatch(/po plan pad takeoff order carton/);
+    expect(portal).not.toMatch(/guided estimate review pad takeoff order carton/);
+    expect(portal).not.toMatch(/warehouse customer-order qty from cuts/);
+    expect(portal).not.toMatch(/office customer-order qty from cuts/);
+    expect(portal).not.toMatch(/office customer-order email qty from cuts/);
+    expect(portal).not.toMatch(/office customer-order invoice qty from cuts/);
+    expect(portal).not.toMatch(/office customer-order invoice unit from cuts/);
+    expect(portal).not.toMatch(/office customer-order invoice rate from cuts/);
+    expect(portal).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(portal).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(portal).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(portal).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(portal).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(portal).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(portal).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(portal).not.toMatch(/warehouse queue pad takeoff order carton/);
+    expect(portal).not.toMatch(/staging pad takeoff order carton/);
+    expect(portal).not.toMatch(/incoming-delivery pad takeoff order carton/);
+    expect(portal).not.toMatch(/incoming-delivery arrived pad takeoff order carton/);
+    expect(portal).not.toMatch(/incoming-delivery outstanding pad takeoff order carton/);
+    expect(portal).not.toMatch(/padRollCount/);
+    expect(portal).not.toMatch(/hardSurfaceAreaCartonCount/);
+
+    const catalogForm = readFileSync(
+      join(root, "src/app/(app)/catalog/product-form.tsx"),
+      "utf8",
+    );
+    expect(catalogForm).toMatch(/\$ \/ unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile warehouse queue pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface warehouse queue pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile staging pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface staging pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile incoming-delivery pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface incoming-delivery pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile incoming-delivery arrived pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface incoming-delivery arrived pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile incoming-delivery outstanding pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface incoming-delivery outstanding pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile job materials purchasing-gap pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface job materials purchasing-gap pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile job materials excess pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface job materials excess pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile job materials arrived pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface job materials arrived pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile job materials outstanding pad takeoff order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface job materials outstanding pad takeoff order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile po print pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface po print pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile po builder pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface po builder pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile line measurements pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface line measurements pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile po plan pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface po plan pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile Guided Estimate Review pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface Guided Estimate Review pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile warehouse customer-order qty from cuts is the order, not leftover planted quantity/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface warehouse customer-order leftover planted Qty stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile office customer-order qty from cuts is the order, not leftover planted quantity/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface office customer-order leftover planted quantity stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile office customer-order email qty from cuts is the order, not leftover planted quantity/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface office customer-order email leftover planted quantity stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile office customer-order invoice qty from cuts is the order, not leftover planted quantity/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface office customer-order invoice leftover planted quantity stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile office customer-order invoice unit from cuts is the order, not leftover planted unit/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface office customer-order invoice leftover planted unit stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile office customer-order invoice rate from cuts is the order, not leftover planted rate/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface office customer-order invoice leftover planted rate stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile warehouse incoming Short mixed-product SUM is not the order/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface warehouse incoming Short leftover planted mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile office PO short-delivery email mixed-product SUM is not the order/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface office PO short-delivery leftover planted mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile warehouse incoming Short toast mixed-product SUM is not the order/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface warehouse incoming Short leftover planted toast mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile warehouse reorder remnant mixed-product SUM is not the order/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface warehouse reorder leftover planted remnant mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile job materials on-hand mixed-product SUM is not the order/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface job materials leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile job materials pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface job materials pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile installation-wo pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface installation-wo pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile work-order editor pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface work-order editor pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile estimate office pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface estimate office pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile Builder collapsed pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface Builder collapsed pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+
+    const help =
+      /Exclusive carpet-tile job materials on-hand mixed-product SUM is not the order — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Hard-surface job materials leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap \/ count How many stays. Do not invent coverage/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /incoming-delivery pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /incoming-delivery arrived pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /incoming-delivery outstanding pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /job materials purchasing-gap pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /job materials excess pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /job materials arrived pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /job materials outstanding pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /job scope pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /po print pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /po builder pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /line measurements pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /po plan pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /guided estimate review pad takeoff order carton/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /warehouse customer-order qty from cuts/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /office customer-order qty from cuts/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /office customer-order email qty from cuts/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /office customer-order invoice qty from cuts/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /office customer-order invoice unit from cuts/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /office customer-order invoice rate from cuts/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /warehouse incoming Short mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /office PO short-delivery email mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /warehouse incoming Short toast mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /warehouse reorder remnant mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /warehouse stock-PO remnant mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /warehouse inventory stock-item on-hand mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /warehouse customer-order on-hand mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /office customer-order on-hand mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /warehouse inventory list on-hand mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /catalog picker on-hand mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /quick-lines on-hand mixed-product SUM/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /job materials on-hand mixed-product SUM/,
+    );
+
+
+    const reorderAlert = readFileSync(
+      join(root, "src/components/reorder-alert.tsx"),
+      "utf8",
+    );
+    expect(reorderAlert).toMatch(
+      /Exclusive carpet-tile warehouse reorder remnant mixed-product SUM is not the order/,
+    );
+    expect(reorderAlert).toMatch(
+      /Hard-surface warehouse reorder leftover planted remnant mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(reorderAlert).toMatch(/const remnantUnits = a\.items\.map/);
+    expect(reorderAlert).toMatch(/mixedRemnant/);
+    expect(reorderAlert).toMatch(/mixedRemnant \?/);
+    expect(reorderAlert).toMatch(/\{a\.totalQty\} \{a\.unit\}/);
+    expect(reorderAlert).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/warehouseReorderRemnantMixed/);
+    expect(reorderAlert).not.toMatch(/warehouseStockPoRemnantMixed/);
+    expect(reorderAlert).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(reorderAlert).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(reorderAlert).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(reorderAlert).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(reorderAlert).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(reorderAlert).not.toMatch(/quickLinesOnHandMixed/);
+    expect(reorderAlert).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(reorderAlert).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(reorderAlert).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(reorderAlert).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(reorderAlert).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(reorderAlert).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(reorderAlert).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(reorderAlert).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(reorderAlert).not.toMatch(/officePoShortEmailMixed/);
+    expect(reorderAlert).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(reorderAlert).not.toMatch(/warehouseCustomerOrderCuts/);
+    expect(reorderAlert).not.toMatch(/officeCustomerOrderCuts/);
+    expect(reorderAlert).not.toMatch(/officeCustomerOrderEmailCuts/);
+    expect(reorderAlert).not.toMatch(/officeCustomerOrderInvoiceCuts/);
+    expect(reorderAlert).not.toMatch(/officeCustomerOrderInvoiceUnit/);
+    expect(reorderAlert).not.toMatch(/officeCustomerOrderInvoiceRate/);
+
+
+    const stockPoEditor = readFileSync(
+      join(root, "src/app/(app)/inventory/po/[id]/stock-po-editor.tsx"),
+      "utf8",
+    );
+    expect(stockPoEditor).toMatch(
+      /Exclusive carpet-tile warehouse stock-PO remnant mixed-product SUM is not the order/,
+    );
+    expect(stockPoEditor).toMatch(
+      /Hard-surface warehouse stock-PO leftover planted remnant mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(stockPoEditor).toMatch(/const remnantUnits = a\.items\.map/);
+    expect(stockPoEditor).toMatch(/mixedRemnant/);
+    expect(stockPoEditor).toMatch(/mixedRemnant \?/);
+    expect(stockPoEditor).toMatch(/\{a\.totalQty\} \{a\.unit\}/);
+    expect(stockPoEditor).not.toMatch(/warehouseStockPoRemnantMixed/);
+    expect(stockPoEditor).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(stockPoEditor).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(stockPoEditor).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(stockPoEditor).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(stockPoEditor).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(stockPoEditor).not.toMatch(/quickLinesOnHandMixed/);
+    expect(stockPoEditor).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(stockPoEditor).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(stockPoEditor).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(stockPoEditor).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(stockPoEditor).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(stockPoEditor).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(stockPoEditor).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(stockPoEditor).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(stockPoEditor).not.toMatch(/officePoShortEmailMixed/);
+    expect(stockPoEditor).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(stockPoEditor).not.toMatch(/warehouseReorderRemnantMixed/);
+
+
+    const inventoryItem = readFileSync(
+      join(root, "src/app/(app)/inventory/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(inventoryItem).toMatch(
+      /Exclusive carpet-tile warehouse inventory stock-item on-hand mixed-product SUM is not the order/,
+    );
+    expect(inventoryItem).toMatch(
+      /Hard-surface warehouse inventory stock-item leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(inventoryItem).toMatch(
+      /Exclusive carpet-tile warehouse inventory stock-item leftover planted available mixed-product SUM is not the order/,
+    );
+    expect(inventoryItem).toMatch(
+      /Hard-surface warehouse inventory stock-item leftover planted available mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(inventoryItem).toMatch(/const remnantUnits = liveRolls\.map/);
+    expect(inventoryItem).toMatch(/mixedRemnant/);
+    expect(inventoryItem).toMatch(/mixedRemnant \?/);
+    expect(inventoryItem).toMatch(/\{product\.on_hand\} \{product\.unit\}/);
+    expect(inventoryItem).toMatch(/available \$\{available\}/);
+    expect(inventoryItem).toMatch(
+      /Exclusive carpet-tile warehouse inventory stock-item leftover planted reserved mixed-product SUM is not the order/,
+    );
+    expect(inventoryItem).toMatch(
+      /Hard-surface warehouse inventory stock-item leftover planted reserved mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(inventoryItem).toMatch(/reserved \$\{reserved\}/);
+    expect(inventoryItem).toMatch(
+      /Exclusive carpet-tile warehouse inventory stock-item leftover planted on-order mixed-product SUM is not the order/,
+    );
+    expect(inventoryItem).toMatch(
+      /Hard-surface warehouse inventory stock-item leftover planted on-order mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(inventoryItem).toMatch(/\{onOrder\} \{onOrder \? product\.unit : ""\}/);
+    expect(inventoryItem).toMatch(
+      /Exclusive carpet-tile warehouse inventory stock-item leftover planted value mixed-product SUM is not the order/,
+    );
+    expect(inventoryItem).toMatch(
+      /Hard-surface warehouse inventory stock-item leftover planted value mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(inventoryItem).toMatch(/value \{formatMoney\(inventoryValue\)\}/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(inventoryItem).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(inventoryItem).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(inventoryItem).not.toMatch(/quickLinesOnHandMixed/);
+    expect(inventoryItem).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(inventoryItem).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(inventoryItem).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(inventoryItem).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(inventoryItem).not.toMatch(/officePoShortEmailMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseReorderRemnantMixed/);
+    expect(inventoryItem).not.toMatch(/warehouseStockPoRemnantMixed/);
+
+    const receivingActions = readFileSync(
+      join(root, "src/app/(app)/warehouse/receiving-actions.ts"),
+      "utf8",
+    );
+    expect(receivingActions).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/office PO short-delivery email mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(receivingActions).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(receivingActions).not.toMatch(/officePoShortEmailMixed/);
+    expect(receivingActions).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(receivingActions).not.toMatch(/warehouseReorderRemnantMixed/);
+    expect(receivingActions).not.toMatch(/warehouseStockPoRemnantMixed/);
+    expect(receivingActions).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(receivingActions).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(receivingActions).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(receivingActions).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(receivingActions).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(receivingActions).not.toMatch(/quickLinesOnHandMixed/);
+    expect(receivingActions).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(receivingActions).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(receivingActions).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(receivingActions).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(receivingActions).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(receivingActions).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(receivingActions).toMatch(/return \{ error: null, fullyReceived, short \}/);
+
+    const poActions = readFileSync(
+      join(root, "src/app/(app)/purchase-orders/actions.ts"),
+      "utf8",
+    );
+    expect(poActions).toMatch(
+      /Exclusive carpet-tile office PO short-delivery email mixed-product SUM is not the order/,
+    );
+    expect(poActions).toMatch(
+      /Hard-surface office PO short-delivery leftover planted mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(poActions).toMatch(/const shortEmailUnits = /);
+    expect(poActions).toMatch(/mixedShortEmail/);
+    expect(poActions).toMatch(/mixedShortEmail \? "short"/);
+    expect(poActions).toMatch(/foundOnDelivery\.shortUnits/);
+    expect(poActions).toMatch(/foundOnDelivery\?: \{ shortUnits: number; note: string \}/);
+    expect(poActions).not.toMatch(/officePoShortEmailMixed/);
+    expect(poActions).not.toMatch(/warehouseIncomingShortToastMixed/);
+    expect(poActions).not.toMatch(/warehouseReorderRemnantMixed/);
+    expect(poActions).not.toMatch(/warehouseStockPoRemnantMixed/);
+    expect(poActions).not.toMatch(/warehouseInventoryOnHandMixed/);
+    expect(poActions).not.toMatch(/warehouseCustomerOrderOnHandMixed/);
+    expect(poActions).not.toMatch(/officeCustomerOrderOnHandMixed/);
+    expect(poActions).not.toMatch(/warehouseInventoryListOnHandMixed/);
+    expect(poActions).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(poActions).not.toMatch(/quickLinesOnHandMixed/);
+    expect(poActions).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(poActions).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(poActions).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(poActions).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(poActions).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(poActions).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(poActions).not.toMatch(/warehouseIncomingShortMixed/);
+    expect(poActions).not.toMatch(/warehouse incoming Short mixed-product SUM/);
+    expect(poActions).not.toMatch(/warehouse incoming Short toast mixed-product SUM/);
+    expect(poActions).not.toMatch(/warehouse reorder remnant mixed-product SUM/);
+    expect(poActions).not.toMatch(/warehouse stock-PO remnant mixed-product SUM/);
+    expect(poActions).not.toMatch(/warehouse inventory stock-item on-hand mixed-product SUM/);
+    expect(poActions).not.toMatch(/warehouse customer-order on-hand mixed-product SUM/);
+    expect(poActions).not.toMatch(/office customer-order on-hand mixed-product SUM/);
+    expect(poActions).not.toMatch(/warehouse inventory list on-hand mixed-product SUM/);
+    expect(poActions).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(poActions).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(poActions).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(poActions).not.toMatch(/reports products on-hand mixed-product SUM/);
+    expect(poActions).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(poActions).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(poActions).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(poActions).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(poActions).toMatch(/notifyBackordered/);
+
+
+
+    const reportsProducts = readFileSync(
+      join(root, "src/app/(app)/reports/products/page.tsx"),
+      "utf8",
+    );
+    expect(reportsProducts).toMatch(
+      /Exclusive carpet-tile reports products on-hand mixed-product SUM is not the order/,
+    );
+    expect(reportsProducts).toMatch(
+      /Hard-surface reports products leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order/,
+    );
+    expect(reportsProducts).toMatch(/const remnantUnits = remnantItems\.map/);
+    expect(reportsProducts).toMatch(/mixedRemnant/);
+    expect(reportsProducts).toMatch(/mixedRemnant \?/);
+    expect(reportsProducts).toMatch(/\$\{p\.on_hand\}/);
+    expect(reportsProducts).toMatch(/reorderAlertsFor/);
+    expect(reportsProducts).not.toMatch(/reportsProductsOnHandMixed/);
+    expect(reportsProducts).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(reportsProducts).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(reportsProducts).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(reportsProducts).not.toMatch(/warehouseInventoryValueMixed/);
+    expect(reportsProducts).not.toMatch(/jobMaterialsOnHandMixed/);
+    expect(reportsProducts).not.toMatch(/quickLinesOnHandMixed/);
+    expect(reportsProducts).not.toMatch(/catalogPickerOnHandMixed/);
+    expect(reportsProducts).not.toMatch(/job materials on-hand mixed-product SUM/);
+    expect(reportsProducts).not.toMatch(/quick-lines on-hand mixed-product SUM/);
+    expect(reportsProducts).not.toMatch(/catalog picker on-hand mixed-product SUM/);
+    expect(reportsProducts).not.toMatch(/warehouse inventory stock-item leftover planted available mixed-product SUM/);
+    expect(reportsProducts).not.toMatch(/warehouse inventory stock-item leftover planted reserved mixed-product SUM/);
+    expect(reportsProducts).not.toMatch(/warehouse inventory stock-item leftover planted on-order mixed-product SUM/);
+    expect(reportsProducts).not.toMatch(/warehouse inventory stock-item leftover planted value mixed-product SUM/);
+    expect(reportsProducts).not.toMatch(/warehouseInventoryAvailableMixed/);
+    expect(reportsProducts).not.toMatch(/warehouseInventoryReservedMixed/);
+    expect(reportsProducts).not.toMatch(/warehouseInventoryOnOrderMixed/);
+    expect(reportsProducts).not.toMatch(/warehouseInventoryValueMixed/);
 
   });
 
