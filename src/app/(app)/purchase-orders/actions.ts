@@ -51,6 +51,19 @@ export async function notifyBackordered(
   },
 ): Promise<void> {
   const { supplier, etaDate, customerId, foundOnDelivery } = opts;
+  // Exclusive carpet-tile office PO short-delivery email mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface office PO short-delivery leftover planted mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+  let mixedShortEmail = false;
+  if (foundOnDelivery) {
+    const { data: shortEmailItems } = await supabase
+      .from("po_items")
+      .select("unit")
+      .eq("po_id", poId);
+    const shortEmailUnits = (shortEmailItems ?? []).map((i) =>
+      String((i as { unit?: string | null }).unit ?? "").trim(),
+    );
+    mixedShortEmail = new Set(shortEmailUnits).size > 1;
+  }
   const etaText = etaDate
     ? new Date(etaDate).toLocaleDateString("en-US", {
         month: "short",
@@ -92,7 +105,7 @@ export async function notifyBackordered(
     ? "Delivery came up short"
     : "Material backordered";
   const detail = foundOnDelivery
-    ? `<p>A delivery${supplier ? ` from ${supplier}` : ""} was checked in and came up <strong>${foundOnDelivery.shortUnits.toLocaleString("en-US", { maximumFractionDigits: 2 })} short</strong>. The rest is still outstanding and needs chasing with the supplier.</p>${
+    ? `<p>A delivery${supplier ? ` from ${supplier}` : ""} was checked in and came up <strong>${mixedShortEmail ? "short" : `${foundOnDelivery.shortUnits.toLocaleString("en-US", { maximumFractionDigits: 2 })} short`}</strong>. The rest is still outstanding and needs chasing with the supplier.</p>${
         foundOnDelivery.note
           ? `<p style="color:#555">Warehouse note: ${foundOnDelivery.note}</p>`
           : ""

@@ -306,6 +306,7 @@ const REQUIRED_FILES = [
   "0443_flooring_knowledge_office_customer_order_invoice_unit.sql",
   "0444_flooring_knowledge_office_customer_order_invoice_rate.sql",
   "0445_flooring_knowledge_warehouse_incoming_short_mixed.sql",
+  "0446_flooring_knowledge_office_po_short_email_mixed.sql",
 ];
 
 /**
@@ -3863,6 +3864,19 @@ const REQUIRED_MARKERS = [
       "P0_0445_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile warehouse incoming Short mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Hard-surface warehouse incoming Short leftover planted mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0446_flooring_knowledge_office_po_short_email_mixed.sql",
+    markers: [
+      "P0_0446_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile office PO short-delivery email mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Hard-surface office PO short-delivery leftover planted mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",
