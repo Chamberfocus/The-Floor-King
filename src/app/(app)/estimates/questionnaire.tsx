@@ -4748,12 +4748,26 @@ function QuestionBody({
                         category: ex.product.category || cat,
                       }),
                     });
+                    // Exclusive carpet-tile Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    // Hard-surface Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
                     // Exclusive carpet-tile Guided Estimate extra takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                     // Underlayment Guided Estimate extra takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
                     const extraPadRolls = padRollCount(extraTakeoff.takeoffLabel ? "underlayment" : catalogCategoryForFamily(extraTakeoff.family), extraTakeoff.billingQty, extraTakeoff.billingUnit);
                     return (
                     <span className="text-xs text-muted-foreground tabular-nums">
                       {formatTakeoffStrip(extraTakeoff)}
+                      {/* Exclusive carpet-tile Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                      {/* Hard-surface Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                      {extraTakeoff.cartons ? (
+                        <>
+                          {" · "}
+                          <span className="font-medium tabular-nums">
+                            = {extraTakeoff.cartons.cartonCount} carton{extraTakeoff.cartons.cartonCount === 1 ? "" : "s"}
+                          </span>
+                        </>
+                      ) : null}
+                      {/* Exclusive carpet-tile Guided Estimate extra takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                      {/* Underlayment Guided Estimate extra takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
                       {extraPadRolls ? (
                         <>
                           {" · "}

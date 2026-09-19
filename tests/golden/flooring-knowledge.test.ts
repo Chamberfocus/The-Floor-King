@@ -26485,6 +26485,301 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0414 Exclusive carpet-tile Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0414_flooring_knowledge_guided_extra_takeoff_order_carton.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0414_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive carpet-tile Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(
+      /Hard-surface Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap \/ count How many stays off carton math. Do not invent coverage/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    const lvpCarton = {
+      description: "Living room — Lifeproof Oak",
+      category: "lvp",
+      unit: "sq ft",
+      sqft: 300,
+      quantity: 300,
+      sqft_per_box: 23.64,
+    };
+    const lvpCalc = {
+      line_type: "mat_labor" as const,
+      description: lvpCarton.description,
+      category: lvpCarton.category,
+      unit: lvpCarton.unit,
+      sqft: lvpCarton.sqft,
+      quantity: lvpCarton.quantity,
+      waste_pct: 10,
+    };
+    expect(hardSurfaceAreaCartonCount(lvpCarton, lineQty(lvpCalc))).toBe(13);
+    expect(hardSurfaceAreaCartonCount(lvpCarton, lineOrderQty(lvpCalc))).toBe(14);
+    const extraLvp = computeMaterialTakeoff({
+      family: "lvp",
+      measuredSqft: 300,
+      wastePct: 10,
+      sqftPerBox: 23.64,
+    });
+    expect(extraLvp.cartons?.cartonCount).toBe(14);
+    expect(extraLvp.cartons?.cartonCount).not.toBe(13);
+    const tileCarton = {
+      description: "Living room — Interface carpet tile",
+      category: "carpet",
+      unit: "sq yd",
+      sqft_per_box: 23.64,
+      order_as_roll: false,
+      quantity: 22.22,
+    };
+    const tileCalc = {
+      line_type: "mat_labor" as const,
+      description: tileCarton.description,
+      category: tileCarton.category,
+      unit: tileCarton.unit,
+      quantity: tileCarton.quantity,
+      waste_pct: 10,
+    };
+    expect(hardSurfaceAreaCartonCount(tileCarton, 22.22)).toBe(9);
+    expect(hardSurfaceAreaCartonCount(tileCarton, lineOrderQty(tileCalc))).toBe(10);
+    const extraTile = computeMaterialTakeoff({
+      family: "carpet",
+      measuredSqft: 200,
+      wastePct: 10,
+      sqftPerBox: 23.64,
+      carpetSystems: ["carpet_tile"],
+    });
+    expect(extraTile.cartons?.cartonCount).toBe(10);
+    expect(extraTile.cartons?.cartonCount).not.toBe(9);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Stair wrap — wrap qty TBD",
+          category: "lvp",
+          unit: "box",
+          sqft_per_box: 23.64,
+          quantity: 8,
+        },
+        lineOrderQty({
+          line_type: "mat_labor",
+          description: "Stair wrap — wrap qty TBD",
+          category: "lvp",
+          unit: "box",
+          quantity: 8,
+          waste_pct: 10,
+        }),
+      ),
+    ).toBe(0);
+    expect(
+      computeMaterialTakeoff({
+        family: "other",
+        measuredSqft: 540,
+        wastePct: 10,
+        billingUnit: "sqyd",
+        takeoffLabel: "Carpet pad",
+      }).cartons,
+    ).toBeNull();
+
+    const q = readFileSync(
+      join(root, "src/app/(app)/estimates/questionnaire.tsx"),
+      "utf8",
+    );
+    expect(q).toMatch(/extraTakeoff\.cartons\.cartonCount/);
+    expect(q).toMatch(/= \{extraTakeoff.cartons.cartonCount\} carton/);
+    expect(q).toMatch(/formatTakeoffStrip\(extraTakeoff\)/);
+    expect(q).toMatch(/padRollCount\(extraTakeoff\.takeoffLabel \? "underlayment"/);
+    expect(q).toMatch(/= \{extraPadRolls\} roll/);
+    expect(q).toMatch(/extraTakeoff\.billingQty/);
+    expect(q).toMatch(/padRollCount\("underlayment", padTakeoff\.billingQty/);
+    expect(q).toMatch(/= \{padTakeoffRolls\} roll/);
+    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
+    expect(q).toMatch(/= \{runningPadRolls\} roll/);
+    expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
+    expect(q).toMatch(/formatTakeoffStrip\(t\)/);
+    expect(q).toMatch(/const geCartons = p/);
+    expect(q).toMatch(/= \{geCartons\} carton/);
+    expect(q).toMatch(/formatTakeoffStrip\(takeoff\)/);
+    expect(q).toMatch(/padRollCount\(l\.category, lineOrderQty\(smartLineToCalcLine\(l\)\)/);
+    expect(q).toMatch(
+      /Exclusive carpet-tile Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(q).toMatch(
+      /Hard-surface Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(q).toMatch(
+      /Exclusive carpet-tile Guided Estimate extra takeoff order pad-roll count stays off 30-yard roll math/,
+    );
+    expect(q).toMatch(
+      /Underlayment Guided Estimate extra takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+    expect(q).toMatch(
+      /Exclusive carpet-tile Guided Estimate running takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(q).not.toMatch(/PAD_ROLL_SQYD/);
+    expect(q).not.toMatch(/companionQty/);
+    expect(q).not.toMatch(/category === ["']carpet_tile["']/);
+    expect(q).not.toMatch(/billedRateToCartonCost/);
+
+    const takeoffLib = readFileSync(
+      join(root, "src/lib/flooring-knowledge/quantities.ts"),
+      "utf8",
+    );
+    expect(takeoffLib).toMatch(/row.label === "Required cartons"/);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/hardSurfaceAreaCartonCount\(summ, lineOrderQty\(summ\)/);
+    expect(builder).toMatch(/= \{sCartons\} carton/);
+    expect(builder).toMatch(/formatTakeoffStrip\(tileTakeoff\)/);
+    expect(builder).toMatch(/const sQty = lineQty\(summ\)/);
+    expect(builder).toMatch(/billedQty=\{sQty\}/);
+    expect(builder).toMatch(/orderQty=\{lineOrderQty\(summ\)\}/);
+    expect(builder).toMatch(/formatMoney\(sSell\)/);
+    expect(builder).toMatch(/padRollCount\(summ\.category, lineOrderQty\(summ\)/);
+    expect(builder).not.toMatch(/Guided Estimate extra takeoff order carton/);
+    expect(builder).not.toMatch(/PAD_ROLL_SQYD/);
+    expect(builder).not.toMatch(/companionQty/);
+    expect(builder).not.toMatch(/category === ["']carpet_tile["']/);
+
+    const meas = readFileSync(
+      join(root, "src/app/(app)/estimates/line-measurements.tsx"),
+      "utf8",
+    );
+    expect(meas).toMatch(/padRollCount\(category, orderQty \?\? billedQty \?\? 0/);
+    expect(meas).not.toMatch(/Guided Estimate extra takeoff order carton/);
+
+    const office = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(office).toMatch(/padRollCount\(l\.category, lineOrderQty\(l\)/);
+    expect(office).not.toMatch(/Guided Estimate extra takeoff order carton/);
+
+    const editor = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/edit-scope.tsx"),
+      "utf8",
+    );
+    expect(editor).toMatch(/padRollCount\(l\.category, lineOrderQty/);
+    expect(editor).not.toMatch(/Guided Estimate extra takeoff order carton/);
+
+    const incoming = readFileSync(
+      join(root, "src/app/(app)/warehouse/incoming-deliveries.tsx"),
+      "utf8",
+    );
+    expect(incoming).toMatch(/padRollCount\(i\.category, outstanding/);
+    expect(incoming).toMatch(/\{outstandingPadRolls\} roll/);
+    expect(incoming).toMatch(/cartonCountFor\(i, outstanding/);
+    expect(incoming).not.toMatch(/Guided Estimate extra takeoff order carton/);
+
+    const orderUi = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/order/order-materials.tsx"),
+      "utf8",
+    );
+    expect(orderUi).toMatch(/padRollCount\(line\.category, line\.qty/);
+    expect(orderUi).not.toMatch(/Guided Estimate extra takeoff order carton/);
+
+    const card = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/job-materials-card.tsx"),
+      "utf8",
+    );
+    expect(card).toMatch(/padRollCount\(l\.category, remaining/);
+    expect(card).toMatch(/\{outstandingPadRolls\} roll/);
+    expect(card).toMatch(/cartonCountForQty\(l, remaining/);
+    expect(card).toMatch(/\{outstandingCartons\} carton/);
+    expect(card).not.toMatch(/Guided Estimate extra takeoff order carton/);
+
+    const warehouse = readFileSync(
+      join(root, "src/app/(app)/warehouse/page.tsx"),
+      "utf8",
+    );
+    expect(warehouse).toMatch(/padRollCount\(m\.category, m\.qty/);
+    expect(warehouse).not.toMatch(/Guided Estimate extra takeoff order carton/);
+
+    const staging = readFileSync(
+      join(root, "src/app/(app)/warehouse/staging-sheet-doc.tsx"),
+      "utf8",
+    );
+    expect(staging).toMatch(/padRollCount\(g\.category, g\.qty/);
+    expect(staging).not.toMatch(/Guided Estimate extra takeoff order carton/);
+
+    const jobScope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(jobScope).toMatch(/padRollCount\(l\.category, orderQ \|\| q/);
+    expect(jobScope).not.toMatch(/Guided Estimate extra takeoff order carton/);
+
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"),
+      "utf8",
+    );
+    expect(wo).toMatch(/hardSurfaceAreaCartonCount\(l, lineOrderQty\(l\)/);
+    expect(wo).toMatch(/spec\.rolls/);
+    expect(wo).not.toMatch(/spec\.cartons/);
+    expect(wo).not.toMatch(/Guided Estimate extra takeoff order carton/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).not.toMatch(/Guided Estimate extra takeoff order carton/);
+    expect(print).not.toMatch(/padRollCount/);
+
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).not.toMatch(/Guided Estimate extra takeoff order carton/);
+    expect(portal).not.toMatch(/padRollCount/);
+
+    const catalogForm = readFileSync(
+      join(root, "src/app/(app)/catalog/product-form.tsx"),
+      "utf8",
+    );
+    expect(catalogForm).toMatch(/\$ \/ unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Underlayment job materials outstanding order pad-roll count from remaining order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+
+    const help =
+      /Exclusive carpet-tile Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Hard-surface Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap \/ count How many stays off carton math. Do not invent coverage/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /Guided Estimate extra takeoff order carton/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
