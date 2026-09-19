@@ -79,6 +79,18 @@ export default async function InventoryPage({
         ).length,
         totalValue: 0,
       };
+  const mixedSummarySkus = [...items, ...aged].filter((p) => {
+    const remnantItems = remnantAlerts[p.id]?.items ?? [];
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    return new Set(remnantUnits).size > 1;
+  });
+  // Exclusive carpet-tile warehouse inventory list leftover planted summary totalValue mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface warehouse inventory list leftover planted summary totalValue mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+  const mixedRemnant = mixedSummarySkus.length > 0;
+  const mixedSummaryPieces = mixedSummarySkus.reduce(
+    (n, p) => n + (remnantAlerts[p.id]?.items ?? []).length,
+    0,
+  );
 
   return (
     <div>
@@ -189,7 +201,7 @@ export default async function InventoryPage({
             icon={DollarSign}
             tint="bg-emerald-100 text-emerald-600"
             label="Inventory value (at cost)"
-            value={formatMoney(opsSummary.totalValue)}
+            value={mixedRemnant ? (mixedSummaryPieces > 1 ? `value across ${mixedSummaryPieces} pieces` : "value as a remnant/roll") : formatMoney(opsSummary.totalValue)}
           />
         ) : (
           <SummaryCard
