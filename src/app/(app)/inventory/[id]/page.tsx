@@ -52,6 +52,10 @@ export default async function InventoryItemPage({
   const rolled = product.stock_kind === "rolled";
   const rolls = rolled ? await listRolls(id) : [];
   const liveRolls = rolls.filter((r) => r.status === "available");
+  // Exclusive carpet-tile warehouse inventory stock-item on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface warehouse inventory stock-item leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+  const remnantUnits = liveRolls.map((r) => (r.unit || "").trim());
+  const mixedRemnant = new Set(remnantUnits).size > 1;
   const onOrder = product.on_order ?? 0;
   const reserved = Number(product.reserved) || 0;
   const available = Math.max(0, product.on_hand - reserved);
@@ -85,7 +89,11 @@ export default async function InventoryItemPage({
               In stock {rolled ? <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">rolled</span> : null}
             </div>
             <div className={cn("text-2xl font-bold", low && "text-destructive")}>
-              {product.on_hand} {product.unit}
+              {mixedRemnant ? (liveRolls.length > 1 ? `stock across ${liveRolls.length} pieces` : "stock as a remnant/roll") : (
+                <>
+                  {product.on_hand} {product.unit}
+                </>
+              )}
             </div>
             <div className="text-xs text-muted-foreground">
               reserved {reserved} · available {available}
