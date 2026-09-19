@@ -4,7 +4,8 @@ import {
   type EstimateLineItem,
 } from "@/lib/types";
 import { hardSurfaceAreaCartonCount, lineQty, lineOrderQty, lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
-import { billedQtyToSqyd, lineDisplayUnit, lineUnitKey } from "@/lib/units";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
+import { billedQtyToSqft, billedQtyToSqyd, lineDisplayUnit, lineUnitKey } from "@/lib/units";
 
 // Carpet padding is bought by the roll; the shop's standard roll covers this
 // many square yards (matches the estimate builder's roll math).
@@ -120,7 +121,24 @@ export function lineSpec(l: {
   // Hard-surface job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
   // Exclusive carpet-tile job scope order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
   // Hard-surface job scope order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
-  const cartons = hardSurfaceAreaCartonCount(l, orderQ || Number(l.sqft) || 0);
+  const cartonsHs = hardSurfaceAreaCartonCount(l, orderQ || Number(l.sqft) || 0);
+  // Exclusive carpet-tile job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const jobScopePadTakeoff =
+    l.category === "underlayment" && l.unit !== "sheet"
+      ? computeMaterialTakeoff({
+          family: "other",
+          measuredSqft:
+            billedQtyToSqft(orderQ || q, unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+          wasteAlreadyInQuantity: true,
+          sqftPerBox: Number(l.sqft_per_box) > 0 ? Number(l.sqft_per_box) : null,
+          billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
+          takeoffLabel: "Carpet pad",
+        })
+      : null;
+  const cartons =
+    cartonsHs ||
+    (jobScopePadTakeoff?.cartons ? jobScopePadTakeoff.cartons.cartonCount : 0);
   return { qty, qtyNum: q, unit, cut, rolls, cartons, isFill: isRoll && !!l.is_fill };
 }
 
