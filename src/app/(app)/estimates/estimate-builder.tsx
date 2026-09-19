@@ -2389,6 +2389,19 @@ export function EstimateBuilder({
                   // Exclusive carpet-tile Builder expanded pad order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                   // Underlayment Builder expanded pad order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
                   const padRolls = padRollCount(summ.category, lineOrderQty(summ), unitKey);
+                  // Exclusive carpet-tile Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  const builderPadTakeoff =
+                    line.category === "underlayment" && !isSubfloor(line)
+                      ? computeMaterialTakeoff({
+                          family: "other",
+                          measuredSqft: num(line.sqft),
+                          wastePct: line.waste_pct.trim() === "" ? null : num(line.waste_pct),
+                          sqftPerBox: num(line.sqft_per_box) > 0 ? num(line.sqft_per_box) : null,
+                          billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
+                          takeoffLabel: "Carpet pad",
+                        })
+                      : null;
                   const sSell = lineTotal(summ);
                   const sCost = lineOurCost(line);
                   const sMargin = sSell > 0 ? ((sSell - sCost) / sSell) * 100 : 0;
@@ -2768,6 +2781,13 @@ export function EstimateBuilder({
                                   initialLabel={line.room}
                                   onApply={(area) => updateLine(oi, li, { sqft: String(area), quantity: "" })}
                                 />
+                                {/* Exclusive carpet-tile Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                                {/* Hard-surface Builder expanded pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                                {builderPadTakeoff?.cartons ? (
+                                  <div className="pb-2 text-xs font-medium tabular-nums text-foreground">
+                                    = {builderPadTakeoff.cartons.cartonCount} carton{builderPadTakeoff.cartons.cartonCount === 1 ? "" : "s"}
+                                  </div>
+                                ) : null}
                                 {/* Exclusive carpet-tile Builder expanded pad order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                                 {/* Underlayment Builder expanded pad order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
                                 {padRolls ? (
