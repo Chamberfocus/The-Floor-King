@@ -23,6 +23,9 @@ export interface OrderPlanLine {
   fromStock: boolean;
   category: string | null;
   cartons: number;
+  sqft: number | null;
+  waste_pct: number | null;
+  sqft_per_box: number | null;
 }
 
 /** A company that will receive one PO (the lines it carries). */
@@ -195,6 +198,9 @@ export async function getEstimateOrderPlan(
       fromStock: !!l.from_stock,
       category: l.category ?? null,
       cartons,
+      sqft: l.sqft ?? null,
+      waste_pct: l.waste_pct ?? null,
+      sqft_per_box: Number(sqft_per_box) > 0 ? Number(sqft_per_box) : null,
     };
   };
 

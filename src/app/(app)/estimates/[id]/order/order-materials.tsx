@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/empty-state";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { padRollCount } from "@/lib/job-scope";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { normalizeUnit } from "@/lib/units";
 import { createPOsFromEstimateSelection } from "@/app/(app)/purchase-orders/actions";
 import type { EstimateOrderPlan, OrderPlanLine } from "@/lib/data/po-plan";
@@ -32,6 +33,19 @@ function Row({
   // Exclusive carpet-tile estimate order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
   // Underlayment estimate order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
   const padRolls = padRollCount(line.category, line.qty, unitKey);
+  // Exclusive carpet-tile estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const orderPadTakeoff =
+    line.category === "underlayment" && line.unit !== "sheet"
+      ? computeMaterialTakeoff({
+          family: "other",
+          measuredSqft: Number(line.sqft) || 0,
+          wastePct: line.waste_pct,
+          sqftPerBox: Number(line.sqft_per_box) > 0 ? Number(line.sqft_per_box) : null,
+          billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
+          takeoffLabel: "Carpet pad",
+        })
+      : null;
   return (
     <div className="flex items-center gap-3 border-t px-3 py-2 first:border-t-0">
       <input
@@ -50,6 +64,11 @@ function Row({
           {/* Hard-surface estimate order carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
           {line.cartons
             ? ` · 📦 ${line.cartons} carton${line.cartons === 1 ? "" : "s"}`
+            : ""}
+          {/* Exclusive carpet-tile estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+          {/* Hard-surface estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+          {orderPadTakeoff?.cartons
+            ? ` · 📦 ${orderPadTakeoff.cartons.cartonCount} carton${orderPadTakeoff.cartons.cartonCount === 1 ? "" : "s"}`
             : ""}
           {/* Exclusive carpet-tile estimate order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
           {/* Underlayment estimate order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
