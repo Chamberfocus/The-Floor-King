@@ -52,6 +52,9 @@ export async function buildInvoiceFromOrder(
     // Exclusive carpet-tile office customer-order invoice qty from cuts is the order, not leftover planted quantity — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
     // Hard-surface office customer-order invoice leftover planted quantity stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
     const qty = cutsTotalSqYd(it) ?? it.quantity ?? 1;
+    // Exclusive carpet-tile office customer-order invoice unit from cuts is the order, not leftover planted unit — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface office customer-order invoice leftover planted unit stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const unit = cutsTotalSqYd(it) != null ? "sq yd" : (it.unit || "");
     return {
       invoice_id: inv.id,
       position: i,
@@ -59,7 +62,7 @@ export async function buildInvoiceFromOrder(
         [it.description, it.color, it.style].filter(Boolean).join(" · ") +
         (it.cut_notes ? ` (cuts: ${it.cut_notes})` : ""),
       quantity: qty,
-      unit: it.unit || "",
+      unit,
       rate: it.requested_price ?? it.retail_price ?? 0,
     };
   });
