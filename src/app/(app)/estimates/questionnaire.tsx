@@ -3280,7 +3280,23 @@ export function Questionnaire({
               measure are listed separately. sq ft ÷ 9 is equivalent area, not a yard order. Carton
               counts appear only when the product has coverage on file.
             </p>
-            {salespersonReview.sections.map((sec) => (
+            {salespersonReview.sections.map((sec) => {
+              const takeoffIdx = sec.id.startsWith("takeoff-")
+                ? Number(sec.id.slice("takeoff-".length))
+                : NaN;
+              const reviewTakeoff = Number.isFinite(takeoffIdx)
+                ? salespersonReview.takeoffs[takeoffIdx]
+                : null;
+              // Exclusive carpet-tile Guided Estimate Review takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+              // Underlayment Guided Estimate Review takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+              const reviewTakeoffPadRolls = reviewTakeoff
+                ? padRollCount(
+                    reviewTakeoff.takeoffLabel ? "underlayment" : catalogCategoryForFamily(reviewTakeoff.family),
+                    reviewTakeoff.billingQty,
+                    reviewTakeoff.billingUnit,
+                  )
+                : 0;
+              return (
               <div key={sec.id} className="rounded-lg border bg-muted/20 p-3">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {sec.title}
@@ -3302,9 +3318,20 @@ export function Questionnaire({
                       </dd>
                     </div>
                   ))}
+                  {/* Exclusive carpet-tile Guided Estimate Review takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                  {/* Underlayment Guided Estimate Review takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+                  {reviewTakeoffPadRolls ? (
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="shrink-0 text-muted-foreground">Required rolls</dt>
+                      <dd className="text-right font-medium tabular-nums">
+                        {reviewTakeoffPadRolls} roll{reviewTakeoffPadRolls === 1 ? "" : "s"}
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
               </div>
-            ))}
+              );
+            })}
             <div className="text-sm font-semibold">Estimate lines</div>
             {lines.length ? (
               <div className="divide-y text-sm">
