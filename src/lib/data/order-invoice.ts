@@ -2,6 +2,7 @@ import type { createClient } from "@/lib/supabase/server";
 import type { OrderItem } from "@/lib/types";
 import { applyEligibleDepositsToInvoice } from "@/lib/data/apply-customer-deposits";
 import { cutsTotalSqYd } from "@/lib/order-cuts";
+import { catalogRateToBillingUnit, isAreaUnit } from "@/lib/units";
 
 // Accepts either the RLS server client or the admin client.
 type DB = Awaited<ReturnType<typeof createClient>>;
@@ -55,6 +56,13 @@ export async function buildInvoiceFromOrder(
     // Exclusive carpet-tile office customer-order invoice unit from cuts is the order, not leftover planted unit — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
     // Hard-surface office customer-order invoice leftover planted unit stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
     const unit = cutsTotalSqYd(it) != null ? "sq yd" : (it.unit || "");
+    // Exclusive carpet-tile office customer-order invoice rate from cuts is the order, not leftover planted rate — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface office customer-order invoice leftover planted rate stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const leftoverRate = it.requested_price ?? it.retail_price ?? 0;
+    const rate =
+      cutsTotalSqYd(it) != null && (it.unit || "").trim() && isAreaUnit(it.unit)
+        ? catalogRateToBillingUnit(leftoverRate, it.unit, true)
+        : leftoverRate;
     return {
       invoice_id: inv.id,
       position: i,
@@ -63,7 +71,7 @@ export async function buildInvoiceFromOrder(
         (it.cut_notes ? ` (cuts: ${it.cut_notes})` : ""),
       quantity: qty,
       unit,
-      rate: it.requested_price ?? it.retail_price ?? 0,
+      rate,
     };
   });
   if (rows.length) await db.from("invoice_items").insert(rows);
