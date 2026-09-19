@@ -33,6 +33,7 @@ import { cutsTotalSqYd } from "@/lib/order-cuts";
 import { billedQtyToSqft, normalizeUnit, unitIsSqyd } from "@/lib/units";
 import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
 import { PAD_ROLL_SQYD, padRollCount } from "@/lib/job-scope";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import {
   JOB_DELIVERY_LABELS,
   WAREHOUSE_STATUS_LABELS,
@@ -268,6 +269,19 @@ export default async function WarehousePage() {
                         });
                         const showCartonWarn = lineUsesAreaCartonMath(cartonLine);
                         const unitKey = normalizeUnit(m.unit);
+                        // Exclusive carpet-tile warehouse queue pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                        // Hard-surface warehouse queue pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                        const warehouseQueuePadTakeoff =
+                          m.category === "underlayment" && m.unit !== "sheet"
+                            ? computeMaterialTakeoff({
+                                family: "other",
+                                measuredSqft: Number(m.sqftArea) || 0,
+                                wastePct: m.wastePct,
+                                sqftPerBox: Number(m.sqftPerBox) > 0 ? Number(m.sqftPerBox) : null,
+                                billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
+                                takeoffLabel: "Carpet pad",
+                              })
+                            : null;
                         // Exclusive carpet-tile warehouse queue order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                         // Underlayment warehouse queue order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
                         const padRolls = padRollCount(m.category, m.qty, unitKey);
@@ -275,20 +289,24 @@ export default async function WarehousePage() {
                           billedQtyToSqft(m.qty, unitKey === "sqyd" ? "sqyd" : "sqft") ?? m.qty;
                         const qtyMain = cartons
                           ? `${cartons} carton${cartons === 1 ? "" : "s"}`
-                          : padRolls
-                            ? `${padRolls} roll${padRolls === 1 ? "" : "s"}`
-                            : m.qty > 0
-                              ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim()
-                              : "";
+                          : warehouseQueuePadTakeoff?.cartons
+                            ? `${warehouseQueuePadTakeoff.cartons.cartonCount} carton${warehouseQueuePadTakeoff.cartons.cartonCount === 1 ? "" : "s"}`
+                            : padRolls
+                              ? `${padRolls} roll${padRolls === 1 ? "" : "s"}`
+                              : m.qty > 0
+                                ? `${Math.round(m.qty * 100) / 100} ${m.unit || ""}`.trim()
+                                : "";
                         const qtySub = cartons
                           ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${m.sqftPerBox}/box`
-                          : padRolls && unitKey === "sqyd"
-                            ? `${Math.round(m.qty * 100) / 100} sq yd ÷ ${PAD_ROLL_SQYD}/roll`
-                            : skipCarton
-                              ? ""
-                              : showCartonWarn
-                                ? "⚠ set sq ft/box"
-                                : "";
+                          : warehouseQueuePadTakeoff?.cartons
+                            ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${m.sqftPerBox}/box`
+                            : padRolls && unitKey === "sqyd"
+                              ? `${Math.round(m.qty * 100) / 100} sq yd ÷ ${PAD_ROLL_SQYD}/roll`
+                              : skipCarton
+                                ? ""
+                                : showCartonWarn
+                                  ? "⚠ set sq ft/box"
+                                  : "";
                         return (
                         <li key={m.lineId} className="flex flex-wrap items-baseline justify-between gap-x-2 py-0.5">
                           <span className="min-w-0">
