@@ -26,23 +26,33 @@ export async function ReorderAlerts({ productIds }: { productIds: string[] }) {
         <AlertTriangle className="size-4" /> Already in stock — do you want to use it?
       </div>
       <ul className="space-y-1 text-sm">
-        {list.map((a) => (
-          <li key={a.productId} className="text-amber-900 dark:text-amber-200">
-            You already have{" "}
-            <span className="font-semibold tabular-nums">
-              {a.totalQty} {a.unit}
-            </span>{" "}
-            {a.count > 1 ? `across ${a.count} pieces` : "as a remnant/roll"}
-            {a.items.some((i) => i.location) ? (
-              <span className="text-amber-700 dark:text-amber-300/90">
-                {" "}
-                · {a.items.filter((i) => i.location).map((i) => i.location).join(", ")}
-              </span>
-            ) : (
-              <span className="text-amber-700 dark:text-amber-300/90"> · no location set yet</span>
-            )}
-          </li>
-        ))}
+        {list.map((a) => {
+          // Exclusive carpet-tile warehouse reorder remnant mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+          // Hard-surface warehouse reorder leftover planted remnant mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+          const remnantUnits = a.items.map((i) => (i.unit || "").trim());
+          const mixedRemnant = new Set(remnantUnits).size > 1;
+          return (
+            <li key={a.productId} className="text-amber-900 dark:text-amber-200">
+              You already have{" "}
+              {mixedRemnant ? (a.count > 1 ? `stock across ${a.count} pieces` : "stock as a remnant/roll") : (
+                <>
+                  <span className="font-semibold tabular-nums">
+                    {a.totalQty} {a.unit}
+                  </span>{" "}
+                  {a.count > 1 ? `across ${a.count} pieces` : "as a remnant/roll"}
+                </>
+              )}
+              {a.items.some((i) => i.location) ? (
+                <span className="text-amber-700 dark:text-amber-300/90">
+                  {" "}
+                  · {a.items.filter((i) => i.location).map((i) => i.location).join(", ")}
+                </span>
+              ) : (
+                <span className="text-amber-700 dark:text-amber-300/90"> · no location set yet</span>
+              )}
+            </li>
+          );
+        })}
       </ul>
       <p className="text-xs text-amber-700 dark:text-amber-300/80">
         Heads-up only — your order isn&apos;t changed. Use the remnant or order as planned.
