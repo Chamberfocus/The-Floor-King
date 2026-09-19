@@ -44,6 +44,7 @@ import {
 } from "@/lib/estimate-calc";
 import { lineDisplayUnit, normalizeUnit } from "@/lib/units";
 import { padRollCount } from "@/lib/job-scope";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { jobProfit } from "@/lib/job-profit";
 import { parseProjectDetails } from "@/lib/customer-scope";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -92,7 +93,20 @@ function lineMath(l: EstimateLineItem): string {
   // Exclusive carpet-tile estimate office order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
   // Underlayment estimate office order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
   const padRolls = padRollCount(l.category, lineOrderQty(l), unitKey);
-  return `${qty.toFixed(2)} ${unit} × ${formatMoney(rate)}${cartons ? ` · 📦 ${cartons} carton(s)` : ""}${padRolls ? ` · ${padRolls} roll${padRolls === 1 ? "" : "s"}` : ""}`;
+  // Exclusive carpet-tile estimate office pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface estimate office pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const officePadTakeoff =
+    l.category === "underlayment" && l.unit !== "sheet"
+      ? computeMaterialTakeoff({
+          family: "other",
+          measuredSqft: Number(l.sqft) || 0,
+          wastePct: l.waste_pct,
+          sqftPerBox: Number(l.sqft_per_box) > 0 ? Number(l.sqft_per_box) : null,
+          billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
+          takeoffLabel: "Carpet pad",
+        })
+      : null;
+  return `${qty.toFixed(2)} ${unit} × ${formatMoney(rate)}${cartons ? ` · 📦 ${cartons} carton(s)` : ""}${officePadTakeoff?.cartons ? ` · 📦 ${officePadTakeoff.cartons.cartonCount} carton(s)` : ""}${padRolls ? ` · ${padRolls} roll${padRolls === 1 ? "" : "s"}` : ""}`;
 }
 
 export default async function EstimatePage({
