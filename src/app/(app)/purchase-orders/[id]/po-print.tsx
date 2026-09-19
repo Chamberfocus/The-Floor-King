@@ -16,6 +16,7 @@ import {
 } from "@/lib/types";
 import { billedQtyToSqft, billedRateToCartonCost, lineUnitKey, unitIsSqyd } from "@/lib/units";
 import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 
 function itemLabel(it: PoItem): string {
   const spec = productSpec(it);
@@ -135,7 +136,24 @@ export function PoPrintDoc({
               lineUnitKey(it),
               Number(it.sqft_per_box),
             );
-            const cartons = hardSurfaceAreaCartonCount(it, qty);
+            const cartonsHs = hardSurfaceAreaCartonCount(it, qty);
+            // Exclusive carpet-tile po print pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            // Hard-surface po print pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+            const poPrintPadTakeoff =
+              it.category === "underlayment" && it.unit !== "sheet"
+                ? computeMaterialTakeoff({
+                    family: "other",
+                    measuredSqft:
+                      billedQtyToSqft(qty, unitIsSqyd(it.unit) ? "sqyd" : "sqft") ?? 0,
+                    wasteAlreadyInQuantity: true,
+                    sqftPerBox: Number(it.sqft_per_box) > 0 ? Number(it.sqft_per_box) : null,
+                    billingUnit: unitIsSqyd(it.unit) ? "sqyd" : "sqft",
+                    takeoffLabel: "Carpet pad",
+                  })
+                : null;
+            const cartons =
+              cartonsHs ||
+              (poPrintPadTakeoff?.cartons ? poPrintPadTakeoff.cartons.cartonCount : 0);
             const skipCarton = lineSkipsAreaCartonMath(it);
             const cartonArea =
               billedQtyToSqft(qty, unitIsSqyd(it.unit) ? "sqyd" : "sqft") ?? qty;
