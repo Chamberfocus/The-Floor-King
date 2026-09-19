@@ -10,6 +10,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { cn } from "@/lib/utils";
 import type { JobMaterials, JobMaterialLine } from "@/lib/data/job-materials";
+import { reorderAlertsFor } from "@/lib/data/stock-rolls";
 import { hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
 import { padRollCount } from "@/lib/job-scope";
 import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
@@ -75,8 +76,11 @@ function StatusBadge({ line }: { line: JobMaterialLine }) {
   );
 }
 
-export function JobMaterialsCard({ data }: { data: JobMaterials }) {
+export async function JobMaterialsCard({ data }: { data: JobMaterials }) {
   if (!data.lines.length) return null;
+  const remnantAlerts = await reorderAlertsFor(
+    data.lines.map((l) => l.productId).filter((id): id is string => Boolean(id)),
+  );
 
   return (
     <Card className="mb-6">
@@ -252,9 +256,17 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                     ? ` · cut ${ftIn(l.widthIn)} × ${ftIn(l.lengthIn)}`
                     : ""}
                   {l.trackStock
-                    ? ` · ${l.onHand} on hand${
-                        l.available !== l.onHand ? ` (${l.available} free)` : ""
-                      }`
+                    ? (() => {
+                        const remnantItems = l.productId
+                          ? remnantAlerts[l.productId]?.items ?? []
+                          : [];
+                        // Exclusive carpet-tile job materials on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                        // Hard-surface job materials leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+                        const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+                        const mixedRemnant = new Set(remnantUnits).size > 1;
+                        const onHandQty = mixedRemnant ? (remnantItems.length > 1 ? `stock across ${remnantItems.length} pieces` : "stock as a remnant/roll") : `${l.onHand} on hand${l.available !== l.onHand ? ` (${l.available} free)` : ""}`;
+                        return ` · ${onHandQty}`;
+                      })()
                     : " · not stocked"}
                 </div>
                 {l.resolvedSource === "order" && l.supplier ? (
