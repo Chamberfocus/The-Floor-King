@@ -67,7 +67,7 @@ function Row({
             : ""}
           {/* Exclusive carpet-tile estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
           {/* Hard-surface estimate order pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
-          {orderPadTakeoff?.cartons
+          {orderPadTakeoff?.cartons && !line.cartons
             ? ` · 📦 ${orderPadTakeoff.cartons.cartonCount} carton${orderPadTakeoff.cartons.cartonCount === 1 ? "" : "s"}`
             : ""}
           {/* Exclusive carpet-tile estimate order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { hardSurfaceAreaCartonCount, lineQty, lineOrderQty } from "@/lib/estimate-calc";
-import { lineUnitKey } from "@/lib/units";
+import { billedQtyToSqft, lineUnitKey, unitIsSqyd } from "@/lib/units";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { isMaterialLine } from "@/lib/job-scope";
 import {
   buildSupplierLookup,
@@ -170,7 +171,7 @@ export async function getEstimateOrderPlan(
       Number(catalog?.roll_width_ft) > 0 ? catalog!.roll_width_ft : l.roll_width_ft;
     // Exclusive carpet-tile estimate order carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
     // Hard-surface estimate order carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
-    const cartons = hardSurfaceAreaCartonCount(
+    const cartonsHs = hardSurfaceAreaCartonCount(
       {
         description: l.description,
         category: catalog?.category ?? l.category,
@@ -187,6 +188,23 @@ export async function getEstimateOrderPlan(
       },
       qty,
     );
+    const unitKey = lineUnitKey(l);
+    // Exclusive carpet-tile po plan pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface po plan pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+    const poPlanPadTakeoff =
+      (catalog?.category ?? l.category) === "underlayment" && l.unit !== "sheet"
+        ? computeMaterialTakeoff({
+            family: "other",
+            measuredSqft: billedQtyToSqft(qty, unitIsSqyd(unitKey) ? "sqyd" : "sqft") ?? 0,
+            wasteAlreadyInQuantity: true,
+            sqftPerBox: Number(sqft_per_box) > 0 ? Number(sqft_per_box) : null,
+            billingUnit: unitIsSqyd(unitKey) ? "sqyd" : "sqft",
+            takeoffLabel: "Carpet pad",
+          })
+        : null;
+    const cartons =
+      cartonsHs ||
+      (poPlanPadTakeoff?.cartons ? poPlanPadTakeoff.cartons.cartonCount : 0);
     return {
       lineId: l.id,
       description: nameOf(l),
