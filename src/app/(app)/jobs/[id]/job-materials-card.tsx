@@ -148,6 +148,9 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
             // Exclusive carpet-tile job materials arrived order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
             // Underlayment job materials arrived order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
             const arrivedPadRolls = padRollCount(l.category, l.arrivedQty, unitKey);
+            // Exclusive carpet-tile job materials outstanding order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            // Underlayment job materials outstanding order pad-roll count from remaining order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+            const outstandingPadRolls = padRollCount(l.category, remaining, unitKey);
             return (
             <div
               key={l.lineId}
@@ -232,6 +235,11 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                     {/* Underlayment job materials arrived order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
                     {arrivedPadRolls
                       ? ` · ${arrivedPadRolls} roll${arrivedPadRolls === 1 ? "" : "s"}`
+                      : ""}
+                    {/* Exclusive carpet-tile job materials outstanding order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                    {/* Underlayment job materials outstanding order pad-roll count from remaining order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+                    {outstandingPadRolls
+                      ? ` · ${outstandingPadRolls} roll${outstandingPadRolls === 1 ? "" : "s"} still outstanding`
                       : ""}
                   </div>
                 ) : null}
