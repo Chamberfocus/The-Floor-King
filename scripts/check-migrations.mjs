@@ -311,6 +311,7 @@ const REQUIRED_FILES = [
   "0448_flooring_knowledge_warehouse_reorder_remnant_mixed.sql",
   "0449_flooring_knowledge_warehouse_stock_po_remnant_mixed.sql",
   "0450_flooring_knowledge_warehouse_inventory_on_hand_mixed.sql",
+  "0451_flooring_knowledge_warehouse_customer_order_on_hand_mixed.sql",
 ];
 
 /**
@@ -3933,6 +3934,19 @@ const REQUIRED_MARKERS = [
       "P0_0450_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile warehouse inventory stock-item on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Hard-surface warehouse inventory stock-item leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0451_flooring_knowledge_warehouse_customer_order_on_hand_mixed.sql",
+    markers: [
+      "P0_0451_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile warehouse customer-order on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Hard-surface warehouse customer-order leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

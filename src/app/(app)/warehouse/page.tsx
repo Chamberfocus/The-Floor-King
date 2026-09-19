@@ -23,7 +23,7 @@ import Link from "next/link";
 import { listWarehouseJobs } from "@/lib/data/jobs";
 import { listWorkflowStages } from "@/lib/data/workflow";
 import { FlowPositionBadge } from "@/components/flow-position-badge";
-import { newRemnants } from "@/lib/data/stock-rolls";
+import { newRemnants, reorderAlertsFor } from "@/lib/data/stock-rolls";
 import { getJobMaterials } from "@/lib/data/job-materials";
 import { listWarehouseStockCheckOrders, getWarehouseCatalogFacts } from "@/lib/data/orders";
 import { reportOrderStock } from "../orders/actions";
@@ -124,6 +124,10 @@ export default async function WarehousePage() {
   // What we actually have of each ordered product, so "in stock?" is answered
   // from the shelf count rather than from memory. Operational catalog facts only.
   const orderStock = await getWarehouseCatalogFacts(
+    stockChecks.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? "")),
+    wh,
+  );
+  const remnantAlerts = await reorderAlertsFor(
     stockChecks.flatMap((o) => (o.items ?? []).map((i) => i.product_id ?? "")),
     wh,
   );
@@ -516,6 +520,13 @@ export default async function WarehousePage() {
                     const avail = s
                       ? Math.round((s.on_hand - s.reserved) * 100) / 100
                       : null;
+                    const remnantItems = it.product_id
+                      ? remnantAlerts[it.product_id]?.items ?? []
+                      : [];
+                    // Exclusive carpet-tile warehouse customer-order on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    // Hard-surface warehouse customer-order leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+                    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+                    const mixedRemnant = new Set(remnantUnits).size > 1;
                     const needed = cutsTotalSqYd(it) ?? it.quantity ?? null;
                     const comparable =
                       avail != null && needed != null && unitIsSqyd(s?.unit);
@@ -554,7 +565,7 @@ export default async function WarehousePage() {
                               }
                             >
                               {avail && avail > 0
-                                ? `${avail} ${s.unit} on hand`
+                                ? mixedRemnant ? (remnantItems.length > 1 ? `stock across ${remnantItems.length} pieces` : "stock as a remnant/roll") : `${avail} ${s.unit} on hand`
                                 : "none on hand"}
                             </span>
                             {comparable ? (
