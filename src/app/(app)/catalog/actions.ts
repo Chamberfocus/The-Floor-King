@@ -21,6 +21,7 @@ import { boxedCartonAreaTakeoffAllowed, familyFromCatalogCategory, type InstallS
 import { getProfile } from "@/lib/auth";
 import { catalogUnitFactor, pickedProductUnit } from "@/lib/units";
 import type { Product, ProductCategory } from "@/lib/types";
+import { reorderAlertsFor, type ReorderAlert } from "@/lib/data/stock-rolls";
 
 /** Live catalog search for the estimate material picker. Includes inactive
  *  products (ranked after active) so a discontinued item you know is there is
@@ -40,6 +41,20 @@ export async function searchCatalogProducts(
     if (roleMaySeeCatalogSell(role)) return priced;
     return { ...priced, catalog_sell: null, clearance_price: null };
   });
+}
+
+/** Remnant units for catalog picker on-hand mixed-product SUM hide. Default
+ *  createClient — office / warehouse / sales can read what RLS allows. */
+export async function catalogRemnantAlertsFor(
+  productIds: string[],
+): Promise<Record<string, ReorderAlert>> {
+  const ids = [...new Set((productIds ?? []).filter(Boolean))];
+  if (!ids.length) return {};
+  try {
+    return await reorderAlertsFor(ids);
+  } catch {
+    return {};
+  }
 }
 
 export interface ProductFormState {

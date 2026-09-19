@@ -32,7 +32,7 @@ import {
   type Product,
   type UserRole,
 } from "@/lib/types";
-import { createProductInline, searchCatalogProducts } from "../catalog/actions";
+import { createProductInline, searchCatalogProducts, catalogRemnantAlertsFor } from "../catalog/actions";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { TYPICAL_PIECE_LENGTH_IN } from "@/lib/accessories";
 import { specFieldsFor } from "@/lib/product-fields";
@@ -184,6 +184,9 @@ export function ProductPicker({
   const [pending, setPending] = useState<Product | null>(null);
   const [q, setQ] = useState(initialLabel);
   const [results, setResults] = useState<Product[]>([]);
+  const [remnantAlerts, setRemnantAlerts] = useState<
+    Awaited<ReturnType<typeof catalogRemnantAlertsFor>>
+  >({});
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -217,19 +220,40 @@ export function ProductPicker({
     if (!open || adding) return;
     setLoading(true);
     const term = q.trim() === initialLabel.trim() ? "" : q;
+    let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        setResults(await searchCatalogProducts(term, { purpose }));
+        const rows = await searchCatalogProducts(term, { purpose });
+        if (cancelled) return;
+        setResults(rows);
+        const ids = rows.filter((p) => p.track_stock).map((p) => p.id);
+        const alerts = ids.length ? await catalogRemnantAlertsFor(ids) : {};
+        if (cancelled) return;
+        setRemnantAlerts(alerts);
       } catch {
-        setResults([]);
+        if (!cancelled) {
+          setResults([]);
+          setRemnantAlerts({});
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }, 200);
-    return () => clearTimeout(t);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   }, [q, open, adding, initialLabel, purpose]);
 
   const matches = results;
+  const onHandLabel = (p: Product) => {
+    const remnantItems = remnantAlerts[p.id]?.items ?? [];
+    // Exclusive carpet-tile catalog picker on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface catalog picker leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    const mixedRemnant = new Set(remnantUnits).size > 1;
+    return mixedRemnant ? (remnantItems.length > 1 ? `In stock across ${remnantItems.length} pieces` : "In stock as a remnant/roll") : `In stock: ${p.on_hand} ${p.unit}`;
+  };
 
   // Reset the highlight when the list changes; keep it in range.
   useEffect(() => {
@@ -612,7 +636,7 @@ export function ProductPicker({
                                 )}
                               >
                                 {p.on_hand > 0
-                                  ? `In stock: ${p.on_hand} ${p.unit}`
+                                  ? onHandLabel(p)
                                   : "Out of stock — order"}
                               </span>
                             ) : null}
