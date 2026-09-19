@@ -131,6 +131,10 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
             const gapCartons = cartonCountForQty(l, l.purchasingGap);
             const excessCartons = cartonCountForQty(l, l.excessIssued);
             const arrivedCartons = cartonCountForQty(l, l.arrivedQty);
+            const remaining = Math.max(l.qty - l.arrivedQty, 0);
+            // Exclusive carpet-tile job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            // Hard-surface job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+            const outstandingCartons = cartonCountForQty(l, remaining);
             const unitKey = normalizeUnit(l.unit);
             // Exclusive carpet-tile job materials order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
             // Underlayment job materials order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
@@ -218,6 +222,11 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                     {/* Hard-surface job materials purchasing-gap carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                     {arrivedCartons || cartons
                       ? ` · 📦 ${arrivedCartons} of ${cartons} carton${cartons === 1 ? "" : "s"}`
+                      : ""}
+                    {/* Exclusive carpet-tile job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                    {/* Hard-surface job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                    {outstandingCartons
+                      ? ` · 📦 ${outstandingCartons} carton${outstandingCartons === 1 ? "" : "s"} still outstanding`
                       : ""}
                     {/* Exclusive carpet-tile job materials arrived order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                     {/* Underlayment job materials arrived order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}

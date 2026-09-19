@@ -25912,6 +25912,312 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     );
   });
 
+  it("0412 Exclusive carpet-tile job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft", () => {
+    const sql = readFileSync(
+      join(root, "supabase/migrations/0412_flooring_knowledge_job_materials_outstanding_order_carton.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/P0_0412_FLOORING_KNOWLEDGE/);
+    expect(sql).toMatch(
+      /Exclusive carpet-tile job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/,
+    );
+    expect(sql).toMatch(
+      /Hard-surface job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap \/ count How many stays off carton math. Do not invent coverage/,
+    );
+    expect(sql).toMatch(/Do NOT SQL-gate floor_map on surface_type/);
+    expect(sql).toMatch(/Do NOT SQL-gate carpet_cuts on carpet_install/);
+    expect(sql).toMatch(/Do NOT SQL-gate hs_plank_stairs on tile_application/);
+    expect(sql).toMatch(/Does NOT invent carton coverage/);
+    expect(sql).toMatch(/Does NOT enable accounting/);
+    expect(sql).not.toMatch(/create table public\.products/);
+    expect(sql).not.toMatch(/show_if.*surface_type.*floor_map|floor_map.*show_if.*surface_type/);
+    expect(sql).not.toMatch(/key = 'tile_setting'/);
+
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    const lvpCarton = {
+      description: "Living room — Lifeproof Oak",
+      category: "lvp",
+      unit: "sq ft",
+      sqft: 300,
+      quantity: 300,
+      sqft_per_box: 23.64,
+    };
+    const lvpCalc = {
+      line_type: "mat_labor" as const,
+      description: lvpCarton.description,
+      category: lvpCarton.category,
+      unit: lvpCarton.unit,
+      sqft: lvpCarton.sqft,
+      quantity: lvpCarton.quantity,
+      waste_pct: 10,
+    };
+    expect(hardSurfaceAreaCartonCount(lvpCarton, lineQty(lvpCalc))).toBe(13);
+    expect(hardSurfaceAreaCartonCount(lvpCarton, lineOrderQty(lvpCalc))).toBe(14);
+    expect(hardSurfaceAreaCartonCount(lvpCarton, 30)).toBe(2);
+    const tileCarton = {
+      description: "Living room — Interface carpet tile",
+      category: "carpet",
+      unit: "sq yd",
+      sqft_per_box: 23.64,
+      order_as_roll: false,
+      quantity: 22.22,
+    };
+    const tileCalc = {
+      line_type: "mat_labor" as const,
+      description: tileCarton.description,
+      category: tileCarton.category,
+      unit: tileCarton.unit,
+      quantity: tileCarton.quantity,
+      waste_pct: 10,
+    };
+    expect(hardSurfaceAreaCartonCount(tileCarton, 22.22)).toBe(9);
+    expect(hardSurfaceAreaCartonCount(tileCarton, lineOrderQty(tileCalc))).toBe(10);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          description: "Stair wrap — wrap qty TBD",
+          category: "lvp",
+          unit: "box",
+          sqft_per_box: 23.64,
+          quantity: 8,
+        },
+        lineOrderQty({
+          line_type: "mat_labor",
+          description: "Stair wrap — wrap qty TBD",
+          category: "lvp",
+          unit: "box",
+          quantity: 8,
+          waste_pct: 10,
+        }),
+      ),
+    ).toBe(0);
+    expect(
+      hardSurfaceAreaCartonCount(
+        {
+          category: "carpet",
+          unit: "sq yd",
+          sqft_per_box: 23.64,
+          roll_width_ft: 12,
+          quantity: 50,
+        },
+        lineOrderQty({
+          line_type: "mat_labor",
+          category: "carpet",
+          unit: "sq yd",
+          quantity: 50,
+          waste_pct: 10,
+        }),
+      ),
+    ).toBe(0);
+
+    const card = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/job-materials-card.tsx"),
+      "utf8",
+    );
+    expect(card).toMatch(/cartonCountForQty\(l, remaining/);
+    expect(card).toMatch(/\{outstandingCartons\} carton/);
+    expect(card).toMatch(/cartonCountForQty\(l, l\.arrivedQty/);
+    expect(card).toMatch(/arrivedCartons/);
+    expect(card).toMatch(/padRollCount\(l\.category, l\.arrivedQty/);
+    expect(card).toMatch(/\$\{arrivedPadRolls\} roll/);
+    expect(card).toMatch(/padRollCount\(l\.category, l\.purchasingGap/);
+    expect(card).toMatch(/\$\{gapPadRolls\} roll/);
+    expect(card).toMatch(/padRollCount\(l\.category, l\.excessIssued/);
+    expect(card).toMatch(/\$\{excessPadRolls\} roll/);
+    expect(card).toMatch(/padRollCount\(l\.category, l\.qty/);
+    expect(card).toMatch(/cartonCountForQty\(l, l\.purchasingGap/);
+    expect(card).toMatch(/cartonCountForQty\(l, l\.excessIssued/);
+    expect(card).toMatch(
+      /Exclusive carpet-tile job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(
+      /Hard-surface job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(card).toMatch(
+      /Exclusive carpet-tile job materials arrived order pad-roll count stays off 30-yard roll math/,
+    );
+    expect(card).not.toMatch(/lineOrderQty/);
+    expect(card).not.toMatch(/PAD_ROLL_SQYD/);
+    expect(card).not.toMatch(/companionQty/);
+    expect(card).not.toMatch(/category === ["']carpet_tile["']/);
+    expect(card).not.toMatch(/billedRateToCartonCost/);
+    expect(card).not.toMatch(/formatMoney/);
+
+    const incoming = readFileSync(
+      join(root, "src/app/(app)/warehouse/incoming-deliveries.tsx"),
+      "utf8",
+    );
+    expect(incoming).toMatch(/padRollCount\(i\.category, outstanding/);
+    expect(incoming).toMatch(/\{outstandingPadRolls\} roll/);
+    expect(incoming).toMatch(/cartonCountFor\(i, outstanding/);
+    expect(incoming).toMatch(/\{outstandingCartons\} carton/);
+    expect(incoming).toMatch(/padRollCount\(i\.category, entered/);
+    expect(incoming).toMatch(/\{enteredPadRolls\} roll/);
+    expect(incoming).toMatch(/cartonCountFor\(i, entered/);
+    expect(incoming).toMatch(/\{enteredCartons\} carton/);
+    expect(incoming).toMatch(/orderedCartons/);
+    expect(incoming).toMatch(/cartonCountFor\(i, ordered/);
+    expect(incoming).toMatch(/padRollCount\(i\.category, ordered/);
+    expect(incoming).toMatch(/Quantity received/);
+    expect(incoming).not.toMatch(/job materials outstanding order carton/);
+    expect(incoming).not.toMatch(/lineOrderQty/);
+    expect(incoming).not.toMatch(/PAD_ROLL_SQYD/);
+    expect(incoming).not.toMatch(/companionQty/);
+    expect(incoming).not.toMatch(/category === ["']carpet_tile["']/);
+    expect(incoming).not.toMatch(/billedRateToCartonCost/);
+    expect(incoming).not.toMatch(/formatMoney/);
+
+    const receiving = readFileSync(
+      join(root, "src/app/(app)/warehouse/receiving-actions.ts"),
+      "utf8",
+    );
+    expect(receiving).toMatch(/sqft_per_box/);
+    expect(receiving).toMatch(/roll_width_ft/);
+    expect(receiving).toMatch(
+      /Exclusive carpet-tile warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft/,
+    );
+    expect(receiving).not.toMatch(/job materials outstanding order carton/);
+    expect(receiving).not.toMatch(/padRollCount/);
+    expect(receiving).not.toMatch(/enteredCartons/);
+    expect(receiving).not.toMatch(/enteredPadRolls/);
+    expect(receiving).not.toMatch(/outstandingCartons/);
+    expect(receiving).not.toMatch(/outstandingPadRolls/);
+
+    const q = readFileSync(
+      join(root, "src/app/(app)/estimates/questionnaire.tsx"),
+      "utf8",
+    );
+    expect(q).toMatch(/padRollCount\(extraTakeoff\.takeoffLabel \? "underlayment"/);
+    expect(q).toMatch(/= \{extraPadRolls\} roll/);
+    expect(q).toMatch(/padRollCount\("underlayment", padTakeoff\.billingQty/);
+    expect(q).toMatch(/= \{padTakeoffRolls\} roll/);
+    expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
+    expect(q).toMatch(/= \{runningPadRolls\} roll/);
+    expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
+    expect(q).toMatch(/const geCartons = p/);
+    expect(q).toMatch(/= \{geCartons\} carton/);
+    expect(q).not.toMatch(/job materials outstanding order carton/);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/padRollCount\(summ\.category, lineOrderQty\(summ\)/);
+    expect(builder).toMatch(/hardSurfaceAreaCartonCount\(summ, lineOrderQty\(summ\)/);
+    expect(builder).toMatch(/= \{sCartons\} carton/);
+    expect(builder).toMatch(/const sQty = lineQty\(summ\)/);
+    expect(builder).toMatch(/billedQty=\{sQty\}/);
+    expect(builder).toMatch(/orderQty=\{lineOrderQty\(summ\)\}/);
+    expect(builder).toMatch(/formatMoney\(sSell\)/);
+    expect(builder).not.toMatch(/job materials outstanding order carton/);
+
+    const meas = readFileSync(
+      join(root, "src/app/(app)/estimates/line-measurements.tsx"),
+      "utf8",
+    );
+    expect(meas).toMatch(/padRollCount\(category, orderQty \?\? billedQty \?\? 0/);
+    expect(meas).not.toMatch(/job materials outstanding order carton/);
+
+    const office = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(office).toMatch(/padRollCount\(l\.category, lineOrderQty\(l\)/);
+    expect(office).not.toMatch(/job materials outstanding order carton/);
+
+    const editor = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/edit-scope.tsx"),
+      "utf8",
+    );
+    expect(editor).toMatch(/padRollCount\(l\.category, lineOrderQty/);
+    expect(editor).not.toMatch(/job materials outstanding order carton/);
+
+    const orderUi = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/order/order-materials.tsx"),
+      "utf8",
+    );
+    expect(orderUi).toMatch(/padRollCount\(line\.category, line\.qty/);
+    expect(orderUi).not.toMatch(/job materials outstanding order carton/);
+
+    const warehouse = readFileSync(
+      join(root, "src/app/(app)/warehouse/page.tsx"),
+      "utf8",
+    );
+    expect(warehouse).toMatch(/padRollCount\(m\.category, m\.qty/);
+    expect(warehouse).not.toMatch(/job materials outstanding order carton/);
+
+    const staging = readFileSync(
+      join(root, "src/app/(app)/warehouse/staging-sheet-doc.tsx"),
+      "utf8",
+    );
+    expect(staging).toMatch(/padRollCount\(g\.category, g\.qty/);
+    expect(staging).not.toMatch(/job materials outstanding order carton/);
+
+    const jobScope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(jobScope).toMatch(/padRollCount\(l\.category, orderQ \|\| q/);
+    expect(jobScope).not.toMatch(/job materials outstanding order carton/);
+
+    const wo = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"),
+      "utf8",
+    );
+    expect(wo).toMatch(/hardSurfaceAreaCartonCount\(l, lineOrderQty\(l\)/);
+    expect(wo).toMatch(/spec\.rolls/);
+    expect(wo).not.toMatch(/spec\.cartons/);
+    expect(wo).not.toMatch(/job materials outstanding order carton/);
+
+    const print = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/estimate-print.tsx"),
+      "utf8",
+    );
+    expect(print).not.toMatch(/job materials outstanding order carton/);
+    expect(print).not.toMatch(/padRollCount/);
+
+    const portal = readFileSync(
+      join(root, "src/app/portal/estimates/[id]/page.tsx"),
+      "utf8",
+    );
+    expect(portal).not.toMatch(/job materials outstanding order carton/);
+    expect(portal).not.toMatch(/padRollCount/);
+
+    const catalogForm = readFileSync(
+      join(root, "src/app/(app)/catalog/product-form.tsx"),
+      "utf8",
+    );
+    expect(catalogForm).toMatch(/\$ \/ unit/);
+
+    const pricing = readFileSync(join(root, "src/lib/catalog-pricing.ts"), "utf8");
+    expect(pricing).toMatch(
+      /Exclusive carpet-tile job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Hard-surface job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft/,
+    );
+    expect(pricing).toMatch(
+      /Underlayment warehouse incoming-delivery outstanding order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd/,
+    );
+
+    const help =
+      /Exclusive carpet-tile job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in \+ tile and unanswered carpet stay cuts. Wrap \/ count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box/;
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "hs_plank_stairs" }, emptyInstallContext())).toMatch(help);
+    expect(knowledgeHelpFor({ key: "work_type" }, emptyInstallContext())).toMatch(help);
+    const tileCuts = knowledgeHelpFor(
+      { kind: "cuts" },
+      { ...emptyInstallContext(), answeredCarpetInstall: ["Carpet tile"] },
+    );
+    expect(tileCuts).toMatch(help);
+    expect(knowledgeHelpFor({ kind: "floor_map" }, emptyInstallContext())).toMatch(
+      /Hard-surface job materials outstanding order carton count from remaining order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap \/ count How many stays off carton math. Do not invent coverage/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).toMatch(
+      /Exclusive tile hides the 6-mil/,
+    );
+    expect(knowledgeHelpFor({ key: "tile_setting" }, emptyInstallContext())).not.toMatch(
+      /job materials outstanding order carton/,
+    );
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],
