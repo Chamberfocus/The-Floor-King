@@ -188,6 +188,20 @@ function PoCard({ po }: { po: IncomingPo }) {
                       takeoffLabel: "Carpet pad",
                     })
                   : null;
+              // Exclusive carpet-tile incoming-delivery arrived pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+              // Hard-surface incoming-delivery arrived pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+              const incomingArrivedPadTakeoff =
+                i.category === "underlayment" && i.unit !== "sheet"
+                  ? computeMaterialTakeoff({
+                      family: "other",
+                      measuredSqft:
+                        billedQtyToSqft(entered, unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+                      wasteAlreadyInQuantity: true,
+                      sqftPerBox: Number(i.sqft_per_box) > 0 ? Number(i.sqft_per_box) : null,
+                      billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
+                      takeoffLabel: "Carpet pad",
+                    })
+                  : null;
               // Exclusive carpet-tile incoming-delivery pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
               // Underlayment incoming-delivery pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
               const padRolls = padRollCount(i.category, ordered, unitKey);
@@ -250,6 +264,12 @@ function PoCard({ po }: { po: IncomingPo }) {
                               📦 {enteredCartons} carton{enteredCartons === 1 ? "" : "s"}
                             </p>
                           )
+                          : incomingArrivedPadTakeoff?.cartons
+                            ? (
+                            <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                              📦 {incomingArrivedPadTakeoff.cartons.cartonCount} carton{incomingArrivedPadTakeoff.cartons.cartonCount === 1 ? "" : "s"}
+                            </p>
+                            )
                           : null}
                         {/* Exclusive carpet-tile warehouse incoming-delivery outstanding order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                         {/* Hard-surface warehouse incoming-delivery outstanding order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
@@ -262,7 +282,9 @@ function PoCard({ po }: { po: IncomingPo }) {
                           : null}
                         {/* Exclusive carpet-tile warehouse incoming-delivery arrived order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                         {/* Underlayment warehouse incoming-delivery arrived order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
-                        {enteredPadRolls
+                        {enteredCartons || incomingArrivedPadTakeoff?.cartons
+                          ? null
+                          : enteredPadRolls
                           ? (
                             <p className="mt-1 text-xs text-muted-foreground tabular-nums">
                               {enteredPadRolls} roll{enteredPadRolls === 1 ? "" : "s"}
