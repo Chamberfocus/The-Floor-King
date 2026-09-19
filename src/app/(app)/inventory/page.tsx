@@ -20,7 +20,7 @@ import {
   daysIdle,
   AGED_DAYS,
 } from "@/lib/data/inventory";
-import { newRemnants, searchStock, listStockPOs } from "@/lib/data/stock-rolls";
+import { newRemnants, searchStock, listStockPOs, reorderAlertsFor } from "@/lib/data/stock-rolls";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatMoney, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,18 @@ export default async function InventoryPage({
     q ? searchStock(q) : Promise.resolve([]),
     canStockPO ? listStockPOs(createAdminClient()) : Promise.resolve([]),
   ]);
+  const remnantAlerts = await reorderAlertsFor(
+    [...items, ...aged].map((p) => p.id),
+    createAdminClient(),
+  );
+  const onHandLabel = (p: (typeof items)[number]) => {
+    const remnantItems = remnantAlerts[p.id]?.items ?? [];
+    // Exclusive carpet-tile warehouse inventory list on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface warehouse inventory list leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    const mixedRemnant = new Set(remnantUnits).size > 1;
+    return mixedRemnant ? (remnantItems.length > 1 ? `stock across ${remnantItems.length} pieces` : "stock as a remnant/roll") : `${p.on_hand} ${p.unit}`;
+  };
 
   // Warehouse sees qty ops only — never inventory $ value (F7 / 0176 cost firewall).
   const opsSummary = canSeeCost
@@ -216,7 +228,7 @@ export default async function InventoryPage({
                       {p.name}
                     </Link>
                     <div className="text-xs text-muted-foreground">
-                      {p.on_hand} {p.unit} · idle {daysIdle(p)} days
+                      {onHandLabel(p)} · idle {daysIdle(p)} days
                       {p.clearance && p.clearance_price != null
                         ? ` · clearance ${formatMoney(p.clearance_price)}`
                         : ""}
@@ -319,7 +331,7 @@ export default async function InventoryPage({
                   </div>
                   <div className="shrink-0 text-right">
                     <div className={cn("font-medium tabular-nums", low && "text-destructive")}>
-                      {p.on_hand} {p.unit}
+                      {onHandLabel(p)}
                     </div>
                     {low ? <div className="text-xs font-medium text-destructive">low</div> : null}
                   </div>
@@ -385,7 +397,7 @@ export default async function InventoryPage({
                     <td className="px-3 py-2 text-muted-foreground">{p.bin_location ?? "—"}</td>
                     <td className="px-3 py-2 text-right">
                       <span className={cn("font-medium tabular-nums", low && "text-destructive")}>
-                        {p.on_hand} {p.unit}
+                        {onHandLabel(p)}
                       </span>
                       {low ? (
                         <span className="ml-1 text-xs font-medium text-destructive">low</span>
