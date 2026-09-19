@@ -4696,12 +4696,24 @@ function QuestionBody({
                   billingUnit: b.measureUnit,
                   takeoffLabel: padFoamTakeoffLabel({ key: q.key, category: cat }),
                 });
+                // Exclusive carpet-tile Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                // Hard-surface Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
                 // Exclusive carpet-tile Guided Estimate pad takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                 // Underlayment Guided Estimate pad takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
                 const padTakeoffRolls = padRollCount("underlayment", padTakeoff.billingQty, padTakeoff.billingUnit);
                 return (
                 <p className="text-sm">
                   {formatTakeoffStrip(padTakeoff)}
+                  {/* Exclusive carpet-tile Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                  {/* Hard-surface Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                  {padTakeoff.cartons ? (
+                    <>
+                      {" · "}
+                      <span className="font-medium tabular-nums">
+                        = {padTakeoff.cartons.cartonCount} carton{padTakeoff.cartons.cartonCount === 1 ? "" : "s"}
+                      </span>
+                    </>
+                  ) : null}
                   {padTakeoffRolls ? (
                     <>
                       {" · "}
