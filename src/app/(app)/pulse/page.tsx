@@ -81,7 +81,7 @@ export default async function PulsePage() {
     (n, d) => n + (remnantAlerts[d.product.id]?.items ?? []).length,
     0,
   );
-  const insights = buildInsights(pulse).map((ins) => {
+  const insights = buildInsights(pulse, { mixedRemnant, mixedDeadPieces }).map((ins) => {
     if (ins.id !== "dead-stock") return ins;
     return {
       ...ins,

@@ -20,9 +20,14 @@ const pct = (n: number) => `${n.toFixed(0)}%`;
  * Rule-based and deterministic — every suggestion carries a dollar impact so the
  * biggest levers float to the top.
  */
-export function buildInsights(p: BusinessPulse): Insight[] {
+export function buildInsights(
+  p: BusinessPulse,
+  deadStockMix?: { mixedRemnant: boolean; mixedDeadPieces: number },
+): Insight[] {
   const out: Insight[] = [];
   const target = p.settings.target_gross_margin_pct;
+  const mixedRemnant = deadStockMix?.mixedRemnant === true;
+  const mixedDeadPieces = deadStockMix?.mixedDeadPieces ?? 0;
 
   // 1) Jobs that LOST money — the loudest alarm.
   for (const j of p.losingJobs.slice(0, 5)) {
@@ -146,11 +151,13 @@ export function buildInsights(p: BusinessPulse): Insight[] {
   }
 
   // 6) Dead stock tying up cash.
+  // Exclusive carpet-tile insights leftover planted deadStockValue mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface insights leftover planted deadStockValue mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
   if (p.deadStockValue > 0) {
     out.push({
       id: "dead-stock",
       tone: "opportunity",
-      title: `${formatMoney(p.deadStockValue)} sitting in dead stock`,
+      title: mixedRemnant ? (mixedDeadPieces > 1 ? `value across ${mixedDeadPieces} pieces sitting in dead stock` : "value as a remnant/roll sitting in dead stock") : `${formatMoney(p.deadStockValue)} sitting in dead stock`,
       detail: `${p.deadStockCount} product${
         p.deadStockCount === 1 ? "" : "s"
       } haven't moved in 90+ days. Mark them clearance to turn that shelf into cash.`,
