@@ -336,6 +336,7 @@ const REQUIRED_FILES = [
   "0473_flooring_knowledge_assistant_taped_sqft.sql",
   "0474_flooring_knowledge_builder_ai_taped_sqft.sql",
   "0475_flooring_knowledge_scheduling_taped_sqft.sql",
+  "0476_flooring_knowledge_scope_room_taped_sqft.sql",
 ];
 
 /**
@@ -4283,6 +4284,19 @@ const REQUIRED_MARKERS = [
       "P0_0475_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile scheduling leftover planted taped sq ft is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Hard-surface scheduling leftover planted taped sq ft stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0476_flooring_knowledge_scope_room_taped_sqft.sql",
+    markers: [
+      "P0_0476_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile job-scope room leftover planted taped sq ft is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Hard-surface job-scope room leftover planted taped sq ft stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

@@ -608,7 +608,9 @@ export function buildJobScope(
     if (!material) r.labor.push(l);
     else {
       r.products.push(l);
-      const sf = Number(l.sqft) || 0;
+      // Exclusive carpet-tile job-scope room leftover planted taped sq ft is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+      // Hard-surface job-scope room leftover planted taped sq ft stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+      const sf = lineSkipsAreaCartonMath(l) ? 0 : Number(l.sqft) || 0;
       if (sf > 0) r.sqft = (r.sqft ?? 0) + sf;
     }
   }
