@@ -22,6 +22,8 @@ import { requireProfile } from "@/lib/auth";
 import { getBusinessPulse } from "@/lib/data/pulse";
 import { getPipelineForecast } from "@/lib/data/finance";
 import { getAPSummary } from "@/lib/data/bills";
+import { getDeadStock } from "@/lib/data/product-performance";
+import { reorderAlertsFor } from "@/lib/data/stock-rolls";
 import { buildInsights, type InsightTone } from "@/lib/insights";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -60,12 +62,32 @@ export default async function PulsePage() {
   const profile = await requireProfile();
   if (profile.role !== "admin") redirect("/");
 
-  const [pulse, forecast, ap] = await Promise.all([
+  const [pulse, forecast, ap, dead] = await Promise.all([
     getBusinessPulse(),
     getPipelineForecast(),
     getAPSummary(),
+    getDeadStock(90),
   ]);
-  const insights = buildInsights(pulse);
+  const remnantAlerts = await reorderAlertsFor(dead.map((d) => d.product.id));
+  const mixedDeadSkus = dead.filter((d) => {
+    const remnantItems = remnantAlerts[d.product.id]?.items ?? [];
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    return new Set(remnantUnits).size > 1;
+  });
+  // Exclusive carpet-tile pulse leftover planted deadStockValue mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface pulse leftover planted deadStockValue mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+  const mixedRemnant = mixedDeadSkus.length > 0;
+  const mixedDeadPieces = mixedDeadSkus.reduce(
+    (n, d) => n + (remnantAlerts[d.product.id]?.items ?? []).length,
+    0,
+  );
+  const insights = buildInsights(pulse).map((ins) => {
+    if (ins.id !== "dead-stock") return ins;
+    return {
+      ...ins,
+      title: mixedRemnant ? (mixedDeadPieces > 1 ? `value across ${mixedDeadPieces} pieces sitting in dead stock` : "value as a remnant/roll sitting in dead stock") : `${formatMoney(pulse.deadStockValue)} sitting in dead stock`,
+    };
+  });
   const target = pulse.settings.target_gross_margin_pct;
 
   return (
