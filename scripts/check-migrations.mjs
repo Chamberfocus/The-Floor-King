@@ -290,6 +290,7 @@ const REQUIRED_FILES = [
   "0427_flooring_knowledge_incoming_delivery_arrived_pad_takeoff_order_carton.sql",
   "0428_flooring_knowledge_incoming_delivery_outstanding_pad_takeoff_order_carton.sql",
   "0429_flooring_knowledge_job_materials_gap_pad_takeoff_order_carton.sql",
+  "0430_flooring_knowledge_job_materials_excess_pad_takeoff_order_carton.sql",
 ];
 
 /**
@@ -3639,6 +3640,19 @@ const REQUIRED_MARKERS = [
       "P0_0429_FLOORING_KNOWLEDGE",
       "Exclusive carpet-tile job materials purchasing-gap pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
       "Hard-surface job materials purchasing-gap pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage",
+      "Do NOT SQL-gate floor_map on surface_type",
+      "Do NOT SQL-gate carpet_cuts on carpet_install",
+      "Do NOT SQL-gate hs_plank_stairs on tile_application",
+      "Does NOT invent carton coverage",
+      "Does NOT enable accounting",
+    ],
+  },
+  {
+    file: "0430_flooring_knowledge_job_materials_excess_pad_takeoff_order_carton.sql",
+    markers: [
+      "P0_0430_FLOORING_KNOWLEDGE",
+      "Exclusive carpet-tile job materials excess pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box",
+      "Hard-surface job materials excess pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage",
       "Do NOT SQL-gate floor_map on surface_type",
       "Do NOT SQL-gate carpet_cuts on carpet_install",
       "Do NOT SQL-gate hs_plank_stairs on tile_application",

@@ -164,6 +164,20 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                     takeoffLabel: "Carpet pad",
                   })
                 : null;
+            // Exclusive carpet-tile job materials excess pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            // Hard-surface job materials excess pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+            const jobMaterialsExcessPadTakeoff =
+              l.category === "underlayment" && l.unit !== "sheet"
+                ? computeMaterialTakeoff({
+                    family: "other",
+                    measuredSqft:
+                      billedQtyToSqft(l.excessIssued, unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+                    wasteAlreadyInQuantity: true,
+                    sqftPerBox: Number(l.sqftPerBox) > 0 ? Number(l.sqftPerBox) : null,
+                    billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
+                    takeoffLabel: "Carpet pad",
+                  })
+                : null;
             // Exclusive carpet-tile job materials order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
             // Underlayment job materials order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
             const padRolls = padRollCount(l.category, l.qty, unitKey);
@@ -245,12 +259,18 @@ export function JobMaterialsCard({ data }: { data: JobMaterials }) {
                     Excess on issued PO: {l.excessIssued} {l.unit} (not auto-reduced)
                     {/* Exclusive carpet-tile job materials purchasing-gap carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                     {/* Hard-surface job materials purchasing-gap carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                    {/* Exclusive carpet-tile job materials excess pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                    {/* Hard-surface job materials excess pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                     {excessCartons
                       ? ` · 📦 ${excessCartons} carton${excessCartons === 1 ? "" : "s"}`
+                      : jobMaterialsExcessPadTakeoff?.cartons
+                        ? ` · 📦 ${jobMaterialsExcessPadTakeoff.cartons.cartonCount} carton${jobMaterialsExcessPadTakeoff.cartons.cartonCount === 1 ? "" : "s"}`
                       : ""}
                     {/* Exclusive carpet-tile job materials excess order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
                     {/* Underlayment job materials excess order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
-                    {excessPadRolls
+                    {excessCartons || jobMaterialsExcessPadTakeoff?.cartons
+                      ? ""
+                      : excessPadRolls
                       ? ` · ${excessPadRolls} roll${excessPadRolls === 1 ? "" : "s"}`
                       : ""}
                   </div>
