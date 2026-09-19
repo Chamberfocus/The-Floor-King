@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { hardSurfaceAreaCartonCount, lineOrderQty, type CalcLine } from "@/lib/estimate-calc";
+import { hardSurfaceAreaCartonCount, lineOrderQty, lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
 import { padRollCount } from "@/lib/job-scope";
 import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { normalizeUnit } from "@/lib/units";
@@ -173,7 +173,11 @@ export function EditScope({
                   {/* Hard-surface work-order editor order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
                   {[
                     l.room,
-                    l.sqft != null ? `${l.sqft} sq ft` : null,
+                    // Exclusive carpet-tile edit scope leftover planted taped sq ft is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    // Hard-surface edit scope leftover planted taped sq ft stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+                    l.sqft != null && !lineSkipsAreaCartonMath(l)
+                      ? `${l.sqft} sq ft`
+                      : null,
                     l.quantity != null ? `${l.quantity} ${l.unit ?? ""}`.trim() : null,
                     cartons
                       ? `📦 ${cartons} carton${cartons === 1 ? "" : "s"}`
