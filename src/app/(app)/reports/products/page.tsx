@@ -53,6 +53,13 @@ export default async function ProductPerformancePage() {
     const mixedRemnant = new Set(remnantUnits).size > 1;
     return mixedRemnant ? (remnantItems.length > 1 ? `value across ${remnantItems.length} pieces` : "value as a remnant/roll") : formatMoney(d.value);
   };
+  const unitsLabel = (p: (typeof perf)[number]) => {
+    const soldUnits = p.lineUnits ?? [];
+    // Exclusive carpet-tile reports products leftover planted units mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface reports products leftover planted units mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const mixedRemnant = new Set(soldUnits).size > 1;
+    return mixedRemnant ? (soldUnits.length > 1 ? `units across ${soldUnits.length} lines` : "units as a sold line") : `${Math.round(p.units)}`;
+  };
 
   const topSellers = [...perf].slice(0, 15);
   const worstMargin = [...perf]
@@ -125,7 +132,7 @@ export default async function ProductPerformancePage() {
                         <div className="text-xs text-muted-foreground">
                           Units
                         </div>
-                        <div className="font-medium">{Math.round(p.units)}</div>
+                        <div className="font-medium">{unitsLabel(p)}</div>
                       </div>
                       <div>
                         <div className="text-xs text-muted-foreground">
@@ -183,7 +190,7 @@ export default async function ProductPerformancePage() {
                           {p.jobs}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
-                          {Math.round(p.units)}
+                          {unitsLabel(p)}
                         </TableCell>
                         <TableCell className="text-right">
                           {formatMoney(p.revenue)}
