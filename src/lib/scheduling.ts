@@ -1,4 +1,4 @@
-import { lineAreaSqft, lineQty, num } from "@/lib/estimate-calc";
+import { lineAreaSqft, lineQty, lineSkipsAreaCartonMath, num } from "@/lib/estimate-calc";
 import type { EstimateLineItem, SchedulingSettings } from "@/lib/types";
 
 // --- date helpers (UTC-noon to dodge DST), all "YYYY-MM-DD" strings ----------
@@ -64,7 +64,9 @@ export function installDaysForJob(
   };
 
   for (const l of lines) {
-    const sf = lineAreaSqft(l);
+    // Exclusive carpet-tile scheduling leftover planted taped sq ft is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface scheduling leftover planted taped sq ft stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const sf = lineSkipsAreaCartonMath(l) ? 0 : lineAreaSqft(l);
     const sy = sf / 9;
     const text = `${l.description ?? ""} ${l.room ?? ""}`.toLowerCase();
 
