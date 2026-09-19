@@ -98,7 +98,9 @@ export default async function InventoryItemPage({
             <div className="text-xs text-muted-foreground">
               {/* Exclusive carpet-tile warehouse inventory stock-item leftover planted available mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
               {/* Hard-surface warehouse inventory stock-item leftover planted available mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
-              reserved {reserved} · {mixedRemnant ? (liveRolls.length > 1 ? `available across ${liveRolls.length} pieces` : "available as a remnant/roll") : `available ${available}`}
+              {/* Exclusive carpet-tile warehouse inventory stock-item leftover planted reserved mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+              {/* Hard-surface warehouse inventory stock-item leftover planted reserved mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+              {mixedRemnant ? (liveRolls.length > 1 ? `reserved across ${liveRolls.length} pieces` : "reserved as a remnant/roll") : `reserved ${reserved}`} · {mixedRemnant ? (liveRolls.length > 1 ? `available across ${liveRolls.length} pieces` : "available as a remnant/roll") : `available ${available}`}
             </div>
             {rolled ? (
               <div className="text-xs text-muted-foreground">
