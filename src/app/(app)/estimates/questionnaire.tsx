@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, normalizeUnit, pickedProductUnit, unitLabel } from "@/lib/units";
+import { billedQtyToSqft, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, normalizeUnit, pickedProductUnit, unitIsSqyd, unitLabel } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
 import { catalogRateInLineUnit, catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
@@ -3345,11 +3345,25 @@ export function Questionnaire({
                   // Hard-surface Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
                   // Exclusive carpet-tile Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                   // Hard-surface Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
-                  const cartons = hardSurfaceAreaCartonCount(
-                    l,
-                    lineOrderQty(smartLineToCalcLine(l)),
-                  );
+                  const orderQty = lineOrderQty(smartLineToCalcLine(l));
+                  const cartonsHs = hardSurfaceAreaCartonCount(l, orderQty);
                   const unitKey = normalizeUnit(l.unit);
+                  // Exclusive carpet-tile Guided Estimate Review pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Guided Estimate Review pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  const guidedReviewPadTakeoff =
+                    l.category === "underlayment" && l.unit !== "sheet"
+                      ? computeMaterialTakeoff({
+                          family: "other",
+                          measuredSqft: billedQtyToSqft(orderQty, unitIsSqyd(unitKey) ? "sqyd" : "sqft") ?? 0,
+                          wasteAlreadyInQuantity: true,
+                          sqftPerBox: Number(l.sqft_per_box) > 0 ? Number(l.sqft_per_box) : null,
+                          billingUnit: unitIsSqyd(unitKey) ? "sqyd" : "sqft",
+                          takeoffLabel: "Carpet pad",
+                        })
+                      : null;
+                  const cartons =
+                    cartonsHs ||
+                    (guidedReviewPadTakeoff?.cartons ? guidedReviewPadTakeoff.cartons.cartonCount : 0);
                   // Exclusive carpet-tile Guided Estimate Review order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
                   // Underlayment Guided Estimate Review order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
                   const padRolls = padRollCount(l.category, lineOrderQty(smartLineToCalcLine(l)), unitKey);
