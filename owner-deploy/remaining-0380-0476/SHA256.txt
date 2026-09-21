@@ -1,0 +1,13 @@
+remaining_sql_sha256=7d9ce4f75bc2029b0db327685cc73e928b47028b83d19b3bd1473998e6abfd13
+remaining_sql_bytes=21073184
+source_bundle_sha256=b6b5a9f9f0ec5e83bfee6707e97da88d70e77fd92e456c5efcaa763c071a6372
+applied_range=0190-0379
+applied_files=190
+remaining_range=0380-0476
+remaining_files=97
+fp_0379=approval-snapshot job-seed carton coverage
+fp_0380=Builder expanded LineMeasurements carton count
+fp_0476=job-scope room leftover
+parser=PASS
+overlap=none
+production_executed=NO
