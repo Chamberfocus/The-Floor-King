@@ -113389,7 +113389,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       /Hard-surface builder AI leftover planted taped sq ft stays How many, not leftover taped sq ft as an order/,
     );
     expect(builderAi).toMatch(/lineSkipsAreaCartonMath\(l\)/);
-    expect(builderAi).toMatch(/Number\(l\.quantity\) \|\| \(lineSkipsAreaCartonMath\(l\) \? 0 : Number\(l\.sqft\)\)/);
+    expect(builderAi).toMatch(/quantity: lineQty\(\{/);
+    expect(builderAi).not.toMatch(/Number\(l\.quantity\) \|\| \(lineSkipsAreaCartonMath\(l\) \? 0 : Number\(l\.sqft\)\)/);
     expect(builderAi).not.toMatch(/quantity: Number\(l\.quantity\) \|\| Number\(l\.sqft\) \|\| null/);
     const assistantActions = readFileSync(
       join(root, "src/app/(app)/assistant/actions.ts"),
@@ -116404,7 +116405,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       /Hard-surface scheduling leftover planted taped sq ft stays How many, not leftover taped sq ft as an order/,
     );
     expect(schedulingSrc).toMatch(/lineSkipsAreaCartonMath\(l\) \? 0 : lineAreaSqft\(l\)/);
-    expect(schedulingSrc).toMatch(/lineQty\(l\) \|\| sf \/ 32/);
+    expect(schedulingSrc).toMatch(/const sheets = lineQty\(l\)/);
+    expect(schedulingSrc).not.toMatch(/lineQty\(l\) \|\| sf \/ 32/);
     expect(schedulingSrc).not.toMatch(/const sf = lineAreaSqft\(l\);/);
     const builderAi = readFileSync(
       join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
@@ -116417,7 +116419,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       /Hard-surface builder AI leftover planted taped sq ft stays How many, not leftover taped sq ft as an order/,
     );
     expect(builderAi).toMatch(/lineSkipsAreaCartonMath\(l\)/);
-    expect(builderAi).toMatch(/Number\(l\.quantity\) \|\| \(lineSkipsAreaCartonMath\(l\) \? 0 : Number\(l\.sqft\)\)/);
+    expect(builderAi).toMatch(/quantity: lineQty\(\{/);
+    expect(builderAi).not.toMatch(/Number\(l\.quantity\) \|\| \(lineSkipsAreaCartonMath\(l\) \? 0 : Number\(l\.sqft\)\)/);
     expect(builderAi).not.toMatch(/quantity: Number\(l\.quantity\) \|\| Number\(l\.sqft\) \|\| null/);
     const assistantActions = readFileSync(
       join(root, "src/app/(app)/assistant/actions.ts"),
@@ -119443,7 +119446,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       /Hard-surface scheduling leftover planted taped sq ft stays How many, not leftover taped sq ft as an order/,
     );
     expect(schedulingSrc).toMatch(/lineSkipsAreaCartonMath\(l\) \? 0 : lineAreaSqft\(l\)/);
-    expect(schedulingSrc).toMatch(/lineQty\(l\) \|\| sf \/ 32/);
+    expect(schedulingSrc).toMatch(/const sheets = lineQty\(l\)/);
+    expect(schedulingSrc).not.toMatch(/lineQty\(l\) \|\| sf \/ 32/);
     expect(schedulingSrc).not.toMatch(/const sf = lineAreaSqft\(l\);/);
     const builderAi = readFileSync(
       join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
@@ -119456,7 +119460,8 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       /Hard-surface builder AI leftover planted taped sq ft stays How many, not leftover taped sq ft as an order/,
     );
     expect(builderAi).toMatch(/lineSkipsAreaCartonMath\(l\)/);
-    expect(builderAi).toMatch(/Number\(l\.quantity\) \|\| \(lineSkipsAreaCartonMath\(l\) \? 0 : Number\(l\.sqft\)\)/);
+    expect(builderAi).toMatch(/quantity: lineQty\(\{/);
+    expect(builderAi).not.toMatch(/Number\(l\.quantity\) \|\| \(lineSkipsAreaCartonMath\(l\) \? 0 : Number\(l\.sqft\)\)/);
     expect(builderAi).not.toMatch(/quantity: Number\(l\.quantity\) \|\| Number\(l\.sqft\) \|\| null/);
     const assistantActions = readFileSync(
       join(root, "src/app/(app)/assistant/actions.ts"),

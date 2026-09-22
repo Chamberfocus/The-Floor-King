@@ -75,7 +75,8 @@ export function installDaysForJob(
       continue;
     }
     if (/subfloor/.test(text)) {
-      const sheets = lineQty(l) || sf / 32; // 4x8 sheet = 32 sq ft fallback
+      // How many sheets is the order. Leftover taped sq ft is not 4x8 sheets.
+      const sheets = lineQty(l);
       add("Subfloor", sheets, "sheets", daysAt(sheets, s.cap_subfloor_sheets));
       continue;
     }

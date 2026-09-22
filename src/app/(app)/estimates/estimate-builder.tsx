@@ -1773,7 +1773,16 @@ export function EstimateBuilder({
         description: l.description,
         // Exclusive carpet-tile builder AI leftover planted taped sq ft is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
         // Hard-surface builder AI leftover planted taped sq ft stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
-        quantity: Number(l.quantity) || (lineSkipsAreaCartonMath(l) ? 0 : Number(l.sqft)) || null,
+        quantity: lineQty({
+          line_type: l.line_type,
+          description: l.description,
+          category: l.category,
+          unit: l.unit,
+          measure_unit: l.measure_unit,
+          sqft: l.sqft,
+          quantity: l.quantity,
+          waste_pct: l.waste_pct,
+        }) || null,
         unit: lineDisplayUnit(l),
       }));
     if (!lines.length) {
