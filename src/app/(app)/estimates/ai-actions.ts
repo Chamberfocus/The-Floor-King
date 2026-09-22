@@ -9,7 +9,7 @@ import { searchCatalog } from "@/lib/data/products";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getOrgSettings } from "@/lib/data/org";
 import { getRoomDefaults, getAddonDefaults } from "@/lib/data/addon-defaults";
-import { catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit } from "@/lib/units";
+import { catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, lineSkipsAreaCartonMath } from "@/lib/units";
 import { catalogRateInLineUnit } from "@/lib/catalog-pricing";
 import {
   sellLaborFromTargetMargin,
@@ -544,7 +544,12 @@ export async function createEstimateFromNotes(
       .limit(1)
       .maybeSingle();
     const startPos = ((last?.position as number) ?? -1) + 1;
-    const rows = lines.map((l, i) => ({
+    const rows = lines.map((l, i) => {
+      // Wrap / carton TBD / qty TBD How many is already the order. Leftover
+      // taped sq ft is not saved as measured area — except prep bag lines.
+      const skipLeftoverArea = lineSkipsAreaCartonMath(l) && !l.coverage_sqft;
+      const measuredSqft = skipLeftoverArea ? null : l.sqft && l.sqft > 0 ? l.sqft : null;
+      return {
       option_id: optionId,
       position: startPos + i,
       room: l.room || null,
@@ -552,11 +557,11 @@ export async function createEstimateFromNotes(
       line_type: "mat_labor",
       category: l.category || "other",
       measure_unit: l.measure_unit,
-      sqft: l.sqft && l.sqft > 0 ? l.sqft : null,
+      sqft: measuredSqft,
       quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
-      length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
-      width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
-      unit: lineDisplayUnit(l),
+      length_in: skipLeftoverArea ? null : l.length_in && l.length_in > 0 ? l.length_in : null,
+      width_in: skipLeftoverArea ? null : l.width_in && l.width_in > 0 ? l.width_in : null,
+      unit: lineDisplayUnit({ ...l, sqft: measuredSqft }),
       material_rate: Number(l.material_rate) || 0,
       labor_rate: Number(l.labor_rate) || 0,
       material_cost: Number(l.material_cost) || 0,
@@ -566,7 +571,8 @@ export async function createEstimateFromNotes(
       manufacturer: l.manufacturer || null,
       style: l.style || null,
       color: l.color || null,
-    }));
+    };
+    });
     const { error } = await supabase.from("estimate_line_items").insert(rows);
     if (error) return { error: error.message };
     revalidatePath(`/estimates/${appendToEstimateId}`);
@@ -758,7 +764,12 @@ export async function createDraftEstimateFromText(
   if (!opt) return { error: "Couldn't create the estimate option." };
 
   // Persist the builder-parity lines — same column shape as every other path.
-  const rows = lines.map((l, i) => ({
+  const rows = lines.map((l, i) => {
+    // Wrap / carton TBD / qty TBD How many is already the order. Leftover
+    // taped sq ft is not saved as measured area — except prep bag lines.
+    const skipLeftoverArea = lineSkipsAreaCartonMath(l) && !l.coverage_sqft;
+    const measuredSqft = skipLeftoverArea ? null : l.sqft && l.sqft > 0 ? l.sqft : null;
+    return {
     option_id: opt.id,
     position: i,
     room: l.room || null,
@@ -766,11 +777,11 @@ export async function createDraftEstimateFromText(
     line_type: "mat_labor",
     category: l.category || "other",
     measure_unit: l.measure_unit,
-    sqft: l.sqft && l.sqft > 0 ? l.sqft : null,
+    sqft: measuredSqft,
     quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
-    length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
-    width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
-    unit: lineDisplayUnit(l),
+    length_in: skipLeftoverArea ? null : l.length_in && l.length_in > 0 ? l.length_in : null,
+    width_in: skipLeftoverArea ? null : l.width_in && l.width_in > 0 ? l.width_in : null,
+    unit: lineDisplayUnit({ ...l, sqft: measuredSqft }),
     material_rate: Number(l.material_rate) || 0,
     labor_rate: Number(l.labor_rate) || 0,
     material_cost: Number(l.material_cost) || 0,
@@ -781,7 +792,8 @@ export async function createDraftEstimateFromText(
     style: l.style || null,
     color: l.color || null,
     from_stock: false,
-  }));
+  };
+  });
   const { error: lineErr } = await supabase
     .from("estimate_line_items")
     .insert(rows);

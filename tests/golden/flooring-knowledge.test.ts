@@ -122694,6 +122694,80 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     ).toBe(false);
   });
 
+  it("leftover taped sq ft is not exclusive tile; persist skips it on count How many", () => {
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      carpetLineIsModularCoverage({
+        category: "carpet",
+        order_as_roll: false,
+        sqft: 450,
+        quantity: null,
+        length_in: null,
+        width_in: null,
+        measurements: null,
+      }),
+    ).toBe(false);
+    expect(
+      carpetLineIsModularCoverage({
+        category: "carpet",
+        description: "Shaw — order TBD (enter cuts — not sq ft ÷ 9)",
+        order_as_roll: false,
+        sqft: 450,
+        quantity: 50,
+      }),
+    ).toBe(false);
+    expect(
+      carpetLineIsModularCoverage({
+        category: "carpet",
+        description:
+          "Shaw Tile — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+        unit: "",
+        order_as_roll: false,
+        sqft: 450,
+        quantity: 50,
+      }),
+    ).toBe(false);
+    expect(
+      carpetLineIsModularCoverage({
+        category: "carpet",
+        order_as_roll: false,
+        sqft: 450,
+        quantity: 50,
+        length_in: null,
+        width_in: null,
+        measurements: null,
+      }),
+    ).toBe(true);
+    expect(
+      jobIsExclusiveCarpetOnly(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          surface_type: ["LVP / LVT"],
+          carpet_install: ["Stretch-in"],
+          install_method: ["Floating / click"],
+        }),
+      ),
+    ).toBe(false);
+
+    const scope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(scope).toMatch(/Do not infer exclusive tile from leftover taped sq ft/);
+    expect(scope).toMatch(/Leftover planted taped sq ft/);
+    expect(scope).toMatch(/lineSkipsAreaCartonMath\(l\)/);
+    expect(scope).toMatch(/order TBD/);
+    const smart = readFileSync(join(root, "src/app/(app)/estimates/smart-actions.ts"), "utf8");
+    expect(smart).toMatch(
+      /const skipLeftoverArea = lineSkipsAreaCartonMath\(l\) && !l\.coverage_sqft/,
+    );
+    expect(smart).toMatch(/sqft: measuredSqft/);
+    expect(smart).not.toMatch(/sqft: l\.sqft && l\.sqft > 0 \? l\.sqft : null/);
+    const ai = readFileSync(join(root, "src/app/(app)/estimates/ai-actions.ts"), "utf8");
+    expect(ai).toMatch(
+      /const skipLeftoverArea = lineSkipsAreaCartonMath\(l\) && !l\.coverage_sqft/,
+    );
+    expect(ai).toMatch(/sqft: measuredSqft/);
+    expect(ai).not.toMatch(/sqft: l\.sqft && l\.sqft > 0 \? l\.sqft : null/);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

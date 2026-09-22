@@ -220,13 +220,19 @@ export function parseCutsFromText(
 }
 
 /**
- * Exclusive carpet tile (and other modular carpet coverage): billed area
- * without warehouse pieces and not marked as a roll. Builder must not show
- * Cuts/Roll or treat room rectangles as a cut plan. Broadloom waiting for
- * cuts (order TBD, no sqft/qty yet) returns false so the cut UI stays.
+ * Exclusive carpet tile (and other modular carpet coverage): billed ORDER
+ * qty without warehouse pieces and not marked as a roll. Builder must not
+ * show Cuts/Roll or treat room rectangles as a cut plan. Leftover planted
+ * taped sq ft on stretch-in / unanswered / order TBD is measured area, not
+ * exclusive tile — Cuts vs Roll stays. Do not infer exclusive tile from leftover taped sq ft.
+ * Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+ * Broadloom waiting for cuts (order TBD, no sqft/qty yet) returns false so
+ * the cut UI stays.
  */
 export function carpetLineIsModularCoverage(l: {
   category?: string | null;
+  description?: string | null;
+  unit?: string | null;
   order_as_roll?: boolean | null;
   sqft?: number | string | null;
   quantity?: number | string | null;
@@ -236,14 +242,18 @@ export function carpetLineIsModularCoverage(l: {
 }): boolean {
   if ((l.category ?? "") !== "carpet") return false;
   if (l.order_as_roll === true) return false;
+  // Wrap / carton TBD / qty TBD / count How many is already the order.
+  if (lineSkipsAreaCartonMath(l)) return false;
+  if (/order TBD/i.test((l.description ?? "").trim())) return false;
   const pieces = (l.measurements ?? []).filter(
     (m) => m.op !== "subtract" && Number(m.length_in) > 0 && Number(m.width_in) > 0,
   );
   if (pieces.length) return false;
   if (Number(l.length_in) > 0 && Number(l.width_in) > 0) return false;
-  const sf = Number(l.sqft);
   const qty = Number(l.quantity);
-  return (Number.isFinite(sf) && sf > 0) || (Number.isFinite(qty) && qty > 0);
+  // Exclusive tile bills from order qty. Leftover planted taped sq ft
+  // without an order qty is measured area — Cuts vs Roll stays.
+  return Number.isFinite(qty) && qty > 0;
 }
 
 /**
