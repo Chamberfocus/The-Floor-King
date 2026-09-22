@@ -33,7 +33,7 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
   const spb = Number(l.sqft_per_box) || 0;
   // Exclusive carpet-tile installation-wo order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
   // Hard-surface installation-wo order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
-  const cartons = hardSurfaceAreaCartonCount(l, lineOrderQty(l) || Number(l.sqft) || 0);
+  const cartons = hardSurfaceAreaCartonCount(l, lineOrderQty(l));
   const unitKey = normalizeUnit(l.unit);
   // Exclusive carpet-tile installation-wo pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
   // Hard-surface installation-wo pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.

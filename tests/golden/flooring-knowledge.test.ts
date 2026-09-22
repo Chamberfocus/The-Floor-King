@@ -122516,6 +122516,82 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     ).toBe(false);
   });
 
+  it("Builder carpet-tile takeoff does not plant leftover taped sq ft as the order on count How many", () => {
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "box",
+        sqftPerBox: 23.64,
+        carpetInstallSystems: ["carpet_tile"],
+      }),
+    ).toBe(true);
+    expect(
+      boxedCartonAreaTakeoffAllowed({
+        family: "carpet",
+        productUnit: "box",
+        sqftPerBox: null,
+        carpetInstallSystems: ["carpet_tile"],
+      }),
+    ).toBe(false);
+    expect(billedQtyToSqft(3, "box")).toBeNull();
+    expect(billedQtyToSqft(22.22, "sqyd")).toBeCloseTo(199.98, 10);
+    const leftoverCount = computeMaterialTakeoff({
+      family: "carpet",
+      measuredSqft: 0,
+      wasteAlreadyInQuantity: true,
+      sqftPerBox: 23.64,
+      carpetSystems: ["carpet_tile"],
+    });
+    expect(leftoverCount.cartons).toBeNull();
+    expect(leftoverCount.orderSqft).toBe(0);
+    const fromOrderYd = computeMaterialTakeoff({
+      family: "carpet",
+      measuredSqft: billedQtyToSqft(
+        lineOrderQty({
+          line_type: "mat_labor",
+          description: "Interface tile",
+          category: "carpet",
+          unit: "sq yd",
+          quantity: 22.22,
+          waste_pct: 10,
+        }),
+        "sqyd",
+      ) ?? 0,
+      wasteAlreadyInQuantity: true,
+      sqftPerBox: 23.64,
+      carpetSystems: ["carpet_tile"],
+    });
+    expect(fromOrderYd.cartons?.cartonCount).toBe(10);
+
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/const tileOrderSqft = billedQtyToSqft\(/);
+    expect(builder).toMatch(/boxedCartonAreaTakeoffAllowed\(/);
+    expect(builder).toMatch(/measuredSqft: tileOrderSqft \?\? \(tileBoxArea \? num\(line\.sqft\) : 0\)/);
+    expect(builder).not.toMatch(/measuredSqft: num\(line\.sqft\),\n                        wastePct: line\.waste_pct/);
+    const installWo = readFileSync(join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"), "utf8");
+    expect(installWo).toMatch(/hardSurfaceAreaCartonCount\(l, lineOrderQty\(l\)\)/);
+    expect(installWo).not.toMatch(/lineOrderQty\(l\) \|\| Number\(l\.sqft\)/);
+    const editScope = readFileSync(join(root, "src/app/(app)/jobs/[id]/edit-scope.tsx"), "utf8");
+    expect(editScope).not.toMatch(/orderQ \|\| Number\(l\.sqft\)/);
+    const jobScope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(jobScope).toMatch(/hardSurfaceAreaCartonCount\(l, orderQ\)/);
+    expect(jobScope).not.toMatch(/orderQ \|\| Number\(l\.sqft\)/);
+    expect(
+      jobIsExclusiveCarpetOnly(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          surface_type: ["LVP / LVT"],
+          carpet_install: ["Stretch-in"],
+          install_method: ["Floating / click"],
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

@@ -2423,12 +2423,29 @@ export function EstimateBuilder({
                       width_in: ftInToIn(line.wid_ft, line.wid_in) || null,
                       measurements: line.measurements.map(rowToMeasurement),
                     }) && !cutPlanOpen;
+                  const tileCoverage = num(line.sqft_per_box) > 0 ? num(line.sqft_per_box) : null;
+                  const tileBoxArea = boxedCartonAreaTakeoffAllowed({
+                    family: "carpet",
+                    productUnit: summ.unit,
+                    sqftPerBox: tileCoverage,
+                    carpetInstallSystems: ["carpet_tile"],
+                  });
+                  const tileOrderSqft = billedQtyToSqft(
+                    lineOrderQty(summ),
+                    unitKey === "sqyd" ? "sqyd" : "sqft",
+                  );
                   const tileTakeoff = modularCarpet
                     ? computeMaterialTakeoff({
                         family: "carpet",
-                        measuredSqft: num(line.sqft),
-                        wastePct: line.waste_pct.trim() === "" ? null : num(line.waste_pct),
-                        sqftPerBox: num(line.sqft_per_box) > 0 ? num(line.sqft_per_box) : null,
+                        measuredSqft: tileOrderSqft ?? (tileBoxArea ? num(line.sqft) : 0),
+                        wasteAlreadyInQuantity: tileOrderSqft != null,
+                        wastePct:
+                          tileOrderSqft != null
+                            ? undefined
+                            : line.waste_pct.trim() === ""
+                              ? null
+                              : num(line.waste_pct),
+                        sqftPerBox: tileCoverage,
                         carpetSystems: ["carpet_tile"],
                       })
                     : null;

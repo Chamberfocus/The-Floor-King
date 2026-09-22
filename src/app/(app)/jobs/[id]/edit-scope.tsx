@@ -59,7 +59,7 @@ function cartonCountFor(l: ScopeLine): number {
       width_in: l.width_in,
       measurements: l.measurements,
     },
-    orderQ || Number(l.sqft) || 0,
+    orderQ,
   );
 }
 
