@@ -3,7 +3,8 @@
  * Operational source: job_line_items. Never rewrites ordered/received/closed.
  */
 import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
-import { lineQty, lineOrderQty, type CalcLine } from "@/lib/estimate-calc";
+import { lineQty, lineOrderQty, lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
+import { lineDisplayUnit } from "@/lib/units";
 import { isMaterialLine } from "@/lib/job-scope";
 import { materialNeedQty } from "@/lib/job-operational-scope";
 import {
@@ -16,6 +17,10 @@ import {
   type LineCoverage,
 } from "@/lib/po-coverage";
 import { primaryCatalogCostByProductIds } from "@/lib/data/products";
+import {
+  poCostOfEstimateLine,
+  type PoCatalogSnapshot,
+} from "@/lib/po-build";
 import type { EstimateLineItem, PoSourceType } from "@/lib/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -185,18 +190,25 @@ export async function syncJobPurchasingCoverage(
   const psupplier = new Map<string, string | null>();
   const psupplierId = new Map<string, string | null>();
   const pname = new Map<string, string>();
-  const punit = new Map<string, string>();
   const pcost = new Map<string, number>();
+  const productCatalog = new Map<string, PoCatalogSnapshot>();
   if (productIds.length) {
     const { data: prods } = await db
       .from("products")
-      .select("id, name, unit, material_rate, supplier, supplier_id, track_stock")
+      .select(
+        "id, name, unit, category, sqft_per_box, roll_width_ft, material_rate, supplier, supplier_id, track_stock",
+      )
       .in("id", productIds);
     for (const p of prods ?? []) {
       psupplier.set(p.id as string, (p.supplier as string) || null);
       psupplierId.set(p.id as string, (p.supplier_id as string) || null);
       pname.set(p.id as string, (p.name as string) ?? "");
-      punit.set(p.id as string, String(p.unit ?? "").toLowerCase());
+      productCatalog.set(p.id as string, {
+        unit: (p.unit as string) ?? null,
+        category: (p.category as string) ?? null,
+        sqft_per_box: p.sqft_per_box as number | null,
+        roll_width_ft: p.roll_width_ft as number | null,
+      });
     }
     const costs = await primaryCatalogCostByProductIds(db, productIds);
     for (const [id, c] of costs) pcost.set(id, c);
@@ -398,22 +410,18 @@ export async function syncJobPurchasingCoverage(
           (l.product_id ? pname.get(l.product_id) : "") ||
           "Item";
         const lineUnit = String(
-          l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+          lineDisplayUnit({
+            ...l,
+            sqft: lineSkipsAreaCartonMath(l) ? null : l.sqft,
+          }),
         );
-        const catUnit = (l.product_id ? punit.get(l.product_id) : "")?.replace(
-          /\s+/g,
-          "",
+        // Exclusive carpet-tile job purchasing boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+        // Hard-surface job purchasing boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+        const unitCost = poCostOfEstimateLine(
+          l,
+          l.product_id ? (pcost.get(l.product_id) ?? 0) : 0,
+          l.product_id ? productCatalog.get(l.product_id) : null,
         );
-        const lineUnitNorm = lineUnit.toLowerCase().replace(/\s+/g, "");
-        const catCost = l.product_id ? pcost.get(l.product_id) : undefined;
-        const unitsAgree =
-          !!catUnit &&
-          (catUnit === lineUnitNorm ||
-            (["sqft", "sf"].includes(catUnit) &&
-              ["sqft", "sf"].includes(lineUnitNorm)) ||
-            (["sqyd", "sy"].includes(catUnit) &&
-              ["sqyd", "sy"].includes(lineUnitNorm)));
-        const ownCost = Number(l.material_cost) > 0 ? Number(l.material_cost) : 0;
         return {
           po_id: poId,
           product_id: l.product_id,
@@ -421,8 +429,7 @@ export async function syncJobPurchasingCoverage(
           description: base,
           quantity: round(p.qty),
           unit: lineUnit,
-          unit_cost:
-            unitsAgree && catCost != null ? catCost : ownCost,
+          unit_cost: unitCost,
           manufacturer: l.manufacturer ?? null,
           style: l.style ?? null,
           color: l.color ?? null,

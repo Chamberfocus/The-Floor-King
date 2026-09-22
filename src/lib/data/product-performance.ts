@@ -18,6 +18,7 @@ export interface ProductPerf {
   category: string | null;
   jobs: number; // how many jobs used it
   units: number; // total quantity sold (sqft/sqyd/each)
+  lineUnits: string[];
   revenue: number;
   cost: number;
   profit: number;
@@ -100,12 +101,14 @@ export async function getProductPerformance(): Promise<ProductPerf[]> {
         category: m?.category ?? null,
         jobs: 0,
         units: 0,
+        lineUnits: [],
         revenue: 0,
         cost: 0,
         profit: 0,
         margin: 0,
       } satisfies ProductPerf);
     cur.units += lineQty(r);
+    cur.lineUnits.push((r.unit || "").trim());
     cur.revenue += lineTotal(r);
     cur.cost += lineCost(r);
     const seen = optionsSeen.get(pid) ?? new Set<string>();

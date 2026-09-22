@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { equivalentSqyd, formatEquivalentSqyd } from "@/lib/flooring-knowledge";
 
 const n = (v: string) => {
   const x = parseFloat(v);
@@ -78,7 +79,6 @@ export function AreaCalculator({
     setSegs((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
   const totalSqft = Math.max(0, segs.reduce((a, s) => a + segSigned(s), 0));
-  const totalSqyd = totalSqft / 9;
   // Cutouts don't add room perimeter — only count the added areas.
   const totalPerim = segs.reduce((a, s) => a + (s.op === "add" ? segPerim(s) : 0), 0);
 
@@ -104,8 +104,9 @@ export function AreaCalculator({
               Add a row for each area — room, closet, hallway. For an irregular
               room, add each rectangle; tap <strong>+</strong> to switch a row to
               <strong> − cut out</strong> to subtract an island, hearth, or other
-              area that isn&apos;t getting floor. It totals the square footage
-              (and square yards for carpet).
+              area that isn&apos;t getting floor. It totals MEASURED square
+              footage. Square yards shown are equivalent area (÷ 9) — not a
+              carpet order.
             </DialogDescription>
           </DialogHeader>
 
@@ -220,18 +221,23 @@ export function AreaCalculator({
           <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border bg-muted/40 p-3">
             <div className="flex gap-6">
               <div>
-                <div className="text-xs text-muted-foreground">Total sq ft</div>
+                <div className="text-xs text-muted-foreground">Measured sq ft</div>
                 <div className="text-2xl font-bold tabular-nums">
                   {r2(totalSqft)}
                 </div>
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">
-                  Total sq yd (carpet)
+                  Equivalent sq yd — not an order
                 </div>
-                <div className="text-2xl font-bold tabular-nums text-primary">
-                  {r2(totalSqyd)}
+                <div className="text-lg font-semibold tabular-nums text-muted-foreground">
+                  {r2(equivalentSqyd(totalSqft))}
                 </div>
+                {totalSqft > 0 ? (
+                  <div className="max-w-[14rem] text-[11px] leading-snug text-muted-foreground">
+                    {formatEquivalentSqyd(totalSqft)}
+                  </div>
+                ) : null}
               </div>
             </div>
             <button

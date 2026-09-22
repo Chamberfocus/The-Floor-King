@@ -128,7 +128,7 @@ export async function createQuickEstimate(input: QuickEstimateInput): Promise<{
       description: l.description.trim(),
       // Count units price by quantity; area units price by measured area. The
       // shared calc reads the UNIT to decide, so it has to be carried.
-      unit: l.unit || "each",
+      unit: l.unit || "",
       quantity: n(l.quantity),
       line_type: "mat_labor" as const,
       measure_unit: "sqft" as const,

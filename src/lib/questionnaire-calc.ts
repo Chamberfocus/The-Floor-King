@@ -36,36 +36,40 @@ export function carpetYardageFromCuts(cuts: CarpetCut[]): {
   return { sqft: r2(sqft), sqyd: r2(sqft / 9), perCut };
 }
 
-/** Per-step carpet allowance (sq ft of carpet per stair), by wrap style.
- *  Upholstered (cap & band) wraps the sides, so it uses more than a waterfall.
- *  Defaults — overridable per question via config.step_allowance_sqft. */
-export const STAIR_ALLOWANCE_SQFT: Record<string, number> = {
-  waterfall: 6, // ~ 2ft run × 3ft wide
-  upholstered: 8, // wraps the nosing + sides
-};
-
-/** Carpet (sq ft + sq yd) needed for stairs: count × per-step allowance by type. */
+/** Per-step carpet allowance (sq ft) only when Settings actually stores one.
+ *  Missing config is 0 — we do not invent 6/8 sq ft per step as an order. */
 export function stairsCarpet(
   count: number | string,
-  type: string,
+  _type: string,
   allowanceSqft: number | string | null = null,
 ): { sqft: number; sqyd: number } {
   const n = Math.max(0, Math.ceil(num(count)));
-  const per =
-    num(allowanceSqft) > 0
-      ? num(allowanceSqft)
-      : STAIR_ALLOWANCE_SQFT[(type || "").toLowerCase()] ?? STAIR_ALLOWANCE_SQFT.waterfall;
+  const per = num(allowanceSqft);
+  if (n <= 0 || !(per > 0)) return { sqft: 0, sqyd: 0 };
   const sqft = n * per;
   return { sqft: r2(sqft), sqyd: r2(sqft / 9) };
 }
 
-/** Sheets of subfloor for an area. A 4'×8' sheet covers 32 sq ft; round UP so
- *  you never under-order. Sheet size overridable (e.g. 4'×8'=32, 2'×2'=4). */
+/** Typical 4'×8' plywood/OSB sheet. Placeholder only — do not plant as coverage
+ *  when Settings has no `sheet_sqft`, the way we do not invent carton coverage. */
+export const TYPICAL_SUBFLOOR_SHEET_SQFT = 32;
+
+/** Usable sheet coverage (sq ft) or null when missing. */
+export function resolvedSheetSqft(
+  raw: number | string | null | undefined,
+): number | null {
+  const n = typeof raw === "number" ? raw : parseFloat(String(raw ?? ""));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Sheets of subfloor for an area. Round UP so you never under-order.
+ *  Missing sheet size is 0 sheets — we do not invent a 4×8 (32 sq ft). */
 export function subfloorSheets(
   areaSqft: number | string,
-  sheetSqft: number | string = 32,
+  sheetSqft: number | string | null | undefined = null,
 ): number {
   const a = num(areaSqft);
-  const s = num(sheetSqft) > 0 ? num(sheetSqft) : 32;
-  return a > 0 ? Math.ceil(a / s) : 0;
+  const s = resolvedSheetSqft(sheetSqft);
+  if (a <= 0 || s == null) return 0;
+  return Math.ceil(a / s);
 }

@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
 
 /** Spec columns stored as numbers; the rest are graded text (AC3, PEI IV…). */
 const NUMERIC_SPECS = new Set([
@@ -17,10 +16,12 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertRole } from "@/lib/auth";
 import { searchCatalog } from "@/lib/data/products";
-import { redactCatalogCost, roleMaySeeCatalogSell, hydrateCatalogPricing, type CatalogPricePurpose } from "@/lib/catalog-pricing";
+import { catalogToLineMeasure, redactCatalogCost, roleMaySeeCatalogSell, hydrateCatalogPricing, type CatalogPricePurpose } from "@/lib/catalog-pricing";
+import { boxedCartonAreaTakeoffAllowed, familyFromCatalogCategory, type InstallSystem } from "@/lib/flooring-knowledge";
 import { getProfile } from "@/lib/auth";
-import { isAreaUnit, normalizeUnit } from "@/lib/units";
+import { catalogUnitFactor, pickedProductUnit } from "@/lib/units";
 import type { Product, ProductCategory } from "@/lib/types";
+import { reorderAlertsFor, type ReorderAlert } from "@/lib/data/stock-rolls";
 
 /** Live catalog search for the estimate material picker. Includes inactive
  *  products (ranked after active) so a discontinued item you know is there is
@@ -40,6 +41,20 @@ export async function searchCatalogProducts(
     if (roleMaySeeCatalogSell(role)) return priced;
     return { ...priced, catalog_sell: null, clearance_price: null };
   });
+}
+
+/** Remnant units for catalog picker on-hand mixed-product SUM hide. Default
+ *  createClient — office / warehouse / sales can read what RLS allows. */
+export async function catalogRemnantAlertsFor(
+  productIds: string[],
+): Promise<Record<string, ReorderAlert>> {
+  const ids = [...new Set((productIds ?? []).filter(Boolean))];
+  if (!ids.length) return {};
+  try {
+    return await reorderAlertsFor(ids);
+  } catch {
+    return {};
+  }
 }
 
 export interface ProductFormState {
@@ -68,7 +83,7 @@ function readFields(formData: FormData) {
     error: null as string | null,
     name: str(formData.get("name")),
     category: (str(formData.get("category")) || "other") as ProductCategory,
-    unit: str(formData.get("unit")) || "sqft",
+    unit: pickedProductUnit(str(formData.get("unit")), str(formData.get("category"))),
     material_rate: material.value,
     labor_rate: labor.value,
     sku: str(formData.get("sku")) || null,
@@ -257,7 +272,7 @@ export async function createProductInline(input: {
   const row = {
     name,
     category: (input.category || "other") as ProductCategory,
-    unit: input.unit?.trim() || "sqft",
+    unit: pickedProductUnit(input.unit, input.category),
     material_rate: numOr0(input.material_rate),
     labor_rate: numOr0(input.labor_rate),
     sku: input.sku?.trim() || null,
@@ -266,11 +281,9 @@ export async function createProductInline(input: {
     color: input.color?.trim() || null,
     coverage_sqft: numOrNull(input.coverage_sqft),
     coverage_thickness_in: numOrNull(input.coverage_thickness_in),
-    // Only meaningful for by-the-piece goods; defaulted so a trim added without
-    // one still converts linear feet to sticks instead of hiding the box.
     piece_length_in:
       input.unit === "each" || input.unit === "pc"
-        ? (numOrNull(input.piece_length_in) ?? DEFAULT_PIECE_LENGTH_IN)
+        ? numOrNull(input.piece_length_in)
         : null,
     // Only the specs this category actually asked for, and only the ones filled
     // in — a blank box shouldn't write an empty string over a real value.
@@ -358,6 +371,13 @@ export async function saveProductRate(input: {
   materialCost: number | string;
   laborCost: number | string;
   measureUnit: "sqft" | "sqyd";
+  /** Wrap / count How many stays 1:1 — catalog box rate onto an area line is $/coverage, not 1:1. */
+  count?: boolean;
+  /**
+   * Exclusive carpet-tile Builder boxed rate onto that area line is $/coverage.
+   * Do not infer exclusive tile from unit=box — omit unless the line is modular coverage.
+   */
+  carpetInstallSystems?: InstallSystem[] | null;
 }): Promise<{ error: string | null }> {
   if (!input.productId) return { error: "Missing product." };
   let actor: string | null = null;
@@ -374,7 +394,7 @@ export async function saveProductRate(input: {
   }
   const { data: p } = await admin
     .from("products")
-    .select("unit, material_rate")
+    .select("unit, material_rate, category, sqft_per_box")
     .eq("id", input.productId)
     .maybeSingle();
   if (!p) return { error: "Product not found." };
@@ -384,13 +404,30 @@ export async function saveProductRate(input: {
     return Number.isFinite(n) ? n : 0;
   };
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  // Mirror pickProduct's unit conversion: count units 1:1; area units convert
-  // between the line's sq ft / sq yd and the catalog unit.
-  const count = !isAreaUnit(p.unit as string);
-  const catUnit = normalizeUnit(p.unit as string); // "sqft" | "sqyd" | …
-  const factor = count ? 1 : input.measureUnit === catUnit ? 1 : input.measureUnit === "sqyd" ? 9 : 1 / 9;
-  const material_rate = r2(num(input.materialCost) / factor);
-  const labor_rate = r2(num(input.laborCost) / factor);
+  // Convert using the line's printed billing unit, not leftover measure_unit.
+  // Count catalog units stay 1:1. SY catalog vs sq-yd line is 1, not ÷9.
+  // Catalog box rate onto an area line is $/coverage, not 1:1.
+  // Exclusive carpet-tile Builder boxed rate onto that area line is $/coverage, not 1:1 —
+  // mixed stretch-in + tile and unanswered carpet stay How many. Wrap / count How many stays 1:1.
+  // Do not invent coverage. Do not infer exclusive tile from unit=box.
+  const boxedArea = boxedCartonAreaTakeoffAllowed({
+    family: familyFromCatalogCategory((p.category as string) ?? "other"),
+    productUnit: p.unit as string,
+    sqftPerBox: Number(p.sqft_per_box) > 0 ? Number(p.sqft_per_box) : null,
+    carpetInstallSystems: input.count ? undefined : input.carpetInstallSystems,
+  });
+  const countFactor = catalogUnitFactor(p.unit as string, input.measureUnit === "sqyd");
+  const materialFactor =
+    input.count || !boxedArea
+      ? countFactor
+      : catalogToLineMeasure({
+          unit: p.unit as string,
+          category: p.category as string,
+          sqft_per_box: p.sqft_per_box,
+          carpetInstallSystems: input.count ? undefined : input.carpetInstallSystems,
+        }).factor;
+  const material_rate = r2(num(input.materialCost) / materialFactor);
+  const labor_rate = r2(num(input.laborCost) / countFactor);
 
   const { error } = await admin
     .from("products")

@@ -6,7 +6,10 @@ import {
   isHardSurfaceCategory,
   type OrgSettings,
 } from "@/lib/types";
-import { stripRoomFromName, PAD_ROLL_SQYD, type CutSource } from "@/lib/job-scope";
+import { stripRoomFromName, PAD_ROLL_SQYD, padRollCount, type CutSource } from "@/lib/job-scope";
+import { hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
+import { billedQtyToSqft, normalizeUnit } from "@/lib/units";
 import { CarpetCutList } from "@/components/carpet-cut-list";
 import type { WarehouseJob } from "@/lib/data/jobs";
 import type { JobMaterialLine } from "@/lib/data/job-materials";
@@ -68,9 +71,12 @@ export function StagingSheetDoc({
     unit: string;
     sqftPerBox: number | null;
     rollWidthFt: number | null;
+    orderAsRoll: boolean;
     resolvedSource: JobMaterialLine["resolvedSource"];
     status: JobMaterialLine["status"];
     qty: number;
+    sqftArea: number;
+    wastePct: number | null;
     // Label votes: a mis-tagged line (wrong manufacturer/supplier on one room)
     // shouldn't win the printed label — the majority value shows.
     mfrVotes: Map<string, number>;
@@ -105,6 +111,7 @@ export function StagingSheetDoc({
       m.unit ?? "",
       m.sqftPerBox ?? "",
       m.rollWidthFt ?? "",
+      m.orderAsRoll ? "1" : "0",
       m.resolvedSource,
       m.status,
     ].join("|");
@@ -117,9 +124,12 @@ export function StagingSheetDoc({
         unit: m.unit,
         sqftPerBox: m.sqftPerBox,
         rollWidthFt: m.rollWidthFt,
+        orderAsRoll: m.orderAsRoll,
         resolvedSource: m.resolvedSource,
         status: m.status,
         qty: 0,
+        sqftArea: 0,
+        wastePct: m.wastePct,
         mfrVotes: new Map(),
         colorVotes: new Map(),
         supplierVotes: new Map(),
@@ -128,6 +138,7 @@ export function StagingSheetDoc({
       groups.push(g);
     }
     g.qty += m.qty;
+    g.sqftArea += Number(m.sqftArea) || 0;
     bumpVote(g.mfrVotes, m.manufacturer);
     bumpVote(g.colorVotes, m.color);
     bumpVote(g.supplierVotes, m.supplier);
@@ -186,36 +197,68 @@ export function StagingSheetDoc({
             </thead>
             <tbody>
               {groups.map((g) => {
-                const isHard = isHardSurfaceCategory(g.category);
                 const isRoll = isRollGoodCategory(g.category);
                 // Padding = underlayment sold by the sq yd → tell the warehouse
                 // how many ROLLS to pull (standard PAD_ROLL_SQYD per roll).
-                const isPad =
-                  g.category === "underlayment" && /yd/i.test(g.unit || "");
-                // Hard surface pulls by the CARTON; show the sq-ft basis so the
-                // count is verifiable. Roll goods show the total + broadloom width.
-                const cartons =
-                  isHard && g.sqftPerBox && g.sqftPerBox > 0
-                    ? Math.ceil(g.qty / g.sqftPerBox)
-                    : 0;
-                const padRolls =
-                  isPad && g.qty > 0 ? Math.ceil(g.qty / PAD_ROLL_SQYD) : 0;
+                // Use the canonical unit key — never parse "yd" out of a label.
+                const unitKey = normalizeUnit(g.unit);
+                // Exclusive carpet-tile staging pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                // Hard-surface staging pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                const stagingPadTakeoff =
+                  g.category === "underlayment" && g.unit !== "sheet"
+                    ? computeMaterialTakeoff({
+                        family: "other",
+                        measuredSqft:
+                          billedQtyToSqft(g.qty, unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+                        wasteAlreadyInQuantity: true,
+                        sqftPerBox: Number(g.sqftPerBox) > 0 ? Number(g.sqftPerBox) : null,
+                        billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
+                        takeoffLabel: "Carpet pad",
+                      })
+                    : null;
+                const padRolls = padRollCount(g.category, g.qty, unitKey);
+                // Hard surface / exclusive carpet tile pulls by the CARTON from
+                // billed area ÷ coverage (sq yd × 9). Wrap / carton TBD / qty TBD
+                // How many is already the order. Mixed stretch-in + tile stays cuts.
+                const cartonLine = {
+                  description: g.name,
+                  category: g.category,
+                  unit: g.unit,
+                  sqft_per_box: g.sqftPerBox,
+                  roll_width_ft: g.rollWidthFt,
+                  order_as_roll: g.orderAsRoll,
+                  quantity: g.qty,
+                };
+                const cartons = hardSurfaceAreaCartonCount(cartonLine, g.qty);
+                const skipCarton = lineSkipsAreaCartonMath({
+                  description: g.name,
+                  unit: g.unit,
+                });
+                const showCartonWarn = lineUsesAreaCartonMath(cartonLine);
+                const cartonArea =
+                  billedQtyToSqft(g.qty, unitKey === "sqyd" ? "sqyd" : "sqft") ?? g.qty;
                 const qtyMain = cartons
                   ? `${cartons} carton${cartons === 1 ? "" : "s"}`
-                  : padRolls
-                    ? `${padRolls} roll${padRolls === 1 ? "" : "s"}`
-                    : g.qty > 0
-                      ? `${Math.round(g.qty * 100) / 100} ${g.unit || ""}`.trim()
-                      : "";
-                const qtySub = cartons
-                  ? `${Math.round(g.qty * 100) / 100} sq ft ÷ ${g.sqftPerBox}/box`
-                  : isHard
-                    ? "⚠ set sq ft/box"
+                  : stagingPadTakeoff?.cartons
+                    ? `${stagingPadTakeoff.cartons.cartonCount} carton${stagingPadTakeoff.cartons.cartonCount === 1 ? "" : "s"}`
                     : padRolls
-                      ? `${Math.round(g.qty * 100) / 100} sq yd ÷ ${PAD_ROLL_SQYD}/roll`
-                      : isRoll && g.rollWidthFt
-                        ? `${g.rollWidthFt} ft broadloom`
+                      ? `${padRolls} roll${padRolls === 1 ? "" : "s"}`
+                      : g.qty > 0
+                        ? `${Math.round(g.qty * 100) / 100} ${g.unit || ""}`.trim()
                         : "";
+                const qtySub = cartons
+                  ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${g.sqftPerBox}/box`
+                  : stagingPadTakeoff?.cartons
+                    ? `${Math.round(cartonArea * 100) / 100} sq ft ÷ ${g.sqftPerBox}/box`
+                    : skipCarton
+                      ? ""
+                      : showCartonWarn
+                      ? "⚠ set sq ft/box"
+                      : padRolls && unitKey === "sqyd"
+                        ? `${Math.round(g.qty * 100) / 100} sq yd ÷ ${PAD_ROLL_SQYD}/roll`
+                        : isRoll && g.rollWidthFt
+                          ? `${g.rollWidthFt} ft broadloom`
+                          : "";
                 const manufacturer = topVote(g.mfrVotes);
                 const color = topVote(g.colorVotes);
                 const supplier = topVote(g.supplierVotes);

@@ -55,8 +55,370 @@ export interface CustomerScope {
  *  description holds the product name (e.g. "OVF Del Mar - JETCORE 7.25\""), so
  *  it leads; brand/category are only fallbacks when there's no description. */
 function productItem(l: EstimateLineItem): ScopeItem {
-  const note = (l.note ?? "").trim();
+  const note = customerFacingLineNote(l.note);
   return { title: customerLineLabel(l), detail: note || undefined };
+}
+
+/**
+ * Crew How many identity (wrap qty TBD, carton coverage TBD, not taped sq ft,
+ * order TBD / measured sq ft) stays on stored estimate lines so Builder / PO /
+ * WO / hydrate skip leftover taped sq ft. Customer copy is the product name.
+ *
+ * Customer / invoice / portal copy strips wrap / carton-coverage TBD / qty TBD / order TBD identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
+ * Customer / portal / print project details strip wrap / carton-coverage TBD / qty TBD / not-taped-sq-ft identity from Guided takeoff notes — those stamps stay in stored job_description so the crew still sees How many vs leftover taped sq ft.
+ * Customer / portal / print strip Guided takeoff MEASURED / WASTE / ORDER / BILLING math — those stay in stored job_description so the crew still sees measured vs order.
+ * Customer print / portal itemized line notes strip wrap / carton-coverage TBD / qty TBD / room MEASURED sq ft identity — those stamps stay on stored lines so Builder / PO / WO / hydrate still skip leftover taped sq ft.
+ * Customer / portal / print strip Guided takeoff crew Uncertainty — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
+ * Customer / portal / print strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
+ * Customer / portal / print Site preparation strip Guided takeoff crew prep confidence — those stay in stored job_description so the crew still sees Field verify / TBD vs Known bag counts.
+ * Customer / portal / print line labels strip stair-install step How many — those stay on stored lines so Builder still prices per step.
+ * Customer / portal / print line labels strip prep estimated / allowance suffix — those stay on stored lines so the crew still sees Field verify / TBD vs Known bag counts.
+ * Customer print / portal itemized line notes strip leftover stair-install step How many and crew prep confidence — those stay on stored lines so Builder still prices per step and the crew still sees Field verify / TBD vs Known bag counts.
+ * Customer / portal / print strip Guided takeoff Review section headers — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay.
+ * Customer / portal / print strip Guided takeoff Review bucket prefixes — those stay in stored job_description so the crew still sees Removal / Prep / Accessories grouping. Product names, accessory How many, and job conditions stay.
+ * Customer / portal / print strip Guided takeoff stair-install step How many — those stay in stored job_description so Builder still prices per step. Wrap How many still stays.
+ * Customer / portal / print strip Guided takeoff waterfall / upholstered stair How many — those stay in stored job_description so Builder still prices wrap labor. Wrap How many still stays.
+ * Customer / portal / print strip Guided takeoff labeled count How many — those stay in stored job_description so the crew still sees toilets / trim / metals counts. Wrap How many and Self-leveler bag How many stay.
+ * Customer / portal / print line labels strip leftover em-dash How many — those stay on stored lines so Builder still prices How many. Wrap How many and Self-leveler bag How many stay in job notes.
+ * Customer / portal / print strip leftover unlabeled count How many and labeled inch / percent How many — those stay in stored job_description so the crew still sees pad rolls and pattern repeat. Wrap How many and Self-leveler bag How many stay.
+ * Customer / portal / print strip leftover dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap How many and Self-leveler bag How many stay. 5mm product names stay.
+ * Customer / portal / print keep 12' product names — leftover dimension How many is a complete room / cut size, not a catalog name. Wrap How many and Self-leveler bag How many stay. 5mm product names stay.
+ * Customer / portal / print strip leftover parenthetical dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ * Customer / portal / print strip leftover parenthetical count How many — those stay in stored job_description so the crew still sees pad rolls. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ * Customer / portal / print strip leftover em-dash parenthetical How many — those stay in stored job_description so the crew still sees pad rolls and room sizes. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ * Customer / portal / print strip leftover leading count How many — those stay in stored job_description so the crew still sees pad rolls. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ * Customer / portal / print strip leftover leading dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ * Customer / portal / print strip leftover trailing dimension How many — those stay in stored job_description so the crew still sees room / cut sizes. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ * Customer / portal / print strip leftover trailing count How many — those stay in stored job_description so the crew still sees pad rolls. Wrap colon How many and Self-leveler bag How many stay. 12' product names stay. 5mm product names stay.
+ */
+const CREW_QTY_UNIT =
+  "(?:rolls?|lnft|l\\.?f\\.?|each|ea|gal(?:lons?)?|kits?|box(?:es)?|bags?|sheets?|ft|inches|inch|in|sqft|sqyd|yards?|yds?|cartons?|pcs?|pieces?|steps?)";
+/** Leading How many (`4 roll Pad`). Not `ft` / `in` — those collide with `12 ft Shaw`. */
+const CREW_LEADING_QTY_UNIT =
+  "(?:rolls?|lnft|l\\.?f\\.?|each|ea|gal(?:lons?)?|kits?|box(?:es)?|bags?|sheets?|yards?|yds?|cartons?|pcs?|pieces?)";
+const CREW_LEADING_COUNT = new RegExp(
+  String.raw`^(?:\(\s*\d+(?:\.\d+)?(?:["'%])?\s+` +
+    CREW_LEADING_QTY_UNIT +
+    String.raw`\b\s*\)|\d+(?:\.\d+)?(?:["'%])?\s+` +
+    CREW_LEADING_QTY_UNIT +
+    String.raw`\b)\s*(?:[—–-]\s*)?(?=\S)`,
+  "i",
+);
+
+function stripCrewLeadingCountHowMany(raw: string): string {
+  const next = raw.replace(CREW_LEADING_COUNT, "").trim();
+  return next || raw;
+}
+
+/** One side of a leftover room / cut size (`12'`, `12' 6"`, `12 ft`). */
+const CREW_FT_DIM =
+  String.raw`\d+(?:\.\d+)?(?:\s*'\s*\d+(?:\.\d+)?["″]?|\s*'|\s+(?:ft|in|inch|inches)\b)`;
+/** Complete leftover room / cut pair (`12' × 14'`). Not a catalog `12'` / `Shaw (12')`. */
+const CREW_DIM_PAIR = CREW_FT_DIM + String.raw`\s*[×x]\s*` + CREW_FT_DIM;
+/** Leading How many (`12' × 14' Living room`). Not a catalog `12' Shaw`. */
+const CREW_LEADING_DIM = new RegExp(
+  String.raw`^(?:\(\s*` +
+    CREW_DIM_PAIR +
+    String.raw`\s*\)|` +
+    CREW_DIM_PAIR +
+    String.raw`)\s*(?:[—–-]\s*)?(?=\S)`,
+  "i",
+);
+
+function stripCrewLeadingDimensionHowMany(raw: string): string {
+  const next = raw.replace(CREW_LEADING_DIM, "").trim();
+  return next || raw;
+}
+
+/** Trailing How many (`Living room 12' × 14'`). Not `Living: 12' × 14'` / `— cuts:` / catalog `12' Shaw`. */
+const CREW_TRAILING_DIM = new RegExp(
+  String.raw`(?<![—–-]|:)\s+` + CREW_DIM_PAIR + String.raw`\s*$`,
+  "i",
+);
+
+function stripCrewTrailingDimensionHowMany(raw: string): string {
+  const next = raw.replace(CREW_TRAILING_DIM, "").trim();
+  return next || raw;
+}
+
+/** Trailing How many (`Rebond pad 4 roll`). Not wrap colon `Stair wrap: 8 box` / `Pad — 4 roll`. */
+const CREW_TRAILING_COUNT = new RegExp(
+  String.raw`(?<![—–-]|:)\s+\d+(?:\.\d+)?(?:["'%])?\s+` +
+    CREW_LEADING_QTY_UNIT +
+    String.raw`\b\s*$`,
+  "i",
+);
+
+function stripCrewTrailingCountHowMany(raw: string): string {
+  const next = raw.replace(CREW_TRAILING_COUNT, "").trim();
+  return next || raw;
+}
+
+function stripCrewLeadingHowMany(raw: string): string {
+  return stripCrewTrailingCountHowMany(
+    stripCrewTrailingDimensionHowMany(
+      stripCrewLeadingDimensionHowMany(stripCrewLeadingCountHowMany(raw)),
+    ),
+  );
+}
+
+const CREW_PAREN_DIM_TAIL =
+  String.raw`\s*(?:[—–-]\s*)?\(\s*` + CREW_DIM_PAIR + String.raw`\s*\)\s*$`;
+const CREW_CUTS_DIM_TAIL = String.raw`cuts:\s*` + CREW_DIM_PAIR + String.raw`\s*$`;
+/** Leftover `(4 roll)` / `Pad (4 roll)` / `Pad — (4 roll)`. Not `Shaw (12')` — that needs a qty unit word. */
+const CREW_PAREN_COUNT_TAIL =
+  String.raw`\s*(?:[—–-]\s*)?\(\s*\d+(?:\.\d+)?(?:["'%])?\s+` +
+  CREW_QTY_UNIT +
+  String.raw`\b\s*\)\s*$`;
+
+const CREW_IDENTITY_TAIL = new RegExp(
+  String.raw`(?:\s*[—–-]\s*(?:wrap qty TBD\b|qty TBD\b|carton coverage TBD\b|order TBD\b|not taped square feet\b|not an automatic sq ft\/step order\b|` +
+    CREW_CUTS_DIM_TAIL +
+    String.raw`|\d+(?:\.\d+)?\s+\S+\s+\((?:[^)]*not taped sq ft[^)]*|[^)]*not an automatic sq ft\/step order[^)]*)\)|\d+\s+steps?\b(?:\s+\([^)]*\))?|\d+(?:\.\d+)?(?:["'″%](?:\s*[×x]\s*\d+.*)?\s*$|\s*'(?:\s*\d+(?:\.\d+)?["″]?)?(?:\s*[×x]\s*\d+.*)?\s*$|\s+(?:ft|in|inch|inches)\b(?:\s*[×x]\s*\d+.*)?\s*$|\s+` +
+    CREW_QTY_UNIT +
+    String.raw`\b\s*$))|` +
+    CREW_PAREN_DIM_TAIL +
+    `|` +
+    CREW_PAREN_COUNT_TAIL +
+    `)`,
+  "i",
+);
+
+const GUIDED_TAKEOFF_MATH_LABEL =
+  /^(?:measured area|waste|order quantity|billing quantity|unit of measure|carton coverage|required cartons)\s*:/i;
+
+const GUIDED_TAKEOFF_MATH_NOTE =
+  /not a 30-yard roll|carton coverage|carton count is not invented|sq ft\s*[÷\/]\s*9|not a cut plan|from taped area|taped sq ft is measured area|this number is (?:yards|square feet)|layout waste|bills in square feet, not yards|billed by the yard|not pad yards/i;
+
+/** Crew Review takeoff concept rows. Stored job_description keeps them. */
+export function isGuidedTakeoffMathLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
+  );
+  if (!stripped) return false;
+  if (/^guided takeoff\s*:?\s*$/i.test(stripped)) return false;
+  if (/^rooms\s*:?\s*$/i.test(stripped)) return true;
+  if (/\btakeoff\s*:?\s*$/i.test(stripped)) return true;
+  if (GUIDED_TAKEOFF_MATH_LABEL.test(stripped)) return true;
+  if (/^note:\s*/i.test(stripped) && GUIDED_TAKEOFF_MATH_NOTE.test(stripped)) return true;
+  if (/^measured .+\s+·\s+waste\s+/i.test(stripped)) return true;
+  if (/\d(?:[\d.,]*)\s+sq\s*(?:ft|yd)\b/i.test(stripped)) return true;
+  return false;
+}
+
+function stripPrepConfidenceSuffix(raw: string): string {
+  const next = raw
+    .replace(/\s*\((?:estimated|allowance|field verify(?:\s*\/\s*TBD)?)\)$/i, "")
+    .trim();
+  return next || raw;
+}
+
+export function stripCrewIdentityFromCustomerLabel(raw: string): string {
+  const s = (raw ?? "").trim();
+  if (!s) return s;
+  const core = stripCrewLeadingHowMany(s);
+  if (
+    !/wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD|\d+\s+steps?\b|[—–-]\s*(?:cuts:|\(|\d+(?:\.\d+)?(?:["'″%]|\s*'|\s+(?:ft|in|inch|inches)\b|\s+[A-Za-z]))|\(\s*\d+/i.test(
+      core,
+    )
+  ) {
+    return stripPrepConfidenceSuffix(core);
+  }
+  const cut = core.search(CREW_IDENTITY_TAIL);
+  if (cut > 0) return stripPrepConfidenceSuffix(core.slice(0, cut).trim());
+  const fallback = core
+    .replace(
+      /\s*\([^)]*(?:not taped sq ft|not an automatic sq ft\/step order|enter cuts)[^)]*\)\s*$/i,
+      "",
+    )
+    .replace(/\s*(?:wrap qty TBD|qty TBD|carton coverage TBD|order TBD)\b.*$/i, "")
+    .replace(/\s*[—–-]\s*\d+\s+steps?\b.*$/i, "")
+    .replace(new RegExp(String.raw`\s*[—–-]\s*\d+(?:\.\d+)?\s+` + CREW_QTY_UNIT + String.raw`\b\s*$`, "i"), "")
+    .replace(
+      /\s*[—–-]\s*\d+(?:\.\d+)?(?:["'″%](?:\s*[×x].*)?|\s*'(?:\s*\d+(?:\.\d+)?["″]?)?(?:\s*[×x].*)?|\s+(?:ft|in|inch|inches)\b(?:\s*[×x].*)?)\s*$/i,
+      "",
+    )
+    .replace(new RegExp(String.raw`\s*[—–-]\s*` + CREW_CUTS_DIM_TAIL, "i"), "")
+    .replace(new RegExp(CREW_PAREN_DIM_TAIL, "i"), "")
+    .replace(new RegExp(CREW_PAREN_COUNT_TAIL, "i"), "")
+    .trim();
+  return stripPrepConfidenceSuffix(fallback || core);
+}
+
+function isCrewFlagsHeader(s: string): boolean {
+  return /^(warnings|flags to confirm|uncertainty)\s*:?\s*$/i.test(s.trim());
+}
+
+function isNonFlagSectionHeader(s: string): boolean {
+  return (
+    /^guided takeoff\s*:?\s*$/i.test(s.trim()) || isCrewReviewSectionHeader(s)
+  );
+}
+
+/** Crew Review grouping chrome. Stored job_description keeps Removal / Prep / Accessories. */
+export function isCrewReviewSectionHeader(raw: string): boolean {
+  return /^(removal|installation|prep|accessories|special conditions|products|conditions|job conditions|per-room prep)\s*:?\s*$/i.test(
+    (raw ?? "").trim(),
+  );
+}
+
+const CREW_REVIEW_BUCKET_PREFIX =
+  /^(?:removal|installation|prep|accessorie|accessories|special conditions?|products?)\s*:\s*/i;
+
+/** Crew Review row label. Stored job_description keeps “Prep: …” / “Accessorie: …”. */
+export function stripCrewReviewBucketPrefix(raw: string): string {
+  const s = (raw ?? "").replace(/^[•\-]\s*/, "").trim();
+  if (!s) return (raw ?? "").trim();
+  const next = s.replace(CREW_REVIEW_BUCKET_PREFIX, "").trim();
+  return next || s;
+}
+
+/** Crew prep-confidence stamp. Stored job_description keeps Field verify / TBD. */
+export function isCrewPrepConfidenceLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").replace(/\?:/g, ":").trim(),
+  );
+  if (!stripped) return false;
+  if (/how sure are we about the prep/i.test(stripped)) return true;
+  if (/^prep confidence\s*:/i.test(stripped)) return true;
+  if (/^prep:\s*(known|estimated|allowance|field verify)\b/i.test(stripped)) return true;
+  return false;
+}
+
+/** Crew stair-step How many leftover. Stored job_description / line notes keep the count. Wrap “8 box” is accessory How many and stays. */
+export function isCrewStairStepHowManyLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
+  );
+  if (!stripped) return false;
+  const shown = stripCrewReviewBucketPrefix(stripped);
+  const text = shown || stripped;
+  return /(?:^|:)\s*\d+\s+(?:steps?|waterfall|upholstered)\b/i.test(text);
+}
+
+const CREW_LABELED_COUNT_HOW_MANY = new RegExp(
+  String.raw`:\s*\d+(?:\.\d+)?(?:["'%])?(?:\s+` + CREW_QTY_UNIT + String.raw`\b)?(?:\s*;|\s*$)`,
+  "i",
+);
+
+/** Crew labeled count How many (toilets / trim / metals / gal / inches). Wrap box and Self-leveler bag stay. */
+export function isCrewLabeledCountHowManyLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
+  );
+  if (!stripped) return false;
+  const shown = stripCrewReviewBucketPrefix(stripped);
+  const text = shown || stripped;
+  if (!text) return false;
+  if (isCrewStairStepHowManyLine(raw)) return false;
+  if (/:\s*\d+(?:\.\d+)?\s+(?:box|bag)\b/i.test(text)) return false;
+  return CREW_LABELED_COUNT_HOW_MANY.test(text);
+}
+
+const CREW_UNLABELED_COUNT_HOW_MANY = new RegExp(
+  String.raw`^(?:[—–-]\s*)?(?:\d+(?:\.\d+)?(?:["'%])?(?:\s+` +
+    CREW_QTY_UNIT +
+    String.raw`\b)?|\(\s*\d+(?:\.\d+)?(?:["'%])?\s+` +
+    CREW_QTY_UNIT +
+    String.raw`\b\s*\))\s*$`,
+  "i",
+);
+
+/** Crew leftover qty with no label (`4 roll`, `(4 roll)`). Wrap colon How many still stays. */
+export function isCrewUnlabeledCountHowManyLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
+  );
+  if (!stripped) return false;
+  const shown = stripCrewReviewBucketPrefix(stripped);
+  const text = shown || stripped;
+  if (!text) return false;
+  if (isCrewStairStepHowManyLine(raw)) return false;
+  if (isCrewLabeledCountHowManyLine(raw)) return false;
+  return CREW_UNLABELED_COUNT_HOW_MANY.test(text);
+}
+
+const CREW_DIMENSION_HOW_MANY = new RegExp(
+  String.raw`(?:(?:^|:)\s*` +
+    CREW_FT_DIM +
+    String.raw`(?:\s*[×x]\s*` +
+    CREW_FT_DIM +
+    String.raw`)?|^(?:[—–-]\s*)?\(\s*` +
+    CREW_DIM_PAIR +
+    String.raw`\s*\))\s*$`,
+  "i",
+);
+
+/** Crew leftover room / cut sizes (`12' × 14'`, `(12' × 14')`). 12' / 5mm product names and wrap / bag How many stay. */
+export function isCrewDimensionHowManyLine(raw: string): boolean {
+  const stripped = stripCrewIdentityFromCustomerLabel(
+    (raw ?? "").replace(/^[•\-]\s*/, "").trim(),
+  );
+  if (!stripped) return false;
+  const shown = stripCrewReviewBucketPrefix(stripped);
+  const text = shown || stripped;
+  if (!text) return false;
+  if (isCrewStairStepHowManyLine(raw)) return false;
+  if (/:\s*\d+(?:\.\d+)?\s+(?:box|bag)\b/i.test(text)) return false;
+  return CREW_DIMENSION_HOW_MANY.test(text);
+}
+
+function isCrewOnlyCustomerText(raw: string): boolean {
+  return (
+    isGuidedTakeoffMathLine(raw) ||
+    isCrewPrepConfidenceLine(raw) ||
+    isCrewStairStepHowManyLine(raw) ||
+    isCrewLabeledCountHowManyLine(raw) ||
+    isCrewUnlabeledCountHowManyLine(raw) ||
+    isCrewDimensionHowManyLine(raw)
+  );
+}
+
+/** Customer print / portal narrative. Stored job_description keeps crew stamps. */
+export function customerFacingJobNotes(text: string | null | undefined): string {
+  if (!text) return "";
+  let inFlags = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      const indent = line.match(/^\s*/)?.[0] ?? "";
+      const raw = line.trimStart();
+      const trimmed = raw.trim();
+      if (isCrewFlagsHeader(trimmed)) {
+        inFlags = true;
+        return "";
+      }
+      if (isNonFlagSectionHeader(trimmed)) inFlags = false;
+      if (inFlags) return "";
+      if (isCrewReviewSectionHeader(trimmed)) return "";
+      const body = stripCrewIdentityFromCustomerLabel(raw);
+      if (!body || isCrewOnlyCustomerText(body)) return "";
+      const shown = stripCrewLeadingHowMany(stripCrewReviewBucketPrefix(body));
+      if (!shown || isCrewReviewSectionHeader(shown) || isCrewOnlyCustomerText(shown))
+        return "";
+      return `${indent}${shown}`;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Customer line note. Stored estimate notes keep crew How many / taped sq ft. */
+export function customerFacingLineNote(raw: string | null | undefined): string {
+  const s = (raw ?? "").trim();
+  if (!s) return "";
+  const stripped = stripCrewIdentityFromCustomerLabel(s);
+  if (!stripped || isCrewOnlyCustomerText(stripped)) return "";
+  if (
+    /wrap qty TBD|carton coverage TBD|not taped sq ft|not taped square feet|not an automatic sq ft\/step order|order TBD/i.test(
+      stripped,
+    )
+  ) {
+    return "";
+  }
+  const shown = stripCrewLeadingHowMany(stripCrewReviewBucketPrefix(stripped));
+  if (!shown || isCrewOnlyCustomerText(shown)) return "";
+  return shown;
 }
 
 /**
@@ -66,7 +428,10 @@ function productItem(l: EstimateLineItem): ScopeItem {
  * everywhere.
  */
 export function customerLineLabel(l: EstimateLineItem): string {
-  const desc = (l.description ?? "").trim();
+  let desc = stripCrewLeadingHowMany(
+    stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel((l.description ?? "").trim())),
+  );
+  if (desc && isCrewOnlyCustomerText(desc)) desc = "";
   const brand = [l.manufacturer, l.style].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
   const color = (l.color ?? "").trim();
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
@@ -77,8 +442,11 @@ export function customerLineLabel(l: EstimateLineItem): string {
 
 /** A labor / prep line described as work performed — no hours, no area. */
 function workItem(l: EstimateLineItem): ScopeItem {
-  const desc = (l.description ?? "").trim();
-  const note = (l.note ?? "").trim();
+  let desc = stripCrewLeadingHowMany(
+    stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel((l.description ?? "").trim())),
+  );
+  if (desc && isCrewOnlyCustomerText(desc)) desc = "";
+  const note = customerFacingLineNote(l.note);
   const catLabel = l.category ? PRODUCT_CATEGORY_LABELS[l.category] : "";
   return { title: desc || catLabel || "Included work", detail: note || undefined };
 }
@@ -91,7 +459,14 @@ function splitRoom(room: ScopeRoom): CustomerRoom {
     else included.push(productItem(p)); // pad / underlayment / trim / transitions
   }
   for (const l of room.labor) included.push(workItem(l));
-  for (const prep of room.prep) included.push({ title: prep });
+  for (const prep of room.prep) {
+    const title = stripCrewLeadingHowMany(
+      stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel(prep)),
+    );
+    if (!title || isCrewOnlyCustomerText(title))
+      continue;
+    included.push({ title });
+  }
   return { name: room.name, flooring, included };
 }
 
@@ -120,8 +495,19 @@ export function buildCustomerScope(
         ...scope.wholeJob.labor.map(workItem),
       ],
     },
-    conditions: scope.conditions,
-    notes: scope.freeText,
+    conditions: scope.conditions
+      .map((c) =>
+        stripCrewLeadingHowMany(
+          stripCrewReviewBucketPrefix(stripCrewIdentityFromCustomerLabel(c)),
+        ),
+      )
+      .filter(
+        (c) =>
+          c &&
+          !isCrewOnlyCustomerText(c) &&
+          !isCrewReviewSectionHeader(c),
+      ),
+    notes: customerFacingJobNotes(scope.freeText),
   };
 }
 
@@ -153,11 +539,11 @@ export function parseProjectDetails(
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
-    if (/^flags to confirm/i.test(line)) {
+    if (isCrewFlagsHeader(line)) {
       inFlags = true;
       continue;
     }
-    if (/^(job conditions|per-room prep)\s*:?$/i.test(line)) {
+    if (isNonFlagSectionHeader(line)) {
       inFlags = false;
       continue;
     }
@@ -167,7 +553,31 @@ export function parseProjectDetails(
     }
     // A captured answer bullet ("• Label: value") or a free line — tidy the
     // leftover "?:" from question labels so it reads as a clean detail.
-    details.push(line.replace(/^[•\-]\s*/, "").replace(/\?:/g, ":"));
+    const cleaned = stripCrewIdentityFromCustomerLabel(
+      line.replace(/^[•\-]\s*/, "").replace(/\?:/g, ":"),
+    );
+    if (cleaned && (isCrewPrepConfidenceLine(cleaned) || isCrewStairStepHowManyLine(cleaned) || isCrewLabeledCountHowManyLine(cleaned) || isCrewUnlabeledCountHowManyLine(cleaned) || isCrewDimensionHowManyLine(cleaned))) {
+      flags.push(cleaned);
+      continue;
+    }
+    if (!cleaned || isGuidedTakeoffMathLine(cleaned)) continue;
+    const shown = stripCrewLeadingHowMany(stripCrewReviewBucketPrefix(cleaned));
+    if (shown && (isCrewPrepConfidenceLine(shown) || isCrewStairStepHowManyLine(shown) || isCrewLabeledCountHowManyLine(shown) || isCrewUnlabeledCountHowManyLine(shown) || isCrewDimensionHowManyLine(shown))) {
+      flags.push(shown);
+      continue;
+    }
+    if (
+      shown &&
+      !isCrewReviewSectionHeader(shown) &&
+      !isGuidedTakeoffMathLine(shown) &&
+      !isCrewPrepConfidenceLine(shown) &&
+      !isCrewStairStepHowManyLine(shown) &&
+      !isCrewLabeledCountHowManyLine(shown) &&
+      !isCrewUnlabeledCountHowManyLine(shown) &&
+      !isCrewDimensionHowManyLine(shown)
+    ) {
+      details.push(shown);
+    }
   }
   return { details, flags };
 }

@@ -155,7 +155,7 @@ export async function ringUpCounterSale(
       position: i,
       description: l.description.trim(),
       quantity: l.quantity,
-      unit: l.unit || "each",
+      unit: l.unit || "",
       rate: l.rate,
     })),
   );

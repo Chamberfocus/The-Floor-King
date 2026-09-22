@@ -903,7 +903,7 @@ export async function saveInvoice(
       position: i,
       description: it.description || "",
       quantity: toNumOrNull(it.quantity),
-      unit: it.unit || "sqft",
+      unit: it.unit || "",
       rate: toNumOrNull(it.rate),
     }));
     const { error: insertError } = await supabase

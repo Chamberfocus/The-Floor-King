@@ -4,8 +4,16 @@ import { Plus, Trash2, Minus, Ruler } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { num } from "@/lib/estimate-calc";
+import { hardSurfaceAreaCartonCount, num } from "@/lib/estimate-calc";
+import { padRollCount } from "@/lib/job-scope";
 import { isRollGoodCategory, isHardSurfaceCategory } from "@/lib/types";
+import { billedQtyToSqft, normalizeUnit, unitIsSqyd } from "@/lib/units";
+import {
+  ROLL_GOODS_CUTS_EMPTY_HINT,
+  ROLL_GOODS_CUTS_HEADER,
+  computeMaterialTakeoff,
+  lineMeasurementsRollTotalLabel,
+} from "@/lib/flooring-knowledge";
 
 /** One measured piece as the builder edits it (feet+inches as strings). */
 export interface MeasureRow {
@@ -53,12 +61,35 @@ export function LineMeasurements({
   onChange,
   sqftPerBox,
   onSqftPerBoxChange,
+  cartonLine,
+  billedQty,
+  orderQty,
 }: {
   category: string;
   rows: MeasureRow[];
   onChange: (rows: MeasureRow[]) => void;
   sqftPerBox: string;
   onSqftPerBoxChange: (v: string) => void;
+  cartonLine?: {
+    description?: string | null;
+    category?: string | null;
+    unit?: string | null;
+    measure_unit?: string | null;
+    sqft?: number | string | null;
+    quantity?: number | string | null;
+    sqft_per_box?: number | string | null;
+    roll_width_ft?: number | string | null;
+    order_as_roll?: boolean | null;
+    length_in?: number | string | null;
+    width_in?: number | string | null;
+    measurements?: {
+      length_in?: number | string | null;
+      width_in?: number | string | null;
+      op?: string | null;
+    }[] | null;
+  };
+  billedQty?: number;
+  orderQty?: number;
 }) {
   const isRoll = isRollGoodCategory(category);
   const isHard = isHardSurfaceCategory(category);
@@ -66,9 +97,39 @@ export function LineMeasurements({
 
   const total = rowsSqft(rows);
   const addCount = rows.filter((r) => r.op === "add").length;
-  const sqyd = Math.round((total / 9) * 100) / 100;
-  const perBox = num(sqftPerBox);
-  const cartons = perBox > 0 && total > 0 ? Math.ceil(total / perBox) : 0;
+  // Exclusive carpet-tile Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface Builder expanded LineMeasurements carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  // Exclusive carpet-tile Builder expanded LineMeasurements order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface Builder expanded LineMeasurements order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const cartonsHs = hardSurfaceAreaCartonCount(
+    {
+      ...cartonLine,
+      category,
+      sqft_per_box: sqftPerBox,
+    },
+    orderQty ?? billedQty ?? 0,
+  );
+  // Exclusive carpet-tile line measurements pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface line measurements pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  const lineMeasurementsPadTakeoff =
+    category === "underlayment" && cartonLine?.unit !== "sheet"
+      ? computeMaterialTakeoff({
+          family: "other",
+          measuredSqft:
+            billedQtyToSqft(orderQty ?? billedQty ?? 0, unitIsSqyd(cartonLine?.unit) ? "sqyd" : "sqft") ?? 0,
+          wasteAlreadyInQuantity: true,
+          sqftPerBox: Number(sqftPerBox) > 0 ? Number(sqftPerBox) : null,
+          billingUnit: unitIsSqyd(cartonLine?.unit) ? "sqyd" : "sqft",
+          takeoffLabel: "Carpet pad",
+        })
+      : null;
+  const cartons =
+    cartonsHs ||
+    (lineMeasurementsPadTakeoff?.cartons ? lineMeasurementsPadTakeoff.cartons.cartonCount : 0);
+  const unitKey = normalizeUnit(cartonLine?.unit);
+  // Exclusive carpet-tile Builder expanded LineMeasurements order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Underlayment Builder expanded LineMeasurements order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+  const padRolls = padRollCount(category, orderQty ?? billedQty ?? 0, unitKey);
 
   const update = (id: string, patch: Partial<MeasureRow>) =>
     onChange(rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -80,17 +141,14 @@ export function LineMeasurements({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <Ruler className="size-3.5" />
-          {isRoll ? "Cuts & areas" : "Measurements"}
+          {isRoll ? ROLL_GOODS_CUTS_HEADER : "Measurements"}
         </div>
         <div className="text-xs font-medium tabular-nums text-muted-foreground">
-          {total > 0 ? (
-            <>
-              {total.toFixed(total % 1 === 0 ? 0 : 1)} sq ft
-              {isRoll ? ` · ${sqyd.toFixed(1)} sq yd` : ""}
-            </>
-          ) : (
-            "0 sq ft"
-          )}
+          {isRoll
+            ? lineMeasurementsRollTotalLabel(total)
+            : total > 0
+              ? `${total.toFixed(total % 1 === 0 ? 0 : 1)} sq ft`
+              : "0 sq ft"}
         </div>
       </div>
 
@@ -173,7 +231,7 @@ export function LineMeasurements({
       ) : (
         <p className="px-0.5 text-xs text-muted-foreground">
           {isRoll
-            ? "Add each cut you'll pull off the roll (room + length × width). They add up to the sq yd, and each one prints on the warehouse cut sheet."
+            ? ROLL_GOODS_CUTS_EMPTY_HINT
             : "Add each area (length × width). They add up to the total square footage as you go — subtract a piece for a cutout."}
         </p>
       )}
@@ -203,6 +261,19 @@ export function LineMeasurements({
               <span className="text-xs font-medium text-foreground">= {cartons} carton{cartons === 1 ? "" : "s"}</span>
             ) : null}
           </div>
+        ) : cartons > 0 ? (
+          /* Exclusive carpet-tile line measurements pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */
+          /* Hard-surface line measurements pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */
+          <span className="text-xs font-medium text-foreground">
+            = {cartons} carton{cartons === 1 ? "" : "s"}
+          </span>
+        ) : null}
+        {/* Exclusive carpet-tile Builder expanded LineMeasurements order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+        {/* Underlayment Builder expanded LineMeasurements order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+        {padRolls > 0 ? (
+          <span className="text-xs font-medium text-foreground">
+            {padRolls} roll{padRolls === 1 ? "" : "s"}
+          </span>
         ) : null}
       </div>
     </div>

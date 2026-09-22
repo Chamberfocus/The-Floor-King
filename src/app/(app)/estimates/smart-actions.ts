@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCustomerSourceStatus } from "@/lib/data/lead-sources";
 import type { LineMeasurement, ProductCategory } from "@/lib/types";
+import { lineDisplayUnit, lineSkipsAreaCartonMath } from "@/lib/units";
 import { sendEstimateById } from "./actions";
 
 /** Clear a saved flooring-type default. */
@@ -198,7 +199,12 @@ export async function createSmartEstimate(
     .single();
   if (optErr || !opt) return { error: optErr?.message || "Couldn't create the option." };
 
-  const rows = lines.map((l, i) => ({
+  const rows = lines.map((l, i) => {
+    // Wrap / carton TBD / qty TBD How many is already the order. Leftover
+    // taped sq ft is not saved as measured area — except prep bag lines.
+    const skipLeftoverArea = lineSkipsAreaCartonMath(l) && !l.coverage_sqft;
+    const measuredSqft = skipLeftoverArea ? null : l.sqft && l.sqft > 0 ? l.sqft : null;
+    return {
     option_id: opt.id,
     position: i,
     room: l.room || null,
@@ -206,11 +212,11 @@ export async function createSmartEstimate(
     line_type: "mat_labor",
     category: (l.category || "other") as ProductCategory,
     measure_unit: l.measure_unit,
-    sqft: l.sqft && l.sqft > 0 ? l.sqft : null,
+    sqft: measuredSqft,
     quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
-    length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
-    width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
-    unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+    length_in: skipLeftoverArea ? null : l.length_in && l.length_in > 0 ? l.length_in : null,
+    width_in: skipLeftoverArea ? null : l.width_in && l.width_in > 0 ? l.width_in : null,
+    unit: lineDisplayUnit({ ...l, sqft: measuredSqft }),
     material_rate: Number(l.material_rate) || 0,
     labor_rate: Number(l.labor_rate) || 0,
     material_cost: Number(l.material_cost) || 0,
@@ -229,8 +235,13 @@ export async function createSmartEstimate(
     prep_thickness_in: l.prep_thickness_in && l.prep_thickness_in > 0 ? l.prep_thickness_in : null,
     order_as_roll: !!l.order_as_roll,
     roll_width_ft: l.roll_width_ft && l.roll_width_ft > 0 ? l.roll_width_ft : null,
-    measurements: l.measurements && l.measurements.length ? l.measurements : null,
-  }));
+    measurements: skipLeftoverArea
+      ? null
+      : l.measurements && l.measurements.length
+        ? l.measurements
+        : null,
+  };
+  });
   let { error: lineErr } = await supabase
     .from("estimate_line_items")
     .insert(rows);

@@ -21,6 +21,7 @@ export function GuidedEstimate(props: {
   draft?: EstimateDraft | null;
   /** Chosen in the New estimate dialog, so it isn't asked twice. */
   initialServiceAddressId?: string | null;
+  addonDefaults?: Record<string, { cost: number | null; unit?: string | null; labor?: boolean }>;
 }) {
   const [serviceAddressId, setServiceAddressId] = useState(
     props.initialServiceAddressId ?? "",
@@ -57,6 +58,7 @@ export function GuidedEstimate(props: {
         questions={props.questions}
         savedAreas={props.savedAreas}
         draft={props.draft}
+        addonDefaults={props.addonDefaults}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import { lineAreaSqft, lineQty, num } from "@/lib/estimate-calc";
+import { lineAreaSqft, lineQty, lineSkipsAreaCartonMath, num } from "@/lib/estimate-calc";
 import type { EstimateLineItem, SchedulingSettings } from "@/lib/types";
 
 // --- date helpers (UTC-noon to dodge DST), all "YYYY-MM-DD" strings ----------
@@ -64,7 +64,9 @@ export function installDaysForJob(
   };
 
   for (const l of lines) {
-    const sf = lineAreaSqft(l);
+    // Exclusive carpet-tile scheduling leftover planted taped sq ft is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface scheduling leftover planted taped sq ft stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const sf = lineSkipsAreaCartonMath(l) ? 0 : lineAreaSqft(l);
     const sy = sf / 9;
     const text = `${l.description ?? ""} ${l.room ?? ""}`.toLowerCase();
 
@@ -73,7 +75,8 @@ export function installDaysForJob(
       continue;
     }
     if (/subfloor/.test(text)) {
-      const sheets = lineQty(l) || sf / 32; // 4x8 sheet = 32 sq ft fallback
+      // How many sheets is the order. Leftover taped sq ft is not 4x8 sheets.
+      const sheets = lineQty(l);
       add("Subfloor", sheets, "sheets", daysAt(sheets, s.cap_subfloor_sheets));
       continue;
     }
@@ -87,8 +90,12 @@ export function installDaysForJob(
         add("Carpet", sy, "sq yd", daysAt(sy, s.cap_carpet_yd));
         break;
       case "lvp":
+        add("LVP / LVT", sf, "sq ft", daysAt(sf, s.cap_lvt_sf));
+        break;
       case "vinyl":
-        add("Luxury / sheet vinyl", sf, "sq ft", daysAt(sf, s.cap_lvt_sf));
+        // Floor King settings only have one luxury/sheet daily capacity.
+        // Do not invent a second rate — label sheet vinyl as itself.
+        add("Sheet vinyl", sf, "sq ft", daysAt(sf, s.cap_lvt_sf));
         break;
       case "laminate":
         add("Laminate", sf, "sq ft", daysAt(sf, s.cap_laminate_sf));

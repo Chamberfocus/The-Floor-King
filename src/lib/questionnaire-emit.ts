@@ -8,8 +8,9 @@
  * the line sq ft / sq yd made the builder look empty and any later area edit
  * wipe the value.
  */
-import { isAreaUnit, normalizeUnit, unitLabel } from "@/lib/units";
-import type { CalcLine } from "@/lib/estimate-calc";
+import { isAreaUnit, isCountPricedLine, normalizeUnit, unitLabel } from "@/lib/units";
+import { lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
+import { isHardSurfaceCategory, isRollGoodCategory } from "@/lib/types";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -54,9 +55,16 @@ export function questionnaireEmitToLineQty(
   if (args.qtyOverride != null) {
     qty = args.qtyOverride;
   } else if (per === "area") {
+    // Taped square feet is not gallons, bags, each, or linear feet.
+    // Number questions pass qtyOverride; count+area without an Amount is not an order.
+    if (!area) return null;
     qty = yd ? Math.ceil(args.areaSqft / 9) : Math.ceil(args.areaSqft);
-  } else {
+  } else if (per === "flat") {
+    // One flat job charge (delivery / furniture moving / curb) — not an item count.
     qty = 1;
+  } else {
+    // per:each without Amount: type the count. Do not invent 1 T-mold / 1 lnft.
+    return null;
   }
   if (!(qty > 0) || !Number.isFinite(qty)) return null;
 
@@ -64,11 +72,14 @@ export function questionnaireEmitToLineQty(
     ? yd
       ? "sq yd"
       : "sq ft"
-    : unitLabel(args.emitUnit) || args.emitUnit || "each";
+    : unitLabel(args.emitUnit) || args.emitUnit || "";
   const measure_unit: "sqft" | "sqyd" = yd ? "sqyd" : "sqft";
 
   let sqft: number | null;
-  if (args.qtyOverride != null && area) {
+  if (!area) {
+    // Count units never inherit taped square feet.
+    sqft = null;
+  } else if (args.qtyOverride != null) {
     // Amount is in the emit unit. Builder Sq ft + lineQty read square feet.
     sqft = r2(yd ? qty * 9 : qty);
   } else if (per === "area") {
@@ -93,7 +104,23 @@ export function recoverAreaSqftFromQuantity(args: {
   unit: string | null | undefined;
   sqft: number | string | null | undefined;
   quantity: number | string | null | undefined;
+  description?: string | null;
+  category?: string | null;
 }): string {
+  // Builder hydrate does not plant How many as taped sq ft on wrap / carton-coverage TBD / qty TBD — leftover quantity is not measured area.
+  if (lineSkipsAreaCartonMath({ description: args.description, unit: args.unit })) {
+    return "";
+  }
+  const flooring =
+    isRollGoodCategory(args.category) || isHardSurfaceCategory(args.category);
+  // Builder hydrate does not plant How many as taped sq ft on Unit TBD (empty unit) count lines — leftover quantity is not measured area.
+  // Ignore leftover planted sqft so a prior save cannot flip adhesive / pad TBD to area.
+  if (
+    !flooring &&
+    isCountPricedLine({ unit: args.unit, sqft: null })
+  ) {
+    return "";
+  }
   const existing =
     args.sqft != null && args.sqft !== "" ? String(args.sqft) : "";
   const existingN = parseFloat(existing);

@@ -13,6 +13,7 @@ import { formatMoney } from "@/lib/format";
 import { catalogUnitCost } from "@/lib/catalog-pricing";
 import type { Product } from "@/lib/types";
 import { saveStockPO, saveAndPlaceStockPO, getReorderAlerts } from "../../actions";
+import type { ReorderAlert } from "@/lib/data/stock-rolls";
 
 export interface InitialItem {
   id: string;
@@ -90,7 +91,7 @@ export function StockPoEditor({
       product_id: p.id,
       label,
       description: label,
-      unit: cur?.unit && cur.unit !== "each" ? cur.unit : p.unit || "each",
+      unit: cur?.unit && cur.unit !== "each" ? cur.unit : p.unit || "",
       unit_cost:
         cur?.unit_cost ||
         (cost.missing || cost.amount == null ? "" : String(cost.amount)),
@@ -102,9 +103,7 @@ export function StockPoEditor({
   const anyReady = rows.some((r) => r.product_id && (parseFloat(r.quantity) || 0) > 0);
 
   // Live NOTIFY-ONLY reorder alerts for whatever products are in the grid right now.
-  const [alerts, setAlerts] = useState<
-    Record<string, { totalQty: number; unit: string; count: number; items: { location?: string | null }[] }>
-  >({});
+  const [alerts, setAlerts] = useState<Record<string, ReorderAlert>>({});
   const pidKey = rows.map((r) => r.product_id).filter(Boolean).sort().join(",");
   useEffect(() => {
     const ids = pidKey ? pidKey.split(",") : [];
@@ -186,13 +185,21 @@ export function StockPoEditor({
           <ul className="space-y-1 text-sm">
             {alertList.map((a, i) => {
               const locs = a.items.filter((x) => x.location).map((x) => x.location);
+              // Exclusive carpet-tile warehouse stock-PO remnant mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+              // Hard-surface warehouse stock-PO leftover planted remnant mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+              const remnantUnits = a.items.map((x) => (x.unit || "").trim());
+              const mixedRemnant = new Set(remnantUnits).size > 1;
               return (
                 <li key={i} className="text-amber-900 dark:text-amber-200">
                   You already have{" "}
-                  <span className="font-semibold tabular-nums">
-                    {a.totalQty} {a.unit}
-                  </span>{" "}
-                  {a.count > 1 ? `across ${a.count} pieces` : "as a remnant/roll"}
+                  {mixedRemnant ? (a.count > 1 ? `stock across ${a.count} pieces` : "stock as a remnant/roll") : (
+                    <>
+                      <span className="font-semibold tabular-nums">
+                        {a.totalQty} {a.unit}
+                      </span>{" "}
+                      {a.count > 1 ? `across ${a.count} pieces` : "as a remnant/roll"}
+                    </>
+                  )}
                   {locs.length ? (
                     <span className="text-amber-700 dark:text-amber-300/90"> · {locs.join(", ")}</span>
                   ) : (

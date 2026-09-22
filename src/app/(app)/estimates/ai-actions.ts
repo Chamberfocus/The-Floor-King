@@ -9,11 +9,25 @@ import { searchCatalog } from "@/lib/data/products";
 import { getBusinessSettings } from "@/lib/data/business-settings";
 import { getOrgSettings } from "@/lib/data/org";
 import { getRoomDefaults, getAddonDefaults } from "@/lib/data/addon-defaults";
+import { catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, lineSkipsAreaCartonMath } from "@/lib/units";
+import { catalogRateInLineUnit } from "@/lib/catalog-pricing";
 import {
   sellLaborFromTargetMargin,
   sellMaterialFromTargetMargin,
 } from "@/lib/estimate-pricing";
 import { FLOORING_TYPES, profileFor, areaSqft } from "@/lib/flooring-profiles";
+import {
+  areaDerivedMaterialAllowed,
+  areaDerivedMaterialQty,
+  boxedCartonAreaTakeoffAllowed,
+  boxedCartonCoverageTbdDescription,
+  familyFromCatalogCategory,
+  materialWastePctForEmit,
+  rollGoodsOrderTbdDescription,
+  type InstallSystem,
+} from "@/lib/flooring-knowledge";
+import { isRollGoodCategory } from "@/lib/types";
+import { notesCarpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
 import { createSmartEstimate, type SmartLine } from "./smart-actions";
 
 export interface DraftQuoteResult {
@@ -26,12 +40,35 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * Convert a catalog product's per-unit rate to a line's billing unit. Carpet &
  * pad bill per sq yd; hard surface bills per sq ft. Catalog products are stored
  * in EITHER unit, so a sq-ft rate on a sq-yd line must be ×9 (and vice-versa
- * ÷9). Mirrors the guided builder's pickProduct/pickPad conversion.
+ * ÷9). Catalog box rate onto an area line is $/coverage, not 1:1.
+ * Exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 —
+ * mixed stretch-in + tile still waits for cuts. Wrap / count How many stays 1:1 — omit boxedProduct.
+ * Do not invent coverage. AI notes exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 —
+ * mixed stretch-in + tile and unanswered carpet stay 1:1. Do not infer exclusive tile from unit=box.
  */
-function rateFor(rate: number, productUnit: string | null, wantYd: boolean): number {
-  const isYd = (productUnit || "").toLowerCase().includes("yd");
-  const factor = isYd === wantYd ? 1 : wantYd ? 9 : 1 / 9;
-  return round2((rate || 0) * factor);
+function rateFor(
+  rate: number,
+  productUnit: string | null,
+  wantYd: boolean,
+  boxedProduct?: {
+    category?: string | null;
+    sqft_per_box?: number | string | null;
+    carpetInstallSystems?: InstallSystem[] | null;
+  } | null,
+): number {
+  if (boxedProduct) {
+    return catalogRateInLineUnit(
+      rate,
+      {
+        unit: productUnit,
+        category: boxedProduct.category,
+        sqft_per_box: boxedProduct.sqft_per_box,
+        carpetInstallSystems: boxedProduct.carpetInstallSystems,
+      },
+      wantYd,
+    );
+  }
+  return catalogRateToBillingUnit(rate, productUnit, wantYd);
 }
 
 /** Map a free-text flooring type onto one of the builder's profile keys. */
@@ -137,6 +174,17 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     const isYd = profile.unit === "sqyd";
     const qty = round2(isYd ? sqft / 9 : sqft);
     const unit = isYd ? "sq yd" : "sq ft";
+    const family = familyFromCatalogCategory(profile.category);
+    // Exclusive-tile boxed rate: only when the parsed room type / notes / material
+    // positively say carpet tile. Do not infer exclusive tile from unit=box.
+    const notesSystems =
+      family === "carpet"
+        ? notesCarpetInstallSystemsForBoxedRate({
+            type: room.type,
+            notes: room.notes,
+            material: room.material,
+          })
+        : undefined;
 
     // Match to a REAL catalog product BY ID — same category only (a generic term
     // like "plush carpet" that hits nothing is NOT a match). Catalog rates are
@@ -148,13 +196,23 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
     let style: string | null = null;
     let color: string | null = null;
     let laborRate = 0;
+    let productUnit: string | null = null;
+    let sqftPerBox: number | null = null;
     if (room.material) {
       try {
         const hits = await searchCatalog(room.material, { activeOnly: true, limit: 5 });
         const match = hits.find((p) => p.category === profile.category) ?? null;
         if (match) {
           productId = match.id;
-          if (!cost) cost = rateFor(Number(match.material_rate) || 0, match.unit, isYd);
+          productUnit = match.unit;
+          const cov = Number(match.sqft_per_box);
+          sqftPerBox = Number.isFinite(cov) && cov > 0 ? cov : null;
+          if (!cost)
+            cost = rateFor(Number(match.material_rate) || 0, match.unit, isYd, {
+              category: match.category,
+              sqft_per_box: sqftPerBox,
+              carpetInstallSystems: notesSystems,
+            });
           laborRate = rateFor(Number(match.labor_rate) || 0, match.unit, isYd);
           manufacturer = match.manufacturer;
           style = match.style;
@@ -178,34 +236,97 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
       if (!laborRate && cp) laborRate = rateFor(cp.labor_rate, cp.unit, isYd);
     }
 
-    // MATERIAL line — the quantity is what you actually order: area + waste,
-    // rounded up to whole units. No hidden waste % (it's in the quantity).
-    const matQty = isYd
-      ? Math.ceil((sqft / 9) * (1 + profile.waste / 100))
-      : Math.ceil(sqft * (1 + profile.waste / 100));
+    // MATERIAL line. Boxed hard surface: measured sqft + waste_pct — do not bake
+    // waste into quantity and null out sqft (Builder would then bill L×W and
+    // drop waste). A boxed SKU sold by the carton with coverage still takeoffs
+    // from measured area — not How many boxes from leftover taped sq ft.
+    // Roll goods cannot order from taped sq ft ÷ 9.
     const baseDesc =
       [manufacturer, room.material].filter(Boolean).join(" ").trim() || profile.label;
-    lines.push({
-      room: room.name || null,
-      description: needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
-      category: profile.category,
-      measure_unit: profile.unit,
-      sqft: null,
-      quantity: matQty > 0 ? matQty : null,
-      // Keep the room cut size for the PO, even though the line bills by quantity.
-      length_in: lenIn > 0 ? lenIn : null,
-      width_in: widIn > 0 ? widIn : null,
-      unit,
-      material_rate: sellMat(cost),
-      labor_rate: 0,
-      material_cost: cost,
-      labor_cost: 0,
-      waste_pct: 0,
-      product_id: productId,
-      manufacturer,
-      style,
-      color,
-    });
+    const allowAreaMat =
+      areaDerivedMaterialAllowed(family, productUnit, notesSystems) ||
+      boxedCartonAreaTakeoffAllowed({
+        family,
+        productUnit,
+        sqftPerBox,
+        carpetInstallSystems: notesSystems,
+      });
+    if (allowAreaMat) {
+      const billingQty = areaDerivedMaterialQty({
+        family,
+        measuredSqft: sqft,
+        billingUnit: isYd ? "sqyd" : "sqft",
+        productUnit,
+        sqftPerBox,
+        carpetInstallSystems: notesSystems,
+      });
+      const waste = materialWastePctForEmit({
+        family,
+        requestedWastePct: profile.waste,
+      });
+      const roll = isRollGoodCategory(profile.category);
+      if (billingQty != null && sqft > 0) {
+        lines.push({
+          room: room.name || null,
+          description: needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
+          category: profile.category,
+          measure_unit: profile.unit,
+          sqft: round2(sqft),
+          quantity: billingQty,
+          length_in: roll ? null : lenIn > 0 ? lenIn : null,
+          width_in: roll ? null : widIn > 0 ? widIn : null,
+          unit,
+          material_rate: sellMat(cost),
+          labor_rate: 0,
+          material_cost: cost,
+          labor_cost: 0,
+          waste_pct: waste,
+          product_id: productId,
+          manufacturer,
+          style,
+          color,
+          sqft_per_box: sqftPerBox,
+        });
+      }
+    } else if (sqft > 0 || productId) {
+      const cartonTbd = boxedCartonCoverageTbdDescription({
+        family,
+        productUnit,
+        sqftPerBox,
+        label: needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
+        carpetInstallSystems: notesSystems,
+      });
+      lines.push({
+        room: room.name || null,
+        description:
+          cartonTbd ??
+          rollGoodsOrderTbdDescription(
+            needsProduct ? `${baseDesc} — ⚠ confirm product` : baseDesc,
+            sqft,
+          ),
+        category: profile.category,
+        measure_unit: profile.unit,
+        sqft: null,
+        quantity: null,
+        length_in: null,
+        width_in: null,
+        // Builder carton-coverage TBD is How many / Unit TBD, never taped square feet.
+        unit: cartonTbd
+          ? productUnit && !isAreaUnit(productUnit)
+            ? productUnit
+            : ""
+          : unit,
+        material_rate: sellMat(cost),
+        labor_rate: 0,
+        material_cost: cost,
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: productId,
+        manufacturer,
+        style,
+        color,
+      });
+    }
 
     // PAD — accumulate across all carpet rooms; bundled into ONE catalog-matched
     // material line below. Cost: written → saved "Carpet pad" default → catalog.
@@ -310,7 +431,7 @@ async function buildLinesFromJob(job: NotesJob): Promise<SmartLine[]> {
       quantity: a.qty && a.qty > 0 ? a.qty : 1,
       length_in: null,
       width_in: null,
-      unit: a.unit || "each",
+      unit: a.unit || "",
       material_rate: isLabor ? 0 : sellMat(cost),
       labor_rate: isLabor ? sellLab(cost) : 0,
       material_cost: isLabor ? 0 : cost,
@@ -423,7 +544,12 @@ export async function createEstimateFromNotes(
       .limit(1)
       .maybeSingle();
     const startPos = ((last?.position as number) ?? -1) + 1;
-    const rows = lines.map((l, i) => ({
+    const rows = lines.map((l, i) => {
+      // Wrap / carton TBD / qty TBD How many is already the order. Leftover
+      // taped sq ft is not saved as measured area — except prep bag lines.
+      const skipLeftoverArea = lineSkipsAreaCartonMath(l) && !l.coverage_sqft;
+      const measuredSqft = skipLeftoverArea ? null : l.sqft && l.sqft > 0 ? l.sqft : null;
+      return {
       option_id: optionId,
       position: startPos + i,
       room: l.room || null,
@@ -431,11 +557,11 @@ export async function createEstimateFromNotes(
       line_type: "mat_labor",
       category: l.category || "other",
       measure_unit: l.measure_unit,
-      sqft: l.sqft && l.sqft > 0 ? l.sqft : null,
+      sqft: measuredSqft,
       quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
-      length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
-      width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
-      unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+      length_in: skipLeftoverArea ? null : l.length_in && l.length_in > 0 ? l.length_in : null,
+      width_in: skipLeftoverArea ? null : l.width_in && l.width_in > 0 ? l.width_in : null,
+      unit: lineDisplayUnit({ ...l, sqft: measuredSqft }),
       material_rate: Number(l.material_rate) || 0,
       labor_rate: Number(l.labor_rate) || 0,
       material_cost: Number(l.material_cost) || 0,
@@ -445,7 +571,8 @@ export async function createEstimateFromNotes(
       manufacturer: l.manufacturer || null,
       style: l.style || null,
       color: l.color || null,
-    }));
+    };
+    });
     const { error } = await supabase.from("estimate_line_items").insert(rows);
     if (error) return { error: error.message };
     revalidatePath(`/estimates/${appendToEstimateId}`);
@@ -637,7 +764,12 @@ export async function createDraftEstimateFromText(
   if (!opt) return { error: "Couldn't create the estimate option." };
 
   // Persist the builder-parity lines — same column shape as every other path.
-  const rows = lines.map((l, i) => ({
+  const rows = lines.map((l, i) => {
+    // Wrap / carton TBD / qty TBD How many is already the order. Leftover
+    // taped sq ft is not saved as measured area — except prep bag lines.
+    const skipLeftoverArea = lineSkipsAreaCartonMath(l) && !l.coverage_sqft;
+    const measuredSqft = skipLeftoverArea ? null : l.sqft && l.sqft > 0 ? l.sqft : null;
+    return {
     option_id: opt.id,
     position: i,
     room: l.room || null,
@@ -645,11 +777,11 @@ export async function createDraftEstimateFromText(
     line_type: "mat_labor",
     category: l.category || "other",
     measure_unit: l.measure_unit,
-    sqft: l.sqft && l.sqft > 0 ? l.sqft : null,
+    sqft: measuredSqft,
     quantity: l.quantity && l.quantity > 0 ? l.quantity : null,
-    length_in: l.length_in && l.length_in > 0 ? l.length_in : null,
-    width_in: l.width_in && l.width_in > 0 ? l.width_in : null,
-    unit: l.unit || (l.measure_unit === "sqyd" ? "sq yd" : "sq ft"),
+    length_in: skipLeftoverArea ? null : l.length_in && l.length_in > 0 ? l.length_in : null,
+    width_in: skipLeftoverArea ? null : l.width_in && l.width_in > 0 ? l.width_in : null,
+    unit: lineDisplayUnit({ ...l, sqft: measuredSqft }),
     material_rate: Number(l.material_rate) || 0,
     labor_rate: Number(l.labor_rate) || 0,
     material_cost: Number(l.material_cost) || 0,
@@ -660,7 +792,8 @@ export async function createDraftEstimateFromText(
     style: l.style || null,
     color: l.color || null,
     from_stock: false,
-  }));
+  };
+  });
   const { error: lineErr } = await supabase
     .from("estimate_line_items")
     .insert(rows);

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Input } from "@/components/ui/input";
 import type { CustomerArea } from "@/lib/types";
+import { formatMeasuredLabel, measuredArea } from "@/lib/flooring-knowledge";
 import { saveCustomerArea, deleteCustomerArea, moveCustomerArea } from "./area-actions";
 
 const ftPart = (totalIn: number | null) => (totalIn ? String(Math.floor(totalIn / 12)) : "");
@@ -57,8 +58,7 @@ export function CustomerAreasCard({
         </CardTitle>
         {total > 0 ? (
           <span className="rounded-md bg-primary/10 px-2.5 py-1 text-sm font-medium">
-            {Math.round(total * 100) / 100} sq ft
-            <span className="ml-1 text-muted-foreground">· {Math.round((total / 9) * 100) / 100} sq yd</span>
+            {formatMeasuredLabel(measuredArea(total), { showEquivalentYd: true })}
           </span>
         ) : null}
       </CardHeader>

@@ -11,6 +11,7 @@ import { setJobStatus, enforceMaterialsReadyForSchedule } from "@/app/(app)/jobs
 import { addActivity } from "@/app/(app)/customers/actions";
 import { notifyOnTheWay } from "@/app/(app)/customers/[id]/onway-actions";
 import { createDraftEstimateFromText } from "@/app/(app)/estimates/ai-actions";
+import { lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
 
 const fmtDate = (d: string | null) => {
   if (!d) return "unscheduled";
@@ -174,13 +175,15 @@ export async function askAssistant(question: string): Promise<AssistantReply> {
           if (addr) wo.push(`  Address: ${addr}`);
           wo.push(`  Scheduled: ${fmtDate(d.scheduled_date)}, status ${d.status}`);
           for (const li of d.line_items.slice(0, 30)) {
+            // Exclusive carpet-tile assistant leftover planted taped sq ft is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            // Hard-surface assistant leftover planted taped sq ft stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
             const meas =
               li.length_in && li.width_in
                 ? `${ftIn(li.length_in)} x ${ftIn(li.width_in)}`
-                : li.sqft
-                  ? `${li.sqft} sq ft`
-                  : li.quantity
-                    ? `${li.quantity} ${li.unit ?? ""}`.trim()
+                : li.quantity
+                  ? `${li.quantity} ${li.unit ?? ""}`.trim()
+                  : li.sqft && !lineSkipsAreaCartonMath(li)
+                    ? `${li.sqft} sq ft`
                     : "";
             wo.push(
               `  - ${li.room ? `${li.room}: ` : ""}${li.description ?? "Item"}${meas ? ` (${meas})` : ""}`,

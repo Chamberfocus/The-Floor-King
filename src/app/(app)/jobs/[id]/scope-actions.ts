@@ -94,7 +94,7 @@ export async function addJobLine(formData: FormData): Promise<void> {
     note: str(formData.get("note")) || null,
     sqft: numOrNull(formData.get("sqft")),
     quantity: numOrNull(formData.get("quantity")),
-    unit: str(formData.get("unit")) || "sqft",
+    unit: str(formData.get("unit")) || "",
     category: str(formData.get("category")) || "other",
     line_type: "mat_labor",
     position: ((last?.position as number) ?? -1) + 1,

@@ -23,8 +23,22 @@ export const FLOORING_CATEGORIES: ProductCategory[] = [
   "vinyl",
 ];
 
-/** Vendors sell trim as pre-cut sticks. 94" is the near-universal length. */
-export const DEFAULT_PIECE_LENGTH_IN = 94;
+/**
+ * Typical vendor stick length — a placeholder hint only.
+ * Do not use this as a conversion default when the product/type has no
+ * `piece_length_in`. Same rule as carton coverage: missing metadata stays TBD.
+ */
+export const TYPICAL_PIECE_LENGTH_IN = 94;
+/** @deprecated Use TYPICAL_PIECE_LENGTH_IN for placeholders, never as a fallback length. */
+export const DEFAULT_PIECE_LENGTH_IN = TYPICAL_PIECE_LENGTH_IN;
+
+/** Positive catalog/typed stick length, or null — never a fabricated 94". */
+export function resolvedPieceLengthIn(
+  raw: number | string | null | undefined,
+): number | null {
+  const n = typeof raw === "number" ? raw : parseFloat(String(raw ?? ""));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 export type AccessoryAxis = "color" | "size" | "none";
 export type AccessoryUnit = "each" | "lnft";
@@ -87,29 +101,29 @@ export function accessoryItemName(opts: {
  * you always round UP — you cannot buy 2.3 sticks.
  *
  * This is the bridge between how the job is measured (linear feet along a wall
- * or doorway) and how the vendor sells (94" pieces at a per-piece price), and it
- * is why a generated item keeps its vendor unit instead of being flattened to a
- * $/lnft rate that would never tie back to the vendor's invoice.
+ * or doorway) and how the vendor sells (sticks of a known length at a per-piece
+ * price). Missing length returns 0 — we do not invent 94". A generated item
+ * keeps its vendor unit instead of being flattened to a $/lnft rate that would
+ * never tie back to the vendor's invoice.
  */
 export function piecesForLinearFeet(
   linearFeet: number,
-  pieceLengthIn: number = DEFAULT_PIECE_LENGTH_IN,
+  pieceLengthIn: number | null | undefined,
 ): number {
   const lf = Number(linearFeet);
-  const len = Number(pieceLengthIn);
-  if (!Number.isFinite(lf) || lf <= 0) return 0;
-  if (!Number.isFinite(len) || len <= 0) return 0;
+  const len = resolvedPieceLengthIn(pieceLengthIn);
+  if (!Number.isFinite(lf) || lf <= 0 || len == null) return 0;
   return Math.ceil((lf * 12) / len);
 }
 
 /** Linear feet covered by n pieces — the inverse, for showing coverage back. */
 export function linearFeetForPieces(
   pieces: number,
-  pieceLengthIn: number = DEFAULT_PIECE_LENGTH_IN,
+  pieceLengthIn: number | null | undefined,
 ): number {
   const n = Number(pieces);
-  const len = Number(pieceLengthIn);
-  if (!Number.isFinite(n) || n <= 0 || !Number.isFinite(len) || len <= 0) return 0;
+  const len = resolvedPieceLengthIn(pieceLengthIn);
+  if (!Number.isFinite(n) || n <= 0 || len == null) return 0;
   return Math.round(((n * len) / 12) * 100) / 100;
 }
 
@@ -126,10 +140,7 @@ export function accessoryQuantity(opts: {
     const lf = Number(opts.linearFeet);
     return Number.isFinite(lf) && lf > 0 ? Math.round(lf * 100) / 100 : 0;
   }
-  return piecesForLinearFeet(
-    opts.linearFeet,
-    opts.pieceLengthIn ?? DEFAULT_PIECE_LENGTH_IN,
-  );
+  return piecesForLinearFeet(opts.linearFeet, opts.pieceLengthIn);
 }
 
 // --- Type parsing (used to reverse-engineer programs from imported rows) -----

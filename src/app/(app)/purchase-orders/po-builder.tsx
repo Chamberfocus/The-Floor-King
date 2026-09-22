@@ -22,7 +22,11 @@ import {
 import { ProductPicker } from "@/app/(app)/estimates/product-picker";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
-import { catalogUnitCost } from "@/lib/catalog-pricing";
+import { catalogUnitCost, catalogRateInLineUnit } from "@/lib/catalog-pricing";
+import { knowledgePickDescription, hardSurfaceAreaCartonCount, lineSkipsAreaCartonMath, lineUsesAreaCartonMath } from "@/lib/estimate-calc";
+import { poCarpetInstallSystemsForBoxedRate } from "@/lib/job-scope";
+import { billedQtyToSqft, billedRateToCartonCost, isAreaUnit, lineUnitKey, pickedProductUnit, unitIsSqyd } from "@/lib/units";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { poItemTotal, poTotal, type SavePoInput } from "@/lib/po-calc";
 import {
   PO_SOURCE_BADGE,
@@ -127,7 +131,7 @@ export function PoBuilder({
       product_id: it.product_id ?? "",
       description: it.description ?? "",
       quantity: it.quantity?.toString() ?? "",
-      unit: it.unit ?? "sqft",
+      unit: it.unit ?? (lineSkipsAreaCartonMath(it) ? "" : "sqft"),
       unit_cost: it.unit_cost?.toString() ?? "",
       manufacturer: it.manufacturer ?? "",
       style: it.style ?? "",
@@ -194,14 +198,49 @@ export function PoBuilder({
   // catalog's own unit and the catalog basis is shown on the line for verifying.
   // Convert a catalog-unit cost into the PO's ordering unit (same rules the
   // price used) — shared so a vendor's cost converts identically.
-  const convertCost = (p: Product, base: number): { unit: string; unitCost: number } => {
+  const convertCost = (
+    p: Product,
+    base: number,
+    line?: ItemState,
+  ): { unit: string; unitCost: number } => {
     const cls = materialClass(p.category);
-    const catUnit = (p.unit || "").toLowerCase();
-    const r2 = (n: number) => Math.round(n * 100) / 100;
-    if (cls === "roll") return { unit: "sq yd", unitCost: catUnit.includes("yd") ? base : r2(base * 9) };
-    if (cls === "hard") return { unit: "sq ft", unitCost: catUnit.includes("yd") ? r2(base / 9) : base };
-    if (cls === "trim") return { unit: p.unit || "lnft", unitCost: base };
-    return { unit: p.unit || "sqft", unitCost: base };
+    // Exclusive carpet-tile PO boxed rate onto that area line is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    const carpetInstallSystems = poCarpetInstallSystemsForBoxedRate({
+      category: p.category,
+      roll_width_ft: Number(p.roll_width_ft) > 0 ? p.roll_width_ft : line?.roll_width_ft,
+      quantity: line?.quantity,
+    });
+    if (cls === "roll") {
+      return {
+        unit: "sq yd",
+        unitCost: catalogRateInLineUnit(
+          base,
+          {
+            unit: p.unit,
+            category: p.category,
+            sqft_per_box: p.sqft_per_box,
+            carpetInstallSystems,
+          },
+          true,
+        ),
+      };
+    }
+    // Hard-surface PO boxed rate onto that area line is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+    if (cls === "hard") {
+      return {
+        unit: "sq ft",
+        unitCost: catalogRateInLineUnit(
+          base,
+          {
+            unit: p.unit,
+            category: p.category,
+            sqft_per_box: p.sqft_per_box,
+          },
+          false,
+        ),
+      };
+    }
+    return { unit: pickedProductUnit(p.unit, p.category), unitCost: base };
   };
 
   // Point the whole PO at a vendor (a PO is per-vendor) from a product's vendor row.
@@ -230,11 +269,22 @@ export function PoBuilder({
       vendors: vRow ? [vRow] : vs,
     });
     const base = cost.amount ?? 0;
-    const { unit, unitCost } = convertCost(p, base);
+    const skip = lineSkipsAreaCartonMath(items[i] ?? {});
+    const converted = convertCost(p, base, items[i]);
+    // Wrap / carton TBD / qty TBD How many stays How many — catalog coverage
+    // does not plant sq ft or reopen carton math from leftover taped sq ft.
+    const unit = skip
+      ? isAreaUnit(p.unit)
+        ? items[i]?.unit || ""
+        : p.unit || items[i]?.unit || ""
+      : converted.unit;
+    const unitCost = skip ? base : converted.unitCost;
 
     updateItem(i, {
       product_id: p.id,
-      description: p.name,
+      description: knowledgePickDescription(items[i]?.description ?? "", p.name, {
+        dropTbd: false,
+      }),
       manufacturer: p.manufacturer ?? "",
       style: p.style ?? "",
       color: p.color ?? "",
@@ -242,7 +292,11 @@ export function PoBuilder({
       category: p.category ?? "",
       unit,
       unit_cost: cost.missing ? "" : String(unitCost),
-      sqft_per_box: p.sqft_per_box != null ? String(p.sqft_per_box) : "",
+      sqft_per_box: skip
+        ? items[i]?.sqft_per_box ?? ""
+        : p.sqft_per_box != null
+          ? String(p.sqft_per_box)
+          : "",
       roll_width_ft: p.roll_width_ft != null ? String(p.roll_width_ft) : "",
     });
 
@@ -291,7 +345,7 @@ export function PoBuilder({
         it.description ||
         productLabel(it),
       quantity: it.quantity != null ? String(it.quantity) : "",
-      unit: it.unit || "sqft",
+      unit: it.unit || "",
       unit_cost: it.unit_cost != null ? String(it.unit_cost) : "",
       manufacturer: it.manufacturer ?? "",
       style: it.style ?? "",
@@ -559,7 +613,32 @@ export function PoBuilder({
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {items.map((it, i) => (
+          {items.map((it, i) => {
+            // Exclusive carpet-tile PO carton helper boxed rate onto $/carton is sq ft coverage, not sq yd × coverage 1:1. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            const cartonCost = billedRateToCartonCost(
+              Number(it.unit_cost) || 0,
+              lineUnitKey(it),
+              Number(it.sqft_per_box),
+            );
+            const cartonsHs = hardSurfaceAreaCartonCount(it, Number(it.quantity));
+            // Exclusive carpet-tile po builder pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            // Hard-surface po builder pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+            const poBuilderPadTakeoff =
+              it.category === "underlayment" && it.unit !== "sheet"
+                ? computeMaterialTakeoff({
+                    family: "other",
+                    measuredSqft:
+                      billedQtyToSqft(Number(it.quantity), unitIsSqyd(it.unit) ? "sqyd" : "sqft") ?? 0,
+                    wasteAlreadyInQuantity: true,
+                    sqftPerBox: Number(it.sqft_per_box) > 0 ? Number(it.sqft_per_box) : null,
+                    billingUnit: unitIsSqyd(it.unit) ? "sqyd" : "sqft",
+                    takeoffLabel: "Carpet pad",
+                  })
+                : null;
+            const cartons =
+              cartonsHs ||
+              (poBuilderPadTakeoff?.cartons ? poBuilderPadTakeoff.cartons.cartonCount : 0);
+            return (
             <div key={it.key} className="rounded-md border p-3">
               {it.product_id || pickerOpen.has(it.key) ? (
                 <ProductPicker
@@ -684,15 +763,27 @@ export function PoBuilder({
                 </Button>
               </div>
 
-              {/* Vendor-unit helper: hard surface → cartons from sq ft/box;
-                  reminds you to set sq ft/box if it wasn't in the catalog. */}
-              {isHardSurfaceCategory(it.category) ? (
+              {/* Vendor-unit helper: hard surface / exclusive carpet tile → cartons from sq ft/box.
+                  Wrap / carton TBD / qty TBD How many is already the order.
+                  Mixed stretch-in + tile and unanswered carpet stay cuts. */}
+              {lineUsesAreaCartonMath({
+                description: it.description,
+                category: it.category,
+                unit: it.unit,
+                sqft_per_box: it.sqft_per_box,
+                roll_width_ft: it.roll_width_ft,
+                quantity: it.quantity,
+              }) || cartons > 0 ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs">
                   {Number(it.sqft_per_box) > 0 && Number(it.quantity) > 0 ? (
                     <span className="font-semibold text-primary">
-                      = {Math.ceil(Number(it.quantity) / Number(it.sqft_per_box))} cartons
+                      = {cartons} cartons
                       <span className="font-normal text-muted-foreground">
-                        {" "}({it.sqft_per_box} sq ft/box · {formatMoney((Number(it.unit_cost) || 0) * Number(it.sqft_per_box))}/carton)
+                        {" "}({it.sqft_per_box} sq ft/box
+                        {cartonCost != null
+                          ? ` · ${formatMoney(cartonCost)}/carton`
+                          : ""}
+                        )
                       </span>
                     </span>
                   ) : (
@@ -761,7 +852,8 @@ export function PoBuilder({
                 ) : null}
               </div>
             </div>
-          ))}
+          );
+          })}
           <Button type="button" variant="outline" size="sm" onClick={addItem}>
             <Plus className="size-3.5" /> Add item
           </Button>
@@ -871,7 +963,11 @@ export function PoBuilder({
                   vendors: [v],
                 });
                 const base = cost.amount ?? 0;
-                const { unit, unitCost } = convertCost(vendorChoice.product, base);
+                const { unit, unitCost } = convertCost(
+                  vendorChoice.product,
+                  base,
+                  items[vendorChoice.line],
+                );
                 return (
                   <button
                     key={v.id}

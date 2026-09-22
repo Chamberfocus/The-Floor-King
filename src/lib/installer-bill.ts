@@ -6,6 +6,7 @@
 // sell) or `material_*`. That keeps the installer bill clean of margin and
 // material, matching the print rules.
 import { num, lineQty, optionCostTotals } from "@/lib/estimate-calc";
+import { lineUnitKey } from "@/lib/units";
 import type { EstimateLineItem } from "@/lib/types";
 
 export const round2 = (n: number): number => Math.round((Number(n) || 0) * 100) / 100;
@@ -33,7 +34,7 @@ export function laborBillLinesFromScope(
     if (l.category !== "labor") continue; // only the work-order labor scope
     const qty = l.line_type === "flat" ? 1 : lineQty(l);
     const rate = num(l.labor_cost); // our cost, isolated from material/sell
-    const unit = l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft");
+    const unit = lineUnitKey(l);
     const description =
       [l.room, l.description]
         .map((s) => (s ?? "").trim())

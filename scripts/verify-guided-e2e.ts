@@ -21,21 +21,26 @@ import { carpetYardageFromCuts, stairsCarpet, subfloorSheets } from "@/lib/quest
 import { bagsNeeded } from "@/lib/floor-prep";
 import { buildJobScope } from "@/lib/job-scope";
 import { lineOrderQty } from "@/lib/estimate-calc";
+import { lineDisplayUnit, lineSkipsAreaCartonMath } from "@/lib/units";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string, d = "") => { c ? (pass++, console.log(`  ✓ ${m}${d ? "  " + d : ""}`)) : (fail++, console.log(`  ✗ FAIL ${m}${d ? "  " + d : ""}`)); };
 const admin = createAdminClient();
 
 // createSmartEstimate's exact row mapping (mirrored).
-const toRow = (l: any, opt: string, i: number) => ({
+const toRow = (l: any, opt: string, i: number) => {
+  const skipLeftoverArea = lineSkipsAreaCartonMath(l) && !l.coverage_sqft;
+  const measuredSqft = skipLeftoverArea ? null : l.sqft && l.sqft > 0 ? l.sqft : null;
+  return {
   option_id: opt, position: i, room: l.room || null, description: l.description, line_type: "mat_labor",
-  category: l.category || "other", measure_unit: l.measure_unit, sqft: l.sqft && l.sqft > 0 ? l.sqft : null,
-  quantity: l.quantity && l.quantity > 0 ? l.quantity : null, unit: l.unit,
+  category: l.category || "other", measure_unit: l.measure_unit, sqft: measuredSqft,
+  quantity: l.quantity && l.quantity > 0 ? l.quantity : null, unit: lineDisplayUnit({ ...l, sqft: measuredSqft }),
   material_rate: l.material_rate || 0, labor_rate: l.labor_rate || 0, material_cost: l.material_cost || 0, labor_cost: l.labor_cost || 0,
   waste_pct: 0, product_id: null, manufacturer: null, style: null, color: null, from_stock: !!l.from_stock,
   coverage_sqft: l.coverage_sqft ?? null, coverage_thickness_in: l.coverage_thickness_in ?? null, prep_thickness_in: l.prep_thickness_in ?? null,
   order_as_roll: !!l.order_as_roll, roll_width_ft: l.roll_width_ft ?? null,
-});
+};
+};
 
 async function makeEstimate(customerId: string, title: string, lines: any[]) {
   const { data: est } = await admin.from("estimates").insert({ customer_id: customerId, title }).select("id").single();

@@ -19,8 +19,9 @@ const STAGE_MATERIALS_RECEIVED = /material.*received|received.*material/;
 const STAGE_AWAITING_MATERIALS = /wait.*material|await.*material/;
 import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
 import { primaryCatalogCostByProductIds } from "@/lib/data/products";
-import { buildPoItemRows, carpetSignature, type PoItemRow } from "@/lib/po-build";
+import { buildPoItemRows, carpetSignature, poCostOfEstimateLine, type PoCatalogSnapshot, type PoItemRow } from "@/lib/po-build";
 import { isRollGoodCategory } from "@/lib/types";
+import { unitIsSqyd } from "@/lib/units";
 import type { EstimateLineItem, PoSourceType, PoStatus } from "@/lib/types";
 
 type PoDb = Awaited<ReturnType<typeof createClient>>;
@@ -50,6 +51,19 @@ export async function notifyBackordered(
   },
 ): Promise<void> {
   const { supplier, etaDate, customerId, foundOnDelivery } = opts;
+  // Exclusive carpet-tile office PO short-delivery email mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface office PO short-delivery leftover planted mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+  let mixedShortEmail = false;
+  if (foundOnDelivery) {
+    const { data: shortEmailItems } = await supabase
+      .from("po_items")
+      .select("unit")
+      .eq("po_id", poId);
+    const shortEmailUnits = (shortEmailItems ?? []).map((i) =>
+      String((i as { unit?: string | null }).unit ?? "").trim(),
+    );
+    mixedShortEmail = new Set(shortEmailUnits).size > 1;
+  }
   const etaText = etaDate
     ? new Date(etaDate).toLocaleDateString("en-US", {
         month: "short",
@@ -91,7 +105,7 @@ export async function notifyBackordered(
     ? "Delivery came up short"
     : "Material backordered";
   const detail = foundOnDelivery
-    ? `<p>A delivery${supplier ? ` from ${supplier}` : ""} was checked in and came up <strong>${foundOnDelivery.shortUnits.toLocaleString("en-US", { maximumFractionDigits: 2 })} short</strong>. The rest is still outstanding and needs chasing with the supplier.</p>${
+    ? `<p>A delivery${supplier ? ` from ${supplier}` : ""} was checked in and came up <strong>${mixedShortEmail ? "short" : `${foundOnDelivery.shortUnits.toLocaleString("en-US", { maximumFractionDigits: 2 })} short`}</strong>. The rest is still outstanding and needs chasing with the supplier.</p>${
         foundOnDelivery.note
           ? `<p style="color:#555">Warehouse note: ${foundOnDelivery.note}</p>`
           : ""
@@ -262,15 +276,22 @@ export async function syncPoCarpetFromEstimate(
   const productName = new Map<string, string>();
   const productSupplier = new Map<string, string | null>();
   const productSupplierId = new Map<string, string | null>();
+  const productCatalog = new Map<string, PoCatalogSnapshot>();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, material_rate, supplier, supplier_id")
+      .select("id, name, material_rate, supplier, supplier_id, unit, category, sqft_per_box, roll_width_ft")
       .in("id", productIds);
     for (const p of prods ?? []) {
       productName.set(p.id as string, p.name as string);
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
+      productCatalog.set(p.id as string, {
+        unit: (p.unit as string) ?? null,
+        category: (p.category as string) ?? null,
+        sqft_per_box: p.sqft_per_box as number | null,
+        roll_width_ft: p.roll_width_ft as number | null,
+      });
     }
     const costs = await primaryCatalogCostByProductIds(supabase, productIds);
     for (const [id, c] of costs) productCost.set(id, c);
@@ -291,7 +312,11 @@ export async function syncPoCarpetFromEstimate(
   });
 
   const costOf = (l: EstimateLineItem) =>
-    (l.material_cost ?? 0) > 0 ? (l.material_cost ?? 0) : l.product_id ? (productCost.get(l.product_id) ?? 0) : 0;
+    poCostOfEstimateLine(
+      l,
+      l.product_id ? (productCost.get(l.product_id) ?? 0) : 0,
+      l.product_id ? productCatalog.get(l.product_id) : null,
+    );
   const nameOf = (l: EstimateLineItem) =>
     l.description || (l.product_id ? productName.get(l.product_id) : null) || l.room || "Material";
 
@@ -305,7 +330,7 @@ export async function syncPoCarpetFromEstimate(
     .eq("po_id", poId)
     .order("position", { ascending: true });
   const isCarpet = (it: { category?: string | null; unit?: string | null; roll_width_ft?: number | null }) =>
-    isRollGoodCategory(it.category ?? null) || (it.unit ?? "").toLowerCase().includes("yd") || !!it.roll_width_ft;
+    isRollGoodCategory(it.category ?? null) || unitIsSqyd(it.unit) || !!it.roll_width_ft;
   const existingCarpet = (existing ?? []).filter(isCarpet);
   const nonCarpet = (existing ?? []).filter((it) => !isCarpet(it));
 
@@ -447,15 +472,22 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
   const productName = new Map<string, string>();
   const productSupplier = new Map<string, string | null>();
   const productSupplierId = new Map<string, string | null>();
+  const productCatalog = new Map<string, PoCatalogSnapshot>();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, material_rate, supplier, supplier_id")
+      .select("id, name, material_rate, supplier, supplier_id, unit, category, sqft_per_box, roll_width_ft")
       .in("id", productIds);
     for (const p of prods ?? []) {
       productName.set(p.id as string, p.name as string);
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
+      productCatalog.set(p.id as string, {
+        unit: (p.unit as string) ?? null,
+        category: (p.category as string) ?? null,
+        sqft_per_box: p.sqft_per_box as number | null,
+        roll_width_ft: p.roll_width_ft as number | null,
+      });
     }
     const costs = await primaryCatalogCostByProductIds(supabase, productIds);
     for (const [id, c] of costs) productCost.set(id, c);
@@ -542,11 +574,11 @@ export async function createPOFromEstimate(formData: FormData): Promise<void> {
     if (!firstPoId) firstPoId = po.id as string;
 
     const costOf = (l: EstimateLineItem) =>
-      (l.material_cost ?? 0) > 0
-        ? (l.material_cost ?? 0)
-        : l.product_id
-          ? (productCost.get(l.product_id) ?? 0)
-          : 0;
+      poCostOfEstimateLine(
+        l,
+        l.product_id ? (productCost.get(l.product_id) ?? 0) : 0,
+        l.product_id ? productCatalog.get(l.product_id) : null,
+      );
     const nameOf = (l: EstimateLineItem) =>
       l.description || (l.product_id ? productName.get(l.product_id) : null) || l.room || "Material";
 
@@ -625,15 +657,22 @@ export async function createPOsFromEstimateSelection(
   const productName = new Map<string, string>();
   const productSupplier = new Map<string, string | null>();
   const productSupplierId = new Map<string, string | null>();
+  const productCatalog = new Map<string, PoCatalogSnapshot>();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, material_rate, supplier, supplier_id")
+      .select("id, name, material_rate, supplier, supplier_id, unit, category, sqft_per_box, roll_width_ft")
       .in("id", productIds);
     for (const p of prods ?? []) {
       productName.set(p.id as string, (p.name as string) ?? "");
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
+      productCatalog.set(p.id as string, {
+        unit: (p.unit as string) ?? null,
+        category: (p.category as string) ?? null,
+        sqft_per_box: p.sqft_per_box as number | null,
+        roll_width_ft: p.roll_width_ft as number | null,
+      });
     }
     const costs = await primaryCatalogCostByProductIds(supabase, productIds);
     for (const [id, c] of costs) productCost.set(id, c);
@@ -697,11 +736,11 @@ export async function createPOsFromEstimateSelection(
   }
 
   const costOf = (l: EstimateLineItem) =>
-    (l.material_cost ?? 0) > 0
-      ? (l.material_cost as number)
-      : l.product_id
-        ? (productCost.get(l.product_id) ?? 0)
-        : 0;
+    poCostOfEstimateLine(
+      l,
+      l.product_id ? (productCost.get(l.product_id) ?? 0) : 0,
+      l.product_id ? productCatalog.get(l.product_id) : null,
+    );
   const nameOf = (l: EstimateLineItem) =>
     l.description ||
     (l.product_id ? productName.get(l.product_id) : null) ||
@@ -840,7 +879,7 @@ export async function savePurchaseOrder(
         product_id: it.product_id || null,
         description: it.description || "",
         quantity: toNumOrNull(it.quantity),
-        unit: it.unit || "sqft",
+        unit: it.unit || "",
         unit_cost: toNumOrNull(it.unit_cost),
         manufacturer: it.manufacturer || null,
         style: it.style || null,

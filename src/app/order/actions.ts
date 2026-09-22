@@ -50,7 +50,7 @@ function cleanCuts(cuts: OrderCut[] | undefined) {
       length_ft: Number(c.lengthFt) || 0,
       length_in: Number(c.lengthIn) || 0,
     }))
-    .filter((c) => c.width_ft > 0 && (c.length_ft > 0 || c.length_in > 0));
+    .filter((c) => c.length_ft > 0 || c.length_in > 0);
   return out.length ? out : null;
 }
 
@@ -70,7 +70,7 @@ function cleanItems(items: OrderSubmissionItem[]) {
       color: i.color?.trim() || null,
       style: i.style?.trim() || null,
       quantity: Number.isFinite(i.quantity) && i.quantity > 0 ? i.quantity : null,
-      unit: i.unit?.trim() || "sq yd",
+      unit: i.unit?.trim() || "",
       cut_notes: i.cutNotes?.trim() || null,
       cuts: cleanCuts(i.cuts),
       retail_price:

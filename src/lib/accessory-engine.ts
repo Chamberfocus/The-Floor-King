@@ -9,13 +9,13 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  DEFAULT_PIECE_LENGTH_IN,
   FLOORING_CATEGORIES,
   accessoryItemName,
   defaultsForType,
   displayVariant,
   isColorPolluted,
   parseAccessoryType,
+  resolvedPieceLengthIn,
   styleIsNotALine,
   variantKey,
   variesByRun,
@@ -276,8 +276,7 @@ export async function adoptTrim(
         sizes: [] as string[],
         // Only goods that run along a wall get a stick length; a stair tread is
         // bought one per stair, so a linear-feet conversion would be meaningless.
-        piece_length_in:
-          unit === "each" && variesByRun(name) ? DEFAULT_PIECE_LENGTH_IN : null,
+        piece_length_in: null,
         default_price: 0,
         sort: (base + i) * 10,
         active: true,
@@ -366,8 +365,7 @@ export async function adoptTrim(
       type_id: type.id,
       price,
       unit,
-      piece_length_in:
-        unit === "each" && variesByRun(c.typeName) ? DEFAULT_PIECE_LENGTH_IN : null,
+      piece_length_in: null,
       active: true,
     });
   }
@@ -416,7 +414,7 @@ export async function adoptTrim(
           price_override: isOverride ? rate : null,
           piece_length_in:
             (p.unit ?? "").toLowerCase() !== "lnft" && variesByRun(c.typeName)
-              ? DEFAULT_PIECE_LENGTH_IN
+              ? resolvedPieceLengthIn(p.piece_length_in)
               : null,
         })
         .eq("id", p.id);
@@ -505,7 +503,7 @@ export async function generateProgramItems(
     const unit = (pt.unit ?? type.unit) as AccessoryUnit;
     const pieceLen =
       unit === "each"
-        ? (pt.piece_length_in ?? type.piece_length_in ?? DEFAULT_PIECE_LENGTH_IN)
+        ? resolvedPieceLengthIn(pt.piece_length_in ?? type.piece_length_in)
         : null;
 
     // The axis decides what this type varies by. A size type never gets a color,

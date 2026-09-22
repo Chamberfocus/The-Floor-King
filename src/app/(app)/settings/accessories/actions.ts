@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { assertRole } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
 // A "use server" module may only export async functions — types are re-exported
 // from @/lib/accessory-engine, never from here.
 import {
@@ -132,7 +131,7 @@ export async function saveAccessoryType(
       unit === "each"
         ? Number.isFinite(pieceLen) && pieceLen > 0
           ? pieceLen
-          : DEFAULT_PIECE_LENGTH_IN
+          : null
         : null,
     default_price: money(formData.get("default_price")),
     sort: parseInt(str(formData.get("sort")), 10) || 0,

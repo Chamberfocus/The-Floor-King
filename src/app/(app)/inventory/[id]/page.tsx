@@ -19,6 +19,7 @@ import { getProduct, listMovements } from "@/lib/data/inventory";
 import { listRolls } from "@/lib/data/stock-rolls";
 import { STOCK_MOVEMENT_LABELS } from "@/lib/types";
 import { formatMoney, formatDate } from "@/lib/format";
+import { rollReceiveUnit } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import {
   receiveStock,
@@ -51,6 +52,10 @@ export default async function InventoryItemPage({
   const rolled = product.stock_kind === "rolled";
   const rolls = rolled ? await listRolls(id) : [];
   const liveRolls = rolls.filter((r) => r.status === "available");
+  // Exclusive carpet-tile warehouse inventory stock-item on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface warehouse inventory stock-item leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+  const remnantUnits = liveRolls.map((r) => (r.unit || "").trim());
+  const mixedRemnant = new Set(remnantUnits).size > 1;
   const onOrder = product.on_order ?? 0;
   const reserved = Number(product.reserved) || 0;
   const available = Math.max(0, product.on_hand - reserved);
@@ -84,10 +89,18 @@ export default async function InventoryItemPage({
               In stock {rolled ? <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">rolled</span> : null}
             </div>
             <div className={cn("text-2xl font-bold", low && "text-destructive")}>
-              {product.on_hand} {product.unit}
+              {mixedRemnant ? (liveRolls.length > 1 ? `stock across ${liveRolls.length} pieces` : "stock as a remnant/roll") : (
+                <>
+                  {product.on_hand} {product.unit}
+                </>
+              )}
             </div>
             <div className="text-xs text-muted-foreground">
-              reserved {reserved} · available {available}
+              {/* Exclusive carpet-tile warehouse inventory stock-item leftover planted available mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+              {/* Hard-surface warehouse inventory stock-item leftover planted available mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+              {/* Exclusive carpet-tile warehouse inventory stock-item leftover planted reserved mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+              {/* Hard-surface warehouse inventory stock-item leftover planted reserved mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+              {mixedRemnant ? (liveRolls.length > 1 ? `reserved across ${liveRolls.length} pieces` : "reserved as a remnant/roll") : `reserved ${reserved}`} · {mixedRemnant ? (liveRolls.length > 1 ? `available across ${liveRolls.length} pieces` : "available as a remnant/roll") : `available ${available}`}
             </div>
             {rolled ? (
               <div className="text-xs text-muted-foreground">
@@ -101,12 +114,24 @@ export default async function InventoryItemPage({
           <CardContent className="py-4">
             <div className="text-xs text-muted-foreground">On order</div>
             <div className="text-2xl font-bold">
-              {onOrder} {onOrder ? product.unit : ""}
+              {/* Exclusive carpet-tile warehouse inventory stock-item leftover planted on-order mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+              {/* Hard-surface warehouse inventory stock-item leftover planted on-order mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+              {mixedRemnant ? (liveRolls.length > 1 ? `on order across ${liveRolls.length} pieces` : "on order as a remnant/roll") : (
+                <>
+                  {onOrder} {onOrder ? product.unit : ""}
+                </>
+              )}
             </div>
             {showCost ? (
               <div className="text-xs text-muted-foreground">
-                value {formatMoney(inventoryValue)}
-                {avgCost != null ? ` · avg ${formatMoney(avgCost)}` : ""}
+                {/* Exclusive carpet-tile warehouse inventory stock-item leftover planted value mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                {/* Hard-surface warehouse inventory stock-item leftover planted value mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage. */}
+                {mixedRemnant ? (liveRolls.length > 1 ? `value across ${liveRolls.length} pieces` : "value as a remnant/roll") : (
+                  <>
+                    value {formatMoney(inventoryValue)}
+                    {avgCost != null ? ` · avg ${formatMoney(avgCost)}` : ""}
+                  </>
+                )}
               </div>
             ) : null}
           </CardContent>
@@ -145,14 +170,21 @@ export default async function InventoryItemPage({
               </div>
               <div>
                 <Label htmlFor="rr-unit">Unit</Label>
-                <select id="rr-unit" name="unit" defaultValue={product.unit?.includes("yd") ? "sqyd" : product.unit === "lnft" ? "lnft" : "sqyd"} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
+                <select
+                  id="rr-unit"
+                  name="unit"
+                  required
+                  defaultValue={rollReceiveUnit(product.unit)}
+                  className="h-10 rounded-md border border-input bg-transparent px-2 text-sm"
+                >
+                  <option value="">Unit TBD</option>
                   <option value="sqyd">sq yd</option>
                   <option value="lnft">ln ft</option>
                 </select>
               </div>
               <div>
                 <Label htmlFor="rr-w">Width (ft)</Label>
-                <Input id="rr-w" name="width_ft" type="number" step="0.01" min="0" placeholder="12" className="w-20" />
+                <Input id="rr-w" name="width_ft" type="number" step="0.01" min="0" placeholder="ft" className="w-20" />
               </div>
               <div>
                 <Label htmlFor="rr-loc">Location</Label>

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
+import { TYPICAL_PIECE_LENGTH_IN } from "@/lib/accessories";
 import type { AccessoryType } from "@/lib/types";
 import { deleteAccessoryType, saveAccessoryType } from "./actions";
 
@@ -82,7 +82,9 @@ export function TypesEditor({ types }: { types: AccessoryType[] }) {
                   <span className="text-xs text-muted-foreground">
                     per {t.unit === "lnft" ? "linear ft" : "piece"}
                     {t.unit === "each" &&
-                      ` · ${t.piece_length_in ?? DEFAULT_PIECE_LENGTH_IN}" sticks`}
+                      (t.piece_length_in
+                        ? ` · ${t.piece_length_in}" sticks`
+                        : " · stick length TBD")}
                   </span>
                 </div>
                 {t.axis === "size" && (
@@ -200,11 +202,17 @@ function TypeForm({
             name="piece_length_in"
             inputMode="decimal"
             className="w-28"
-            defaultValue={type?.piece_length_in ?? DEFAULT_PIECE_LENGTH_IN}
+            defaultValue={
+              type?.piece_length_in != null && type.piece_length_in > 0
+                ? String(type.piece_length_in)
+                : ""
+            }
+            placeholder={`${TYPICAL_PIECE_LENGTH_IN} typical`}
           />
           <p className="text-xs text-muted-foreground">
             On an estimate you enter linear feet; this converts it to whole pieces
-            to buy — always rounding up, since you can&apos;t order part of a stick.
+            only when a length is stored. Leave blank rather than inventing{" "}
+            {TYPICAL_PIECE_LENGTH_IN}&quot;.
           </p>
         </div>
       )}
