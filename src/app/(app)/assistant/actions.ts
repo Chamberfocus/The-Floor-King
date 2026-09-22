@@ -180,10 +180,10 @@ export async function askAssistant(question: string): Promise<AssistantReply> {
             const meas =
               li.length_in && li.width_in
                 ? `${ftIn(li.length_in)} x ${ftIn(li.width_in)}`
-                : li.sqft && !lineSkipsAreaCartonMath(li)
-                  ? `${li.sqft} sq ft`
-                  : li.quantity
-                    ? `${li.quantity} ${li.unit ?? ""}`.trim()
+                : li.quantity
+                  ? `${li.quantity} ${li.unit ?? ""}`.trim()
+                  : li.sqft && !lineSkipsAreaCartonMath(li)
+                    ? `${li.sqft} sq ft`
                     : "";
             wo.push(
               `  - ${li.room ? `${li.room}: ` : ""}${li.description ?? "Item"}${meas ? ` (${meas})` : ""}`,

@@ -15865,6 +15865,16 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
         category: "carpet",
         unit: "sq yd",
         sqft_per_box: 23.64,
+        order_as_roll: false,
+        sqft: 200,
+        quantity: null,
+      }),
+    ).toBe(false);
+    expect(
+      lineUsesAreaCartonMath({
+        category: "carpet",
+        unit: "sq yd",
+        sqft_per_box: 23.64,
         order_as_roll: true,
         quantity: 22.22,
       }),
@@ -122702,6 +122712,26 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
   it("leftover taped sq ft is not exclusive tile; persist skips it on count How many", () => {
     expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
     expect(
+      lineUsesAreaCartonMath({
+        category: "carpet",
+        unit: "sq yd",
+        sqft_per_box: 23.64,
+        order_as_roll: false,
+        sqft: 450,
+        quantity: null,
+      }),
+    ).toBe(false);
+    expect(
+      lineUsesAreaCartonMath({
+        category: "carpet",
+        unit: "sq yd",
+        sqft_per_box: 23.64,
+        order_as_roll: false,
+        sqft: 450,
+        quantity: 50,
+      }),
+    ).toBe(true);
+    expect(
       carpetLineIsModularCoverage({
         category: "carpet",
         order_as_roll: false,
@@ -122754,6 +122784,12 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
       ),
     ).toBe(false);
 
+    const calc = readFileSync(join(root, "src/lib/estimate-calc.ts"), "utf8");
+    expect(calc).toMatch(/Exclusive tile carton math requires leftover order qty/);
+    expect(calc).toMatch(/Do not infer exclusive tile from leftover taped sq ft/);
+    const assistant = readFileSync(join(root, "src/app/(app)/assistant/actions.ts"), "utf8");
+    expect(assistant).toMatch(/li\.quantity\n                  \? `\$\{li\.quantity\} \$\{li\.unit \?\? ""\}`\.trim\(\)/);
+    expect(assistant).toMatch(/li\.sqft && !lineSkipsAreaCartonMath\(li\)/);
     const scope = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
     expect(scope).toMatch(/Do not infer exclusive tile from leftover taped sq ft/);
     expect(scope).toMatch(/Leftover planted taped sq ft/);

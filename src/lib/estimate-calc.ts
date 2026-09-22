@@ -149,6 +149,9 @@ type AreaCartonLine = {
  * Hard-surface, or exclusive carpet tile (category stays carpet — do not invent
  * a carpet-tile category). Mixed stretch-in + tile, unanswered carpet, and a
  * roll-width / cut plan stay cuts. Do not infer exclusive tile from unit=box.
+ * Exclusive tile carton math requires leftover order qty, not leftover coverage
+ * alone. Leftover planted taped sq ft / leftover coverage without leftover qty
+ * stays cuts. Do not infer exclusive tile from leftover taped sq ft.
  */
 export function lineUsesAreaCartonMath(line: AreaCartonLine): boolean {
   if (lineSkipsAreaCartonMath(line)) return false;
@@ -162,7 +165,9 @@ export function lineUsesAreaCartonMath(line: AreaCartonLine): boolean {
   if (pieces.length) return false;
   if (Number(line.length_in) > 0 && Number(line.width_in) > 0) return false;
   const cov = Number(line.sqft_per_box);
-  return Number.isFinite(cov) && cov > 0;
+  if (!Number.isFinite(cov) || !(cov > 0)) return false;
+  const qty = Number(line.quantity);
+  return Number.isFinite(qty) && qty > 0;
 }
 
 /**
