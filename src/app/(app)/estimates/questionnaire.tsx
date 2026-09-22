@@ -71,10 +71,10 @@ import {
   formatMeasuredLabel,
   EXTRA_AREA_MEASURED_LABEL,
   EXTRA_AREA_MEASURED_PLACEHOLDER,
-  EXTRA_AREA_MEASURED_HINT,
-  EXTRA_AREA_COUNT_TBD_HINT,
+  SALESPERSON_MEASURED_HINT,
+  SALESPERSON_COUNT_TBD_HINT,
   EXTRA_AREA_COUNT_QTY_LABEL,
-  EXTRA_AREA_COUNT_QTY_HINT,
+  SALESPERSON_COUNT_QTY_HINT,
   formatSqft,
   formatSqyd,
   formatTakeoffStrip,
@@ -105,7 +105,7 @@ import {
   configuredInstallRate,
   rollGoodsSeamWarnings,
   measuredRectsFromRooms,
-  knowledgeHelpFor,
+  visibleQuestionHelp,
   knowledgeWarnings,
   amountUnitLabelForQuestion,
   resolveQuestionVisibility,
@@ -3219,9 +3219,8 @@ export function Questionnaire({
                 {q.required ? <span className="text-amber-600">★ </span> : null}
                 {q.label}
               </h2>
-              {q.help ? <p className="mt-1 text-sm text-muted-foreground">{q.help}</p> : null}
-              {knowledgeHelpFor(q, flooringCtx) ? (
-                <p className="mt-1 text-sm text-primary/90">{knowledgeHelpFor(q, flooringCtx)}</p>
+              {visibleQuestionHelp(q, flooringCtx) ? (
+                <p className="mt-1 text-sm text-muted-foreground">{visibleQuestionHelp(q, flooringCtx)}</p>
               ) : null}
             </div>
 
@@ -4093,9 +4092,9 @@ function QuestionBody({
                             {takeoff.orderBasis === "cuts"
                               ? "Order (from cuts) "
                               : takeoff.orderBasis === "none" && needCuts
-                                ? "Order TBD — enter cuts "
+                                ? "Order — enter the cuts "
                                 : cartonTbd
-                                  ? "Order TBD — carton coverage TBD "
+                                  ? "Order — add coverage per box "
                                   : takeoff.orderBasis === "measured_plus_waste_estimated"
                                   ? "Order (estimate — not a cut plan) "
                                   : "Order "}
@@ -4103,7 +4102,7 @@ function QuestionBody({
                               {takeoff.orderBasis === "none" && needCuts
                                 ? ""
                                 : cartonTbd
-                                  ? "(not How many boxes from leftover taped sq ft)"
+                                  ? "before a carton count"
                                   : takeoff.billingUnit === "sqyd"
                                   ? formatSqyd(takeoff.billingQty)
                                   : formatSqft(takeoff.orderSqft)}
@@ -4330,11 +4329,12 @@ function QuestionBody({
               {!row.product && !row.rr ? (
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">$ / {row.unit}</label>
+                  {/* catalog or type — do not invent */}
                   <Input
                     value={row.cost}
                     onChange={(e) => patch(row.id, { cost: e.target.value })}
                     inputMode="decimal"
-                    placeholder="catalog or type — do not invent"
+                    placeholder="catalog price or your cost"
                     className="h-10 w-20 text-base"
                   />
                 </div>
@@ -4612,7 +4612,7 @@ function QuestionBody({
                             <>
                               Order{" "}
                               <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
-                                TBD — carton coverage TBD (not How many boxes from leftover taped sq ft)
+                                Add coverage per box before a carton count
                               </span>
                             </>
                           ) : (
@@ -4659,7 +4659,7 @@ function QuestionBody({
                           {countUnitForTbd(p.unit).phrase}
                         </span>
                         <p className="w-full text-xs text-muted-foreground">
-                          Missing carton coverage stays TBD — not How many boxes from leftover taped sq ft. Typed How many rides onto Review as that count.
+                          Enter how many to order. A carton count needs coverage per box on the product.
                         </p>
                       </div>
                     ) : null}
@@ -4694,14 +4694,14 @@ function QuestionBody({
                     })}
                   </span>
                 ) : null}
-                <p className="w-full text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_HINT}</p>
+                <p className="w-full text-xs text-muted-foreground">{SALESPERSON_COUNT_QTY_HINT}</p>
               </div>
             ) : !areaDerivedMaterialAllowed(family, p.unit, carpetSystems) &&
               (q.key === "carpet_pad" ||
                 q.key === "hs_underlayment" ||
                 q.key === "adhesive" ||
                 cat === "underlayment") ? (
-              <p className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_TBD_HINT}</p>
+              <p className="text-xs text-muted-foreground">{SALESPERSON_COUNT_TBD_HINT}</p>
             ) : q.key === "carpet_pad" || q.key === "hs_underlayment" || cat === "underlayment" ? (
               coverSf > 0 ? (() => {
                 const padTakeoff = computeMaterialTakeoff({
@@ -4755,7 +4755,7 @@ function QuestionBody({
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Additional {kindLabel} for a specific area
             </div>
-            <p className="text-xs text-muted-foreground">{EXTRA_AREA_MEASURED_HINT}</p>
+            <p className="text-xs text-muted-foreground">{SALESPERSON_MEASURED_HINT}</p>
             {extras.map((ex) => {
               const extraFam = familyFromCatalogCategory(ex.product?.category || cat);
               const extraNeedsMeasured =
@@ -4866,14 +4866,14 @@ function QuestionBody({
                         })}
                       </span>
                     ) : null}
-                    <p className="w-full text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_HINT}</p>
+                    <p className="w-full text-xs text-muted-foreground">{SALESPERSON_COUNT_QTY_HINT}</p>
                     {ex.product && q.config.ask_source ? (
                       <SourceToggle p={ex.product} compact onChange={(np) => setExtraProduct(ex.id, np, ex)} />
                     ) : null}
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_TBD_HINT}</p>
+                    <p className="text-xs text-muted-foreground">{SALESPERSON_COUNT_TBD_HINT}</p>
                     {ex.product && q.config.ask_source ? (
                       <SourceToggle p={ex.product} compact onChange={(np) => setExtraProduct(ex.id, np, ex)} />
                     ) : null}
@@ -5225,7 +5225,7 @@ function QuestionBody({
                     value={p.sqftPerBox}
                     onChange={(e) => setProduct({ ...p, sqftPerBox: e.target.value })}
                     inputMode="decimal"
-                    placeholder="if known — do not invent"
+                    placeholder="from the product, if known"
                     className="h-10 w-28 text-base"
                   />
                 </div>
@@ -5234,7 +5234,7 @@ function QuestionBody({
                 <>
                   <p className="text-sm">
                     {cartonTbd
-                      ? "Order TBD — carton coverage TBD (not How many boxes from leftover taped sq ft). Do not invent a box size."
+                      ? "Add square feet per box before this can show a carton count."
                       : formatTakeoffStrip(takeoff)}
                   </p>
                   {/* Exclusive carpet-tile Guided Estimate tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
@@ -5465,7 +5465,8 @@ function QuestionBody({
                     </>
                   ) : (
                     <>
-                      Include these {n} step{n === 1 ? "" : "s"} in your cut list. We do not invent yardage from step count.
+                      Include these {n} step{n === 1 ? "" : "s"} in your cut list. Step count is not the carpet order.
+                      {/* We do not invent yardage from step count. */}
                     </>
                   )}
                   {opt?.cost ? <> · labor <span className="tabular-nums">{formatMoney(sellLab(opt.cost) * n)}</span></> : null}
@@ -5559,7 +5560,7 @@ function QuestionBody({
                 })}
               </span>
             ) : null}
-            <p className="w-full text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_HINT}</p>
+                    <p className="w-full text-xs text-muted-foreground">{SALESPERSON_COUNT_QTY_HINT}</p>
           </div>
         ) : null}
         {steps > 0 ? (
@@ -5569,12 +5570,15 @@ function QuestionBody({
             {p && wrapAsksCount && numv(a.qty ?? "") > 0 ? (
               <> · {extraCountReviewLine({ family: wrapFam, productUnit: p.unit, qty: numv(a.qty ?? ""), label: p.label })}</>
             ) : p ? (
-              <> · {p.label} wrap qty TBD (not an automatic sq ft/step order)</>
+              <> · {p.label} — enter how many to order</>
             ) : null}
             {lr > 0 ? (
               <> · labor <span className="tabular-nums">{formatMoney(sellLab(lr) * steps)}</span> ({steps} × {formatMoney(sellLab(lr))}/step)</>
             ) : (
-              <> · labor rate TBD — not invented from 8 sq ft/step</>
+              <>
+                {" · enter a labor price per step"}
+                {/* labor rate TBD — not invented from 8 sq ft/step */}
+              </>
             )}
           </div>
         ) : (
@@ -5611,7 +5615,8 @@ function QuestionBody({
         </div>
         {sheetSqft == null ? (
           <p className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
-            Sheet coverage is not in Settings. We do not invent a 4×8 (32 sq ft). Confirm after demo or enter coverage in Settings.
+            Sheet coverage is not in Settings. Enter the sheet size there before this can count sheets.
+            {/* We do not invent a 4×8 (32 sq ft). */}
           </p>
         ) : coverSf > 0 ? (
           prepQuantitiesAreFinal(flooringCtx.prepConfidence) ? (
@@ -5679,7 +5684,8 @@ function QuestionBody({
             {prepQuantitySuffix(flooringCtx.prepConfidence)}
             {covT > 0 && !(pour > 0) ? (
               <span className="mt-1 block text-xs text-muted-foreground">
-                Pick a pour thickness to scale bags. We do not invent 1/4&quot;.
+                Choose a pour thickness. Bag count follows that thickness.
+                {/* We do not invent 1/4". */}
               </span>
             ) : null}
           </div>

@@ -156,6 +156,9 @@ export {
   EXTRA_AREA_COUNT_TBD_HINT,
   EXTRA_AREA_COUNT_QTY_LABEL,
   EXTRA_AREA_COUNT_QTY_HINT,
+  SALESPERSON_MEASURED_HINT,
+  SALESPERSON_COUNT_TBD_HINT,
+  SALESPERSON_COUNT_QTY_HINT,
   formatBillingQty,
   formatTakeoffStrip,
   takeoffConceptRows,
@@ -249,6 +252,8 @@ export {
   choiceOptionApplies,
   type InstallContext,
 } from "./rules";
+
+export { isInternalRuleCopy, visibleQuestionHelp, salespersonHelpFor } from "./salesperson-help";
 
 export {
   buildSalespersonReview,
