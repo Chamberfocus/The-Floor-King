@@ -12,19 +12,16 @@ for (const line of readFileSync(new URL("../.env.local", import.meta.url), "utf8
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isAreaUnit, normalizeUnit } from "@/lib/units";
+import { catalogUnitFactor } from "@/lib/units";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string, d = "") => { c ? (pass++, console.log(`  ✓ ${m}${d ? "  " + d : ""}`)) : (fail++, console.log(`  ✗ FAIL ${m}${d ? "  " + d : ""}`)); };
 const admin = createAdminClient();
 
-// The catalog factor — identical to catalogFactor() in the builder and the
-// conversion in saveProductRate().
-const factor = (measure: "sqft" | "sqyd", productUnit: string) => {
-  if (!isAreaUnit(productUnit)) return 1;
-  const cat = normalizeUnit(productUnit);
-  return measure === cat ? 1 : measure === "sqyd" ? 9 : 1 / 9;
-};
+// The catalog factor — identical to catalogUnitFactor() in the builder and
+// saveProductRate(). Billing unit is the printed line unit, not leftover measure_unit.
+const factor = (measure: "sqft" | "sqyd", productUnit: string) =>
+  catalogUnitFactor(productUnit, measure === "sqyd");
 const r2 = (n: number) => Math.round(n * 100) / 100;
 // saveProductRate's write: line-unit cost → product-unit rate.
 const rateFromCost = (cost: number, measure: "sqft" | "sqyd", unit: string) => r2(cost / factor(measure, unit));

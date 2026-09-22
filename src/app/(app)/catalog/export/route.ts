@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireProfile } from "@/lib/auth";
 import { listProducts } from "@/lib/data/products";
+import { reorderAlertsFor } from "@/lib/data/stock-rolls";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,12 @@ export async function GET() {
   }
 
   const products = await listProducts();
+  let remnantAlerts: Awaited<ReturnType<typeof reorderAlertsFor>> = {};
+  try {
+    remnantAlerts = await reorderAlertsFor(products.map((p) => p.id));
+  } catch {
+    remnantAlerts = {};
+  }
   const headers = [
     "name",
     "category",
@@ -32,6 +39,12 @@ export async function GET() {
   ];
   const lines = [headers.join(",")];
   for (const p of products) {
+    const remnantItems = remnantAlerts[p.id]?.items ?? [];
+    // Exclusive carpet-tile catalog export leftover planted on-hand mixed-product SUM is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface catalog export leftover planted on-hand mixed-product SUM stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+    const remnantUnits = remnantItems.map((i) => (i.unit || "").trim());
+    const mixedRemnant = new Set(remnantUnits).size > 1;
+    const onHandCell = mixedRemnant ? (remnantItems.length > 1 ? `stock across ${remnantItems.length} pieces` : "stock as a remnant/roll") : p.on_hand;
     lines.push(
       [
         p.name,
@@ -43,7 +56,7 @@ export async function GET() {
         p.unit,
         p.material_rate,
         p.labor_rate,
-        p.on_hand,
+        onHandCell,
         p.notes,
       ]
         .map(cell)

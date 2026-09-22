@@ -19,7 +19,7 @@ import {
   getPortalOrgSettings,
   listPortalApprovalSnapshots,
 } from "@/lib/data/portal-commercial";
-import { buildCustomerScope, parseProjectDetails, customerLineLabel } from "@/lib/customer-scope";
+import { buildCustomerScope, customerFacingLineNote, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { snapshotItemGroups } from "@/lib/approval-snapshot-view";
 import { legacyApprovalSnapshotUnavailable } from "@/lib/estimate-approval";
@@ -211,7 +211,7 @@ export default async function PortalEstimatePage({
       }
       itemGroups[at.get(room)!].items.push({
         label: customerLineLabel(l),
-        note: (l.note ?? "").trim(),
+        note: customerFacingLineNote(l.note),
         amount,
       });
     }

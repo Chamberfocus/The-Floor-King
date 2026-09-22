@@ -6,6 +6,7 @@ import type {
   EstimateEmit,
   EstimateQuestionConfig,
   EstimateQuestionKind,
+  QuestionPurpose,
 } from "@/lib/types";
 
 export interface EQFormState {
@@ -19,6 +20,13 @@ function str(v: FormDataEntryValue | null): string {
 function numOr(v: FormDataEntryValue | null, fallback: number): number {
   const n = parseFloat(str(v));
   return Number.isFinite(n) ? n : fallback;
+}
+/** Positive-or-zero rate from the form. Empty means omit — do not invent $6/$2. */
+function optionalRate(v: FormDataEntryValue | null): number | undefined {
+  const s = str(v);
+  if (!s) return undefined;
+  const n = parseFloat(s);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 function on(v: FormDataEntryValue | null): boolean {
   return str(v) === "on";
@@ -90,23 +98,37 @@ function readConfig(kind: EstimateQuestionKind, formData: FormData): EstimateQue
       return { emit: readEmit(formData), rate_options: readRateOptions(formData.get("rate_options")) };
     case "choice":
       return { multi: on(formData.get("cfg_multi")), options: readChoiceOptions(formData.get("options")), note: on(formData.get("cfg_note")) };
-    case "cuts":
-      // Carpet cuts → yardage; carry the install labor rate ($/sq yd) so the
-      // questionnaire generates carpet labor automatically.
-      return { install_yd: numOr(formData.get("cfg_install_yd"), 6) };
-    case "floor_map":
-      // Per-room product map: carpet install ($/sq yd) + hard-surface ($/sq ft).
+    case "cuts": {
+      // Carpet cuts → yardage. Install labor is the Settings rate, not a hidden $6.
+      const install_yd = optionalRate(formData.get("cfg_install_yd"));
+      return install_yd != null ? { install_yd } : {};
+    }
+    case "floor_map": {
+      const install_yd = optionalRate(formData.get("cfg_install_yd"));
+      const install_ft = optionalRate(formData.get("cfg_install_ft"));
       return {
-        install_yd: numOr(formData.get("cfg_install_yd"), 6),
-        install_ft: numOr(formData.get("cfg_install_ft"), 2),
+        ...(install_yd != null ? { install_yd } : {}),
+        ...(install_ft != null ? { install_ft } : {}),
       };
+    }
     default:
       return {};
   }
 }
 
-/** "Show only if [question key] is [value1, value2]" → config.show_if. */
-function readShowIf(formData: FormData): { key: string; in: string[] } | null {
+/** "Show only if [question key] is [value1, value2]" → config.show_if.
+ *  Advanced JSON (`all` / `any`) wins when the textarea is filled so a
+ *  compound condition isn't wiped by the simple key/in fields. */
+function readShowIf(formData: FormData): EstimateQuestionConfig["show_if"] {
+  const rawJson = str(formData.get("show_if_json"));
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson) as EstimateQuestionConfig["show_if"];
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      /* fall through to simple fields */
+    }
+  }
   const key = str(formData.get("show_if_key"));
   if (!key) return null;
   const values = str(formData.get("show_if_in"))
@@ -127,6 +149,8 @@ function readFields(formData: FormData) {
   // Conditional + per-room apply to any kind.
   config.show_if = readShowIf(formData);
   config.per_room = on(formData.get("cfg_per_room"));
+  const purpose = str(formData.get("purpose")) as QuestionPurpose | "";
+  if (purpose) config.purpose = purpose;
   return {
     label: str(formData.get("label")),
     help: str(formData.get("help")) || null,
@@ -176,6 +200,36 @@ export async function updateEstimateQuestion(
   const fields = readFields(formData);
   if (!fields.label) return { error: "Enter the question." };
   const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("estimate_questions")
+    .select("config")
+    .eq("id", id)
+    .maybeSingle();
+  const prev = ((existing?.config ?? {}) as EstimateQuestionConfig) || {};
+  // Settings form doesn't edit knowledge_when / purpose / roll widths / category
+  // — keep them so a routine label tweak cannot strip the flooring overlay or
+  // plant a hidden $6 install rate.
+  if (prev.knowledge_when && !fields.config.knowledge_when) {
+    fields.config.knowledge_when = prev.knowledge_when;
+  }
+  if (prev.purpose && !fields.config.purpose) {
+    fields.config.purpose = prev.purpose;
+  }
+  if (prev.widths && !fields.config.widths) {
+    fields.config.widths = prev.widths;
+  }
+  if (prev.category && !fields.config.category) {
+    fields.config.category = prev.category;
+  }
+  if (fields.config.ask_source == null && prev.ask_source != null) {
+    fields.config.ask_source = prev.ask_source;
+  }
+  if (fields.config.install_yd == null && prev.install_yd != null) {
+    fields.config.install_yd = prev.install_yd;
+  }
+  if (fields.config.install_ft == null && prev.install_ft != null) {
+    fields.config.install_ft = prev.install_ft;
+  }
   const { error } = await supabase
     .from("estimate_questions")
     .update({ ...fields, active: on(formData.get("active")) })

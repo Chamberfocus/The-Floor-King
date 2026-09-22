@@ -23,6 +23,8 @@ const carpet: CalcLine = {
   unit: "sq yd",
   measure_unit: "sqyd",
   sqft: 360,
+  length_in: 360,
+  width_in: 144,
   waste_pct: 10,
   material_rate: 30,
   labor_rate: 0,

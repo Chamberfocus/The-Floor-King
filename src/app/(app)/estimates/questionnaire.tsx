@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { billsBySquareYard } from "@/lib/units";
+import { billedQtyToSqft, catalogRateToBillingUnit, isAreaUnit, lineDisplayUnit, normalizeUnit, pickedProductUnit, unitIsSqyd, unitLabel } from "@/lib/units";
 import { productLabel } from "@/lib/product-label";
-import { catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
+import { catalogRateInLineUnit, catalogUnitCost, PRICE_NEEDED } from "@/lib/catalog-pricing";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -36,18 +36,116 @@ import {
 import {
   linearFeetForPieces,
   piecesForLinearFeet,
-  DEFAULT_PIECE_LENGTH_IN,
+  resolvedPieceLengthIn,
+  TYPICAL_PIECE_LENGTH_IN,
+  variesByRun,
 } from "@/lib/accessories";
 import { profileFor } from "@/lib/flooring-profiles";
-import { carpetYardageFromCuts, stairsCarpet, subfloorSheets } from "@/lib/questionnaire-calc";
+import { carpetYardageFromCuts, stairsCarpet, subfloorSheets, resolvedSheetSqft } from "@/lib/questionnaire-calc";
 import {
   questionnaireEmitToLineQty,
   smartLineToCalcLine,
 } from "@/lib/questionnaire-emit";
-import { lineTotal } from "@/lib/estimate-calc";
-import { bagsNeeded } from "@/lib/floor-prep";
+import { lineTotal, lineOrderQty, hardSurfaceAreaCartonCount } from "@/lib/estimate-calc";
+import { padRollCount } from "@/lib/job-scope";
+import { bagsNeeded, selfLevelPourThicknessIn, thicknessLabel } from "@/lib/floor-prep";
 import type { Product, EstimateQuestion, EstimateEmit, CustomerArea } from "@/lib/types";
 import { isRollGoodCategory } from "@/lib/types";
+import {
+  catalogCategoryForFamily,
+  coerceTrimUnit,
+  accessoryUnitForType,
+  cutWidthChoicesFt,
+  defaultCutWidthFt,
+  enteredCutWidthFt,
+  rollGoodsOrderTbdDescription,
+  questionnaireCutGroupOrderLabel,
+  questionnaireCutsGrandOrderLabel,
+  computeMaterialTakeoff,
+  padFoamTakeoffLabel,
+  takeoffDisplayTitle,
+  billingUnitForArea,
+  emptyInstallContext,
+  familyFromCatalogCategory,
+  formatDimensionPair,
+  formatMeasuredLabel,
+  EXTRA_AREA_MEASURED_LABEL,
+  EXTRA_AREA_MEASURED_PLACEHOLDER,
+  EXTRA_AREA_MEASURED_HINT,
+  EXTRA_AREA_COUNT_TBD_HINT,
+  EXTRA_AREA_COUNT_QTY_LABEL,
+  EXTRA_AREA_COUNT_QTY_HINT,
+  formatSqft,
+  formatSqyd,
+  formatTakeoffStrip,
+  familyLabel,
+  hardwoodConstructionFromSpecies,
+  installContextFromValByKey,
+  withProductFamilies,
+  hardSurfaceInstallMethodOptions,
+  jobNeedsMixedInstallMethodPicks,
+  isHardSurfaceFamily,
+  isRollGoodsFamily,
+  carpetInstallSystemsFromLabels,
+  type InstallSystem,
+  rollGoodsNeedCuts,
+  materialWastePctForEmit,
+  rollGoodsHaveCuts,
+  areaBillsBySquareYard,
+  areaDerivedMaterialAllowed,
+  boxedCartonAreaTakeoffAllowed,
+  boxedCartonCoverageTbdDescription,
+  areaDerivedMaterialQty,
+  extraMeasuredSqftForTakeoff,
+  extraAsksCountQty,
+  extraCountQtyForEmit,
+  extraCountReviewLine,
+  prepCountReviewLine,
+  measuredInstallLaborAllowed,
+  configuredInstallRate,
+  rollGoodsSeamWarnings,
+  measuredRectsFromRooms,
+  knowledgeHelpFor,
+  knowledgeWarnings,
+  amountUnitLabelForQuestion,
+  resolveQuestionVisibility,
+  questionPurpose,
+  reviewToJobNotes,
+  buildSalespersonReview,
+  sortEstimateQuestions,
+  estimatorPhaseForQuestion,
+  estimatorPhaseLabel,
+  questionPhaseMap,
+  prepQuantitiesAreFinal,
+  answerGateValues,
+  coerceYesNoChoiceAnswer,
+  groupMeasuredSqftByLabel,
+  groupMeasuredSqftByFamily,
+  measuredSqftForFamilyTakeoff,
+  measuredSqftForQuestionCover,
+  roomsAssignedToFamilies,
+  roomsForPrepTakeoff,
+  emitAreaSqftForQuestion,
+  deliveryAddonCost,
+  reviewBucketForQuestion,
+  prepQuantitySuffix,
+  stairStepCountFromAnswers,
+  applyHardSurfaceStairTrimFill,
+  jobNeedsHardSurfaceStairTrim,
+  jobIsExclusiveWallTile,
+  choiceOptionApplies,
+  answersHaveTrimType,
+  keyedChoiceSelections,
+  trimLabelsFromPicks,
+  applyTrimTypeSeed,
+  presentTrimTypes,
+  HS_TRANSITION_OPTION_TO_TRIM,
+  HS_BASE_OPTION_TO_TRIM,
+  annotateRemovalDescription,
+  type InstallContext,
+  type ReviewRoom,
+  type FlooringFamily,
+} from "@/lib/flooring-knowledge";
 import { AreaCalculator } from "@/components/area-calculator";
 import { ProductPicker, type CustomProductInput } from "./product-picker";
 import {
@@ -66,33 +164,72 @@ const numv = (v: string) => {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 // Which categories bill by the square yard is decided in ONE place now
-// (src/lib/units.ts). This file used to carry its own copy of the list, and the
-// copy in units.ts disagreed about sheet vinyl — so the questionnaire priced it
-// per square yard while the catalog created it per square foot.
-function billing(category: string) {
-  const wantYd = billsBySquareYard(category);
+// (src/lib/units.ts). Underlayment is mixed — pad yards, foam feet — so
+// Guided Estimate asks areaBillsBySquareYard (question key + SKU unit)
+// instead of treating every pad/foam SKU as square yards.
+function billing(args: { category: string; key?: string | null; productUnit?: string | null }) {
+  const wantYd = areaBillsBySquareYard(args);
   return { wantYd, measureUnit: wantYd ? ("sqyd" as const) : ("sqft" as const), unitLabel: wantYd ? "sq yd" : "sq ft" };
 }
-/** Convert a catalog product's per-unit rate to the line's billing unit. */
-function rateFor(rate: number, productUnit: string | null, wantYd: boolean): number {
-  const isYd = (productUnit || "").toLowerCase().includes("yd");
-  const factor = isYd === wantYd ? 1 : wantYd ? 9 : 1 / 9;
-  return r2((rate || 0) * factor);
+/** Convert a catalog product's per-unit rate to the line's billing unit.
+ * Catalog box rate onto an area line is $/coverage, not 1:1.
+ * Exclusive carpet-tile catalog box rate onto that area line is $/coverage, not 1:1 —
+ * mixed stretch-in + tile still waits for cuts. Wrap / count How many stays 1:1 — omit boxedProduct.
+ * Do not invent coverage. */
+function rateFor(
+  rate: number,
+  productUnit: string | null,
+  wantYd: boolean,
+  boxedProduct?: {
+    category?: string | null;
+    sqft_per_box?: number | string | null;
+    carpetInstallSystems?: InstallSystem[] | null;
+  } | null,
+): number {
+  if (boxedProduct) {
+    return catalogRateInLineUnit(
+      rate,
+      {
+        unit: productUnit,
+        category: boxedProduct.category,
+        sqft_per_box: boxedProduct.sqft_per_box,
+        carpetInstallSystems: boxedProduct.carpetInstallSystems,
+      },
+      wantYd,
+    );
+  }
+  return catalogRateToBillingUnit(rate, productUnit, wantYd);
 }
 // --- Answer shapes ---------------------------------------------------------
 // A measured area: length × width in feet + inches. `override` (from the
 // multi-shape calculator) wins over L×W when set.
+interface AreaSection {
+  id: string;
+  name: string;
+  lf: string; li: string;
+  wf: string; wi: string;
+}
 interface AreaRow {
   id: string;
   name: string;
-  lf: string; li: string; // length feet / inches
+  lf: string; li: string; // length feet / inches (used when there are no extra sections)
   wf: string; wi: string; // width feet / inches
   override: string; // total sq ft from the area calculator (irregular rooms)
   differs: boolean; // this room needs different prep than the job default
+  sections?: AreaSection[];
 }
 const feetIn = (ft: string, inch: string) => numv(ft) + numv(inch) / 12;
-const rowSqft = (r: AreaRow): number =>
-  numv(r.override) > 0 ? numv(r.override) : r2(feetIn(r.lf, r.li) * feetIn(r.wf, r.wi));
+const sectionSqft = (s: Pick<AreaSection, "lf" | "li" | "wf" | "wi">): number =>
+  r2(feetIn(s.lf, s.li) * feetIn(s.wf, s.wi));
+const rowSqft = (r: AreaRow): number => {
+  if (numv(r.override) > 0) return numv(r.override);
+  const extra = (r.sections ?? []).filter((s) => sectionSqft(s) > 0);
+  if (extra.length) {
+    const primary = sectionSqft({ lf: r.lf, li: r.li, wf: r.wf, wi: r.wi });
+    return r2(primary + extra.reduce((t, s) => t + sectionSqft(s), 0));
+  }
+  return r2(feetIn(r.lf, r.li) * feetIn(r.wf, r.wi));
+};
 interface ProductAns {
   productId: string; label: string; unit: string;
   category: string | null;   // catalog category → per-product billing (yd vs ft)
@@ -103,9 +240,14 @@ interface ProductAns {
   wastePct: string;   // raw input; "" = use the category default waste
   sqftPerBox: string; // raw input; sq ft per carton → box count (display)
   pieceLengthIn: number | null; // accessories sold by the piece: stick length → lnft ÷ this = pieces
+  /** Catalog roll width in feet — drives cut defaults when present. */
+  rollWidthFt: number | null;
+  /** Hardwood species/construction text from the catalog, when present. */
+  species: string | null;
 }
-/** An extra material for a specific area (e.g. an upgraded pad for the stairs). */
-interface ExtraPad { id: string; product: ProductAns | null; sqft: string }
+/** Extra pad/foam for a specific area. `sqft` is MEASURED area, not the order.
+ *  `qty` is How many in the SKU unit for count extras — never leftover sq ft. */
+interface ExtraPad { id: string; product: ProductAns | null; sqft: string; qty?: string }
 /** One demo type + the area it covers (repeatable "demo" step). */
 interface DemoRow { id: string; option: string; sqft: string }
 /** One trim/molding line — a quick-picked type with color/size, and an optional
@@ -115,7 +257,7 @@ interface TrimRow {
   type: string; // e.g. "Baseboard", "J-channel"
   qty: string;
   unit: string; // lnft | each | pc
-  cost: string; // raw input — material $/unit (default from the type; overridable)
+  cost: string; // raw input — material $/unit (catalog or typed; never a hidden chip price)
   color: string;
   size: string;
   sized: boolean; // show the size field (J-channel, stair nose, baseboard…)
@@ -123,11 +265,9 @@ interface TrimRow {
   product: ProductAns | null; // set only when you attach a specific catalog item
   linearFt?: string; // piece-sold accessories: the run you measured, before rounding to sticks
   rr?: boolean; // baseboard / shoe: remove & re-install existing (adds labor per ln ft)
-  rrRate?: string; // raw input — R&R labor $/ln ft (default DEFAULT_RR_PER_LNFT)
+  rrRate?: string; // raw input — R&R labor $/ln ft (typed; do not invent $1.50)
 }
 
-// Remove & re-install labor for base/shoe, per linear foot (editable per line).
-const DEFAULT_RR_PER_LNFT = 1.5;
 // R&R applies to wall base that gets pulled and re-set during a floor job.
 const isRnREligible = (type: string): boolean => /base|shoe/i.test(type);
 // A matching stairnose: source Versatrim first, else the flooring manufacturer.
@@ -135,39 +275,50 @@ const isStairnose = (type: string): boolean => /stair\s*nose/i.test(type);
 
 /**
  * The stick length of an accessory sold by the piece, or null when the row is
- * billed by the linear foot. Vendors sell trim as pre-cut sticks at a per-piece
- * price, so the run you measure has to be rounded UP into whole pieces — you
- * cannot buy 2.3 sticks, and the PO has to name a number the vendor can fill.
+ * billed by the linear foot or the catalog has no length. Vendors sell some
+ * trim as pre-cut sticks, so a measured run rounds UP into whole pieces —
+ * only when `piece_length_in` is actually on the product. Missing length
+ * stays TBD; we do not invent 94".
  */
 const pieceLenFor = (row: TrimRow): number | null => {
-  if (!row.product || row.product.unit !== "each") return null;
-  /**
-   * Fall back to the standard stick rather than giving up.
-   *
-   * 2,789 of the catalog's trim products carry no piece length, and without one
-   * this returned null — which hid the "Linear ft" box completely and left you
-   * typing a piece count worked out in your head. Every trim that DOES carry a
-   * length is 94", so that's the sane default; it's editable on the line, and
-   * new products now ask for it.
-   */
-  return row.product.pieceLengthIn || DEFAULT_PIECE_LENGTH_IN;
+  if (!row.product) return null;
+  const u = (row.product.unit || "").toLowerCase();
+  if (u !== "each" && u !== "pc") return null;
+  return resolvedPieceLengthIn(row.product.pieceLengthIn);
 };
 
-/** The trims you click to add — with sensible default material rates you can
- *  tweak per line. Sizes/colors are typed on the line. */
-const TRIM_TYPES: { label: string; unit: string; cost: number; sized?: boolean }[] = [
-  { label: "Baseboard", unit: "lnft", cost: 2.6, sized: true },
-  { label: "Shoe molding", unit: "lnft", cost: 1.0 },
-  { label: "Quarter round", unit: "lnft", cost: 1.0 },
-  { label: "Cove base", unit: "lnft", cost: 1.5, sized: true },
-  { label: "Stair nose", unit: "each", cost: 45, sized: true },
-  { label: "Stair tread", unit: "each", cost: 169, sized: true },
-  { label: "Stair riser", unit: "each", cost: 95, sized: true },
-  { label: "J-channel", unit: "lnft", cost: 1.2, sized: true },
-  { label: "T-mold", unit: "each", cost: 25 },
-  { label: "Reducer", unit: "each", cost: 28 },
-  { label: "End cap", unit: "each", cost: 25 },
-  { label: "Threshold", unit: "each", cost: 25 },
+/** Count-unit label on TBD identity lines. Missing unit is TBD, not invented "each". */
+const countUnitForTbd = (raw: string | null | undefined): { unit: string; phrase: string } => {
+  const u = unitLabel(raw) || (raw ?? "").trim();
+  return u ? { unit: u, phrase: u } : { unit: "", phrase: "unit TBD" };
+};
+
+/** Capture a measured run in linear feet for each-unit moldings/transitions.
+ *  Conversion to pieces happens only when stick length is known. */
+const showTrimLinearFt = (row: TrimRow): boolean => {
+  const unit = coerceTrimUnit(row.type, row.unit);
+  if (unit !== "each" && unit !== "pc") return false;
+  return variesByRun(row.type || row.product?.label || "");
+};
+
+/** The trims you click to add. Units are real (lnft / each) — prices are not.
+ *  Pick a catalog item or type a rate; do not invent $1/lnft or $45/nose. */
+const TRIM_TYPES: { label: string; unit: string; sized?: boolean }[] = [
+  { label: "Baseboard", unit: "lnft", sized: true },
+  { label: "Shoe molding", unit: "lnft" },
+  { label: "Quarter round", unit: "lnft" },
+  { label: "Cove base", unit: "lnft", sized: true },
+  { label: "Stair nose", unit: "each", sized: true },
+  { label: "Stair tread", unit: "each", sized: true },
+  { label: "Stair riser", unit: "each", sized: true },
+  { label: "J-channel", unit: "lnft", sized: true },
+  { label: "T-mold", unit: "each" },
+  { label: "Reducer", unit: "each" },
+  { label: "End cap", unit: "each" },
+  { label: "Threshold", unit: "each" },
+  { label: "Metal transition", unit: "each" },
+  { label: "Carpet transition", unit: "each" },
+  { label: "Vent / register", unit: "each" },
 ];
 // A single carpet cut: length (ft + in) off a roll of the chosen width.
 interface CutRow { id: string; lf: string; li: string; width: string }
@@ -178,7 +329,7 @@ interface StairGroup { id: string; type: string; count: string }
 type Answer =
   | { kind: "areas"; rooms: AreaRow[] }
   | { kind: "floor_map"; byRoom: Record<string, ProductAns | null> }
-  | { kind: "product"; product: ProductAns | null; extras: ExtraPad[] }
+  | { kind: "product"; product: ProductAns | null; extras: ExtraPad[]; qty?: string }
   | { kind: "trims"; rows: TrimRow[] }
   | { kind: "yesno"; yes: boolean }
   | { kind: "number"; value: string; rateIdx: number | null }
@@ -186,37 +337,34 @@ type Answer =
   | { kind: "choice_areas"; rows: DemoRow[] }
   | { kind: "cuts"; same: boolean; product: ProductAns | null; groups: CarpetGroup[] }
   | { kind: "stairs"; groups: StairGroup[] }
-  | { kind: "hs_stairs"; steps: string; treadRiser: boolean; product: ProductAns | null; laborRate: string }
+  | { kind: "hs_stairs"; steps: string; treadRiser: boolean; product: ProductAns | null; laborRate: string; qty?: string }
   | { kind: "subfloor"; thickness: string }
   | { kind: "selflevel"; thickness: string }
   | { kind: "text"; text: string };
 
-// Hard-surface stairs wrapped in plank: sq ft per step depends on scope, and the
-// install labor runs higher than a flat floor. Both editable per estimate.
-const STAIR_SQFT_TREAD_RISER = 8;
-const STAIR_SQFT_TREAD_ONLY = 4;
-const DEFAULT_STAIR_LABOR_PER_SQFT = 4;
-
 let cgid = 0, ctid = 0, sgid = 0;
-const newCutRow = (width = "12"): CutRow => ({ id: `c${ctid++}`, lf: "", li: "", width });
-const newCarpetGroup = (): CarpetGroup => ({ id: `g${cgid++}`, area: "", product: null, cuts: [newCutRow()] });
+const newCutRow = (width = ""): CutRow => ({ id: `c${ctid++}`, lf: "", li: "", width });
+const newCarpetGroup = (width = ""): CarpetGroup => ({ id: `g${cgid++}`, area: "", product: null, cuts: [newCutRow(width)] });
 const newStairGroup = (type = "Waterfall"): StairGroup => ({ id: `s${sgid++}`, type, count: "" });
 
 let did = 0;
 const newDemoRow = (): DemoRow => ({ id: `d${did++}`, option: "", sqft: "" });
 let tid = 0;
-const newTrimRow = (t?: { label: string; unit: string; cost: number; sized?: boolean }): TrimRow => ({
-  id: `t${tid++}`,
-  type: t?.label ?? "",
-  qty: "",
-  unit: t?.unit ?? "lnft",
-  cost: t?.cost != null ? String(t.cost) : "",
-  color: "",
-  size: "",
-  sized: !!t?.sized,
-  source: "order",
-  product: null,
-});
+const newTrimRow = (t?: { label: string; unit: string; sized?: boolean }): TrimRow => {
+  const type = t?.label ?? "";
+  return {
+    id: `t${tid++}`,
+    type,
+    qty: "",
+    unit: coerceTrimUnit(type, t?.unit ?? accessoryUnitForType(type)),
+    cost: "",
+    color: "",
+    size: "",
+    sized: !!t?.sized,
+    source: "order",
+    product: null,
+  };
+};
 
 /** Stable key for a measured room in the floor-map (survives resume — the row
  *  id is regenerated each session, so key by name, falling back to position). */
@@ -228,7 +376,7 @@ function toProductAns(p: Product): ProductAns {
   return {
     productId: p.id,
     label: productLabel(p),
-    unit: p.unit || "sqft",
+    unit: pickedProductUnit(p.unit, p.category),
     category: p.category ?? null,
     materialRate: catalogUnitCost(p).amount ?? 0,
     laborRate: Number(p.labor_rate) || 0,
@@ -239,8 +387,10 @@ function toProductAns(p: Product): ProductAns {
     source: "order",
     vendor: supplier ?? "",
     wastePct: "",
-    sqftPerBox: "",
+    sqftPerBox: p.sqft_per_box && p.sqft_per_box > 0 ? String(p.sqft_per_box) : "",
     pieceLengthIn: p.piece_length_in ?? null,
+    rollWidthFt: p.roll_width_ft && p.roll_width_ft > 0 ? p.roll_width_ft : null,
+    species: p.species?.trim() || null,
   };
 }
 /** A one-off product typed in the picker — used on this estimate only, never
@@ -257,7 +407,7 @@ function customToProductAns(input: CustomProductInput): ProductAns {
   return {
     productId: "",
     label,
-    unit: input.unit.trim() || "sqft",
+    unit: pickedProductUnit(input.unit, input.category),
     category: input.category || null,
     materialRate: numOr0(input.material_rate),
     laborRate: numOr0(input.labor_rate),
@@ -268,17 +418,20 @@ function customToProductAns(input: CustomProductInput): ProductAns {
     source: "order",
     vendor: "",
     wastePct: "",
-    sqftPerBox: "",
+    sqftPerBox:
+      numOr0(input.specs?.sqft_per_box) > 0 ? String(numOr0(input.specs.sqft_per_box)) : "",
     // A one-off trim needs its stick length too, or the run you measure can't
     // be turned into pieces.
     pieceLengthIn:
       input.unit === "each" || input.unit === "pc"
-        ? numOr0(input.piece_length_in) || DEFAULT_PIECE_LENGTH_IN
+        ? resolvedPieceLengthIn(input.piece_length_in)
         : null,
+    rollWidthFt: numOr0(input.specs?.roll_width_ft) > 0 ? numOr0(input.specs.roll_width_ft) : null,
+    species: input.specs?.species?.trim() || null,
   };
 }
 let xpid = 0;
-const newExtra = (): ExtraPad => ({ id: `x${xpid++}`, product: null, sqft: "" });
+const newExtra = (): ExtraPad => ({ id: `x${xpid++}`, product: null, sqft: "", qty: "" });
 
 let rid = 0;
 /** The areas a flooring job actually names, in the order you'd walk a house. */
@@ -327,7 +480,7 @@ function nextRoomName(rooms: { name: string }[], label: string): string {
 }
 
 const newRow = (name = ""): AreaRow => ({
-  id: `a${rid++}`, name, lf: "", li: "", wf: "", wi: "", override: "", differs: false,
+  id: `a${rid++}`, name, lf: "", li: "", wf: "", wi: "", override: "", differs: false, sections: [],
 });
 /** A saved customer area → an editable questionnaire row (prefill). */
 const savedToRow = (sa: CustomerArea): AreaRow => {
@@ -341,6 +494,7 @@ const savedToRow = (sa: CustomerArea): AreaRow => {
     wi: sa.width_in ? String(Math.round(sa.width_in % 12)) : "",
     override: !hasLW && sa.sqft ? String(sa.sqft) : "",
     differs: !!sa.differs,
+    sections: [],
   };
 };
 
@@ -354,7 +508,14 @@ const savedToRow = (sa: CustomerArea): AreaRow => {
 function rekeyAnswer(a: Answer): Answer {
   switch (a.kind) {
     case "areas":
-      return { ...a, rooms: a.rooms.map((r) => ({ ...r, id: `a${rid++}` })) };
+      return {
+        ...a,
+        rooms: a.rooms.map((r) => ({
+          ...r,
+          id: `a${rid++}`,
+          sections: (r.sections ?? []).map((s) => ({ ...s, id: `sec${rid++}` })),
+        })),
+      };
     case "cuts":
       return {
         ...a,
@@ -408,6 +569,7 @@ export function Questionnaire({
   questions,
   savedAreas = [],
   draft = null,
+  addonDefaults = {},
 }: {
   customerId: string;
   customerName: string;
@@ -418,6 +580,8 @@ export function Questionnaire({
   questions: EstimateQuestion[];
   savedAreas?: CustomerArea[];
   draft?: EstimateDraft | null;
+  /** Settings → Default pricing. Delivery emits only when cost > 0. */
+  addonDefaults?: Record<string, { cost: number | null; unit?: string | null; labor?: boolean }>;
 }) {
   const goalRaw = targetMargin;
   const goal = goalRaw > 0 && goalRaw < 100 ? goalRaw : 40;
@@ -435,22 +599,33 @@ export function Questionnaire({
       else if (q.kind === "product")
         init[q.id] = q.config.trim_list
           ? { kind: "trims", rows: [] }
-          : { kind: "product", product: null, extras: [] };
+          : { kind: "product", product: null, extras: [], qty: "" };
       else if (q.kind === "yesno") init[q.id] = { kind: "yesno", yes: !!q.config.default };
       else if (q.kind === "number") init[q.id] = { kind: "number", value: "", rateIdx: q.config.rate_options?.length ? 0 : null };
       else if (q.kind === "choice")
         init[q.id] = q.config.per_area
           ? { kind: "choice_areas", rows: [] }
           : { kind: "choice", selected: [] };
-      else if (q.kind === "cuts") init[q.id] = { kind: "cuts", same: true, product: null, groups: [newCarpetGroup()] };
+      else if (q.kind === "cuts") {
+        // Width stays empty until catalog roll_width_ft or a chip/typed value.
+        // Do not plant 12' (carpet) or 6' (vinyl) as if it were measured.
+        init[q.id] = {
+          kind: "cuts",
+          same: true,
+          product: null,
+          groups: [newCarpetGroup("")],
+        };
+      }
       else if (q.kind === "stairs")
         init[q.id] = { kind: "stairs", groups: [newStairGroup(q.config.options?.[0]?.label ?? "Waterfall")] };
       else if (q.kind === "hs_stairs")
-        init[q.id] = { kind: "hs_stairs", steps: "", treadRiser: true, product: null, laborRate: "" };
+        init[q.id] = { kind: "hs_stairs", steps: "", treadRiser: true, product: null, laborRate: "", qty: "" };
       else if (q.kind === "subfloor")
         init[q.id] = { kind: "subfloor", thickness: q.config.options?.[0]?.label ?? "" };
-      else if (q.kind === "selflevel")
-        init[q.id] = { kind: "selflevel", thickness: String(q.config.default_thickness_in ?? 0.25) };
+      else if (q.kind === "selflevel") {
+        const pour = selfLevelPourThicknessIn(q.config);
+        init[q.id] = { kind: "selflevel", thickness: pour > 0 ? String(pour) : "" };
+      }
       else init[q.id] = { kind: "text", text: "" };
     }
     return init;
@@ -462,7 +637,10 @@ export function Questionnaire({
     // questions that still exist, so a changed question set can't corrupt it).
     if (draft?.answers) {
       for (const [k, v] of Object.entries(draft.answers)) {
-        if (init[k] !== undefined && v) init[k] = rekeyAnswer(v as Answer);
+        if (init[k] === undefined || !v) continue;
+        const q = questions.find((x) => x.id === k);
+        const coerced = q ? coerceYesNoChoiceAnswer(q.kind, v) : v;
+        init[k] = rekeyAnswer(coerced as Answer);
       }
     }
     return init;
@@ -480,9 +658,19 @@ export function Questionnaire({
   const set = (id: string, a: Answer) => setAnswers((p) => ({ ...p, [id]: a }));
 
   // Per-room prep overrides: overrides[roomId][questionId] = that room's answer.
-  const [overrides, setOverrides] = useState<Record<string, Record<string, Answer>>>(
-    (draft?.overrides as Record<string, Record<string, Answer>>) ?? {},
-  );
+  const [overrides, setOverrides] = useState<Record<string, Record<string, Answer>>>(() => {
+    const raw = (draft?.overrides as Record<string, Record<string, Answer>> | undefined) ?? {};
+    const out: Record<string, Record<string, Answer>> = {};
+    for (const [roomId, byQ] of Object.entries(raw)) {
+      const next: Record<string, Answer> = {};
+      for (const [qid, ans] of Object.entries(byQ ?? {})) {
+        const q = questions.find((x) => x.id === qid);
+        next[qid] = (q ? coerceYesNoChoiceAnswer(q.kind, ans) : ans) as Answer;
+      }
+      out[roomId] = next;
+    }
+    return out;
+  });
 
   // Auto-save progress (debounced) so it can be resumed from any device. The
   // first render is skipped so simply opening the page doesn't overwrite a draft.
@@ -545,18 +733,7 @@ export function Questionnaire({
   // point, so a gate can sit anywhere relative to the questions it reveals (a
   // hidden question's answer never counts toward another condition).
   const visible = useMemo(() => {
-    const valsOf = (a: Answer | undefined): string[] =>
-      a?.kind === "yesno"
-        ? [a.yes ? "Yes" : "No"]
-        : a?.kind === "choice"
-          ? a.selected
-          : a?.kind === "text"
-            ? [a.text]
-            : a?.kind === "product"
-              ? a.product
-                ? [a.product.label]
-                : []
-              : [];
+    const valsOf = (a: Answer | undefined): string[] => answerGateValues(a);
     // A question's gating values = its job-level answer PLUS every per-room
     // override. So a value chosen for even ONE room counts — that's how a later
     // question "recognizes" per-room detail and stops re-asking (e.g. demo
@@ -569,30 +746,100 @@ export function Questionnaire({
       }
       return [...vals];
     };
-    const vis: Record<string, boolean> = {};
-    for (const q of questions) vis[q.id] = true; // start optimistic
-    for (let iter = 0; iter <= questions.length; iter++) {
-      const valByKey: Record<string, string[]> = {};
-      for (const q of questions) if (vis[q.id] && q.key) valByKey[q.key] = answerVal(q);
-      let changed = false;
-      for (const q of questions) {
-        const cond = q.config.show_if;
-        const show = !cond?.key ? true : (valByKey[cond.key] ?? []).some((v) => cond.in.includes(v));
-        if (vis[q.id] !== show) {
-          vis[q.id] = show;
-          changed = true;
-        }
-      }
-      if (!changed) break;
-    }
+    const vis = resolveQuestionVisibility(questions, answerVal);
     // Cash & carry: hide every pure-labor question (materials only).
     if (cashCarry) for (const q of questions) if (isPureLaborQuestion(q)) vis[q.id] = false;
     return vis;
   }, [questions, answers, overrides, cashCarry]);
   const visibleQuestions = useMemo(
-    () => questions.filter((q) => visible[q.id]),
+    () => sortEstimateQuestions(questions.filter((q) => visible[q.id])),
     [questions, visible],
   );
+  const phaseById = useMemo(() => questionPhaseMap(questions), [questions]);
+  const phaseName = (qq: EstimateQuestion | null | undefined) =>
+    qq ? estimatorPhaseLabel(phaseById.get(qq.id) ?? estimatorPhaseForQuestion(qq)) : "";
+
+  const flooringCtx = useMemo(() => {
+    const valByKey: Record<string, string[]> = {};
+    const valsOf = (a: Answer | undefined): string[] => answerGateValues(a);
+    for (const q of questions) {
+      if (!visible[q.id] || !q.key) continue;
+      const vals = new Set(valsOf(answers[q.id]));
+      for (const roomOv of Object.values(overrides)) {
+        const ov = roomOv[q.id];
+        if (ov) for (const v of valsOf(ov)) vals.add(v);
+      }
+      valByKey[q.key] = [...vals];
+    }
+    const ctx = installContextFromValByKey(valByKey);
+    const species: string[] = [];
+    const categories: Array<string | null | undefined> = [];
+    const take = (p: ProductAns | null | undefined) => {
+      if (p?.species) species.push(p.species);
+      if (p?.category) categories.push(p.category);
+    };
+    for (const q of questions) {
+      if (!visible[q.id]) continue;
+      const a = answers[q.id];
+      if (a?.kind === "product") {
+        take(a.product);
+        for (const x of a.extras) take(x.product);
+      } else if (a?.kind === "cuts") {
+        take(a.product);
+        for (const g of a.groups) take(g.product);
+      } else if (a?.kind === "floor_map") {
+        for (const p of Object.values(a.byRoom)) take(p);
+      }
+    }
+    for (const s of species) {
+      const c = hardwoodConstructionFromSpecies(s);
+      if (c !== "unknown") {
+        ctx.hardwoodConstruction = c;
+        break;
+      }
+    }
+    return withProductFamilies(ctx, categories);
+  }, [questions, answers, overrides, visible]);
+
+  const hsTransitionTrims = useMemo(
+    () =>
+      trimLabelsFromPicks(
+        keyedChoiceSelections(questions, answers, "hs_transitions"),
+        HS_TRANSITION_OPTION_TO_TRIM,
+      ),
+    [questions, answers],
+  );
+  const hsBaseTrims = useMemo(
+    () =>
+      trimLabelsFromPicks(
+        keyedChoiceSelections(questions, answers, "hs_base_trim"),
+        HS_BASE_OPTION_TO_TRIM,
+      ),
+    [questions, answers],
+  );
+
+  const cutsSqftByCategory = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const q of questions) {
+      if (q.kind !== "cuts" || !visible[q.id]) continue;
+      const a = answers[q.id];
+      if (a?.kind !== "cuts") continue;
+      const cat = q.config.category === "vinyl" ? "vinyl" : "carpet";
+      let s = 0;
+      for (const g of a.groups) {
+        s += carpetYardageFromCuts(
+          g.cuts.map((c) => ({
+            lengthFt: numv(c.lf),
+            lengthIn: numv(c.li),
+            rollWidthFt: numv(c.width),
+          })),
+        ).sqft;
+      }
+      out[cat] = r2((out[cat] ?? 0) + s);
+    }
+    return out;
+  }, [questions, answers, visible]);
+  const cutsSqft = r2((cutsSqftByCategory.carpet ?? 0) + (cutsSqftByCategory.vinyl ?? 0));
   // Prep questions that can vary by room (subfloor, demo, skim/level, moisture…).
   const perRoomQuestions = useMemo(
     () =>
@@ -640,16 +887,61 @@ export function Questionnaire({
         const sf = rowSqft(r);
         if (sf <= 0) continue;
         const usingCalc = numv(r.override) > 0;
+        const extra = (r.sections ?? []).filter((s) => sectionSqft(s) > 0);
+        const multi = extra.length > 0;
         out.push({
           name: r.name || "",
           sqft: sf,
-          lenIn: usingCalc ? null : Math.round(feetIn(r.lf, r.li) * 12) || null,
-          widIn: usingCalc ? null : Math.round(feetIn(r.wf, r.wi) * 12) || null,
+          lenIn: usingCalc || multi ? null : Math.round(feetIn(r.lf, r.li) * 12) || null,
+          widIn: usingCalc || multi ? null : Math.round(feetIn(r.wf, r.wi) * 12) || null,
         });
       }
     }
     return out;
   }, [questions, answers]);
+
+  // Per-room product assignment from the floor map. Mixed jobs keep carpet
+  // rooms and LVP rooms separate — whole-job taped sq ft is not cloned.
+  const floorMapAssignments = useMemo(() => {
+    type Room = { name: string; sqft: number; lenIn: number | null; widIn: number | null };
+    const rooms: { room: Room; family: ReturnType<typeof familyFromCatalogCategory> | null; category: string | null }[] = [];
+    let active = false;
+    for (const q of questions) {
+      if (q.kind !== "floor_map" || !visible[q.id]) continue;
+      const a = answers[q.id];
+      if (a?.kind !== "floor_map") continue;
+      active = true;
+      allRooms.forEach((rm, i) => {
+        const p = a.byRoom[roomKey(rm.name, i)];
+        const cat = p?.category ?? null;
+        rooms.push({
+          room: rm,
+          family: cat ? familyFromCatalogCategory(cat) : null,
+          category: cat,
+        });
+      });
+    }
+    return {
+      active,
+      rooms,
+      byFamily: groupMeasuredSqftByFamily(
+        rooms.map((r) => ({ category: r.category, measuredSqft: r.room.sqft })),
+      ),
+      unassignedRoomSqft: rooms
+        .filter((r) => !r.family || r.family === "other")
+        .reduce((s, r) => s + (r.room.sqft > 0 ? r.room.sqft : 0), 0),
+    };
+  }, [questions, answers, visible, allRooms]);
+
+  const questionCoverSf = (q: { kind?: string | null; key?: string | null; category?: string | null }) =>
+    measuredSqftForQuestionCover({
+      kind: q.kind,
+      key: q.key,
+      category: q.category,
+      totalSqft,
+      byFamily: floorMapAssignments.byFamily,
+      jobFamilies: flooringCtx.families,
+    });
 
   // --- Answer → line items -------------------------------------------------
   // Emit one line billed against a SPECIFIC area; `room` tags per-room prep.
@@ -667,9 +959,14 @@ export function Questionnaire({
     });
     if (!mapped) return null;
     const isLabor = emit.role === "labor";
+    const rawDesc = room ? `${emit.description} — ${room}` : emit.description;
     return {
       room,
-      description: room ? `${emit.description} — ${room}` : emit.description,
+      description: annotateRemovalDescription(rawDesc, {
+        bond: keyedChoiceSelections(questions, answers, "existing_bond"),
+        pad: keyedChoiceSelections(questions, answers, "existing_pad"),
+        tack: keyedChoiceSelections(questions, answers, "existing_tack"),
+      }),
       category: isLabor ? "labor" : emit.category || "other",
       measure_unit: mapped.measure_unit,
       sqft: mapped.sqft,
@@ -710,7 +1007,7 @@ export function Questionnaire({
       }
     } else if (q.kind === "choice" && a.kind === "choice") {
       for (const opt of q.config.options ?? []) {
-        if (a.selected.includes(opt.label) && opt.emit) {
+        if (a.selected.includes(opt.label) && opt.emit && choiceOptionApplies(q, opt.label, flooringCtx)) {
           const l = emitLineArea(opt.emit, areaSqft, room);
           if (l) out.push(l);
         }
@@ -721,24 +1018,44 @@ export function Questionnaire({
 
   const lines: SmartLine[] = useMemo(() => {
     const out: SmartLine[] = [];
-    // If a floor-map assigns products per room, the area that gets CARPET (billed
-    // by the yard) drives padding — so a mixed job doesn't buy pad for the LVP.
-    let carpetArea = 0;
-    let floorMapActive = false;
-    for (const q of questions) {
-      if (q.kind !== "floor_map" || !visible[q.id]) continue;
-      const fa = answers[q.id];
-      if (fa?.kind !== "floor_map") continue;
-      floorMapActive = true;
-      allRooms.forEach((rm, i) => {
-        const p = fa.byRoom[roomKey(rm.name, i)];
-        // A room "needs pad" only if it's getting CARPET — strictly by category.
-        // Sheet vinyl is a roll good (sq yd) but takes NO pad, so the old
-        // "yard-billed unit" fallback is intentionally gone.
-        const isCarpet = !!p && p.category === "carpet";
-        if (isCarpet) carpetArea += rm.sqft;
-      });
-    }
+    const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
+    // Roll-goods SKU with no cuts: keep the product, do not invent yardage.
+    // sqft / L×W stay null so Builder lineQty cannot price taped area as an order.
+    const rollGoodsTbdLine = (
+      p: ProductAns,
+      room: string | null,
+      measuredSqft?: number,
+    ): SmartLine => {
+      const cat = p.category || "carpet";
+      return {
+        room,
+        description: rollGoodsOrderTbdDescription(p.label || cat, measuredSqft),
+        category: cat,
+        measure_unit: "sqyd",
+        sqft: null,
+        quantity: null,
+        length_in: null,
+        width_in: null,
+        measurements: null,
+        unit: "sq yd",
+        material_rate: sellMat(rateFor(p.materialRate, p.unit, true)),
+        labor_rate: 0,
+        material_cost: rateFor(p.materialRate, p.unit, true),
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: p.productId || null,
+        manufacturer:
+          p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+        style: p.style,
+        color: p.color,
+        from_stock: p.source === "stock",
+        order_as_roll: false,
+        roll_width_ft: p.rollWidthFt && p.rollWidthFt > 0 ? p.rollWidthFt : null,
+      };
+    };
+    // Floor-map owns per-room flooring emit. Pad / prep cover uses the same
+    // per-family measured area as Review — never whole-job sq ft on mixed jobs.
+    const floorMapActive = floorMapAssignments.active;
     for (const q of questions) {
       if (!visible[q.id]) continue; // hidden by conditional logic → no line
       const a = answers[q.id];
@@ -749,27 +1066,50 @@ export function Questionnaire({
         // priced from a per-type install rate (carpet by the yard, hard surface by
         // the foot) since catalog flooring carries no labor rate of its own.
         const fcfg = q.config as { install_yd?: number; install_ft?: number };
-        const instYd = fcfg.install_yd != null ? fcfg.install_yd : 6;
-        const instFt = fcfg.install_ft != null ? fcfg.install_ft : 2;
+        const instYd = configuredInstallRate({ billing: "yd", config: fcfg });
+        const instFt = configuredInstallRate({ billing: "ft", config: fcfg });
         const byProd = new Map<
           string,
           { p: ProductAns; wantYd: boolean; sqft: number }
         >();
+        const tbdRoll = new Map<string, { p: ProductAns; sqft: number; rooms: string[] }>();
+        const tbdBoxed = new Map<string, { p: ProductAns; sqft: number; rooms: string[] }>();
         allRooms.forEach((rm, i) => {
           const p = a.byRoom[roomKey(rm.name, i)];
           if (!p || rm.sqft <= 0) return;
           const cat = p.category || "other";
-          const b = billing(cat);
+          const rollFam = familyFromCatalogCategory(cat);
+          // Mixed jobs: broadloom / sheet ORDER comes from the cuts step.
+          // Exclusive carpet tile is modular — taped room area may become the
+          // material line. Do not also bill a second roll-goods line from cuts.
+          const cutSf = isRollGoodsFamily(rollFam) ? (cutsSqftByCategory[rollFam] ?? 0) : 0;
+          if (rollGoodsHaveCuts(rollFam, cutSf, carpetSystems)) return;
+          const b = billing({ category: cat, productUnit: p.unit });
           const defWaste = profileFor(cat)?.waste ?? 0;
-          const waste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
+          const requested = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
+          const waste = materialWastePctForEmit({
+            family: rollFam,
+            cutsSqft: cutSf,
+            requestedWastePct: requested,
+            carpetInstallSystems: carpetSystems,
+          });
           const spb = numv(p.sqftPerBox);
           // Flooring is AREA-billed: the builder prices area × material_cost ×
           // (1 + waste_pct/100) and shows an editable Waste % field. So pass the
           // waste through waste_pct — do NOT bake it into quantity, which area
           // pricing ignores (that's why waste appeared to "not transfer"). Box
           // count is derived from sqft ÷ sqft_per_box in the builder.
-          const qty = b.wantYd ? r2(rm.sqft / 9) : r2(rm.sqft);
-          if (rm.sqft > 0)
+          // Roll goods without cuts: measured sqft is NOT an order. Do not emit
+          // a material line with qty = sqft ÷ 9 — that is equivalent area.
+          const qty = areaDerivedMaterialQty({
+            family: rollFam,
+            measuredSqft: rm.sqft,
+            billingUnit: b.wantYd ? "sqyd" : "sqft",
+            productUnit: p.unit,
+            carpetInstallSystems: carpetSystems,
+            sqftPerBox: spb > 0 ? spb : null,
+          });
+          if (qty != null && rm.sqft > 0)
             out.push({
               room: rm.name || null,
               description: p.label || cat,
@@ -777,12 +1117,25 @@ export function Questionnaire({
               measure_unit: b.measureUnit,
               sqft: rm.sqft,
               quantity: qty,
-              length_in: rm.lenIn,
-              width_in: rm.widIn,
+              // Room L×W is measured area. Never stuff it onto a carpet/vinyl
+              // line as a warehouse cut — exclusive tile is modular, and
+              // broadloom order comes from the cuts step.
+              length_in: isRollGoodCategory(cat) ? null : rm.lenIn,
+              width_in: isRollGoodCategory(cat) ? null : rm.widIn,
               unit: b.unitLabel,
-              material_rate: sellMat(rateFor(p.materialRate, p.unit, b.wantYd)),
+              material_rate: sellMat(
+                rateFor(p.materialRate, p.unit, b.wantYd, {
+                  category: cat,
+                  sqft_per_box: spb > 0 ? spb : null,
+                  carpetInstallSystems: carpetSystems,
+                }),
+              ),
               labor_rate: 0,
-              material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
+              material_cost: rateFor(p.materialRate, p.unit, b.wantYd, {
+                category: cat,
+                sqft_per_box: spb > 0 ? spb : null,
+                carpetInstallSystems: carpetSystems,
+              }),
               labor_cost: 0,
               waste_pct: waste,
               product_id: p.productId || null,
@@ -792,15 +1145,81 @@ export function Questionnaire({
               color: p.color,
               from_stock: p.source === "stock",
               sqft_per_box: spb > 0 ? spb : null,
+              order_as_roll: isRollGoodCategory(cat) ? false : undefined,
             });
-          // Accumulate install labor per distinct product.
-          const key = `${p.productId || p.label}|${p.laborRate}`;
-          const agg = byProd.get(key) ?? { p, wantYd: b.wantYd, sqft: 0 };
-          agg.sqft += rm.sqft;
-          byProd.set(key, agg);
+          else if (rollGoodsNeedCuts(rollFam, carpetSystems) && (p.productId || p.label)) {
+            const key = p.productId || p.label;
+            const rec = tbdRoll.get(key) ?? { p, sqft: 0, rooms: [] };
+            rec.sqft += rm.sqft;
+            if (rm.name && !rec.rooms.includes(rm.name)) rec.rooms.push(rm.name);
+            tbdRoll.set(key, rec);
+          } else if (
+            boxedCartonCoverageTbdDescription({
+              family: rollFam,
+              productUnit: p.unit,
+              sqftPerBox: spb > 0 ? spb : null,
+              label: p.label,
+              carpetInstallSystems: carpetSystems,
+            }) &&
+            (p.productId || p.label)
+          ) {
+            // Missing carton coverage stays TBD — do not invent a box size and not How many boxes from leftover taped sq ft.
+            const key = p.productId || p.label;
+            const rec = tbdBoxed.get(key) ?? { p, sqft: 0, rooms: [] };
+            rec.sqft += rm.sqft;
+            if (rm.name && !rec.rooms.includes(rm.name)) rec.rooms.push(rm.name);
+            tbdBoxed.set(key, rec);
+          }
+          // Accumulate install labor per distinct product. Labor is measured
+          // work even when roll-goods order quantity is still TBD.
+          if (measuredInstallLaborAllowed(rollFam, cutSf, carpetSystems)) {
+            const key = `${p.productId || p.label}|${p.laborRate}`;
+            const agg = byProd.get(key) ?? { p, wantYd: b.wantYd, sqft: 0 };
+            agg.sqft += rm.sqft;
+            byProd.set(key, agg);
+          }
         });
+        for (const { p, sqft, rooms } of tbdRoll.values()) {
+          out.push(rollGoodsTbdLine(p, rooms.length === 1 ? rooms[0] ?? null : null, sqft));
+        }
+        for (const { p, rooms } of tbdBoxed.values()) {
+          const cat = p.category || "other";
+          const desc = boxedCartonCoverageTbdDescription({
+            family: familyFromCatalogCategory(cat),
+            productUnit: p.unit,
+            label: p.label,
+            carpetInstallSystems: carpetSystems,
+          });
+          if (!desc) continue;
+          // Builder carton-coverage TBD is How many / Unit TBD, never taped square feet.
+          const { unit: countUnit } = countUnitForTbd(isAreaUnit(p.unit) ? "" : p.unit);
+          out.push({
+            room: rooms.length === 1 ? rooms[0] ?? null : null,
+            description: desc,
+            category: cat,
+            measure_unit: "sqft",
+            sqft: null,
+            quantity: null,
+            length_in: null,
+            width_in: null,
+            measurements: null,
+            unit: countUnit,
+            material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
+            labor_rate: 0,
+            material_cost: rateFor(p.materialRate, p.unit, false),
+            labor_cost: 0,
+            waste_pct: 0,
+            product_id: p.productId || null,
+            manufacturer:
+              p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+            style: p.style,
+            color: p.color,
+            from_stock: p.source === "stock",
+          });
+        }
         for (const { p, wantYd, sqft } of byProd.values()) {
-          // Prefer the product's own labor rate if set, else the per-type default.
+          // Prefer the product's own labor rate if set, else the per-type
+          // Settings rate. Missing config does not invent $6/yd or $2/ft.
           const lr = rateFor(p.laborRate, p.unit, wantYd) || (wantYd ? instYd : instFt);
           if (lr <= 0 || sqft <= 0) continue;
           out.push({
@@ -827,7 +1246,7 @@ export function Questionnaire({
         }
       } else if (q.kind === "product" && a.kind === "product") {
         const cat = q.config.category || "other";
-        const b = billing(cat);
+        const b = billing({ category: cat, key: q.key });
         // Editable waste per product (falls back to the category default).
         // Flooring is AREA-billed: the builder prices measured area ×
         // material_cost × (1 + waste_pct/100) and IGNORES the stored quantity,
@@ -835,7 +1254,15 @@ export function Questionnaire({
         // it (the same bug that was fixed on the per-room path). Box count is
         // derived from sqft ÷ sqft_per_box in the builder, display-only.
         const defWaste = profileFor(cat)?.waste ?? 0;
-        const wasteOf = (p: ProductAns) => (p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste);
+        const fam = familyFromCatalogCategory(cat);
+        const cutSf = isRollGoodsFamily(fam) ? (cutsSqftByCategory[fam] ?? 0) : 0;
+        const wasteOf = (p: ProductAns) =>
+          materialWastePctForEmit({
+            family: fam,
+            cutsSqft: cutSf,
+            requestedWastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste,
+            carpetInstallSystems: carpetSystems,
+          });
         const matLine = (
           p: ProductAns,
           size?: {
@@ -847,10 +1274,14 @@ export function Questionnaire({
             cuts?: { label: string | null; lenIn: number; widIn: number }[];
           },
         ): SmartLine => {
-          // For carpet / sheet vinyl, ALWAYS carry the cut(s) so the warehouse
-          // cut sheet can never come up empty: use explicit cuts, else the single
-          // L×W, else derive one from the area at the roll width.
+          // Roll-goods warehouse cuts come from the cuts editor only.
+          // Room L×W is measured area, not a fabricated cut off a 12' roll.
           const roll = isRollGoodCategory(cat);
+          const pb = billing({
+            category: p.category || cat,
+            key: q.key,
+            productUnit: p.unit,
+          });
           let measurements: SmartLine["measurements"] = null;
           if (roll) {
             const pieces = (size?.cuts ?? []).filter((c) => c.lenIn > 0 && c.widIn > 0);
@@ -861,34 +1292,44 @@ export function Questionnaire({
                 width_in: c.widIn,
                 op: "add" as const,
               }));
-            } else if ((size?.lenIn ?? 0) > 0 && (size?.widIn ?? 0) > 0) {
-              measurements = [
-                { label: size?.room ?? null, length_in: size!.lenIn!, width_in: size!.widIn!, op: "add" as const },
-              ];
-            } else if ((size?.sqft ?? 0) > 0) {
-              // No dimensions measured — derive one cut from the area @ 12' roll.
-              const sf = size!.sqft!;
-              measurements = [
-                { label: size?.room ?? null, length_in: r2((sf / 12) * 12), width_in: 144, op: "add" as const },
-              ];
             }
           }
           return {
           room: size?.room ?? null,
           description: p.label || cat,
           category: cat,
-          measure_unit: b.measureUnit,
+          measure_unit: pb.measureUnit,
           sqft: size?.sqft ?? null, // the measurement, carried for confirmation
           // Raw measured area in the billing unit (no waste, no box snap) — the
           // waste is applied via waste_pct so area pricing charges it.
-          quantity: b.wantYd ? r2((size?.sqft ?? 0) / 9) : r2(size?.sqft ?? 0),
-          length_in: measurements?.[0]?.length_in ?? size?.lenIn ?? null,
-          width_in: measurements?.[0]?.width_in ?? size?.widIn ?? null,
+          // Roll goods return null here — callers must not push those lines.
+          quantity: areaDerivedMaterialQty({
+            family: familyFromCatalogCategory(p.category || cat),
+            measuredSqft: size?.sqft ?? 0,
+            billingUnit: pb.wantYd ? "sqyd" : "sqft",
+            productUnit: p.unit,
+            carpetInstallSystems: carpetSystems,
+            sqftPerBox: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+          }) ?? 0,
+          // Roll goods: L×W on the line is a warehouse cut, so only explicit
+          // cuts go here. Room dimensions stay on sqft (measured area).
+          length_in: measurements?.[0]?.length_in ?? (roll ? null : size?.lenIn ?? null),
+          width_in: measurements?.[0]?.width_in ?? (roll ? null : size?.widIn ?? null),
           measurements,
-          unit: b.unitLabel,
-          material_rate: sellMat(rateFor(p.materialRate, p.unit, b.wantYd)),
+          unit: pb.unitLabel,
+          material_rate: sellMat(
+            rateFor(p.materialRate, p.unit, pb.wantYd, {
+              category: p.category || cat,
+              sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+              carpetInstallSystems: carpetSystems,
+            }),
+          ),
           labor_rate: 0,
-          material_cost: rateFor(p.materialRate, p.unit, b.wantYd),
+          material_cost: rateFor(p.materialRate, p.unit, pb.wantYd, {
+            category: p.category || cat,
+            sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+            carpetInstallSystems: carpetSystems,
+          }),
           labor_cost: 0,
           waste_pct: wasteOf(p),
           product_id: p.productId || null,
@@ -904,41 +1345,128 @@ export function Questionnaire({
         if (a.product) {
           const p = a.product;
           const boxed = numv(p.sqftPerBox) > 0;
-          // Padding only covers the CARPET rooms once a floor-map is in play, so a
-          // mixed job doesn't buy pad for the hard-surface areas.
-          const coverSf =
-            cat === "underlayment" && floorMapActive && carpetArea > 0 ? carpetArea : totalSqft;
+          // Floor-map already itemizes flooring per assigned room. Do not emit
+          // a second whole-job (or all-room) line for the same SKU.
+          const floorMapOwnsFlooring =
+            floorMapActive && cat !== "underlayment" && cat !== "trim" && cat !== "other";
+          const coverSf = questionCoverSf({ kind: q.kind, key: q.key, category: cat });
+          const coverRooms = roomsAssignedToFamilies({
+            rooms: floorMapAssignments.rooms.length
+              ? floorMapAssignments.rooms
+              : allRooms.map((rm) => ({ room: rm, family: null })),
+            families: [fam],
+            jobFamilies: flooringCtx.families,
+          });
           // Flooring is itemized PER ROOM (name + sq ft + L×W) so the sizes you
           // measured show on the estimate & work order. Boxed goods bill as ONE
           // full-carton line (so the charge = the boxes bought); pad / trim /
           // other stay bundled to one line, but carry the total sq ft.
           const perRoomFloor =
-            cat !== "underlayment" && cat !== "trim" && cat !== "other" && allRooms.length > 0 && !boxed;
-          if (perRoomFloor) {
-            for (const rm of allRooms) {
-              if (rm.sqft > 0) out.push(matLine(p, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
+            !floorMapOwnsFlooring &&
+            cat !== "underlayment" && cat !== "trim" && cat !== "other" && coverRooms.length > 0 && !boxed;
+          const allowAreaMat =
+            (areaDerivedMaterialAllowed(fam, p.unit, carpetSystems) ||
+              boxedCartonAreaTakeoffAllowed({
+                family: fam,
+                productUnit: p.unit,
+                sqftPerBox: numv(p.sqftPerBox),
+                carpetInstallSystems: carpetSystems,
+              })) &&
+            q.key !== "adhesive";
+          // Roll goods: taped area is never a material line. Cuts own the order.
+          // Adhesive / gal / kit: taped sq ft is not a glue order.
+          if (floorMapOwnsFlooring) {
+            // Floor-map loop above already emitted this family's rooms.
+          } else if (allowAreaMat) {
+            if (perRoomFloor) {
+              for (const rm of coverRooms) {
+                if (rm.sqft > 0) out.push(matLine(p, { room: rm.name || null, sqft: rm.sqft, lenIn: rm.lenIn, widIn: rm.widIn }));
+              }
+            } else if (coverSf > 0) {
+              // Measured area only. Do not turn room L×W into a warehouse cut list —
+              // that is the cuts/layout step, and sq ft is not a cut plan.
+              out.push(matLine(p, { sqft: coverSf }));
             }
-          } else if (coverSf > 0) {
-            // A bundled roll-good (carpet/vinyl) line still carries EVERY measured
-            // room as its own cut, so the warehouse cut sheet is never short a
-            // piece. Rooms measured by L×W become exact cuts; the rest fall back
-            // to the area in matLine.
-            const bundledCuts =
-              isRollGoodCategory(cat)
-                ? allRooms
-                    .filter((rm) => (rm.lenIn ?? 0) > 0 && (rm.widIn ?? 0) > 0)
-                    .map((rm) => ({ label: rm.name || null, lenIn: rm.lenIn as number, widIn: rm.widIn as number }))
-                : undefined;
-            out.push(
-              matLine(p, {
-                sqft: coverSf,
-                cuts: bundledCuts && bundledCuts.length ? bundledCuts : undefined,
-              }),
-            );
+          } else if (
+            !floorMapActive &&
+            isRollGoodsFamily(fam) &&
+            rollGoodsNeedCuts(fam, carpetSystems) &&
+            (p.productId || p.label)
+          ) {
+            out.push(rollGoodsTbdLine(p, null, coverSf > 0 ? coverSf : undefined));
+          } else if (!isRollGoodsFamily(fam) && (p.productId || p.label)) {
+            // Main count SKU emits How many in that unit — not leftover sq ft and not a 30-yard roll. Empty unit stays TBD.
+            // Builder count SKU / qty TBD lines are How many / Unit TBD, never taped square feet.
+            const counted = extraCountQtyForEmit({
+              family: fam,
+              productUnit: p.unit,
+              qty: numv(a.qty ?? ""),
+              carpetInstallSystems: carpetSystems,
+            });
+            const { unit: countUnit, phrase: countPhrase } = countUnitForTbd(p.unit);
+            if (counted) {
+              out.push({
+                room: null,
+                description: `${p.label || cat} — ${counted.quantity} ${counted.unit} (not taped sq ft)`,
+                category: p.category || cat,
+                measure_unit: "sqft",
+                sqft: null,
+                quantity: counted.quantity,
+                length_in: null,
+                width_in: null,
+                unit: counted.unit,
+                material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
+                labor_rate: 0,
+                material_cost: rateFor(p.materialRate, p.unit, false),
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: p.productId || null,
+                manufacturer:
+                  p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                style: p.style,
+                color: p.color,
+                from_stock: p.source === "stock",
+              });
+            } else {
+              out.push({
+                room: null,
+                description: `${p.label || cat} — qty TBD (${countPhrase} — not taped sq ft)`,
+                category: p.category || cat,
+                measure_unit: "sqft",
+                sqft: null,
+                quantity: null,
+                length_in: null,
+                width_in: null,
+                unit: countUnit,
+                material_rate: sellMat(rateFor(p.materialRate, p.unit, false)),
+                labor_rate: 0,
+                material_cost: rateFor(p.materialRate, p.unit, false),
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: p.productId || null,
+                manufacturer:
+                  p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                style: p.style,
+                color: p.color,
+                from_stock: p.source === "stock",
+              });
+            }
           }
           // Install labor — bundled, with the total area recorded.
+          // Cuts-owned roll goods emit install with the cut yardage instead.
+          // Without cuts, labor still follows measured area (install is work,
+          // not an order quantity). Glue/count picks do not get fake sq-ft labor.
           const lr = rateFor(p.laborRate, p.unit, b.wantYd);
-          if (lr > 0 && coverSf > 0) {
+          const laborFromMeasured =
+            measuredInstallLaborAllowed(fam, cutSf, carpetSystems) && lr > 0 && coverSf > 0;
+          if (
+            !floorMapOwnsFlooring &&
+            laborFromMeasured &&
+            (allowAreaMat ||
+              (!floorMapActive &&
+                isRollGoodsFamily(fam) &&
+                rollGoodsNeedCuts(fam, carpetSystems)))
+          ) {
             const laborQty = b.wantYd ? Math.ceil(coverSf / 9) : Math.ceil(coverSf);
             out.push({
               room: null,
@@ -965,9 +1493,94 @@ export function Questionnaire({
         }
         // Additional products for specific areas (e.g. upgraded pad on the
         // stairs) — each its own material line, quantity from its own area.
+        // Extra carpet/sheet cannot be ordered from taped sqft — keep the SKU
+        // as order TBD, same as the main roll-goods path. Count-unit extras
+        // (gal/kit / empty sold-by unit) emit TBD without requiring measured
+        // sq ft — do not plant leftover sq ft.
         for (const ex of a.extras) {
-          if (!ex.product || numv(ex.sqft) <= 0) continue;
-          out.push(matLine(ex.product, { sqft: numv(ex.sqft) }));
+          if (!ex.product) continue;
+          const exFam = familyFromCatalogCategory(ex.product.category || cat);
+          const extraSf = extraMeasuredSqftForTakeoff({
+            family: exFam,
+            productUnit: ex.product.unit,
+            measuredSqft: numv(ex.sqft),
+            carpetInstallSystems: carpetSystems,
+          });
+          if (extraSf != null) {
+            out.push(matLine(ex.product, { sqft: extraSf }));
+            continue;
+          }
+          if (areaDerivedMaterialAllowed(exFam, ex.product.unit, carpetSystems)) continue;
+          if (
+            isRollGoodsFamily(exFam) &&
+            rollGoodsNeedCuts(exFam, carpetSystems) &&
+            (ex.product.productId || ex.product.label)
+          ) {
+            out.push(rollGoodsTbdLine(ex.product, null, numv(ex.sqft) > 0 ? numv(ex.sqft) : undefined));
+            continue;
+          }
+          // Count extras with a sold-by unit emit How many in that unit — not leftover sq ft and not a 30-yard roll. Empty unit stays TBD.
+          // Builder count SKU / qty TBD lines are How many / Unit TBD, never taped square feet.
+          if (ex.product.productId || ex.product.label) {
+            const counted = extraCountQtyForEmit({
+              family: exFam,
+              productUnit: ex.product.unit,
+              qty: numv(ex.qty ?? ""),
+              carpetInstallSystems: carpetSystems,
+            });
+            const { unit: countUnit, phrase: countPhrase } = countUnitForTbd(ex.product.unit);
+            if (counted) {
+              out.push({
+                room: null,
+                description: `${ex.product.label || cat} — ${counted.quantity} ${counted.unit} (not taped sq ft)`,
+                category: ex.product.category || cat,
+                measure_unit: "sqft",
+                sqft: null,
+                quantity: counted.quantity,
+                length_in: null,
+                width_in: null,
+                unit: counted.unit,
+                material_rate: sellMat(rateFor(ex.product.materialRate, ex.product.unit, false)),
+                labor_rate: 0,
+                material_cost: rateFor(ex.product.materialRate, ex.product.unit, false),
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: ex.product.productId || null,
+                manufacturer:
+                  ex.product.source === "order" && ex.product.vendor.trim()
+                    ? ex.product.vendor.trim()
+                    : ex.product.manufacturer,
+                style: ex.product.style,
+                color: ex.product.color,
+                from_stock: ex.product.source === "stock",
+              });
+              continue;
+            }
+            out.push({
+              room: null,
+              description: `${ex.product.label || cat} — qty TBD (${countPhrase} — not taped sq ft)`,
+              category: ex.product.category || cat,
+              measure_unit: "sqft",
+              sqft: null,
+              quantity: null,
+              length_in: null,
+              width_in: null,
+              unit: countUnit,
+              material_rate: sellMat(rateFor(ex.product.materialRate, ex.product.unit, false)),
+              labor_rate: 0,
+              material_cost: rateFor(ex.product.materialRate, ex.product.unit, false),
+              labor_cost: 0,
+              waste_pct: 0,
+              product_id: ex.product.productId || null,
+              manufacturer:
+                ex.product.source === "order" && ex.product.vendor.trim()
+                  ? ex.product.vendor.trim()
+                  : ex.product.manufacturer,
+              style: ex.product.style,
+              color: ex.product.color,
+              from_stock: ex.product.source === "stock",
+            });
+          }
         }
       } else if (q.kind === "product" && a.kind === "trims") {
         // Trims / moldings — each row is a quick-picked type (with color/size) or
@@ -977,9 +1590,10 @@ export function Questionnaire({
           const qty = numv(row.qty);
           if (qty <= 0 || (!row.type && !row.product)) continue;
           const p = row.product;
+          const unit = coerceTrimUnit(row.type || p?.label || "", row.unit || p?.unit);
           // R&R re-uses the existing piece — no new material, labor only (remove &
           // re-install per linear foot). A normal row charges material as entered.
-          const rrLabor = row.rr ? numv(row.rrRate ?? "") || DEFAULT_RR_PER_LNFT : 0;
+          const rrLabor = row.rr ? numv(row.rrRate ?? "") : 0;
           const matCost = row.rr ? 0 : p ? p.materialRate : numv(row.cost);
           const laborCost = (p && !row.rr ? p.laborRate : 0) + rrLabor;
           const desc =
@@ -996,7 +1610,7 @@ export function Questionnaire({
             quantity: r2(qty),
             length_in: null,
             width_in: null,
-            unit: row.unit || p?.unit || "lnft",
+            unit,
             material_rate: sellMat(matCost),
             labor_rate: sellLab(laborCost),
             material_cost: matCost,
@@ -1029,8 +1643,145 @@ export function Questionnaire({
         // "Same carpet" → one shared line for the whole job; otherwise one line
         // per area.
         const sameCarpet = a.same !== false;
-
-        // Each cut → a measured PIECE (the same first-class shape the builder
+        const rollCategory = q.config.category === "vinyl" ? "vinyl" : "carpet";
+        const rollLabel = rollCategory === "vinyl" ? "Sheet vinyl" : "Carpet";
+        const rollCoverSf = questionCoverSf({ kind: q.kind, key: q.key, category: rollCategory });
+        const modularTile =
+          rollCategory === "carpet" && !rollGoodsNeedCuts("carpet", carpetSystems);
+        if (modularTile) {
+          // Carpet tile is modular. Keep this step so the salesperson can pick
+          // the SKU; do not invent a roll cut plan or a 12' warehouse piece.
+          // Mixed floor-map jobs already emit assigned rooms above.
+          if (!floorMapActive) {
+            const emitModular = (p: ProductAns | null, roomLabel: string | null, sqft: number) => {
+              if (!p || !(sqft > 0)) return;
+              const spb = numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null;
+              const qty = areaDerivedMaterialQty({
+                family: "carpet",
+                measuredSqft: sqft,
+                billingUnit: "sqyd",
+                productUnit: p.unit,
+                carpetInstallSystems: carpetSystems,
+                sqftPerBox: spb,
+              });
+              if (qty == null) {
+                // Exclusive carpet-tile carton SKU with coverage takeoffs from measured area — not How many boxes from leftover taped sq ft. Missing coverage stays TBD; do not invent a box size.
+                const tbd = boxedCartonCoverageTbdDescription({
+                  family: "carpet",
+                  productUnit: p.unit,
+                  sqftPerBox: spb,
+                  label: p.label,
+                  carpetInstallSystems: carpetSystems,
+                });
+                if (!tbd) return;
+                // Builder carton-coverage TBD is How many / Unit TBD, never taped square feet.
+                const { unit: countUnit } = countUnitForTbd(isAreaUnit(p.unit) ? "" : p.unit);
+                out.push({
+                  room: roomLabel,
+                  description: tbd,
+                  category: p.category || "carpet",
+                  measure_unit: "sqyd",
+                  sqft: null,
+                  quantity: null,
+                  length_in: null,
+                  width_in: null,
+                  measurements: null,
+                  unit: countUnit,
+                  material_rate: sellMat(rateFor(p.materialRate, p.unit, true)),
+                  labor_rate: 0,
+                  material_cost: rateFor(p.materialRate, p.unit, true),
+                  labor_cost: 0,
+                  waste_pct: 0,
+                  product_id: p.productId || null,
+                  manufacturer:
+                    p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                  style: p.style,
+                  color: p.color,
+                  from_stock: p.source === "stock",
+                  order_as_roll: false,
+                  roll_width_ft: null,
+                  sqft_per_box: null,
+                });
+                return;
+              }
+              const waste = materialWastePctForEmit({
+                family: "carpet",
+                requestedWastePct:
+                  p.wastePct.trim() !== "" ? numv(p.wastePct) : (profileFor("carpet")?.waste ?? 0),
+                carpetInstallSystems: carpetSystems,
+              });
+              out.push({
+                room: roomLabel,
+                description: p.label || "Carpet tile",
+                category: p.category || "carpet",
+                measure_unit: "sqyd",
+                sqft: r2(sqft),
+                quantity: qty,
+                length_in: null,
+                width_in: null,
+                measurements: null,
+                unit: "sq yd",
+                material_rate: sellMat(
+                  rateFor(p.materialRate, p.unit, true, {
+                    category: p.category || "carpet",
+                    sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                    carpetInstallSystems: carpetSystems,
+                  }),
+                ),
+                labor_rate: 0,
+                material_cost: rateFor(p.materialRate, p.unit, true, {
+                  category: p.category || "carpet",
+                  sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                  carpetInstallSystems: carpetSystems,
+                }),
+                labor_cost: 0,
+                waste_pct: waste,
+                product_id: p.productId || null,
+                manufacturer:
+                  p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                style: p.style,
+                color: p.color,
+                from_stock: p.source === "stock",
+                order_as_roll: false,
+                roll_width_ft: null,
+                sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+              });
+              const instYd = configuredInstallRate({
+                billing: "yd",
+                config: q.config,
+                productLabor: rateFor(p.laborRate, p.unit, true),
+              });
+              if (instYd > 0) {
+                out.push({
+                  room: roomLabel,
+                  description: `Carpet installation${roomLabel ? ` — ${roomLabel}` : ""}`,
+                  category: "labor",
+                  measure_unit: "sqyd",
+                  sqft: r2(sqft),
+                  quantity: Math.ceil(sqft / 9),
+                  length_in: null,
+                  width_in: null,
+                  unit: "sq yd",
+                  material_rate: 0,
+                  labor_rate: sellLab(instYd),
+                  material_cost: 0,
+                  labor_cost: instYd,
+                  waste_pct: 0,
+                  product_id: null,
+                  manufacturer: null,
+                  style: null,
+                  color: null,
+                  from_stock: false,
+                });
+              }
+            };
+            if (sameCarpet) emitModular(a.product, null, questionCoverSf({ kind: q.kind, key: q.key, category: "carpet" }));
+            else {
+              const picked = a.groups.map((g) => g.product).find(Boolean) ?? a.product;
+              emitModular(picked, null, questionCoverSf({ kind: q.kind, key: q.key, category: "carpet" }));
+            }
+          }
+        } else {
         // stores). Every add-piece is a cut off the roll (labeled with its area),
         // and the pieces sum to the line's yardage.
         type Piece = {
@@ -1041,11 +1792,13 @@ export function Questionnaire({
           sqyd: number;
           widthFt: number;
         };
-        const groupPieces = (g: CarpetGroup): Piece[] => {
+        const groupPieces = (g: CarpetGroup, _p: ProductAns | null): Piece[] => {
           const pieces: Piece[] = [];
           for (const c of g.cuts) {
             const lenIn = numv(c.lf) * 12 + numv(c.li);
-            const widFt = numv(c.width) || 12;
+            // Catalog roll width may pre-fill the input. An empty width is not
+            // a 12' or 6' roll — skip the piece until a width is entered.
+            const widFt = enteredCutWidthFt(c.width);
             if (lenIn <= 0 || widFt <= 0) continue;
             const sqft = (lenIn / 12) * widFt;
             const sqyd = r2(sqft / 9);
@@ -1073,8 +1826,8 @@ export function Questionnaire({
             room: roomLabel,
             // Product label ONLY — the cut sizes live in measurements (shown on
             // internal cut lists, kept off the customer estimate).
-            description: p?.label || "Carpet",
-            category: "carpet",
+            description: p?.label || rollLabel,
+            category: p?.category || rollCategory,
             measure_unit: "sqyd",
             sqft: totalSqft,
             quantity: totalSqyd,
@@ -1093,7 +1846,7 @@ export function Questionnaire({
             color: p?.color ?? null,
             from_stock: p?.source === "stock",
             order_as_roll: true, // PO consolidates these cuts into one roll per product+width
-            roll_width_ft: first.widthFt,
+            roll_width_ft: p?.rollWidthFt && p.rollWidthFt > 0 ? p.rollWidthFt : first.widthFt,
             measurements: pieces.map((x) => ({
               label: x.label,
               length_in: x.lenIn,
@@ -1101,15 +1854,17 @@ export function Questionnaire({
               op: "add" as const,
             })),
           });
-          // Carpet INSTALL labor — its own line, from the install rate × total
-          // yardage. Prefer the carpet product's own labor rate; else the
-          // question's configured per-sq-yd install rate; else a sane default —
-          // so carpet labor is ALWAYS generated.
-          const instYd = (p ? rateFor(p.laborRate, p.unit, true) : 0) || (q.config.install_yd ?? 6);
+          // Carpet INSTALL labor — product labor rate, else this question's
+          // Settings $/sq yd. Missing config does not invent $6.
+          const instYd = configuredInstallRate({
+            billing: "yd",
+            config: q.config,
+            productLabor: p ? rateFor(p.laborRate, p.unit, true) : 0,
+          });
           if (instYd > 0) {
             out.push({
               room: roomLabel,
-              description: `Carpet installation${roomLabel ? ` — ${roomLabel}` : ""}`,
+              description: `${rollLabel} installation${roomLabel ? ` — ${roomLabel}` : ""}`,
               category: "labor",
               measure_unit: "sqyd",
               sqft: r2(totalSqyd * 9),
@@ -1133,14 +1888,106 @@ export function Questionnaire({
 
         if (sameCarpet) {
           // One carpet for the whole job → ONE line, every cut labeled by its area.
-          emitCarpet(a.product, a.groups.flatMap(groupPieces), null);
+          const pieces = a.groups.flatMap((g) => groupPieces(g, a.product));
+          if (pieces.length) emitCarpet(a.product, pieces, null);
+          else if (
+            !floorMapActive &&
+            a.product &&
+            (a.product.productId || a.product.label)
+          ) {
+            out.push(rollGoodsTbdLine(a.product, null, rollCoverSf > 0 ? rollCoverSf : undefined));
+          }
         } else {
           // Different carpet per area → one line per area (each with its cuts).
-          for (const g of a.groups) emitCarpet(g.product, groupPieces(g), g.area.trim() || null);
+          let anyPieces = false;
+          for (const g of a.groups) {
+            const pieces = groupPieces(g, g.product);
+            if (pieces.length) {
+              anyPieces = true;
+              emitCarpet(g.product, pieces, g.area.trim() || null);
+            } else if (
+              !floorMapActive &&
+              g.product &&
+              (g.product.productId || g.product.label)
+            ) {
+              out.push(rollGoodsTbdLine(g.product, g.area.trim() || null));
+            }
+          }
+          if (!anyPieces && !floorMapActive && rollCoverSf > 0) {
+            const p = a.groups.map((g) => g.product).find(Boolean) ?? a.product;
+            const instYd = configuredInstallRate({
+              billing: "yd",
+              config: q.config,
+              productLabor: p ? rateFor(p.laborRate, p.unit, true) : 0,
+            });
+            if (instYd > 0 && p) {
+              out.push({
+                room: null,
+                description: `${rollLabel} installation`,
+                category: "labor",
+                measure_unit: "sqyd",
+                sqft: r2(rollCoverSf),
+                quantity: Math.ceil(rollCoverSf / 9),
+                length_in: null,
+                width_in: null,
+                unit: "sq yd",
+                material_rate: 0,
+                labor_rate: sellLab(instYd),
+                material_cost: 0,
+                labor_cost: instYd,
+                waste_pct: 0,
+                product_id: null,
+                manufacturer: null,
+                style: null,
+                color: null,
+                from_stock: false,
+              });
+            }
+          }
+        }
+        if (
+          sameCarpet &&
+          !floorMapActive &&
+          rollCoverSf > 0 &&
+          a.groups.flatMap((g) => groupPieces(g, a.product)).length === 0
+        ) {
+          const p = a.product;
+          const instYd = configuredInstallRate({
+            billing: "yd",
+            config: q.config,
+            productLabor: p ? rateFor(p.laborRate, p.unit, true) : 0,
+          });
+          if (instYd > 0) {
+            out.push({
+              room: null,
+              description: `${rollLabel} installation`,
+              category: "labor",
+              measure_unit: "sqyd",
+              sqft: r2(rollCoverSf),
+              quantity: Math.ceil(rollCoverSf / 9),
+              length_in: null,
+              width_in: null,
+              unit: "sq yd",
+              material_rate: 0,
+              labor_rate: sellLab(instYd),
+              material_cost: 0,
+              labor_cost: instYd,
+              waste_pct: 0,
+              product_id: null,
+              manufacturer: null,
+              style: null,
+              color: null,
+              from_stock: false,
+            });
+          }
+        }
         }
       } else if (q.kind === "stairs" && a.kind === "stairs") {
-        // Stairs → step LABOR + the CARPET the steps consume (waterfall vs
-        // upholstered use different per-step allowances, from the option config).
+        // Waterfall / upholstered wrap labor is stretch-in (and glue-down
+        // broadloom). Exclusive carpet tile is modular — do not emit wrap $.
+        if (rollGoodsNeedCuts("carpet", carpetSystems)) {
+        // Stairs → step LABOR. The carpet a staircase consumes is already
+        // in the cuts; do not add a second material line.
         const opts = q.config.options ?? [];
         for (const g of a.groups) {
           const n = Math.ceil(numv(g.count));
@@ -1181,78 +2028,138 @@ export function Questionnaire({
            * the measurement doesn't cover.
            */
         }
+        }
       } else if (q.kind === "hs_stairs" && a.kind === "hs_stairs") {
-        // Hard-surface stairs wrapped in plank: area = steps × sq ft/step
-        // (tread+riser or tread only). The area buys the flooring at its rate AND
-        // adds stair-install labor at a higher per-sq-ft rate than a flat floor.
-        // (Matching stairnose / treads are handled separately in the trims step.)
-        const steps = numv(a.steps);
+        // Hard-surface stairs: step count + trim EACH (noses/treads/risers).
+        // Do not invent 8/4 sq ft of flooring per step — that is not a cut plan
+        // and it double-counts Trims. Wrap product stays identity / TBD.
+        // Stair labor is per step when the salesperson enters a rate (0194:
+        // do not invent one). Legacy labor_per_sqft is not multiplied by 8.
+        const steps = Math.ceil(numv(a.steps));
         if (steps > 0) {
-          const sfPerStep = a.treadRiser ? STAIR_SQFT_TREAD_RISER : STAIR_SQFT_TREAD_ONLY;
-          const area = r2(steps * sfPerStep);
           const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
           const p = a.product;
-          if (p) {
+          if (p && (p.productId || p.label)) {
             const matCost = rateFor(p.materialRate, p.unit, false);
+            const wrapFam = familyFromCatalogCategory(p.category);
+            // Count wrap SKU emits How many in that unit — not leftover sq ft and not 8 sq ft/step. Area-unit wrap stays wrap qty TBD.
+            const counted = extraCountQtyForEmit({
+              family: wrapFam,
+              productUnit: p.unit,
+              qty: numv(a.qty ?? ""),
+            });
+            // Wrap extra boxes are COUNT. A boxed LVP/hardwood SKU sold by the
+            // square foot must not plant that area unit onto the wrap line —
+            // typing 104 sq ft in Builder would reopen the 8 sq ft/step order.
+            const { unit: countUnit } = countUnitForTbd(isAreaUnit(p.unit) ? "" : p.unit);
+            if (counted) {
+              out.push({
+                room: null,
+                description: `${p.label || "Stair wrap"} — ${counted.quantity} ${counted.unit} (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel} — not an automatic sq ft/step order)`,
+                category: p.category || "other",
+                measure_unit: "sqft",
+                sqft: null,
+                quantity: counted.quantity,
+                length_in: null,
+                width_in: null,
+                unit: counted.unit,
+                material_rate: sellMat(matCost),
+                labor_rate: 0,
+                material_cost: matCost,
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: p.productId || null,
+                manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                style: p.style,
+                color: p.color,
+                from_stock: p.source === "stock",
+              });
+            } else {
+              out.push({
+                room: null,
+                description: `${p.label || "Stair wrap"} — wrap qty TBD (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel} — not an automatic sq ft/step order)`,
+                category: p.category || "other",
+                measure_unit: "sqft",
+                sqft: null,
+                quantity: null,
+                length_in: null,
+                width_in: null,
+                unit: countUnit,
+                material_rate: sellMat(matCost),
+                labor_rate: 0,
+                material_cost: matCost,
+                labor_cost: 0,
+                waste_pct: 0,
+                product_id: p.productId || null,
+                manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
+                style: p.style,
+                color: p.color,
+                from_stock: p.source === "stock",
+              });
+            }
+          }
+          const typedRate = numv(a.laborRate);
+          const configPerStep = Number(q.config.labor_per_step);
+          const lr =
+            typedRate > 0
+              ? typedRate
+              : Number.isFinite(configPerStep) && configPerStep > 0
+                ? configPerStep
+                : 0;
+          if (lr > 0) {
             out.push({
               room: null,
-              description: `Stair flooring — ${p.label || "plank"} (${steps} step${steps === 1 ? "" : "s"}, ${scopeLabel})`,
-              category: p.category || "other",
+              description: `Stair install — ${steps} step${steps === 1 ? "" : "s"} (${scopeLabel})`,
+              category: "labor",
               measure_unit: "sqft",
-              sqft: area,
-              quantity: area,
+              sqft: null,
+              quantity: steps,
               length_in: null,
               width_in: null,
-              unit: "sq ft",
-              material_rate: sellMat(matCost),
-              labor_rate: 0,
-              material_cost: matCost,
-              labor_cost: 0,
-              waste_pct: numv(p.wastePct) || 0,
-              product_id: p.productId || null,
-              manufacturer: p.source === "order" && p.vendor.trim() ? p.vendor.trim() : p.manufacturer,
-              style: p.style,
-              color: p.color,
-              from_stock: p.source === "stock",
+              unit: "step",
+              material_rate: 0,
+              labor_rate: sellLab(lr),
+              material_cost: 0,
+              labor_cost: lr,
+              waste_pct: 0,
+              product_id: null,
+              manufacturer: null,
+              style: null,
+              color: null,
+              from_stock: false,
             });
           }
-          const lr = numv(a.laborRate) || DEFAULT_STAIR_LABOR_PER_SQFT;
-          out.push({
-            room: null,
-            description: `Stair install — ${steps} step${steps === 1 ? "" : "s"} (${scopeLabel})`,
-            category: "labor",
-            measure_unit: "sqft",
-            sqft: area,
-            quantity: area,
-            length_in: null,
-            width_in: null,
-            unit: "sq ft",
-            material_rate: 0,
-            labor_rate: sellLab(lr),
-            material_cost: 0,
-            labor_cost: lr,
-            waste_pct: 0,
-            product_id: null,
-            manufacturer: null,
-            style: null,
-            color: null,
-            from_stock: false,
-          });
         }
       } else if (q.kind === "subfloor" && a.kind === "subfloor") {
         // Subfloor → SHEETS per room (ceil(area ÷ sheet coverage)) so nothing is
-        // under-ordered. The builder prices it by the sheet.
+        // under-ordered. The builder prices it by the sheet. Field verify / TBD
+        // does not invent a sheet count — the condition still rides in notes.
+        // Review prints the sheet count — taped square feet is not a plywood order.
+        if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
         const opts = q.config.options ?? [];
-        const sheetSqft = q.config.sheet_sqft ?? 32;
+        const sheetSqft = resolvedSheetSqft(q.config.sheet_sqft);
         const opt = opts.find((o) => o.label === a.thickness) ?? opts[0];
         const perSheet = opt?.cost ?? 0;
-        const rooms = allRooms.length ? allRooms : [{ name: "", sqft: totalSqft, lenIn: null, widIn: null }];
+        const suffix = prepQuantitySuffix(flooringCtx.prepConfidence);
+        const prepRooms = roomsForPrepTakeoff({
+          rooms: floorMapAssignments.rooms.length
+            ? floorMapAssignments.rooms
+            : allRooms.map((rm) => ({ room: rm, family: null })),
+          jobFamilies: flooringCtx.families,
+        });
+        const prepCover = questionCoverSf({ kind: q.kind, key: q.key, category: q.config.category });
+        const rooms = prepRooms.length
+          ? prepRooms
+          : prepCover > 0
+            ? [{ name: "", sqft: prepCover, lenIn: null, widIn: null }]
+            : [];
+        if (sheetSqft != null) {
         for (const rm of rooms) {
           const sheets = subfloorSheets(rm.sqft, sheetSqft);
           if (sheets <= 0) continue;
           out.push({
             room: rm.name || null,
-            description: `Subfloor${a.thickness ? ` ${a.thickness}` : ""}${rm.name ? ` — ${rm.name}` : ""}`,
+            description: `Subfloor${a.thickness ? ` ${a.thickness}` : ""}${rm.name ? ` — ${rm.name}` : ""}${suffix}`,
             category: "underlayment",
             measure_unit: "sqft",
             sqft: r2(rm.sqft),
@@ -1272,23 +2179,29 @@ export function Questionnaire({
             from_stock: false,
           });
         }
+        }
+        }
       } else if (q.kind === "selflevel" && a.kind === "selflevel") {
         // Self-leveler → BAGS from area ÷ coverage-at-thickness. Coverage is
         // carried so the builder's bag calculator stays live. (Labor is the prep
-        // question's job — no double-charge here.)
+        // question's job — no double-charge here.) TBD prep does not emit a
+        // fake bag count. Review prints the bag count — taped square feet is not a bag order.
+        if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
         const cov = q.config.coverage_sqft ?? 0;
         const covT = q.config.coverage_thickness_in ?? 0;
-        const pour = numv(a.thickness) || (q.config.default_thickness_in ?? 0.25);
+        const pour = selfLevelPourThicknessIn(q.config, a.thickness);
         const bagCost = q.config.bag_cost ?? 0;
-        if (cov > 0 && totalSqft > 0) {
-          const bags = bagsNeeded(totalSqft, cov, covT > 0 ? covT : null, covT > 0 ? pour : null);
+        const suffix = prepQuantitySuffix(flooringCtx.prepConfidence);
+        const prepCover = questionCoverSf({ kind: q.kind, key: q.key, category: q.config.category });
+        if (cov > 0 && prepCover > 0) {
+          const bags = bagsNeeded(prepCover, cov, covT > 0 ? covT : null, covT > 0 ? pour : null);
           if (bags > 0)
             out.push({
               room: null,
-              description: "Self-leveler",
+              description: `Self-leveler${suffix}`,
               category: "other",
               measure_unit: "sqft",
-              sqft: r2(totalSqft),
+              sqft: r2(prepCover),
               quantity: bags,
               length_in: null,
               width_in: null,
@@ -1308,22 +2221,60 @@ export function Questionnaire({
               prep_thickness_in: covT > 0 ? pour : null,
             });
         }
+        }
       } else if (q.kind === "yesno" || q.kind === "number" || q.kind === "choice") {
         // Per-room prep: split into a job-default line for the remaining area +
         // one room-scoped line per flagged room (its own answer/area). Otherwise
-        // one job-level line at the whole measured area.
+        // one job-level line. Prep labor uses HS rooms on a mixed job — demo /
+        // haul stay whole-job (the old floor is not the new family).
+        const emitArea = emitAreaSqftForQuestion({
+          key: q.key,
+          kind: q.kind,
+          purpose: questionPurpose(q),
+          totalSqft,
+          byFamily: floorMapAssignments.byFamily,
+          jobFamilies: flooringCtx.families,
+        });
         if (q.config.per_room && flaggedRooms.length) {
           const flaggedArea = flaggedRooms.reduce((s, r) => s + rowSqft(r), 0);
-          const remaining = r2(Math.max(0, totalSqft - flaggedArea));
+          const remaining = r2(Math.max(0, emitArea - flaggedArea));
           if (remaining > 0) out.push(...linesForAnswer(q, a, remaining, null));
           for (const r of flaggedRooms) {
             const ov = overrides[r.id]?.[q.id] ?? a;
             out.push(...linesForAnswer(q, ov, rowSqft(r), r.name || "Room"));
           }
         } else {
-          out.push(...linesForAnswer(q, a, totalSqft, null));
+          out.push(...linesForAnswer(q, a, emitArea, null));
         }
       }
+    }
+    for (const q of questions) {
+      if (!visible[q.id] || q.key !== "delivery_scope") continue;
+      const a = answers[q.id];
+      if (a?.kind !== "choice") continue;
+      const cost = deliveryAddonCost(a.selected, addonDefaults.Delivery?.cost);
+      if (cost == null) continue;
+      out.push({
+        room: null,
+        description: "Delivery",
+        category: "other",
+        measure_unit: "sqft",
+        sqft: null,
+        quantity: 1,
+        length_in: null,
+        width_in: null,
+        unit: "each",
+        material_rate: sellMat(cost),
+        labor_rate: 0,
+        material_cost: cost,
+        labor_cost: 0,
+        waste_pct: 0,
+        product_id: null,
+        manufacturer: null,
+        style: null,
+        color: null,
+        from_stock: false,
+      });
     }
     // Cash & carry: strip ALL labor — drop dedicated labor lines, and zero any
     // labor embedded on a surviving material/trim line (e.g. trim R&R). The one
@@ -1338,7 +2289,7 @@ export function Questionnaire({
           )
       : out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry]);
+  }, [questions, answers, totalSqft, goal, visible, flaggedRooms, overrides, allRooms, cashCarry, cutsSqftByCategory, flooringCtx, addonDefaults, floorMapAssignments]);
 
   const notes = useMemo(() => {
     // "Job conditions" — flagged choice / yes-no answers (subfloor, tackless…)
@@ -1349,9 +2300,21 @@ export function Questionnaire({
     const condValue = (q: EstimateQuestion, a: Answer | undefined): string => {
       if (q.kind === "choice" && a?.kind === "choice") {
         // Selected option(s) plus any typed prep instructions.
-        return [a.selected.join(", "), a.note?.trim()].filter(Boolean).join(" — ");
+        return [a.selected.filter((l) => choiceOptionApplies(q, l, flooringCtx)).join(", "), a.note?.trim()].filter(Boolean).join(" — ");
       }
+      if (q.kind === "choice" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
       if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
+      if (q.kind === "number" && a?.kind === "number") return a.value.trim();
+      if (q.kind === "stairs" && a?.kind === "stairs")
+        return a.groups
+          .filter((g) => numv(g.count) > 0)
+          .map((g) => `${g.count} ${g.type || "steps"}`)
+          .join("; ");
+      if (q.kind === "hs_stairs" && a?.kind === "hs_stairs") {
+        const n = Math.ceil(numv(a.steps));
+        if (n <= 0) return "";
+        return `${n} step${n === 1 ? "" : "s"} (${a.treadRiser ? "tread + riser" : "tread only"})`;
+      }
       return "";
     };
     for (const q of questions) {
@@ -1388,6 +2351,16 @@ export function Questionnaire({
           .join("\n")}`,
       );
     if (freeText.length) blocks.push(freeText.join("\n"));
+    for (const q of questions) {
+      if (!visible[q.id] || q.kind !== "hs_stairs") continue;
+      const a = answers[q.id];
+      if (a?.kind !== "hs_stairs") continue;
+      const steps = Math.ceil(numv(a.steps));
+      const lr = numv(a.laborRate) || (q.config.labor_per_sqft ?? 0);
+      if (steps > 0 && !(lr > 0)) {
+        blocks.push("Stair install labor rate: TBD — enter a Floor King rate in Builder rather than inventing one.");
+      }
+    }
     return blocks.join("\n\n");
   }, [questions, answers, visible, flaggedRooms, overrides]);
 
@@ -1396,42 +2369,554 @@ export function Questionnaire({
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const warnings = useMemo(() => {
     const w: { id: string; text: string }[] = [];
-    const valByKey: Record<string, string[]> = {};
     const picked: string[] = [];
     for (const qq of questions) {
       if (!visible[qq.id]) continue;
       const a = answers[qq.id];
-      if (qq.key)
-        valByKey[qq.key] =
-          a?.kind === "yesno" ? [a.yes ? "Yes" : "No"] : a?.kind === "choice" ? a.selected : a?.kind === "text" ? [a.text] : [];
       if (a?.kind === "choice") picked.push(...a.selected);
       if (a?.kind === "choice_areas") picked.push(...a.rows.map((r) => r.option));
     }
     for (const roomOv of Object.values(overrides))
       for (const a of Object.values(roomOv)) if (a?.kind === "choice") picked.push(...a.selected);
-    const has = (k: string, v: string) => (valByKey[k] ?? []).includes(v);
-    if (has("radiant_heat", "Yes"))
-      w.push({ id: "radiant", text: "Radiant heat present — confirm the selected flooring is rated for radiant heat before ordering." });
-    if (picked.some((l) => /mortar bed/i.test(l) && /with/i.test(l)))
-      w.push({ id: "mortar", text: "Ceramic WITH mortar bed demo — expect a floor-height change. Check transitions and door clearance." });
-    if (picked.some((l) => /ceramic/i.test(l))) {
-      w.push({ id: "ceramic_substrate", text: "Tearing up ceramic tile — confirm what's under it (mortar bed, backer board, or other substrate) and include removing it in the demo." });
-      w.push({ id: "ceramic_base", text: "Ceramic removal usually takes the base with it — plan for shoe molding or quarter round." });
+    const hasCarpetCuts = (cutsSqftByCategory.carpet ?? 0) > 0;
+    const hasVinylCuts = (cutsSqftByCategory.vinyl ?? 0) > 0;
+    w.push(
+      ...knowledgeWarnings(flooringCtx, {
+        hasCuts: hasCarpetCuts,
+        measuredSqft: totalSqft,
+        byFamily: floorMapAssignments.byFamily,
+        unassignedRoomSqft: floorMapAssignments.unassignedRoomSqft,
+        pickedLabels: picked,
+        hasVinylCuts,
+        hsStairSteps: stairStepCountFromAnswers(answers, ["hs_stairs"]),
+        hasStairNose: answersHaveTrimType(answers, /stair\s*nose/i),
+        neededTransitionTrims: hsTransitionTrims,
+        neededBaseTrims: hsBaseTrims,
+        presentTrimTypes: presentTrimTypes(answers),
+      }),
+    );
+
+    const areaRows: AreaRow[] = [];
+    for (const qq of questions) {
+      if (qq.kind !== "areas") continue;
+      const ar = answers[qq.id];
+      if (ar?.kind === "areas") areaRows.push(...ar.rooms);
     }
-    const hardwoodOrGlue = has("surface_type", "Hardwood") || has("install_method", "Glue-down");
-    // AC and heat used to be two yes/no questions; they're one multi-select now.
-    // Both readings are accepted so an estimate started before the change still
-    // evaluates instead of firing a false acclimation warning.
-    const climateOk =
-      (has("climate_control", "AC") && has("climate_control", "Heat")) ||
-      (has("ac_available", "Yes") && has("heat_available", "Yes"));
-    if (hardwoodOrGlue && !climateOk)
-      w.push({ id: "climate", text: "Hardwood / glue-down without confirmed AC and heat — acclimation & adhesion are at risk. Confirm climate control." });
-    return w;
-  }, [questions, answers, visible, overrides]);
-  const activeWarnings = warnings.filter((w) => !dismissed.has(w.id));
+    const rects = measuredRectsFromRooms(
+      areaRows.map((r) => ({
+        name: r.name,
+        lengthFt: numv(r.lf),
+        lengthIn: numv(r.li),
+        widthFt: numv(r.wf),
+        widthIn: numv(r.wi),
+        sqftOverride: numv(r.override),
+        sections: (r.sections ?? []).map((s) => ({
+          name: s.name,
+          lengthFt: numv(s.lf),
+          lengthIn: numv(s.li),
+          widthFt: numv(s.wf),
+          widthIn: numv(s.wi),
+        })),
+      })),
+    );
+    const catalogWidths: { carpet: number[]; vinyl: number[] } = { carpet: [], vinyl: [] };
+    const roomFamily = new Map<string, "carpet" | "vinyl" | "other">();
+    const takeWidth = (p: ProductAns | null | undefined) => {
+      if (!(p?.rollWidthFt && p.rollWidthFt > 0)) return;
+      const fam = familyFromCatalogCategory(p.category);
+      if (fam === "carpet" || fam === "vinyl") catalogWidths[fam].push(p.rollWidthFt);
+    };
+    for (const qq of questions) {
+      if (!visible[qq.id]) continue;
+      const a = answers[qq.id];
+      if (a?.kind === "product") {
+        takeWidth(a.product);
+        for (const x of a.extras) takeWidth(x.product);
+      } else if (a?.kind === "cuts") {
+        takeWidth(a.product);
+        for (const g of a.groups) takeWidth(g.product);
+      } else if (a?.kind === "floor_map") {
+        allRooms.forEach((rm, i) => {
+          const p = a.byRoom[roomKey(rm.name, i)];
+          takeWidth(p);
+          const fam = familyFromCatalogCategory(p?.category);
+          if (fam === "carpet" || fam === "vinyl") roomFamily.set(rm.name, fam);
+          else if (p?.category) roomFamily.set(rm.name, "other");
+        });
+      }
+    }
+    const patternMatch = picked.some((l) => /pattern match required/i.test(l));
+    const rectsFor = (fam: "carpet" | "vinyl") => {
+      if (roomFamily.size) {
+        return rects.filter((r) => {
+          const base = r.name.split(" / ")[0] ?? r.name;
+          return roomFamily.get(r.name) === fam || roomFamily.get(base) === fam;
+        });
+      }
+      return flooringCtx.families.includes(fam) ? rects : [];
+    };
+    w.push(
+      ...(rollGoodsNeedCuts("carpet", carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall))
+        ? rollGoodsSeamWarnings({
+            family: "carpet",
+            catalogWidthsFt: catalogWidths.carpet,
+            rooms: rectsFor("carpet"),
+            patternMatch,
+            hasCuts: hasCarpetCuts,
+          })
+        : []),
+      ...rollGoodsSeamWarnings({
+        family: "vinyl",
+        catalogWidthsFt: catalogWidths.vinyl,
+        rooms: rectsFor("vinyl"),
+        hasCuts: hasVinylCuts,
+      }),
+    );
+    // Dedupe by id so overlay + local flags don't double.
+    const seen = new Set<string>();
+    return w.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)));
+  }, [questions, answers, visible, overrides, flooringCtx, cutsSqftByCategory, totalSqft, hsTransitionTrims, hsBaseTrims, allRooms, floorMapAssignments]);
 
   const grand = lines.reduce((s, l) => s + lineTotal(smartLineToCalcLine(l)), 0);
+
+  const salespersonReview = useMemo(() => {
+    const rooms: ReviewRoom[] = [];
+    for (const qq of questions) {
+      if (qq.kind !== "areas" || !visible[qq.id]) continue;
+      const a = answers[qq.id];
+      if (a?.kind !== "areas") continue;
+      for (const r of a.rooms) {
+        const sf = rowSqft(r);
+        if (sf <= 0 && !r.name.trim()) continue;
+        const sections = [];
+        const primary = sectionSqft({ lf: r.lf, li: r.li, wf: r.wf, wi: r.wi });
+        if (primary > 0) {
+          sections.push({
+            name: "Section A",
+            length: formatDimensionPair(numv(r.lf), numv(r.li), 0, 0).replace(" × ", "") || `${r.lf}' ${r.li || "0"}"`,
+            width: `${r.wf || "0"}' ${r.wi || "0"}"`,
+            sqft: primary,
+          });
+          // Prefer the dedicated formatter when both sides exist.
+          const pair = formatDimensionPair(numv(r.lf), numv(r.li), numv(r.wf), numv(r.wi));
+          if (pair) {
+            sections[0].length = pair.split(" × ")[0] ?? sections[0].length;
+            sections[0].width = pair.split(" × ")[1] ?? sections[0].width;
+          }
+        }
+        for (const s of r.sections ?? []) {
+          const ssf = sectionSqft(s);
+          if (ssf <= 0) continue;
+          const pair = formatDimensionPair(numv(s.lf), numv(s.li), numv(s.wf), numv(s.wi));
+          const [len, wid] = pair ? pair.split(" × ") : ["", ""];
+          sections.push({ name: s.name || "Section", length: len, width: wid, sqft: ssf });
+        }
+        rooms.push({ name: r.name || "Room", measuredSqft: sf, sections });
+      }
+    }
+    const products: string[] = [];
+    const extraCountReview: string[] = [];
+    const prepCountReview: string[] = [];
+    const takeoffs = [];
+    const seenProd = new Set<string>();
+    const familySqft = floorMapAssignments.byFamily;
+    const measuredFor = (family: ReturnType<typeof familyFromCatalogCategory>, override?: number) => {
+      if (override != null && override > 0) return override;
+      return measuredSqftForFamilyTakeoff({
+        family,
+        totalSqft,
+        byFamily: familySqft,
+        jobFamilies: flooringCtx.families,
+      });
+    };
+    const addProduct = (
+      label: string,
+      category: string | null,
+      wastePct: string,
+      sqftPerBox: string,
+      measuredSqft?: number,
+      key?: string | null,
+      productUnit?: string | null,
+    ) => {
+      if (!label) return;
+      const already = seenProd.has(label);
+      if (!already) {
+        seenProd.add(label);
+        products.push(label);
+      } else if (measuredSqft == null) {
+        return;
+      }
+      const family = familyFromCatalogCategory(category);
+      const padLabel = padFoamTakeoffLabel({ key, category });
+      const isPadOrFoam = Boolean(padLabel);
+      if (family === "other" && !isPadOrFoam) return;
+      // Count / TBD main pad skips area Review takeoff — leftover / job sq ft
+      // is not pad yards and not a 30-yard roll.
+      if (
+        isPadOrFoam &&
+        !areaDerivedMaterialAllowed(
+          family,
+          productUnit,
+          carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall),
+        )
+      ) {
+        return;
+      }
+      // Review does not print taped square feet as the order when carton coverage is missing.
+      if (
+        boxedCartonCoverageTbdDescription({
+          family,
+          productUnit,
+          sqftPerBox: numv(sqftPerBox) > 0 ? numv(sqftPerBox) : null,
+          label,
+          carpetInstallSystems: carpetInstallSystemsFromLabels(
+            flooringCtx.answeredCarpetInstall,
+          ),
+        })
+      ) {
+        return;
+      }
+      const waste = wastePct.trim() !== "" ? numv(wastePct) : isPadOrFoam ? 0 : undefined;
+      const cover = isPadOrFoam
+        ? measuredSqft != null && measuredSqft > 0
+          ? measuredSqft
+          : measuredSqftForQuestionCover({
+              kind: "product",
+              key,
+              category,
+              totalSqft,
+              byFamily: familySqft,
+              jobFamilies: flooringCtx.families,
+            })
+        : measuredFor(family, measuredSqft);
+      takeoffs.push(
+        computeMaterialTakeoff({
+          family,
+          measuredSqft: cover,
+          wastePct: waste,
+          cutsSqft: family === "carpet" ? cutsSqftByCategory.carpet ?? 0 : family === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : null,
+          sqftPerBox: numv(sqftPerBox) > 0 ? numv(sqftPerBox) : null,
+          carpetSystems: family === "carpet" ? carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall) : null,
+          billingUnit: isPadOrFoam
+            ? billingUnitForArea({ category, key, productUnit })
+            : undefined,
+          takeoffLabel: padLabel,
+        }),
+      );
+    };
+    for (const qq of questions) {
+      if (!visible[qq.id]) continue;
+      const a = answers[qq.id];
+      if (a?.kind === "product" && a.product) {
+        addProduct(
+          a.product.label,
+          a.product.category,
+          a.product.wastePct,
+          a.product.sqftPerBox,
+          undefined,
+          qq.key,
+          a.product.unit,
+        );
+        const mainFam = familyFromCatalogCategory(a.product.category);
+        const mainSystems = carpetInstallSystemsFromLabels(
+          flooringCtx.answeredCarpetInstall,
+        );
+        // Leftover How many is not a second Review order when carton coverage
+        // still takeoffs from measured area. Missing coverage stays TBD.
+        if (
+          !boxedCartonAreaTakeoffAllowed({
+            family: mainFam,
+            productUnit: a.product.unit,
+            sqftPerBox: numv(a.product.sqftPerBox),
+            carpetInstallSystems: mainSystems,
+          })
+        ) {
+          const mainCountLine =
+            extraCountReviewLine({
+              family: mainFam,
+              productUnit: a.product.unit,
+              qty: numv(a.qty ?? ""),
+              label: a.product.label,
+              carpetInstallSystems: mainSystems,
+            }) ??
+            boxedCartonCoverageTbdDescription({
+              family: mainFam,
+              productUnit: a.product.unit,
+              sqftPerBox: numv(a.product.sqftPerBox),
+              label: a.product.label,
+              carpetInstallSystems: mainSystems,
+            });
+          if (mainCountLine) extraCountReview.push(mainCountLine);
+        }
+        // Count / TBD extras skip area Review takeoff — leftover measured sq ft
+        // is not pad yards and not an order. Do not plant leftover sq ft.
+        // Typed How many rides onto Review as that count — not leftover sq ft and not a 30-yard roll.
+        for (const ex of a.extras) {
+          if (!ex.product?.label) continue;
+          const exFam = familyFromCatalogCategory(
+            ex.product.category || qq.config.category || a.product.category,
+          );
+          const extraSf = extraMeasuredSqftForTakeoff({
+            family: exFam,
+            productUnit: ex.product.unit,
+            measuredSqft: numv(ex.sqft),
+            carpetInstallSystems: carpetInstallSystemsFromLabels(
+              flooringCtx.answeredCarpetInstall,
+            ),
+          });
+          if (extraSf != null) {
+            addProduct(
+              ex.product.label,
+              ex.product.category || qq.config.category || a.product.category,
+              ex.product.wastePct,
+              ex.product.sqftPerBox,
+              extraSf,
+              qq.key,
+              ex.product.unit,
+            );
+            continue;
+          }
+          const countedLine = extraCountReviewLine({
+            family: exFam,
+            productUnit: ex.product.unit,
+            qty: numv(ex.qty ?? ""),
+            label: ex.product.label,
+            carpetInstallSystems: carpetInstallSystemsFromLabels(
+              flooringCtx.answeredCarpetInstall,
+            ),
+          });
+          if (!countedLine) continue;
+          if (!seenProd.has(ex.product.label)) {
+            seenProd.add(ex.product.label);
+            products.push(ex.product.label);
+          }
+          extraCountReview.push(countedLine);
+        }
+      } else if (a?.kind === "cuts") {
+        const p = a.same !== false ? a.product : a.groups.map((g) => g.product).find(Boolean) ?? null;
+        if (p) {
+          addProduct(
+            p.label,
+            p.category || qq.config.category || "carpet",
+            p.wastePct,
+            p.sqftPerBox,
+            undefined,
+            qq.key,
+            p.unit,
+          );
+          const cutTbd = boxedCartonCoverageTbdDescription({
+            family: familyFromCatalogCategory(p.category || qq.config.category || "carpet"),
+            productUnit: p.unit,
+            sqftPerBox: numv(p.sqftPerBox),
+            label: p.label,
+            carpetInstallSystems: carpetInstallSystemsFromLabels(
+              flooringCtx.answeredCarpetInstall,
+            ),
+          });
+          if (cutTbd) extraCountReview.push(cutTbd);
+        }
+        else {
+          const fam = qq.config.category === "vinyl" ? "vinyl" : "carpet";
+          const cutSf = fam === "vinyl" ? cutsSqftByCategory.vinyl ?? 0 : cutsSqftByCategory.carpet ?? 0;
+          if (cutSf > 0) {
+            takeoffs.push(
+              computeMaterialTakeoff({
+                family: fam,
+                measuredSqft: measuredFor(fam),
+                cutsSqft: cutSf,
+                carpetSystems: fam === "carpet" ? carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall) : null,
+              }),
+            );
+          }
+        }
+      } else if (a?.kind === "floor_map") {
+        const assigned = allRooms
+          .map((rm, i) => {
+            const p = a.byRoom[roomKey(rm.name, i)];
+            if (!p || rm.sqft <= 0) return null;
+            return {
+              label: p.label,
+              category: p.category,
+              wastePct: p.wastePct,
+              sqftPerBox: p.sqftPerBox,
+              measuredSqft: rm.sqft,
+              unit: p.unit,
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => !!x);
+        const sqftByLabel = groupMeasuredSqftByLabel(assigned);
+        const seen = new Set<string>();
+        for (const p of assigned) {
+          if (seen.has(p.label)) continue;
+          seen.add(p.label);
+          addProduct(
+            p.label,
+            p.category,
+            p.wastePct,
+            p.sqftPerBox,
+            sqftByLabel[p.label] ?? p.measuredSqft,
+            undefined,
+            p.unit,
+          );
+          const mapTbd = boxedCartonCoverageTbdDescription({
+            family: familyFromCatalogCategory(p.category),
+            productUnit: p.unit,
+            sqftPerBox: numv(p.sqftPerBox),
+            label: p.label,
+            carpetInstallSystems: carpetInstallSystemsFromLabels(
+              flooringCtx.answeredCarpetInstall,
+            ),
+          });
+          if (mapTbd) extraCountReview.push(mapTbd);
+        }
+      } else if (a?.kind === "hs_stairs" && a.product) {
+        const wrapLine = extraCountReviewLine({
+          family: familyFromCatalogCategory(a.product.category),
+          productUnit: a.product.unit,
+          qty: numv(a.qty ?? ""),
+          label: a.product.label,
+        });
+        if (wrapLine) {
+          if (!seenProd.has(a.product.label)) {
+            seenProd.add(a.product.label);
+            products.push(a.product.label);
+          }
+          extraCountReview.push(wrapLine);
+        }
+      } else if (a?.kind === "selflevel") {
+        // Review prints the bag count — taped square feet is not a bag order.
+        if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
+          const cov = qq.config.coverage_sqft ?? 0;
+          const covT = qq.config.coverage_thickness_in ?? 0;
+          const pour = selfLevelPourThicknessIn(qq.config, a.thickness);
+          const prepCover = questionCoverSf({
+            kind: qq.kind,
+            key: qq.key,
+            category: qq.config.category,
+          });
+          const bags =
+            cov > 0 && prepCover > 0
+              ? bagsNeeded(prepCover, cov, covT > 0 ? covT : null, covT > 0 ? pour : null)
+              : 0;
+          const bagLine = prepCountReviewLine({
+            label: "Self-leveler",
+            qty: bags,
+            unit: "bag",
+          });
+          if (bagLine) prepCountReview.push(bagLine);
+        }
+      } else if (a?.kind === "subfloor") {
+        // Review prints the sheet count — taped square feet is not a plywood order.
+        if (prepQuantitiesAreFinal(flooringCtx.prepConfidence)) {
+          const sheetSqft = resolvedSheetSqft(qq.config.sheet_sqft);
+          if (sheetSqft != null) {
+            const prepRooms = roomsForPrepTakeoff({
+              rooms: floorMapAssignments.rooms.length
+                ? floorMapAssignments.rooms
+                : allRooms.map((rm) => ({ room: rm, family: null })),
+              jobFamilies: flooringCtx.families,
+            });
+            const prepCover = questionCoverSf({
+              kind: qq.kind,
+              key: qq.key,
+              category: qq.config.category,
+            });
+            const rooms = prepRooms.length
+              ? prepRooms
+              : prepCover > 0
+                ? [{ name: "", sqft: prepCover, lenIn: null, widIn: null }]
+                : [];
+            let sheets = 0;
+            for (const rm of rooms) sheets += subfloorSheets(rm.sqft, sheetSqft);
+            const sheetLine = prepCountReviewLine({
+              label: a.thickness ? `Subfloor ${a.thickness}` : "Subfloor",
+              qty: sheets,
+              unit: "sheet",
+            });
+            if (sheetLine) prepCountReview.push(sheetLine);
+          }
+        }
+      }
+    }
+    if (!takeoffs.length && totalSqft > 0) {
+      const flooring = flooringCtx.families.filter((f) => f !== "other");
+      if (flooring.length === 1) {
+        const f = flooring[0];
+        takeoffs.push(
+          computeMaterialTakeoff({
+            family: f,
+            measuredSqft: measuredFor(f),
+            cutsSqft:
+              f === "carpet"
+                ? cutsSqftByCategory.carpet || null
+                : f === "vinyl"
+                  ? cutsSqftByCategory.vinyl || null
+                  : null,
+            carpetSystems: f === "carpet" ? carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall) : null,
+          }),
+        );
+      }
+    }
+    const condValue = (q: EstimateQuestion, a: Answer | undefined): string => {
+      if (q.kind === "choice" && a?.kind === "choice")
+        return [a.selected.filter((l) => choiceOptionApplies(q, l, flooringCtx)).join(", "), a.note?.trim()].filter(Boolean).join(" — ");
+      if (q.kind === "choice" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
+      if (q.kind === "yesno" && a?.kind === "yesno") return a.yes ? "Yes" : "No";
+      if (q.kind === "text" && a?.kind === "text") return a.text.trim();
+      if (q.kind === "number" && a?.kind === "number") return a.value.trim();
+      if (q.kind === "stairs" && a?.kind === "stairs")
+        return a.groups
+          .filter((g) => numv(g.count) > 0)
+          .map((g) => `${g.count} ${g.type || "steps"}`)
+          .join("; ");
+      if (q.kind === "hs_stairs" && a?.kind === "hs_stairs") {
+        const n = Math.ceil(numv(a.steps));
+        if (n <= 0) return "";
+        return `${n} step${n === 1 ? "" : "s"} (${a.treadRiser ? "tread + riser" : "tread only"})`;
+      }
+      if (q.kind === "product" && a?.kind === "trims")
+        return a.rows
+          .filter((r) => (r.type || r.product) && numv(r.qty) > 0)
+          .map((r) => `${r.type || r.product?.label}: ${r.qty} ${coerceTrimUnit(r.type, r.unit)}`)
+          .join("; ");
+      return "";
+    };
+    const removal: string[] = [];
+    const installation: string[] = [];
+    const prep: string[] = [];
+    const accessories: string[] = [];
+    const specials: string[] = [];
+    const buckets: Record<"removal" | "installation" | "prep" | "accessories" | "specials", string[]> = {
+      removal,
+      installation,
+      prep,
+      accessories,
+      specials,
+    };
+    for (const q of questions) {
+      if (!visible[q.id]) continue;
+      const v = condValue(q, answers[q.id]);
+      if (!v) continue;
+      buckets[reviewBucketForQuestion(q)].push(`${q.label}: ${v}`);
+    }
+    if (flooringCtx.installLabels.length)
+      installation.unshift(`System: ${flooringCtx.installLabels.join(", ")}`);
+    accessories.push(...extraCountReview);
+    prep.push(...prepCountReview);
+    return buildSalespersonReview({
+      rooms,
+      products,
+      takeoffs,
+      ctx: flooringCtx,
+      removal,
+      installation,
+      prep,
+      accessories,
+      specials,
+      extraWarnings: warnings.filter((w) => !dismissed.has(w.id)),
+      suppressedWarningIds: dismissed,
+    });
+  }, [questions, answers, visible, totalSqft, cutsSqft, cutsSqftByCategory, flooringCtx, allRooms, warnings, dismissed, floorMapAssignments]);
 
   // Steps: the currently-visible questions (conditionals reveal as you answer),
   // plus a final Review step.
@@ -1458,16 +2943,27 @@ export function Questionnaire({
     });
   };
   const total = stepQuestions.length;
-  // The sections in play, in order, each with the step that starts it.
+  // Estimator phases in walk order — SQL section names mixed Carpet/Hard surface
+  // and did not match Area → Product → Measure → Existing → Installation → Prep.
   const sectionRail = useMemo(() => {
     const seen = new Map<string, number>();
     stepQuestions.forEach((sq, i) => {
-      if (sq.section && !seen.has(sq.section)) seen.set(sq.section, i);
+      const name = phaseName(sq);
+      if (name && !seen.has(name)) seen.set(name, i);
     });
     return [...seen.entries()].map(([name, firstIndex]) => ({ name, firstIndex }));
-  }, [stepQuestions]);
+  }, [stepQuestions, phaseById]);
   const atReview = step >= total;
   const q = atReview ? null : stepQuestions[step];
+  const currentQuestionIdRef = useRef<string | null>(null);
+  if (q) currentQuestionIdRef.current = q.id;
+  useEffect(() => {
+    if (step >= stepQuestions.length) return;
+    const id = currentQuestionIdRef.current;
+    if (!id) return;
+    const idx = stepQuestions.findIndex((sq) => sq.id === id);
+    if (idx >= 0 && idx !== step) setStep(idx);
+  }, [stepQuestions, step]);
   const answered = (qq: EstimateQuestion): boolean => {
     const a = answers[qq.id];
     if (qq.kind === "areas") return a?.kind === "areas" && a.rooms.some((r) => rowSqft(r) > 0);
@@ -1481,6 +2977,7 @@ export function Questionnaire({
     return true; // yesno/number/choice/text are always "answerable"
   };
   const canNext = !q || !q.required || answered(q);
+  const requiredDone = stepQuestions.every((sq) => !sq.required || answered(sq));
 
   const save = (blankCatalogPrices = false) =>
     startSave(async () => {
@@ -1529,11 +3026,10 @@ export function Questionnaire({
           }),
         );
       }
-      // Active (non-dismissed) risk flags ride along as work-order notes.
-      const flagText = activeWarnings.length
-        ? `Flags to confirm:\n${activeWarnings.map((w) => `⚠ ${w.text}`).join("\n")}`
-        : "";
-      const jobDesc = [notes.trim(), flagText].filter(Boolean).join("\n\n");
+      // Active flags ride inside salespersonReview.warnings → reviewToJobNotes.
+      // Do not concatenate a second "Flags to confirm" block.
+      const takeoffText = reviewToJobNotes(salespersonReview);
+      const jobDesc = [notes.trim(), takeoffText].filter(Boolean).join("\n\n");
       const res = await createSmartEstimate({
         customerId,
         title: `Flooring for ${customerName}`,
@@ -1604,7 +3100,7 @@ export function Questionnaire({
       {sectionRail.length > 1 ? (
         <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
           {sectionRail.map((s) => {
-            const isCurrent = s.name === q?.section;
+            const isCurrent = s.name === phaseName(q);
             const reached = s.firstIndex <= step;
             return (
               <button
@@ -1623,6 +3119,62 @@ export function Questionnaire({
               >
                 {s.name}
               </button>
+            );
+          })}
+          <button
+            type="button"
+            disabled={!requiredDone}
+            onClick={() => goTo(total)}
+            className={cn(
+              "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+              atReview
+                ? "bg-primary text-primary-foreground"
+                : requiredDone
+                  ? "bg-muted text-foreground hover:bg-muted/70"
+                  : "text-muted-foreground/50",
+            )}
+          >
+            Review
+          </button>
+        </div>
+      ) : null}
+
+      {salespersonReview.takeoffs.some((t) => t.measured.sqft > 0 || t.orderSqft > 0) ? (
+        <div className="space-y-1.5 rounded-lg border bg-muted/20 px-3 py-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Running takeoff — measured is not order quantity
+          </div>
+          {salespersonReview.takeoffs.map((t, i) => {
+            if (!(t.measured.sqft > 0 || t.orderSqft > 0)) return null;
+            // Exclusive carpet-tile Guided Estimate running takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+            // Underlayment Guided Estimate running takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+            const runningPadRolls = padRollCount(t.takeoffLabel ? "underlayment" : catalogCategoryForFamily(t.family), t.billingQty, t.billingUnit);
+            return (
+              <p key={`${t.family}-${i}`} className="text-xs leading-snug">
+                <span className="font-semibold">{takeoffDisplayTitle(t)}</span>
+                {" · "}
+                {formatTakeoffStrip(t)}
+                {/* Exclusive carpet-tile Guided Estimate running takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                {/* Hard-surface Guided Estimate running takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                {t.cartons ? (
+                  <>
+                    {" · "}
+                    <span className="font-medium tabular-nums">
+                      = {t.cartons.cartonCount} carton{t.cartons.cartonCount === 1 ? "" : "s"}
+                    </span>
+                  </>
+                ) : null}
+                {/* Exclusive carpet-tile Guided Estimate running takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                {/* Underlayment Guided Estimate running takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+                {runningPadRolls ? (
+                  <>
+                    {" · "}
+                    <span className="font-medium tabular-nums">
+                      = {runningPadRolls} roll{runningPadRolls === 1 ? "" : "s"}
+                    </span>
+                  </>
+                ) : null}
+              </p>
             );
           })}
         </div>
@@ -1662,12 +3214,15 @@ export function Questionnaire({
         >
           <CardContent className="space-y-4 p-4 sm:p-6">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">{q.section}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">{phaseName(q)}</div>
               <h2 className="text-lg font-semibold sm:text-xl">
                 {q.required ? <span className="text-amber-600">★ </span> : null}
                 {q.label}
               </h2>
               {q.help ? <p className="mt-1 text-sm text-muted-foreground">{q.help}</p> : null}
+              {knowledgeHelpFor(q, flooringCtx) ? (
+                <p className="mt-1 text-sm text-primary/90">{knowledgeHelpFor(q, flooringCtx)}</p>
+              ) : null}
             </div>
 
             <QuestionBody
@@ -1678,11 +3233,22 @@ export function Questionnaire({
               sellMat={sellMat}
               sellLab={sellLab}
               totalSqft={totalSqft}
+              familySqft={floorMapAssignments.byFamily}
               perRoom={prepByRoom ? perRoomQuestions : []}
               overrides={overrides}
               setRoomOverride={setRoomOverride}
               jobAnswers={answers}
               floorRooms={allRooms}
+              prepRooms={roomsForPrepTakeoff({
+                rooms: floorMapAssignments.rooms.length
+                  ? floorMapAssignments.rooms
+                  : allRooms.map((rm) => ({ room: rm, family: null })),
+                jobFamilies: flooringCtx.families,
+              })}
+              flooringCtx={flooringCtx}
+              hsTransitionTrims={hsTransitionTrims}
+              hsBaseTrims={hsBaseTrims}
+              cutsSqftByCategory={cutsSqftByCategory}
               goToAreas={() => {
                 const i = stepQuestions.findIndex((sq) => sq.kind === "areas");
                 if (i >= 0) goTo(i);
@@ -1694,9 +3260,9 @@ export function Questionnaire({
         // Review
         <Card>
           <CardContent className="space-y-3 p-4">
-            {activeWarnings.length ? (
+            {salespersonReview.warnings.length ? (
               <div className="space-y-2">
-                {activeWarnings.map((w) => (
+                {salespersonReview.warnings.map((w) => (
                   <div key={w.id} className="flex items-start gap-2 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm dark:border-amber-500/40 dark:bg-amber-950/30">
                     <span className="shrink-0 text-amber-600">⚠</span>
                     <span className="min-w-0 flex-1 text-amber-800 dark:text-amber-200">{w.text}</span>
@@ -1708,15 +3274,117 @@ export function Questionnaire({
                 ))}
               </div>
             ) : null}
-            <div className="text-sm font-semibold">Here&apos;s your estimate</div>
+            <div className="text-sm font-semibold">Review before Builder</div>
+            <p className="text-xs text-muted-foreground">
+              Measured area is what you taped. Waste, order quantity, billing quantity, and unit of
+              measure are listed separately. sq ft ÷ 9 is equivalent area, not a yard order. Carton
+              counts appear only when the product has coverage on file.
+            </p>
+            {salespersonReview.sections.map((sec) => {
+              const takeoffIdx = sec.id.startsWith("takeoff-")
+                ? Number(sec.id.slice("takeoff-".length))
+                : NaN;
+              const reviewTakeoff = Number.isFinite(takeoffIdx)
+                ? salespersonReview.takeoffs[takeoffIdx]
+                : null;
+              // Exclusive carpet-tile Guided Estimate Review takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+              // Underlayment Guided Estimate Review takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+              const reviewTakeoffPadRolls = reviewTakeoff
+                ? padRollCount(
+                    reviewTakeoff.takeoffLabel ? "underlayment" : catalogCategoryForFamily(reviewTakeoff.family),
+                    reviewTakeoff.billingQty,
+                    reviewTakeoff.billingUnit,
+                  )
+                : 0;
+              return (
+              <div key={sec.id} className="rounded-lg border bg-muted/20 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {sec.title}
+                </div>
+                <dl className="mt-1.5 space-y-1 text-sm">
+                  {sec.rows.map((row, i) => (
+                    <div key={`${sec.id}-${i}`} className="flex items-start justify-between gap-3">
+                      <dt className="shrink-0 text-muted-foreground">{row.label}</dt>
+                      <dd
+                        className={
+                          row.tone === "warn"
+                            ? "text-right text-amber-800 dark:text-amber-200"
+                            : row.tone === "ok"
+                              ? "text-right font-medium"
+                              : "text-right"
+                        }
+                      >
+                        {row.value}
+                      </dd>
+                    </div>
+                  ))}
+                  {/* Exclusive carpet-tile Guided Estimate Review takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                  {/* Underlayment Guided Estimate Review takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+                  {reviewTakeoffPadRolls ? (
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="shrink-0 text-muted-foreground">Required rolls</dt>
+                      <dd className="text-right font-medium tabular-nums">
+                        {reviewTakeoffPadRolls} roll{reviewTakeoffPadRolls === 1 ? "" : "s"}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </div>
+              );
+            })}
+            <div className="text-sm font-semibold">Estimate lines</div>
             {lines.length ? (
               <div className="divide-y text-sm">
-                {lines.map((l, i) => (
+                {lines.map((l, i) => {
+                  const fam = familyFromCatalogCategory(l.category);
+                  const rollOrderTbd =
+                    isRollGoodsFamily(fam) &&
+                    rollGoodsNeedCuts(fam, carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall)) &&
+                    !(l.measurements && l.measurements.length);
+                  // Exclusive carpet-tile Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  // Exclusive carpet-tile Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  const orderQty = lineOrderQty(smartLineToCalcLine(l));
+                  const cartonsHs = hardSurfaceAreaCartonCount(l, orderQty);
+                  const unitKey = normalizeUnit(l.unit);
+                  // Exclusive carpet-tile Guided Estimate Review pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Hard-surface Guided Estimate Review pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                  const guidedReviewPadTakeoff =
+                    l.category === "underlayment" && l.unit !== "sheet"
+                      ? computeMaterialTakeoff({
+                          family: "other",
+                          measuredSqft: billedQtyToSqft(orderQty, unitIsSqyd(unitKey) ? "sqyd" : "sqft") ?? 0,
+                          wasteAlreadyInQuantity: true,
+                          sqftPerBox: Number(l.sqft_per_box) > 0 ? Number(l.sqft_per_box) : null,
+                          billingUnit: unitIsSqyd(unitKey) ? "sqyd" : "sqft",
+                          takeoffLabel: "Carpet pad",
+                        })
+                      : null;
+                  const cartons =
+                    cartonsHs ||
+                    (guidedReviewPadTakeoff?.cartons ? guidedReviewPadTakeoff.cartons.cartonCount : 0);
+                  // Exclusive carpet-tile Guided Estimate Review order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                  // Underlayment Guided Estimate Review order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+                  const padRolls = padRollCount(l.category, lineOrderQty(smartLineToCalcLine(l)), unitKey);
+                  return (
                   <div key={i} className="flex items-center justify-between gap-3 py-1.5">
                     <span className="min-w-0">
                       <span className="truncate">{l.description}</span>
                       <span className="ml-2 text-xs text-muted-foreground">
-                        {l.quantity} {l.unit}
+                        {rollOrderTbd
+                          ? `${l.sqft ? `measured ${l.sqft} sq ft` : ""} · order TBD (enter cuts — not sq ft ÷ 9)`
+                          : `${l.quantity} ${lineDisplayUnit(l)}${
+                              l.sqft ? ` · measured ${l.sqft} sq ft` : ""
+                            }${l.waste_pct ? ` · ${l.waste_pct}% waste` : ""}`}
+                        {/* Exclusive carpet-tile Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                        {/* Hard-surface Guided Estimate Review carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                        {/* Exclusive carpet-tile Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                        {/* Hard-surface Guided Estimate Review order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                        {!rollOrderTbd && cartons ? ` · 📦 ${cartons} carton(s)` : ""}
+                        {/* Exclusive carpet-tile Guided Estimate Review order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                        {/* Underlayment Guided Estimate Review order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+                        {!rollOrderTbd && padRolls ? ` · ${padRolls} roll${padRolls === 1 ? "" : "s"}` : ""}
                         {l.from_stock ? " · from stock" : ""}
                         {l.category === "labor" ? " · labor" : ""}
                       </span>
@@ -1725,7 +3393,8 @@ export function Questionnaire({
                       {formatMoney(lineTotal(smartLineToCalcLine(l)))}
                     </span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">No line items yet — go back and add areas and a product.</p>
@@ -1745,7 +3414,7 @@ export function Questionnaire({
               onClick={() => setPriceCheck(true)}
               disabled={saving}
             >
-              {saving ? "Building…" : "Build the estimate →"}
+              {saving ? "Building…" : "Continue to Builder →"}
             </Button>
           </CardContent>
         </Card>
@@ -1823,14 +3492,21 @@ export function Questionnaire({
               ? `${lines.length} line item${lines.length === 1 ? "" : "s"}`
               : !canNext
                 ? <span className="font-medium text-amber-600">Answer this one to carry on</span>
-                : q?.section}
+                : phaseName(q)}
           </span>
           {atReview ? (
             <span className="w-[5.5rem]" />
           ) : (
-            <Button type="button" onClick={() => goTo(step + 1)} disabled={!canNext}>
-              {step === total - 1 ? "Review" : "Next"} <ArrowRight className="size-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {requiredDone ? (
+                <Button type="button" variant="ghost" onClick={() => goTo(total)}>
+                  Review
+                </Button>
+              ) : null}
+              <Button type="button" onClick={() => goTo(step + 1)} disabled={!canNext}>
+                {step === total - 1 ? "Review" : "Next"} <ArrowRight className="size-4" />
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -1847,12 +3523,18 @@ function QuestionBody({
   sellMat,
   sellLab,
   totalSqft,
+  familySqft = {},
   perRoom = [],
   overrides = {},
   setRoomOverride,
   jobAnswers = {},
   floorRooms = [],
+  prepRooms = [],
   goToAreas,
+  flooringCtx = emptyInstallContext(),
+  cutsSqftByCategory = {},
+  hsTransitionTrims = [],
+  hsBaseTrims = [],
 }: {
   q: EstimateQuestion;
   answer: Answer | undefined;
@@ -1863,29 +3545,63 @@ function QuestionBody({
   sellMat: (c: number) => number;
   sellLab: (c: number) => number;
   totalSqft: number;
+  /** Floor-map measured sq ft per family — mixed jobs must not clone whole-job area. */
+  familySqft?: Partial<Record<FlooringFamily, number>>;
   perRoom?: EstimateQuestion[];
   overrides?: Record<string, Record<string, Answer>>;
   setRoomOverride?: (roomId: string, qid: string, a: Answer) => void;
   jobAnswers?: Record<string, Answer>;
   floorRooms?: { name: string; sqft: number; lenIn: number | null; widIn: number | null }[];
+  /** Subfloor / HS prep rooms — mixed jobs omit carpet rooms. */
+  prepRooms?: { name: string; sqft: number; lenIn: number | null; widIn: number | null }[];
   /** Jump to the areas step. The room-map step is useless without rooms, and
    *  telling someone to "go back" without taking them there is a wall. */
   goToAreas?: () => void;
+  flooringCtx?: InstallContext;
+  /** Roll-goods cut totals by catalog family — floor-map order uses cuts when present. */
+  cutsSqftByCategory?: Record<string, number>;
+  /** TRIM_TYPES labels the salesperson already picked on hs_transitions. */
+  hsTransitionTrims?: string[];
+  /** TRIM_TYPES labels the salesperson already picked on hs_base_trim. */
+  hsBaseTrims?: string[];
 }) {
-  // "How many stairs?" quick-fill for the trims step (one tread + one riser per
-  // stair). Declared unconditionally so hook order is stable across kinds.
-  const [stairCount, setStairCount] = useState("");
+  // How many stairs? — seeded from hs_plank_stairs when the salesperson already
+  // counted steps. Declared unconditionally so hook order is stable across kinds.
+  const derivedHsStairSteps = stairStepCountFromAnswers(jobAnswers, ["hs_stairs"]);
+  const [stairCountTyped, setStairCountTyped] = useState<string | null>(null);
+  const stairCount =
+    stairCountTyped ?? (derivedHsStairSteps > 0 ? String(derivedHsStairSteps) : "");
+  const coverSf = measuredSqftForQuestionCover({
+    kind: q.kind,
+    key: q.key,
+    category: q.config.category,
+    totalSqft,
+    byFamily: familySqft,
+    jobFamilies: flooringCtx.families,
+  });
+  const mixedUnassigned =
+    totalSqft > 0 &&
+    coverSf <= 0 &&
+    flooringCtx.families.filter((f) => f !== "other").length > 1;
   if (q.kind === "areas" && answer?.kind === "areas") {
     const rooms = answer.rooms;
     const upd = (rs: AreaRow[]) => set({ kind: "areas", rooms: rs });
     const patch = (id: string, p: Partial<AreaRow>) =>
       upd(rooms.map((x) => (x.id === id ? { ...x, ...p } : x)));
     const total = rooms.reduce((t, r) => t + rowSqft(r), 0);
+    const floorMap = Object.values(jobAnswers).find(
+      (a): a is Extract<Answer, { kind: "floor_map" }> => a?.kind === "floor_map",
+    );
+    const mixedRooms = flooringCtx.families.filter((f) => f !== "other").length > 1;
     return (
       <div className="space-y-3">
         {rooms.map((r, i) => {
           const usingCalc = numv(r.override) > 0;
           const sf = rowSqft(r);
+          const assigned = floorMap?.byRoom[roomKey(r.name, i)];
+          const roomFam = familyFromCatalogCategory(assigned?.category);
+          const roomFamilySqft: Partial<Record<FlooringFamily, number>> =
+            roomFam !== "other" && sf > 0 ? { [roomFam]: sf } : {};
           return (
             <div key={r.id} className="space-y-2 rounded-lg border bg-muted/20 p-2.5">
               <div className="flex items-center gap-2">
@@ -1938,11 +3654,112 @@ function QuestionBody({
                 </div>
               </div>
 
+              {/* Extra sections (closet, offset) stay on the same room so product
+                  assignment and prep stay one room, while measured area sums. */}
+              {(r.sections ?? []).map((sec, si) => (
+                <div key={sec.id} className="flex flex-wrap items-end gap-x-3 gap-y-2 rounded-md border border-dashed bg-background p-2">
+                  <Input
+                    value={sec.name}
+                    onChange={(e) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, name: e.target.value } : s,
+                        ),
+                      })
+                    }
+                    placeholder={`Section ${String.fromCharCode(66 + si)}`}
+                    className="h-10 w-28 text-sm"
+                    disabled={usingCalc}
+                  />
+                  <FtInField
+                    label="Length"
+                    ft={sec.lf}
+                    inch={sec.li}
+                    disabled={usingCalc}
+                    onFt={(v) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, lf: v } : s,
+                        ),
+                      })
+                    }
+                    onIn={(v) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, li: v } : s,
+                        ),
+                      })
+                    }
+                  />
+                  <span className="pb-2.5 text-muted-foreground">×</span>
+                  <FtInField
+                    label="Width"
+                    ft={sec.wf}
+                    inch={sec.wi}
+                    disabled={usingCalc}
+                    onFt={(v) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, wf: v } : s,
+                        ),
+                      })
+                    }
+                    onIn={(v) =>
+                      patch(r.id, {
+                        sections: (r.sections ?? []).map((s) =>
+                          s.id === sec.id ? { ...s, wi: v } : s,
+                        ),
+                      })
+                    }
+                  />
+                  <span className="pb-2 text-xs tabular-nums text-muted-foreground">
+                    {formatSqft(sectionSqft(sec))}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Remove section"
+                    onClick={() =>
+                      patch(r.id, { sections: (r.sections ?? []).filter((s) => s.id !== sec.id) })
+                    }
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                onClick={() =>
+                  patch(r.id, {
+                    sections: [
+                      ...(r.sections ?? []),
+                      {
+                        id: `sec${Date.now()}`,
+                        name: `Section ${String.fromCharCode(66 + (r.sections?.length ?? 0))}`,
+                        lf: "",
+                        li: "",
+                        wf: "",
+                        wi: "",
+                      },
+                    ],
+                  })
+                }
+              >
+                + Add section (closet, offset)
+              </button>
+
               <div className="flex flex-wrap items-center gap-x-2 text-sm">
                 <span>
                   <Ruler className="mr-1 inline size-3.5 text-muted-foreground" />
-                  <span className="font-semibold tabular-nums">{r2(sf)}</span> sq ft
-                  <span className="ml-1 text-muted-foreground tabular-nums">· {r2(sf / 9)} sq yd</span>
+                  Measured{" "}
+                  <span className="font-semibold tabular-nums">{formatSqft(sf)}</span>
+                  {sf > 0 ? (
+                    <span className="ml-1 text-muted-foreground">
+                      ({formatSqyd(sf / 9)} equivalent area — not an order qty)
+                    </span>
+                  ) : null}
                   {usingCalc ? <span className="ml-1 text-xs text-primary">· added up</span> : null}
                 </span>
                 {r.differs ? (
@@ -1963,6 +3780,9 @@ function QuestionBody({
                     <p className="text-xs text-muted-foreground">
                       Leveling, primer, moisture, subfloor & demo for {r.name || "this area"} only.
                       Leave blank for none.
+                      {sf > 0
+                        ? ` This room ${formatSqft(sf)}${mixedRooms ? " — not the whole mixed job" : ""}${roomFam !== "other" ? ` · ${familyLabel(roomFam)}` : ""}.`
+                        : ""}
                     </p>
                     {perRoom.map((pq) => (
                       <div key={pq.id} className="space-y-1">
@@ -1976,7 +3796,9 @@ function QuestionBody({
                           }
                           sellMat={sellMat}
                           sellLab={sellLab}
-                          totalSqft={totalSqft}
+                          totalSqft={sf}
+                          familySqft={roomFamilySqft}
+                          flooringCtx={flooringCtx}
                         />
                       </div>
                     ))}
@@ -2042,6 +3864,10 @@ function QuestionBody({
                       ...last,
                       id: `a${Date.now()}`,
                       name: nextRoomName(rooms, baseRoomName(last.name)),
+                      sections: (last.sections ?? []).map((s) => ({
+                        ...s,
+                        id: `sec${Date.now()}-${s.id}`,
+                      })),
                     },
                   ]);
                 }}
@@ -2051,8 +3877,12 @@ function QuestionBody({
             ) : null}
           </div>
           <span className="rounded-md bg-primary/10 px-3 py-1.5 text-sm">
-            Total <span className="font-bold tabular-nums">{r2(total)}</span> sq ft
-            <span className="ml-1 font-semibold text-primary tabular-nums">· {r2(total / 9)} sq yd</span>
+            Total measured <span className="font-bold tabular-nums">{formatSqft(total)}</span>
+            {total > 0 ? (
+              <span className="ml-1 text-muted-foreground tabular-nums">
+                ({formatSqyd(total / 9)} equivalent area — not an order qty)
+              </span>
+            ) : null}
           </span>
         </div>
       </div>
@@ -2082,6 +3912,10 @@ function QuestionBody({
     const assignedProducts = floorRooms
       .map((rm, i) => byRoom[roomKey(rm.name, i)])
       .filter(Boolean) as ProductAns[];
+    const mapDefaultCategory =
+      flooringCtx.families.length === 1
+        ? catalogCategoryForFamily(flooringCtx.families[0])
+        : undefined;
     const commonWaste =
       assignedProducts.length && assignedProducts.every((p) => p.wastePct === assignedProducts[0].wastePct)
         ? assignedProducts[0].wastePct
@@ -2126,6 +3960,7 @@ function QuestionBody({
           <ProductPicker
             value=""
             label=""
+            defaultCategory={mapDefaultCategory}
             onPick={(prod) => fillEmpty(prod ? toProductAns(prod) : null)}
             onCreated={(prod) => fillEmpty(toProductAns(prod))}
             onUseOnce={(input) => fillEmpty(customToProductAns(input))}
@@ -2152,13 +3987,15 @@ function QuestionBody({
           const key = roomKey(rm.name, i);
           const p = byRoom[key] ?? null;
           const cat = p?.category || "other";
-          const b = billing(cat);
+          const b = billing({ category: cat, productUnit: p?.unit });
+          const family = familyFromCatalogCategory(cat);
+          const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
           return (
             <div key={key} className="rounded-lg border p-3">
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="font-medium">{rm.name || `Room ${i + 1}`}</span>
                 <span className="text-xs tabular-nums text-muted-foreground">
-                  {Math.round(rm.sqft)} sq ft
+                  measured {formatSqft(rm.sqft)}
                   {p ? (
                     <button
                       type="button"
@@ -2174,6 +4011,9 @@ function QuestionBody({
                 value={p?.productId ?? ""}
                 initialLabel={p?.label ?? ""}
                 label="Product for this room"
+                defaultCategory={
+                  (p?.category as string) || mapDefaultCategory
+                }
                 onPick={(prod) => setRoom(key, prod ? toProductAns(prod) : null)}
                 onCreated={(prod) => setRoom(key, toProductAns(prod))}
                 onUseOnce={(input) => setRoom(key, customToProductAns(input))}
@@ -2182,25 +4022,38 @@ function QuestionBody({
                 <div className="mt-1.5 text-xs text-muted-foreground">
                   {p.label} ·{" "}
                   {p.materialRate > 0
-                    ? `sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/${b.unitLabel}`
+                    ? `sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd, { category: p.category, sqft_per_box: p.sqftPerBox, carpetInstallSystems: carpetSystems })))}/${b.unitLabel}`
                     : PRICE_NEEDED}
                   {q.config.ask_source ? (
                     <span className="mt-1.5 block">
                       <SourceToggle p={p} compact onChange={(np) => setRoom(key, np)} />
                     </span>
                   ) : null}
-                  {/* Waste factor + carton size for this room's material. Baked into
-                      the ordered quantity at emit; editable per room. */}
+                  {/* Measured vs order for this room. Roll goods do not take a
+                      waste % — layout waste lives in the cut list. */}
                   {(() => {
                     const defWaste = profileFor(cat)?.waste ?? 0;
-                    const effWaste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste;
-                    const spb = numv(p.sqftPerBox);
-                    const adj = rm.sqft * (1 + effWaste / 100);
-                    const boxes = spb > 0 ? Math.ceil(adj / spb) : 0;
-                    const ordered = boxes > 0 ? boxes * spb : r2(adj);
+                    const needCuts = rollGoodsNeedCuts(family, carpetSystems);
+                    const cutSf = needCuts ? (cutsSqftByCategory[family] ?? 0) : 0;
+                    const takeoff = computeMaterialTakeoff({
+                      family,
+                      measuredSqft: rm.sqft,
+                      wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste,
+                      cutsSqft: cutSf > 0 ? cutSf : null,
+                      sqftPerBox: !needCuts && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                      carpetSystems: family === "carpet" ? carpetSystems : null,
+                    });
+                    const cartonTbd = boxedCartonCoverageTbdDescription({
+                      family,
+                      productUnit: p.unit,
+                      sqftPerBox: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                      label: p.label,
+                      carpetInstallSystems: carpetSystems,
+                    });
                     return (
                       <div className="mt-2 space-y-1.5">
                         <div className="flex flex-wrap items-end gap-3">
+                          {!needCuts ? (
                           <div>
                             <label className="mb-1 block text-[11px] text-muted-foreground">Waste factor</label>
                             <div className="flex items-center gap-1">
@@ -2214,23 +4067,51 @@ function QuestionBody({
                               <span className="text-xs text-muted-foreground">%</span>
                             </div>
                           </div>
-                          <div>
-                            <label className="mb-1 block text-[11px] text-muted-foreground">Sq ft per box</label>
-                            <Input
-                              value={p.sqftPerBox}
-                              onChange={(e) => setRoom(key, { ...p, sqftPerBox: e.target.value })}
-                              inputMode="decimal"
-                              placeholder="e.g. 20"
-                              className="h-9 w-20 text-base"
-                            />
-                          </div>
+                          ) : null}
+                          {!needCuts ? (
+                            <div>
+                              <label className="mb-1 block text-[11px] text-muted-foreground">Sq ft per box</label>
+                              <Input
+                                value={p.sqftPerBox}
+                                onChange={(e) => setRoom(key, { ...p, sqftPerBox: e.target.value })}
+                                inputMode="decimal"
+                                placeholder="if known"
+                                className="h-9 w-20 text-base"
+                              />
+                            </div>
+                          ) : null}
                         </div>
                         {rm.sqft > 0 ? (
                           <p className="text-xs">
-                            Order <span className="font-semibold tabular-nums text-foreground">{ordered}</span> sq ft
-                            <span> (incl. {effWaste}% waste)</span>
-                            {boxes > 0 ? (
-                              <> · <span className="font-semibold tabular-nums text-primary">{boxes}</span> box{boxes === 1 ? "" : "es"}</>
+                            Measured {formatSqft(takeoff.measured.sqft)}
+                            {takeoff.billingUnit === "sqyd" ? (
+                              <> ({formatSqyd(takeoff.measured.sqydEquivalent)} equivalent area — not an order qty)</>
+                            ) : null}
+                            {" · "}
+                            {takeoff.orderBasis === "cuts"
+                              ? "Order (from cuts) "
+                              : takeoff.orderBasis === "none" && needCuts
+                                ? "Order TBD — enter cuts "
+                                : cartonTbd
+                                  ? "Order TBD — carton coverage TBD "
+                                  : takeoff.orderBasis === "measured_plus_waste_estimated"
+                                  ? "Order (estimate — not a cut plan) "
+                                  : "Order "}
+                            <span className={cn("font-semibold tabular-nums", cartonTbd ? "text-amber-800 dark:text-amber-200" : "text-foreground")}>
+                              {takeoff.orderBasis === "none" && needCuts
+                                ? ""
+                                : cartonTbd
+                                  ? "(not How many boxes from leftover taped sq ft)"
+                                  : takeoff.billingUnit === "sqyd"
+                                  ? formatSqyd(takeoff.billingQty)
+                                  : formatSqft(takeoff.orderSqft)}
+                            </span>
+                            {takeoff.cartons ? (
+                              <>
+                                {" "}
+                                · {takeoff.cartons.cartonCount} carton
+                                {takeoff.cartons.cartonCount === 1 ? "" : "s"}
+                              </>
                             ) : null}
                           </p>
                         ) : null}
@@ -2251,23 +4132,30 @@ function QuestionBody({
     const upd = (rs: TrimRow[]) => set({ kind: "trims", rows: rs });
     const patch = (id: string, pp: Partial<TrimRow>) =>
       upd(rows.map((x) => (x.id === id ? { ...x, ...pp } : x)));
-    // Set the count on the Stair tread + Stair riser rows (adding either if
-    // missing) — one of each per stair.
+    // Set qty on Stair tread + Stair riser + Stair nose (adding any missing) —
+    // one of each per hard-surface step. Noses are EACH, never square feet.
+    // Carpet-only jobs hide this fill; waterfall/upholstered stairs are labor.
     const fillStairs = () => {
       const n = numv(stairCount);
       if (n <= 0) return;
-      let rs = [...rows];
-      const ensure = (re: RegExp, label: string) => {
-        const idx = rs.findIndex((x) => re.test(x.type));
-        if (idx >= 0) rs[idx] = { ...rs[idx], qty: String(n) };
-        else {
+      upd(
+        applyHardSurfaceStairTrimFill(rows, n, (label) => {
           const t = TRIM_TYPES.find((x) => x.label === label);
-          rs = [...rs, { ...newTrimRow(t), qty: String(n) }];
-        }
-      };
-      ensure(/tread/i, "Stair tread");
-      ensure(/riser/i, "Stair riser");
-      upd(rs);
+          return newTrimRow(t);
+        }),
+      );
+    };
+    const showHsStairFill =
+      jobNeedsHardSurfaceStairTrim(flooringCtx.families) &&
+      !jobIsExclusiveWallTile(flooringCtx);
+    const fillFromPicks = (labels: string[]) => {
+      if (!labels.length) return;
+      upd(
+        applyTrimTypeSeed(rows, labels, (label) => {
+          const t = TRIM_TYPES.find((x) => x.label === label);
+          return newTrimRow(t);
+        }),
+      );
     };
     return (
       <div className="space-y-3">
@@ -2293,34 +4181,62 @@ function QuestionBody({
           </button>
         </div>
 
-        {/* Stairs quick-fill — one tread & one riser per stair. */}
-        <div className="flex flex-wrap items-end gap-2 rounded-md border border-dashed bg-primary/5 p-2.5">
-          <div>
-            <label className="mb-1 block text-xs text-muted-foreground">
-              How many stairs?
-            </label>
-            <Input
-              value={stairCount}
-              onChange={(e) => setStairCount(e.target.value)}
-              inputMode="numeric"
-              placeholder="e.g. 13"
-              className="h-9 w-24 text-base"
-            />
+        {/* Hard-surface stairs: treads, risers, and noses (each). Hidden on carpet-only. */}
+        {showHsStairFill ? (
+          <div className="flex flex-wrap items-end gap-2 rounded-md border border-dashed bg-primary/5 p-2.5">
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">
+                How many stairs?
+              </label>
+              <Input
+                value={stairCount}
+                onChange={(e) => setStairCountTyped(e.target.value)}
+                inputMode="numeric"
+                placeholder="e.g. 13"
+                className="h-9 w-24 text-base"
+              />
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={fillStairs}>
+              Add treads, risers &amp; noses
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              One tread, one riser, and one stair nose (each) per step — then pick the product.
+              {derivedHsStairSteps > 0 ? " Count came from the stair question." : ""}
+            </span>
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={fillStairs}>
-            Add stair treads &amp; risers
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Adds one tread &amp; one riser per stair — then pick the product on each.
-          </span>
-        </div>
+        ) : null}
+
+        {hsTransitionTrims.length ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed bg-primary/5 p-2.5">
+            <Button type="button" variant="outline" size="sm" onClick={() => fillFromPicks(hsTransitionTrims)}>
+              Add selected transitions
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {hsTransitionTrims.join(", ")} — each, never square feet. Then pick the catalog piece.
+            </span>
+          </div>
+        ) : null}
+
+        {hsBaseTrims.length ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed bg-primary/5 p-2.5">
+            <Button type="button" variant="outline" size="sm" onClick={() => fillFromPicks(hsBaseTrims)}>
+              Add selected base / shoe / QR
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {hsBaseTrims.join(", ")} — linear feet, never square feet.
+            </span>
+          </div>
+        ) : null}
 
         {rows.map((row) => (
           <div key={row.id} className="space-y-2 rounded-md border bg-muted/20 p-2.5">
             <div className="flex items-center justify-between gap-2">
               <Input
                 value={row.type}
-                onChange={(e) => patch(row.id, { type: e.target.value })}
+                onChange={(e) => {
+                  const type = e.target.value;
+                  patch(row.id, { type, unit: coerceTrimUnit(type, row.unit) });
+                }}
                 placeholder="Trim name"
                 className="h-10 max-w-[16rem] flex-1 text-base font-medium"
               />
@@ -2331,18 +4247,19 @@ function QuestionBody({
             <div className="flex flex-wrap items-end gap-2">
               {/* An accessory sold by the piece is measured in linear feet but BOUGHT
                   in whole sticks. Enter the run; this buys enough sticks to cover it. */}
-              {pieceLenFor(row) ? (
+              {showTrimLinearFt(row) ? (
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">Linear ft</label>
                   <Input
                     value={row.linearFt ?? ""}
                     onChange={(e) => {
                       const lf = e.target.value;
+                      const len = pieceLenFor(row);
                       patch(row.id, {
                         linearFt: lf,
-                        qty: String(
-                          piecesForLinearFeet(numv(lf), pieceLenFor(row)!) || "",
-                        ),
+                        ...(len
+                          ? { qty: String(piecesForLinearFeet(numv(lf), len) || "") }
+                          : {}),
                       });
                     }}
                     inputMode="decimal"
@@ -2364,14 +4281,37 @@ function QuestionBody({
                     ? `covers ${linearFeetForPieces(numv(row.qty), pieceLenFor(row)!)} ln ft`
                     : "rounds up to whole sticks"}
                 </p>
+              ) : showTrimLinearFt(row) ? (
+                <p className="mb-2.5 max-w-[14rem] text-xs text-muted-foreground">
+                  Stick length is not on this product — enter pieces. {TYPICAL_PIECE_LENGTH_IN}&quot;
+                  is typical but not assumed.
+                </p>
               ) : (
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">Unit</label>
-                  <select value={row.unit} onChange={(e) => patch(row.id, { unit: e.target.value })} className="h-10 rounded-md border border-input bg-transparent px-2 text-sm">
-                    <option value="lnft">linear ft</option>
-                    <option value="each">each</option>
-                    <option value="pc">pieces</option>
+                  <select
+                    value={coerceTrimUnit(row.type, row.unit)}
+                    onChange={(e) => patch(row.id, { unit: coerceTrimUnit(row.type, e.target.value) })}
+                    className="h-10 rounded-md border border-input bg-transparent px-2 text-sm"
+                  >
+                    {accessoryUnitForType(row.type) === "lnft" ? (
+                      <>
+                        <option value="lnft">linear ft</option>
+                        <option value="each">each (sticks)</option>
+                        <option value="pc">pieces</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="each">each</option>
+                        <option value="pc">pieces</option>
+                      </>
+                    )}
                   </select>
+                  <p className="mt-0.5 max-w-[10rem] text-[10px] text-muted-foreground">
+                    {accessoryUnitForType(row.type) === "lnft"
+                      ? "Linear feet — never square feet."
+                      : "Each / pieces — never square feet."}
+                  </p>
                 </div>
               )}
               {row.sized ? (
@@ -2392,7 +4332,7 @@ function QuestionBody({
                     value={row.cost}
                     onChange={(e) => patch(row.id, { cost: e.target.value })}
                     inputMode="decimal"
-                    placeholder="0"
+                    placeholder="catalog or type — do not invent"
                     className="h-10 w-20 text-base"
                   />
                 </div>
@@ -2424,7 +4364,7 @@ function QuestionBody({
                     onChange={(e) =>
                       patch(row.id, {
                         rr: e.target.checked,
-                        rrRate: row.rrRate || (e.target.checked ? String(DEFAULT_RR_PER_LNFT) : row.rrRate),
+                        rrRate: row.rrRate,
                       })
                     }
                     className="size-4 accent-primary"
@@ -2438,7 +4378,7 @@ function QuestionBody({
                       value={row.rrRate ?? ""}
                       onChange={(e) => patch(row.id, { rrRate: e.target.value })}
                       inputMode="decimal"
-                      placeholder={String(DEFAULT_RR_PER_LNFT)}
+                      placeholder="if known"
                       className="h-9 w-20 text-base"
                     />
                   </span>
@@ -2465,9 +4405,25 @@ function QuestionBody({
                   initialLabel={row.product?.label ?? (isStairnose(row.type) ? "Versatrim " : "")}
                   label="Search the catalog (or add a Versatrim / manufacturer item)"
                   defaultCategory="trim"
-                  onPick={(prod) => patch(row.id, { product: prod ? toProductAns(prod) : null, unit: prod?.unit || row.unit, type: row.type || (prod ? prod.name : row.type) })}
-                  onCreated={(prod) => patch(row.id, { product: toProductAns(prod), unit: prod.unit || row.unit })}
-                  onUseOnce={(input) => patch(row.id, { product: customToProductAns(input), unit: input.unit || row.unit })}
+                  onPick={(prod) =>
+                    patch(row.id, {
+                      product: prod ? toProductAns(prod) : null,
+                      unit: coerceTrimUnit(row.type || (prod ? prod.name : ""), prod?.unit || row.unit),
+                      type: row.type || (prod ? prod.name : row.type),
+                    })
+                  }
+                  onCreated={(prod) =>
+                    patch(row.id, {
+                      product: toProductAns(prod),
+                      unit: coerceTrimUnit(row.type || prod.name, prod.unit || row.unit),
+                    })
+                  }
+                  onUseOnce={(input) =>
+                    patch(row.id, {
+                      product: customToProductAns(input),
+                      unit: coerceTrimUnit(row.type || input.name, input.unit || row.unit),
+                    })
+                  }
                 />
               </div>
             </details>
@@ -2480,16 +4436,71 @@ function QuestionBody({
   if (q.kind === "product" && !q.config.trim_list && answer?.kind === "product") {
     const p = answer.product;
     const extras = answer.extras;
-    const cat = q.config.category || "other";
-    const b = billing(cat);
-    const kindLabel = cat === "underlayment" ? "padding" : cat;
+    const qty = answer.qty ?? "";
+    const familyCat =
+      flooringCtx.families.length === 1
+        ? catalogCategoryForFamily(flooringCtx.families[0])
+        : null;
+    const cat =
+      (q.config.category === "lvp" && familyCat && familyCat !== "other" ? familyCat : null) ||
+      q.config.category ||
+      "other";
+    const b = billing({ category: cat, key: q.key, productUnit: p?.unit });
+    const kindLabel =
+      q.key === "hs_underlayment" ? "underlayment" : cat === "underlayment" ? "padding" : cat;
     // Waste + carton entry is for the flooring itself (not pad / trim / other).
     const isFlooring = ["carpet", "lvp", "vinyl", "laminate", "hardwood", "tile"].includes(cat);
+    const family = familyFromCatalogCategory(cat);
+    const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
+    const needRollCuts = rollGoodsNeedCuts(family, carpetSystems);
+    const isRoll = needRollCuts;
     const defWasteForCat = profileFor(cat)?.waste ?? 0;
-    const setMain = (product: ProductAns | null) => set({ kind: "product", product, extras });
-    const setExtras = (xs: ExtraPad[]) => set({ kind: "product", product: p, extras: xs });
+    const setMain = (product: ProductAns | null) => {
+      const keep = extraAsksCountQty({
+        family: familyFromCatalogCategory(product?.category || cat),
+        productUnit: product?.unit,
+        carpetInstallSystems: carpetSystems,
+      });
+      set({ kind: "product", product, extras, qty: keep ? qty : "" });
+    };
+    const setExtras = (xs: ExtraPad[]) => set({ kind: "product", product: p, extras: xs, qty });
+    const setMainQty = (next: string) => set({ kind: "product", product: p, extras, qty: next });
     const patchExtra = (id: string, patch: Partial<ExtraPad>) =>
       setExtras(extras.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    const extraKeepMeasured = (prod: ProductAns | null) => {
+      if (!prod) return true;
+      return areaDerivedMaterialAllowed(
+        familyFromCatalogCategory(prod.category || cat),
+        prod.unit,
+        carpetSystems,
+      );
+    };
+    const extraKeepCountQty = (prod: ProductAns | null) => {
+      if (!prod) return false;
+      return extraAsksCountQty({
+        family: familyFromCatalogCategory(prod.category || cat),
+        productUnit: prod.unit,
+        carpetInstallSystems: carpetSystems,
+      });
+    };
+    const mainAsksCount = extraAsksCountQty({
+      family,
+      productUnit: p?.unit,
+      carpetInstallSystems: carpetSystems,
+    });
+    const mainCartonTbd = boxedCartonCoverageTbdDescription({
+      family,
+      productUnit: p?.unit,
+      sqftPerBox: p && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+      label: p?.label,
+      carpetInstallSystems: carpetSystems,
+    });
+    const setExtraProduct = (id: string, product: ProductAns | null, extra: ExtraPad) =>
+      patchExtra(id, {
+        product,
+        sqft: extraKeepMeasured(product) ? extra.sqft : "",
+        qty: extraKeepCountQty(product) ? extra.qty ?? "" : "",
+      });
     return (
       <div className="space-y-3">
         <ProductPicker
@@ -2507,24 +4518,34 @@ function QuestionBody({
               <div className="font-medium">{p.label}</div>
               <div className="text-xs text-muted-foreground">
                 {p.materialRate > 0
-                  ? `${formatMoney(p.materialRate)}/${p.unit} → sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd)))}/${b.unitLabel}`
+                  ? `${formatMoney(p.materialRate)}/${p.unit} → sells ${formatMoney(sellMat(rateFor(p.materialRate, p.unit, b.wantYd, { category: p.category, sqft_per_box: p.sqftPerBox, carpetInstallSystems: carpetSystems })))}/${b.unitLabel}`
                   : PRICE_NEEDED}
-                {totalSqft > 0 ? ` · covers ${r2(b.wantYd ? totalSqft / 9 : totalSqft)} ${b.unitLabel}` : ""}
+                {mainAsksCount
+                  ? ""
+                  : coverSf > 0
+                  ? ` · measured ${formatMeasuredLabel({ sqft: coverSf, sqydEquivalent: r2(coverSf / 9) }, { showEquivalentYd: b.wantYd })}`
+                  : mixedUnassigned
+                    ? " · assign rooms to this product — mixed jobs do not clone whole-job sq ft"
+                    : ""}
               </div>
             </div>
             {q.config.ask_source ? <SourceToggle p={p} onChange={setMain} /> : null}
             {isFlooring ? (
               (() => {
-                const effWaste = p.wastePct.trim() !== "" ? numv(p.wastePct) : defWasteForCat;
-                const adj = totalSqft > 0 ? totalSqft * (1 + effWaste / 100) : 0;
-                const spb = numv(p.sqftPerBox);
-                const boxes = spb > 0 ? Math.ceil(adj / spb) : 0;
-                // What you actually order & charge for: full cartons when a box
-                // size is set, else the waste-adjusted area.
-                const ordered = boxes > 0 ? boxes * spb : r2(adj);
+                const takeoff = computeMaterialTakeoff({
+                  family,
+                  measuredSqft: coverSf,
+                  wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : defWasteForCat,
+                  cutsSqft: needRollCuts
+                    ? (cutsSqftByCategory[family] ?? 0)
+                    : null,
+                  sqftPerBox: !needRollCuts && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                  carpetSystems: family === "carpet" ? carpetSystems : null,
+                });
                 return (
                   <div className="space-y-2 rounded-md border border-dashed p-2.5">
                     <div className="flex flex-wrap items-end gap-3">
+                      {!isRoll ? (
                       <div>
                         <label className="mb-1 block text-xs text-muted-foreground">Waste factor</label>
                         <div className="flex items-center gap-1">
@@ -2538,34 +4559,190 @@ function QuestionBody({
                           <span className="text-sm text-muted-foreground">%</span>
                         </div>
                       </div>
-                      <div>
-                        <label className="mb-1 block text-xs text-muted-foreground">Sq ft per box</label>
-                        <Input
-                          value={p.sqftPerBox}
-                          onChange={(e) => setMain({ ...p, sqftPerBox: e.target.value })}
-                          inputMode="decimal"
-                          placeholder="e.g. 20"
-                          className="h-10 w-24 text-base"
-                        />
-                      </div>
+                      ) : null}
+                      {!isRoll ? (
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Sq ft per box</label>
+                          <Input
+                            value={p.sqftPerBox}
+                            onChange={(e) => setMain({ ...p, sqftPerBox: e.target.value })}
+                            inputMode="decimal"
+                            placeholder="from product, if known"
+                            className="h-10 w-28 text-base"
+                          />
+                        </div>
+                      ) : (
+                        <p className="pb-2 text-xs text-muted-foreground">
+                          Roll goods — carton coverage does not apply. Order quantity comes from cuts/layout.
+                        </p>
+                      )}
                     </div>
-                    {totalSqft > 0 ? (
-                      <p className="text-sm">
-                        Order{" "}
-                        <span className="font-semibold tabular-nums">{ordered}</span> sq ft
-                        <span className="text-muted-foreground"> (incl. {effWaste}% waste)</span>
-                        {boxes > 0 ? (
-                          <>
-                            {" "}·{" "}
-                            <span className="font-semibold tabular-nums text-primary">{boxes}</span>{" "}
-                            box{boxes === 1 ? "" : "es"}
-                          </>
+                    {coverSf > 0 ? (
+                      <div className="space-y-0.5 text-sm">
+                        <p>
+                          Measured{" "}
+                          <span className="font-semibold tabular-nums">{formatSqft(takeoff.measured.sqft)}</span>
+                          {b.wantYd ? (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              ({formatSqyd(takeoff.measured.sqydEquivalent)} equivalent area — not an order quantity)
+                            </span>
+                          ) : null}
+                        </p>
+                        {!isRoll ? (
+                        <p>
+                          Waste{" "}
+                          <span className="font-semibold tabular-nums">{takeoff.wastePct}%</span>
+                          {takeoff.wasteSqft > 0 ? (
+                            <span className="text-muted-foreground"> ({formatSqft(takeoff.wasteSqft)})</span>
+                          ) : null}
+                        </p>
                         ) : null}
+                        <p>
+                          {takeoff.orderBasis === "none" && isRoll ? (
+                            <>
+                              Order{" "}
+                              <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
+                                TBD — enter cuts (not sq ft ÷ 9)
+                              </span>
+                            </>
+                          ) : mainCartonTbd ? (
+                            <>
+                              Order{" "}
+                              <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
+                                TBD — carton coverage TBD (not How many boxes from leftover taped sq ft)
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                          Order{" "}
+                          <span className="font-semibold tabular-nums">
+                            {b.wantYd ? formatSqyd(takeoff.billingQty) : formatSqft(takeoff.orderSqft)}
+                          </span>
+                          {takeoff.cartons ? (
+                            <>
+                              {" "}
+                              ·{" "}
+                              <span className="font-semibold tabular-nums text-primary">
+                                {takeoff.cartons.cartonCount}
+                              </span>{" "}
+                              carton{takeoff.cartons.cartonCount === 1 ? "" : "s"} ({formatSqft(takeoff.cartons.orderedCoverageSqft)})
+                            </>
+                          ) : null}
+                          {takeoff.orderBasis === "measured_plus_waste_estimated" ? (
+                            <span className="ml-1 text-xs text-amber-700 dark:text-amber-300">
+                              estimate — not a cut plan
+                            </span>
+                          ) : null}
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    ) : mixedUnassigned ? (
+                      <p className="text-xs text-muted-foreground">
+                        Assign this product on the floor map. Mixed jobs do not clone whole-job sq ft onto every family.
                       </p>
+                    ) : null}
+                    {mainCartonTbd ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_LABEL}</label>
+                        <Input
+                          value={qty}
+                          onChange={(e) => setMainQty(e.target.value)}
+                          inputMode="decimal"
+                          placeholder={countUnitForTbd(p.unit).phrase}
+                          className="h-10 w-28"
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {countUnitForTbd(p.unit).phrase}
+                        </span>
+                        <p className="w-full text-xs text-muted-foreground">
+                          Missing carton coverage stays TBD — not How many boxes from leftover taped sq ft. Typed How many rides onto Review as that count.
+                        </p>
+                      </div>
                     ) : null}
                   </div>
                 );
               })()
+            ) : extraAsksCountQty({
+              family,
+              productUnit: p.unit,
+              carpetInstallSystems: carpetSystems,
+            }) ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_LABEL}</label>
+                <Input
+                  value={qty}
+                  onChange={(e) => setMainQty(e.target.value)}
+                  inputMode="decimal"
+                  placeholder={countUnitForTbd(p.unit).phrase}
+                  className="h-10 w-28"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {countUnitForTbd(p.unit).phrase}
+                </span>
+                {numv(qty) > 0 ? (
+                  <span className="w-full text-xs text-muted-foreground tabular-nums">
+                    {extraCountReviewLine({
+                      family,
+                      productUnit: p.unit,
+                      qty: numv(qty),
+                      label: p.label,
+                      carpetInstallSystems: carpetSystems,
+                    })}
+                  </span>
+                ) : null}
+                <p className="w-full text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_HINT}</p>
+              </div>
+            ) : !areaDerivedMaterialAllowed(family, p.unit, carpetSystems) &&
+              (q.key === "carpet_pad" ||
+                q.key === "hs_underlayment" ||
+                q.key === "adhesive" ||
+                cat === "underlayment") ? (
+              <p className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_TBD_HINT}</p>
+            ) : q.key === "carpet_pad" || q.key === "hs_underlayment" || cat === "underlayment" ? (
+              coverSf > 0 ? (() => {
+                const padTakeoff = computeMaterialTakeoff({
+                  family,
+                  measuredSqft: coverSf,
+                  wastePct: p.wastePct.trim() !== "" ? numv(p.wastePct) : 0,
+                  sqftPerBox: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+                  billingUnit: b.measureUnit,
+                  takeoffLabel: padFoamTakeoffLabel({ key: q.key, category: cat }),
+                });
+                // Exclusive carpet-tile Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                // Hard-surface Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                // Exclusive carpet-tile Guided Estimate pad takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                // Underlayment Guided Estimate pad takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+                const padTakeoffRolls = padRollCount("underlayment", padTakeoff.billingQty, padTakeoff.billingUnit);
+                return (
+                <p className="text-sm">
+                  {formatTakeoffStrip(padTakeoff)}
+                  {/* Exclusive carpet-tile Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                  {/* Hard-surface Guided Estimate pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                  {padTakeoff.cartons ? (
+                    <>
+                      {" · "}
+                      <span className="font-medium tabular-nums">
+                        = {padTakeoff.cartons.cartonCount} carton{padTakeoff.cartons.cartonCount === 1 ? "" : "s"}
+                      </span>
+                    </>
+                  ) : null}
+                  {padTakeoffRolls ? (
+                    <>
+                      {" · "}
+                      <span className="font-medium tabular-nums">
+                        = {padTakeoffRolls} roll{padTakeoffRolls === 1 ? "" : "s"}
+                      </span>
+                    </>
+                  ) : null}
+                </p>
+                );
+              })() : mixedUnassigned ? (
+                <p className="text-xs text-muted-foreground">
+                  Assign rooms on the floor map. Mixed jobs do not clone whole-job sq ft onto pad or foam.
+                </p>
+              ) : null
             ) : null}
           </>
         ) : null}
@@ -2576,7 +4753,13 @@ function QuestionBody({
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Additional {kindLabel} for a specific area
             </div>
-            {extras.map((ex) => (
+            <p className="text-xs text-muted-foreground">{EXTRA_AREA_MEASURED_HINT}</p>
+            {extras.map((ex) => {
+              const extraFam = familyFromCatalogCategory(ex.product?.category || cat);
+              const extraNeedsMeasured =
+                !ex.product ||
+                areaDerivedMaterialAllowed(extraFam, ex.product.unit, carpetSystems);
+              return (
               <div key={ex.id} className="space-y-2 rounded-md border bg-muted/20 p-2">
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
@@ -2585,29 +4768,118 @@ function QuestionBody({
                       initialLabel={ex.product?.label ?? ""}
                       label={`Product (${cat})`}
                       defaultCategory={cat}
-                      onPick={(prod) => patchExtra(ex.id, { product: prod ? toProductAns(prod) : null })}
-                      onCreated={(prod) => patchExtra(ex.id, { product: toProductAns(prod) })}
-                      onUseOnce={(input) => patchExtra(ex.id, { product: customToProductAns(input) })}
+                      onPick={(prod) =>
+                        setExtraProduct(ex.id, prod ? toProductAns(prod) : null, ex)
+                      }
+                      onCreated={(prod) => setExtraProduct(ex.id, toProductAns(prod), ex)}
+                      onUseOnce={(input) =>
+                        setExtraProduct(ex.id, customToProductAns(input), ex)
+                      }
                     />
                   </div>
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove" onClick={() => setExtras(extras.filter((x) => x.id !== ex.id))}>
                     <Trash2 className="size-4 text-destructive" />
                   </Button>
                 </div>
+                {extraNeedsMeasured ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className="text-xs text-muted-foreground">Area</label>
-                  <Input value={ex.sqft} onChange={(e) => patchExtra(ex.id, { sqft: e.target.value })} inputMode="decimal" placeholder="sq ft" className="h-10 w-28" />
-                  {ex.product && numv(ex.sqft) > 0 ? (
+                  <label className="text-xs text-muted-foreground">{EXTRA_AREA_MEASURED_LABEL}</label>
+                  <Input value={ex.sqft} onChange={(e) => patchExtra(ex.id, { sqft: e.target.value })} inputMode="decimal" placeholder={EXTRA_AREA_MEASURED_PLACEHOLDER} className="h-10 w-28" />
+                  {ex.product && numv(ex.sqft) > 0 ? (() => {
+                    const extraTakeoff = computeMaterialTakeoff({
+                      family: familyFromCatalogCategory(ex.product.category || cat),
+                      measuredSqft: numv(ex.sqft),
+                      wastePct: ex.product.wastePct.trim() !== "" ? numv(ex.product.wastePct) : 0,
+                      sqftPerBox: numv(ex.product.sqftPerBox) > 0 ? numv(ex.product.sqftPerBox) : null,
+                      billingUnit: billing({
+                        category: cat,
+                        key: q.key,
+                        productUnit: ex.product.unit,
+                      }).measureUnit,
+                      takeoffLabel: padFoamTakeoffLabel({
+                        key: q.key,
+                        category: ex.product.category || cat,
+                      }),
+                    });
+                    // Exclusive carpet-tile Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    // Hard-surface Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+                    // Exclusive carpet-tile Guided Estimate extra takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+                    // Underlayment Guided Estimate extra takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll.
+                    const extraPadRolls = padRollCount(extraTakeoff.takeoffLabel ? "underlayment" : catalogCategoryForFamily(extraTakeoff.family), extraTakeoff.billingQty, extraTakeoff.billingUnit);
+                    return (
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      = {r2(b.wantYd ? numv(ex.sqft) / 9 : numv(ex.sqft))} {b.unitLabel}
+                      {formatTakeoffStrip(extraTakeoff)}
+                      {/* Exclusive carpet-tile Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                      {/* Hard-surface Guided Estimate extra takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                      {extraTakeoff.cartons ? (
+                        <>
+                          {" · "}
+                          <span className="font-medium tabular-nums">
+                            = {extraTakeoff.cartons.cartonCount} carton{extraTakeoff.cartons.cartonCount === 1 ? "" : "s"}
+                          </span>
+                        </>
+                      ) : null}
+                      {/* Exclusive carpet-tile Guided Estimate extra takeoff order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                      {/* Underlayment Guided Estimate extra takeoff order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
+                      {extraPadRolls ? (
+                        <>
+                          {" · "}
+                          <span className="font-medium tabular-nums">
+                            = {extraPadRolls} roll{extraPadRolls === 1 ? "" : "s"}
+                          </span>
+                        </>
+                      ) : null}
                     </span>
-                  ) : null}
+                    );
+                  })() : null}
                   {ex.product && q.config.ask_source ? (
-                    <SourceToggle p={ex.product} compact onChange={(np) => patchExtra(ex.id, { product: np })} />
+                    <SourceToggle p={ex.product} compact onChange={(np) => setExtraProduct(ex.id, np, ex)} />
                   ) : null}
                 </div>
+                ) : extraAsksCountQty({
+                  family: extraFam,
+                  productUnit: ex.product?.unit,
+                  carpetInstallSystems: carpetSystems,
+                }) ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_LABEL}</label>
+                    <Input
+                      value={ex.qty ?? ""}
+                      onChange={(e) => patchExtra(ex.id, { qty: e.target.value })}
+                      inputMode="decimal"
+                      placeholder={countUnitForTbd(ex.product?.unit).phrase}
+                      className="h-10 w-28"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      {countUnitForTbd(ex.product?.unit).phrase}
+                    </span>
+                    {numv(ex.qty ?? "") > 0 ? (
+                      <span className="w-full text-xs text-muted-foreground tabular-nums">
+                        {extraCountReviewLine({
+                          family: extraFam,
+                          productUnit: ex.product?.unit,
+                          qty: numv(ex.qty ?? ""),
+                          label: ex.product?.label,
+                          carpetInstallSystems: carpetSystems,
+                        })}
+                      </span>
+                    ) : null}
+                    <p className="w-full text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_HINT}</p>
+                    {ex.product && q.config.ask_source ? (
+                      <SourceToggle p={ex.product} compact onChange={(np) => setExtraProduct(ex.id, np, ex)} />
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_TBD_HINT}</p>
+                    {ex.product && q.config.ask_source ? (
+                      <SourceToggle p={ex.product} compact onChange={(np) => setExtraProduct(ex.id, np, ex)} />
+                    ) : null}
+                  </div>
+                )}
               </div>
-            ))}
+              );
+            })}
             <Button type="button" variant="outline" size="sm" onClick={() => setExtras([...extras, newExtra()])}>
               <Plus className="size-4" /> Add {kindLabel}
             </Button>
@@ -2633,15 +4905,7 @@ function QuestionBody({
 
   if (q.kind === "number" && answer?.kind === "number") {
     const opts = q.config.rate_options ?? [];
-    const emitUnit = q.config.emit?.unit;
-    const amountUnit =
-      emitUnit === "sqft"
-        ? "sq ft"
-        : emitUnit === "sqyd"
-          ? "sq yd"
-          : emitUnit === "lnft"
-            ? "ln ft"
-            : emitUnit || "";
+    const amountUnit = amountUnitLabelForQuestion(q);
     return (
       <div className="space-y-3">
         <label className="block text-xs text-muted-foreground">
@@ -2712,23 +4976,54 @@ function QuestionBody({
     );
   }
 
-  if (q.kind === "choice" && !q.config.per_area && answer?.kind === "choice") {
-    const opts = q.config.options ?? [];
-    const multi = q.config.multi;
+  if (q.kind === "choice" && !q.config.per_area) {
+    const answerChoice: Extract<Answer, { kind: "choice" }> | null =
+      answer?.kind === "choice"
+        ? answer
+        : answer?.kind === "yesno"
+          ? { kind: "choice", selected: [answer.yes ? "Yes" : "No"] }
+          : null;
+    if (!answerChoice) return null;
+    const configured = q.config.options ?? [];
+    const knowledgeOpts =
+      q.key === "install_method"
+        ? hardSurfaceInstallMethodOptions(flooringCtx.families, flooringCtx.hardwoodConstruction)
+        : [];
+    const configuredOpts =
+      q.key === "install_method" && knowledgeOpts.length
+        ? (() => {
+            const labels = new Set(knowledgeOpts.map((o) => o.label));
+            // Keep a selected-but-not-permitted option visible so old drafts don't vanish.
+            const extra = configured.filter(
+              (o) => answerChoice.selected.includes(o.label) && !labels.has(o.label),
+            );
+            const merged = knowledgeOpts.map((o) => configured.find((c) => c.label === o.label) ?? { label: o.label });
+            return [...merged, ...extra];
+          })()
+        : configured;
+    const opts = configuredOpts.filter((o) => choiceOptionApplies(q, o.label, flooringCtx));
+    const mixedHsInstall =
+      q.key === "install_method" && jobNeedsMixedInstallMethodPicks(flooringCtx.families);
+    const multi = q.key === "install_method" ? mixedHsInstall : q.config.multi;
+    const soleInstall =
+      q.key === "install_method" && opts.length === 1 ? opts[0].label : null;
+    const selected =
+      soleInstall && !answerChoice.selected.length ? [soleInstall] : answerChoice.selected;
     const toggle = (label: string) => {
-      const on = answer.selected.includes(label);
+      const on = selected.includes(label);
+      if (soleInstall && on) return; // laminate / tile / sheet vinyl have one legal method
       const next = multi
-        ? (on ? answer.selected.filter((x) => x !== label) : [...answer.selected, label])
+        ? (on ? selected.filter((x) => x !== label) : [...selected, label])
         : (on ? [] : [label]);
-      set({ kind: "choice", selected: next, note: answer.note });
+      set({ kind: "choice", selected: next, note: answerChoice.note });
     };
     return (
       <div className="space-y-3">
         <div className="flex flex-wrap gap-2">
           {opts.map((o) => (
             <button key={o.label} type="button" onClick={() => toggle(o.label)}
-              className={cn("rounded-lg border px-4 py-2.5 text-base font-medium", answer.selected.includes(o.label) ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
-              {answer.selected.includes(o.label) ? <Check className="mr-1 inline size-4" /> : null}
+              className={cn("rounded-lg border px-4 py-2.5 text-base font-medium", selected.includes(o.label) ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
+              {selected.includes(o.label) ? <Check className="mr-1 inline size-4" /> : null}
               {o.label}
             </button>
           ))}
@@ -2740,8 +5035,8 @@ function QuestionBody({
               Instructions / details (optional)
             </label>
             <textarea
-              value={answer.note ?? ""}
-              onChange={(e) => set({ kind: "choice", selected: answer.selected, note: e.target.value })}
+              value={answerChoice.note ?? ""}
+              onChange={(e) => set({ kind: "choice", selected: answerChoice.selected, note: e.target.value })}
               rows={3}
               placeholder="Describe what's needed — areas, materials, how much, anything the crew should know…"
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -2773,7 +5068,6 @@ function QuestionBody({
     const mutate = (fn: (a: CutsA) => CutsA) =>
       update((prev) => (prev && prev.kind === "cuts" ? fn(prev) : answer));
     const setSame = (v: boolean) => mutate((a) => ({ ...a, same: v }));
-    const setShared = (p: ProductAns | null) => mutate((a) => ({ ...a, product: p }));
     const patchGroup = (gid: string, p: Partial<CarpetGroup>) =>
       mutate((a) => ({ ...a, groups: a.groups.map((g) => (g.id === gid ? { ...g, ...p } : g)) }));
     const patchCut = (gid: string, cid: string, p: Partial<CutRow>) =>
@@ -2783,15 +5077,57 @@ function QuestionBody({
           g.id === gid ? { ...g, cuts: g.cuts.map((c) => (c.id === cid ? { ...c, ...p } : c)) } : g,
         ),
       }));
-    const addGroup = () => mutate((a) => ({ ...a, groups: [...a.groups, newCarpetGroup()] }));
+    const addGroup = () =>
+      mutate((a) => {
+        const w = defaultWidthFor(a.same !== false ? a.product : null);
+        return { ...a, groups: [...a.groups, { ...newCarpetGroup(), cuts: [newCutRow(w)] }] };
+      });
     const removeGroup = (gid: string) => mutate((a) => ({ ...a, groups: a.groups.filter((g) => g.id !== gid) }));
-    const addCut = (gid: string) =>
-      mutate((a) => ({
-        ...a,
-        groups: a.groups.map((g) =>
-          g.id === gid ? { ...g, cuts: [...g.cuts, newCutRow(g.cuts[g.cuts.length - 1]?.width || "12")] } : g,
+    const rollNoun = q.config.category === "vinyl" ? "sheet vinyl" : "carpet";
+    const rollNounCap = q.config.category === "vinyl" ? "Sheet vinyl" : "Carpet";
+    const rollFamily = q.config.category === "vinyl" ? "vinyl" : "carpet";
+    const carpetSystems = carpetInstallSystemsFromLabels(flooringCtx.answeredCarpetInstall);
+    const modularTile = rollFamily === "carpet" && !rollGoodsNeedCuts("carpet", carpetSystems);
+    const productForWidth = (a: CutsA, g: CarpetGroup): ProductAns | null =>
+      a.same !== false ? a.product : g.product;
+    const widthFromProduct = (p: ProductAns | null): number | null =>
+      p?.rollWidthFt && p.rollWidthFt > 0 ? p.rollWidthFt : null;
+    const defaultWidthFor = (p: ProductAns | null) => {
+      const w = defaultCutWidthFt({
+        family: rollFamily,
+        productWidthFt: widthFromProduct(p),
+        configWidths: q.config.widths ?? null,
+      });
+      return w > 0 ? String(w) : "";
+    };
+    const widthChoices = (p: ProductAns | null) =>
+      cutWidthChoicesFt({
+        family: rollFamily,
+        productWidthFt: widthFromProduct(p),
+        configWidths: q.config.widths ?? null,
+      });
+    const applyProductWidth = (groups: CarpetGroup[], p: ProductAns | null, prevWidth: string) => {
+      const next = defaultWidthFor(p);
+      return groups.map((g) => ({
+        ...g,
+        cuts: g.cuts.map((c) =>
+          !c.width || c.width === prevWidth || c.width === defaultWidthFor(null)
+            ? { ...c, width: next }
+            : c,
         ),
       }));
+    };
+    const addCut = (gid: string) =>
+      mutate((a) => {
+        const g = a.groups.find((x) => x.id === gid);
+        const w = g?.cuts[g.cuts.length - 1]?.width || defaultWidthFor(productForWidth(a, g ?? newCarpetGroup()));
+        return {
+          ...a,
+          groups: a.groups.map((gg) =>
+            gg.id === gid ? { ...gg, cuts: [...gg.cuts, newCutRow(w)] } : gg,
+          ),
+        };
+      });
     const removeCut = (gid: string, cid: string) =>
       mutate((a) => ({
         ...a,
@@ -2800,33 +5136,165 @@ function QuestionBody({
     const yardOf = (g: CarpetGroup) =>
       carpetYardageFromCuts(g.cuts.map((c) => ({ lengthFt: numv(c.lf), lengthIn: numv(c.li), rollWidthFt: numv(c.width) })));
     const grandY = groups.reduce((s, g) => s + yardOf(g).sqyd, 0);
+    const grandOrder = questionnaireCutsGrandOrderLabel(grandY, rollNounCap);
     const SegBtn = ({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) => (
       <button type="button" onClick={onClick}
         className={cn("rounded px-3 py-1.5 text-sm font-medium", on ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
         {label}
       </button>
     );
+    if (modularTile) {
+      const p = answer.product;
+      const defWaste = profileFor("carpet")?.waste ?? 0;
+      const takeoff = computeMaterialTakeoff({
+        family: "carpet",
+        measuredSqft: coverSf,
+        wastePct: p && p.wastePct.trim() !== "" ? numv(p.wastePct) : defWaste,
+        sqftPerBox: p && numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+        carpetSystems,
+      });
+      const cartonTbd = p
+        ? boxedCartonCoverageTbdDescription({
+            family: "carpet",
+            productUnit: p.unit,
+            sqftPerBox: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+            label: p.label,
+            carpetInstallSystems: carpetSystems,
+          })
+        : null;
+      // Exclusive carpet-tile Guided Estimate tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+      // Hard-surface Guided Estimate tile takeoff order carton count stays off this modular strip. Wrap / count How many stays off carton math. Do not invent coverage.
+      const geCartons = p
+        ? hardSurfaceAreaCartonCount(
+            {
+              description: p.label,
+              category: "carpet",
+              unit: "sq yd",
+              sqft_per_box: numv(p.sqftPerBox) > 0 ? numv(p.sqftPerBox) : null,
+              order_as_roll: false,
+              quantity: coverSf / 9,
+            },
+            lineOrderQty({
+              line_type: "mat_labor",
+              description: p.label,
+              category: "carpet",
+              unit: "sq yd",
+              quantity: coverSf / 9,
+              waste_pct: p.wastePct.trim() !== "" ? numv(p.wastePct) : 0,
+            }),
+          )
+        : 0;
+      const setProduct = (product: ProductAns | null) => mutate((a) => ({ ...a, product, same: true }));
+      return (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Carpet tile is modular — pick the product. Order is measured area plus waste.
+            Carton count only if coverage is on the product. This is not a roll cut plan.
+          </p>
+          <ProductPicker
+            value={p?.productId ?? ""}
+            initialLabel={p?.label ?? ""}
+            label="Which carpet tile?"
+            defaultCategory="carpet"
+            fullWidth
+            onPick={(prod) => setProduct(prod ? toProductAns(prod) : null)}
+            onCreated={(prod) => setProduct(toProductAns(prod))}
+            onUseOnce={(input) => setProduct(customToProductAns(input))}
+          />
+          {p ? (
+            <div className="space-y-2 rounded-md border border-dashed p-2.5">
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Waste factor</label>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      value={p.wastePct}
+                      onChange={(e) => setProduct({ ...p, wastePct: e.target.value })}
+                      inputMode="decimal"
+                      placeholder={String(defWaste)}
+                      className="h-10 w-20 text-base"
+                    />
+                    <span className="text-sm text-muted-foreground">%</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">Sq ft per box</label>
+                  <Input
+                    value={p.sqftPerBox}
+                    onChange={(e) => setProduct({ ...p, sqftPerBox: e.target.value })}
+                    inputMode="decimal"
+                    placeholder="if known — do not invent"
+                    className="h-10 w-28 text-base"
+                  />
+                </div>
+              </div>
+              {coverSf > 0 ? (
+                <>
+                  <p className="text-sm">
+                    {cartonTbd
+                      ? "Order TBD — carton coverage TBD (not How many boxes from leftover taped sq ft). Do not invent a box size."
+                      : formatTakeoffStrip(takeoff)}
+                  </p>
+                  {/* Exclusive carpet-tile Guided Estimate tile takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+                  {/* Hard-surface Guided Estimate tile takeoff order carton count stays off this modular strip. Wrap / count How many stays off carton math. Do not invent coverage. */}
+                  {!cartonTbd && geCartons ? (
+                    <span className="text-sm font-medium text-foreground">
+                      = {geCartons} carton{geCartons === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
+                </>
+              ) : mixedUnassigned ? (
+                <p className="text-xs text-muted-foreground">
+                  Assign carpet rooms on the floor map. Mixed jobs do not clone whole-job sq ft onto carpet tile.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">Enter rooms first — this is measured area, then order.</p>
+              )}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
     return (
       <div className="space-y-3">
         {/* Same carpet everywhere vs a different carpet per area. */}
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">Carpet</span>
+          <span className="text-sm font-medium">{rollNounCap}</span>
           <div className="inline-flex rounded-md border p-0.5">
             <SegBtn on={same} onClick={() => setSame(true)} label="Same for all cuts" />
             <SegBtn on={!same} onClick={() => setSame(false)} label="Different per area" />
           </div>
         </div>
 
-        {/* Same mode: pick the carpet once — it applies to every cut below. */}
+        {/* Same mode: pick the product once — it applies to every cut below. */}
         {same ? (
           <ProductPicker
             value={answer.product?.productId ?? ""}
             initialLabel={answer.product?.label ?? ""}
-            label="Which carpet? (used for every cut)"
+            label={`Which ${rollNoun}? (used for every cut)`}
+            defaultCategory={q.config.category === "vinyl" ? "vinyl" : "carpet"}
             fullWidth
-            onPick={(prod) => setShared(prod ? toProductAns(prod) : null)}
-            onCreated={(prod) => setShared(toProductAns(prod))}
-            onUseOnce={(input) => setShared(customToProductAns(input))}
+            onPick={(prod) =>
+              mutate((a) => {
+                const p = prod ? toProductAns(prod) : null;
+                const prev = defaultWidthFor(a.product);
+                return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
+              })
+            }
+            onCreated={(prod) =>
+              mutate((a) => {
+                const p = toProductAns(prod);
+                const prev = defaultWidthFor(a.product);
+                return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
+              })
+            }
+            onUseOnce={(input) =>
+              mutate((a) => {
+                const p = customToProductAns(input);
+                const prev = defaultWidthFor(a.product);
+                return { ...a, product: p, groups: applyProductWidth(a.groups, p, prev) };
+              })
+            }
           />
         ) : null}
 
@@ -2836,7 +5304,7 @@ function QuestionBody({
             <div key={g.id} className="space-y-2.5 rounded-lg border bg-muted/20 p-3">
               <div className="flex items-center gap-2">
                 <Input value={g.area} onChange={(e) => patchGroup(g.id, { area: e.target.value })}
-                  placeholder={!same && groups.length > 1 ? `Carpet ${gi + 1} — area / room` : "Area / room (optional)"}
+                  placeholder={!same && groups.length > 1 ? `${rollNounCap} ${gi + 1} — area / room` : "Area / room (optional)"}
                   className="h-10 flex-1" />
                 {groups.length > 1 ? (
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove area" onClick={() => removeGroup(g.id)}>
@@ -2845,10 +5313,49 @@ function QuestionBody({
                 ) : null}
               </div>
               {!same ? (
-                <ProductPicker value={g.product?.productId ?? ""} initialLabel={g.product?.label ?? ""} label="Which carpet?" fullWidth
-                  onPick={(prod) => patchGroup(g.id, { product: prod ? toProductAns(prod) : null })}
-                  onCreated={(prod) => patchGroup(g.id, { product: toProductAns(prod) })}
-                  onUseOnce={(input) => patchGroup(g.id, { product: customToProductAns(input) })} />
+                <ProductPicker value={g.product?.productId ?? ""} initialLabel={g.product?.label ?? ""} label={`Which ${rollNoun}?`} defaultCategory={q.config.category === "vinyl" ? "vinyl" : "carpet"} fullWidth
+                  onPick={(prod) => {
+                    const p = prod ? toProductAns(prod) : null;
+                    mutate((a) => {
+                      const prev = defaultWidthFor(g.product);
+                      return {
+                        ...a,
+                        groups: a.groups.map((gg) =>
+                          gg.id === g.id
+                            ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
+                            : gg,
+                        ),
+                      };
+                    });
+                  }}
+                  onCreated={(prod) => {
+                    const p = toProductAns(prod);
+                    mutate((a) => {
+                      const prev = defaultWidthFor(g.product);
+                      return {
+                        ...a,
+                        groups: a.groups.map((gg) =>
+                          gg.id === g.id
+                            ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
+                            : gg,
+                        ),
+                      };
+                    });
+                  }}
+                  onUseOnce={(input) => {
+                    const p = customToProductAns(input);
+                    mutate((a) => {
+                      const prev = defaultWidthFor(g.product);
+                      return {
+                        ...a,
+                        groups: a.groups.map((gg) =>
+                          gg.id === g.id
+                            ? { ...gg, product: p, cuts: applyProductWidth([gg], p, prev)[0]!.cuts }
+                            : gg,
+                        ),
+                      };
+                    });
+                  }} />
               ) : null}
               <div className="space-y-1.5">
                 {g.cuts.map((c, ci) => (
@@ -2859,8 +5366,28 @@ function QuestionBody({
                     <div>
                       {ci === 0 ? <label className="mb-1 block text-xs text-muted-foreground">Width (ft)</label> : null}
                       <Input value={c.width} onChange={(e) => patchCut(g.id, c.id, { width: e.target.value })}
-                        inputMode="decimal" placeholder="12"
+                        inputMode="decimal" placeholder="Width TBD"
                         className="h-11 w-20 text-base md:h-10 md:w-16" />
+                    </div>
+                    <div className="flex flex-wrap gap-1 pb-2">
+                      {widthChoices(productForWidth(answer, g)).map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => patchCut(g.id, c.id, { width: String(w) })}
+                          className={cn(
+                            "rounded-full border px-2 py-1 text-[11px] font-medium",
+                            numv(c.width) === w
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:border-primary",
+                          )}
+                        >
+                          {w}&apos;
+                        </button>
+                      ))}
+                      {ci === 0 && widthFromProduct(productForWidth(answer, g)) ? (
+                        <span className="self-center text-[11px] text-muted-foreground">catalog roll</span>
+                      ) : null}
                     </div>
                     {g.cuts.length > 1 ? (
                       <Button type="button" variant="ghost" size="icon-sm" aria-label="Remove cut" onClick={() => removeCut(g.id, c.id)}>
@@ -2873,17 +5400,21 @@ function QuestionBody({
                   className="text-xs font-medium text-primary hover:underline">+ Add cut</button>
               </div>
               <div className="text-sm">
-                {same ? "This area" : "This carpet"}: <span className="font-semibold tabular-nums">{y.sqyd}</span> sq yd
-                {!same && !g.product ? <span className="text-muted-foreground"> — pick the carpet to price it</span> : null}
+                {same ? "This area" : `This ${rollNoun}`}:{" "}
+                <span className="font-semibold tabular-nums">{questionnaireCutGroupOrderLabel(y.sqyd)}</span>
+                {!same && !g.product ? <span className="text-muted-foreground"> — pick the {rollNoun} to price it</span> : null}
               </div>
             </div>
           );
         })}
         <Button type="button" variant="outline" size="sm" onClick={addGroup}>
-          <Plus className="size-3.5" /> {same ? "Add another area" : "Different carpet / area"}
+          <Plus className="size-3.5" /> {same ? "Add another area" : `Different ${rollNoun} / area`}
         </Button>
         <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold">
-          Total carpet to order: <span className="tabular-nums">{r2(grandY)}</span> sq yd
+          {grandOrder.title}
+          <span className="ml-1 font-normal text-muted-foreground">
+            ({grandOrder.note})
+          </span>
         </div>
       </div>
     );
@@ -2901,6 +5432,7 @@ function QuestionBody({
           const opt = opts.find((o) => o.label === g.type);
           const n = Math.ceil(numv(g.count));
           const sc = stairsCarpet(n, g.type, opt?.carpet_sqft ?? null);
+          const shopAllowance = Number(opt?.carpet_sqft) > 0;
           return (
             <div key={g.id} className="space-y-2 rounded-lg border bg-muted/20 p-3">
               <div className="flex flex-wrap items-end gap-2">
@@ -2923,13 +5455,17 @@ function QuestionBody({
               </div>
               {n > 0 ? (
                 <div className="text-sm text-muted-foreground">
-                  {/* Shown so you can check your cuts cover the stairs — it is
-                      NOT added to the estimate. The stair carpet comes out of
-                      the roll you measured on the cuts screen; charging it here
-                      as well billed the material twice. */}
-                  Needs ≈{" "}
-                  <span className="font-medium text-foreground tabular-nums">{sc.sqyd} sq yd</span>{" "}
-                  of carpet — include it in your cuts
+                  {shopAllowance && sc.sqyd > 0 ? (
+                    <>
+                      Shop stair allowance{" "}
+                      <span className="font-medium text-foreground tabular-nums">{sc.sqyd} sq yd</span>
+                      {" "}equivalent ({n} × {opt?.carpet_sqft} sq ft) — include it in your cuts. This is not an order.
+                    </>
+                  ) : (
+                    <>
+                      Include these {n} step{n === 1 ? "" : "s"} in your cut list. We do not invent yardage from step count.
+                    </>
+                  )}
                   {opt?.cost ? <> · labor <span className="tabular-nums">{formatMoney(sellLab(opt.cost) * n)}</span></> : null}
                 </div>
               ) : null}
@@ -2947,11 +5483,22 @@ function QuestionBody({
     const a = answer;
     const upd = (p: Partial<Extract<Answer, { kind: "hs_stairs" }>>) => set({ ...a, ...p });
     const steps = Math.max(0, Math.floor(numv(a.steps)));
-    const sfPerStep = a.treadRiser ? STAIR_SQFT_TREAD_RISER : STAIR_SQFT_TREAD_ONLY;
-    const area = steps * sfPerStep;
-    const lr = numv(a.laborRate) || DEFAULT_STAIR_LABOR_PER_SQFT;
+    const scopeLabel = a.treadRiser ? "tread + riser" : "tread only";
+    const lr = numv(a.laborRate) || (Number(q.config.labor_per_step) > 0 ? Number(q.config.labor_per_step) : 0);
     const p = a.product;
-    const matRate = p ? sellMat(rateFor(p.materialRate, p.unit, false)) : 0;
+    const wrapFam = familyFromCatalogCategory(p?.category);
+    const wrapAsksCount = extraAsksCountQty({ family: wrapFam, productUnit: p?.unit });
+    const setWrapProduct = (prod: ProductAns | null) => {
+      const keep = extraAsksCountQty({
+        family: familyFromCatalogCategory(prod?.category),
+        productUnit: prod?.unit,
+      });
+      upd({ product: prod, qty: keep ? a.qty : "" });
+    };
+    const hsWrapCat = (() => {
+      const hs = flooringCtx.families.filter(isHardSurfaceFamily);
+      return hs.length === 1 ? catalogCategoryForFamily(hs[0]) : undefined;
+    })();
     return (
       <div className="space-y-3">
         <div className="flex flex-wrap items-end gap-3">
@@ -2964,40 +5511,72 @@ function QuestionBody({
             <div className="inline-flex overflow-hidden rounded-md border">
               <button type="button" onClick={() => upd({ treadRiser: true })}
                 className={cn("px-3 py-2 text-sm font-medium", a.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
-                Tread + riser <span className="opacity-70">({STAIR_SQFT_TREAD_RISER} sf)</span>
+                Tread + riser
               </button>
               <button type="button" onClick={() => upd({ treadRiser: false })}
                 className={cn("px-3 py-2 text-sm font-medium", !a.treadRiser ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>
-                Tread only <span className="opacity-70">({STAIR_SQFT_TREAD_ONLY} sf)</span>
+                Tread only
               </button>
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Stair labor $ / sq ft</label>
-            <Input value={a.laborRate} onChange={(e) => upd({ laborRate: e.target.value })} inputMode="decimal" placeholder={String(DEFAULT_STAIR_LABOR_PER_SQFT)} className="h-11 w-24 text-base md:h-10" />
+            <label className="mb-1 block text-xs text-muted-foreground">Stair labor $ / step</label>
+            <Input value={a.laborRate} onChange={(e) => upd({ laborRate: e.target.value })} inputMode="decimal" placeholder="TBD" className="h-11 w-24 text-base md:h-10" />
           </div>
         </div>
         <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Flooring that wraps the stairs (optional)</label>
+          <label className="mb-1 block text-xs text-muted-foreground">Wrap product (optional — qty is not automatic)</label>
           <ProductPicker
             value={p?.productId ?? ""}
             initialLabel={p?.label ?? ""}
             label=""
-            defaultCategory="lvp"
-            onPick={(prod) => upd({ product: prod ? toProductAns(prod) : null })}
-            onCreated={(prod) => upd({ product: toProductAns(prod) })}
-            onUseOnce={(input) => upd({ product: customToProductAns(input) })}
+            defaultCategory={hsWrapCat}
+            onPick={(prod) => setWrapProduct(prod ? toProductAns(prod) : null)}
+            onCreated={(prod) => setWrapProduct(toProductAns(prod))}
+            onUseOnce={(input) => setWrapProduct(customToProductAns(input))}
           />
         </div>
+        {wrapAsksCount ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_LABEL}</label>
+            <Input
+              value={a.qty ?? ""}
+              onChange={(e) => upd({ qty: e.target.value })}
+              inputMode="decimal"
+              placeholder={countUnitForTbd(p?.unit).phrase}
+              className="h-10 w-28"
+            />
+            <span className="text-xs text-muted-foreground">{countUnitForTbd(p?.unit).phrase}</span>
+            {numv(a.qty ?? "") > 0 ? (
+              <span className="w-full text-xs text-muted-foreground tabular-nums">
+                {extraCountReviewLine({
+                  family: wrapFam,
+                  productUnit: p?.unit,
+                  qty: numv(a.qty ?? ""),
+                  label: p?.label,
+                })}
+              </span>
+            ) : null}
+            <p className="w-full text-xs text-muted-foreground">{EXTRA_AREA_COUNT_QTY_HINT}</p>
+          </div>
+        ) : null}
         {steps > 0 ? (
           <div className="rounded-md border border-dashed p-2.5 text-sm">
-            <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"} ×{" "}
-            {sfPerStep} sf = <span className="font-semibold tabular-nums text-primary">{area} sq ft</span>
-            {p ? <> · material <span className="tabular-nums">{formatMoney(matRate * area)}</span></> : null}
-            {" "}· labor <span className="tabular-nums">{formatMoney(sellLab(lr) * area)}</span>
+            <span className="font-semibold tabular-nums">{steps}</span> step{steps === 1 ? "" : "s"} · {scopeLabel}
+            {" · "}noses / treads / risers fill on Trims in EACH
+            {p && wrapAsksCount && numv(a.qty ?? "") > 0 ? (
+              <> · {extraCountReviewLine({ family: wrapFam, productUnit: p.unit, qty: numv(a.qty ?? ""), label: p.label })}</>
+            ) : p ? (
+              <> · {p.label} wrap qty TBD (not an automatic sq ft/step order)</>
+            ) : null}
+            {lr > 0 ? (
+              <> · labor <span className="tabular-nums">{formatMoney(sellLab(lr) * steps)}</span> ({steps} × {formatMoney(sellLab(lr))}/step)</>
+            ) : (
+              <> · labor rate TBD — not invented from 8 sq ft/step</>
+            )}
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">Enter the number of steps (0 = no stairs).</p>
+          <p className="text-xs text-muted-foreground">Enter the number of steps (0 = no stairs). Wrap coverage is not 8 sq ft/step.</p>
         )}
       </div>
     );
@@ -3006,9 +5585,15 @@ function QuestionBody({
   // SUBFLOOR → sheets per room.
   if (q.kind === "subfloor" && answer?.kind === "subfloor") {
     const opts = q.config.options ?? [];
-    const sheetSqft = q.config.sheet_sqft ?? 32;
-    const rooms = floorRooms.length ? floorRooms : [{ name: "", sqft: totalSqft, lenIn: null, widIn: null }];
-    const totalSheets = rooms.reduce((s, r) => s + subfloorSheets(r.sqft, sheetSqft), 0);
+    const sheetSqft = resolvedSheetSqft(q.config.sheet_sqft);
+    const rooms = prepRooms.length
+      ? prepRooms
+      : coverSf > 0
+        ? [{ name: "", sqft: coverSf, lenIn: null, widIn: null }]
+        : [];
+    const totalSheets = sheetSqft != null
+      ? rooms.reduce((s, r) => s + subfloorSheets(r.sqft, sheetSqft), 0)
+      : 0;
     return (
       <div className="space-y-3">
         <div>
@@ -3022,7 +5607,12 @@ function QuestionBody({
             ))}
           </div>
         </div>
-        {totalSqft > 0 ? (
+        {sheetSqft == null ? (
+          <p className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
+            Sheet coverage is not in Settings. We do not invent a 4×8 (32 sq ft). Confirm after demo or enter coverage in Settings.
+          </p>
+        ) : coverSf > 0 ? (
+          prepQuantitiesAreFinal(flooringCtx.prepConfidence) ? (
           <div className="space-y-1 rounded-lg border bg-muted/20 p-3 text-sm">
             {rooms.map((r, i) => (
               <div key={i} className="flex justify-between gap-3">
@@ -3031,10 +5621,19 @@ function QuestionBody({
               </div>
             ))}
             <div className="flex justify-between gap-3 border-t pt-1 font-semibold">
-              <span>Total ({sheetSqft} sq ft / sheet, rounded up)</span>
+              <span>Total ({sheetSqft} sq ft / sheet, rounded up){prepQuantitySuffix(flooringCtx.prepConfidence)}</span>
               <span className="tabular-nums">{totalSheets} sheets</span>
             </div>
           </div>
+          ) : (
+            <p className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
+              Prep is Field verify / TBD — sheet count is not added to the estimate. Confirm after demo.
+            </p>
+          )
+        ) : mixedUnassigned ? (
+          <p className="text-sm text-muted-foreground">
+            Assign hard-surface rooms on the floor map. Mixed jobs do not order subfloor for the carpet.
+          </p>
         ) : (
           <p className="text-sm text-muted-foreground">Add areas first — sheets are figured from each room&apos;s sq ft.</p>
         )}
@@ -3046,13 +5645,13 @@ function QuestionBody({
   if (q.kind === "selflevel" && answer?.kind === "selflevel") {
     const cov = q.config.coverage_sqft ?? 0;
     const covT = q.config.coverage_thickness_in ?? 0;
-    const pour = numv(answer.thickness) || (q.config.default_thickness_in ?? 0.25);
+    const pour = selfLevelPourThicknessIn(q.config, answer.thickness);
     const THICKS = [
       { v: 0.0625, l: '1/16"' }, { v: 0.125, l: '1/8"' }, { v: 0.1875, l: '3/16"' },
       { v: 0.25, l: '1/4"' }, { v: 0.375, l: '3/8"' }, { v: 0.5, l: '1/2"' },
     ];
-    const bags = cov > 0 && totalSqft > 0 ? bagsNeeded(totalSqft, cov, covT > 0 ? covT : null, covT > 0 ? pour : null) : 0;
-    const label = THICKS.find((t) => Math.abs(t.v - pour) < 1e-6)?.l ?? `${pour}"`;
+    const bags = cov > 0 && coverSf > 0 ? bagsNeeded(coverSf, cov, covT > 0 ? covT : null, covT > 0 ? pour : null) : 0;
+    const label = thicknessLabel(pour) || (covT > 0 ? "stated coverage thickness" : "");
     return (
       <div className="space-y-3">
         {covT > 0 ? (
@@ -3070,13 +5669,29 @@ function QuestionBody({
         ) : (
           <p className="text-xs text-muted-foreground">Flat coverage — thickness doesn&apos;t change the count.</p>
         )}
-        {totalSqft > 0 && cov > 0 ? (
+        {coverSf > 0 && cov > 0 ? (
+          prepQuantitiesAreFinal(flooringCtx.prepConfidence) ? (
           <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-            {Math.round(totalSqft)} sq ft{covT > 0 ? ` at ${label}` : ""} ÷ {cov} SF/bag ={" "}
+            {Math.round(coverSf)} sq ft{covT > 0 && label ? ` at ${label}` : ""} ÷ {cov} SF/bag ={" "}
             <span className="font-semibold tabular-nums">{bags} bag{bags === 1 ? "" : "s"}</span>
+            {prepQuantitySuffix(flooringCtx.prepConfidence)}
+            {covT > 0 && !(pour > 0) ? (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Pick a pour thickness to scale bags. We do not invent 1/4&quot;.
+              </span>
+            ) : null}
           </div>
+          ) : (
+            <p className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
+              Prep is Field verify / TBD — bag count is not added to the estimate. Confirm after demo.
+            </p>
+          )
+        ) : mixedUnassigned ? (
+          <p className="text-sm text-muted-foreground">
+            Assign hard-surface rooms on the floor map. Mixed jobs do not pour self-leveler onto the carpet.
+          </p>
         ) : (
-          <p className="text-sm text-muted-foreground">Add areas first — bags are figured from total sq ft.</p>
+          <p className="text-sm text-muted-foreground">Add areas first — bags are figured from this family&apos;s measured sq ft.</p>
         )}
       </div>
     );

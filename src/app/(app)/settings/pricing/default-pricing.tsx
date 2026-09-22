@@ -41,7 +41,7 @@ export function DefaultPricing({
     .filter((l) => !known.has(l))
     .map((l) => ({
       label: l,
-      unit: addonDefaults[l].unit || "each",
+      unit: addonDefaults[l].unit || "",
       labor: addonDefaults[l].labor,
     }));
   const addonRows = [...ALL_ADDON_DEFS, ...extra];

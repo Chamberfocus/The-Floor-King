@@ -79,6 +79,15 @@ export interface ApprovalSnapshotLine {
   measurements: unknown;
   /** Customer-facing line sell total at approval (canonical lineTotal). */
   line_total: number;
+  /**
+   * Staff snapshot may hold carton coverage for operational job seed.
+   * Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box
+   * Hard-surface approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+   * Customer sanitize strips these — do not add them to CUSTOMER_SAFE_SNAPSHOT_LINE_KEYS.
+   */
+  sqft_per_box?: number | null;
+  roll_width_ft?: number | null;
+  order_as_roll?: boolean;
 }
 
 /** Keys that must never appear on a customer-facing approval payload. */
@@ -362,6 +371,11 @@ export function buildApprovalSnapshotPayload(args: {
         unit: l.unit,
         measurements: l.measurements ?? null,
         line_total: lineTotal(l as CalcLine),
+        // Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box
+        // Hard-surface approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+        sqft_per_box: l.sqft_per_box ?? null,
+        roll_width_ft: l.roll_width_ft ?? null,
+        order_as_roll: l.order_as_roll,
       })),
     },
     tax_rate: Number(estimate.tax_rate) || 0,

@@ -1,7 +1,7 @@
 /**
  * Helpers to present an approval snapshot on the customer portal / staff views.
  */
-import { buildCustomerScope, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
+import { buildCustomerScope, customerFacingLineNote, customerLineLabel, parseProjectDetails } from "@/lib/customer-scope";
 import type { ApprovalSnapshotPayload } from "@/lib/estimate-approval";
 import type { EstimateLineItem } from "@/lib/types";
 
@@ -36,6 +36,11 @@ export function snapshotLinesAsEstimateLines(
     unit: l.unit,
     category: l.category as EstimateLineItem["category"],
     measurements: (l.measurements as EstimateLineItem["measurements"]) ?? null,
+    // Exclusive carpet-tile approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box
+    // Hard-surface approval-snapshot job-seed carton coverage from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+    sqft_per_box: l.sqft_per_box ?? null,
+    roll_width_ft: l.roll_width_ft ?? null,
+    order_as_roll: l.order_as_roll,
   }));
 }
 
@@ -58,7 +63,7 @@ export function snapshotItemGroups(payload: ApprovalSnapshotPayload) {
       }
       itemGroups[at.get(room)!].items.push({
         label: customerLineLabel(l),
-        note: (l.note ?? "").trim(),
+        note: customerFacingLineNote(l.note),
         amount,
       });
     }

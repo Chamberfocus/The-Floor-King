@@ -7,7 +7,7 @@ import { Printer, Save, ListChecks, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EstimateOptionCards } from "@/components/estimate-option-cards";
-import { customerLineLabel } from "@/lib/customer-scope";
+import { customerFacingJobNotes, customerFacingLineNote, customerLineLabel } from "@/lib/customer-scope";
 import { optionTotalsWithDiscount, lineTotal } from "@/lib/estimate-calc";
 import { docRef } from "@/lib/format";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -217,7 +217,7 @@ export function EstimatePrintDoc({
   // Body content (customer-facing): the AREAS being done and the customer-facing
   // job_description. Never internal estimate.notes (cost/margin commentary).
   const areas = [...new Set(lines.map((l) => (l.room ?? "").trim()).filter(Boolean))];
-  const description = (estimate.job_description ?? "").trim();
+  const description = customerFacingJobNotes(estimate.job_description);
   /**
    * The headline on a lump-sum quote.
    *
@@ -379,8 +379,8 @@ export function EstimatePrintDoc({
           <div className="mb-4 text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
             Your options — choose the one that fits
           </div>
-          {estimate.job_description ? (
-            <p className="mb-4 whitespace-pre-wrap text-[15px] leading-relaxed">{estimate.job_description}</p>
+          {description ? (
+            <p className="mb-4 whitespace-pre-wrap text-[15px] leading-relaxed">{description}</p>
           ) : null}
           <EstimateOptionCards estimate={estimate} printMode />
           <p className="mt-4 text-[13px] leading-relaxed text-gray-600">
@@ -400,9 +400,9 @@ export function EstimatePrintDoc({
               without it. You'd type "Provide and install Momentum or equivalent
               throughout the 1st and 2nd floor", and the customer would receive a
               table of quantities with no sentence explaining the job. */}
-          {estimate.job_description ? (
+          {description ? (
             <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed">
-              {estimate.job_description}
+              {description}
             </p>
           ) : null}
 
@@ -420,13 +420,14 @@ export function EstimatePrintDoc({
               {itemized ? (
                 pricedLines.map((l, i) => {
                   const amt = lineTotal(l);
+                  const note = customerFacingLineNote(l.note);
                   return (
                     <tr key={i} className="border-b border-gray-200 align-top">
                       <td className="px-3 py-2.5">
                         <div className="font-semibold">{customerLineLabel(l)}</div>
                         {l.room ? <div className="mt-0.5 text-[13px] text-gray-500">{l.room}</div> : null}
-                        {(l.note ?? "").trim() ? (
-                          <div className="mt-1 text-[13px] leading-snug text-gray-600">{l.note}</div>
+                        {note ? (
+                          <div className="mt-1 text-[13px] leading-snug text-gray-600">{note}</div>
                         ) : null}
                       </td>
                       <td className="px-3 py-2.5 text-right text-[13px] tabular-nums text-gray-600">1.0</td>

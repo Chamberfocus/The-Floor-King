@@ -10,7 +10,8 @@ import {
   updateEstimateQuestion,
   type EQFormState,
 } from "./actions";
-import type { EstimateQuestion, EstimateQuestionKind } from "@/lib/types";
+import type { EstimateQuestion, EstimateQuestionKind, QuestionPurpose } from "@/lib/types";
+import { knowledgeQuestionByKey } from "@/lib/flooring-knowledge";
 
 const initial: EQFormState = { error: null };
 
@@ -24,6 +25,20 @@ const KINDS: { value: EstimateQuestionKind; label: string; hint: string }[] = [
 ];
 const CATEGORIES = ["carpet", "underlayment", "lvp", "hardwood", "laminate", "tile", "vinyl", "trim", "other"];
 const UNITS = ["sqft", "sqyd", "lnft", "each", "step", "flat"];
+const PURPOSES: { value: QuestionPurpose; hint: string }[] = [
+  { value: "MEASUREMENT", hint: "Size, counts, dimensions" },
+  { value: "MATERIAL", hint: "What to buy" },
+  { value: "LABOR", hint: "Install / demo / moving" },
+  { value: "PREP", hint: "Substrate and leveling" },
+  { value: "ACCESSORY", hint: "Trim, transitions, pad extras" },
+  { value: "PRICE", hint: "Rate or allowance" },
+  { value: "SCOPE", hint: "Job note, not a line" },
+  { value: "SCHEDULING", hint: "Access, occupancy, timing" },
+  { value: "PURCHASING", hint: "What warehouse / PO needs" },
+  { value: "WAREHOUSE", hint: "Cuts, layout, roll goods" },
+  { value: "INSTALLATION", hint: "How it goes down" },
+  { value: "WARNING", hint: "Risk the salesperson must see" },
+];
 
 const label = "mb-1 block text-xs font-medium text-muted-foreground";
 const field = "h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm";
@@ -44,6 +59,11 @@ export function QuestionForm({
   const e = c.emit ?? null;
   // Don't let a question reference itself in show_if.
   const refOptions = keyed.filter((k) => k.key !== question?.key);
+  const compoundShowIf =
+    c.show_if && ("all" in c.show_if || "any" in c.show_if) ? JSON.stringify(c.show_if, null, 2) : "";
+  const simpleShowIf = c.show_if && "key" in c.show_if ? c.show_if : null;
+  const defaultPurpose =
+    c.purpose ?? (question?.key ? knowledgeQuestionByKey(question.key)?.purpose : undefined) ?? "";
 
   useEffect(() => {
     if (state.ok) {
@@ -107,17 +127,38 @@ export function QuestionForm({
             <p className="mt-1 text-xs text-muted-foreground">A short slug so other questions can branch off this one&apos;s answer.</p>
           </div>
           <div>
+            <label className={label}>Why this question exists</label>
+            <select name="purpose" defaultValue={defaultPurpose} className={field}>
+              <option value="">Unset</option>
+              {PURPOSES.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.value} — {p.hint}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              If a question has no downstream purpose, it probably does not belong. The flooring overlay uses this plus family/system gates.
+            </p>
+          </div>
+          <div>
             <label className={label}>Show only if…</label>
             <div className="flex gap-2">
-              <select name="show_if_key" defaultValue={c.show_if?.key ?? ""} className={field}>
+              <select name="show_if_key" defaultValue={simpleShowIf?.key ?? ""} className={field}>
                 <option value="">Always show</option>
                 {refOptions.map((k) => (
                   <option key={k.key} value={k.key}>{k.label} ({k.key})</option>
                 ))}
               </select>
             </div>
-            <Input name="show_if_in" defaultValue={(c.show_if?.in ?? []).join(", ")} placeholder="is: e.g. Laminate, Hardwood" className="mt-2" />
-            <p className="mt-1 text-xs text-muted-foreground">Comma-separated answer value(s) that reveal this question.</p>
+            <Input name="show_if_in" defaultValue={(simpleShowIf?.in ?? []).join(", ")} placeholder="is: e.g. Laminate, Hardwood" className="mt-2" />
+            <p className="mt-1 text-xs text-muted-foreground">Comma-separated answer value(s) that reveal this question. For AND/OR conditions, use the JSON field below — it wins on save.</p>
+            <textarea
+              name="show_if_json"
+              rows={compoundShowIf ? 6 : 2}
+              defaultValue={compoundShowIf}
+              placeholder='Advanced (optional): {"all":[{"key":"install_method","in":["Floating / click"]},{"key":"attached_pad","in":["No"]}]}'
+              className="mt-2 w-full rounded-md border border-input bg-transparent px-2 py-1.5 font-mono text-xs"
+            />
           </div>
           <label className="flex items-center gap-2 text-sm sm:col-span-2">
             <input type="checkbox" name="cfg_per_room" defaultChecked={c.per_room} className="size-4" />
@@ -242,9 +283,16 @@ export function QuestionForm({
         {kind === "cuts" ? (
           <div>
             <label className={label}>Carpet install labor — our cost per sq&nbsp;yd</label>
-            <Input name="cfg_install_yd" type="number" step="0.01" min="0" defaultValue={c.install_yd ?? 6} />
+            <Input
+              name="cfg_install_yd"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={c.install_yd != null ? String(c.install_yd) : ""}
+              placeholder="shop rate — do not invent"
+            />
             <p className="mt-1 text-xs text-muted-foreground">
-              The questionnaire adds a carpet labor line automatically = this rate × the yardage from the cuts (a product&apos;s own labor rate, if set, overrides this).
+              Adds a carpet labor line at this rate × cut yardage when the product has no labor rate of its own. Leave blank rather than inventing $6.
             </p>
           </div>
         ) : null}
@@ -253,14 +301,28 @@ export function QuestionForm({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className={label}>Carpet install — our cost per sq&nbsp;yd</label>
-              <Input name="cfg_install_yd" type="number" step="0.01" min="0" defaultValue={c.install_yd ?? 6} />
+              <Input
+                name="cfg_install_yd"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={c.install_yd != null ? String(c.install_yd) : ""}
+                placeholder="shop rate — do not invent"
+              />
             </div>
             <div>
               <label className={label}>Hard-surface install — our cost per sq&nbsp;ft</label>
-              <Input name="cfg_install_ft" type="number" step="0.01" min="0" defaultValue={c.install_ft ?? 2} />
+              <Input
+                name="cfg_install_ft"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={c.install_ft != null ? String(c.install_ft) : ""}
+                placeholder="shop rate — do not invent"
+              />
             </div>
             <p className="sm:col-span-2 text-xs text-muted-foreground">
-              Used to add install labor automatically when a mapped product carries no labor rate of its own.
+              Used to add install labor when a mapped product carries no labor rate of its own. Leave blank rather than inventing $6/yd or $2/ft.
             </p>
           </div>
         ) : null}

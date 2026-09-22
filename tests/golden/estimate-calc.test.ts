@@ -17,6 +17,10 @@ import {
   lineOrderQty,
   lineProfit,
   lineQty,
+  lineIsStairWrapTbd,
+  lineIsBoxedCartonTbd,
+  lineIsCountNotTapedSqft,
+  knowledgePickDescription,
   lineTotal,
   marginPct,
   markupPct,
@@ -42,7 +46,9 @@ const carpet360sqft10waste: CalcLine = {
   category: "carpet",
   unit: "sq yd",
   measure_unit: "sqyd",
-  sqft: 360, // 40 sq yd
+  sqft: 360, // 40 sq yd from a 12' × 30' cut — not taped room area
+  length_in: 360,
+  width_in: 144,
   quantity: null,
   waste_pct: 10,
   material_rate: 30,
@@ -150,9 +156,174 @@ describe("measurements / area", () => {
 });
 
 describe("lineQty — unit kind rules", () => {
-  it("prices carpet (area, sq yd) from measured area / 9", () => {
-    // 360 sq ft → 40 sq yd
+  it("prices carpet (area, sq yd) from cut area / 9, not taped room sq ft", () => {
+    // 12' × 30' cut → 360 sq ft → 40 sq yd
     expect(lineQty(carpet360sqft10waste)).toBe(40);
+  });
+
+  it("does not bill roll goods from taped sq ft when there are no cuts", () => {
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 450,
+        quantity: null,
+      }),
+    ).toBe(0);
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        category: "vinyl",
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 450,
+        quantity: null,
+      }),
+    ).toBe(0);
+    expect(
+      lineQty({
+        line_type: "mat_labor",
+        category: "carpet",
+        unit: "sq yd",
+        measure_unit: "sqyd",
+        sqft: 450,
+        quantity: 50,
+      }),
+    ).toBe(50);
+  });
+
+  it("does not bill stair wrap TBD from taped sq ft (not 8 sq ft/step)", () => {
+    const wrap: CalcLine = {
+      line_type: "mat_labor",
+      category: "lvp",
+      unit: "sqft",
+      measure_unit: "sqft",
+      sqft: 104,
+      quantity: null,
+      description:
+        "Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+      material_rate: 4.5,
+    };
+    expect(lineIsStairWrapTbd(wrap)).toBe(true);
+    expect(lineQty(wrap)).toBe(0);
+    expect(lineTotal(wrap)).toBe(0);
+    expect(
+      lineQty({
+        ...wrap,
+        quantity: 13,
+        unit: "each",
+      }),
+    ).toBe(13);
+    expect(
+      lineQty({
+        ...wrap,
+        description: "Lifeproof Oak living room",
+      }),
+    ).toBe(104);
+  });
+
+  it("does not bill carton-coverage TBD from leftover taped sq ft", () => {
+    const carton: CalcLine = {
+      line_type: "mat_labor",
+      category: "lvp",
+      unit: "sqft",
+      measure_unit: "sqft",
+      sqft: 500,
+      quantity: null,
+      description:
+        "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+      material_rate: 3.49,
+    };
+    expect(lineIsBoxedCartonTbd(carton)).toBe(true);
+    expect(lineIsStairWrapTbd(carton)).toBe(false);
+    expect(lineQty(carton)).toBe(0);
+    expect(lineTotal(carton)).toBe(0);
+    expect(
+      lineQty({
+        ...carton,
+        quantity: 22,
+        unit: "box",
+      }),
+    ).toBe(22);
+    expect(
+      lineQty({
+        ...carton,
+        description: "Lifeproof Oak living room",
+      }),
+    ).toBe(500);
+  });
+
+  it("does not bill count SKU / qty TBD flooring from leftover taped sq ft", () => {
+    const tbd: CalcLine = {
+      line_type: "mat_labor",
+      category: "lvp",
+      unit: "",
+      measure_unit: "sqft",
+      sqft: 500,
+      quantity: null,
+      description: "Lifeproof Oak — qty TBD (unit TBD — not taped sq ft)",
+      material_rate: 3.49,
+    };
+    expect(lineIsCountNotTapedSqft(tbd)).toBe(true);
+    expect(lineIsBoxedCartonTbd(tbd)).toBe(false);
+    expect(lineQty(tbd)).toBe(0);
+    expect(lineTotal(tbd)).toBe(0);
+    expect(
+      lineQty({
+        ...tbd,
+        quantity: 12,
+        unit: "box",
+        description: "Lifeproof Oak — 12 box (not taped sq ft)",
+      }),
+    ).toBe(12);
+    expect(
+      lineQty({
+        ...tbd,
+        description: "Lifeproof Oak living room",
+      }),
+    ).toBe(500);
+    const wrapCounted: CalcLine = {
+      line_type: "mat_labor",
+      category: "lvp",
+      unit: "box",
+      measure_unit: "sqft",
+      sqft: 104,
+      quantity: 4,
+      description:
+        "Lifeproof Oak — 4 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+      material_rate: 4.5,
+    };
+    expect(lineIsStairWrapTbd(wrapCounted)).toBe(true);
+    expect(lineQty(wrapCounted)).toBe(4);
+  });
+
+  it("keeps wrap / qty TBD stamps when picking a product", () => {
+    expect(
+      knowledgePickDescription(
+        "Lifeproof Oak — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+        "Lifeproof Maple",
+      ),
+    ).toBe(
+      "Lifeproof Maple — wrap qty TBD (13 steps, tread + riser — not an automatic sq ft/step order)",
+    );
+    expect(
+      knowledgePickDescription(
+        "Lifeproof Oak — qty TBD (unit TBD — not taped sq ft)",
+        "Lifeproof Maple",
+      ),
+    ).toBe("Lifeproof Maple — qty TBD (unit TBD — not taped sq ft)");
+    expect(
+      knowledgePickDescription(
+        "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+        "Lifeproof Maple",
+        { dropTbd: true },
+      ),
+    ).toBe("Lifeproof Maple");
+    expect(
+      knowledgePickDescription("Living room — Dreamweaver", "Coretec Oak"),
+    ).toBe("Living room — Coretec Oak");
   });
 
   it("prices count units from quantity and ignores sqft (old $33,600 bug)", () => {
@@ -194,6 +365,20 @@ describe("lineQty — unit kind rules", () => {
     };
     expect(lineQty(emptyBags)).toBe(0);
     expect(lineTotal(emptyBags)).toBe(0);
+  });
+
+  it("empty unit with leftover measure_unit sqft and no taped area bills quantity, not sq ft", () => {
+    const padTbd: CalcLine = {
+      line_type: "mat_labor",
+      category: "underlayment",
+      unit: "",
+      measure_unit: "sqft",
+      sqft: null,
+      quantity: 4,
+      material_rate: 12,
+    };
+    expect(lineQty(padTbd)).toBe(4);
+    expect(lineTotal(padTbd)).toBe(48);
   });
 });
 

@@ -23,7 +23,7 @@ function Line({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean }) {
         {(l.note ?? "").trim() ? (
           <div className="mt-0.5 text-sm text-muted-foreground">{l.note}</div>
         ) : null}
-        {spec.qty || spec.cut || spec.rolls ? (
+        {spec.qty || spec.cut || spec.rolls || spec.cartons ? (
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             {spec.qty ? <span className="font-medium text-foreground">{spec.qty}</span> : null}
             {spec.cut ? (
@@ -31,9 +31,22 @@ function Line({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean }) {
                 ✂ Cut {spec.cut}
               </span>
             ) : null}
+            {/* Exclusive carpet-tile job scope order pad-roll count stays off 30-yard roll math — mixed stretch-in + tile and unanswered carpet stay open. Sq-ft underlayment stays off 30-yard roll math. Do not invent a 30-yard roll. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+            {/* Underlayment job scope order pad-roll count from order qty ÷ 30-yard roll is the pull, not leftover measured sq yd. Wrap / count How many stays off 30-yard roll math. Do not invent a 30-yard roll. */}
             {spec.rolls ? (
               <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
                 {spec.rolls} roll{spec.rolls > 1 ? "s" : ""} @ {PAD_ROLL_SQYD} sq yd
+              </span>
+            ) : null}
+            {/* Exclusive carpet-tile job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+            {/* Hard-surface job scope carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+            {/* Exclusive carpet-tile job scope order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+            {/* Hard-surface job scope order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+            {/* Exclusive carpet-tile job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box. */}
+            {/* Hard-surface job scope pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage. */}
+            {spec.cartons ? (
+              <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+                📦 {spec.cartons} carton{spec.cartons === 1 ? "" : "s"}
               </span>
             ) : null}
           </div>

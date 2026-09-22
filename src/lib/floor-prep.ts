@@ -69,9 +69,31 @@ export function hasCoverage(coverageSf: number | string | null | undefined): boo
   return (Number(coverageSf) || 0) > 0;
 }
 
-// --- Defaults for the generic self-leveler the questionnaire / add-on paths
-// drop in when no specific product is picked. Real numbers get filled per
-// product in the catalog; these are just starting points.
+/**
+ * Pour thickness for the bag calculator.
+ *
+ * Typed value wins. Else the Settings `default_thickness_in`. Else the
+ * coverage reference thickness. Missing config is 0 — `bagsNeeded` then
+ * uses the stated coverage without inventing a 1/4" pour.
+ */
+export function selfLevelPourThicknessIn(
+  config:
+    | { default_thickness_in?: number | null; coverage_thickness_in?: number | null }
+    | null
+    | undefined,
+  entered?: Num,
+): number {
+  const typed = Number(entered) || 0;
+  if (typed > 0) return typed;
+  const shop = Number(config?.default_thickness_in) || 0;
+  if (shop > 0) return shop;
+  const ref = Number(config?.coverage_thickness_in) || 0;
+  if (ref > 0) return ref;
+  return 0;
+}
+
+// Starting-point constants for Settings / catalog when a product has no coverage.
+// Do not plant these onto an estimate line as if they were shop rates.
 export const DEFAULT_SELFLEVELER_COVERAGE_SF = 50; // SF per 50 lb bag
 export const DEFAULT_REF_THICKNESS_IN = 0.125; // stated at 1/8"
 export const DEFAULT_BAG_COST = 84; // our cost per bag

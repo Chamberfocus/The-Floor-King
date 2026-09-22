@@ -17,6 +17,7 @@ import {
   canApproveCustomerOrder,
   canStageCustomerOrder,
 } from "@/lib/order-warehouse-gates";
+import { cutsTotalSqYd } from "@/lib/order-cuts";
 
 function str(v: FormDataEntryValue | null): string {
   return typeof v === "string" ? v.trim() : "";
@@ -26,7 +27,9 @@ function orderCutList(items: OrderItem[]): string {
   return items
     .map((it) => {
       const desc = [it.description, it.color, it.style].filter(Boolean).join(", ");
-      const qty = it.quantity ? ` (${it.quantity} ${it.unit})` : "";
+      // Exclusive carpet-tile office customer-order email qty from cuts is the order, not leftover planted quantity — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+      // Hard-surface office customer-order email leftover planted quantity stays How many, not leftover taped sq ft as an order. Wrap / count How many stays. Do not invent coverage.
+      const qty = cutsTotalSqYd(it) == null && it.quantity ? ` (${it.quantity} ${it.unit})` : "";
       const cuts = it.cut_notes ? ` — cuts: ${it.cut_notes}` : "";
       return `• ${desc || "Item"}${qty}${cuts}`;
     })

@@ -4,6 +4,7 @@
 // the full bill of materials (which the PO, warehouse, and install all rely on).
 
 import type { ProductCategory } from "@/lib/types";
+import { isAreaUnit } from "@/lib/units";
 
 export type MeasureUnit = "sqft" | "sqyd";
 
@@ -59,7 +60,8 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     label: "Carpet",
     unit: "sqyd",
     waste: 10,
-    measureHint: "Carpet is priced by the square yard. Enter room L × W; we convert.",
+    measureHint:
+      "Carpet is priced by the square yard. Measured room area (sq ft ÷ 9) is equivalent area, not the order — cuts (roll width × length) are the order quantity.",
     companions: [
       { key: "pad", label: "Carpet pad", category: "underlayment", sizeBy: "area", unit: "sqyd", defaultOn: true, rollUnits: 30, hint: "Rounded up to full 30 sq yd rolls." },
       // Tackstrip & tear-out live in the carpet add-ons checklist (job-level).
@@ -86,7 +88,7 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     waste: 7,
     measureHint: "Priced by the square foot. ~7% waste for racking & cuts.",
     companions: [
-      { key: "underlayment", label: "Underlayment / moisture barrier", category: "underlayment", sizeBy: "area", unit: "sqft", defaultOn: true },
+      { key: "underlayment", label: "Underlayment / moisture barrier", category: "underlayment", sizeBy: "area", unit: "sqft", defaultOn: false, hint: "Only if the product needs a separate pad / vapor retarder — attached pad hides this." },
       { key: "transitions", label: "Transitions / reducers", category: "trim", sizeBy: "each", unit: "each", defaultOn: false },
       { key: "shoe", label: "Shoe molding / quarter round", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: false },
       tearout("Tear out old flooring", "sqft"),
@@ -99,7 +101,7 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     waste: 7,
     measureHint: "Priced by the square foot. Needs a foam underlayment.",
     companions: [
-      { key: "underlayment", label: "Foam underlayment", category: "underlayment", sizeBy: "area", unit: "sqft", defaultOn: true },
+      { key: "underlayment", label: "Foam underlayment", category: "underlayment", sizeBy: "area", unit: "sqft", defaultOn: false, hint: "Only if the laminate does not have attached pad." },
       { key: "transitions", label: "Transitions / T-mold", category: "trim", sizeBy: "each", unit: "each", defaultOn: false },
       { key: "quarter", label: "Quarter round / shoe", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: false },
       tearout("Tear out old flooring", "sqft"),
@@ -112,8 +114,8 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
     waste: 12,
     measureHint: "Priced by the square foot. Tile runs ~12% waste; needs setting materials.",
     companions: [
-      { key: "thinset", label: "Thinset mortar", category: "other", sizeBy: "area", unit: "sqft", defaultOn: true, hint: "~1 bag per 50–60 sq ft." },
-      { key: "grout", label: "Grout", category: "other", sizeBy: "area", unit: "sqft", defaultOn: true },
+      { key: "thinset", label: "Thinset mortar", category: "other", sizeBy: "area", unit: "bag", defaultOn: false, hint: "Bag count TBD until a catalog product with coverage is picked. Taped sq ft is not bags of thinset." },
+      { key: "grout", label: "Grout", category: "other", sizeBy: "area", unit: "bag", defaultOn: false, hint: "Bag count TBD until a catalog product with coverage is picked. Taped sq ft is not bags of grout." },
       { key: "backer", label: "Backer board / membrane", category: "underlayment", sizeBy: "area", unit: "sqft", defaultOn: false },
       { key: "trim", label: "Tile trim / edge / bullnose", category: "trim", sizeBy: "perimeter", unit: "lnft", defaultOn: false },
       tearout("Tear out old flooring", "sqft"),
@@ -122,9 +124,10 @@ export const FLOORING_PROFILES: Record<string, FlooringProfile> = {
   vinyl: {
     category: "vinyl",
     label: "Sheet Vinyl",
-    unit: "sqft",
+    unit: "sqyd",
     waste: 7,
-    measureHint: "Priced by the square foot.",
+    measureHint:
+      "Sheet vinyl is roll goods, priced by the square yard. Measured area is not automatically the order quantity — layout and seams can require more.",
     companions: [
       { key: "prep", label: "Floor prep / level", category: "labor", sizeBy: "area", unit: "sqft", defaultOn: false, labor: true },
       { key: "transitions", label: "Transitions / edge", category: "trim", sizeBy: "each", unit: "each", defaultOn: false },
@@ -147,20 +150,28 @@ export function profileFor(category: string): FlooringProfile | null {
   return FLOORING_PROFILES[category] ?? null;
 }
 
+/** Typical material waste % — one source of truth for builder + questionnaire. */
+export function defaultWastePct(category: string | null | undefined): number {
+  return profileFor(category ?? "")?.waste ?? 0;
+}
+
 /** Area in sq ft from feet dimensions. */
 export function areaSqft(lengthFt: number, widthFt: number): number {
   return Math.round(lengthFt * widthFt * 100) / 100;
 }
 
-/** Quantity for a companion, given the room's sq ft and perimeter (lnft). */
+/** Quantity for a companion, given the room's sq ft and perimeter (lnft).
+ *  Count units (bag / gal / each) are not taped square feet. */
 export function companionQty(
   c: Companion,
   sqft: number,
   perimeterLnft: number,
 ): number {
-  if (c.sizeBy === "each") return 1;
+  // Transitions / T-molds are EACH. Room square footage is not "1 transition".
+  if (c.sizeBy === "each") return 0;
   if (c.sizeBy === "perimeter") return Math.round(perimeterLnft);
-  // area — match the companion's unit (sqyd for carpet pad, else sqft)
+  // Taped sq ft is not bags of thinset or gallons of adhesive.
+  if (c.unit && !isAreaUnit(c.unit)) return 0;
   const v = c.unit === "sqyd" ? sqft / 9 : sqft;
   // Materials sold in full rolls (e.g. pad) round UP to whole rolls.
   if (c.rollUnits && c.rollUnits > 0 && v > 0) {

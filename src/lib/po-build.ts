@@ -1,6 +1,75 @@
-import { stripRoomFromName } from "@/lib/job-scope";
-import { lineOrderQty } from "@/lib/estimate-calc";
+import { poCarpetInstallSystemsForBoxedRate, stripRoomFromName } from "@/lib/job-scope";
+import { lineOrderQty, lineSkipsAreaCartonMath } from "@/lib/estimate-calc";
+import { catalogRateInLineUnit } from "@/lib/catalog-pricing";
+import { billedQtyToSqyd, lineUnitKey, unitIsSqyd } from "@/lib/units";
 import type { EstimateLineItem } from "@/lib/types";
+
+/** Catalog fields needed to convert a boxed $/box onto the estimate line unit. */
+export type PoCatalogSnapshot = {
+  unit?: string | null;
+  category?: string | null;
+  sqft_per_box?: number | string | null;
+  roll_width_ft?: number | string | null;
+};
+
+/**
+ * OUR cost on an estimate line for PO / order-plan rows.
+ * Stored material_cost (already in the billed unit) wins. Catalog fallback
+ * boxed carton WITH coverage that takeoffs as area is $/coverage, not 1:1.
+ * Exclusive carpet-tile estimate order boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+ * Hard-surface estimate order boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+ * Exclusive carpet-tile job purchasing boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+ * Hard-surface job purchasing boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
+ */
+export function poCostOfEstimateLine(
+  line: {
+    description?: string | null;
+    category?: string | null;
+    unit?: string | null;
+    material_cost?: number | string | null;
+    quantity?: number | string | null;
+    sqft?: number | string | null;
+    sqft_per_box?: number | string | null;
+    roll_width_ft?: number | string | null;
+    order_as_roll?: boolean | null;
+    length_in?: number | string | null;
+    width_in?: number | string | null;
+    measurements?: EstimateLineItem["measurements"];
+  },
+  catalogCost: number,
+  catalog?: PoCatalogSnapshot | null,
+): number {
+  const stored = Number(line.material_cost) || 0;
+  if (stored > 0) return stored;
+  const cost = Number(catalogCost) || 0;
+  if (!(cost > 0)) return 0;
+  if (lineSkipsAreaCartonMath(line)) return cost;
+  const category = catalog?.category ?? line.category;
+  const sqft_per_box =
+    Number(catalog?.sqft_per_box) > 0 ? catalog!.sqft_per_box : line.sqft_per_box;
+  const roll_width_ft =
+    Number(catalog?.roll_width_ft) > 0 ? catalog!.roll_width_ft : line.roll_width_ft;
+  const carpetInstallSystems = poCarpetInstallSystemsForBoxedRate({
+    category,
+    roll_width_ft,
+    quantity: line.quantity,
+    sqft: line.sqft,
+    order_as_roll: line.order_as_roll,
+    length_in: line.length_in,
+    width_in: line.width_in,
+    measurements: line.measurements,
+  });
+  return catalogRateInLineUnit(
+    cost,
+    {
+      unit: catalog?.unit ?? null,
+      category,
+      sqft_per_box,
+      carpetInstallSystems,
+    },
+    unitIsSqyd(lineUnitKey(line)),
+  );
+}
 
 /** A PO line row derived from estimate lines — the shape (minus po_id/position)
  *  that both PO creation and the carpet re-sync insert. */
@@ -46,7 +115,7 @@ export function buildPoItemRows(
   // Combine the same product across rooms/areas into one collective PO line.
   const cutGroups = new Map<string, PoItemRow>();
   for (const l of cutLines) {
-    const unit = l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft");
+    const unit = lineUnitKey(l);
     // Room baked into the description ("<desc> — <room>") would split the same
     // product across rooms; strip it so it orders as one collective line.
     const name = stripRoomFromName(nameOf(l), l.room);
@@ -82,28 +151,36 @@ export function buildPoItemRows(
   }
   const rows: PoItemRow[] = [...cutGroups.values()];
 
-  // Group roll lines by product + width → one roll line (linear ft + yardage).
+  // Group roll lines by product + catalog width → one roll line.
+  // Missing width is TBD — never invent 12'. `lineUnitKey` decides whether
+  // order qty is already yards (never divide a sq-yd line by 9 again).
   const rollGroups = new Map<
     string,
-    { product_id: string | null; width: number; sqyd: number; sample: EstimateLineItem }
+    { product_id: string | null; width: number | null; sqyd: number; sample: EstimateLineItem }
   >();
   for (const l of rollLines) {
-    const width = Number(l.roll_width_ft) > 0 ? Number(l.roll_width_ft) : 12;
-    const key = `${l.product_id ?? nameOf(l)}|${width}`;
+    const rawW = Number(l.roll_width_ft);
+    const width = Number.isFinite(rawW) && rawW > 0 ? rawW : null;
+    const key = `${l.product_id ?? nameOf(l)}|${width ?? "tbd"}`;
     const g = rollGroups.get(key) ?? { product_id: l.product_id ?? null, width, sqyd: 0, sample: l };
-    // Roll math is in square yards regardless of the line's billing unit.
-    // Use order qty (waste in) so the roll covers what was sold/staged.
     const orderQty = lineOrderQty(l);
-    const sqyd = l.measure_unit === "sqyd" ? orderQty : orderQty / 9;
+    const unit = lineUnitKey(l);
+    // Area units convert; anything else keeps the billed qty rather than
+    // inventing yards from each/lnft. Same helper as work-order pad rolls.
+    const sqyd = billedQtyToSqyd(orderQty, unit) ?? orderQty;
     g.sqyd += sqyd;
     rollGroups.set(key, g);
   }
   for (const g of rollGroups.values()) {
     const sqyd = Math.round(g.sqyd * 100) / 100;
-    const linft = Math.round(((sqyd * 9) / g.width) * 10) / 10;
+    const name = nameOf(g.sample);
+    const description =
+      g.width != null
+        ? `Full roll — ${name} — ${Math.round(((sqyd * 9) / g.width) * 10) / 10} lin ft (${sqyd} sq yd) @ ${g.width} ft wide`
+        : `Full roll — ${name} — ${sqyd} sq yd (roll width TBD — not assumed 12')`;
     rows.push({
       product_id: g.product_id,
-      description: `Full roll — ${nameOf(g.sample)} — ${linft} lin ft (${sqyd} sq yd) @ ${g.width} ft wide`,
+      description,
       quantity: sqyd,
       unit: "sqyd",
       unit_cost: costOf(g.sample),

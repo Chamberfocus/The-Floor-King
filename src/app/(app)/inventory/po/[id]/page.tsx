@@ -46,7 +46,7 @@ export default async function StockPOPage({ params }: { params: Promise<{ id: st
         productLabel(p) || (p.name as string),
       );
       prodKind.set(p.id as string, (p.stock_kind as string) || "discrete");
-      prodUnit.set(p.id as string, (p.unit as string) || "each");
+      prodUnit.set(p.id as string, (p.unit as string) || "");
     }
   }
   const status = po.status as string;
@@ -94,7 +94,7 @@ export default async function StockPOPage({ params }: { params: Promise<{ id: st
               label: (it.product_id && prodName.get(it.product_id)) || (it.description as string) || "",
               description: (it.description as string) ?? "",
               quantity: it.quantity != null ? String(it.quantity) : "",
-              unit: (it.unit as string) || prodUnit.get(it.product_id as string) || "each",
+              unit: (it.unit as string) || prodUnit.get(it.product_id as string) || "",
               unit_cost: it.unit_cost != null ? String(it.unit_cost) : "",
             }),
           )}
@@ -155,7 +155,7 @@ export default async function StockPOPage({ params }: { params: Promise<{ id: st
                             <>
                               <div>
                                 <label className="mb-1 block text-xs text-muted-foreground">Width (ft)</label>
-                                <Input name="width_ft" inputMode="decimal" placeholder="12" className="h-11 w-20 text-base" />
+                                <Input name="width_ft" inputMode="decimal" placeholder="ft" className="h-11 w-20 text-base" />
                               </div>
                               <div>
                                 <label className="mb-1 block text-xs text-muted-foreground">Location</label>

@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
-import { lineQty, lineOrderQty } from "@/lib/estimate-calc";
+import { hardSurfaceAreaCartonCount, lineQty, lineOrderQty } from "@/lib/estimate-calc";
+import { billedQtyToSqft, lineUnitKey, unitIsSqyd } from "@/lib/units";
+import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { isMaterialLine } from "@/lib/job-scope";
 import {
   buildSupplierLookup,
@@ -7,6 +9,7 @@ import {
   listActiveSuppliers,
 } from "@/lib/data/suppliers";
 import { primaryCatalogCostByProductIds } from "@/lib/data/products";
+import { poCostOfEstimateLine, type PoCatalogSnapshot } from "@/lib/po-build";
 import type { EstimateLineItem, Supplier } from "@/lib/types";
 
 /** One material line as it appears on the ordering review. */
@@ -20,6 +23,10 @@ export interface OrderPlanLine {
   lineTotal: number;
   fromStock: boolean;
   category: string | null;
+  cartons: number;
+  sqft: number | null;
+  waste_pct: number | null;
+  sqft_per_box: number | null;
 }
 
 /** A company that will receive one PO (the lines it carries). */
@@ -101,15 +108,22 @@ export async function getEstimateOrderPlan(
   const productName = new Map<string, string>();
   const productSupplier = new Map<string, string | null>();
   const productSupplierId = new Map<string, string | null>();
+  const productCatalog = new Map<string, PoCatalogSnapshot>();
   if (productIds.length) {
     const { data: prods } = await supabase
       .from("products")
-      .select("id, name, material_rate, supplier, supplier_id")
+      .select("id, name, material_rate, supplier, supplier_id, unit, category, sqft_per_box, roll_width_ft")
       .in("id", productIds);
     for (const p of prods ?? []) {
       productName.set(p.id as string, (p.name as string) ?? "");
       productSupplier.set(p.id as string, (p.supplier as string) || null);
       productSupplierId.set(p.id as string, (p.supplier_id as string) || null);
+      productCatalog.set(p.id as string, {
+        unit: (p.unit as string) ?? null,
+        category: (p.category as string) ?? null,
+        sqft_per_box: p.sqft_per_box as number | null,
+        roll_width_ft: p.roll_width_ft as number | null,
+      });
     }
     const costs = await primaryCatalogCostByProductIds(supabase, productIds);
     for (const [id, c] of costs) productCost.set(id, c);
@@ -132,12 +146,14 @@ export async function getEstimateOrderPlan(
       poBySupplierName.set((p.supplier as string).trim().toLowerCase(), rec);
   }
 
+  // Exclusive carpet-tile estimate order boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface estimate order boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.
   const costOf = (l: EstimateLineItem) =>
-    (l.material_cost ?? 0) > 0
-      ? (l.material_cost as number)
-      : l.product_id
-        ? (productCost.get(l.product_id) ?? 0)
-        : 0;
+    poCostOfEstimateLine(
+      l,
+      l.product_id ? (productCost.get(l.product_id) ?? 0) : 0,
+      l.product_id ? productCatalog.get(l.product_id) : null,
+    );
   const nameOf = (l: EstimateLineItem) =>
     l.description ||
     (l.product_id ? productName.get(l.product_id) : null) ||
@@ -148,16 +164,61 @@ export async function getEstimateOrderPlan(
     // customer is billed for or the crew turns up short.
     const qty = Math.round(lineOrderQty(l) * 100) / 100;
     const unitCost = costOf(l);
+    const catalog = l.product_id ? productCatalog.get(l.product_id) : null;
+    const sqft_per_box =
+      Number(catalog?.sqft_per_box) > 0 ? catalog!.sqft_per_box : l.sqft_per_box;
+    const roll_width_ft =
+      Number(catalog?.roll_width_ft) > 0 ? catalog!.roll_width_ft : l.roll_width_ft;
+    // Exclusive carpet-tile estimate order carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface estimate order carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+    const cartonsHs = hardSurfaceAreaCartonCount(
+      {
+        description: l.description,
+        category: catalog?.category ?? l.category,
+        unit: l.unit,
+        measure_unit: l.measure_unit,
+        sqft: l.sqft,
+        quantity: qty,
+        sqft_per_box,
+        roll_width_ft,
+        order_as_roll: l.order_as_roll,
+        length_in: l.length_in,
+        width_in: l.width_in,
+        measurements: l.measurements,
+      },
+      qty,
+    );
+    const unitKey = lineUnitKey(l);
+    // Exclusive carpet-tile po plan pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+    // Hard-surface po plan pad takeoff order carton count from order qty ÷ coverage is the pull, not leftover measured sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+    const poPlanPadTakeoff =
+      (catalog?.category ?? l.category) === "underlayment" && l.unit !== "sheet"
+        ? computeMaterialTakeoff({
+            family: "other",
+            measuredSqft: billedQtyToSqft(qty, unitIsSqyd(unitKey) ? "sqyd" : "sqft") ?? 0,
+            wasteAlreadyInQuantity: true,
+            sqftPerBox: Number(sqft_per_box) > 0 ? Number(sqft_per_box) : null,
+            billingUnit: unitIsSqyd(unitKey) ? "sqyd" : "sqft",
+            takeoffLabel: "Carpet pad",
+          })
+        : null;
+    const cartons =
+      cartonsHs ||
+      (poPlanPadTakeoff?.cartons ? poPlanPadTakeoff.cartons.cartonCount : 0);
     return {
       lineId: l.id,
       description: nameOf(l),
       productId: l.product_id ?? null,
       qty,
-      unit: l.unit || (l.measure_unit === "sqyd" ? "sqyd" : "sqft"),
+      unit: lineUnitKey(l),
       unitCost,
       lineTotal: Math.round(qty * unitCost * 100) / 100,
       fromStock: !!l.from_stock,
       category: l.category ?? null,
+      cartons,
+      sqft: l.sqft ?? null,
+      waste_pct: l.waste_pct ?? null,
+      sqft_per_box: Number(sqft_per_box) > 0 ? Number(sqft_per_box) : null,
     };
   };
 

@@ -147,17 +147,71 @@ describe("questionnaire Amount → builder line fields", () => {
     expect(mapped?.unit).toBe("sq ft");
   });
 
-  it("yes/no per=each (qty 1) is unchanged — not an Amount override", () => {
+  it("count unit + per=area without Amount is not taped sq ft as gallons/each", () => {
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "each",
+        per: "area",
+        areaSqft: 450,
+      }),
+    ).toBeNull();
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "gal",
+        per: "area",
+        areaSqft: 450,
+      }),
+    ).toBeNull();
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "lnft",
+        per: "area",
+        areaSqft: 80,
+      }),
+    ).toBeNull();
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "each",
+        per: "area",
+        areaSqft: 450,
+        qtyOverride: 3,
+      }),
+    ).toEqual({
+      measure_unit: "sqft",
+      sqft: null,
+      quantity: 3,
+      unit: "each",
+    });
+  });
+
+  it("yes/no per=each without Amount does not invent a count of 1", () => {
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "each",
+        per: "each",
+        areaSqft: 500,
+      }),
+    ).toBeNull();
+    expect(
+      questionnaireEmitToLineQty({
+        emitUnit: "lnft",
+        per: "each",
+        areaSqft: 80,
+      }),
+    ).toBeNull();
+  });
+
+  it("yes/no per=flat is one job charge, not an item count", () => {
     const mapped = questionnaireEmitToLineQty({
-      emitUnit: "each",
-      per: "each",
+      emitUnit: "flat",
+      per: "flat",
       areaSqft: 500,
     });
     expect(mapped).toEqual({
       measure_unit: "sqft",
       sqft: null,
       quantity: 1,
-      unit: "each",
+      unit: "flat",
     });
   });
 
@@ -215,6 +269,54 @@ describe("reload hydration recovers Amount stored only on quantity", () => {
         unit: "each",
         sqft: null,
         quantity: 12,
+      }),
+    ).toBe("");
+  });
+
+  it("does not plant wrap How many as taped sq ft when unit is empty", () => {
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: null,
+        quantity: 8,
+        description:
+          "Lifeproof Oak — 8 box (13 steps, tread + riser — not an automatic sq ft/step order)",
+      }),
+    ).toBe("");
+  });
+
+  it("does not keep leftover taped sq ft on carton-coverage TBD", () => {
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: 300,
+        quantity: 10,
+        description:
+          "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+      }),
+    ).toBe("");
+  });
+
+  it("does not plant Unit TBD adhesive How many as taped sq ft", () => {
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: null,
+        quantity: 40,
+        category: "other",
+        description: "Adhesive",
+      }),
+    ).toBe("");
+  });
+
+  it("clears leftover taped sq ft on Unit TBD pad so How many stays count", () => {
+    expect(
+      recoverAreaSqftFromQuantity({
+        unit: "",
+        sqft: 40,
+        quantity: 40,
+        category: "underlayment",
+        description: "Rebond pad",
       }),
     ).toBe("");
   });

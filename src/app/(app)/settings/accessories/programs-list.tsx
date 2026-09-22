@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { DEFAULT_PIECE_LENGTH_IN } from "@/lib/accessories";
 import type { AccessoryType } from "@/lib/types";
 import type { ProgramSummary } from "@/lib/data/accessories";
 import { generateProgram, regenerateAll, saveProgram, saveProgramType } from "./actions";
@@ -288,7 +287,7 @@ function ProgramTypeRow({
       <input
         type="hidden"
         name="piece_length_in"
-        value={current?.piece_length_in ?? type.piece_length_in ?? DEFAULT_PIECE_LENGTH_IN}
+        value={current?.piece_length_in ?? type.piece_length_in ?? ""}
       />
       <label className="flex flex-1 items-center gap-2">
         <input

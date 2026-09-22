@@ -261,6 +261,11 @@ export interface IncomingPoItem {
   received_qty: number | null;
   received_at: string | null;
   receiving_note: string | null;
+  // Exclusive carpet-tile warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays off carton math. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
+  // Hard-surface warehouse incoming-delivery carton count from sq ft ÷ coverage is the pull, not leftover taped sq ft. Wrap / count How many stays off carton math. Do not invent coverage.
+  category: string | null;
+  sqft_per_box: number | null;
+  roll_width_ft: number | null;
 }
 
 export interface IncomingPoRow {
@@ -285,7 +290,7 @@ export async function listIncomingPos(): Promise<IncomingPoRow[]> {
     .select(
       "id, po_number, supplier, status, eta_date, backordered, received_at, " +
         "customer:customers(full_name), job:jobs(title), " +
-        "items:po_items(id, position, description, quantity, unit, manufacturer, style, color, item_no, received_qty, received_at, receiving_note)",
+        "items:po_items(id, position, description, quantity, unit, manufacturer, style, color, item_no, received_qty, received_at, receiving_note, category, sqft_per_box, roll_width_ft)",
     )
     .in("status", ["ordered", "received"])
     .order("eta_date", { ascending: true, nullsFirst: false })
