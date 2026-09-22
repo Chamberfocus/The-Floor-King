@@ -2,7 +2,7 @@
  * Build invoice item rows from an approval snapshot (Step 6 commercial SoT).
  * Never reads live estimate_line_items or job_line_items.
  */
-import { lineQty, discountAmount, type CalcLine } from "@/lib/estimate-calc";
+import { lineQty, lineSkipsAreaCartonMath, discountAmount, type CalcLine } from "@/lib/estimate-calc";
 import { lineDisplayUnit } from "@/lib/units";
 import { snapshotLinesAsEstimateLines } from "@/lib/approval-snapshot-view";
 import { customerLineLabel } from "@/lib/customer-scope";
@@ -10,7 +10,10 @@ import type { ApprovalSnapshotPayload, ApprovalSnapshotLine } from "@/lib/estima
 import type { EstimateLineItem } from "@/lib/types";
 
 function unitLabelFor(l: EstimateLineItem): string {
-  return lineDisplayUnit(l);
+  return lineDisplayUnit({
+    ...l,
+    sqft: lineSkipsAreaCartonMath(l) ? null : l.sqft,
+  });
 }
 
 /** One invoice item from an approved snapshot line (uses frozen line_total). */

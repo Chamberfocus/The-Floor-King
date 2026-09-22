@@ -3,7 +3,7 @@
  * Operational source: job_line_items. Never rewrites ordered/received/closed.
  */
 import { buildSupplierLookup, resolveLineSupplier } from "@/lib/data/suppliers";
-import { lineQty, lineOrderQty, type CalcLine } from "@/lib/estimate-calc";
+import { lineQty, lineOrderQty, lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
 import { lineDisplayUnit } from "@/lib/units";
 import { isMaterialLine } from "@/lib/job-scope";
 import { materialNeedQty } from "@/lib/job-operational-scope";
@@ -410,7 +410,10 @@ export async function syncJobPurchasingCoverage(
           (l.product_id ? pname.get(l.product_id) : "") ||
           "Item";
         const lineUnit = String(
-          lineDisplayUnit(l),
+          lineDisplayUnit({
+            ...l,
+            sqft: lineSkipsAreaCartonMath(l) ? null : l.sqft,
+          }),
         );
         // Exclusive carpet-tile job purchasing boxed rate onto sq yd is $/coverage, not 1:1 — mixed stretch-in + tile and unanswered carpet stay 1:1. Wrap / count How many stays 1:1. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
         // Hard-surface job purchasing boxed rate onto sq ft is $/coverage, not 1:1. Wrap / count How many stays 1:1. Do not invent coverage.

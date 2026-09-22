@@ -1537,21 +1537,34 @@ export function EstimateBuilder({
     options: options.map((o) => ({
       name: o.name,
       notes: o.notes,
-      lines: o.lines.map((l) => ({
+      lines: o.lines.map((l) => {
+        // Wrap / carton TBD / qty TBD How many is already the order. Leftover
+        // taped sq ft and leftover room measurements are not saved as area —
+        // except prep bag lines, which keep measured area for bagsNeeded.
+        const skipLeftoverArea = lineSkipsAreaCartonMath(l) && !l.coverage_sqft;
+        return {
         id: l.id || null,
         room: l.room,
         description: l.description,
         note: l.note,
         line_type: l.line_type,
         // The measurement list is the source of truth for a flooring line's area.
-        sqft: l.measurements.some(rowHasDims)
-          ? String(rowsSqft(l.measurements))
-          : l.sqft || null,
-        length_in: num(l.len_ft) * 12 + num(l.len_in) || null,
-        width_in: num(l.wid_ft) * 12 + num(l.wid_in) || null,
-        measurements: l.measurements.filter(rowHasDims).length
-          ? l.measurements.filter(rowHasDims).map(rowToMeasurement)
-          : null,
+        sqft: skipLeftoverArea
+          ? null
+          : l.measurements.some(rowHasDims)
+            ? String(rowsSqft(l.measurements))
+            : l.sqft || null,
+        length_in: skipLeftoverArea
+          ? null
+          : num(l.len_ft) * 12 + num(l.len_in) || null,
+        width_in: skipLeftoverArea
+          ? null
+          : num(l.wid_ft) * 12 + num(l.wid_in) || null,
+        measurements: skipLeftoverArea
+          ? null
+          : l.measurements.filter(rowHasDims).length
+            ? l.measurements.filter(rowHasDims).map(rowToMeasurement)
+            : null,
         measure_unit: l.measure_unit,
         material_rate: l.material_rate || null,
         labor_rate: l.labor_rate || null,
@@ -1579,7 +1592,8 @@ export function EstimateBuilder({
         coverage_thickness_in: l.coverage_thickness_in || null,
         prep_thickness_in: l.prep_thickness_in || null,
         prep_key: l.prep_key || null,
-      })),
+        };
+      }),
     })),
     target_margin: num(overallMargin) || null,
     discount_kind: discountKind,

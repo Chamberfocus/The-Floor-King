@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { type CalcLine } from "@/lib/estimate-calc";
+import { lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
 import { lineDisplayUnit } from "@/lib/units";
 import { isMaterialLine } from "@/lib/job-scope";
 import { materialNeedQty } from "@/lib/job-operational-scope";
@@ -29,7 +29,7 @@ export interface JobMaterialLine {
   isFill: boolean; // carpet: a fill / seam piece cut for an area
   lengthIn: number | null; // cut measurements to order (carpet especially)
   widthIn: number | null;
-  sqftArea: number | null; // the line's measured area (cut-list safety net)
+  sqftArea: number | null; // measured area for cut-list; null on count How many (leftover taped sq ft is not the order)
   wastePct: number | null;
   measurements: LineMeasurement[] | null; // first-class measured pieces / cuts
   qty: number; // quantity needed for the job
@@ -199,6 +199,12 @@ export async function getJobMaterials(
 
   const out: JobMaterialLine[] = lines.map((l) => {
     const qty = materialNeedQty(l);
+    const skipLeftoverArea = lineSkipsAreaCartonMath(l);
+    const measuredSqft = skipLeftoverArea
+      ? null
+      : l.sqft == null || l.sqft === ""
+        ? null
+        : Number(l.sqft);
     const p = l.product_id ? prodById.get(l.product_id) : undefined;
     const onHand = p?.on_hand ?? 0;
     const reservedGlobal = p?.reserved ?? 0;
@@ -255,14 +261,15 @@ export async function getJobMaterials(
       category: p?.category ?? l.category ?? null,
       lengthIn: l.length_in ?? null,
       widthIn: l.width_in ?? null,
-      sqftArea: l.sqft == null || l.sqft === "" ? null : Number(l.sqft),
+      sqftArea:
+        measuredSqft != null && Number.isFinite(measuredSqft) ? measuredSqft : null,
       wastePct:
         l.waste_pct == null || l.waste_pct === ""
           ? null
           : Number(l.waste_pct),
       measurements: l.measurements ?? null,
       qty,
-      unit: lineDisplayUnit(l),
+      unit: lineDisplayUnit({ ...l, sqft: measuredSqft }),
       trackStock: canStock,
       onHand,
       available,

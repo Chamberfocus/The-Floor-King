@@ -122592,6 +122592,57 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     ).toBe(false);
   });
 
+  it("job materials and Builder save do not treat leftover taped sq ft as measured area on count How many", () => {
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(
+      lineSkipsAreaCartonMath({
+        description:
+          "Lifeproof Oak — carton coverage TBD (not How many boxes from leftover taped sq ft)",
+        unit: "",
+      }),
+    ).toBe(true);
+    expect(
+      lineSkipsAreaCartonMath({
+        description: "Rebond pad — 4 roll (not taped sq ft)",
+        unit: "roll",
+      }),
+    ).toBe(true);
+    expect(lineDisplayUnit({ unit: "", measure_unit: "sqft", sqft: null, category: "lvp" })).toBe("");
+    expect(lineDisplayUnit({ unit: "roll", measure_unit: "sqft", sqft: 450 })).toBe("roll");
+
+    const materials = readFileSync(join(root, "src/lib/data/job-materials.ts"), "utf8");
+    expect(materials).toMatch(/const skipLeftoverArea = lineSkipsAreaCartonMath\(l\)/);
+    expect(materials).toMatch(/sqft: measuredSqft/);
+    expect(materials).not.toMatch(
+      /sqftArea: l\.sqft == null \|\| l\.sqft === "" \? null : Number\(l\.sqft\)/,
+    );
+    const builderSave = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builderSave).toMatch(
+      /const skipLeftoverArea = lineSkipsAreaCartonMath\(l\) && !l\.coverage_sqft/,
+    );
+    const jobScopeUnits = readFileSync(join(root, "src/lib/job-scope.ts"), "utf8");
+    expect(jobScopeUnits).toMatch(/sqft: lineSkipsAreaCartonMath\(l\) \? null : l\.sqft/);
+    const office = readFileSync(join(root, "src/app/(app)/estimates/[id]/page.tsx"), "utf8");
+    expect(office).toMatch(/sqft: lineSkipsAreaCartonMath\(l\) \? null : l\.sqft/);
+    const invoice = readFileSync(join(root, "src/lib/invoice-from-approval.ts"), "utf8");
+    expect(invoice).toMatch(/sqft: lineSkipsAreaCartonMath\(l\) \? null : l\.sqft/);
+    const purchasing = readFileSync(join(root, "src/lib/data/job-purchasing.ts"), "utf8");
+    expect(purchasing).toMatch(/sqft: lineSkipsAreaCartonMath\(l\) \? null : l\.sqft/);
+    expect(
+      jobIsExclusiveCarpetOnly(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          surface_type: ["LVP / LVT"],
+          carpet_install: ["Stretch-in"],
+          install_method: ["Floating / click"],
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

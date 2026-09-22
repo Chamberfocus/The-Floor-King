@@ -41,6 +41,7 @@ import {
   lineQty,
   lineOrderQty,
   hardSurfaceAreaCartonCount,
+  lineSkipsAreaCartonMath,
 } from "@/lib/estimate-calc";
 import { billedQtyToSqft, lineDisplayUnit, normalizeUnit } from "@/lib/units";
 import { padRollCount } from "@/lib/job-scope";
@@ -79,7 +80,10 @@ export async function generateMetadata({
 function lineMath(l: EstimateLineItem): string {
   if (l.line_type === "flat") return "Flat amount";
   const qty = lineQty(l);
-  const unit = lineDisplayUnit(l);
+  const unit = lineDisplayUnit({
+    ...l,
+    sqft: lineSkipsAreaCartonMath(l) ? null : l.sqft,
+  });
   const rate =
     l.line_type === "installed"
       ? (l.installed_rate ?? 0)

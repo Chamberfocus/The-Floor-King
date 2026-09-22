@@ -95,7 +95,10 @@ export function lineSpec(l: {
   // could be waste-baked or off by rounding and made the work order disagree.
   const q = lineQty(l as unknown as CalcLine);
   const unitKey = lineUnitKey(l);
-  const unit = lineDisplayUnit(l);
+  const unit = lineDisplayUnit({
+    ...l,
+    sqft: lineSkipsAreaCartonMath(l) ? null : l.sqft,
+  });
   // Wrap / carton TBD / qty TBD How many is the order — leftover taped sq ft
   // is not a work-order quantity and not cartons.
   // Exclusive carpet-tile job scope leftover planted taped sq ft is not the order — mixed stretch-in + tile and unanswered carpet stay cuts. Wrap / count How many stays. Do not invent coverage. Do not invent a carpet-tile category. Do not infer exclusive tile from unit=box.
