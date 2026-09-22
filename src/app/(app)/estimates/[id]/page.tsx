@@ -42,7 +42,7 @@ import {
   lineOrderQty,
   hardSurfaceAreaCartonCount,
 } from "@/lib/estimate-calc";
-import { lineDisplayUnit, normalizeUnit } from "@/lib/units";
+import { billedQtyToSqft, lineDisplayUnit, normalizeUnit } from "@/lib/units";
 import { padRollCount } from "@/lib/job-scope";
 import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { jobProfit } from "@/lib/job-profit";
@@ -99,8 +99,9 @@ function lineMath(l: EstimateLineItem): string {
     l.category === "underlayment" && l.unit !== "sheet"
       ? computeMaterialTakeoff({
           family: "other",
-          measuredSqft: Number(l.sqft) || 0,
-          wastePct: l.waste_pct,
+          measuredSqft:
+            billedQtyToSqft(lineOrderQty(l), unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+          wasteAlreadyInQuantity: true,
           sqftPerBox: Number(l.sqft_per_box) > 0 ? Number(l.sqft_per_box) : null,
           billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
           takeoffLabel: "Carpet pad",

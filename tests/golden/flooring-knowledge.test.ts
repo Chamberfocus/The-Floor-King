@@ -122434,6 +122434,88 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(reportsProducts).not.toMatch(/scopeRoomTapedSqft/);
   });
 
+  it("pad takeoff carton math uses order qty, not leftover taped sq ft", () => {
+    expect(extraAsksCountQty({ family: "lvp", productUnit: "box" })).toBe(true);
+    expect(billedQtyToSqft(3, "roll")).toBeNull();
+    expect(billedQtyToSqft(3, "each")).toBeNull();
+    expect(billedQtyToSqft(60, "sqyd")).toBe(540);
+    const leftover = computeMaterialTakeoff({
+      family: "other",
+      measuredSqft: 540,
+      wastePct: 10,
+      sqftPerBox: 90,
+      billingUnit: "sqft",
+      takeoffLabel: "Carpet pad",
+    });
+    expect(leftover.cartons?.cartonCount).toBe(7);
+    const fromOrder = computeMaterialTakeoff({
+      family: "other",
+      measuredSqft: billedQtyToSqft(60, "sqyd") ?? 0,
+      wasteAlreadyInQuantity: true,
+      sqftPerBox: 90,
+      billingUnit: "sqyd",
+      takeoffLabel: "Carpet pad",
+    });
+    expect(fromOrder.cartons?.cartonCount).toBe(6);
+    const countHowMany = computeMaterialTakeoff({
+      family: "other",
+      measuredSqft: billedQtyToSqft(3, "roll") ?? 0,
+      wasteAlreadyInQuantity: true,
+      sqftPerBox: 90,
+      billingUnit: "sqft",
+      takeoffLabel: "Carpet pad",
+    });
+    expect(countHowMany.cartons).toBeNull();
+    expect(countHowMany.orderSqft).toBe(0);
+
+    const editScope = readFileSync(join(root, "src/app/(app)/jobs/[id]/edit-scope.tsx"), "utf8");
+    expect(editScope).toMatch(/billedQtyToSqft\(lineOrderQty\(l as unknown as CalcLine\)/);
+    expect(editScope).not.toMatch(/measuredSqft: Number\(l\.sqft\) \|\| 0/);
+    const installWo = readFileSync(join(root, "src/app/(app)/jobs/[id]/installation-wo.tsx"), "utf8");
+    expect(installWo).toMatch(/billedQtyToSqft\(lineOrderQty\(l\)/);
+    expect(installWo).not.toMatch(/measuredSqft: Number\(l\.sqft\) \|\| 0/);
+    const orderMaterials = readFileSync(
+      join(root, "src/app/(app)/estimates/[id]/order/order-materials.tsx"),
+      "utf8",
+    );
+    expect(orderMaterials).toMatch(/billedQtyToSqft\(line\.qty/);
+    expect(orderMaterials).not.toMatch(/measuredSqft: Number\(line\.sqft\) \|\| 0/);
+    const estimateOffice = readFileSync(join(root, "src/app/(app)/estimates/[id]/page.tsx"), "utf8");
+    expect(estimateOffice).toMatch(/billedQtyToSqft\(lineOrderQty\(l\)/);
+    expect(estimateOffice).not.toMatch(/measuredSqft: Number\(l\.sqft\) \|\| 0/);
+    const warehouse = readFileSync(join(root, "src/app/(app)/warehouse/page.tsx"), "utf8");
+    expect(warehouse).toMatch(/billedQtyToSqft\(m\.qty/);
+    expect(warehouse).not.toMatch(/measuredSqft: Number\(m\.sqftArea\) \|\| 0/);
+    const staging = readFileSync(
+      join(root, "src/app/(app)/warehouse/staging-sheet-doc.tsx"),
+      "utf8",
+    );
+    expect(staging).toMatch(/billedQtyToSqft\(g\.qty/);
+    expect(staging).not.toMatch(/measuredSqft: Number\(g\.sqftArea\) \|\| 0/);
+    const card = readFileSync(
+      join(root, "src/app/(app)/jobs/[id]/job-materials-card.tsx"),
+      "utf8",
+    );
+    expect(card).toMatch(/billedQtyToSqft\(l\.qty/);
+    expect(card).not.toMatch(/measuredSqft: Number\(l\.sqftArea\) \|\| 0/);
+    const builder = readFileSync(
+      join(root, "src/app/(app)/estimates/estimate-builder.tsx"),
+      "utf8",
+    );
+    expect(builder).toMatch(/billedQtyToSqft\(lineOrderQty\(summ\)/);
+    expect(builder).not.toMatch(/measuredSqft: num\(line\.sqft\),\n                          wastePct: line\.waste_pct/);
+    expect(
+      jobIsExclusiveCarpetOnly(
+        installContextFromValByKey({
+          project_type: ["Carpet", "Hard surface"],
+          surface_type: ["LVP / LVT"],
+          carpet_install: ["Stretch-in"],
+          install_method: ["Floating / click"],
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("pattern repeat only after pattern match is required", () => {
     const without = walk({
       project_type: ["Carpet"],

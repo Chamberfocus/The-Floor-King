@@ -57,6 +57,7 @@ import {
   lineDisplayUnit,
   lineUnitKey,
   normalizeUnit,
+  billedQtyToSqft,
   unitLabel,
   UNIT_OPTIONS,
 } from "@/lib/units";
@@ -2399,8 +2400,9 @@ export function EstimateBuilder({
                     line.category === "underlayment" && !isSubfloor(line)
                       ? computeMaterialTakeoff({
                           family: "other",
-                          measuredSqft: num(line.sqft),
-                          wastePct: line.waste_pct.trim() === "" ? null : num(line.waste_pct),
+                          measuredSqft:
+                            billedQtyToSqft(lineOrderQty(summ), unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+                          wasteAlreadyInQuantity: true,
                           sqftPerBox: num(line.sqft_per_box) > 0 ? num(line.sqft_per_box) : null,
                           billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
                           takeoffLabel: "Carpet pad",

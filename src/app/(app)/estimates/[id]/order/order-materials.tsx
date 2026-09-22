@@ -10,7 +10,7 @@ import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { padRollCount } from "@/lib/job-scope";
 import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
-import { normalizeUnit } from "@/lib/units";
+import { billedQtyToSqft, normalizeUnit } from "@/lib/units";
 import { createPOsFromEstimateSelection } from "@/app/(app)/purchase-orders/actions";
 import type { EstimateOrderPlan, OrderPlanLine } from "@/lib/data/po-plan";
 
@@ -39,8 +39,9 @@ function Row({
     line.category === "underlayment" && line.unit !== "sheet"
       ? computeMaterialTakeoff({
           family: "other",
-          measuredSqft: Number(line.sqft) || 0,
-          wastePct: line.waste_pct,
+          measuredSqft:
+            billedQtyToSqft(line.qty, unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+          wasteAlreadyInQuantity: true,
           sqftPerBox: Number(line.sqft_per_box) > 0 ? Number(line.sqft_per_box) : null,
           billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
           takeoffLabel: "Carpet pad",

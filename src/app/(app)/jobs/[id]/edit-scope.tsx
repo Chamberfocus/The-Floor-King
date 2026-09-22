@@ -16,7 +16,7 @@ import {
 import { hardSurfaceAreaCartonCount, lineOrderQty, lineSkipsAreaCartonMath, type CalcLine } from "@/lib/estimate-calc";
 import { padRollCount } from "@/lib/job-scope";
 import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
-import { normalizeUnit } from "@/lib/units";
+import { billedQtyToSqft, normalizeUnit } from "@/lib/units";
 import type { LineMeasurement } from "@/lib/types";
 import { addJobLine, updateJobLine, removeJobLine } from "./scope-actions";
 
@@ -155,8 +155,9 @@ export function EditScope({
               l.category === "underlayment" && l.unit !== "sheet"
                 ? computeMaterialTakeoff({
                     family: "other",
-                    measuredSqft: Number(l.sqft) || 0,
-                    wastePct: l.waste_pct,
+                    measuredSqft:
+                      billedQtyToSqft(lineOrderQty(l as unknown as CalcLine), unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+                    wasteAlreadyInQuantity: true,
                     sqftPerBox: Number(l.sqft_per_box) > 0 ? Number(l.sqft_per_box) : null,
                     billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
                     takeoffLabel: "Carpet pad",

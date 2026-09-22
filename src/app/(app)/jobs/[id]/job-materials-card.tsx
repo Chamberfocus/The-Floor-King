@@ -147,8 +147,9 @@ export async function JobMaterialsCard({ data }: { data: JobMaterials }) {
               l.category === "underlayment" && l.unit !== "sheet"
                 ? computeMaterialTakeoff({
                     family: "other",
-                    measuredSqft: Number(l.sqftArea) || 0,
-                    wastePct: l.wastePct,
+                    measuredSqft:
+                      billedQtyToSqft(l.qty, unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+                    wasteAlreadyInQuantity: true,
                     sqftPerBox: Number(l.sqftPerBox) > 0 ? Number(l.sqftPerBox) : null,
                     billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
                     takeoffLabel: "Carpet pad",

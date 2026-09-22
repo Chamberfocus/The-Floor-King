@@ -279,8 +279,9 @@ export default async function WarehousePage() {
                           m.category === "underlayment" && m.unit !== "sheet"
                             ? computeMaterialTakeoff({
                                 family: "other",
-                                measuredSqft: Number(m.sqftArea) || 0,
-                                wastePct: m.wastePct,
+                                measuredSqft:
+                                  billedQtyToSqft(m.qty, unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+                                wasteAlreadyInQuantity: true,
                                 sqftPerBox: Number(m.sqftPerBox) > 0 ? Number(m.sqftPerBox) : null,
                                 billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
                                 takeoffLabel: "Carpet pad",

@@ -2,7 +2,7 @@ import { PrintLetterhead, PrintBillTo } from "@/components/print-letterhead";
 import { hardSurfaceAreaCartonCount, lineOrderQty, lineTotal } from "@/lib/estimate-calc";
 import { computeMaterialTakeoff } from "@/lib/flooring-knowledge";
 import { formatDate, formatMoney, to12 } from "@/lib/format";
-import { normalizeUnit } from "@/lib/units";
+import { billedQtyToSqft, normalizeUnit } from "@/lib/units";
 import {
   JOB_STATUS_LABELS,
   JOB_DELIVERY_LABELS,
@@ -41,8 +41,9 @@ function ScopeLine({ l, showPrices }: { l: EstimateLineItem; showPrices: boolean
     l.category === "underlayment" && l.unit !== "sheet"
       ? computeMaterialTakeoff({
           family: "other",
-          measuredSqft: Number(l.sqft) || 0,
-          wastePct: l.waste_pct,
+          measuredSqft:
+            billedQtyToSqft(lineOrderQty(l), unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+          wasteAlreadyInQuantity: true,
           sqftPerBox: Number(l.sqft_per_box) > 0 ? Number(l.sqft_per_box) : null,
           billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
           takeoffLabel: "Carpet pad",

@@ -208,8 +208,9 @@ export function StagingSheetDoc({
                   g.category === "underlayment" && g.unit !== "sheet"
                     ? computeMaterialTakeoff({
                         family: "other",
-                        measuredSqft: Number(g.sqftArea) || 0,
-                        wastePct: g.wastePct,
+                        measuredSqft:
+                          billedQtyToSqft(g.qty, unitKey === "sqyd" ? "sqyd" : "sqft") ?? 0,
+                        wasteAlreadyInQuantity: true,
                         sqftPerBox: Number(g.sqftPerBox) > 0 ? Number(g.sqftPerBox) : null,
                         billingUnit: unitKey === "sqyd" ? "sqyd" : "sqft",
                         takeoffLabel: "Carpet pad",
