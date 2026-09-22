@@ -7826,7 +7826,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
     expect(q).toMatch(/EXTRA_AREA_MEASURED_LABEL/);
     expect(q).toMatch(/EXTRA_AREA_MEASURED_PLACEHOLDER/);
-    expect(q).toMatch(/EXTRA_AREA_MEASURED_HINT/);
+    expect(q).toMatch(/SALESPERSON_MEASURED_HINT/);
     expect(q).toMatch(/`sqft` is MEASURED area, not the order/);
   });
 
@@ -10423,7 +10423,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     ).toBe(false);
 
     const q = readFileSync(join(root, "src/app/(app)/estimates/questionnaire.tsx"), "utf8");
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/extraNeedsMeasured/);
     expect(q).toMatch(/without requiring measured/);
     expect(q).toMatch(/do not plant leftover sq ft/);
@@ -23760,7 +23760,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/padRollCount\("underlayment", padTakeoff\.billingQty/);
     expect(q).toMatch(/= \{padTakeoffRolls\} roll/);
     expect(q).toMatch(/formatTakeoffStrip\(padTakeoff\)/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/t\.billingQty/);
@@ -24014,7 +24014,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/padRollCount\("underlayment", padTakeoff\.billingQty/);
     expect(q).toMatch(/= \{padTakeoffRolls\} roll/);
     expect(q).toMatch(/formatTakeoffStrip\(padTakeoff\)/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/t\.billingQty/);
@@ -26612,7 +26612,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/extraTakeoff\.billingQty/);
     expect(q).toMatch(/padRollCount\("underlayment", padTakeoff\.billingQty/);
     expect(q).toMatch(/= \{padTakeoffRolls\} roll/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -26860,7 +26860,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/= \{extraPadRolls\} roll/);
     expect(q).toMatch(/padRollCount\("underlayment", padTakeoff\.billingQty/);
     expect(q).toMatch(/= \{padTakeoffRolls\} roll/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -27149,7 +27149,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -27441,7 +27441,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -27737,7 +27737,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -28047,7 +28047,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -28375,7 +28375,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -28721,7 +28721,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -29095,7 +29095,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -29497,7 +29497,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -29923,7 +29923,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -30380,7 +30380,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -30866,7 +30866,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -31382,7 +31382,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -31931,7 +31931,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -32513,7 +32513,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -33131,7 +33131,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -33784,7 +33784,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -34472,7 +34472,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -35195,7 +35195,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -35976,7 +35976,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -36810,7 +36810,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -37698,7 +37698,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -38637,7 +38637,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -39625,7 +39625,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -40663,7 +40663,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -41745,7 +41745,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -42878,7 +42878,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -44064,7 +44064,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -45307,7 +45307,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -46595,7 +46595,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -47930,7 +47930,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -49323,7 +49323,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -50778,7 +50778,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -52282,7 +52282,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -53858,7 +53858,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -55504,7 +55504,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -57218,7 +57218,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -58984,7 +58984,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -60802,7 +60802,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -62680,7 +62680,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -64624,7 +64624,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -66636,7 +66636,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -68712,7 +68712,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -70858,7 +70858,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -73060,7 +73060,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -75319,7 +75319,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -77636,7 +77636,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -80012,7 +80012,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -82473,7 +82473,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -84965,7 +84965,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -87516,7 +87516,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -90133,7 +90133,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -92816,7 +92816,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -95568,7 +95568,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -98544,7 +98544,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -101522,7 +101522,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -104500,7 +104500,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -107484,7 +107484,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -110491,7 +110491,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -113510,7 +113510,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -116540,7 +116540,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);
@@ -119581,7 +119581,7 @@ describe("SQL show_if + overlay + phase sort (no live database)", () => {
     expect(q).toMatch(/Required rolls/);
     expect(q).toMatch(/reviewTakeoff\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/reviewTakeoff\.billingQty/);
-    expect(q).toMatch(/EXTRA_AREA_COUNT_TBD_HINT/);
+    expect(q).toMatch(/SALESPERSON_COUNT_TBD_HINT/);
     expect(q).toMatch(/padRollCount\(t\.takeoffLabel \? "underlayment"/);
     expect(q).toMatch(/= \{runningPadRolls\} roll/);
     expect(q).toMatch(/= \{t.cartons.cartonCount\} carton/);

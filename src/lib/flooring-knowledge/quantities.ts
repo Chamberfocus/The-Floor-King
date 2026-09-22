@@ -610,6 +610,14 @@ export const EXTRA_AREA_COUNT_QTY_LABEL = "How many";
 export const EXTRA_AREA_COUNT_QTY_HINT =
   "Order quantity in the SKU unit — not taped square feet and not a 30-yard roll. Review prints that count — leftover taped sq ft is still not pad yards.";
 
+/** Salesperson-facing hints. Rule notes above stay in the engine and are not rendered. */
+export const SALESPERSON_MEASURED_HINT =
+  "Enter the measured square feet for this extra. Pad is billed in square yards unless this product is sold by the square foot.";
+export const SALESPERSON_COUNT_TBD_HINT =
+  "Enter how many to order in this product's unit. Measured square feet are not the order.";
+export const SALESPERSON_COUNT_QTY_HINT =
+  "Enter the order quantity in this product's unit.";
+
 export function formatBillingQty(qty: number, unit: string): string {
   const key = normalizeUnit(unit);
   const label = unitLabel(unit) || (unit || "").trim();

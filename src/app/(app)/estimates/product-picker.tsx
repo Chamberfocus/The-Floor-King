@@ -960,7 +960,8 @@ function AddProductForm({
             </p>
           ) : !f.unit ? (
             <p className="text-[11px] text-amber-800 dark:text-amber-200">
-              Unit TBD — pick how this is sold. We do not plant sq ft on Other / adhesive.
+              Choose the unit this product is sold in before you price it.
+              {/* Unit TBD — pick how this is sold. We do not plant sq ft on Other / adhesive. */}
             </p>
           ) : null}
         </div>
